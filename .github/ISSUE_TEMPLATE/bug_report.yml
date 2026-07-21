@@ -1,0 +1,111 @@
+name: Bug report
+description: Report a reproducible Bearing problem.
+title: "[Bug]: "
+labels: ["bug", "needs-info"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This report and anything you attach become public GitHub data. Do not include tokens, secrets, private source, complete planning state, real absolute repository paths, or unredacted screenshots. Share only the smallest redacted excerpt needed to reproduce the problem.
+
+        Bearing does not upload diagnostics automatically. Any diagnostic output or repository excerpt is shared only when you explicitly submit it here. Do not report suspected vulnerabilities in a public Issue; use [GitHub private vulnerability reporting](https://github.com/lagrangee/bearing/security/advisories/new).
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe the reproducible problem and its impact.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Bearing version
+      description: Paste the output of `bearing --version`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      description: Provide the macOS version without a device name or other identifying details.
+      placeholder: macOS 15.5
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      description: Paste the output of `node --version`.
+      placeholder: v24.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Agent Surface
+      description: Where did you encounter the problem?
+      options:
+        - Codex / Agent Skills
+        - Claude Code
+        - CLI only
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: install_context
+    attributes:
+      label: Install or update context
+      description: Which package lifecycle path preceded the problem?
+      options:
+        - Fresh install
+        - Update
+        - Repair or reinstall
+        - Existing installation
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: List the smallest sequence that reproduces the problem. Use fictitious paths and redact private repository content.
+      placeholder: |
+        1. Run ...
+        2. Ask the agent to ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect Bearing to do?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What did Bearing do instead?
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Minimal redacted output
+      description: Paste only the smallest relevant excerpt. Remove secrets, private source, complete planning state, real absolute paths, and personal information.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: clean_repository
+    attributes:
+      label: Clean or fictitious repository check
+      description: Does the problem reproduce in a clean repository or a minimal repository containing only fictitious data?
+      options:
+        - "Yes"
+        - "No"
+        - Not tried
+    validations:
+      required: true

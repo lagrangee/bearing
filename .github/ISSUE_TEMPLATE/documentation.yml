@@ -1,0 +1,40 @@
+name: Documentation problem
+description: Report documentation that is unclear, incorrect, missing, or cannot be followed.
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This report and anything you attach become public GitHub data. Do not include tokens, secrets, private source, complete planning state, real absolute repository paths, or unredacted screenshots. Share only the smallest redacted excerpt needed to explain the documentation problem.
+
+        Bearing does not upload diagnostics automatically. Any diagnostic output or repository excerpt is shared only when you explicitly submit it here. Do not report suspected vulnerabilities in a public Issue; use [GitHub private vulnerability reporting](https://github.com/lagrangee/bearing/security/advisories/new).
+  - type: input
+    id: page
+    attributes:
+      label: Affected page or section
+      description: Link to the public page or name the document and heading. Do not paste a real local path.
+      placeholder: docs/getting-started.md — Set up a repository
+    validations:
+      required: true
+  - type: textarea
+    id: intended_task
+    attributes:
+      label: Intended task
+      description: What were you trying to accomplish when you used this documentation?
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What was unclear, incorrect, or unexecutable?
+      description: Explain where the documented path stopped matching what a reader can understand or do.
+    validations:
+      required: true
+  - type: textarea
+    id: suggested_change
+    attributes:
+      label: Suggested change
+      description: Optionally describe wording, an example, or a correction that would make the task executable.
+    validations:
+      required: false

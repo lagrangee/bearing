@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "0.0.0-g2",
+  "surfaces": [
+    "agent-skills"
+  ],
+  "executorProfiles": [
+    "generic-agent"
+  ]
+}

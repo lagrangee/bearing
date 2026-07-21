@@ -1,0 +1,54 @@
+import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { commitProjectCache } from "../src/portal/project-cache-transaction";
+import { writeProjectSnapshotCache } from "../src/project-snapshot/cache";
+import { runSync } from "../src/sync";
+import { createValidBearingRepo } from "./helpers";
+import { buildProjectSnapshotForTest as buildProjectSnapshot } from "./project-snapshot-fixture";
+
+const snapshotFor = async (root: string, packageVersion: string) => {
+  const sync = await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+  const snapshot = await buildProjectSnapshot({
+    repoRoot: root,
+    packageVersion,
+    inputs: sync.inputs,
+    sitemapFingerprint: sync.fingerprint,
+    diagnostics: sync.diagnostics,
+    advisoryFreshness: sync.advisoryFreshness,
+  });
+  return { sync, snapshot };
+};
+
+test("restores prior Snapshot bytes when the paired Receipt write fails", async () => {
+  const root = await createValidBearingRepo();
+  const prior = await snapshotFor(root, "prior");
+  await writeProjectSnapshotCache(root, prior.snapshot);
+  const snapshotPath = join(root, ".bearing/cache/project-snapshot.json");
+  const receiptPath = join(root, ".bearing/cache/sync-receipt.json");
+  const priorSnapshot = await readFile(snapshotPath);
+  const next = await snapshotFor(root, "next");
+  const priorReceipt = await readFile(receiptPath);
+
+  await expect(
+    commitProjectCache(
+      { repoRoot: root, snapshot: next.snapshot, receipt: next.sync.receipt },
+      { writeReceipt: async () => Promise.reject(new Error("injected receipt failure")) },
+    ),
+  ).rejects.toThrow("injected receipt failure");
+  expect(await readFile(snapshotPath)).toEqual(priorSnapshot);
+  expect(await readFile(receiptPath)).toEqual(priorReceipt);
+});
+
+test("removes a newly created Snapshot if the paired Receipt write fails", async () => {
+  const root = await createValidBearingRepo();
+  const next = await snapshotFor(root, "next");
+  const snapshotPath = join(root, ".bearing/cache/project-snapshot.json");
+  await expect(
+    commitProjectCache(
+      { repoRoot: root, snapshot: next.snapshot, receipt: next.sync.receipt },
+      { writeReceipt: async () => Promise.reject(new Error("injected receipt failure")) },
+    ),
+  ).rejects.toThrow("injected receipt failure");
+  await expect(readFile(snapshotPath)).rejects.toMatchObject({ code: "ENOENT" });
+});

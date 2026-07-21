@@ -1,0 +1,217 @@
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--canvas);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100dvh;
+  margin: 0;
+  color: var(--ink);
+  background: var(--canvas);
+  font-family: var(--font-sans);
+  font-size: var(--type-body);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  color: inherit;
+  font: inherit;
+}
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+a {
+  color: inherit;
+}
+svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.7;
+}
+code {
+  font-family: var(--font-mono);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--white);
+  background: var(--ink);
+  border-radius: var(--radius-control);
+  transform: translateY(-150%);
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--type-tech);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.action {
+  display: inline-flex;
+  min-height: var(--control-size);
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  font-size: var(--type-ui);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background 180ms var(--ease),
+    border-color 180ms var(--ease),
+    transform 120ms var(--ease);
+}
+.action:hover {
+  background: var(--surface);
+  border-color: var(--muted);
+}
+.action:active {
+  transform: scale(0.98);
+}
+.action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.action svg {
+  width: 16px;
+  height: 16px;
+}
+.action-primary {
+  color: var(--white);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.action-primary:hover {
+  color: var(--white);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.status-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-meta);
+  white-space: nowrap;
+}
+.status-symbol {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+.status-symbol svg {
+  width: 12px;
+  height: 12px;
+}
+.status-success {
+  color: var(--success);
+}
+.status-current {
+  color: var(--accent);
+}
+.status-current .status-symbol {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-wash);
+}
+.status-attention {
+  color: var(--error);
+}
+.status-unavailable {
+  color: var(--muted);
+}
+.status-information {
+  color: var(--info);
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--info);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+.is-spinning {
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.empty-state {
+  display: grid;
+  max-width: 560px;
+  justify-items: start;
+  padding: var(--space-10) 0;
+}
+.empty-orbit {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--space-5);
+  place-items: center;
+  color: var(--muted);
+  background: var(--surface);
+  border-radius: 50%;
+}
+.empty-state h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--type-view);
+}
+.empty-state p {
+  margin: 0 0 var(--space-5);
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:root *,
+  html:root *::before,
+  html:root *::after {
+    animation-duration: 1ms;
+    animation-iteration-count: 1;
+    transition-duration: 1ms;
+  }
+}

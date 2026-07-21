@@ -1,0 +1,356 @@
+#!/usr/bin/env node
+
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+import { z } from "zod";
+import packageMetadata from "../package.json";
+import { runCatalogCommand } from "./catalog/cli";
+import { writeInspectBenchmarkMetrics } from "./inspect-benchmark";
+import { installKit } from "./installer";
+import { createPlanningGraphInstrumentation } from "./planning-graph-instrumentation";
+import { parsePortalPort } from "./portal/port";
+import { startPortalServer } from "./portal/server";
+import { reconcileRepository } from "./reconcile-repository";
+import { deactivateRepository, purgeRepository } from "./repo-lifecycle";
+import { runSync } from "./sync";
+import { commitSyncPlan, prepareSync } from "./sync-plan";
+import type { AgentSurface } from "./types";
+
+const HELP = `Bearing ${packageMetadata.version}
+
+Usage:
+  bearing
+  bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
+  bearing setup --repo <path> --surface <agent-skills|claude> [--profile <key>]
+  bearing deactivate --repo <path>
+  bearing purge --repo <path> --confirm-purge
+  bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
+  bearing sync [--repo <path>]
+  bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>]
+  bearing portal [--port <1-65535>]
+  bearing --help
+  bearing --version
+
+Commands:
+  <none>   Run the install/update wizard for the detected local Agent Surfaces.
+  install  Install the global bundle, CLI, and skills for selected Agent Surfaces.
+  setup    Enable Bearing in one repository without copying protocol or skills into it.
+  deactivate  Remove repository enablement and managed pointers; preserve state and native work.
+  purge    Remove only the repository .bearing namespace and managed pointers after confirmation.
+  catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
+  sync     Rebuild deterministic diagnostics and the Project Sitemap under .bearing/cache/.
+  inspect  Return one generation-scoped planning context closure.
+  portal   Run the foreground loopback Portal Host and compiled browser Module.
+
+Environment:
+  BEARING_PORT  Override the Portal port when --port is absent.
+`;
+
+const surfaceSchema = z.array(z.enum(["agent-skills", "claude"])).min(1);
+const profileSchema = z.array(z.string().min(1)).min(1);
+
+const packageRoot = (): string => {
+  const adjacent = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  return existsSync(join(adjacent, "skills")) ? adjacent : join(adjacent, "kit/current");
+};
+
+const homeDirectory = (): string => process.env["HOME"] ?? homedir();
+
+const detectedSurfaces = (homeDir: string): readonly AgentSurface[] => {
+  const surfaces: AgentSurface[] = [];
+  if (existsSync(join(homeDir, ".agents"))) surfaces.push("agent-skills");
+  if (existsSync(join(homeDir, ".claude"))) surfaces.push("claude");
+  return surfaces.length === 0 ? ["agent-skills"] : surfaces;
+};
+
+const describeSurfaces = (surfaces: readonly AgentSurface[]): string =>
+  surfaces
+    .map((surface) => (surface === "agent-skills" ? "Codex/Agent Skills" : "Claude Code"))
+    .join(", ");
+
+const confirmWizard = async (message: string): Promise<boolean> => {
+  if (!process.stdin.isTTY) return true;
+  const input = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await input.question(`${message} [Y/n] `);
+    return answer.trim() === "" || answer.trim().toLowerCase() === "y";
+  } finally {
+    input.close();
+  }
+};
+
+const runInstallWizard = async (): Promise<void> => {
+  const homeDir = homeDirectory();
+  const surfaces = detectedSurfaces(homeDir);
+  process.stdout.write(`Bearing install/update wizard\n`);
+  process.stdout.write(`Home: ${homeDir}\n`);
+  process.stdout.write(`Agent Surfaces: ${describeSurfaces(surfaces)}\n`);
+  process.stdout.write(`Managed bundle: ${join(homeDir, ".bearing/kit/current")}\n`);
+  process.stdout.write(`CLI: ${join(homeDir, ".bearing/bin/bearing")}\n`);
+  process.stdout.write(
+    "Agent Surface skills are owned symlinks to the version-consistent Bearing bundle.\n",
+  );
+  process.stdout.write(
+    "Network: npm may download this package before the wizard starts; Bearing itself performs no telemetry, analytics, crash upload, repository upload, or update polling.\n",
+  );
+  if (!(await confirmWizard("Install or update these managed targets?"))) {
+    process.stdout.write("Outcome: cancelled\n");
+    return;
+  }
+  const result = await installKit({
+    homeDir,
+    packageRoot: packageRoot(),
+    surfaces,
+  });
+  process.stdout.write(
+    `Outcome: ${result.outcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n`,
+  );
+};
+
+const runSetup = async (args: readonly string[]): Promise<void> => {
+  const parsed = parseArgs({
+    args: [...args],
+    options: {
+      repo: { type: "string" },
+      surface: { type: "string", multiple: true },
+      profile: { type: "string", multiple: true },
+    },
+    allowPositionals: false,
+    strict: true,
+  });
+  const surfaces = surfaceSchema.parse(parsed.values.surface ?? []);
+  const profiles = profileSchema.parse(parsed.values.profile ?? ["generic-agent"]);
+  const result = await reconcileRepository({
+    repoRoot: resolve(parsed.values.repo ?? process.cwd()),
+    packageRoot: packageRoot(),
+    homeDir: homeDirectory(),
+    surfaces,
+    profiles,
+  });
+  process.stdout.write(
+    `Outcome: ${result.outcome}\nRepository: ${result.repository.outcome}\nCatalog: ${result.catalog.outcome}\nManifest: ${result.repository.manifestPath}\nChanged targets: ${result.repository.changedTargets.length}\n`,
+  );
+  if (result.catalog.outcome === "failed") {
+    process.stderr.write(`Catalog registration failed: ${result.catalog.message}\n`);
+    process.exitCode = 1;
+  }
+};
+
+const runInstall = async (args: readonly string[]): Promise<void> => {
+  const parsed = parseArgs({
+    args: [...args],
+    options: {
+      surface: { type: "string", multiple: true },
+      "confirm-downgrade": { type: "boolean" },
+    },
+    allowPositionals: false,
+    strict: true,
+  });
+  const surfaces = surfaceSchema.parse(parsed.values.surface ?? []);
+  const result = await installKit({
+    homeDir: homeDirectory(),
+    packageRoot: packageRoot(),
+    surfaces,
+    confirmDowngrade: parsed.values["confirm-downgrade"] === true,
+  });
+  process.stdout.write(
+    `Outcome: ${result.outcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n`,
+  );
+};
+
+const runRepositoryLifecycle = async (
+  command: "deactivate" | "purge",
+  args: readonly string[],
+): Promise<void> => {
+  const parsed = parseArgs({
+    args: [...args],
+    options: {
+      repo: { type: "string" },
+      "confirm-purge": { type: "boolean" },
+    },
+    allowPositionals: false,
+    strict: true,
+  });
+  if (command === "deactivate" && parsed.values["confirm-purge"] === true) {
+    throw new Error("--confirm-purge is valid only for `bearing purge`.");
+  }
+  const options = {
+    repoRoot: resolve(parsed.values.repo ?? process.cwd()),
+    homeDir: homeDirectory(),
+  };
+  const result =
+    command === "deactivate"
+      ? await deactivateRepository(options)
+      : await purgeRepository({
+          ...options,
+          confirmed: parsed.values["confirm-purge"] === true,
+        });
+  process.stdout.write(
+    `Outcome: ${result.outcome}\nRepository: ${result.repository.outcome}\nCatalog: ${result.catalog.outcome}\nChanged targets: ${result.repository.changedTargets.length}\n`,
+  );
+  if (result.repository.cleanup?.outcome === "residue") {
+    process.stderr.write(
+      `Purge cleanup residue: ${result.repository.cleanup.location}\n${result.repository.cleanup.message}\n`,
+    );
+  }
+  if (result.catalog.outcome === "failed") {
+    process.stderr.write(`Catalog removal failed: ${result.catalog.message}\n`);
+  }
+  if (result.outcome === "blocked") process.exitCode = 1;
+};
+
+const runSyncCommand = async (args: readonly string[]): Promise<void> => {
+  const parsed = parseArgs({
+    args: [...args],
+    options: { repo: { type: "string" } },
+    allowPositionals: false,
+    strict: true,
+  });
+  const result = await runSync(resolve(parsed.values.repo ?? process.cwd()));
+  process.stdout.write(
+    `Report: ${result.reportPath}\nSitemap: ${result.sitemapPath}\nInput fingerprint: ${result.fingerprint}\nDiagnostics: ${result.diagnostics.length}\nOutcome: ${result.changed ? "applied" : "no-op"}\n`,
+  );
+  if (result.diagnostics.some((diagnostic) => diagnostic.impact === "blocking")) {
+    process.exitCode = 1;
+  }
+};
+
+const runInspectCommand = async (args: readonly string[]): Promise<void> => {
+  const parsed = parseArgs({
+    args: [...args],
+    options: {
+      repo: { type: "string" },
+      "benchmark-metrics-file": { type: "string" },
+    },
+    allowPositionals: true,
+    strict: true,
+  });
+  const [kind, id, ...extra] = parsed.positionals;
+  if (
+    (kind !== "roadmap" && kind !== "gate" && kind !== "effort") ||
+    id === undefined ||
+    extra.length > 0
+  ) {
+    throw new Error("Usage: bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>]");
+  }
+  const repoRoot = resolve(parsed.values.repo ?? process.cwd());
+  const metricsFile = parsed.values["benchmark-metrics-file"];
+  const instrumentation =
+    metricsFile === undefined ? undefined : createPlanningGraphInstrumentation();
+  const plan = await prepareSync(
+    repoRoot,
+    instrumentation === undefined ? {} : { planningGraphInstrumentation: instrumentation },
+  );
+  const closureStarted = performance.now();
+  const result = plan.planningGraph.contextFor({ kind, id });
+  const closureCompleted = performance.now();
+  await commitSyncPlan(plan);
+  const outputStarted = performance.now();
+  const output = `${JSON.stringify(result, null, 2)}\n`;
+  const outputCompleted = performance.now();
+  process.stdout.write(output);
+  if (metricsFile !== undefined && instrumentation !== undefined) {
+    const observed = instrumentation.snapshot();
+    writeInspectBenchmarkMetrics(repoRoot, metricsFile, {
+      schemaVersion: 1,
+      benchmark: "inspect-sample",
+      processId: process.pid,
+      runtime: { nodeVersion: process.version },
+      target: { kind, id },
+      fingerprint: result.fingerprint,
+      state: result.state,
+      phases: {
+        discovery: plan.metrics.phaseMs.discovery,
+        capture: plan.metrics.phaseMs.capture,
+        decode: plan.metrics.phaseMs.decode,
+        graphBuild: plan.planningPhaseMs.graphBuild,
+        closure: closureCompleted - closureStarted,
+        output: plan.planningPhaseMs.output + (outputCompleted - outputStarted),
+        cacheComparison: plan.planningPhaseMs.cacheComparison,
+      },
+      structural: {
+        inputReads: plan.metrics.inputReadCount,
+        capturedInputs: plan.metrics.capturedInputCount,
+        bearingRecords: plan.metrics.bearingRecordCount,
+        recordDecodes: plan.metrics.recordDecodeCount,
+        planningGraphBuilds: observed.planningGraphBuilds,
+        rootClosures: observed.rootClosures,
+        repositoryRevalidations: plan.metrics.repositoryRevalidationCount,
+      },
+    });
+  }
+  if (result.state === "invalid") process.exitCode = 1;
+};
+
+const runPortal = async (args: readonly string[]): Promise<void> => {
+  const port = parsePortalPort(args, process.env);
+  const server = await startPortalServer({
+    packageRoot: packageRoot(),
+    packageVersion: packageMetadata.version,
+    homeDir: homeDirectory(),
+    port,
+  });
+  process.stdout.write(`Bearing Portal ready: ${server.url}\n`);
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", resolve);
+    process.once("SIGTERM", resolve);
+  });
+  await server.close();
+  process.stdout.write("Bearing Portal stopped.\n");
+};
+
+const main = async (): Promise<void> => {
+  const [command, ...args] = process.argv.slice(2);
+  if (command === undefined) {
+    await runInstallWizard();
+    return;
+  }
+  if (command === "--help" || command === "-h") {
+    process.stdout.write(HELP);
+    return;
+  }
+  if (command === "--version" || command === "-v") {
+    process.stdout.write(`${packageMetadata.version}\n`);
+    return;
+  }
+  if (command === "install") {
+    await runInstall(args);
+    return;
+  }
+  if (command === "setup") {
+    await runSetup(args);
+    return;
+  }
+  if (command === "deactivate" || command === "purge") {
+    await runRepositoryLifecycle(command, args);
+    return;
+  }
+  if (command === "catalog") {
+    process.stdout.write(await runCatalogCommand(args, homeDirectory()));
+    return;
+  }
+  if (command === "sync") {
+    await runSyncCommand(args);
+    return;
+  }
+  if (command === "inspect") {
+    await runInspectCommand(args);
+    return;
+  }
+  if (command === "portal") {
+    await runPortal(args);
+    return;
+  }
+  throw new Error("Unknown command. Run bearing --help.");
+};
+
+try {
+  await main();
+} catch (error) {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
+}

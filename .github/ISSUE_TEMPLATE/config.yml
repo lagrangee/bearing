@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and troubleshooting
+    url: https://github.com/lagrangee/bearing/discussions/categories/q-a
+    about: Public GitHub data. No tokens, secrets, private source, complete planning state, real absolute repository paths, or unredacted screenshots. No automatic uploads. Vulnerabilities stay private.
+  - name: Ideas and feedback
+    url: https://github.com/lagrangee/bearing/discussions/categories/ideas-feedback
+    about: Public GitHub data. No tokens, secrets, private source, complete planning state, real absolute repository paths, or unredacted screenshots. No automatic uploads. Vulnerabilities stay private.
+  - name: Security vulnerability
+    url: https://github.com/lagrangee/bearing/security/advisories/new
+    about: Report suspected vulnerabilities privately. Do not disclose them in public Issues or Discussions.
