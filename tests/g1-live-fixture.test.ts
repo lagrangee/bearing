@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { access, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   finalizeFixtureSnapshot,
@@ -7,6 +7,7 @@ import {
   G1_LIVE_PLAN_ID,
   G1_LIVE_SURFACES,
   G1_MATT_SKILL_CLOSURE,
+  inspectCodexOperatorContext,
   surfaceLaunchContract,
 } from "../scripts/g1-live-fixture";
 
@@ -43,18 +44,149 @@ describe("G1 live fixture recipe", () => {
     expect(
       surfaceLaunchContract({
         surface: "codex",
-        repositoryRoot: "/private/tmp/g1/repo",
-        isolatedHome: "/private/tmp/g1/home",
+        repositoryRoot: "/private/tmp/g1/repo $()",
+        isolatedHome: "/private/tmp/g1/home `touch nope`",
         codexHome: "/Users/example/.codex",
+        disabledOperatorSkillPaths: [
+          "/Users/example/.codex/skills/operator-one/SKILL.md",
+          "/Users/example/.codex/skills/operator-two/SKILL.md",
+        ],
       }),
     ).toEqual({
       mode: "codex-exec",
-      identityHome: "/Users/example/.codex",
-      initial:
-        'env HOME="/private/tmp/g1/home" CODEX_HOME="/Users/example/.codex" codex exec --ignore-user-config --sandbox workspace-write --add-dir "/private/tmp/g1/home" --cd "/private/tmp/g1/repo" --json',
-      resume:
-        'env HOME="/private/tmp/g1/home" CODEX_HOME="/Users/example/.codex" codex exec resume --ignore-user-config --json <session-id>',
+      codexHome: "/Users/example/.codex",
+      environment: {
+        HOME: "/private/tmp/g1/home `touch nope`",
+        CODEX_HOME: "/Users/example/.codex",
+      },
+      initial: {
+        program: "codex",
+        arguments: [
+          "exec",
+          "--ignore-user-config",
+          "--ignore-rules",
+          "--sandbox",
+          "workspace-write",
+          "--add-dir",
+          "/private/tmp/g1/home `touch nope`",
+          "--cd",
+          "/private/tmp/g1/repo $()",
+          "--json",
+          "--disable",
+          "apps",
+          "--disable",
+          "browser_use",
+          "--disable",
+          "browser_use_external",
+          "--disable",
+          "chronicle",
+          "--disable",
+          "computer_use",
+          "--disable",
+          "goals",
+          "--disable",
+          "hooks",
+          "--disable",
+          "image_generation",
+          "--disable",
+          "memories",
+          "--disable",
+          "multi_agent",
+          "--disable",
+          "plugin_sharing",
+          "--disable",
+          "plugins",
+          "--disable",
+          "skill_mcp_dependency_install",
+          "--disable",
+          "tool_suggest",
+          "--disable",
+          "workspace_dependencies",
+          "-c",
+          'skills.config=[{path="/Users/example/.codex/skills/operator-one/SKILL.md",enabled=false},{path="/Users/example/.codex/skills/operator-two/SKILL.md",enabled=false}]',
+        ],
+        appendPromptAsFinalArgument: true,
+      },
+      resume: {
+        program: "codex",
+        arguments: [
+          "exec",
+          "resume",
+          "--ignore-user-config",
+          "--ignore-rules",
+          "--json",
+          "--disable",
+          "apps",
+          "--disable",
+          "browser_use",
+          "--disable",
+          "browser_use_external",
+          "--disable",
+          "chronicle",
+          "--disable",
+          "computer_use",
+          "--disable",
+          "goals",
+          "--disable",
+          "hooks",
+          "--disable",
+          "image_generation",
+          "--disable",
+          "memories",
+          "--disable",
+          "multi_agent",
+          "--disable",
+          "plugin_sharing",
+          "--disable",
+          "plugins",
+          "--disable",
+          "skill_mcp_dependency_install",
+          "--disable",
+          "tool_suggest",
+          "--disable",
+          "workspace_dependencies",
+          "-c",
+          'skills.config=[{path="/Users/example/.codex/skills/operator-one/SKILL.md",enabled=false},{path="/Users/example/.codex/skills/operator-two/SKILL.md",enabled=false}]',
+          "<session-id>",
+        ],
+        appendPromptAsFinalArgument: true,
+      },
     });
+  });
+
+  test("pins the unavoidable global instruction and disables every operator skill", async () => {
+    const parent = await mkdtemp("/tmp/bearing-g1-codex-context-");
+    const codexHome = join(parent, "codex-home");
+    const externalSkill = join(parent, "external-skill");
+    await mkdir(join(codexHome, "skills/operator-one"), { recursive: true });
+    await mkdir(externalSkill);
+    await writeFile(join(codexHome, "AGENTS.md"), "Use Chinese.\n");
+    await writeFile(join(codexHome, "skills/operator-one/SKILL.md"), "# Skill One\n");
+    await writeFile(join(externalSkill, "SKILL.md"), "# Skill Two\n");
+    await symlink(externalSkill, join(codexHome, "skills/operator-two"));
+    await symlink(externalSkill, join(codexHome, "skills/operator-two-alias"));
+
+    const context = await inspectCodexOperatorContext(codexHome);
+
+    expect(context.globalInstructions).toEqual({
+      locator: join(codexHome, "AGENTS.md"),
+      sha256: "a3dcc9dd40627dc6cf32830c62ed2cb1cb9f07a88a92043a0722e2e2ea36f128",
+    });
+    expect(context.disabledSkills).toEqual([
+      {
+        locator: join(codexHome, "skills/operator-one/SKILL.md"),
+        sha256: "a305ff986d19bfad5e180afde9f0b0c37894a786745aefe25efb609b95df427f",
+      },
+      {
+        locator: join(codexHome, "skills/operator-two-alias/SKILL.md"),
+        sha256: "a7532ede7f7d174f0440e23d31ee7e9fdd35496c485757064b745636ac4efee0",
+      },
+      {
+        locator: join(codexHome, "skills/operator-two/SKILL.md"),
+        sha256: "a7532ede7f7d174f0440e23d31ee7e9fdd35496c485757064b745636ac4efee0",
+      },
+    ]);
+    expect(context.fingerprint).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test("refuses equal or canonical-alias targets before creating fixture state", async () => {

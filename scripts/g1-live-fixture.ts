@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Stats } from "node:fs";
 import { cp, lstat, mkdir, readdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
@@ -29,6 +30,24 @@ export const G1_MATT_SKILL_CLOSURE = [
   "implement",
   "tdd",
   "code-review",
+] as const;
+
+export const G1_CODEX_DISABLED_FEATURES = [
+  "apps",
+  "browser_use",
+  "browser_use_external",
+  "chronicle",
+  "computer_use",
+  "goals",
+  "hooks",
+  "image_generation",
+  "memories",
+  "multi_agent",
+  "plugin_sharing",
+  "plugins",
+  "skill_mcp_dependency_install",
+  "tool_suggest",
+  "workspace_dependencies",
 ] as const;
 
 type Arguments = Readonly<{
@@ -202,52 +221,195 @@ const assertTargetsOutsideBoundary = async (
   }
 };
 
+const optionalRegularFile = async (path: string): Promise<Uint8Array | undefined> => {
+  let state: Stats;
+  try {
+    state = await lstat(path);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+    throw error;
+  }
+  if (!state.isFile()) {
+    throw new Error(`Codex operator input must be a regular file: ${path}`);
+  }
+  return readFile(path);
+};
+
+const discoverSkillFiles = async (
+  root: string,
+  directory = root,
+  ancestors = new Set<string>(),
+): Promise<string[]> => {
+  let canonicalDirectory: string;
+  try {
+    canonicalDirectory = await realpath(directory);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+    throw error;
+  }
+  if (ancestors.has(canonicalDirectory)) {
+    throw new Error(`Codex operator skill inventory contains a directory cycle: ${directory}`);
+  }
+  const nextAncestors = new Set(ancestors);
+  nextAncestors.add(canonicalDirectory);
+
+  const files: string[] = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const target = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await discoverSkillFiles(root, target, nextAncestors)));
+      continue;
+    }
+    if (entry.isSymbolicLink()) {
+      const targetState = await lstat(await realpath(target));
+      if (targetState.isDirectory()) {
+        files.push(...(await discoverSkillFiles(root, target, nextAncestors)));
+      }
+      continue;
+    }
+    if (entry.isFile() && entry.name === "SKILL.md") files.push(target);
+  }
+  return files.sort((left, right) => left.localeCompare(right, "en"));
+};
+
+export const inspectCodexOperatorContext = async (
+  codexHome: string,
+): Promise<
+  Readonly<{
+    globalInstructions: FileDigest | null;
+    disabledSkills: readonly FileDigest[];
+    fingerprint: string;
+  }>
+> => {
+  let globalInstructions: FileDigest | null = null;
+  for (const filename of ["AGENTS.override.md", "AGENTS.md"] as const) {
+    const locator = join(codexHome, filename);
+    const bytes = await optionalRegularFile(locator);
+    if (bytes !== undefined && new TextDecoder().decode(bytes).trim() !== "") {
+      globalInstructions = { locator, sha256: sha256(bytes) };
+      break;
+    }
+  }
+  const skillFiles = await discoverSkillFiles(join(codexHome, "skills"));
+  const disabledSkills = await Promise.all(
+    skillFiles.map(async (locator) => ({ locator, sha256: sha256(await readFile(locator)) })),
+  );
+  return {
+    globalInstructions,
+    disabledSkills,
+    fingerprint: treeDigest([
+      ...(globalInstructions === null ? [] : [globalInstructions]),
+      ...disabledSkills,
+    ]),
+  };
+};
+
+const codexHardeningArguments = (disabledOperatorSkillPaths: readonly string[]): string[] => {
+  const arguments_: string[] = [];
+  for (const feature of G1_CODEX_DISABLED_FEATURES) {
+    arguments_.push("--disable", feature);
+  }
+  if (disabledOperatorSkillPaths.length > 0) {
+    const config = disabledOperatorSkillPaths
+      .map((path) => `{path=${JSON.stringify(path)},enabled=false}`)
+      .join(",");
+    arguments_.push("-c", `skills.config=[${config}]`);
+  }
+  return arguments_;
+};
+
 export const surfaceLaunchContract = (
   input: Readonly<{
     surface: G1LiveSurface;
     repositoryRoot: string;
     isolatedHome: string;
     codexHome?: string;
+    disabledOperatorSkillPaths?: readonly string[];
   }>,
 ):
   | Readonly<{
       mode: "codex-exec";
-      identityHome: string;
-      initial: string;
-      resume: string;
+      codexHome: string;
+      environment: Readonly<{ HOME: string; CODEX_HOME: string }>;
+      initial: Readonly<{
+        program: "codex";
+        arguments: readonly string[];
+        appendPromptAsFinalArgument: true;
+      }>;
+      resume: Readonly<{
+        program: "codex";
+        arguments: readonly string[];
+        appendPromptAsFinalArgument: true;
+      }>;
     }>
   | Readonly<{
       mode: "claude-interactive";
-      identityHome: null;
-      initial: string;
+      codexHome: null;
+      environment: Readonly<{ HOME: string }>;
+      initial: Readonly<{
+        program: "claude";
+        arguments: readonly string[];
+        workingDirectory: string;
+      }>;
       resume: null;
     }> => {
   if (input.surface === "claude-code") {
-    if (input.codexHome !== undefined) {
+    if (input.codexHome !== undefined || input.disabledOperatorSkillPaths !== undefined) {
       throw new Error("Claude Code launch cannot use a Codex identity home.");
     }
     return {
       mode: "claude-interactive",
-      identityHome: null,
-      initial: `(cd ${JSON.stringify(input.repositoryRoot)} && env HOME=${JSON.stringify(
-        input.isolatedHome,
-      )} claude)`,
+      codexHome: null,
+      environment: { HOME: input.isolatedHome },
+      initial: {
+        program: "claude",
+        arguments: [],
+        workingDirectory: input.repositoryRoot,
+      },
       resume: null,
     };
   }
   if (input.codexHome === undefined) {
     throw new Error("Codex launch requires an explicit identity home.");
   }
-  const environment = `env HOME=${JSON.stringify(input.isolatedHome)} CODEX_HOME=${JSON.stringify(
-    input.codexHome,
-  )}`;
+  if (input.disabledOperatorSkillPaths === undefined) {
+    throw new Error("Codex launch requires the complete disabled operator skill inventory.");
+  }
+  const hardening = codexHardeningArguments(input.disabledOperatorSkillPaths);
   return {
     mode: "codex-exec",
-    identityHome: input.codexHome,
-    initial: `${environment} codex exec --ignore-user-config --sandbox workspace-write --add-dir ${JSON.stringify(
-      input.isolatedHome,
-    )} --cd ${JSON.stringify(input.repositoryRoot)} --json`,
-    resume: `${environment} codex exec resume --ignore-user-config --json <session-id>`,
+    codexHome: input.codexHome,
+    environment: { HOME: input.isolatedHome, CODEX_HOME: input.codexHome },
+    initial: {
+      program: "codex",
+      arguments: [
+        "exec",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--sandbox",
+        "workspace-write",
+        "--add-dir",
+        input.isolatedHome,
+        "--cd",
+        input.repositoryRoot,
+        "--json",
+        ...hardening,
+      ],
+      appendPromptAsFinalArgument: true,
+    },
+    resume: {
+      program: "codex",
+      arguments: [
+        "exec",
+        "resume",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--json",
+        ...hardening,
+        "<session-id>",
+      ],
+      appendPromptAsFinalArgument: true,
+    },
   };
 };
 
@@ -949,6 +1111,10 @@ const createFixture = async (args: Arguments): Promise<void> => {
   if (status !== "") throw new Error(`Fixture repository must start clean: ${status}`);
 
   const tarballRealpath = await realpath(args.tarball);
+  const codexOperatorContext =
+    args.codexHome === undefined
+      ? null
+      : await inspectCodexOperatorContext(await realpath(args.codexHome));
   const manifest = {
     schemaVersion: 1,
     planId: G1_LIVE_PLAN_ID,
@@ -980,11 +1146,19 @@ const createFixture = async (args: Arguments): Promise<void> => {
     instructionFile: surface.instruction,
     initialSync: initialSync ?? null,
     externalAsset: externalAsset ?? null,
+    codexOperatorContext,
     launch: surfaceLaunchContract({
       surface: args.surface,
       repositoryRoot: args.root,
       isolatedHome: args.home,
       ...(args.codexHome === undefined ? {} : { codexHome: await realpath(args.codexHome) }),
+      ...(codexOperatorContext === null
+        ? {}
+        : {
+            disabledOperatorSkillPaths: codexOperatorContext.disabledSkills.map(
+              (skill) => skill.locator,
+            ),
+          }),
     }),
   };
   await mkdir(dirname(args.manifest), { recursive: true });
