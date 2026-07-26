@@ -2,7 +2,7 @@ schemaVersion: 1
 phase: migrate
 publicEntry: skills/bearing/SKILL.md
 progressiveLoading:
-  rule: Load exactly one selected branch after public routing.
+  rule: Load at most one selected branch after public routing; direct executor continuation loads zero branches.
   internalBranchesReenterPublicRouter: false
   legacyEntries:
     packagedCompatibility: true
@@ -18,9 +18,13 @@ sharedContracts:
   - key: artifact-registration
     reference: skills/bearing/references/shared/artifact-registration.md
     loading: on-durable-output
+  - key: executor-continuation
+    reference: skills/bearing/references/shared/executor-continuation.md
+    loading: on-direct-executor
 publicSharedContracts:
   - typed-inspection
   - artifact-registration
+  - executor-continuation
 branches:
   - key: setup
     reference: skills/bearing/references/branches/setup.md

@@ -90,7 +90,7 @@ describe("package-owned planning skills", () => {
       phase: "migrate",
       publicEntry: "skills/bearing/SKILL.md",
       progressiveLoading: {
-        rule: "Load exactly one selected branch after public routing.",
+        rule: "Load at most one selected branch after public routing; direct executor continuation loads zero branches.",
         internalBranchesReenterPublicRouter: false,
         legacyEntries: {
           packagedCompatibility: true,
@@ -114,8 +114,13 @@ describe("package-owned planning skills", () => {
           reference: "skills/bearing/references/shared/artifact-registration.md",
           loading: "on-durable-output",
         },
+        {
+          key: "executor-continuation",
+          reference: "skills/bearing/references/shared/executor-continuation.md",
+          loading: "on-direct-executor",
+        },
       ],
-      publicSharedContracts: ["typed-inspection", "artifact-registration"],
+      publicSharedContracts: ["typed-inspection", "artifact-registration", "executor-continuation"],
       branches: branchEntries.map(([key, legacyName]) => ({
         key,
         reference: `skills/bearing/references/branches/${key}.md`,
@@ -193,6 +198,48 @@ describe("package-owned planning skills", () => {
       expect(contract).toMatch(/zero to two meaningful alternatives/iu);
       expect(contract).not.toMatch(/exactly two alternatives|two distinct alternatives/iu);
     }
+  });
+
+  test("direct executor continuation preserves owner and terminal truth", async () => {
+    const router = await readSkill("bearing");
+    const contract = await readSharedContract("executor-continuation");
+
+    expect(router.body).toContain("executor-continuation");
+    expect(router.body).toMatch(
+      /At most one selected internal branch[\s\S]*none for direct executor continuation/iu,
+    );
+    expect(contract).toMatch(/fresh direct invocation[\s\S]*before execution/iu);
+    expect(contract).toMatch(/Bearing-aware continuation[\s\S]*same user command/iu);
+    expect(contract).toMatch(
+      /explicit Matt Delivery Ticket[\s\S]*Effort and Work Binding context[\s\S]*explicit fact that it is unbound/iu,
+    );
+    expect(contract).toMatch(
+      /ambiguous Ticket identity[\s\S]*Spec-only[\s\S]*does not enter execution/iu,
+    );
+    expect(contract).toMatch(
+      /executor[\s\S]*implementation[\s\S]*tests[\s\S]*review[\s\S]*commit/iu,
+    );
+    expect(contract).toMatch(/Bearing[\s\S]*factual registration[\s\S]*Sync/iu);
+    expect(contract).toMatch(/Work Management provider[\s\S]*terminal resolution/iu);
+    expect(contract).toMatch(/Produced For[\s\S]*native evidence[\s\S]*independent/iu);
+    expect(contract).toMatch(
+      /provider completion contract[\s\S]*unavailable[\s\S]*deterministic Sync[\s\S]*truthful stop/iu,
+    );
+    expect(contract).toMatch(/failure[\s\S]*incomplete[\s\S]*ambiguous[\s\S]*spec-only/iu);
+    expect(contract).toMatch(
+      /actual executor contract[\s\S]*Execution Profile[\s\S]*never defines or translates the executor outcome taxonomy[\s\S]*`completed` remains `completed`/iu,
+    );
+    for (const hook of [
+      "direct-executor:fresh",
+      "direct-executor:aware",
+      "direct-executor:reconciled",
+      "direct-executor:nonterminal",
+    ]) {
+      expect(contract).toContain(hook);
+    }
+    expect(contract).toMatch(
+      /direct-executor:nonterminal[\s\S]*Sync fingerprint and diagnostics/iu,
+    );
   });
 
   test("ships each agreed executor profile template", async () => {
