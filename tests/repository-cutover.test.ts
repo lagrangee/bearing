@@ -480,6 +480,50 @@ Assets:
       },
     });
     expect(receipt).toMatchObject({ verified: true, inventoryHash: expect.any(String) });
+
+    const replay = await runSetupCli(repoRoot, homeDir, [
+      "--accept-upgrade-direction",
+      "--confirm-cutover",
+      "--cutover-plan-token",
+      confirmationToken,
+    ]);
+    expect(replay.exitCode, replay.stderr).toBe(0);
+    expect(replay.stdout).toContain("Outcome: no-op");
+    expect(replay.stdout).toContain("Repository: no-op");
+    expect(replay.stdout).toContain("Catalog: no-op");
+  });
+
+  test("replays consumed cutover flags through Active reconciliation after Catalog partial", async () => {
+    const repoRoot = await createLegacyRepository();
+    const homeDir = await makeTemporaryDirectory("bearing-cutover-home-");
+    await writeFixture(homeDir, ".bearing/catalog.json", "{malformed\n");
+    const confirmationToken = await inspectCliToken(repoRoot, homeDir);
+    const cutoverArgs = [
+      "--accept-upgrade-direction",
+      "--confirm-cutover",
+      "--cutover-plan-token",
+      confirmationToken,
+    ] as const;
+
+    const partial = await runSetupCli(repoRoot, homeDir, cutoverArgs);
+
+    expect(partial.exitCode).toBe(1);
+    expect(partial.stdout).toContain("Outcome: partial");
+    expect(partial.stdout).toContain("Repository: applied");
+    expect(partial.stdout).toContain("Catalog: failed");
+    expect(
+      JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8")),
+    ).toMatchObject({ status: "active", executorProfiles: [] });
+    await access(join(repoRoot, ".bearing/state/efforts/test.md"));
+    await access(join(repoRoot, ".bearing/backups", BUNDLE_NAME, "receipt.json"));
+
+    await writeFile(join(homeDir, ".bearing/catalog.json"), '{"version":1,"entries":[]}\n');
+    const replay = await runSetupCli(repoRoot, homeDir, cutoverArgs);
+
+    expect(replay.exitCode, replay.stderr).toBe(0);
+    expect(replay.stdout).toContain("Outcome: applied");
+    expect(replay.stdout).toContain("Repository: no-op");
+    expect(replay.stdout).toContain("Catalog: applied");
   });
 
   test("rejects a pre-existing invalid bundle before conversion", async () => {
@@ -577,6 +621,24 @@ Assets:
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Profile inventory is ambiguous");
+    await expectMissing(join(repoRoot, ".bearing/backups"));
+  });
+
+  test("does not issue a cutover token before the selected surface points at the provider", async () => {
+    const repoRoot = await createLegacyRepository();
+    const homeDir = await makeTemporaryDirectory("bearing-cutover-home-");
+    await writeFile(
+      join(repoRoot, "AGENTS.md"),
+      "<!-- bearing:managed-start -->\nLegacy Bearing pointer.\n<!-- bearing:managed-end -->\n",
+    );
+
+    const result = await runSetupCli(repoRoot, homeDir, ["--plan"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "every selected Agent Surface to point at one trustworthy matt-skills/v1 provider contract",
+    );
+    expect(result.stdout).not.toContain("confirmationToken");
     await expectMissing(join(repoRoot, ".bearing/backups"));
   });
 

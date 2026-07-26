@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 import { upsertCatalogEntry } from "./catalog/store";
 import { setupRepository } from "./repo-setup";
 import { cutOverLegacyRepository } from "./repository-cutover";
+import { planRepositoryIntegration } from "./repository-integration-plan";
 import type { AgentSurface, ExecutorRegistration, RepositorySetupResult } from "./types";
 
 export type ReconcileRepositoryResult = Readonly<{
@@ -37,7 +38,15 @@ export const reconcileRepository = async (options: {
     options.cutoverPlanToken !== undefined ||
     options.acceptUpgradeDirection === true ||
     options.confirmCutover === true;
-  const repository = explicitCutover
+  const routeToCutover =
+    explicitCutover &&
+    (
+      await planRepositoryIntegration({
+        ...options,
+        executorHomeDir: options.homeDir,
+      })
+    ).recoveryDiagnosis?.classification === "legacy-cutover";
+  const repository = routeToCutover
     ? await cutOverLegacyRepository(options.repoRoot, {
         ...options,
         executorHomeDir: options.homeDir,

@@ -924,6 +924,16 @@ export const inspectLegacyCutoverPlan = async (
       `Legacy repository has an ambiguous canonical Effort target: ${unexpectedCanonicalEfforts.join(", ")}`,
     );
   }
+  const providerInspection = await inspectMattProviderContract(
+    root,
+    options.provider?.contractLocator ?? "",
+    options.surfaces,
+  );
+  if (!providerInspection.supported) {
+    throw new Error(
+      "Legacy cutover requires every selected Agent Surface to point at one trustworthy matt-skills/v1 provider contract before the final Apply review.",
+    );
+  }
   const contractBytes = await readContainedFile(
     root,
     join(root, options.provider?.contractLocator ?? ""),
