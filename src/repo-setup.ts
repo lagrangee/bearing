@@ -18,6 +18,7 @@ import { inspectInstallPath } from "./install-boundary";
 import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans, type InstallTargetWriter, preflightInstallTargets } from "./installer";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
+import { cutOverLegacyRepository } from "./repository-cutover";
 import {
   assertMattProviderContractCurrent,
   assertRepositoryTargetPreconditionsCurrent,
@@ -373,6 +374,7 @@ export const setupRepository = async (
       }>,
     ) => Promise<void>;
     writeTarget?: InstallTargetWriter;
+    writeRecoveryTarget?: InstallTargetWriter;
   }> = {},
 ): Promise<RepositorySetupResult> => {
   const root = await resolveRepositoryRoot(options.repoRoot);
@@ -405,11 +407,16 @@ export const setupRepository = async (
     }
     const blocker = integrationPlan.blockers[0];
     if (blocker !== undefined) throw new Error(blocker.message);
-    if (
-      integrationPlan.lifecycle.kind === "invalid-or-unsupported" ||
-      integrationPlan.lifecycle.legacyTransitionRequired === true
-    ) {
+    if (integrationPlan.lifecycle.kind === "invalid-or-unsupported") {
       throw new Error(`Bearing Setup cannot apply: ${integrationPlan.lifecycle.reason}`);
+    }
+    if (integrationPlan.lifecycle.legacyTransitionRequired === true) {
+      return cutOverLegacyRepository(root, options, {
+        ...(hooks.writeTarget === undefined ? {} : { writeTarget: hooks.writeTarget }),
+        ...(hooks.writeRecoveryTarget === undefined
+          ? {}
+          : { writeRecoveryTarget: hooks.writeRecoveryTarget }),
+      });
     }
     if (integrationPlan.lifecycle.kind === "deactivated" && options.confirmReactivate !== true) {
       throw new Error(

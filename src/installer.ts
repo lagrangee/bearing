@@ -275,9 +275,12 @@ export const applyInstallPlans = async (
         cause: rollbackError,
       });
     }
-    throw new Error("Bearing kit installation failed; all written targets were restored.", {
-      cause: error,
-    });
+    throw new Error(
+      `Bearing kit installation failed; all written targets were restored. Cause: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error },
+    );
   }
   return {
     outcome: allChanged.length > 0 ? "applied" : "no-op",

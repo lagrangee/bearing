@@ -74,6 +74,26 @@ active manifest。
 遇到不支持的较新 repository schema 时，`setup` 会拒绝写入并指向兼容的 Bearing 版本；
 它不会把较新 state 重写成 schema 1。
 
+经检查确认的 0.1.0 repository 必须执行显式 incompatible cutover；package version 变化本身
+不会触发迁移。先用只读命令检查完整计划：
+
+```bash
+bearing setup --repo . --surface agent-skills \
+  --provider-contract docs/agents/issue-tracker.md \
+  --cutover-at 2026-07-26T12:34:56.000Z --plan
+```
+
+分别接受 upgrade direction 和完整计划后，使用同一组选择与 timestamp，并添加
+`--accept-upgrade-direction --confirm-cutover --cutover-plan-token <confirmationToken>`。
+该 token 把第二次 consent 绑定到已检查的 repository generation；source 或 write set
+发生任何变化都必须重新生成计划并确认。Setup 会先创建并验证计划中列出的
+`.bearing/backups/0.1.0-to-0.1.1-<timestamp>/` Recovery Bundle，再执行一个受 rollback
+保护的转换事务。Bundle 保留旧 State、Effort sidecars、integration sources、managed
+blocks、hashes、inventory 与 receipt；排除 cache、Matt-native work、unmanaged content
+及 external Asset payloads。转换会把 Effort 移入 canonical `.bearing/state/efforts/`，
+重建 disposable projections，并保持 native work 不变。repository 失败会恢复旧 integration
+且保留已验证 bundle；后续 Catalog 失败会作为可恢复的独立 partial outcome 报告。
+
 ## Deactivate 或 purge 一个仓库
 
 ```bash

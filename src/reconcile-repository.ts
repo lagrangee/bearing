@@ -20,6 +20,10 @@ export const reconcileRepository = async (options: {
   readonly registrations?: readonly ExecutorRegistration[];
   readonly confirmRepair?: boolean;
   readonly confirmReactivate?: boolean;
+  readonly acceptUpgradeDirection?: boolean;
+  readonly confirmCutover?: boolean;
+  readonly cutoverAt?: string;
+  readonly cutoverPlanToken?: string;
   readonly retainProfiles?: readonly string[];
   readonly removeProfiles?: readonly string[];
   readonly provider?: Readonly<{

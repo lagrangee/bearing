@@ -43,6 +43,7 @@ export const expectedBearingType = (locator: string): string | undefined => {
   if (locator === ".bearing/state/project-summary.md") return "project-summary";
   if (locator === ".bearing/state/roadmap-index.md") return "roadmap-index";
   if (locator === ".bearing/state/assets.md") return "asset-registry";
+  if (/^\.bearing\/state\/efforts\/[^/]+\.md$/u.test(locator)) return "effort";
   if (/^\.scratch\/[^/]+\/effort\.md$/u.test(locator)) return "effort";
   if (locator.startsWith(".bearing/state/roadmaps/")) return "roadmap";
   if (locator.startsWith(".bearing/state/milestone-gates/")) return "milestone-gate";

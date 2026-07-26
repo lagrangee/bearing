@@ -76,6 +76,27 @@ reviewing its retained surfaces, Provider Configuration, and profiles, pass
 It refuses an unsupported newer repository schema and directs you to a compatible Bearing version;
 it never rewrites newer state as schema 1.
 
+An inspected 0.1.0 repository requires an explicit incompatible cutover; a package-version change
+alone does not trigger it. First inspect the exact plan without writing:
+
+```bash
+bearing setup --repo . --surface agent-skills \
+  --provider-contract docs/agents/issue-tracker.md \
+  --cutover-at 2026-07-26T12:34:56.000Z --plan
+```
+
+After separately accepting the upgrade direction and then the complete plan, repeat the same
+selection and timestamp with `--accept-upgrade-direction --confirm-cutover
+--cutover-plan-token <confirmationToken>`. The token binds the second consent to the inspected
+repository generation; any changed source or write set requires a new plan and consent. Setup creates and
+verifies the reported `.bearing/backups/0.1.0-to-0.1.1-<timestamp>/` Recovery Bundle before one
+rollback-protected conversion. The bundle retains old State, Effort sidecars, integration sources,
+managed blocks, hashes, inventory, and receipt; it excludes cache, Matt-native work, unmanaged
+content, and external Asset payloads. Conversion moves Efforts into canonical
+`.bearing/state/efforts/`, rebuilds disposable projections, and preserves native work. A repository
+failure restores the old integration while retaining the verified bundle; later Catalog failure is
+reported as a separate resumable partial outcome.
+
 ## Deactivate or purge one repository
 
 ```bash

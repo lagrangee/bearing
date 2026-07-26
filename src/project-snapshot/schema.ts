@@ -102,6 +102,13 @@ export const effortSchema = z.strictObject({
   roadmapId: roadmapIdSchema,
   targetGateId: gateIdSchema,
   authorityIds: uniqueIdentityArraySchema(authorityIdSchema, (authorityId) => authorityId),
+  workBinding: z
+    .strictObject({
+      provider: z.literal("matt-skills/v1"),
+      driver: z.enum(["local-markdown", "github-issues"]),
+      nativeScope: trackerReferenceSchema,
+    })
+    .optional(),
   derivedState: z.enum(["active", "resolved", "unknown"]),
   frontier: frontierSchema,
 });

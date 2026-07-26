@@ -473,10 +473,30 @@ export const planRepositoryIntegration = async (
       state: providerSatisfied ? "satisfied" : "not-evaluated",
     },
   ];
+  let legacyCutoverTokenMatches = false;
+  if (
+    lifecycle.legacyTransitionRequired === true &&
+    options.acceptUpgradeDirection === true &&
+    options.confirmCutover === true &&
+    options.cutoverAt !== undefined &&
+    options.cutoverPlanToken !== undefined &&
+    normalizedOptions.provider !== undefined
+  ) {
+    try {
+      const { inspectLegacyCutoverPlan } = await import("./repository-cutover");
+      const cutover = await inspectLegacyCutoverPlan(root, options);
+      legacyCutoverTokenMatches = cutover.confirmationToken === options.cutoverPlanToken;
+    } catch {
+      legacyCutoverTokenMatches = false;
+    }
+  }
   const lifecycleCanApply =
     lifecycle.kind === "fresh" ||
     (lifecycle.kind === "active" && lifecycle.legacyTransitionRequired !== true) ||
-    lifecycle.legacyTransitionRequired === true ||
+    (lifecycle.legacyTransitionRequired === true &&
+      options.acceptUpgradeDirection === true &&
+      options.confirmCutover === true &&
+      legacyCutoverTokenMatches) ||
     (lifecycle.kind === "deactivated" && options.confirmReactivate === true);
   const canApply =
     lifecycleCanApply &&

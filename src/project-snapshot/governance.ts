@@ -118,6 +118,15 @@ const effortProjection = (input: Input): BuildResult<Effort>[] =>
         roadmapId: data.Roadmap,
         targetGateId: data["Target gate"],
         authorityIds: data.Authorities,
+        ...(data["Work binding"] === undefined
+          ? {}
+          : {
+              workBinding: {
+                provider: data["Work binding"].Provider,
+                driver: data["Work binding"].Driver,
+                nativeScope: data["Work binding"]["Native scope"],
+              },
+            }),
         derivedState: "unknown",
         frontier: { claimed: [], ready: [], blocked: [], resolved: [], fogCount: 0 },
       }),

@@ -228,17 +228,19 @@ const valueWithSource = <T extends { source: string }>(
   return { value, source };
 };
 
-const effortScope = (source: SourceRecord): string | undefined =>
-  source.displayLocator.endsWith("/effort.md")
+const effortScope = (effort: Effort, source: SourceRecord): string | undefined =>
+  effort.workBinding?.nativeScope ??
+  (source.displayLocator.endsWith("/effort.md")
     ? source.displayLocator.slice(0, -"/effort.md".length)
-    : undefined;
+    : undefined);
 
 const issueInsideEffort = (
   issue: PlanningGraphIssue,
+  effort: Effort,
   effortSource: SourceRecord,
   sourceByReference: ReadonlyMap<string, SourceRecord>,
 ): boolean => {
-  const scope = effortScope(effortSource);
+  const scope = effortScope(effort, effortSource);
   if (scope === undefined) return true;
   const issueSource = sourceByReference.get(issue.source ?? "")?.displayLocator;
   return (
@@ -677,10 +679,10 @@ class ImmutablePlanningGraph implements PlanningGraph {
     }
     closureIssues.push(
       ...issues(this.#collections.maps).filter((issue) =>
-        issueInsideEffort(issue, effortSource, sourceByReference),
+        issueInsideEffort(issue, effort, effortSource, sourceByReference),
       ),
       ...issues(this.#collections.tickets).filter((issue) =>
-        issueInsideEffort(issue, effortSource, sourceByReference),
+        issueInsideEffort(issue, effort, effortSource, sourceByReference),
       ),
     );
     return {
@@ -945,7 +947,7 @@ export const buildPlanningGraph = async (
   const effortByScope = new Map<string, string>();
   for (const effort of trusted(governance.efforts)) {
     const source = governanceSourceByReference.get(effort.source);
-    const scope = source === undefined ? undefined : effortScope(source);
+    const scope = source === undefined ? undefined : effortScope(effort, source);
     if (scope !== undefined) effortByScope.set(scope, effort.id);
   }
   const native = buildNativeProjection({

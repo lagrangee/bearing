@@ -27,6 +27,22 @@ const runAssetRegistration = async (
     );
     await rm(join(repoRoot, ".bearing/executor-profiles/generic-agent.md"), { force: true });
   }
+  const legacyEffortPath = join(repoRoot, ".scratch/work/effort.md");
+  const canonicalEffortPath = join(repoRoot, ".bearing/state/efforts/test.md");
+  try {
+    const legacyEffort = await readFile(legacyEffortPath, "utf8");
+    await mkdir(join(repoRoot, ".bearing/state/efforts"), { recursive: true });
+    await writeFile(
+      canonicalEffortPath,
+      legacyEffort.replace(
+        "Citations: []",
+        "Citations: []\nWork binding:\n  Provider: matt-skills/v1\n  Driver: local-markdown\n  Native scope: .scratch/work",
+      ),
+    );
+    await rm(legacyEffortPath);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  }
   const defaults = [
     "--repo",
     repoRoot,
@@ -150,7 +166,7 @@ describe("typed Asset Registration Route CLI", () => {
       "claude:unregistered-executor",
     ]);
 
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toMatchObject({
       writebackProfile: {
@@ -223,7 +239,7 @@ describe("typed Asset Registration Route CLI", () => {
       "agent-skills:implement",
     ]);
 
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       writebackProfile: {
         capabilityLocator: "agent-skills:implement",

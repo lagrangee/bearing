@@ -57,6 +57,10 @@ export type RepositorySetupOptions = Readonly<{
   executorHomeDir?: string;
   confirmRepair?: boolean;
   confirmReactivate?: boolean;
+  acceptUpgradeDirection?: boolean;
+  confirmCutover?: boolean;
+  cutoverAt?: string;
+  cutoverPlanToken?: string;
   retainProfiles?: readonly string[];
   removeProfiles?: readonly string[];
   provider?: Readonly<{
@@ -94,4 +98,11 @@ export type RepositorySetupResult = Readonly<{
   outcome: "applied" | "no-op";
   manifestPath: string;
   changedTargets: readonly string[];
+  recoveryBundlePath?: string;
+  cutover?: Readonly<{
+    sourceSchema: string;
+    targetSchema: string;
+    recoveryBundleVerified: boolean;
+    targetValidation: "zero-diagnostics";
+  }>;
 }>;

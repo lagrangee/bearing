@@ -250,6 +250,18 @@ test("the packed CLI runs through offline local npm exec", async () => {
     await expect(access(join(syncRoot, ".agents/skills/bearing/SKILL.md"))).rejects.toThrow();
     await rename(retainedState, join(syncRoot, ".bearing/state"));
     await rename(retainedScratch, join(syncRoot, ".scratch"));
+    const legacyEffortPath = join(syncRoot, ".scratch/work/effort.md");
+    const canonicalEffortPath = join(syncRoot, ".bearing/state/efforts/test.md");
+    const legacyEffort = await readFile(legacyEffortPath, "utf8");
+    await mkdir(join(syncRoot, ".bearing/state/efforts"), { recursive: true });
+    await writeFile(
+      canonicalEffortPath,
+      legacyEffort.replace(
+        "Citations: []",
+        "Citations: []\nWork binding:\n  Provider: matt-skills/v1\n  Driver: local-markdown\n  Native scope: .scratch/work",
+      ),
+    );
+    await rm(legacyEffortPath);
 
     const portalPort = await reservePort();
     const portal = Bun.spawn(

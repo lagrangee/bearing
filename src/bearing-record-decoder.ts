@@ -195,6 +195,15 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         "Target gate": data["Target gate"],
         Authorities: [...data.Authorities],
         Citations: normalizeCitations(data.Citations) ?? [],
+        ...(data["Work binding"] === undefined
+          ? {}
+          : {
+              "Work binding": {
+                Provider: data["Work binding"].Provider,
+                Driver: data["Work binding"].Driver,
+                "Native scope": data["Work binding"]["Native scope"],
+              },
+            }),
       };
     case "authority":
       return {

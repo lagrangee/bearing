@@ -22,6 +22,7 @@ import { parsePortalPort } from "./portal/port";
 import { startPortalServer } from "./portal/server";
 import { reconcileRepository } from "./reconcile-repository";
 import { deactivateRepository, purgeRepository } from "./repo-lifecycle";
+import { inspectLegacyCutoverPlan } from "./repository-cutover";
 import { planRepositoryIntegration } from "./repository-integration-plan";
 import { runSync } from "./sync";
 import { commitSyncPlan, prepareSync } from "./sync-plan";
@@ -32,7 +33,7 @@ const HELP = `Bearing ${packageMetadata.version}
 Usage:
   bearing
   bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
-  bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>] [--confirm-repair] [--confirm-reactivate] [--plan]
+  bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>] [--confirm-repair] [--confirm-reactivate] [--accept-upgrade-direction --confirm-cutover --cutover-at <ISO-8601> --cutover-plan-token <sha256>] [--plan]
   bearing deactivate --repo <path>
   bearing purge --repo <path> --confirm-purge
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [options]
@@ -132,6 +133,10 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
       "remove-executor": { type: "string", multiple: true },
       "confirm-repair": { type: "boolean" },
       "confirm-reactivate": { type: "boolean" },
+      "accept-upgrade-direction": { type: "boolean" },
+      "confirm-cutover": { type: "boolean" },
+      "cutover-at": { type: "string" },
+      "cutover-plan-token": { type: "string" },
       plan: { type: "boolean" },
     },
     allowPositionals: false,
@@ -174,9 +179,35 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
       removeProfiles: parsed.values["remove-executor"] ?? [],
       confirmRepair: parsed.values["confirm-repair"] === true,
       confirmReactivate: parsed.values["confirm-reactivate"] === true,
+      acceptUpgradeDirection: parsed.values["accept-upgrade-direction"] === true,
+      confirmCutover: parsed.values["confirm-cutover"] === true,
+      ...(parsed.values["cutover-at"] === undefined
+        ? {}
+        : { cutoverAt: parsed.values["cutover-at"] }),
+      ...(parsed.values["cutover-plan-token"] === undefined
+        ? {}
+        : { cutoverPlanToken: parsed.values["cutover-plan-token"] }),
       ...(provider === undefined ? {} : { provider }),
     });
-    process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+    const cutover =
+      plan.lifecycle.legacyTransitionRequired === true &&
+      provider !== undefined &&
+      parsed.values["cutover-at"] !== undefined
+        ? await inspectLegacyCutoverPlan(plan.repoRoot, {
+            repoRoot: plan.repoRoot,
+            packageRoot: packageRoot(),
+            surfaces,
+            profiles,
+            registrations,
+            retainProfiles: parsed.values["retain-executor"] ?? [],
+            removeProfiles: parsed.values["remove-executor"] ?? [],
+            provider,
+            cutoverAt: parsed.values["cutover-at"],
+          })
+        : undefined;
+    process.stdout.write(
+      `${JSON.stringify(cutover === undefined ? plan : { ...plan, cutover }, null, 2)}\n`,
+    );
     return;
   }
   if (provider === undefined) {
@@ -195,11 +226,29 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
     removeProfiles: parsed.values["remove-executor"] ?? [],
     confirmRepair: parsed.values["confirm-repair"] === true,
     confirmReactivate: parsed.values["confirm-reactivate"] === true,
+    acceptUpgradeDirection: parsed.values["accept-upgrade-direction"] === true,
+    confirmCutover: parsed.values["confirm-cutover"] === true,
+    ...(parsed.values["cutover-at"] === undefined
+      ? {}
+      : { cutoverAt: parsed.values["cutover-at"] }),
+    ...(parsed.values["cutover-plan-token"] === undefined
+      ? {}
+      : { cutoverPlanToken: parsed.values["cutover-plan-token"] }),
     ...(provider === undefined ? {} : { provider }),
   });
   process.stdout.write(
     `Outcome: ${result.outcome}\nRepository: ${result.repository.outcome}\nCatalog: ${result.catalog.outcome}\nManifest: ${result.repository.manifestPath}\nChanged targets: ${result.repository.changedTargets.length}\n`,
   );
+  if (result.repository.recoveryBundlePath !== undefined) {
+    process.stdout.write(`Recovery bundle: ${result.repository.recoveryBundlePath}\n`);
+  }
+  if (result.repository.cutover !== undefined) {
+    process.stdout.write(
+      `Cutover schema: ${result.repository.cutover.sourceSchema} -> ${result.repository.cutover.targetSchema}\nRecovery verification: ${
+        result.repository.cutover.recoveryBundleVerified ? "verified" : "unverified"
+      }\nTarget validation: ${result.repository.cutover.targetValidation}\n`,
+    );
+  }
   if (result.catalog.outcome === "failed") {
     process.stderr.write(
       `Catalog registration failed: ${result.catalog.message}\nCompleted: repository Setup Apply.\nPending: Project Catalog registration.\nPersistent external effects: the repository configuration is already valid and is not rolled back by Catalog failure.\nResumption point: apply the Catalog recovery named by the error, then rerun this exact Setup request; its repository stage will reconcile idempotently.\n`,

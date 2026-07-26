@@ -1,6 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { posix } from "node:path";
-import { probeContainedInput, retainContainedInputs } from "./input-boundary";
+import { parseFrontmatter } from "./frontmatter";
+import { probeContainedInput, readContainedInput, retainContainedInputs } from "./input-boundary";
 import { resolveRepositoryRoot } from "./path-boundary";
 import type { StructuralDiagnostic } from "./types";
 
@@ -14,6 +15,7 @@ const INTERPRETATION_INPUTS = [
 ];
 
 const STATE_DIRECTORIES = [
+  ".bearing/state/efforts",
   ".bearing/state/roadmaps",
   ".bearing/state/milestone-gates",
   ".bearing/state/authorities",
@@ -89,7 +91,19 @@ export const addWhenPresent = async (
   } else if (probe.status === "blocked") diagnostics.push(probe.diagnostic);
 };
 
-const discoverEfforts = async (
+const discoverNativeScope = async (
+  repoRoot: string,
+  inputs: Set<string>,
+  scope: string,
+  diagnostics: StructuralDiagnostic[],
+): Promise<void> => {
+  await addWhenPresent(repoRoot, inputs, posix.join(scope, "PRD.md"), diagnostics);
+  await addWhenPresent(repoRoot, inputs, posix.join(scope, "map.md"), diagnostics);
+  const issues = await listFiles(repoRoot, posix.join(scope, "issues"), true, diagnostics);
+  for (const issue of issues) inputs.add(issue);
+};
+
+const discoverLegacyEfforts = async (
   repoRoot: string,
   inputs: Set<string>,
   diagnostics: StructuralDiagnostic[],
@@ -131,27 +145,58 @@ const discoverEfforts = async (
       continue;
     }
     inputs.add(effort);
-    await addWhenPresent(
-      repoRoot,
-      inputs,
-      posix.join(".scratch", scope.name, "PRD.md"),
-      diagnostics,
-    );
-    await addWhenPresent(
-      repoRoot,
-      inputs,
-      posix.join(".scratch", scope.name, "map.md"),
-      diagnostics,
-    );
-    const issues = await listFiles(
-      repoRoot,
-      posix.join(".scratch", scope.name, "issues"),
-      true,
-      diagnostics,
-    );
-    for (const issue of issues) {
-      inputs.add(issue);
+    await discoverNativeScope(repoRoot, inputs, posix.join(".scratch", scope.name), diagnostics);
+  }
+};
+
+const discoverCanonicalEffortScopes = async (
+  repoRoot: string,
+  inputs: Set<string>,
+  diagnostics: StructuralDiagnostic[],
+): Promise<void> => {
+  const efforts = await listFiles(repoRoot, ".bearing/state/efforts", true, diagnostics);
+  for (const effort of efforts) {
+    const source = await readContainedInput(repoRoot, effort);
+    if (source.status === "blocked") {
+      diagnostics.push(source.diagnostic);
+      continue;
     }
+    const parsed = parseFrontmatter(source.bytes.toString("utf8"));
+    if (!parsed.ok) continue;
+    const workBinding = parsed.data["Work binding"];
+    if (
+      typeof workBinding !== "object" ||
+      workBinding === null ||
+      !("Native scope" in workBinding) ||
+      typeof workBinding["Native scope"] !== "string"
+    ) {
+      continue;
+    }
+    await discoverNativeScope(repoRoot, inputs, workBinding["Native scope"], diagnostics);
+  }
+};
+
+const usesCanonicalEffortStorage = async (
+  repoRoot: string,
+  diagnostics: StructuralDiagnostic[],
+): Promise<boolean | undefined> => {
+  const probe = await probeContainedInput(repoRoot, ".bearing/manifest.json");
+  if (probe.status !== "available") return false;
+  const source = await readContainedInput(repoRoot, ".bearing/manifest.json");
+  if (source.status === "blocked") {
+    diagnostics.push(source.diagnostic);
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(source.bytes.toString("utf8")) as unknown;
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "status" in parsed &&
+      (parsed.status === "active" || parsed.status === "deactivated")
+    );
+  } catch {
+    return false;
   }
 };
 
@@ -172,7 +217,12 @@ export const discoverPlanningAuditInputs = async (repoRoot: string): Promise<Dis
       inputs.add(locator);
     }
   }
-  await discoverEfforts(root, inputs, diagnostics);
+  const canonicalEffortStorage = await usesCanonicalEffortStorage(root, diagnostics);
+  if (canonicalEffortStorage === true) {
+    await discoverCanonicalEffortScopes(root, inputs, diagnostics);
+  } else if (canonicalEffortStorage === false) {
+    await discoverLegacyEfforts(root, inputs, diagnostics);
+  }
   const contained = await retainContainedInputs(root, [...inputs]);
   diagnostics.push(...contained.diagnostics);
   return { inputs: contained.inputs, diagnostics };
