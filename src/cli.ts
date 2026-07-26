@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import packageMetadata from "../package.json";
+import { registerAsset } from "./asset-registration";
 import { runCatalogCommand } from "./catalog/cli";
 import { writeInspectBenchmarkMetrics } from "./inspect-benchmark";
 import { installKit } from "./installer";
@@ -29,6 +30,7 @@ Usage:
   bearing setup --repo <path> --surface <agent-skills|claude> [--profile <key>] [--plan]
   bearing deactivate --repo <path>
   bearing purge --repo <path> --confirm-purge
+  bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> --producer-name <name> [options]
   bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
   bearing sync [--repo <path>]
   bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>]
@@ -42,6 +44,7 @@ Commands:
   setup    Enable Bearing in one repository without copying protocol or skills into it.
   deactivate  Remove repository enablement and managed pointers; preserve state and native work.
   purge    Remove only the repository .bearing namespace and managed pointers after confirmation.
+  asset    Register factual durable-output metadata in the repository Asset Registry.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
   sync     Rebuild deterministic diagnostics and the Project Sitemap under .bearing/cache/.
   inspect  Return one generation-scoped planning context closure.
@@ -172,6 +175,60 @@ const runInstall = async (args: readonly string[]): Promise<void> => {
   process.stdout.write(
     `Outcome: ${result.outcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n`,
   );
+};
+
+const runAssetCommand = async (args: readonly string[]): Promise<void> => {
+  const parsed = parseArgs({
+    args: [...args],
+    options: {
+      repo: { type: "string" },
+      id: { type: "string" },
+      title: { type: "string" },
+      kind: { type: "string" },
+      location: { type: "string" },
+      owner: { type: "string" },
+      "producer-kind": { type: "string" },
+      "producer-name": { type: "string" },
+      "producer-reference": { type: "string" },
+      "produced-for": { type: "string" },
+    },
+    allowPositionals: true,
+    strict: true,
+  });
+  if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "register") {
+    throw new Error("Usage: bearing asset register [options]");
+  }
+  const required = {
+    id: parsed.values.id,
+    title: parsed.values.title,
+    kind: parsed.values.kind,
+    location: parsed.values.location,
+    owner: parsed.values.owner,
+    producerKind: parsed.values["producer-kind"],
+    producerName: parsed.values["producer-name"],
+  };
+  if (Object.values(required).some((value) => value === undefined)) {
+    throw new Error("Asset registration requires identity, location, owner, kind and producer.");
+  }
+  const result = await registerAsset({
+    repoRoot: resolve(parsed.values.repo ?? process.cwd()),
+    id: required.id ?? "",
+    title: required.title ?? "",
+    kind: required.kind ?? "",
+    location: required.location ?? "",
+    owner: required.owner ?? "",
+    producer: {
+      kind: required.producerKind as "executor-profile" | "agent-capability" | "external-source",
+      name: required.producerName ?? "",
+      ...(parsed.values["producer-reference"] === undefined
+        ? {}
+        : { reference: parsed.values["producer-reference"] }),
+    },
+    ...(parsed.values["produced-for"] === undefined
+      ? {}
+      : { producedFor: parsed.values["produced-for"] }),
+  });
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 };
 
 const runRepositoryLifecycle = async (
@@ -343,6 +400,10 @@ const main = async (): Promise<void> => {
   }
   if (command === "catalog") {
     process.stdout.write(await runCatalogCommand(args, homeDirectory()));
+    return;
+  }
+  if (command === "asset") {
+    await runAssetCommand(args);
     return;
   }
   if (command === "sync") {

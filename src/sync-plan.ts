@@ -254,19 +254,21 @@ export const prepareSync = async (
   };
 };
 
+export const syncProjectionResultFromPlan = (plan: SyncPlan): SyncProjectionResult => ({
+  changed: plan.changed,
+  advisoryFreshness: plan.advisoryFreshness,
+  diagnostics: plan.diagnostics,
+  fingerprint: plan.fingerprint,
+  inputs: plan.inputs,
+  reportPath: plan.reportPath,
+  sitemapPath: plan.sitemapPath,
+});
+
 export const commitSyncPlan = async (plan: SyncPlan): Promise<SyncProjectionResult> => {
   if (plan.changed) {
     await mkdir(dirname(plan.reportPath), { recursive: true });
     if (plan.reportChanged) await writeFileAtomically(plan.reportPath, plan.report, 0o644);
     if (plan.sitemapChanged) await writeFileAtomically(plan.sitemapPath, plan.sitemap, 0o644);
   }
-  return {
-    changed: plan.changed,
-    advisoryFreshness: plan.advisoryFreshness,
-    diagnostics: plan.diagnostics,
-    fingerprint: plan.fingerprint,
-    inputs: plan.inputs,
-    reportPath: plan.reportPath,
-    sitemapPath: plan.sitemapPath,
-  };
+  return syncProjectionResultFromPlan(plan);
 };
