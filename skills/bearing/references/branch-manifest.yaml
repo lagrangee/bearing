@@ -1,13 +1,9 @@
 schemaVersion: 1
-phase: migrate
+phase: contract
 publicEntry: skills/bearing/SKILL.md
 progressiveLoading:
   rule: Load at most one selected branch after public routing; direct executor continuation loads zero branches.
   internalBranchesReenterPublicRouter: false
-  legacyEntries:
-    packagedCompatibility: true
-    freshSurfaceExposure: false
-    ownedUpgradeRemoval: deferred-to-contract
 sharedContracts:
   - key: typed-inspection
     reference: skills/bearing/references/shared/typed-inspection.md
@@ -28,41 +24,33 @@ publicSharedContracts:
 branches:
   - key: setup
     reference: skills/bearing/references/branches/setup.md
-    legacyEntry: skills/bearing-setup/SKILL.md
     sharedContracts:
       - planning-transaction
   - key: summary
     reference: skills/bearing/references/branches/summary.md
-    legacyEntry: skills/bearing-summary/SKILL.md
     sharedContracts:
       - planning-transaction
   - key: roadmap
     reference: skills/bearing/references/branches/roadmap.md
-    legacyEntry: skills/bearing-roadmap/SKILL.md
     sharedContracts:
       - planning-transaction
   - key: milestone-gate
     reference: skills/bearing/references/branches/milestone-gate.md
-    legacyEntry: skills/bearing-milestone-gate/SKILL.md
     sharedContracts:
       - planning-transaction
   - key: alignment-check
     reference: skills/bearing/references/branches/alignment-check.md
-    legacyEntry: skills/bearing-alignment-check/SKILL.md
     sharedContracts:
       - planning-transaction
   - key: planning-audit
     reference: skills/bearing/references/branches/planning-audit.md
-    legacyEntry: skills/bearing-planning-audit/SKILL.md
     sharedContracts:
       - planning-transaction
   - key: planning-review
     reference: skills/bearing/references/branches/planning-review.md
-    legacyEntry: skills/bearing-planning-review/SKILL.md
     sharedContracts:
       - planning-transaction
   - key: next-work
     reference: skills/bearing/references/branches/next-work.md
-    legacyEntry: skills/bearing-next-work/SKILL.md
     sharedContracts:
       - planning-transaction

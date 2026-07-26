@@ -105,12 +105,12 @@ const validateEffortWork = (snapshot: NativeConsistencySnapshot, context: Refine
   for (const [position, effort] of trusted(snapshot.efforts).entries()) {
     const mapsUncertain = nativeProjectionUncertainForEffort(
       snapshot.maps,
-      effort.source,
+      effort,
       snapshot.sources,
     );
     const ticketsUncertain = nativeProjectionUncertainForEffort(
       snapshot.tickets,
-      effort.source,
+      effort,
       snapshot.sources,
     );
     validateFrontier(effort, position, tickets, !ticketsUncertain, context);

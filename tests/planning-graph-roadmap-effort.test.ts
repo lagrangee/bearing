@@ -49,7 +49,7 @@ Represent the first boundary.
   );
   await writeFixture(
     root,
-    ".scratch/work/effort.md",
+    ".bearing/state/efforts/test.md",
     `---
 Type: effort
 ID: effort:test
@@ -59,6 +59,10 @@ Target gate: gate:test
 Authorities:
   - authority:architecture
 Citations: []
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/work
 ---
 
 # Effort: Test
@@ -74,7 +78,7 @@ Exercise the full Effort context.
   );
   await writeFixture(
     root,
-    ".scratch/optional/effort.md",
+    ".bearing/state/efforts/optional.md",
     `---
 Type: effort
 ID: effort:optional
@@ -83,6 +87,10 @@ Roadmap: roadmap:test
 Target gate: gate:first
 Authorities: []
 Citations: []
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/optional
 ---
 
 # Effort: Optional
@@ -227,7 +235,7 @@ test("Effort closure retains the Effort when its required Target Gate is broken"
   const root = await createValidBearingRepo();
   await writeFixture(
     root,
-    ".scratch/broken/effort.md",
+    ".bearing/state/efforts/broken.md",
     `---
 Type: effort
 ID: effort:broken
@@ -236,6 +244,10 @@ Roadmap: roadmap:test
 Target gate: gate:missing
 Authorities: []
 Citations: []
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/broken
 ---
 
 # Broken Target Effort
@@ -284,13 +296,17 @@ test("Effort closure excludes unscopable native work from an unrelated invalid E
   const root = await createValidBearingRepo();
   await writeFixture(
     root,
-    ".scratch/uncertain/effort.md",
+    ".bearing/state/efforts/uncertain.md",
     `---
 Type: effort
 ID: effort:uncertain
 Title: Uncertain Effort
 Roadmap: roadmap:test
 Target gate: gate:test
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/uncertain
 ---
 
 # Invalid Effort
@@ -341,7 +357,7 @@ Exercise a broken nested ordering relation.
   );
   await writeFixture(
     root,
-    ".scratch/detached/effort.md",
+    ".bearing/state/efforts/detached.md",
     `---
 Type: effort
 ID: effort:detached
@@ -350,6 +366,10 @@ Roadmap: roadmap:test
 Target gate: gate:detached
 Authorities: []
 Citations: []
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/detached
 ---
 
 # Detached Effort
@@ -383,7 +403,7 @@ test("Effort closure reports missing and invalid cited Assets in the Effort scop
   const root = await createValidBearingRepo();
   await writeFixture(
     root,
-    ".scratch/work/effort.md",
+    ".bearing/state/efforts/test.md",
     `---
 Type: effort
 ID: effort:test
@@ -396,6 +416,10 @@ Citations:
     Note: Missing evidence must not disappear.
   - Asset: asset:duplicate
     Note: Ambiguous evidence must not disappear.
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/work
 ---
 
 # Effort: Test

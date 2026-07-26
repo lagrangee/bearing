@@ -82,7 +82,7 @@ Issues 与 Discussions 都是公开 GitHub 数据。请勿提交 tokens、secret
 npx @lagrangee/bearing
 ```
 
-Public Preview 的安装入口是无参数 wizard。它会在写入前预览 managed targets，安装版本匹配的 CLI、protocol、templates 和 Agent Surface skills；全局安装期间不会初始化仓库或启动 Portal。
+Public Preview 的安装入口是无参数 wizard。它会在写入前预览 managed targets，安装版本匹配的 CLI 与唯一的 `bearing` Agent Surface skill；全局安装期间不会初始化仓库或启动 Portal。
 
 当你主动选择 update 或 repair Bearing 时，重新运行同一个命令。Update 会 stage 一份完整
 bundle，并把它作为整体切换，或恢复上一份完整 bundle。Bearing 不会在后台检查更新。

@@ -47,7 +47,7 @@ Usage:
 Commands:
   <none>   Run the install/update wizard for the detected local Agent Surfaces.
   install  Install the global bundle, CLI, and skills for selected Agent Surfaces.
-  setup    Enable Bearing in one repository without copying protocol or skills into it.
+  setup    Enable Bearing in one repository without copying package-owned contracts or skills into it.
   deactivate  Remove repository enablement and managed pointers; preserve state and native work.
   purge    Remove only the repository .bearing namespace and managed pointers after confirmation.
   asset    Register factual durable-output metadata in the repository Asset Registry.
@@ -190,7 +190,7 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
       ...(provider === undefined ? {} : { provider }),
     });
     const cutover =
-      plan.lifecycle.legacyTransitionRequired === true &&
+      plan.recoveryDiagnosis?.classification === "legacy-cutover" &&
       provider !== undefined &&
       parsed.values["cutover-at"] !== undefined
         ? await inspectLegacyCutoverPlan(plan.repoRoot, {
@@ -206,7 +206,20 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
           })
         : undefined;
     process.stdout.write(
-      `${JSON.stringify(cutover === undefined ? plan : { ...plan, cutover }, null, 2)}\n`,
+      `${JSON.stringify(
+        cutover === undefined
+          ? plan
+          : {
+              ...plan,
+              canApply:
+                parsed.values["accept-upgrade-direction"] === true &&
+                parsed.values["confirm-cutover"] === true &&
+                parsed.values["cutover-plan-token"] === cutover.confirmationToken,
+              cutover,
+            },
+        null,
+        2,
+      )}\n`,
     );
     return;
   }

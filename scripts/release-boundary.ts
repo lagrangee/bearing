@@ -36,9 +36,7 @@ export const requiredPackagePaths = [
   "CHANGELOG.md",
   "LICENSE",
   "THIRD_PARTY_NOTICES",
-  "docs/agents/bearing/protocol.md",
   "skills/bearing/SKILL.md",
-  "templates/executor-profiles/generic-agent.md",
 ] as const;
 
 const assertSafeReadmeTarget = (target: string): void => {

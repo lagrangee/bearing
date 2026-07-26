@@ -194,6 +194,16 @@ describe("Project Catalog contract", () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
     await mkdir(join(homeDir, ".bearing"), { recursive: true });
     await writeFile(join(homeDir, ".bearing/catalog.json"), "{malformed\n");
+    const contractLocator = "docs/agents/issue-tracker.md";
+    await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
+    await writeFile(
+      join(repoRoot, contractLocator),
+      "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
+    );
+    await writeFile(
+      join(repoRoot, "AGENTS.md"),
+      `Work-management contract: \`${contractLocator}\`\n`,
+    );
 
     // When: reconcile completes repo-local setup before Catalog registration.
     const result = await reconcileRepository({
@@ -201,7 +211,8 @@ describe("Project Catalog contract", () => {
       packageRoot: process.cwd(),
       homeDir,
       surfaces: ["agent-skills"],
-      profiles: ["generic-agent"],
+      profiles: [],
+      provider: { key: "matt-skills/v1", contractLocator },
     });
 
     // Then: the split outcome is partial, while the valid repo-local manifest remains committed.

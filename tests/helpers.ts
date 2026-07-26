@@ -34,8 +34,9 @@ export const createValidBearingRepo = async (): Promise<string> => {
       {
         schemaVersion: 1,
         packageVersion: "0.0.0-g2",
+        status: "active",
         surfaces: ["agent-skills"],
-        executorProfiles: ["generic-agent"],
+        executorProfiles: [],
       },
       null,
       2,
@@ -141,7 +142,7 @@ Assets: []
   );
   await writeFixture(
     root,
-    ".scratch/work/effort.md",
+    ".bearing/state/efforts/test.md",
     `---
 Type: effort
 ID: effort:test
@@ -150,6 +151,10 @@ Roadmap: roadmap:test
 Target gate: gate:test
 Authorities: []
 Citations: []
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/work
 ---
 
 # Effort: Test

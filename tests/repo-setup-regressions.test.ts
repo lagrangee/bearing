@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { access, chmod, link, lstat, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  link,
+  lstat,
+  mkdir,
+  readFile,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { BEARING_POINTER } from "../src/agent-surface-entry";
 import { applyInstallPlans } from "../src/installer";
@@ -7,6 +17,17 @@ import { setupRepository } from "../src/repo-setup";
 import { makeTemporaryDirectory } from "./helpers";
 
 const pointer = BEARING_POINTER;
+const contractLocator = "docs/agents/issue-tracker.md";
+const workManagementPointer = `Work-management contract: \`${contractLocator}\``;
+const provider = { key: "matt-skills/v1" as const, contractLocator };
+
+const writeMattProviderContract = async (repoRoot: string): Promise<void> => {
+  await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
+  await writeFile(
+    join(repoRoot, contractLocator),
+    "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
+  );
+};
 
 describe("repository setup review regressions", () => {
   test("keeps the managed pointer inside the accepted English activation boundary", () => {
@@ -21,13 +42,15 @@ describe("repository setup review regressions", () => {
 
   test("creates state and cache namespaces and removes an unselected surface pointer", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
-    await writeFile(join(repoRoot, "AGENTS.md"), "# Agent rules\n");
-    await writeFile(join(repoRoot, "CLAUDE.md"), "# Claude rules\n");
+    await writeMattProviderContract(repoRoot);
+    await writeFile(join(repoRoot, "AGENTS.md"), `# Agent rules\n\n${workManagementPointer}\n`);
+    await writeFile(join(repoRoot, "CLAUDE.md"), `# Claude rules\n\n${workManagementPointer}\n`);
     await setupRepository({
       repoRoot,
       packageRoot: process.cwd(),
       surfaces: ["agent-skills", "claude"],
-      profiles: ["generic-agent"],
+      profiles: [],
+      provider,
     });
 
     await access(join(repoRoot, ".bearing/state"));
@@ -38,7 +61,9 @@ describe("repository setup review regressions", () => {
       repoRoot,
       packageRoot: process.cwd(),
       surfaces: ["agent-skills"],
-      profiles: ["generic-agent"],
+      profiles: [],
+      provider,
+      confirmRepair: true,
     });
     const claude = await readFile(join(repoRoot, "CLAUDE.md"), "utf8");
     const manifest = JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8"));
@@ -51,7 +76,8 @@ describe("repository setup review regressions", () => {
       repoRoot,
       packageRoot: process.cwd(),
       surfaces: ["agent-skills"],
-      profiles: ["generic-agent"],
+      profiles: [],
+      provider,
     });
     expect(rerun.outcome).toBe("no-op");
   });
@@ -73,6 +99,7 @@ describe("repository setup review regressions", () => {
   test("rejects a linked root pointer before reading its target", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
     const outside = await makeTemporaryDirectory("bearing-outside-");
+    await writeMattProviderContract(repoRoot);
     await symlink(outside, join(repoRoot, "AGENTS.md"));
 
     await expect(
@@ -80,7 +107,8 @@ describe("repository setup review regressions", () => {
         repoRoot,
         packageRoot: process.cwd(),
         surfaces: ["agent-skills"],
-        profiles: ["generic-agent"],
+        profiles: [],
+        provider,
       }),
     ).rejects.toThrow("symbolic link");
     await expect(access(join(repoRoot, ".bearing/manifest.json"))).rejects.toThrow();
@@ -105,28 +133,36 @@ describe("repository setup review regressions", () => {
   test("rejects duplicate managed marker blocks", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
     const block = `<!-- bearing:managed-start -->\n${pointer}\n<!-- bearing:managed-end -->`;
-    await writeFile(join(repoRoot, "AGENTS.md"), `${block}\n${block}\n`);
+    await writeMattProviderContract(repoRoot);
+    await writeFile(
+      join(repoRoot, "AGENTS.md"),
+      `${workManagementPointer}\n\n${block}\n${block}\n`,
+    );
 
     await expect(
       setupRepository({
         repoRoot,
         packageRoot: process.cwd(),
         surfaces: ["agent-skills"],
-        profiles: ["generic-agent"],
+        profiles: [],
+        provider,
       }),
     ).rejects.toThrow("malformed Bearing managed block");
   });
 
   test("preserves surrounding root pointer bytes across selection and removal", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
-    const original = "# Agent rules\n\n  ";
+    await writeMattProviderContract(repoRoot);
+    const original = `# Agent rules\n\n${workManagementPointer}\n\n  `;
     await writeFile(join(repoRoot, "AGENTS.md"), original);
+    await writeFile(join(repoRoot, "CLAUDE.md"), `${workManagementPointer}\n`);
 
     await setupRepository({
       repoRoot,
       packageRoot: process.cwd(),
       surfaces: ["agent-skills"],
-      profiles: ["generic-agent"],
+      profiles: [],
+      provider,
     });
     expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toStartWith(original);
 
@@ -134,7 +170,9 @@ describe("repository setup review regressions", () => {
       repoRoot,
       packageRoot: process.cwd(),
       surfaces: ["claude"],
-      profiles: ["generic-agent"],
+      profiles: [],
+      provider,
+      confirmRepair: true,
     });
     const removed = await readFile(join(repoRoot, "AGENTS.md"), "utf8");
     expect(removed).toStartWith(original);

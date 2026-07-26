@@ -99,8 +99,6 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/dist/bundle-dependencies.json",
         "package/dist/cli.js",
         ...portalFiles,
-        "package/docs/agents/bearing/executor-profiles/README.md",
-        "package/docs/agents/bearing/protocol.md",
         "package/docs/cli.md",
         "package/docs/cli.zh-CN.md",
         "package/docs/data-and-security.md",
@@ -112,14 +110,6 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/docs/troubleshooting.md",
         "package/docs/troubleshooting.zh-CN.md",
         "package/package.json",
-        "package/skills/bearing-alignment-check/SKILL.md",
-        "package/skills/bearing-milestone-gate/SKILL.md",
-        "package/skills/bearing-next-work/SKILL.md",
-        "package/skills/bearing-planning-audit/SKILL.md",
-        "package/skills/bearing-planning-review/SKILL.md",
-        "package/skills/bearing-roadmap/SKILL.md",
-        "package/skills/bearing-setup/SKILL.md",
-        "package/skills/bearing-summary/SKILL.md",
         "package/skills/bearing/SKILL.md",
         "package/skills/bearing/references/branch-manifest.yaml",
         "package/skills/bearing/references/branches/alignment-check.md",
@@ -134,11 +124,6 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/skills/bearing/references/shared/executor-continuation.md",
         "package/skills/bearing/references/shared/planning-transaction.md",
         "package/skills/bearing/references/shared/typed-inspection.md",
-        "package/templates/executor-profiles/generic-agent.md",
-        "package/templates/executor-profiles/matt-implement.md",
-        "package/templates/executor-profiles/omo-start-work.md",
-        "package/templates/executor-profiles/superpowers-executing-plans.md",
-        "package/templates/executor-profiles/superpowers-subagent-driven-development.md",
       ].sort(),
     );
 
@@ -250,18 +235,6 @@ test("the packed CLI runs through offline local npm exec", async () => {
     await expect(access(join(syncRoot, ".agents/skills/bearing/SKILL.md"))).rejects.toThrow();
     await rename(retainedState, join(syncRoot, ".bearing/state"));
     await rename(retainedScratch, join(syncRoot, ".scratch"));
-    const legacyEffortPath = join(syncRoot, ".scratch/work/effort.md");
-    const canonicalEffortPath = join(syncRoot, ".bearing/state/efforts/test.md");
-    const legacyEffort = await readFile(legacyEffortPath, "utf8");
-    await mkdir(join(syncRoot, ".bearing/state/efforts"), { recursive: true });
-    await writeFile(
-      canonicalEffortPath,
-      legacyEffort.replace(
-        "Citations: []",
-        "Citations: []\nWork binding:\n  Provider: matt-skills/v1\n  Driver: local-markdown\n  Native scope: .scratch/work",
-      ),
-    );
-    await rm(legacyEffortPath);
 
     const portalPort = await reservePort();
     const portal = Bun.spawn(

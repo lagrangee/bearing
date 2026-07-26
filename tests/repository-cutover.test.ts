@@ -2,8 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { access, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeInstallTarget } from "../src/installer";
-import { setupRepository } from "../src/repo-setup";
-import { inspectLegacyCutoverPlan } from "../src/repository-cutover";
+import { cutOverLegacyRepository, inspectLegacyCutoverPlan } from "../src/repository-cutover";
 import { prepareSync } from "../src/sync-plan";
 import { makeTemporaryDirectory, writeFixture } from "./helpers";
 
@@ -234,7 +233,11 @@ describe("0.1.0 repository cutover", () => {
     expect(result.exitCode, result.stderr).toBe(0);
     const plan = JSON.parse(result.stdout);
     expect(plan).toMatchObject({
-      lifecycle: { kind: "active", legacyTransitionRequired: true },
+      lifecycle: { kind: "invalid-or-unsupported" },
+      recoveryDiagnosis: {
+        classification: "legacy-cutover",
+        blockers: [{ cause: "recognized-older-schema" }],
+      },
       canApply: false,
       cutover: {
         sourceSchema: "bearing-repository/v0.1.0",
@@ -551,7 +554,8 @@ describe("0.1.0 repository cutover", () => {
     });
 
     await expect(
-      setupRepository(
+      cutOverLegacyRepository(
+        repoRoot,
         {
           repoRoot,
           packageRoot: process.cwd(),
@@ -598,7 +602,8 @@ describe("0.1.0 repository cutover", () => {
     let writes = 0;
 
     await expect(
-      setupRepository(
+      cutOverLegacyRepository(
+        repoRoot,
         {
           repoRoot,
           packageRoot: process.cwd(),
@@ -633,7 +638,7 @@ describe("0.1.0 repository cutover", () => {
       '{"verified":false}\n',
     );
     await expect(
-      setupRepository({
+      cutOverLegacyRepository(repoRoot, {
         repoRoot,
         packageRoot: process.cwd(),
         surfaces: ["agent-skills"],

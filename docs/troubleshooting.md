@@ -11,7 +11,7 @@ Re-run the install wizard and read the target preview. Bearing refuses conflicti
 ## Interrupted update or corrupted bundle
 
 Run the same explicit `npx @lagrangee/bearing` lifecycle entrypoint again. Bearing stages and
-validates the complete CLI, protocol, templates, and skills bundle before switching it. A failed
+validates the complete CLI and single-skill bundle before switching it. A failed
 switch restores the previous complete bundle; it does not touch repository state. Do not repair one
 CLI or skill file independently, because that would split the version-compatible bundle.
 

@@ -102,6 +102,24 @@ const recoveryInventorySchema = z
       });
     });
   });
+
+const assertLegacySourceSyncClean = async (root: string): Promise<void> => {
+  const sourceSync = await prepareSync(root);
+  const diagnostics = sourceSync.diagnostics.filter(
+    (diagnostic) =>
+      !(
+        diagnostic.code === "invalid-bearing-manifest" &&
+        diagnostic.target === ".bearing/manifest.json"
+      ),
+  );
+  if (diagnostics.length > 0) {
+    throw new Error(
+      `Legacy source cannot be cut over safely; resolve diagnostics first: ${diagnostics
+        .map((diagnostic) => `${diagnostic.code}(${diagnostic.target})`)
+        .join(", ")}.`,
+    );
+  }
+};
 const recoveryReceiptSchema = z.strictObject({
   schemaVersion: z.literal(1),
   kind: z.literal("bearing-recovery-bundle-receipt"),
@@ -691,13 +709,14 @@ const cutoverConfirmationToken = (
   );
 
 export const cutOverLegacyRepository = async (
-  root: string,
+  unresolvedRoot: string,
   options: RepositorySetupOptions,
   hooks: Readonly<{
     writeTarget?: InstallTargetWriter;
     writeRecoveryTarget?: InstallTargetWriter;
   }> = {},
 ): Promise<RepositorySetupResult> => {
+  const root = await resolveRepositoryRoot(unresolvedRoot);
   if (options.acceptUpgradeDirection !== true) {
     throw new Error(
       "Legacy repository cutover requires --accept-upgrade-direction; no repository writes were made.",
@@ -730,14 +749,7 @@ export const cutOverLegacyRepository = async (
     throw new Error("Legacy cutover requires one trustworthy matt-skills/v1 provider contract.");
   }
   await convertEfforts(root, effortLocators, validation.driver);
-  const sourceSync = await prepareSync(root);
-  if (sourceSync.diagnostics.length > 0) {
-    throw new Error(
-      `Legacy source cannot be cut over safely; resolve diagnostics first: ${sourceSync.diagnostics
-        .map((diagnostic) => `${diagnostic.code}(${diagnostic.target})`)
-        .join(", ")}.`,
-    );
-  }
+  await assertLegacySourceSyncClean(root);
   const bundleRelative = posix.join(".bearing/backups", `0.1.0-to-0.1.1-${timestamp.suffix}`);
   const bundleRoot = join(root, bundleRelative);
   const recoveryEntries = await buildRecoveryEntries(root, effortLocators);
@@ -918,14 +930,7 @@ export const inspectLegacyCutoverPlan = async (
     throw new Error("Legacy cutover requires one trustworthy matt-skills/v1 provider contract.");
   }
   await convertEfforts(root, effortLocators, validation.driver);
-  const sourceSync = await prepareSync(root);
-  if (sourceSync.diagnostics.length > 0) {
-    throw new Error(
-      `Legacy source cannot be cut over safely; resolve diagnostics first: ${sourceSync.diagnostics
-        .map((diagnostic) => `${diagnostic.code}(${diagnostic.target})`)
-        .join(", ")}.`,
-    );
-  }
+  await assertLegacySourceSyncClean(root);
   const recoveryEntries = await buildRecoveryEntries(root, effortLocators);
   const integrationPlans = await buildIntegrationPlans(
     root,

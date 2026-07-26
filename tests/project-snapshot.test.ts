@@ -210,11 +210,11 @@ Can the diagnostic remain plain?
     ".scratch/work/map.md",
     map.replace("Status: resolved", "Status: **bad**"),
   );
-  const effortPath = join(root, ".scratch/work/effort.md");
+  const effortPath = join(root, ".bearing/state/efforts/test.md");
   const effort = await readFile(effortPath, "utf8");
   await writeFixture(
     root,
-    ".scratch/work/effort.md",
+    ".bearing/state/efforts/test.md",
     effort.replace(
       "Citations: []",
       "Citations:\n  - Asset: asset:missing\n    Note: Inspect the missing evidence.",

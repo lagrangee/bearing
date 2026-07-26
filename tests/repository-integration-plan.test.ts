@@ -1030,7 +1030,7 @@ Review an existing patch.
     ).rejects.toThrow();
   });
 
-  test("classifies legacy Active, dependency-invalid Deactivated, and Invalid repositories from inspectable facts", async () => {
+  test("contracts legacy manifests and classifies dependency-invalid Deactivated and Invalid repositories from inspectable facts", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-plan-home-");
     const activeRoot = await makeTemporaryDirectory("bearing-plan-active-");
     const deactivatedRoot = await makeTemporaryDirectory("bearing-plan-deactivated-");
@@ -1061,7 +1061,11 @@ Review an existing patch.
 
     expect(activeResult.exitCode).toBe(0);
     expect(JSON.parse(activeResult.stdout)).toMatchObject({
-      lifecycle: { kind: "active", legacyTransitionRequired: true },
+      lifecycle: { kind: "invalid-or-unsupported" },
+      recoveryDiagnosis: {
+        classification: "legacy-cutover",
+        blockers: [{ cause: "recognized-older-schema" }],
+      },
       canApply: false,
     });
     expect(deactivatedResult.exitCode).toBe(0);
@@ -1196,7 +1200,11 @@ For every project request, load and follow the global \`bearing\` skill as the g
   test("refuses an Apply when a planned target changes before precondition re-read", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-plan-race-");
     const agentsPath = join(repoRoot, "AGENTS.md");
-    await writeFile(agentsPath, "# Before planning\n");
+    const contractLocator = await writeMattProviderFixture(repoRoot);
+    await writeFile(
+      agentsPath,
+      `# Before planning\n\nWork-management contract: \`${contractLocator}\`\n`,
+    );
 
     await expect(
       setupRepository(
@@ -1204,7 +1212,8 @@ For every project request, load and follow the global \`bearing\` skill as the g
           repoRoot,
           packageRoot: process.cwd(),
           surfaces: ["agent-skills"],
-          profiles: ["generic-agent"],
+          profiles: [],
+          provider: { key: "matt-skills/v1", contractLocator },
         },
         {
           afterPlan: async () => {
@@ -1212,7 +1221,7 @@ For every project request, load and follow the global \`bearing\` skill as the g
           },
         },
       ),
-    ).rejects.toThrow("changed after repository integration planning");
+    ).rejects.toThrow("changed after Fresh Setup review");
 
     expect(await readFile(agentsPath, "utf8")).toBe("# Concurrent user edit\n");
     await expect(access(join(repoRoot, ".bearing"))).rejects.toThrow();
@@ -1221,7 +1230,8 @@ For every project request, load and follow the global \`bearing\` skill as the g
   test("restores prior bytes and removes created namespaces when repository Apply fails", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-plan-rollback-");
     const agentsPath = join(repoRoot, "AGENTS.md");
-    const originalAgents = "# Preserve these instructions\n";
+    const contractLocator = await writeMattProviderFixture(repoRoot);
+    const originalAgents = `# Preserve these instructions\n\nWork-management contract: \`${contractLocator}\`\n`;
     await writeFile(agentsPath, originalAgents);
 
     await expect(
@@ -1230,7 +1240,8 @@ For every project request, load and follow the global \`bearing\` skill as the g
           repoRoot,
           packageRoot: process.cwd(),
           surfaces: ["agent-skills"],
-          profiles: ["generic-agent"],
+          profiles: [],
+          provider: { key: "matt-skills/v1", contractLocator },
         },
         {
           writeTarget: async (plan, ordinal) => {

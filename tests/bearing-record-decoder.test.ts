@@ -18,6 +18,7 @@ test("decodes every owned Bearing Record once behind one generation interface", 
     "alignment-check",
     "asset-registry",
     "authority",
+    "effort",
     "milestone-gate",
     "next-work-guidance",
     "planning-audit",
@@ -25,7 +26,6 @@ test("decodes every owned Bearing Record once behind one generation interface", 
     "project-summary",
     "roadmap-index",
     "roadmap",
-    "effort",
   ]);
   expect(decoded.records.every((record) => record.trust === "available")).toBe(true);
   expect(decoded.metrics).toEqual({
@@ -71,7 +71,7 @@ test("isolates valid Planning Audit findings and Asset entries as partial record
   await writeFixture(root, ".bearing/state/assets.md", partialAssets());
   await writeFixture(
     root,
-    ".scratch/work/effort.md",
+    ".bearing/state/efforts/test.md",
     `---
 Type: effort
 ID: effort:test
@@ -83,6 +83,10 @@ Authorities:
 Citations:
   - Asset: asset:healthy
     Note: Preserve the healthy partial member.
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/work
 ---
 
 # Effort: Test

@@ -21,7 +21,7 @@ const inspect = async (root: string, kind: "roadmap" | "gate" | "effort", id: st
 const addRev002Context = async (root: string): Promise<void> => {
   await writeFixture(
     root,
-    ".scratch/second/effort.md",
+    ".bearing/state/efforts/second.md",
     `---
 Type: effort
 ID: effort:second
@@ -31,6 +31,10 @@ Target gate: gate:test
 Authorities:
   - authority:architecture
 Citations: []
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/second
 ---
 
 # Effort: Second
@@ -116,7 +120,7 @@ Assets:
 test("real inspect gate command returns one structured captured closure and writes only disposable caches", async () => {
   const root = await createValidBearingRepo();
   await addRev002Context(root);
-  const effortPath = join(root, ".scratch/work/effort.md");
+  const effortPath = join(root, ".bearing/state/efforts/test.md");
   const before = await readFile(effortPath, "utf8");
 
   const result = await inspect(root, "gate", "gate:test");
@@ -145,11 +149,12 @@ test("real inspect gate command returns one structured captured closure and writ
     tickets: [{ value: { reference: ".scratch/second/issues/01-finish.md" } }],
     alignmentChecks: [{ value: { id: "alignment-check:second" } }],
     evidence: [{ value: { id: "asset:second-evidence" } }],
-    source: { displayLocator: ".scratch/second/effort.md" },
+    source: { displayLocator: ".bearing/state/efforts/second.md" },
   });
   expect(
     output.context.sources.some(
-      (source: { displayLocator: string }) => source.displayLocator === ".scratch/second/effort.md",
+      (source: { displayLocator: string }) =>
+        source.displayLocator === ".bearing/state/efforts/second.md",
     ),
   ).toBe(true);
   expect(await readFile(effortPath, "utf8")).toBe(before);
@@ -217,7 +222,7 @@ test("real inspect roadmap and effort commands use the same complete typed closu
     ".bearing/state/alignment-checks/second.md",
     ".bearing/state/authorities/architecture.md",
     ".scratch/second/issues/01-finish.md",
-    ".scratch/second/effort.md",
+    ".bearing/state/efforts/second.md",
   ]) {
     await writeFixture(perturbedRoot, reference, await readFile(join(root, reference), "utf8"));
   }
@@ -295,7 +300,7 @@ Exercise a broken nested ordering relation.
   );
   await writeFixture(
     root,
-    ".scratch/detached/effort.md",
+    ".bearing/state/efforts/detached.md",
     `---
 Type: effort
 ID: effort:detached
@@ -304,6 +309,10 @@ Roadmap: roadmap:test
 Target gate: gate:detached
 Authorities: []
 Citations: []
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/detached
 ---
 
 # Detached Effort

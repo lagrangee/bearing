@@ -214,7 +214,7 @@ test("classifies Gate readiness per contributor when the Effort projection is pa
   }
   const issue = {
     code: "invalid-effort-body",
-    target: ".scratch/portal/effort.md",
+    target: ".bearing/state/efforts/portal.md",
     message: "One contributing Effort cannot enter the normalized read model.",
   };
   const partialEfforts = {

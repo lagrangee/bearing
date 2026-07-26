@@ -85,6 +85,7 @@ const seedNestedManifestSymlink = async (
   const externalBytes = `${JSON.stringify({
     schemaVersion: 1,
     packageVersion: "external",
+    status: "active",
     surfaces: ["agent-skills"],
     executorProfiles: ["generic-agent"],
   })}\n`;
@@ -500,6 +501,16 @@ For every project request, load and follow the global \`bearing\` skill as the g
   test("setup fails closed instead of overwriting a newer repository schema", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
     await mkdir(join(repoRoot, ".bearing"));
+    const contractLocator = "docs/agents/issue-tracker.md";
+    await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
+    await writeFile(
+      join(repoRoot, contractLocator),
+      "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
+    );
+    await writeFile(
+      join(repoRoot, "AGENTS.md"),
+      `Work-management contract: \`${contractLocator}\`\n`,
+    );
     const manifestPath = join(repoRoot, ".bearing/manifest.json");
     const newer = `${JSON.stringify({ schemaVersion: 2, packageVersion: "0.2.0" })}\n`;
     await writeFile(manifestPath, newer);
@@ -509,9 +520,10 @@ For every project request, load and follow the global \`bearing\` skill as the g
         repoRoot,
         packageRoot: process.cwd(),
         surfaces: ["agent-skills"],
-        profiles: ["generic-agent"],
+        profiles: [],
+        provider: { key: "matt-skills/v1", contractLocator },
       }),
-    ).rejects.toThrow("newer Bearing schema 2");
+    ).rejects.toThrow("cannot interpret repository schema 2");
     expect(await readFile(manifestPath, "utf8")).toBe(newer);
   });
 });

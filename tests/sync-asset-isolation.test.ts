@@ -9,7 +9,7 @@ describe("bearing sync Asset Registry isolation", () => {
     await writeFixture(root, "evidence/healthy.txt", "healthy\n");
     await writeFixture(
       root,
-      ".scratch/work/effort.md",
+      ".bearing/state/efforts/test.md",
       `---
 Type: effort
 ID: effort:test
@@ -20,6 +20,10 @@ Authorities: []
 Citations:
   - Asset: asset:healthy
     Note: Preserve this healthy referenced input.
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/work
 ---
 
 # Effort: Test
@@ -87,12 +91,12 @@ Assets:
     await writeFixture(root, "evidence/trusted.txt", "trusted-v1\n");
     await writeFixture(
       root,
-      ".scratch/work/effort.md",
+      ".bearing/state/efforts/invalid.md",
       effortWithCitation("effort:invalid", "asset:untrusted", "    Unexpected: true"),
     );
     await writeFixture(
       root,
-      ".scratch/valid/effort.md",
+      ".bearing/state/efforts/valid.md",
       effortWithCitation("effort:valid", "asset:trusted"),
     );
     await writeFixture(
@@ -110,7 +114,7 @@ Assets:
     expect(initial.diagnostics).toContainEqual({
       code: "invalid-bearing-schema",
       impact: "blocking",
-      target: ".scratch/work/effort.md",
+      target: ".bearing/state/efforts/invalid.md",
       message: "Bearing frontmatter does not match its minimum schema.",
     });
     expect(initial.inputs).not.toContain("evidence/untrusted.txt");
@@ -136,7 +140,7 @@ Assets:
     await writeFixture(root, "evidence/healthy.md", "healthy-v1\n");
     await writeFixture(
       root,
-      ".scratch/work/effort.md",
+      ".bearing/state/efforts/test.md",
       effortWithCitation("effort:test", "asset:healthy"),
     );
     await writeFixture(
@@ -182,7 +186,7 @@ Assets:
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({
         code: "broken-canonical-reference",
-        target: ".scratch/work/effort.md",
+        target: ".bearing/state/efforts/test.md",
       }),
     );
     expect(result.diagnostics).toContainEqual(
@@ -206,7 +210,11 @@ Authorities: []
 Citations:
   - Asset: ${asset}
     Note: Exercise trusted citation isolation.
-${extra === "" ? "" : `${extra}\n`}---
+${extra === "" ? "" : `${extra}\n`}Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/${id.slice("effort:".length)}
+---
 
 # Effort
 

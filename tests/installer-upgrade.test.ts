@@ -4,6 +4,7 @@ import {
   chmod,
   lstat,
   mkdir,
+  readdir,
   readFile,
   readlink,
   rm,
@@ -96,6 +97,218 @@ describe("Bearing kit installer", () => {
     expect(result.outcome).toBe("applied");
     expect(await readFile(bundleTarget, "utf8")).toBe("new package bytes\n");
     expect(await readFile(join(surfaceTarget, "SKILL.md"), "utf8")).toBe("new package bytes\n");
+  });
+
+  test("atomically removes obsolete owned skill symlinks from both Agent Surfaces", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills", "claude"],
+    });
+    const obsoleteSource = join(homeDir, ".bearing/kit/current/skills/bearing-summary");
+    await mkdir(obsoleteSource, { recursive: true });
+    await writeFile(join(obsoleteSource, "SKILL.md"), "obsolete owned entry\n");
+    const obsoleteTargets = [
+      join(homeDir, ".agents/skills/bearing-summary"),
+      join(homeDir, ".claude/skills/bearing-summary"),
+    ];
+    for (const target of obsoleteTargets) await symlink(obsoleteSource, target, "dir");
+
+    const result = await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills", "claude"],
+    });
+
+    expect(result.outcome).toBe("applied");
+    for (const target of obsoleteTargets) {
+      await expect(access(target)).rejects.toThrow();
+      expect(result.changedTargets).toContain(target.slice(homeDir.length + 1));
+    }
+    await expect(access(obsoleteSource)).rejects.toThrow();
+    await access(join(homeDir, ".agents/skills/bearing/SKILL.md"));
+    await access(join(homeDir, ".claude/skills/bearing/SKILL.md"));
+  });
+
+  test("fails closed on a user-owned obsolete-name conflict without changing the bundle", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    const installedPackage = join(homeDir, ".bearing/kit/current/package.json");
+    const packageBefore = await readFile(installedPackage);
+    const conflict = join(homeDir, ".agents/skills/bearing-summary");
+    await mkdir(conflict, { recursive: true });
+    await writeFile(join(conflict, "SKILL.md"), "user-owned skill\n");
+
+    await expect(
+      installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] }),
+    ).rejects.toThrow("conflicts with existing content");
+
+    expect(await readFile(join(conflict, "SKILL.md"), "utf8")).toBe("user-owned skill\n");
+    expect(await readFile(installedPackage)).toEqual(packageBefore);
+    await access(join(homeDir, ".agents/skills/bearing/SKILL.md"));
+  });
+
+  test("revalidates an obsolete owned symlink immediately before removal", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    const obsoleteSource = join(homeDir, ".bearing/kit/current/skills/bearing-summary");
+    const obsoleteTarget = join(homeDir, ".agents/skills/bearing-summary");
+    const installedPackage = join(homeDir, ".bearing/kit/current/package.json");
+    const packageBefore = await readFile(installedPackage);
+    await mkdir(obsoleteSource, { recursive: true });
+    await writeFile(join(obsoleteSource, "SKILL.md"), "obsolete owned entry\n");
+    await symlink(obsoleteSource, obsoleteTarget, "dir");
+
+    await expect(
+      installKit(
+        { homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] },
+        {
+          afterObsoleteLinksInspected: async () => {
+            await rm(obsoleteTarget);
+            await writeFile(obsoleteTarget, "concurrent user content\n");
+          },
+        },
+      ),
+    ).rejects.toThrow("previous complete bundle was restored");
+
+    expect(await readFile(obsoleteTarget, "utf8")).toBe("concurrent user content\n");
+    expect(await readFile(installedPackage)).toEqual(packageBefore);
+  });
+
+  test("retires an obsolete owned symlink before a concurrent user target can appear", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    const obsoleteSource = join(homeDir, ".bearing/kit/current/skills/bearing-summary");
+    const obsoleteTarget = join(homeDir, ".agents/skills/bearing-summary");
+    await mkdir(obsoleteSource, { recursive: true });
+    await writeFile(join(obsoleteSource, "SKILL.md"), "obsolete owned entry\n");
+    await symlink(obsoleteSource, obsoleteTarget, "dir");
+
+    const result = await installKit(
+      { homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] },
+      {
+        afterObsoleteLinkQuarantined: async (target) => {
+          expect(target).toBe(obsoleteTarget);
+          await writeFile(target, "concurrent user content\n");
+        },
+      },
+    );
+
+    expect(result.outcome).toBe("applied");
+    expect(await readFile(obsoleteTarget, "utf8")).toBe("concurrent user content\n");
+    await expect(access(obsoleteSource)).rejects.toThrow();
+  });
+
+  test("rollback preserves a concurrently replaced managed-link post-image", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const userSkill = await makeTemporaryDirectory("bearing-user-skill-");
+    await writeFile(join(userSkill, "SKILL.md"), "concurrent user skill\n");
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    const concurrentTarget = join(homeDir, ".claude/skills/bearing");
+
+    await expect(
+      installKit(
+        {
+          homeDir,
+          packageRoot: process.cwd(),
+          surfaces: ["agent-skills", "claude"],
+        },
+        {
+          afterCurrentMoved: async () => {
+            await rm(concurrentTarget);
+            await symlink(userSkill, concurrentTarget, "dir");
+            throw new Error("injected switch failure after concurrent replacement");
+          },
+        },
+      ),
+    ).rejects.toThrow("installation and complete-bundle recovery both failed");
+
+    expect(await readlink(concurrentTarget)).toBe(userSkill);
+    expect(await readFile(join(concurrentTarget, "SKILL.md"), "utf8")).toBe(
+      "concurrent user skill\n",
+    );
+    await access(join(homeDir, ".bearing/kit/current/package.json"));
+    await access(join(homeDir, ".agents/skills/bearing/SKILL.md"));
+  });
+
+  test("preserves unknown transaction quarantine residue and reports recovery conflict", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    const obsoleteSource = join(homeDir, ".bearing/kit/current/skills/bearing-summary");
+    const obsoleteTarget = join(homeDir, ".agents/skills/bearing-summary");
+    await mkdir(obsoleteSource, { recursive: true });
+    await writeFile(join(obsoleteSource, "SKILL.md"), "obsolete owned entry\n");
+    await symlink(obsoleteSource, obsoleteTarget, "dir");
+
+    await expect(
+      installKit(
+        { homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] },
+        {
+          afterObsoleteLinkQuarantined: async () => {
+            const kitRoot = join(homeDir, ".bearing/kit");
+            const transaction = (await readdir(kitRoot)).find((entry) =>
+              entry.startsWith(".link-transaction-"),
+            );
+            if (transaction === undefined) throw new Error("missing link transaction");
+            await writeFile(join(kitRoot, transaction, "unknown-user-entry"), "preserve me\n");
+          },
+        },
+      ),
+    ).rejects.toThrow("installation and complete-bundle recovery both failed");
+
+    const transaction = (await readdir(join(homeDir, ".bearing/kit"))).find((entry) =>
+      entry.startsWith(".link-transaction-"),
+    );
+    expect(transaction).toBeDefined();
+    expect(
+      await readFile(
+        join(homeDir, ".bearing/kit", transaction as string, "unknown-user-entry"),
+        "utf8",
+      ),
+    ).toBe("preserve me\n");
+    expect(await readlink(obsoleteTarget)).toBe(obsoleteSource);
+  });
+
+  test("never overwrites a concurrent legacy recovery staging path", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    const cliTarget = join(homeDir, ".bearing/bin/bearing");
+    const cliSource = join(homeDir, ".bearing/kit/current/dist/cli.js");
+    const legacyBytes = await readFile(cliSource);
+    await rm(cliTarget);
+    await writeFile(cliTarget, legacyBytes);
+    await chmod(cliTarget, 0o755);
+
+    await expect(
+      installKit(
+        { homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] },
+        {
+          afterCurrentMoved: async () => {
+            const kitRoot = join(homeDir, ".bearing/kit");
+            const transaction = (await readdir(kitRoot)).find((entry) =>
+              entry.startsWith(".link-transaction-"),
+            );
+            if (transaction === undefined) throw new Error("missing link transaction");
+            await writeFile(
+              join(kitRoot, transaction, "rollback-1-file"),
+              "concurrent recovery content\n",
+            );
+          },
+        },
+      ),
+    ).rejects.toThrow("installation and complete-bundle recovery both failed");
+
+    const transaction = (await readdir(join(homeDir, ".bearing/kit"))).find((entry) =>
+      entry.startsWith(".link-transaction-"),
+    );
+    expect(transaction).toBeDefined();
+    expect(
+      await readFile(
+        join(homeDir, ".bearing/kit", transaction as string, "rollback-1-file"),
+        "utf8",
+      ),
+    ).toBe("concurrent recovery content\n");
   });
 
   test("rejects an Agent Surface symlink that points outside the Bearing bundle", async () => {
@@ -281,6 +494,7 @@ describe("Bearing kit installer", () => {
       `${JSON.stringify({
         schemaVersion: 1,
         packageVersion: "0.1.0",
+        status: "active",
         surfaces: ["agent-skills"],
         executorProfiles: ["generic-agent"],
       })}\n`,

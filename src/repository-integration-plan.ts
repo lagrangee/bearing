@@ -15,13 +15,12 @@ import {
   diagnoseRepositoryRecovery,
   type RepositoryRecoveryDiagnosis,
 } from "./repository-recovery";
-import { manifestSchema } from "./schema-definitions";
+import { repositoryManifestSchema } from "./schema-definitions";
 import type { RepositorySetupOptions } from "./types";
 
 export type RepositoryIntegrationLifecycle = Readonly<{
   kind: "fresh" | "active" | "deactivated" | "invalid-or-unsupported";
   reason: string;
-  legacyTransitionRequired?: boolean;
 }>;
 
 export type RepositoryIntegrationPlan = Readonly<{
@@ -96,9 +95,6 @@ const plannedTargets = (
   return uniqueSorted(targets).map((target) => relative(root, target));
 };
 
-const lifecycleManifestSchema = manifestSchema.extend({
-  status: z.enum(["active", "deactivated"]),
-});
 const setupPlanningSelectionSchema = z.object({
   surfaces: z
     .array(z.enum(["agent-skills", "claude"]))
@@ -184,7 +180,7 @@ const inspectLifecycle = async (root: string): Promise<RepositoryIntegrationLife
       `Repository uses newer Bearing schema ${parsed.schemaVersion}; this runtime reads schema 1 only.`,
     );
   }
-  const lifecycleManifest = lifecycleManifestSchema.safeParse(parsed);
+  const lifecycleManifest = repositoryManifestSchema.safeParse(parsed);
   if (lifecycleManifest.success) {
     return {
       kind: lifecycleManifest.data.status,
@@ -192,15 +188,6 @@ const inspectLifecycle = async (root: string): Promise<RepositoryIntegrationLife
         lifecycleManifest.data.status === "active"
           ? "The repository has an explicit active integration lifecycle."
           : "The repository has an explicit deactivated integration lifecycle.",
-      legacyTransitionRequired: false,
-    };
-  }
-  const legacyManifest = manifestSchema.safeParse(parsed);
-  if (legacyManifest.success) {
-    return {
-      kind: "active",
-      reason: "The repository has a valid 0.1.0 integration that requires explicit cutover.",
-      legacyTransitionRequired: true,
     };
   }
   return invalidLifecycle("The repository manifest schema is invalid or unsupported.");
@@ -406,11 +393,11 @@ export const planRepositoryIntegration = async (
   const inspectedDiagnosis =
     inspectedLifecycle.kind === "invalid-or-unsupported" ||
     inspectedLifecycle.kind === "deactivated" ||
-    (inspectedLifecycle.kind === "active" && inspectedLifecycle.legacyTransitionRequired !== true)
+    inspectedLifecycle.kind === "active"
       ? await diagnoseRepositoryRecovery(root, options.executorHomeDir)
       : undefined;
   const recoveryDiagnosis =
-    inspectedDiagnosis?.classification === "invalid-or-unsupported"
+    inspectedDiagnosis !== undefined && inspectedDiagnosis.blockers.length > 0
       ? inspectedDiagnosis
       : undefined;
   const lifecycle =
@@ -433,11 +420,8 @@ export const planRepositoryIntegration = async (
       if (options.executorHomeDir !== undefined) {
         await assertExecutorRegistrationsCurrent(options.executorHomeDir, registrations);
       }
-      if (
-        (lifecycle.kind === "active" || lifecycle.kind === "deactivated") &&
-        lifecycle.legacyTransitionRequired !== true
-      ) {
-        const manifest = lifecycleManifestSchema.parse(
+      if (lifecycle.kind === "active" || lifecycle.kind === "deactivated") {
+        const manifest = repositoryManifestSchema.parse(
           JSON.parse(await readFile(join(root, ".bearing/manifest.json"), "utf8")),
         );
         const dispositions = new Set([
@@ -492,30 +476,9 @@ export const planRepositoryIntegration = async (
       state: providerSatisfied ? "satisfied" : "not-evaluated",
     },
   ];
-  let legacyCutoverTokenMatches = false;
-  if (
-    lifecycle.legacyTransitionRequired === true &&
-    options.acceptUpgradeDirection === true &&
-    options.confirmCutover === true &&
-    options.cutoverAt !== undefined &&
-    options.cutoverPlanToken !== undefined &&
-    normalizedOptions.provider !== undefined
-  ) {
-    try {
-      const { inspectLegacyCutoverPlan } = await import("./repository-cutover");
-      const cutover = await inspectLegacyCutoverPlan(root, options);
-      legacyCutoverTokenMatches = cutover.confirmationToken === options.cutoverPlanToken;
-    } catch {
-      legacyCutoverTokenMatches = false;
-    }
-  }
   const lifecycleCanApply =
     lifecycle.kind === "fresh" ||
-    (lifecycle.kind === "active" && lifecycle.legacyTransitionRequired !== true) ||
-    (lifecycle.legacyTransitionRequired === true &&
-      options.acceptUpgradeDirection === true &&
-      options.confirmCutover === true &&
-      legacyCutoverTokenMatches) ||
+    lifecycle.kind === "active" ||
     (lifecycle.kind === "deactivated" && options.confirmReactivate === true);
   const canApply =
     lifecycleCanApply &&

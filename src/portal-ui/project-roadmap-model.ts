@@ -221,11 +221,11 @@ export const buildRoadmapDetailModel = (
   const focusedGate = summary.gates.find((entry) => entry.gate.id === roadmap.focusedGateId);
   const mapIssues = assessScopedMapIssues(
     snapshot.maps,
-    efforts.map(({ effort }) => effort.source),
+    efforts.map(({ effort }) => effort),
     snapshot.sources,
   );
   const hasScopedTicketIssue = efforts.some(({ effort }) =>
-    nativeProjectionUncertainForEffort(snapshot.tickets, effort.source, snapshot.sources),
+    nativeProjectionUncertainForEffort(snapshot.tickets, effort, snapshot.sources),
   );
   const partial =
     summary.missingGateIds.length > 0 ||

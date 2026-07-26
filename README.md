@@ -82,7 +82,7 @@ Issues and Discussions are public GitHub data. Do not submit tokens, secrets, pr
 npx @lagrangee/bearing
 ```
 
-The public Preview install path is a no-argument wizard. It previews managed targets before writing, installs the version-compatible CLI, protocol, templates, and Agent Surface skills, and does not initialize a repository or launch Portal during global installation.
+The public Preview install path is a no-argument wizard. It previews managed targets before writing, installs the version-compatible CLI and single `bearing` Agent Surface skill, and does not initialize a repository or launch Portal during global installation.
 
 Rerun the same command when you choose to update or repair Bearing. Updates stage one complete bundle
 and either switch it as a unit or restore the previous complete bundle. Bearing performs no

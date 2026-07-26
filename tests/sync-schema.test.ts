@@ -36,7 +36,7 @@ Only one section exists.
     const root = await createValidBearingRepo();
     await writeFixture(
       root,
-      ".scratch/broken/effort.md",
+      ".bearing/state/efforts/broken.md",
       "---\nType: effort\nID: [unterminated\n---\n\n# Broken\n",
     );
 
@@ -46,7 +46,7 @@ Only one section exists.
     expect(result.diagnostics).toContainEqual({
       code: "malformed-bearing-yaml",
       impact: "blocking",
-      target: ".scratch/broken/effort.md",
+      target: ".bearing/state/efforts/broken.md",
       message: "Bearing frontmatter is not valid YAML.",
     });
   });

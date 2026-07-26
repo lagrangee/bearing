@@ -7,7 +7,7 @@ describe("bearing sync", () => {
     const root = await createValidBearingRepo();
     await writeFixture(
       root,
-      ".scratch/work/effort.md",
+      ".bearing/state/efforts/test.md",
       `---
 Type: effort
 ID: effort:test
@@ -19,6 +19,10 @@ Citations:
   - Asset: asset:evidence
     Note: Relevant evidence.
     Extra: forbidden
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/work
 ---
 
 # Effort: Test
@@ -74,7 +78,7 @@ Input fingerprint: sha256:x
       .filter((item) => item.code === "invalid-bearing-schema")
       .map((item) => item.target);
 
-    expect(invalidTargets).toContain(".scratch/work/effort.md");
+    expect(invalidTargets).toContain(".bearing/state/efforts/test.md");
     expect(invalidTargets).toContain(".bearing/state/planning-reviews/bad.md");
     expect(result.diagnostics).toContainEqual({
       code: "invalid-asset-schema",

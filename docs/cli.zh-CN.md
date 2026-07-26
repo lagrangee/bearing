@@ -50,7 +50,7 @@ bearing setup --repo . --surface agent-skills \
   --executor-assessment '<由 Agent Surface 生成的语义评估 JSON>'
 ```
 
-`setup` 启用仓库，但不会把 global protocol 或 skills 复制进仓库。
+`setup` 启用仓库，但不会把 package-owned contracts 或 skills 复制进仓库。
 Fresh Setup 要求提供一个已确认、repository-relative 的 `matt-skills/v1` Provider Contract
 locator。它会把 active manifest、Provider Configuration 以及仅针对所选 Agent Surfaces 的
 managed pointers 作为一个 repository Apply Unit 写入；零 executor nomination 也是完整成功，

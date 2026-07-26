@@ -1,6 +1,6 @@
 import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { manifestSchema } from "../schema-definitions";
+import { repositoryManifestSchema } from "../schema-definitions";
 import type { CatalogAvailability } from "./availability";
 
 type ManifestAvailability = Exclude<CatalogAvailability, "missing">;
@@ -32,7 +32,7 @@ export const probeRepositoryManifest = async (repoRoot: string): Promise<Manifes
   }
 
   try {
-    manifestSchema.parse(JSON.parse(await readFile(manifestPath, "utf8")));
+    repositoryManifestSchema.parse(JSON.parse(await readFile(manifestPath, "utf8")));
     return "available";
   } catch (error) {
     if (error instanceof Error && "code" in error) return "unreadable";

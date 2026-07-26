@@ -77,4 +77,4 @@ Retain original bytes and remove only transaction-created repository targets whe
 
 ## Completion Criterion
 
-The selected repository lifecycle or Catalog state is explicit, every accepted target matches it, preserved data remains present, no repo-local protocol or skill copy exists, split outcomes are reported truthfully, and any original project request has returned to its governing runbook.
+The selected repository lifecycle or Catalog state is explicit, every accepted target matches it, preserved data remains present, no repository-local Bearing contract or skill copy exists, split outcomes are reported truthfully, and any original project request has returned to its governing runbook.

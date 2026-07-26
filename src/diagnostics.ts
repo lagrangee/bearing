@@ -1,7 +1,7 @@
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
 import { deriveNativeTicketDiagnostics, type NativeTicket } from "./native-ticket-diagnostics";
 import type { NativeSourceRecord } from "./native-work";
-import { manifestSchema } from "./schema-definitions";
+import { repositoryManifestSchema } from "./schema-definitions";
 import type { StructuralDiagnostic } from "./types";
 
 const compareText = (left: string, right: string): number =>
@@ -22,7 +22,7 @@ const manifestDiagnostic = (source: string): StructuralDiagnostic[] => {
   } catch {
     return invalidManifest();
   }
-  return manifestSchema.safeParse(parsed).success ? [] : invalidManifest();
+  return repositoryManifestSchema.safeParse(parsed).success ? [] : invalidManifest();
 };
 
 export const deriveStructuralDiagnosticsFromGeneration = (

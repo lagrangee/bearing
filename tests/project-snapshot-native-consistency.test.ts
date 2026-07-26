@@ -325,7 +325,7 @@ test("allows unknown Effort state when a blocking diagnostic makes its work unce
         reference: diagnosticReference,
         code: "invalid-native-work",
         impact: "blocking" as const,
-        target: ".scratch/portal/effort.md",
+        target: ".scratch/portal/invalid-work.md",
         message: "The Effort work scope is structurally uncertain.",
       },
     ],

@@ -14,6 +14,11 @@ export type ScopedProjectionSource = Readonly<{
   displayLocator: string;
 }>;
 
+export type ScopedEffortScope = Readonly<{
+  source: string;
+  nativeScope?: string | undefined;
+}>;
+
 export type ScopedProjectionAssessment = Readonly<{
   missingRelationCount: number;
   uncertain: boolean;
@@ -21,9 +26,6 @@ export type ScopedProjectionAssessment = Readonly<{
 
 const sourceIndex = (sources: readonly ScopedProjectionSource[]): ReadonlyMap<string, string> =>
   new Map(sources.map((source) => [source.reference, source.displayLocator]));
-
-const effortScope = (locator: string | undefined): string | undefined =>
-  locator?.endsWith("/effort.md") === true ? locator.slice(0, -"/effort.md".length) : undefined;
 
 const inside = (scope: string, locator: string | undefined): boolean =>
   locator !== undefined && (locator === scope || locator.startsWith(`${scope}/`));
@@ -40,11 +42,11 @@ const isScopedLocator = (locator: string): boolean => locator.includes("/");
 
 export const isValueAttributedToEffort = (
   value: Readonly<{ target: string; source?: string | undefined }>,
-  effortSource: string,
+  effort: ScopedEffortScope,
   sources: readonly ScopedProjectionSource[],
 ): boolean => {
   const index = sourceIndex(sources);
-  const scope = effortScope(index.get(effortSource));
+  const scope = effort.nativeScope;
   return (
     scope !== undefined &&
     (inside(scope, value.target) || inside(scope, index.get(value.source ?? "")))
@@ -53,18 +55,17 @@ export const isValueAttributedToEffort = (
 
 export const assessScopedProjectionIssues = (
   collection: ScopedProjectionCollection,
-  effortSources: readonly string[],
+  efforts: readonly ScopedEffortScope[],
   sources: readonly ScopedProjectionSource[],
   options: Readonly<{ unscopableIsUncertain: boolean }>,
 ): ScopedProjectionAssessment => {
-  if (collection.validity === "available" || effortSources.length === 0) {
+  if (collection.validity === "available" || efforts.length === 0) {
     return { missingRelationCount: 0, uncertain: false };
   }
   const index = sourceIndex(sources);
-  const scopes = effortSources.flatMap((source) => {
-    const scope = effortScope(index.get(source));
-    return scope === undefined ? [] : [scope];
-  });
+  const scopes = efforts.flatMap((effort) =>
+    effort.nativeScope === undefined ? [] : [effort.nativeScope],
+  );
   if (collection.issues === undefined) {
     return { missingRelationCount: 0, uncertain: true };
   }
@@ -82,7 +83,7 @@ export const assessScopedProjectionIssues = (
     missingRelationCount,
     uncertain:
       missingRelationCount > 0 ||
-      scopes.length !== effortSources.length ||
+      scopes.length !== efforts.length ||
       (options.unscopableIsUncertain && hasUnscopableIssue),
   };
 };

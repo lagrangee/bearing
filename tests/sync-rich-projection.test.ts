@@ -9,7 +9,7 @@ describe("bearing sync", () => {
     const fingerprint = `sha256:${"a".repeat(64)}`;
     await writeFixture(
       root,
-      ".scratch/work/effort.md",
+      ".bearing/state/efforts/test.md",
       `---
 Type: effort
 ID: effort:test
@@ -21,6 +21,10 @@ Authorities:
 Citations:
   - Asset: asset:design
     Note: The current mock governs this effort.
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/work
 ---
 
 # Effort: Test

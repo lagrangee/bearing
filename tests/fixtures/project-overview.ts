@@ -67,8 +67,16 @@ const gateTwoRecord = canonicalRecord(
   "milestone-gate",
   "gate:two",
 );
-const effortModelRecord = canonicalRecord(".scratch/model/effort.md", "effort", "effort:model");
-const effortPortalRecord = canonicalRecord(".scratch/portal/effort.md", "effort", "effort:portal");
+const effortModelRecord = canonicalRecord(
+  ".bearing/state/efforts/model.md",
+  "effort",
+  "effort:model",
+);
+const effortPortalRecord = canonicalRecord(
+  ".bearing/state/efforts/portal.md",
+  "effort",
+  "effort:portal",
+);
 const assetRecord = sourceRecord(
   "asset",
   ".bearing/state/assets.md",
@@ -253,6 +261,11 @@ export const createProjectOverviewFixture = () =>
           roadmapId: "roadmap:portal",
           targetGateId: "gate:one",
           authorityIds: [],
+          workBinding: {
+            provider: "matt-skills/v1",
+            driver: "local-markdown",
+            nativeScope: ".scratch/model",
+          },
           derivedState: "resolved",
           frontier: {
             claimed: [],
@@ -271,6 +284,11 @@ export const createProjectOverviewFixture = () =>
           roadmapId: "roadmap:portal",
           targetGateId: "gate:two",
           authorityIds: [],
+          workBinding: {
+            provider: "matt-skills/v1",
+            driver: "local-markdown",
+            nativeScope: ".scratch/portal",
+          },
           derivedState: "active",
           frontier: {
             claimed: [".scratch/portal/issues/01-build.md"],

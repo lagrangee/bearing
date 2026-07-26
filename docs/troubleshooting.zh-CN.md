@@ -11,7 +11,7 @@
 ## Update 中断或 bundle 损坏
 
 重新运行同一个显式 `npx @lagrangee/bearing` lifecycle 入口。Bearing 会先 stage 并验证完整的
-CLI、protocol、templates 与 skills bundle，再执行切换。切换失败会恢复上一份完整 bundle，
+CLI 与 single-skill bundle，再执行切换。切换失败会恢复上一份完整 bundle，
 且不会触碰 repository state。不要单独修复某一个 CLI 或 skill 文件，那会拆分版本匹配的 bundle。
 
 如果 installed `kit/current/package.json` 缺失或 malformed，请重新运行预期的 exact candidate。

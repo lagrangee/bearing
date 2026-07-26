@@ -18,6 +18,27 @@ const internalCompatibilitySkillNames = [
   "bearing-next-work",
 ] as const;
 
+const writeMattProviderFixture = async (
+  repoRoot: string,
+  surfaces: readonly ("agent-skills" | "claude")[],
+): Promise<string> => {
+  const contractLocator = "docs/agents/issue-tracker.md";
+  await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
+  await writeFile(
+    join(repoRoot, contractLocator),
+    "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
+  );
+  for (const surface of surfaces) {
+    const target = join(repoRoot, surface === "agent-skills" ? "AGENTS.md" : "CLAUDE.md");
+    const existing = await readFile(target, "utf8");
+    await writeFile(
+      target,
+      `${existing.trimEnd()}\n\nWork-management contract: \`${contractLocator}\`\n`,
+    );
+  }
+  return contractLocator;
+};
+
 describe("Bearing kit installer", () => {
   beforeAll(async () => {
     const result = await Bun.build({
@@ -41,7 +62,6 @@ describe("Bearing kit installer", () => {
 
     expect(result.outcome).toBe("applied");
     await access(join(homeDir, ".bearing/bin/bearing"));
-    await access(join(homeDir, ".bearing/kit/current/docs/agents/bearing/protocol.md"));
     await access(
       join(homeDir, ".bearing/kit/current/skills/bearing/references/branch-manifest.yaml"),
     );
@@ -56,7 +76,9 @@ describe("Bearing kit installer", () => {
       }
     }
     for (const skillName of internalCompatibilitySkillNames) {
-      await access(join(homeDir, ".bearing/kit/current/skills", skillName, "SKILL.md"));
+      await expect(
+        access(join(homeDir, ".bearing/kit/current/skills", skillName, "SKILL.md")),
+      ).rejects.toThrow();
       for (const surfaceRoot of [".agents/skills", ".claude/skills"]) {
         await expect(access(join(homeDir, surfaceRoot, skillName))).rejects.toThrow();
       }
@@ -89,27 +111,29 @@ describe("Bearing kit installer", () => {
     await expect(access(join(homeDir, ".bearing/kit/current/package.json"))).rejects.toThrow();
   });
 
-  test("enables a repository without copying protocol or skills into it", async () => {
+  test("enables a provider-backed repository without copying package contracts, skills, or profiles", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
     await writeFile(join(repoRoot, "AGENTS.md"), "# Project rules\n");
     await writeFile(join(repoRoot, "CLAUDE.md"), "# Claude rules\n");
+    const contractLocator = await writeMattProviderFixture(repoRoot, ["agent-skills", "claude"]);
 
     const result = await setupRepository({
       repoRoot,
       packageRoot: process.cwd(),
       surfaces: ["agent-skills", "claude"],
-      profiles: ["generic-agent"],
+      profiles: [],
+      provider: { key: "matt-skills/v1", contractLocator },
     });
 
     expect(result.outcome).toBe("applied");
     const manifest = JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8"));
     expect(manifest).toMatchObject({
       schemaVersion: 1,
-      packageVersion: "0.1.0",
+      status: "active",
       surfaces: ["agent-skills", "claude"],
-      executorProfiles: ["generic-agent"],
+      executorProfiles: [],
     });
-    await access(join(repoRoot, ".bearing/executor-profiles/generic-agent.md"));
+    await expect(access(join(repoRoot, ".bearing/executor-profiles"))).rejects.toThrow();
     const pointer = BEARING_POINTER;
     expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toContain(pointer);
     expect(await readFile(join(repoRoot, "CLAUDE.md"), "utf8")).toContain(pointer);
@@ -121,31 +145,27 @@ describe("Bearing kit installer", () => {
       repoRoot,
       packageRoot: process.cwd(),
       surfaces: ["agent-skills", "claude"],
-      profiles: ["generic-agent"],
+      profiles: [],
+      provider: { key: "matt-skills/v1", contractLocator },
     });
     expect(rerun.outcome).toBe("no-op");
   });
 
-  test("preserves a project-owned customized executor profile", async () => {
+  test("rejects the removed fixed-profile compatibility path without mutating the repository", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
-    const profile = join(repoRoot, ".bearing/executor-profiles/generic-agent.md");
-    await setupRepository({
-      repoRoot,
-      packageRoot: process.cwd(),
-      surfaces: ["agent-skills"],
-      profiles: ["generic-agent"],
-    });
-    await writeFile(profile, "# User-owned profile\n");
+    const agentsPath = join(repoRoot, "AGENTS.md");
+    await writeFile(agentsPath, "# Project rules\n");
 
-    const reconciled = await setupRepository({
-      repoRoot,
-      packageRoot: process.cwd(),
-      surfaces: ["agent-skills", "claude"],
-      profiles: ["generic-agent"],
-    });
+    await expect(
+      setupRepository({
+        repoRoot,
+        packageRoot: process.cwd(),
+        surfaces: ["agent-skills"],
+        profiles: ["generic-agent"],
+      }),
+    ).rejects.toThrow("removed 0.1.0 compatibility path");
 
-    expect(reconciled.outcome).toBe("applied");
-    expect(await readFile(profile, "utf8")).toBe("# User-owned profile\n");
-    expect(await readFile(join(repoRoot, "CLAUDE.md"), "utf8")).toContain("global `bearing`");
+    expect(await readFile(agentsPath, "utf8")).toBe("# Project rules\n");
+    await expect(access(join(repoRoot, ".bearing"))).rejects.toThrow();
   });
 });

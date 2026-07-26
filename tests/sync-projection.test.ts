@@ -77,15 +77,45 @@ Prove reconciliation.
     expect(secondSitemap).toContain("`roadmap:test` | Renamed Roadmap | active");
   });
 
-  test("uses the manifest and Project Summary as inputs without a repo-local protocol", async () => {
+  test("uses the manifest and Project Summary without repository-local Bearing package inputs", async () => {
     const root = await createValidBearingRepo();
 
     const result = await runSync(root);
 
     expect(result.inputs).toContain(".bearing/manifest.json");
     expect(result.inputs).toContain(".bearing/state/project-summary.md");
-    expect(result.inputs).not.toContain("docs/agents/bearing/protocol.md");
-    expect(result.inputs).not.toContain(".bearing/kit/protocol.md");
+    expect(
+      result.inputs.filter(
+        (input) => input.startsWith(".bearing/kit/") || input.startsWith("docs/agents/bearing/"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("ignores 0.1.0 Effort sidecars during normal runtime discovery", async () => {
+    const root = await createValidBearingRepo();
+    await writeFixture(
+      root,
+      ".scratch/legacy/effort.md",
+      `---
+Type: effort
+ID: effort:legacy
+Title: Legacy Effort
+Roadmap: roadmap:test
+Target gate: gate:test
+Authorities: []
+Citations: []
+---
+
+# Effort: Legacy
+`,
+    );
+
+    const result = await runSync(root);
+    const sitemap = await readFile(result.sitemapPath, "utf8");
+
+    expect(result.inputs).not.toContain(".scratch/legacy/effort.md");
+    expect(sitemap).not.toContain("effort:legacy");
+    expect(result.diagnostics).toEqual([]);
   });
 
   test("omits readiness action signals for terminal Gates", async () => {

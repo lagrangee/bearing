@@ -86,8 +86,8 @@ test("one generation Planning Graph owns Snapshot relations and inspect agreemen
 
 test("shared graph projection isolates an invalid contributor consistently", async () => {
   const root = await createValidBearingRepo();
-  const effort = await readFile(join(root, ".scratch/work/effort.md"), "utf8");
-  await writeFixture(root, ".scratch/duplicate/effort.md", effort);
+  const effort = await readFile(join(root, ".bearing/state/efforts/test.md"), "utf8");
+  await writeFixture(root, ".bearing/state/efforts/duplicate.md", effort);
   const { plan, snapshot } = await snapshotFor(root);
   const projection = sharedProjection(plan.planningGraph);
   const gate = plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" });

@@ -90,16 +90,16 @@ test("derives Roadmap Horizon from the final trustworthy Gate projection", async
 
 test("isolates duplicate Efforts before rebuilding exact reverse planning relations", async () => {
   const root = await createValidBearingRepo();
-  const effort = await readFile(join(root, ".scratch/work/effort.md"), "utf8");
-  await writeFixture(root, ".scratch/duplicate/effort.md", effort);
+  const effort = await readFile(join(root, ".bearing/state/efforts/test.md"), "utf8");
+  await writeFixture(root, ".bearing/state/efforts/duplicate.md", effort);
 
   const snapshot = await materialize(root);
 
   expect(snapshot.efforts).toMatchObject({
     validity: "invalid",
     issues: [
-      { code: "duplicate-stable-id", target: ".scratch/duplicate/effort.md" },
-      { code: "duplicate-stable-id", target: ".scratch/work/effort.md" },
+      { code: "duplicate-stable-id", target: ".bearing/state/efforts/duplicate.md" },
+      { code: "duplicate-stable-id", target: ".bearing/state/efforts/test.md" },
     ],
   });
   expect(snapshot.roadmaps).toMatchObject({
@@ -136,8 +136,8 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
   );
   await writeFixture(
     root,
-    ".scratch/other/effort.md",
-    `---\nType: effort\nID: effort:other\nTitle: Other Effort\nRoadmap: roadmap:other\nTarget gate: gate:other\nAuthorities: []\nCitations: []\n---\n\n# Effort: Other\n\n## Intent\n\nProve scoped contributor isolation.\n\n## Work\n\n- [Map](map.md)\n`,
+    ".bearing/state/efforts/other.md",
+    `---\nType: effort\nID: effort:other\nTitle: Other Effort\nRoadmap: roadmap:other\nTarget gate: gate:other\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Driver: local-markdown\n  Native scope: .scratch/other\n---\n\n# Effort: Other\n\n## Intent\n\nProve scoped contributor isolation.\n\n## Work\n\n- [Map](map.md)\n`,
   );
   await writeFixture(
     root,
@@ -151,8 +151,8 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
   );
   await writeFixture(
     root,
-    ".scratch/broken/effort.md",
-    `---\nType: effort\nID: effort:broken\nTitle: Broken Contributor\nRoadmap: roadmap:test\nTarget gate: gate:test\nAuthorities: []\nCitations: []\n---\n\n# Effort: Broken\n\n## Intent\n\nThis contributor has no Work section.\n`,
+    ".bearing/state/efforts/broken.md",
+    `---\nType: effort\nID: effort:broken\nTitle: Broken Contributor\nRoadmap: roadmap:test\nTarget gate: gate:test\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Driver: local-markdown\n  Native scope: .scratch/broken\n---\n\n# Effort: Broken\n\n## Intent\n\nThis contributor has no Work section.\n`,
   );
 
   const snapshot = await materialize(root);
@@ -160,7 +160,7 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
   expect(snapshot.efforts).toMatchObject({
     validity: "partial",
     items: [{ id: "effort:other" }, { id: "effort:test" }],
-    issues: [{ target: ".scratch/broken/effort.md" }],
+    issues: [{ target: ".bearing/state/efforts/broken.md" }],
   });
   expect(snapshot.roadmaps).toMatchObject({
     validity: "available",

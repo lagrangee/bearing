@@ -37,21 +37,20 @@ describe("bearing sync", () => {
     );
   });
 
-  test("diagnoses an external Effort symlink before reading its target", async () => {
+  test("diagnoses an external canonical Effort symlink before reading its target", async () => {
     const root = await createValidBearingRepo();
     const outside = await createValidBearingRepo();
-    const linkedEffort = join(root, ".scratch/escape/effort.md");
-    await mkdir(join(root, ".scratch/escape"), { recursive: true });
+    const linkedEffort = join(root, ".bearing/state/efforts/escape.md");
     await symlink(outside, linkedEffort);
 
     const result = await runSync(root);
 
-    expect(result.inputs).not.toContain(".scratch/escape/effort.md");
+    expect(result.inputs).not.toContain(".bearing/state/efforts/escape.md");
     expect(result.diagnostics).toContainEqual({
-      code: "repository-input-outside-boundary",
+      code: "unsupported-input-shape",
       impact: "blocking",
-      target: ".scratch/escape/effort.md",
-      message: "Repository input is unavailable or resolves outside the repository.",
+      target: ".bearing/state/efforts/escape.md",
+      message: "Repository input has an unsupported filesystem shape.",
     });
   });
 
@@ -102,7 +101,7 @@ describe("bearing sync", () => {
     const root = await createValidBearingRepo();
     await writeFixture(
       root,
-      ".scratch/work/effort.md",
+      ".bearing/state/efforts/test.md",
       `---
 Type: effort
 ID: effort:test
@@ -113,6 +112,10 @@ Authorities: []
 Citations:
   - Asset: asset:directory
     Note: This directory is a repository-local evidence input.
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/work
 ---
 
 # Effort: Test
@@ -161,7 +164,7 @@ Assets:
     const outside = await makeTemporaryDirectory("bearing-external-asset-");
     await writeFixture(
       root,
-      ".scratch/work/effort.md",
+      ".bearing/state/efforts/test.md",
       `---
 Type: effort
 ID: effort:test
@@ -172,6 +175,10 @@ Authorities: []
 Citations:
   - Asset: asset:outside
     Note: This input is deliberately outside the repository.
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/work
 ---
 
 # Effort: Test
@@ -268,9 +275,9 @@ Assets:
     expect(sitemap).toContain("`roadmap:test` | Test Roadmap | active");
   });
 
-  test("isolates a wrong-shaped Effort file", async () => {
+  test("isolates a wrong-shaped canonical Effort file", async () => {
     const root = await createValidBearingRepo();
-    const effort = join(root, ".scratch/broken/effort.md");
+    const effort = join(root, ".bearing/state/efforts/broken.md");
     await mkdir(effort, { recursive: true });
 
     const result = await runSync(root);
@@ -279,7 +286,7 @@ Assets:
     expect(result.diagnostics).toContainEqual({
       code: "invalid-input-file",
       impact: "blocking",
-      target: ".scratch/broken/effort.md",
+      target: ".bearing/state/efforts/broken.md",
       message: "Repository input must be a file.",
     });
     expect(sitemap).toContain("`effort:test` | Test Effort | resolved");

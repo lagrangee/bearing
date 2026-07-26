@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
   chmod,
+  link,
   mkdir,
+  open,
   readdir,
   readFile,
   readlink,
@@ -295,6 +297,12 @@ type ManagedLinkSnapshot = Readonly<
   | { kind: "legacy-cli"; target: string; bytes: Buffer; mode: number }
 >;
 
+type ManagedLinkMutation = Readonly<{
+  original: ManagedLinkSnapshot;
+  expected: Readonly<{ kind: "missing" } | { kind: "symlink"; source: string }>;
+  retiredOriginal?: string;
+}>;
+
 const parsePackageVersion = (bytes: string, target: string): string => {
   let parsed: unknown;
   try {
@@ -488,6 +496,15 @@ const removeExactTree = async (target: string): Promise<void> => {
   }
 };
 
+const removeEmptyDirectoryWhenPresent = async (target: string): Promise<void> => {
+  try {
+    await rmdir(target);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+};
+
 const inspectManagedLink = async (
   target: string,
   expectedSource: string,
@@ -513,33 +530,224 @@ const inspectManagedLink = async (
   throw new Error(`Installation symlink target conflicts with existing content: ${target}`);
 };
 
-const restoreManagedLink = async (snapshot: ManagedLinkSnapshot): Promise<void> => {
-  try {
-    await unlink(snapshot.target);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+const restoreQuarantinedEntry = async (quarantine: string, target: string): Promise<void> => {
+  const state = await inspectInstallPath(quarantine);
+  if (state.kind === "symbolic-link") {
+    const source = await readlink(quarantine);
+    await symlink(source, target, source.endsWith("/dist/cli.js") ? "file" : "dir");
+    await unlink(quarantine);
+    return;
   }
+  if (state.kind === "file") {
+    await link(quarantine, target);
+    await unlink(quarantine);
+    return;
+  }
+  throw new Error(
+    `Managed-link recovery preserved unexpected content in quarantine: ${quarantine}`,
+  );
+};
+
+const quarantineExpectedSymlink = async (
+  target: string,
+  expectedSource: string,
+  quarantine: string,
+): Promise<void> => {
+  await rename(target, quarantine);
+  const state = await inspectInstallPath(quarantine);
+  const source = state.kind === "symbolic-link" ? await readlink(quarantine) : undefined;
+  if (source === expectedSource) return;
+  try {
+    await restoreQuarantinedEntry(quarantine, target);
+  } catch (restoreError) {
+    throw new Error(
+      `Managed-link transaction found replaced content and preserved it in quarantine: ${quarantine}`,
+      { cause: restoreError },
+    );
+  }
+  throw new Error(`Managed-link transaction found replaced content: ${target}`);
+};
+
+const restoreOriginalManagedLink = async (
+  snapshot: ManagedLinkSnapshot,
+  retiredOriginal?: string,
+  recoveryFile?: string,
+): Promise<void> => {
   if (snapshot.kind === "missing") return;
   await mkdir(dirname(snapshot.target), { recursive: true });
   if (snapshot.kind === "symlink") {
+    let retiredOriginalPresent = false;
+    if (retiredOriginal !== undefined) {
+      const state = await inspectInstallPath(retiredOriginal);
+      if (state.kind !== "missing") {
+        retiredOriginalPresent = true;
+        const source = state.kind === "symbolic-link" ? await readlink(retiredOriginal) : undefined;
+        if (source !== snapshot.source) {
+          throw new Error(
+            `Managed-link recovery found changed retirement data: ${retiredOriginal}`,
+          );
+        }
+      }
+    }
     await symlink(
       snapshot.source,
       snapshot.target,
       snapshot.source.endsWith("/dist/cli.js") ? "file" : "dir",
     );
+    if (retiredOriginalPresent && retiredOriginal !== undefined) await unlink(retiredOriginal);
     return;
   }
-  await writeFileAtomically(snapshot.target, snapshot.bytes, snapshot.mode);
+  if (retiredOriginal !== undefined) {
+    const state = await inspectInstallPath(retiredOriginal);
+    if (state.kind !== "missing") {
+      if (
+        state.kind !== "file" ||
+        state.linkCount !== 1 ||
+        (state.mode & 0o7777) !== snapshot.mode ||
+        !(await readFile(retiredOriginal)).equals(snapshot.bytes)
+      ) {
+        throw new Error(`Managed-link recovery found changed retirement data: ${retiredOriginal}`);
+      }
+      await link(retiredOriginal, snapshot.target);
+      await unlink(retiredOriginal);
+      return;
+    }
+  }
+  if (recoveryFile === undefined) {
+    throw new Error(`Managed-link recovery is missing a safe restore path: ${snapshot.target}`);
+  }
+  const recoveryHandle = await open(recoveryFile, "wx", snapshot.mode);
+  try {
+    await recoveryHandle.writeFile(snapshot.bytes);
+    await recoveryHandle.chmod(snapshot.mode);
+    await recoveryHandle.sync();
+  } finally {
+    await recoveryHandle.close();
+  }
+  await link(recoveryFile, snapshot.target);
+  await unlink(recoveryFile);
 };
 
-const replaceWithManagedLink = async (target: string, source: string): Promise<void> => {
-  try {
-    await unlink(target);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+const restoreManagedLinkMutation = async (
+  mutation: ManagedLinkMutation,
+  rollbackQuarantine: string,
+): Promise<void> => {
+  if (mutation.expected.kind === "missing") {
+    const current = await inspectInstallPath(mutation.original.target);
+    if (current.kind !== "missing") {
+      throw new Error(
+        `Managed-link recovery refused content created after removal: ${mutation.original.target}`,
+      );
+    }
+    await restoreOriginalManagedLink(
+      mutation.original,
+      mutation.retiredOriginal,
+      `${rollbackQuarantine}-file`,
+    );
+    return;
   }
-  await mkdir(dirname(target), { recursive: true });
-  await symlink(source, target, source.endsWith("/dist/cli.js") ? "file" : "dir");
+  await quarantineExpectedSymlink(
+    mutation.original.target,
+    mutation.expected.source,
+    rollbackQuarantine,
+  );
+  try {
+    await restoreOriginalManagedLink(
+      mutation.original,
+      mutation.retiredOriginal,
+      `${rollbackQuarantine}-file`,
+    );
+  } catch (error) {
+    throw new Error(
+      `Managed-link recovery preserved the installer post-image in quarantine: ${rollbackQuarantine}`,
+      { cause: error },
+    );
+  }
+  await unlink(rollbackQuarantine);
+};
+
+const removeManagedLink = async (
+  snapshot: ManagedLinkSnapshot,
+  quarantine: string,
+): Promise<ManagedLinkMutation> => {
+  if (snapshot.kind !== "symlink") {
+    throw new Error(`Managed-link removal requires an owned symlink: ${snapshot.target}`);
+  }
+  await quarantineExpectedSymlink(snapshot.target, snapshot.source, quarantine);
+  return {
+    original: snapshot,
+    expected: { kind: "missing" },
+    retiredOriginal: quarantine,
+  };
+};
+
+const discardRetiredOriginal = async (mutation: ManagedLinkMutation): Promise<void> => {
+  const target = mutation.retiredOriginal;
+  if (target === undefined) return;
+  const state = await inspectInstallPath(target);
+  if (mutation.original.kind === "symlink") {
+    const source = state.kind === "symbolic-link" ? await readlink(target) : undefined;
+    if (source !== mutation.original.source) {
+      throw new Error(`Managed-link commit found changed retirement data: ${target}`);
+    }
+  } else if (
+    mutation.original.kind !== "legacy-cli" ||
+    state.kind !== "file" ||
+    state.linkCount !== 1 ||
+    (state.mode & 0o7777) !== mutation.original.mode ||
+    !(await readFile(target)).equals(mutation.original.bytes)
+  ) {
+    throw new Error(`Managed-link commit found changed retirement data: ${target}`);
+  }
+  await unlink(target);
+};
+
+const replaceWithManagedLink = async (
+  snapshot: ManagedLinkSnapshot,
+  source: string,
+  quarantine: string,
+): Promise<ManagedLinkMutation> => {
+  let retiredOriginal: string | undefined;
+  if (snapshot.kind === "symlink") {
+    throw new Error(
+      `Managed-link replacement received an already managed link: ${snapshot.target}`,
+    );
+  }
+  if (snapshot.kind === "legacy-cli") {
+    await rename(snapshot.target, quarantine);
+    const state = await inspectInstallPath(quarantine);
+    if (
+      state.kind !== "file" ||
+      state.linkCount !== 1 ||
+      (state.mode & 0o7777) !== snapshot.mode ||
+      !(await readFile(quarantine)).equals(snapshot.bytes)
+    ) {
+      try {
+        await restoreQuarantinedEntry(quarantine, snapshot.target);
+      } catch (restoreError) {
+        throw new Error(
+          `Managed-link replacement preserved changed content in quarantine: ${quarantine}`,
+          { cause: restoreError },
+        );
+      }
+      throw new Error(`Managed-link replacement found changed content: ${snapshot.target}`);
+    }
+    retiredOriginal = quarantine;
+  }
+  await mkdir(dirname(snapshot.target), { recursive: true });
+  try {
+    await symlink(source, snapshot.target, source.endsWith("/dist/cli.js") ? "file" : "dir");
+  } catch (error) {
+    if (retiredOriginal !== undefined) {
+      await restoreOriginalManagedLink(snapshot, retiredOriginal, `${quarantine}-restore`);
+    }
+    throw error;
+  }
+  return {
+    original: snapshot,
+    expected: { kind: "symlink", source },
+    ...(retiredOriginal === undefined ? {} : { retiredOriginal }),
+  };
 };
 
 const listRegularFiles = async (root: string, directory = ""): Promise<readonly string[]> => {
@@ -578,6 +786,16 @@ const bundleMatches = async (
 };
 
 const skillNamesForInstall = ["bearing"] as const;
+const obsoleteSkillNames = [
+  "bearing-setup",
+  "bearing-summary",
+  "bearing-roadmap",
+  "bearing-milestone-gate",
+  "bearing-alignment-check",
+  "bearing-planning-audit",
+  "bearing-planning-review",
+  "bearing-next-work",
+] as const;
 
 const managedSurfaceTargets = (
   homeDir: string,
@@ -598,7 +816,23 @@ const managedSurfaceTargets = (
     })),
   );
 
+const obsoleteSurfaceTargets = (
+  homeDir: string,
+): readonly Readonly<{ target: string; source: string }>[] =>
+  (["agent-skills", "claude"] as const).flatMap((surface) =>
+    obsoleteSkillNames.map((skillName) => ({
+      target: join(
+        homeDir,
+        surface === "agent-skills" ? ".agents/skills" : ".claude/skills",
+        skillName,
+      ),
+      source: join(homeDir, ".bearing/kit/current/skills", skillName),
+    })),
+  );
+
 export type InstallTransactionHooks = Readonly<{
+  afterObsoleteLinksInspected?: () => Promise<void> | void;
+  afterObsoleteLinkQuarantined?: (target: string) => Promise<void> | void;
   afterCurrentMoved?: () => Promise<void> | void;
 }>;
 
@@ -626,9 +860,11 @@ export const installKit = async (
   const cliSource = join(current, "dist/cli.js");
   const selected = new Set(options.surfaces);
   const surfaceTargets = managedSurfaceTargets(homeDir);
+  const obsoleteTargets = obsoleteSurfaceTargets(homeDir);
   await ensureInstallDirectoryTargets(homeDir, [
     cliTarget,
     ...surfaceTargets.map((item) => item.target),
+    ...obsoleteTargets.map((item) => item.target),
   ]);
   const cliSnapshot = await inspectManagedLink(
     cliTarget,
@@ -649,15 +885,24 @@ export const installKit = async (
       }
     }
   }
+  const obsoleteSnapshots: ManagedLinkSnapshot[] = [];
+  for (const item of obsoleteTargets) {
+    const snapshot = await inspectManagedLink(item.target, item.source);
+    if (snapshot.kind !== "missing") obsoleteSnapshots.push(snapshot);
+  }
 
   const transaction = randomUUID();
   const staging = join(kitRoot, `.staged-${transaction}`);
   const backup = join(kitRoot, `.previous-${transaction}`);
+  const linkTransaction = join(kitRoot, `.link-transaction-${transaction}`);
   await ensureInstallDirectoryTargets(homeDir, [join(staging, "package.json"), cliTarget]);
   const bundlePlans = await buildBundlePlans(options.packageRoot, staging);
   let switched = false;
   let oldMoved = false;
-  const mutatedLinks: ManagedLinkSnapshot[] = [];
+  let linkRetirementSequence = 0;
+  const nextLinkRetirement = (phase: "original" | "rollback"): string =>
+    join(linkTransaction, `${phase}-${linkRetirementSequence++}`);
+  const mutatedLinks: ManagedLinkMutation[] = [];
   try {
     await applyInstallPlans(homeDir, bundlePlans);
     if ((await packageVersionAt(staging)) !== candidateVersion) {
@@ -670,27 +915,35 @@ export const installKit = async (
         return selected.has(item.selectedBy)
           ? snapshot?.kind === "symlink"
           : snapshot === undefined;
-      });
+      }) &&
+      obsoleteSnapshots.length === 0;
     if ((await bundleMatches(current, staging, bundlePlans)) && linksAlreadyCurrent) {
       await removeExactTree(staging);
       return { outcome: "no-op", cliPath: cliTarget, changedTargets: [] };
     }
+    await mkdir(linkTransaction, { mode: 0o700 });
     if (cliSnapshot.kind !== "symlink") {
-      mutatedLinks.push(cliSnapshot);
-      await replaceWithManagedLink(cliTarget, cliSource);
+      mutatedLinks.push(
+        await replaceWithManagedLink(cliSnapshot, cliSource, nextLinkRetirement("original")),
+      );
+    }
+    await hooks.afterObsoleteLinksInspected?.();
+    for (const snapshot of obsoleteSnapshots) {
+      mutatedLinks.push(await removeManagedLink(snapshot, nextLinkRetirement("original")));
+      await hooks.afterObsoleteLinkQuarantined?.(snapshot.target);
     }
     for (const item of surfaceTargets) {
       const snapshot = surfaceSnapshots.get(item.target);
       if (selected.has(item.selectedBy)) {
         if (snapshot?.kind === "symlink") continue;
         if (snapshot === undefined) throw new Error(`Missing preflight state: ${item.target}`);
-        mutatedLinks.push(snapshot);
-        await replaceWithManagedLink(item.target, item.source);
+        mutatedLinks.push(
+          await replaceWithManagedLink(snapshot, item.source, nextLinkRetirement("original")),
+        );
         continue;
       }
       if (snapshot?.kind === "symlink") {
-        mutatedLinks.push(snapshot);
-        await unlink(item.target);
+        mutatedLinks.push(await removeManagedLink(snapshot, nextLinkRetirement("original")));
       }
     }
     if (currentState.kind === "directory") {
@@ -700,6 +953,8 @@ export const installKit = async (
     }
     await rename(staging, current);
     switched = true;
+    for (const mutation of mutatedLinks) await discardRetiredOriginal(mutation);
+    await removeEmptyDirectoryWhenPresent(linkTransaction);
   } catch (error) {
     const recoveryErrors: Error[] = [];
     try {
@@ -718,9 +973,9 @@ export const installKit = async (
           : new Error("Bundle recovery threw a non-Error value.", { cause: recoveryError }),
       );
     }
-    for (const snapshot of [...mutatedLinks].reverse()) {
+    for (const mutation of [...mutatedLinks].reverse()) {
       try {
-        await restoreManagedLink(snapshot);
+        await restoreManagedLinkMutation(mutation, nextLinkRetirement("rollback"));
       } catch (recoveryError) {
         recoveryErrors.push(
           recoveryError instanceof Error
@@ -740,6 +995,19 @@ export const installKit = async (
           : new Error("Staging cleanup threw a non-Error value.", { cause: recoveryError }),
       );
     }
+    if (recoveryErrors.length === 0) {
+      try {
+        await removeEmptyDirectoryWhenPresent(linkTransaction);
+      } catch (recoveryError) {
+        recoveryErrors.push(
+          recoveryError instanceof Error
+            ? recoveryError
+            : new Error("Link-transaction cleanup threw a non-Error value.", {
+                cause: recoveryError,
+              }),
+        );
+      }
+    }
     if (recoveryErrors.length > 0) {
       throw new Error("Bearing kit installation and complete-bundle recovery both failed.", {
         cause: new AggregateError([error, ...recoveryErrors]),
@@ -755,8 +1023,8 @@ export const installKit = async (
     ".bearing/kit/current/",
     ...(cliSnapshot.kind === "symlink" ? [] : [relative(homeDir, cliTarget)]),
     ...mutatedLinks
-      .filter((snapshot) => snapshot.target !== cliTarget)
-      .map((snapshot) => relative(homeDir, snapshot.target)),
+      .filter((mutation) => mutation.original.target !== cliTarget)
+      .map((mutation) => relative(homeDir, mutation.original.target)),
   ].sort();
   return {
     outcome: "applied",

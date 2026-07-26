@@ -5,7 +5,6 @@ import { assertCanonicalPackageBoundary, assertPackagedReadmeTargets } from "./r
 
 const expectedFiles = [
   "dist",
-  "docs/agents/bearing",
   "docs/cli.md",
   "docs/cli.zh-CN.md",
   "docs/data-and-security.md",
@@ -17,7 +16,6 @@ const expectedFiles = [
   "docs/troubleshooting.md",
   "docs/troubleshooting.zh-CN.md",
   "skills",
-  "templates",
   "README.md",
   "README.zh-CN.md",
   "CHANGELOG.md",

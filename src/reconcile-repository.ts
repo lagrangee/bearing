@@ -1,6 +1,7 @@
 import { dirname } from "node:path";
 import { upsertCatalogEntry } from "./catalog/store";
 import { setupRepository } from "./repo-setup";
+import { cutOverLegacyRepository } from "./repository-cutover";
 import type { AgentSurface, ExecutorRegistration, RepositorySetupResult } from "./types";
 
 export type ReconcileRepositoryResult = Readonly<{
@@ -31,7 +32,17 @@ export const reconcileRepository = async (options: {
     contractLocator: string;
   }>;
 }): Promise<ReconcileRepositoryResult> => {
-  const repository = await setupRepository({ ...options, executorHomeDir: options.homeDir });
+  const explicitCutover =
+    options.cutoverAt !== undefined ||
+    options.cutoverPlanToken !== undefined ||
+    options.acceptUpgradeDirection === true ||
+    options.confirmCutover === true;
+  const repository = explicitCutover
+    ? await cutOverLegacyRepository(options.repoRoot, {
+        ...options,
+        executorHomeDir: options.homeDir,
+      })
+    : await setupRepository({ ...options, executorHomeDir: options.homeDir });
   try {
     const catalog = await upsertCatalogEntry({
       homeDir: options.homeDir,

@@ -1,38 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseDocument } from "yaml";
 
-const skillNames = [
-  "bearing",
-  "bearing-setup",
-  "bearing-summary",
-  "bearing-roadmap",
-  "bearing-milestone-gate",
-  "bearing-alignment-check",
-  "bearing-planning-audit",
-  "bearing-planning-review",
-  "bearing-next-work",
-] as const;
+const skillNames = ["bearing"] as const;
 
 const branchEntries = [
-  ["setup", "bearing-setup"],
-  ["summary", "bearing-summary"],
-  ["roadmap", "bearing-roadmap"],
-  ["milestone-gate", "bearing-milestone-gate"],
-  ["alignment-check", "bearing-alignment-check"],
-  ["planning-audit", "bearing-planning-audit"],
-  ["planning-review", "bearing-planning-review"],
-  ["next-work", "bearing-next-work"],
+  "setup",
+  "summary",
+  "roadmap",
+  "milestone-gate",
+  "alignment-check",
+  "planning-audit",
+  "planning-review",
+  "next-work",
 ] as const;
-
-const profiles = [
-  "generic-agent",
-  "matt-implement",
-  "omo-start-work",
-  "superpowers-executing-plans",
-  "superpowers-subagent-driven-development",
-];
 
 const readSkill = async (name: string): Promise<{ frontmatter: unknown; body: string }> => {
   const source = await readFile(join(process.cwd(), "skills", name, "SKILL.md"), "utf8");
@@ -59,26 +41,26 @@ describe("package-owned planning skills", () => {
       const skill = await readSkill(name);
 
       expect(skill.frontmatter).toEqual({ name, description: expect.any(String) });
-      if (name === "bearing") {
-        expect(skill.body).toContain(
-          "$HOME/.bearing/kit/current/skills/bearing/references/branch-manifest.yaml",
-        );
-        expect(skill.body).not.toContain(
-          "$HOME/.bearing/kit/current/docs/agents/bearing/protocol.md",
-        );
-        expect(skill.body).toMatch(/^## Process$/mu);
-        expect(skill.body).toContain("## Read Set");
-        expect(skill.body).toContain("## Write Set");
-        expect(skill.body).toContain("## Outcomes");
-        expect(skill.body).toContain("## Recovery");
-        expect(skill.body).toContain("## Completion Criterion");
-      } else {
-        expect(skill.body).toContain("Expand-stage compatibility entry.");
-      }
+      expect(skill.body).toContain(
+        "$HOME/.bearing/kit/current/skills/bearing/references/branch-manifest.yaml",
+      );
+      expect(skill.body).toMatch(/^## Process$/mu);
+      expect(skill.body).toContain("## Read Set");
+      expect(skill.body).toContain("## Write Set");
+      expect(skill.body).toContain("## Outcomes");
+      expect(skill.body).toContain("## Recovery");
+      expect(skill.body).toContain("## Completion Criterion");
     });
   }
 
-  test("ships one explicit migrate-phase branch manifest", async () => {
+  test("ships exactly one public skill and one explicit contract-phase branch manifest", async () => {
+    const topLevel = await readdir(join(process.cwd(), "skills"), { withFileTypes: true });
+    expect(
+      topLevel
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort(),
+    ).toEqual(["bearing"]);
     const source = await readFile(
       join(process.cwd(), "skills/bearing/references/branch-manifest.yaml"),
       "utf8",
@@ -87,16 +69,11 @@ describe("package-owned planning skills", () => {
     expect(document.errors).toEqual([]);
     expect(document.toJS()).toEqual({
       schemaVersion: 1,
-      phase: "migrate",
+      phase: "contract",
       publicEntry: "skills/bearing/SKILL.md",
       progressiveLoading: {
         rule: "Load at most one selected branch after public routing; direct executor continuation loads zero branches.",
         internalBranchesReenterPublicRouter: false,
-        legacyEntries: {
-          packagedCompatibility: true,
-          freshSurfaceExposure: false,
-          ownedUpgradeRemoval: "deferred-to-contract",
-        },
       },
       sharedContracts: [
         {
@@ -121,20 +98,18 @@ describe("package-owned planning skills", () => {
         },
       ],
       publicSharedContracts: ["typed-inspection", "artifact-registration", "executor-continuation"],
-      branches: branchEntries.map(([key, legacyName]) => ({
+      branches: branchEntries.map((key) => ({
         key,
         reference: `skills/bearing/references/branches/${key}.md`,
-        legacyEntry: `skills/${legacyName}/SKILL.md`,
         sharedContracts: ["planning-transaction"],
       })),
     });
   });
 
   test("keeps each branch contract in one English normative owner", async () => {
-    for (const [key, legacyName] of branchEntries) {
+    for (const key of branchEntries) {
       const reference = `skills/bearing/references/branches/${key}.md`;
       const branch = await readFile(join(process.cwd(), reference), "utf8");
-      const legacy = await readSkill(legacyName);
 
       expect(branch.startsWith("---\n")).toBe(false);
       expect(branch).toMatch(/^# Bearing /u);
@@ -145,15 +120,6 @@ describe("package-owned planning skills", () => {
       expect(branch).toContain("## Recovery");
       expect(branch).toContain("## Completion Criterion");
       expect(branch).not.toMatch(/[\u3400-\u9fff]/u);
-      expect(legacy.body).toContain("Expand-stage compatibility entry.");
-      expect(legacy.body).toContain(`$HOME/.bearing/kit/current/${reference}`);
-      expect(legacy.body).toContain("Do not re-enter the public router.");
-      expect(legacy.body).not.toContain("## Process");
-      expect(legacy.body).not.toContain(
-        "$HOME/.bearing/kit/current/docs/agents/bearing/protocol.md",
-      );
-      expect(branch).not.toContain("$HOME/.bearing/kit/current/docs/agents/bearing/protocol.md");
-      expect(branch).not.toContain("Global protocol");
       expect(branch).toMatch(/Established public orientation[\s\S]*do not (?:reload|re-enter)/iu);
       expect(branch).toContain(
         "$HOME/.bearing/kit/current/skills/bearing/references/shared/planning-transaction.md",
@@ -190,14 +156,11 @@ describe("package-owned planning skills", () => {
     expect(body).toMatch(/current user's language/iu);
   });
 
-  test("keeps Next Work cardinality aligned across branch and compatibility protocol", async () => {
+  test("keeps Next Work cardinality explicit in its single branch owner", async () => {
     const branch = await readBranch("next-work");
-    const protocol = await readFile(join(process.cwd(), "docs/agents/bearing/protocol.md"), "utf8");
 
-    for (const contract of [branch, protocol]) {
-      expect(contract).toMatch(/zero to two meaningful alternatives/iu);
-      expect(contract).not.toMatch(/exactly two alternatives|two distinct alternatives/iu);
-    }
+    expect(branch).toMatch(/zero to two meaningful alternatives/iu);
+    expect(branch).not.toMatch(/exactly two alternatives|two distinct alternatives/iu);
   });
 
   test("direct executor continuation preserves owner and terminal truth", async () => {
@@ -288,20 +251,6 @@ describe("package-owned planning skills", () => {
       /Initial Bearing Analysis[\s\S]*only after complete Fresh success[\s\S]*non-mutating/iu,
     );
     expect(setup).toMatch(/current user's language/iu);
-  });
-
-  test("ships each agreed executor profile template", async () => {
-    for (const profile of profiles) {
-      const source = await readFile(
-        join(process.cwd(), "templates/executor-profiles", `${profile}.md`),
-        "utf8",
-      );
-      expect(source).toContain(`Profile key: ${profile}`);
-      expect(source).toContain("## Native Artifacts");
-      expect(source).toContain("## Durable Evidence");
-      expect(source).toContain("## Fallback Receipt");
-      expect(source).toContain("## Producer Provenance");
-    }
   });
 
   test("bearing-summary declares the per-part Project Summary language contract", async () => {

@@ -18,7 +18,7 @@ import { parseFrontmatter } from "./frontmatter";
 import { ensureInstallDirectoryTargets, inspectInstallPath } from "./install-boundary";
 import { applyInstallPlans, type InstallTargetWriter } from "./installer";
 import { displaySourceLocatorSchema } from "./reference-schema";
-import { assetSchema, manifestSchema } from "./schema-definitions";
+import { assetSchema, repositoryManifestSchema } from "./schema-definitions";
 import { prepareSync } from "./sync-plan";
 import { buildSyncTransactionTargets } from "./sync-transaction";
 
@@ -259,7 +259,7 @@ const assertProducerIsDurable = async (
     await assertCommitExists(root, producer.reference);
   }
   if (producer.kind === "executor-profile") {
-    const manifest = manifestSchema.parse(
+    const manifest = repositoryManifestSchema.parse(
       JSON.parse(await readFile(join(root, ".bearing/manifest.json"), "utf8")),
     );
     if (producer.name !== "generic-agent" && !manifest.executorProfiles.includes(producer.name)) {

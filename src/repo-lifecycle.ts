@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, rename, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { z } from "zod";
+import type { z } from "zod";
 import { agentSurfaceEntryFile, withoutBearingManagedPointer } from "./agent-surface-entry";
 import { removeCatalogEntryByExactIdentity, removeCatalogEntryByRepoRoot } from "./catalog/store";
 import { inspectInstallPath } from "./install-boundary";
@@ -16,7 +16,7 @@ import {
   inspectPurgePlan,
   preparePurge,
 } from "./repository-recovery";
-import { manifestSchema } from "./schema-definitions";
+import { repositoryManifestSchema } from "./schema-definitions";
 import type { AgentSurface } from "./types";
 
 export { diagnoseRepositoryRecovery, inspectPurgePlan };
@@ -86,9 +86,7 @@ const assertPointerPlansApplied = async (
   }
 };
 
-const lifecycleManifestSchema = manifestSchema.extend({
-  status: z.enum(["active", "deactivated"]),
-});
+const lifecycleManifestSchema = repositoryManifestSchema;
 type LifecycleManifest = z.infer<typeof lifecycleManifestSchema>;
 
 const readLifecycleManifest = async (

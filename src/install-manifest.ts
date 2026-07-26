@@ -43,9 +43,7 @@ const listFiles = async (root: string, directory: string): Promise<string[]> => 
 const sourceLocators = async (packageRoot: string): Promise<readonly string[]> => {
   const files = ["package.json"];
   files.push(...(await listFiles(packageRoot, "dist")));
-  files.push(...(await listFiles(packageRoot, "docs/agents/bearing")));
   files.push(...(await listFiles(packageRoot, "skills")));
-  files.push(...(await listFiles(packageRoot, "templates")));
   return files;
 };
 

@@ -117,7 +117,7 @@ test("allows unresolved relation IDs only when their owning collection is partia
       issues: [
         {
           code: "invalid-effort-body",
-          target: ".scratch/portal/effort.md",
+          target: ".bearing/state/efforts/portal.md",
           message: "Effort source is invalid.",
         },
       ],

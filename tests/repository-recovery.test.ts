@@ -314,7 +314,11 @@ describe("Invalid/Unsupported diagnosis", () => {
       },
     });
     expect(older).toMatchObject({
-      lifecycle: { kind: "active", legacyTransitionRequired: true },
+      lifecycle: { kind: "invalid-or-unsupported" },
+      recoveryDiagnosis: {
+        classification: "legacy-cutover",
+        blockers: [{ cause: "recognized-older-schema" }],
+      },
       canApply: false,
     });
     expect(corrupt).toMatchObject({

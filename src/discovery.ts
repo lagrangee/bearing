@@ -55,7 +55,16 @@ export const listFiles = async (
   for (const entry of entries) {
     const locator = posix.join(directory, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await listFiles(repoRoot, locator, markdownOnly, diagnostics)));
+      if (entry.name.toLowerCase().endsWith(".md")) {
+        diagnostics.push({
+          code: "invalid-input-file",
+          impact: "blocking",
+          target: locator,
+          message: "Repository input must be a file.",
+        });
+      } else {
+        files.push(...(await listFiles(repoRoot, locator, markdownOnly, diagnostics)));
+      }
     } else if (entry.isFile() && (!markdownOnly || entry.name.toLowerCase().endsWith(".md"))) {
       files.push(locator);
     } else if (!entry.isFile()) {
@@ -97,56 +106,43 @@ const discoverNativeScope = async (
   scope: string,
   diagnostics: StructuralDiagnostic[],
 ): Promise<void> => {
-  await addWhenPresent(repoRoot, inputs, posix.join(scope, "PRD.md"), diagnostics);
-  await addWhenPresent(repoRoot, inputs, posix.join(scope, "map.md"), diagnostics);
-  const issues = await listFiles(repoRoot, posix.join(scope, "issues"), true, diagnostics);
-  for (const issue of issues) inputs.add(issue);
-};
-
-const discoverLegacyEfforts = async (
-  repoRoot: string,
-  inputs: Set<string>,
-  diagnostics: StructuralDiagnostic[],
-): Promise<void> => {
-  const scratchRoot = await probeContainedInput(repoRoot, ".scratch");
-  if (scratchRoot.status === "missing") return;
-  if (scratchRoot.status === "blocked") {
-    diagnostics.push(scratchRoot.diagnostic);
+  const topLevelScope = scope.split("/")[0] ?? scope;
+  if (topLevelScope !== scope) {
+    const topLevelProbe = await probeContainedInput(repoRoot, topLevelScope);
+    if (topLevelProbe.status === "missing") return;
+    if (topLevelProbe.status === "blocked") {
+      diagnostics.push(topLevelProbe.diagnostic);
+      return;
+    }
+    if (!(await stat(topLevelProbe.path)).isDirectory()) {
+      diagnostics.push({
+        code: "invalid-input-directory",
+        impact: "blocking",
+        target: topLevelScope,
+        message: "Repository input must be a directory.",
+      });
+      return;
+    }
+  }
+  const scopeProbe = await probeContainedInput(repoRoot, scope);
+  if (scopeProbe.status === "missing") return;
+  if (scopeProbe.status === "blocked") {
+    diagnostics.push(scopeProbe.diagnostic);
     return;
   }
-  if (!(await stat(scratchRoot.path)).isDirectory()) {
+  if (!(await stat(scopeProbe.path)).isDirectory()) {
     diagnostics.push({
       code: "invalid-input-directory",
       impact: "blocking",
-      target: ".scratch",
+      target: scope,
       message: "Repository input must be a directory.",
     });
     return;
   }
-  const scopes = await readdir(scratchRoot.path, { withFileTypes: true });
-  for (const scope of scopes) {
-    if (!scope.isDirectory()) {
-      continue;
-    }
-    const effort = posix.join(".scratch", scope.name, "effort.md");
-    const effortProbe = await probeContainedInput(repoRoot, effort);
-    if (effortProbe.status === "missing") continue;
-    if (effortProbe.status === "blocked") {
-      diagnostics.push(effortProbe.diagnostic);
-      continue;
-    }
-    if (!(await stat(effortProbe.path)).isFile()) {
-      diagnostics.push({
-        code: "invalid-input-file",
-        impact: "blocking",
-        target: effort,
-        message: "Repository input must be a file.",
-      });
-      continue;
-    }
-    inputs.add(effort);
-    await discoverNativeScope(repoRoot, inputs, posix.join(".scratch", scope.name), diagnostics);
-  }
+  await addWhenPresent(repoRoot, inputs, posix.join(scope, "PRD.md"), diagnostics);
+  await addWhenPresent(repoRoot, inputs, posix.join(scope, "map.md"), diagnostics);
+  const issues = await listFiles(repoRoot, posix.join(scope, "issues"), true, diagnostics);
+  for (const issue of issues) inputs.add(issue);
 };
 
 const discoverCanonicalEffortScopes = async (
@@ -154,7 +150,10 @@ const discoverCanonicalEffortScopes = async (
   inputs: Set<string>,
   diagnostics: StructuralDiagnostic[],
 ): Promise<void> => {
-  const efforts = await listFiles(repoRoot, ".bearing/state/efforts", true, diagnostics);
+  const efforts = [...inputs].filter(
+    (locator) =>
+      locator.startsWith(".bearing/state/efforts/") && locator.toLowerCase().endsWith(".md"),
+  );
   for (const effort of efforts) {
     const source = await readContainedInput(repoRoot, effort);
     if (source.status === "blocked") {
@@ -176,30 +175,6 @@ const discoverCanonicalEffortScopes = async (
   }
 };
 
-const usesCanonicalEffortStorage = async (
-  repoRoot: string,
-  diagnostics: StructuralDiagnostic[],
-): Promise<boolean | undefined> => {
-  const probe = await probeContainedInput(repoRoot, ".bearing/manifest.json");
-  if (probe.status !== "available") return false;
-  const source = await readContainedInput(repoRoot, ".bearing/manifest.json");
-  if (source.status === "blocked") {
-    diagnostics.push(source.diagnostic);
-    return undefined;
-  }
-  try {
-    const parsed = JSON.parse(source.bytes.toString("utf8")) as unknown;
-    return (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "status" in parsed &&
-      (parsed.status === "active" || parsed.status === "deactivated")
-    );
-  } catch {
-    return false;
-  }
-};
-
 export const discoverPlanningAuditInputs = async (repoRoot: string): Promise<DiscoveryResult> => {
   const root = await resolveRepositoryRoot(repoRoot);
   const inputs = new Set<string>();
@@ -217,12 +192,7 @@ export const discoverPlanningAuditInputs = async (repoRoot: string): Promise<Dis
       inputs.add(locator);
     }
   }
-  const canonicalEffortStorage = await usesCanonicalEffortStorage(root, diagnostics);
-  if (canonicalEffortStorage === true) {
-    await discoverCanonicalEffortScopes(root, inputs, diagnostics);
-  } else if (canonicalEffortStorage === false) {
-    await discoverLegacyEfforts(root, inputs, diagnostics);
-  }
+  await discoverCanonicalEffortScopes(root, inputs, diagnostics);
   const contained = await retainContainedInputs(root, [...inputs]);
   diagnostics.push(...contained.diagnostics);
   return { inputs: contained.inputs, diagnostics };

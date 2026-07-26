@@ -51,7 +51,7 @@ bearing setup --repo . --surface agent-skills \
   --executor-assessment '<Agent-Surface-authored semantic assessment JSON>'
 ```
 
-`setup` enables the repository without copying global protocol or skills into the repository.
+`setup` enables the repository without copying package-owned contracts or skills into it.
 Fresh Setup requires one confirmed repository-relative `matt-skills/v1` Provider Contract locator.
 It writes an active manifest, the Provider Configuration, and managed pointers only for selected
 Agent Surfaces as one repository Apply Unit; zero executor nominations is a complete success and

@@ -121,7 +121,7 @@ test("builds one read-only Asset inspection from explicit projection semantics",
   ).toMatchObject({ title: "Gate Passage evidence", items: ["gate:one"] });
   expect(
     selection.sections?.find((section) => section.title === "Planning Citations")?.items,
-  ).toEqual([expect.stringContaining("effort:model · .scratch/model/effort.md")]);
+  ).toEqual([expect.stringContaining("effort:model · .bearing/state/efforts/model.md")]);
 
   const second = model.rows[1];
   if (second === undefined) throw new Error("Expected the second projected Asset row.");

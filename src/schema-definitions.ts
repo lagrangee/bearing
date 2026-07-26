@@ -243,3 +243,7 @@ export const manifestSchema = z.strictObject({
   ),
   executorProfiles: uniqueArray(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)),
 });
+
+export const repositoryManifestSchema = manifestSchema.extend({
+  status: z.enum(["active", "deactivated"]),
+});

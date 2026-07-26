@@ -36,6 +36,7 @@ export type DerivedEffort = Readonly<{
   source: string;
   roadmapId: string;
   targetGateId: string;
+  workBinding?: Readonly<{ nativeScope: string }> | undefined;
   derivedState: "active" | "resolved" | "unknown";
 }>;
 type DerivedMap = Readonly<{
@@ -71,12 +72,17 @@ const sourceIndex = (sources: readonly DerivedSource[]): ReadonlyMap<string, str
   new Map(sources.map((source) => [source.reference, source.displayLocator]));
 export const nativeProjectionUncertainForEffort = (
   collection: DerivedCollection<unknown>,
-  effortSource: string,
+  effort: Pick<DerivedEffort, "source" | "workBinding">,
   sources: readonly DerivedSource[],
 ): boolean => {
-  return assessScopedProjectionIssues(collection, [effortSource], sources, {
-    unscopableIsUncertain: false,
-  }).uncertain;
+  return assessScopedProjectionIssues(
+    collection,
+    [{ source: effort.source, nativeScope: effort.workBinding?.nativeScope }],
+    sources,
+    {
+      unscopableIsUncertain: false,
+    },
+  ).uncertain;
 };
 
 export const blockingDiagnosticForEffort = (
@@ -87,7 +93,11 @@ export const blockingDiagnosticForEffort = (
   return diagnostics.some(
     (diagnostic) =>
       diagnostic.impact === "blocking" &&
-      isValueAttributedToEffort(diagnostic, effort.source, sources),
+      isValueAttributedToEffort(
+        diagnostic,
+        { source: effort.source, nativeScope: effort.workBinding?.nativeScope },
+        sources,
+      ),
   );
 };
 
@@ -96,8 +106,8 @@ export const normalizedEffortState = (
   truth: Pick<NormalizedPlanningTruth, "maps" | "tickets" | "diagnostics" | "sources">,
 ): DerivedEffort["derivedState"] => {
   const uncertain =
-    nativeProjectionUncertainForEffort(truth.maps, effort.source, truth.sources) ||
-    nativeProjectionUncertainForEffort(truth.tickets, effort.source, truth.sources) ||
+    nativeProjectionUncertainForEffort(truth.maps, effort, truth.sources) ||
+    nativeProjectionUncertainForEffort(truth.tickets, effort, truth.sources) ||
     blockingDiagnosticForEffort(effort, truth.diagnostics, truth.sources);
   if (uncertain) return "unknown";
   const maps = trusted(truth.maps).filter((map) => map.effortId === effort.id);

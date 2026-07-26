@@ -91,8 +91,9 @@ const fixtureFiles = (scale: BenchmarkScale): FixtureFile[] => {
         {
           schemaVersion: 1,
           packageVersion: "0.0.0-benchmark",
+          status: "active",
           surfaces: ["agent-skills"],
-          executorProfiles: ["generic-agent"],
+          executorProfiles: [],
         },
         null,
         2,
@@ -132,8 +133,8 @@ const fixtureFiles = (scale: BenchmarkScale): FixtureFile[] => {
         content: `---\nType: milestone-gate\nID: ${gateId}\nTitle: Gate ${ordinal}\nRoadmap: ${roadmapId}\nStatus: active\n---\n\n# Gate ${ordinal}\n\n## Intent\n\nComplete deterministic scope ${ordinal}.\n\n## Exit Criteria\n\n- All generated tickets resolve.\n`,
       },
       {
-        locator: `${scope}/effort.md`,
-        content: `---\nType: effort\nID: ${effortId}\nTitle: Effort ${ordinal}\nRoadmap: ${roadmapId}\nTarget gate: ${gateId}\nAuthorities: []\nCitations: []\n---\n\n# Effort ${ordinal}\n\n## Intent\n\nExercise deterministic native scope ${ordinal}.\n\n## Work\n\n- [Map](map.md)\n`,
+        locator: `.bearing/state/efforts/e${ordinal}.md`,
+        content: `---\nType: effort\nID: ${effortId}\nTitle: Effort ${ordinal}\nRoadmap: ${roadmapId}\nTarget gate: ${gateId}\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Driver: local-markdown\n  Native scope: ${scope}\n---\n\n# Effort ${ordinal}\n\n## Intent\n\nExercise deterministic native scope ${ordinal}.\n\n## Work\n\n- [Map](map.md)\n`,
       },
       {
         locator: `${scope}/map.md`,

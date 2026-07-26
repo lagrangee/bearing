@@ -2,7 +2,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { parseFrontmatter } from "./frontmatter";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
-import { manifestSchema } from "./schema-definitions";
+import { repositoryManifestSchema } from "./schema-definitions";
 import type { AgentSurface, ExecutorRegistration } from "./types";
 
 const skillNameSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
@@ -270,7 +270,7 @@ export const resolveExecutorWritebackProfile = async (
 ): Promise<ExecutorWritebackSelection> => {
   const capabilityLocator = capabilityLocatorSchema.parse(actualCapabilityLocator);
   const root = await resolveRepositoryRoot(repoRoot);
-  const manifest = manifestSchema.parse(
+  const manifest = repositoryManifestSchema.parse(
     JSON.parse(
       (await readContainedFile(root, join(root, ".bearing/manifest.json"))).toString("utf8"),
     ),

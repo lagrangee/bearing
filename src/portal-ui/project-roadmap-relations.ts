@@ -24,12 +24,20 @@ type MapIssueAssessment = Readonly<{
 
 export const assessScopedMapIssues = (
   maps: ProjectSnapshot["maps"],
-  effortSources: readonly string[],
+  efforts: readonly Effort[],
   sources: ProjectSnapshot["sources"],
 ): MapIssueAssessment =>
-  assessScopedProjectionIssues(maps, effortSources, sources, {
-    unscopableIsUncertain: true,
-  });
+  assessScopedProjectionIssues(
+    maps,
+    efforts.map((effort) => ({
+      source: effort.source,
+      nativeScope: effort.workBinding?.nativeScope,
+    })),
+    sources,
+    {
+      unscopableIsUncertain: true,
+    },
+  );
 
 export const hasScopedGateIssue = (
   gates: ProjectSnapshot["gates"],

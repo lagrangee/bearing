@@ -9,7 +9,7 @@ const addSecondEffort = async (
 ): Promise<void> => {
   await writeFixture(
     root,
-    ".scratch/second/effort.md",
+    ".bearing/state/efforts/second.md",
     `---
 Type: effort
 ID: effort:second
@@ -18,6 +18,10 @@ Roadmap: roadmap:test
 Target gate: gate:test
 ${authorities.length === 0 ? "Authorities: []" : `Authorities:\n${authorities.map((authority) => `  - ${authority}`).join("\n")}`}
 Citations: []
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/second
 ---
 
 # Effort: Second
@@ -138,7 +142,7 @@ test("Gate closure returns every inbound Effort with native, governance, evidenc
     "alignment-check:second",
   ]);
   expect(second.evidence.map(({ value }) => String(value.id))).toEqual(["asset:second-evidence"]);
-  expect(second.source.displayLocator).toBe(".scratch/second/effort.md");
+  expect(second.source.displayLocator).toBe(".bearing/state/efforts/second.md");
   expect(result.context.sources.every((source) => source.reference.startsWith("source:"))).toBe(
     true,
   );
@@ -195,7 +199,7 @@ test("Gate closure isolates duplicate Effort identities without dropping trustwo
   await addSecondEffort(root);
   await writeFixture(
     root,
-    ".scratch/duplicate/effort.md",
+    ".bearing/state/efforts/duplicate.md",
     `---
 Type: effort
 ID: effort:second
@@ -204,6 +208,10 @@ Roadmap: roadmap:test
 Target gate: gate:test
 Authorities: []
 Citations: []
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/duplicate
 ---
 
 # Duplicate Effort
@@ -309,17 +317,23 @@ Exercise issue isolation.
   expect(result.issues.some((issue) => issue.target.includes("other"))).toBe(false);
 });
 
-test("Gate closure fails partial for native work behind an untrustworthy Effort scope only", async () => {
+test("Gate closure scopes an untrustworthy canonical Effort contributor without leaking unbound work", async () => {
   const root = await createValidBearingRepo();
   await writeFixture(
     root,
-    ".scratch/uncertain/effort.md",
+    ".bearing/state/efforts/uncertain.md",
     `---
 Type: effort
 ID: effort:uncertain
 Title: Uncertain Effort
 Roadmap: roadmap:test
 Target gate: gate:test
+Authorities: []
+Citations: []
+Work binding:
+  Provider: matt-skills/v1
+  Driver: local-markdown
+  Native scope: .scratch/uncertain
 ---
 
 # Invalid Effort
@@ -352,13 +366,23 @@ Status: unsupported
   expect(result.state).toBe("partial");
   if (result.state === "invalid") throw new Error("Expected trustworthy Gate context.");
   expect(result.issues).toContainEqual({
-    code: "unscopable-native-work",
-    target: ".scratch/uncertain/issues/01-work.md",
-    message: "Native work belongs to a scope whose Effort relation is unavailable.",
+    code: "missing-required-section",
+    target: ".bearing/state/efforts/uncertain.md",
+    message: "Bearing artifact is missing ## Intent.",
+    source: expect.stringMatching(/^source:/u),
+  });
+  expect(result.issues).toContainEqual({
+    code: "untrusted-effort-contributor",
+    target: "gate:test",
+    message: "A canonical Effort contributor is unavailable to trusted planning rollup.",
     source: expect.stringMatching(/^source:/u),
   });
   expect(
-    result.issues.some((issue) => issue.target === ".scratch/safely-unbound/issues/01-invalid.md"),
+    result.issues.some(
+      (issue) =>
+        issue.target === ".scratch/uncertain/issues/01-work.md" ||
+        issue.target === ".scratch/safely-unbound/issues/01-invalid.md",
+    ),
   ).toBe(false);
 });
 
