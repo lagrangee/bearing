@@ -2,8 +2,13 @@ import { lstat, mkdir, readFile, rmdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
 import type { TargetPlan } from "./install-manifest";
-import { applyInstallPlans, preflightInstallTargets } from "./installer";
+import { applyInstallPlans, type InstallTargetWriter, preflightInstallTargets } from "./installer";
 import { resolveRepositoryRoot } from "./path-boundary";
+import {
+  assertRepositoryIntegrationPlanCurrent,
+  planRepositoryIntegration,
+  type RepositoryIntegrationPlan,
+} from "./repository-integration-plan";
 import { manifestSchema } from "./schema-definitions";
 import type { AgentSurface, RepositorySetupOptions, RepositorySetupResult } from "./types";
 
@@ -188,8 +193,22 @@ const buildRepositoryPlans = async (
 
 export const setupRepository = async (
   options: RepositorySetupOptions,
+  hooks: Readonly<{
+    afterPlan?: (plan: RepositoryIntegrationPlan) => Promise<void>;
+    writeTarget?: InstallTargetWriter;
+  }> = {},
 ): Promise<RepositorySetupResult> => {
-  const root = await resolveRepositoryRoot(options.repoRoot);
+  const integrationPlan = await planRepositoryIntegration(options);
+  await hooks.afterPlan?.(integrationPlan);
+  if (!integrationPlan.canApply) {
+    const blocker = integrationPlan.blockers[0];
+    if (blocker !== undefined) throw new Error(blocker.message);
+    throw new Error(
+      `Repository integration cannot be applied: ${integrationPlan.lifecycle.reason}`,
+    );
+  }
+  await assertRepositoryIntegrationPlanCurrent(integrationPlan);
+  const root = await resolveRepositoryRoot(integrationPlan.repoRoot);
   const profiles = validatedProfiles(options.profiles);
   await assertCompatibleExistingManifest(root);
   await preflightInstallTargets(root, candidateTargets(root, profiles));
@@ -197,7 +216,7 @@ export const setupRepository = async (
   const createdDirectories = await ensureNamespaces(root);
   let result: Awaited<ReturnType<typeof applyInstallPlans>>;
   try {
-    result = await applyInstallPlans(root, plans);
+    result = await applyInstallPlans(root, plans, hooks.writeTarget);
   } catch (error) {
     await removeCreatedNamespaces(createdDirectories);
     throw error;

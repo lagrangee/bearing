@@ -16,6 +16,7 @@ import { parsePortalPort } from "./portal/port";
 import { startPortalServer } from "./portal/server";
 import { reconcileRepository } from "./reconcile-repository";
 import { deactivateRepository, purgeRepository } from "./repo-lifecycle";
+import { planRepositoryIntegration } from "./repository-integration-plan";
 import { runSync } from "./sync";
 import { commitSyncPlan, prepareSync } from "./sync-plan";
 import type { AgentSurface } from "./types";
@@ -25,7 +26,7 @@ const HELP = `Bearing ${packageMetadata.version}
 Usage:
   bearing
   bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
-  bearing setup --repo <path> --surface <agent-skills|claude> [--profile <key>]
+  bearing setup --repo <path> --surface <agent-skills|claude> [--profile <key>] [--plan]
   bearing deactivate --repo <path>
   bearing purge --repo <path> --confirm-purge
   bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
@@ -118,12 +119,23 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
       repo: { type: "string" },
       surface: { type: "string", multiple: true },
       profile: { type: "string", multiple: true },
+      plan: { type: "boolean" },
     },
     allowPositionals: false,
     strict: true,
   });
   const surfaces = surfaceSchema.parse(parsed.values.surface ?? []);
   const profiles = profileSchema.parse(parsed.values.profile ?? ["generic-agent"]);
+  if (parsed.values.plan === true) {
+    const plan = await planRepositoryIntegration({
+      repoRoot: resolve(parsed.values.repo ?? process.cwd()),
+      packageRoot: packageRoot(),
+      surfaces,
+      profiles,
+    });
+    process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+    return;
+  }
   const result = await reconcileRepository({
     repoRoot: resolve(parsed.values.repo ?? process.cwd()),
     packageRoot: packageRoot(),
