@@ -53,6 +53,10 @@ export type RepositorySetupOptions = Readonly<{
   packageRoot: string;
   surfaces: readonly AgentSurface[];
   profiles: readonly string[];
+  provider?: Readonly<{
+    key: "matt-skills/v1";
+    contractLocator: string;
+  }>;
 }>;
 
 export type RepositorySetupResult = Readonly<{

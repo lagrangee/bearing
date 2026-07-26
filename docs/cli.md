@@ -45,10 +45,16 @@ backup first; otherwise the downgrade fails closed.
 ## Enable one repository
 
 ```bash
-bearing setup --repo . --surface agent-skills
+bearing setup --repo . --surface agent-skills \
+  --provider-contract docs/agents/issue-tracker.md
 ```
 
 `setup` enables the repository without copying global protocol or skills into the repository.
+Fresh Setup requires one confirmed repository-relative `matt-skills/v1` Provider Contract locator.
+It writes an active manifest, the Provider Configuration, and managed pointers only for selected
+Agent Surfaces as one repository Apply Unit; zero executor nominations is a complete success and
+does not install the Generic fallback. Catalog registration follows repository validation and is
+reported independently.
 It refuses an unsupported newer repository schema and directs you to a compatible Bearing version;
 it never rewrites newer state as schema 1.
 

@@ -27,7 +27,7 @@ const HELP = `Bearing ${packageMetadata.version}
 Usage:
   bearing
   bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
-  bearing setup --repo <path> --surface <agent-skills|claude> [--profile <key>] [--plan]
+  bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--profile <key>] [--plan]
   bearing deactivate --repo <path>
   bearing purge --repo <path> --confirm-purge
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> --producer-name <name> [options]
@@ -55,7 +55,7 @@ Environment:
 `;
 
 const surfaceSchema = z.array(z.enum(["agent-skills", "claude"])).min(1);
-const profileSchema = z.array(z.string().min(1)).min(1);
+const profileSchema = z.array(z.string().min(1));
 
 const packageRoot = (): string => {
   const adjacent = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -122,22 +122,38 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
       repo: { type: "string" },
       surface: { type: "string", multiple: true },
       profile: { type: "string", multiple: true },
+      "provider-contract": { type: "string" },
       plan: { type: "boolean" },
     },
     allowPositionals: false,
     strict: true,
   });
   const surfaces = surfaceSchema.parse(parsed.values.surface ?? []);
-  const profiles = profileSchema.parse(parsed.values.profile ?? ["generic-agent"]);
+  const provider =
+    parsed.values["provider-contract"] === undefined
+      ? undefined
+      : {
+          key: "matt-skills/v1" as const,
+          contractLocator: parsed.values["provider-contract"],
+        };
+  const profiles = profileSchema.parse(
+    parsed.values.profile ?? (provider === undefined ? ["generic-agent"] : []),
+  );
   if (parsed.values.plan === true) {
     const plan = await planRepositoryIntegration({
       repoRoot: resolve(parsed.values.repo ?? process.cwd()),
       packageRoot: packageRoot(),
       surfaces,
       profiles,
+      ...(provider === undefined ? {} : { provider }),
     });
     process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
     return;
+  }
+  if (provider === undefined) {
+    throw new Error(
+      "Setup requires a selected-surface Matt provider contract; no repository writes were made.",
+    );
   }
   const result = await reconcileRepository({
     repoRoot: resolve(parsed.values.repo ?? process.cwd()),
@@ -145,6 +161,7 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
     homeDir: homeDirectory(),
     surfaces,
     profiles,
+    ...(provider === undefined ? {} : { provider }),
   });
   process.stdout.write(
     `Outcome: ${result.outcome}\nRepository: ${result.repository.outcome}\nCatalog: ${result.catalog.outcome}\nManifest: ${result.repository.manifestPath}\nChanged targets: ${result.repository.changedTargets.length}\n`,

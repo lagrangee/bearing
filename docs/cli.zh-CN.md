@@ -44,10 +44,16 @@ release 对应的 verified backup；否则 downgrade 会 fail closed。
 ## 启用一个仓库
 
 ```bash
-bearing setup --repo . --surface agent-skills
+bearing setup --repo . --surface agent-skills \
+  --provider-contract docs/agents/issue-tracker.md
 ```
 
 `setup` 启用仓库，但不会把 global protocol 或 skills 复制进仓库。
+Fresh Setup 要求提供一个已确认、repository-relative 的 `matt-skills/v1` Provider Contract
+locator。它会把 active manifest、Provider Configuration 以及仅针对所选 Agent Surfaces 的
+managed pointers 作为一个 repository Apply Unit 写入；零 executor nomination 也是完整成功，
+且不会安装 Generic fallback。Catalog registration 会在 repository validation 后独立执行并
+单独报告 outcome。
 遇到不支持的较新 repository schema 时，`setup` 会拒绝写入并指向兼容的 Bearing 版本；
 它不会把较新 state 重写成 schema 1。
 

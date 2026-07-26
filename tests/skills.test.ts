@@ -242,6 +242,38 @@ describe("package-owned planning skills", () => {
     );
   });
 
+  test("Fresh Setup keeps one-decision conversation and owner-separated outcomes", async () => {
+    const setup = await readBranch("setup");
+
+    expect(setup).toMatch(/report detected facts[\s\S]*one material decision at a time/iu);
+    expect(setup).toMatch(/one final[\s\S]*owner-separated Apply review/iu);
+    expect(setup).toMatch(/running Agent Surface[\s\S]*primary fact/iu);
+    expect(setup).toMatch(/matching instruction file[\s\S]*no redundant question/iu);
+    expect(setup).toMatch(/neither[\s\S]*AGENTS\.md[\s\S]*CLAUDE\.md[\s\S]*both/iu);
+    expect(setup).toMatch(
+      /Matt prerequisite[\s\S]*owning capability[\s\S]*resume[\s\S]*refusal[\s\S]*no Bearing repository writes/iu,
+    );
+    expect(setup).toMatch(
+      /matt-skills\/v1[\s\S]*Provider Configuration[\s\S]*never stores or asks for a tracker driver/iu,
+    );
+    expect(setup).toMatch(/native scopes[\s\S]*never binds/iu);
+    expect(setup).toMatch(/zero executor nominations[\s\S]*complete/iu);
+    expect(setup).toMatch(/Generic[\s\S]*hidden during Setup/iu);
+    expect(setup).toMatch(/Catalog[\s\S]*independent outcome/iu);
+    expect(setup).toMatch(
+      /Catalog failure[\s\S]*return `partial` with separate `Repository` and `Catalog` outcomes/iu,
+    );
+    expect(setup).not.toMatch(/Catalog failure[\s\S]{0,160}return `blocked`/iu);
+    expect(setup).toMatch(
+      /created no Roadmap, Milestone Gate, Effort, Work Binding, or Matt-owned mutation/iu,
+    );
+    expect(setup).toMatch(/Portal[\s\S]*never changes Setup success/iu);
+    expect(setup).toMatch(
+      /Initial Bearing Analysis[\s\S]*only after complete Fresh success[\s\S]*non-mutating/iu,
+    );
+    expect(setup).toMatch(/current user's language/iu);
+  });
+
   test("ships each agreed executor profile template", async () => {
     for (const profile of profiles) {
       const source = await readFile(

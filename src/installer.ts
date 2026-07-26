@@ -188,6 +188,8 @@ export const applyInstallPlans = async (
   plans: readonly TargetPlan[],
   writer: InstallTargetWriter = writeInstallTarget,
   beforeSnapshot: () => Promise<void> = async () => {},
+  afterWrite: () => Promise<readonly TargetPlan[] | undefined> = async () => undefined,
+  afterAllWrites: () => Promise<void> = async () => {},
 ): Promise<InstallResult> => {
   await ensureInstallDirectoryTargets(
     homeDir,
@@ -196,19 +198,14 @@ export const applyInstallPlans = async (
   await beforeSnapshot();
   const snapshots = await snapshotPlans(plans);
   const changed = snapshots.filter(needsWrite);
-  if (changed.length === 0) {
-    return {
-      outcome: "no-op",
-      cliPath: join(homeDir, ".bearing/bin/bearing"),
-      changedTargets: [],
-    };
-  }
-
-  const createdDirectories = await missingInstallParentDirectories(
-    homeDir,
-    changed.map((snapshot) => snapshot.plan.target),
-  );
+  const createdDirectories = [
+    ...(await missingInstallParentDirectories(
+      homeDir,
+      changed.map((snapshot) => snapshot.plan.target),
+    )),
+  ];
   const applied: Snapshot[] = [];
+  const allChanged: Snapshot[] = [...changed];
   try {
     for (const [index, snapshot] of changed.entries()) {
       applied.push(snapshot);
@@ -222,10 +219,45 @@ export const applyInstallPlans = async (
           : undefined;
       await writer(mode === undefined ? snapshot.plan : { ...snapshot.plan, mode }, index);
     }
+    const additionalPlans = (await afterWrite()) ?? [];
+    if (additionalPlans.length > 0) {
+      await ensureInstallDirectoryTargets(
+        homeDir,
+        additionalPlans.map((plan) => plan.target),
+      );
+      const additionalSnapshots = await snapshotPlans(additionalPlans);
+      const additionalChanged = additionalSnapshots.filter(needsWrite);
+      const additionalDirectories = await missingInstallParentDirectories(
+        homeDir,
+        additionalChanged.map((snapshot) => snapshot.plan.target),
+      );
+      createdDirectories.push(
+        ...additionalDirectories.filter((directory) => !createdDirectories.includes(directory)),
+      );
+      allChanged.push(...additionalChanged);
+      for (const [index, snapshot] of additionalChanged.entries()) {
+        applied.push(snapshot);
+        if (isSymlinkPlan(snapshot.plan)) {
+          await writer(snapshot.plan, changed.length + index);
+          continue;
+        }
+        const mode =
+          snapshot.original.kind === "file" && snapshot.original.mode !== undefined
+            ? (snapshot.original.mode & 0o7777) | (snapshot.plan.executable ? 0o100 : 0)
+            : undefined;
+        await writer(
+          mode === undefined ? snapshot.plan : { ...snapshot.plan, mode },
+          changed.length + index,
+        );
+      }
+    }
+    await afterAllWrites();
   } catch (error) {
     try {
       await restoreSnapshots(applied);
-      await removeCreatedDirectories(createdDirectories);
+      await removeCreatedDirectories(
+        [...createdDirectories].sort((left, right) => right.length - left.length),
+      );
     } catch (rollbackError) {
       throw new Error("Bearing kit installation and rollback both failed.", {
         cause: rollbackError,
@@ -236,9 +268,9 @@ export const applyInstallPlans = async (
     });
   }
   return {
-    outcome: "applied",
+    outcome: allChanged.length > 0 ? "applied" : "no-op",
     cliPath: join(homeDir, ".bearing/bin/bearing"),
-    changedTargets: changed.map((snapshot) => relative(homeDir, snapshot.plan.target)),
+    changedTargets: allChanged.map((snapshot) => relative(homeDir, snapshot.plan.target)),
   };
 };
 

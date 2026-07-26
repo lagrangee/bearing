@@ -4,7 +4,9 @@ import { dirname, join, relative } from "node:path";
 import { z } from "zod";
 import { agentSurfaceEntryFile } from "./agent-surface-entry";
 import { inspectInstallPath } from "./install-boundary";
-import { resolveRepositoryRoot } from "./path-boundary";
+import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
+import { validateMattSkillsV1Contract } from "./providers/matt-skills-v1";
+import { displaySourceLocatorSchema } from "./reference-schema";
 import { manifestSchema } from "./schema-definitions";
 import type { RepositorySetupOptions } from "./types";
 
@@ -42,7 +44,7 @@ export type RepositoryIntegrationPlan = Readonly<{
 }>;
 
 export type RepositoryIntegrationBlocker = Readonly<{
-  code: "unsafe-repository-target";
+  code: "unsafe-repository-target" | "unsupported-executor-registration";
   target: string;
   message: string;
 }>;
@@ -87,6 +89,12 @@ const setupPlanningSelectionSchema = z.object({
     .array(z.enum(["agent-skills", "claude"]))
     .min(1, "Select at least one Agent Surface."),
   profiles: z.array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)),
+  provider: z
+    .strictObject({
+      key: z.literal("matt-skills/v1"),
+      contractLocator: displaySourceLocatorSchema,
+    })
+    .optional(),
 });
 
 const invalidLifecycle = (reason: string): RepositoryIntegrationLifecycle => ({
@@ -225,7 +233,7 @@ const captureTargetPrecondition = async (
     };
   }
   if (state.kind !== "file") return { target, kind: state.kind };
-  const bytes = await readFile(absolute);
+  const bytes = await readContainedFile(root, absolute);
   return {
     target,
     kind: "file",
@@ -277,6 +285,66 @@ const integrationBlockers = (
 const equalJson = (left: unknown, right: unknown): boolean =>
   JSON.stringify(left) === JSON.stringify(right);
 
+const workManagementPointerPattern = /^Work-management contract:\s*`([^`\r\n]+)`\s*$/gmu;
+
+const pointsToContractLocator = (pointer: string, locator: string): boolean => {
+  const declarations = [...pointer.matchAll(workManagementPointerPattern)];
+  if (declarations.length !== 1) return false;
+  const declaredLocator = declarations[0]?.[1];
+  return (
+    declaredLocator !== undefined &&
+    displaySourceLocatorSchema.safeParse(declaredLocator).success &&
+    declaredLocator === locator
+  );
+};
+
+export type MattProviderContractInspection = Readonly<{
+  supported: boolean;
+  precondition: RepositoryTargetPrecondition;
+}>;
+
+export const inspectMattProviderContract = async (
+  root: string,
+  contractLocator: string,
+  surfaces: RepositorySetupOptions["surfaces"],
+): Promise<MattProviderContractInspection> => {
+  const precondition = await captureTargetPrecondition(root, contractLocator);
+  if (precondition.kind !== "file" || precondition.linkCount !== 1) {
+    return Object.freeze({ supported: false, precondition: Object.freeze(precondition) });
+  }
+  const contract = (await readContainedFile(root, join(root, contractLocator))).toString("utf8");
+  const selectedPointersSupported = await Promise.all(
+    surfaces.map(async (surface) => {
+      try {
+        const pointer = (
+          await readContainedFile(root, join(root, agentSurfaceEntryFile(surface)))
+        ).toString("utf8");
+        return pointsToContractLocator(pointer, contractLocator);
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return Object.freeze({
+    supported:
+      validateMattSkillsV1Contract(contract).state === "supported" &&
+      selectedPointersSupported.every(Boolean),
+    precondition: Object.freeze(precondition),
+  });
+};
+
+export const assertMattProviderContractCurrent = async (
+  root: string,
+  contractLocator: string,
+  surfaces: RepositorySetupOptions["surfaces"],
+  expected: MattProviderContractInspection,
+): Promise<void> => {
+  const current = await inspectMattProviderContract(root, contractLocator, surfaces);
+  if (!current.supported || !equalJson(current.precondition, expected.precondition)) {
+    throw new Error(`Matt provider contract changed after Fresh Setup review: ${contractLocator}`);
+  }
+};
+
 export const assertRepositoryIntegrationPlanCurrent = async (
   plan: RepositoryIntegrationPlan,
 ): Promise<void> => {
@@ -311,15 +379,39 @@ export const planRepositoryIntegration = async (
   const selection = setupPlanningSelectionSchema.parse({
     surfaces: options.surfaces,
     profiles: options.profiles,
+    provider: options.provider,
   });
   const normalizedOptions = {
     surfaces: [...new Set(selection.surfaces)].sort(),
     profiles: [...new Set(selection.profiles)].sort(),
+    provider: selection.provider,
   };
   const lifecycle = await inspectLifecycle(root);
   const targets = plannedTargets(root, normalizedOptions);
   const preconditions = await captureRepositoryTargetPreconditions(root, targets);
-  const blockers = integrationBlockers(preconditions);
+  const blockers = [
+    ...integrationBlockers(preconditions),
+    ...(normalizedOptions.provider !== undefined && normalizedOptions.profiles.length > 0
+      ? [
+          {
+            code: "unsupported-executor-registration" as const,
+            target: ".bearing/executor-profiles",
+            message:
+              "Fresh Executor Registration is not available until its contract-validation path is installed.",
+          },
+        ]
+      : []),
+  ];
+  const providerSatisfied =
+    normalizedOptions.provider === undefined
+      ? false
+      : (
+          await inspectMattProviderContract(
+            root,
+            normalizedOptions.provider.contractLocator,
+            normalizedOptions.surfaces,
+          )
+        ).supported;
   const externalPrerequisites: readonly RepositoryExternalPrerequisite[] = [
     {
       capability: "bearing-package",
@@ -329,7 +421,7 @@ export const planRepositoryIntegration = async (
     {
       capability: "matt-work-model-provider",
       owner: "matt-skills",
-      state: "not-evaluated",
+      state: providerSatisfied ? "satisfied" : "not-evaluated",
     },
   ];
   const canApply =

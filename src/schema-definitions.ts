@@ -229,6 +229,7 @@ export const bearingSchema = z.discriminatedUnion("Type", [
 export const manifestSchema = z.strictObject({
   schemaVersion: z.literal(1),
   packageVersion: z.string().min(1),
+  status: z.enum(["active", "deactivated"]).optional(),
   surfaces: uniqueArray(z.enum(["agent-skills", "claude"])).refine(
     (surfaces) => surfaces.length > 0,
     { message: "Select at least one Agent Surface." },

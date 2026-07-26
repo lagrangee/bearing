@@ -204,8 +204,8 @@ describe("Project Catalog contract", () => {
       profiles: ["generic-agent"],
     });
 
-    // Then: the split outcome is blocked, while the valid repo-local manifest remains committed.
-    expect(result.outcome).toBe("blocked");
+    // Then: the split outcome is partial, while the valid repo-local manifest remains committed.
+    expect(result.outcome).toBe("partial");
     expect(result.repository.outcome).toBe("applied");
     expect(result.catalog.outcome).toBe("failed");
     const manifest = JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8"));

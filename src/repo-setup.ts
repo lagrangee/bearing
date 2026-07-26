@@ -1,6 +1,7 @@
 import { lstat, mkdir, readFile, rmdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
+import packageMetadata from "../package.json";
 import {
   AGENT_SURFACES,
   agentSurfaceEntryFile,
@@ -9,13 +10,18 @@ import {
 } from "./agent-surface-entry";
 import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans, type InstallTargetWriter, preflightInstallTargets } from "./installer";
-import { resolveRepositoryRoot } from "./path-boundary";
+import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
 import {
+  assertMattProviderContractCurrent,
   assertRepositoryTargetPreconditionsCurrent,
   captureRepositoryTargetPreconditions,
+  inspectMattProviderContract,
+  planRepositoryIntegration,
   type RepositoryTargetPrecondition,
 } from "./repository-integration-plan";
 import { manifestSchema } from "./schema-definitions";
+import { prepareSync } from "./sync-plan";
+import { buildSyncTransactionTargets } from "./sync-transaction";
 import type { RepositorySetupOptions, RepositorySetupResult } from "./types";
 
 const packageSchema = z.object({ version: z.string().min(1) });
@@ -104,6 +110,20 @@ const removeCreatedNamespaces = async (directories: readonly string[]): Promise<
   for (const directory of [...directories].reverse()) await rmdir(directory);
 };
 
+const assertRepositoryPlansCurrent = async (
+  root: string,
+  plans: readonly TargetPlan[],
+): Promise<void> => {
+  for (const plan of plans) {
+    if (!("bytes" in plan)) {
+      throw new Error(`Fresh Setup validation found an unsupported target plan: ${plan.target}`);
+    }
+    if (!(await readContainedFile(root, plan.target)).equals(plan.bytes)) {
+      throw new Error(`Fresh Setup validation found unexpected repository bytes: ${plan.target}`);
+    }
+  }
+};
+
 const buildLegacyRepositoryPlans = async (
   root: string,
   options: RepositorySetupOptions,
@@ -155,6 +175,65 @@ const buildLegacyRepositoryPlans = async (
   return plans.sort((left, right) => left.target.localeCompare(right.target, "en"));
 };
 
+const buildFreshRepositoryPlans = async (
+  root: string,
+  options: RepositorySetupOptions & {
+    provider: NonNullable<RepositorySetupOptions["provider"]>;
+  },
+): Promise<readonly TargetPlan[]> => {
+  if (options.surfaces.length === 0) throw new Error("Select at least one Agent Surface.");
+  if (options.profiles.length > 0) {
+    throw new Error("Fresh specialized executor registrations require their accepted profiles.");
+  }
+  const surfaces = [...new Set(options.surfaces)].sort();
+  const plans: TargetPlan[] = [
+    {
+      target: join(root, ".bearing/manifest.json"),
+      bytes: Buffer.from(
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            packageVersion: await packageVersion(options.packageRoot),
+            status: "active",
+            surfaces,
+            executorProfiles: [],
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      ),
+      executable: false,
+    },
+    {
+      target: join(root, ".bearing/provider.json"),
+      bytes: Buffer.from(
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            provider: options.provider.key,
+            contractLocator: options.provider.contractLocator,
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      ),
+      executable: false,
+    },
+  ];
+  for (const surface of surfaces) {
+    const target = join(root, agentSurfaceEntryFile(surface));
+    const existing = await readOptional(target);
+    plans.push({
+      target,
+      bytes: Buffer.from(withBearingManagedPointer(existing?.toString("utf8") ?? ""), "utf8"),
+      executable: false,
+    });
+  }
+  return plans.sort((left, right) => left.target.localeCompare(right.target, "en"));
+};
+
 export const setupRepository = async (
   options: RepositorySetupOptions,
   hooks: Readonly<{
@@ -169,6 +248,106 @@ export const setupRepository = async (
 ): Promise<RepositorySetupResult> => {
   const root = await resolveRepositoryRoot(options.repoRoot);
   const profiles = validatedProfiles(options.profiles);
+  if (options.provider !== undefined) {
+    const provider = options.provider;
+    const integrationPlan = await planRepositoryIntegration({
+      ...options,
+      repoRoot: root,
+      profiles,
+    });
+    if (integrationPlan.lifecycle.kind !== "fresh" || !integrationPlan.canApply) {
+      const providerPrerequisite = integrationPlan.stages.externalPrerequisites.items.find(
+        (item) => item.capability === "matt-work-model-provider",
+      );
+      if (providerPrerequisite?.state !== "satisfied") {
+        throw new Error(
+          "Matt provider contract is unsupported or unavailable; Fresh Bearing setup made no repository writes.",
+        );
+      }
+      const executorBlocker = integrationPlan.blockers.find(
+        (blocker) => blocker.code === "unsupported-executor-registration",
+      );
+      if (executorBlocker !== undefined) throw new Error(executorBlocker.message);
+      throw new Error(`Fresh Bearing setup cannot apply: ${integrationPlan.lifecycle.reason}`);
+    }
+    const providerContract = await inspectMattProviderContract(
+      root,
+      provider.contractLocator,
+      options.surfaces,
+    );
+    await preflightInstallTargets(
+      root,
+      integrationPlan.stages.repositoryApplyUnit.targets.map((target) => join(root, target)),
+    );
+    const plans = await buildFreshRepositoryPlans(root, {
+      ...options,
+      repoRoot: root,
+      profiles,
+      provider,
+    });
+    const preconditions = integrationPlan.stages.repositoryApplyUnit.preconditions;
+    await hooks.afterPlan?.({ repoRoot: root, preconditions });
+    const createdDirectories = await ensureNamespaces(root);
+    let result: Awaited<ReturnType<typeof applyInstallPlans>>;
+    let syncPlans: readonly TargetPlan[] = [];
+    try {
+      result = await applyInstallPlans(
+        root,
+        plans,
+        hooks.writeTarget,
+        async () => {
+          await assertMattProviderContractCurrent(
+            root,
+            provider.contractLocator,
+            options.surfaces,
+            providerContract,
+          );
+          await assertRepositoryTargetPreconditionsCurrent(root, preconditions);
+        },
+        async () => {
+          await assertRepositoryPlansCurrent(root, plans);
+          await assertMattProviderContractCurrent(
+            root,
+            provider.contractLocator,
+            options.surfaces,
+            providerContract,
+          );
+          const syncPlan = await prepareSync(root);
+          if (syncPlan.diagnostics.length > 0) {
+            throw new Error(
+              `Fresh Setup validation requires zero Sync diagnostics; found ${syncPlan.diagnostics.length}.`,
+            );
+          }
+          syncPlans = buildSyncTransactionTargets(syncPlan, {
+            packageName: packageMetadata.name,
+            packageVersion: packageMetadata.version,
+            completedAt: new Date().toISOString(),
+          }).targets;
+          return syncPlans;
+        },
+        async () => {
+          await assertRepositoryPlansCurrent(root, [...plans, ...syncPlans]);
+          await assertMattProviderContractCurrent(
+            root,
+            provider.contractLocator,
+            options.surfaces,
+            providerContract,
+          );
+        },
+      );
+    } catch (error) {
+      await removeCreatedNamespaces(createdDirectories);
+      throw error;
+    }
+    const namespaceTargets = createdDirectories
+      .filter((directory) => directory !== join(root, ".bearing"))
+      .map((directory) => `${relative(root, directory)}/`);
+    return {
+      outcome: result.outcome === "applied" || namespaceTargets.length > 0 ? "applied" : "no-op",
+      manifestPath: join(root, ".bearing/manifest.json"),
+      changedTargets: [...result.changedTargets, ...namespaceTargets].sort(),
+    };
+  }
   await assertCompatibleExistingManifest(root);
   await preflightInstallTargets(root, legacyCandidateTargets(root, profiles));
   // Ticket 08 adds the read-only 0.1.1 planning seam without cutting the current 0.1.0

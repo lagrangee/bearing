@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -217,6 +217,19 @@ test("the packed CLI runs through offline local npm exec", async () => {
     expect(bundledTypedInspection).toContain("skills-only runtime");
 
     syncRoot = await createValidBearingRepo();
+    const retainedState = join(root, "package-fixture-state");
+    const retainedScratch = join(root, "package-fixture-scratch");
+    await rename(join(syncRoot, ".bearing/state"), retainedState);
+    await rename(join(syncRoot, ".scratch"), retainedScratch);
+    await rm(join(syncRoot, ".bearing"), { recursive: true });
+    await writeFile(
+      join(syncRoot, "docs/agents/issue-tracker.md"),
+      "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
+    );
+    await writeFile(
+      join(syncRoot, "AGENTS.md"),
+      "Work-management contract: `docs/agents/issue-tracker.md`\n",
+    );
     const setupCommand = [
       join(homeDirectory, ".bearing/bin/bearing"),
       "setup",
@@ -224,15 +237,19 @@ test("the packed CLI runs through offline local npm exec", async () => {
       syncRoot,
       "--surface",
       "agent-skills",
-      "--profile",
-      "generic-agent",
+      "--provider-contract",
+      "docs/agents/issue-tracker.md",
     ];
     const setup = await run(setupCommand, { HOME: homeDirectory });
     expect(setup.exitCode, setup.stderr).toBe(0);
     expect(setup.stdout).toContain("Outcome: applied");
     await access(join(syncRoot, ".bearing/manifest.json"));
-    await access(join(syncRoot, ".bearing/executor-profiles/generic-agent.md"));
+    await expect(
+      access(join(syncRoot, ".bearing/executor-profiles/generic-agent.md")),
+    ).rejects.toThrow();
     await expect(access(join(syncRoot, ".agents/skills/bearing/SKILL.md"))).rejects.toThrow();
+    await rename(retainedState, join(syncRoot, ".bearing/state"));
+    await rename(retainedScratch, join(syncRoot, ".scratch"));
 
     const portalPort = await reservePort();
     const portal = Bun.spawn(

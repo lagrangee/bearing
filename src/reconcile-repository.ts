@@ -4,7 +4,7 @@ import { setupRepository } from "./repo-setup";
 import type { AgentSurface, RepositorySetupResult } from "./types";
 
 export type ReconcileRepositoryResult = Readonly<{
-  outcome: "applied" | "no-op" | "blocked";
+  outcome: "applied" | "no-op" | "partial";
   repository: RepositorySetupResult;
   catalog:
     | Readonly<{ outcome: "applied" | "no-op"; entryId: string }>
@@ -17,6 +17,10 @@ export const reconcileRepository = async (options: {
   readonly homeDir: string;
   readonly surfaces: readonly AgentSurface[];
   readonly profiles: readonly string[];
+  readonly provider?: Readonly<{
+    key: "matt-skills/v1";
+    contractLocator: string;
+  }>;
 }): Promise<ReconcileRepositoryResult> => {
   const repository = await setupRepository(options);
   try {
@@ -32,7 +36,7 @@ export const reconcileRepository = async (options: {
     };
   } catch (error) {
     return {
-      outcome: "blocked",
+      outcome: "partial",
       repository,
       catalog: {
         outcome: "failed",
