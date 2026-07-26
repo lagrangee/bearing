@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { z } from "zod";
+import { agentSurfaceEntryFile } from "./agent-surface-entry";
 import { inspectInstallPath } from "./install-boundary";
 import { resolveRepositoryRoot } from "./path-boundary";
 import { manifestSchema } from "./schema-definitions";
-import type { AgentSurface, RepositorySetupOptions } from "./types";
+import type { RepositorySetupOptions } from "./types";
 
 export type RepositoryIntegrationLifecycle = Readonly<{
   kind: "fresh" | "active" | "deactivated" | "invalid-or-unsupported";
@@ -54,40 +55,27 @@ export type RepositoryExternalPrerequisite = Readonly<{
 
 export type RepositoryTargetPrecondition = Readonly<{
   target: string;
-  kind: "missing" | "file" | "directory" | "symbolic-link";
+  kind: "missing" | "file" | "directory" | "symbolic-link" | "unsafe-parent" | "unsupported";
   fingerprint?: string;
   mode?: number;
   linkCount?: number;
+  unsafePath?: string;
+  detail?: string;
 }>;
-
-const entryFile = (surface: AgentSurface): string =>
-  surface === "agent-skills" ? "AGENTS.md" : "CLAUDE.md";
-
-const SUPPORTED_SURFACES = ["agent-skills", "claude"] as const;
-const START_MARKER = "<!-- bearing:managed-start -->";
-const END_MARKER = "<!-- bearing:managed-end -->";
 
 const uniqueSorted = (values: readonly string[]): string[] =>
   [...new Set(values)].sort((left, right) => left.localeCompare(right, "en"));
 
-const plannedTargets = async (
+const plannedTargets = (
   root: string,
   options: Pick<RepositorySetupOptions, "surfaces" | "profiles">,
-): Promise<readonly string[]> => {
+): readonly string[] => {
   const targets = [
     join(root, ".bearing/manifest.json"),
+    join(root, ".bearing/provider.json"),
     ...options.profiles.map((profile) => join(root, ".bearing/executor-profiles", `${profile}.md`)),
-    ...options.surfaces.map((surface) => join(root, entryFile(surface))),
+    ...options.surfaces.map((surface) => join(root, agentSurfaceEntryFile(surface))),
   ];
-  for (const surface of SUPPORTED_SURFACES.filter(
-    (candidate) => !options.surfaces.includes(candidate),
-  )) {
-    const target = join(root, entryFile(surface));
-    const state = await inspectInstallPath(target);
-    if (state.kind !== "file" || state.linkCount !== 1) continue;
-    const source = await readFile(target, "utf8");
-    if (source.includes(START_MARKER) || source.includes(END_MARKER)) targets.push(target);
-  }
   return uniqueSorted(targets).map((target) => relative(root, target));
 };
 
@@ -122,26 +110,34 @@ const inspectLifecycle = async (root: string): Promise<RepositoryIntegrationLife
   const manifestPath = join(namespacePath, "manifest.json");
   const manifest = await inspectInstallPath(manifestPath);
   if (manifest.kind === "missing") {
+    const children = await readdir(namespacePath);
+    const unexpected = children.filter((child) => child !== "cache" && child !== "state");
+    if (unexpected.length > 0) {
+      return invalidLifecycle(
+        `Bearing configuration exists without a trustworthy repository manifest: ${unexpected.join(", ")}.`,
+      );
+    }
+
     const statePath = join(namespacePath, "state");
     const state = await inspectInstallPath(statePath);
-    if (state.kind === "missing") {
-      return {
-        kind: "fresh",
-        reason: "No Bearing manifest or retained Bearing State is present.",
-      };
-    }
-    if (state.kind !== "directory") {
+    if (state.kind !== "missing" && state.kind !== "directory") {
       return invalidLifecycle("Retained Bearing State is not a safe repository directory.");
     }
-    if ((await readdir(statePath)).length === 0) {
-      return {
-        kind: "fresh",
-        reason: "No Bearing manifest or retained Bearing State is present.",
-      };
+    if (state.kind === "directory" && (await readdir(statePath)).length > 0) {
+      return invalidLifecycle(
+        "Retained Bearing State exists without a trustworthy repository manifest.",
+      );
     }
-    return invalidLifecycle(
-      "Retained Bearing State exists without a trustworthy repository manifest.",
-    );
+
+    const cachePath = join(namespacePath, "cache");
+    const cache = await inspectInstallPath(cachePath);
+    if (cache.kind !== "missing" && cache.kind !== "directory") {
+      return invalidLifecycle("Bearing cache is not a safe repository directory.");
+    }
+    return {
+      kind: "fresh",
+      reason: "No Bearing manifest, retained configuration, or retained Bearing State is present.",
+    };
   }
   if (manifest.kind !== "file" || manifest.linkCount !== 1) {
     return invalidLifecycle("The repository manifest must be one safe single-link regular file.");
@@ -192,7 +188,42 @@ const captureTargetPrecondition = async (
   target: string,
 ): Promise<RepositoryTargetPrecondition> => {
   const absolute = join(root, target);
-  const state = await inspectInstallPath(absolute);
+  let parent = dirname(absolute);
+  while (parent !== root) {
+    try {
+      const parentState = await inspectInstallPath(parent);
+      if (parentState.kind === "symbolic-link" || parentState.kind === "file") {
+        return {
+          target,
+          kind: "unsafe-parent",
+          unsafePath: relative(root, parent),
+          detail:
+            parentState.kind === "symbolic-link"
+              ? "parent path is a symbolic link"
+              : "parent path is not a directory",
+        };
+      }
+    } catch (error) {
+      return {
+        target,
+        kind: "unsafe-parent",
+        unsafePath: relative(root, parent),
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+    parent = dirname(parent);
+  }
+
+  let state: Awaited<ReturnType<typeof inspectInstallPath>>;
+  try {
+    state = await inspectInstallPath(absolute);
+  } catch (error) {
+    return {
+      target,
+      kind: "unsupported",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
   if (state.kind !== "file") return { target, kind: state.kind };
   const bytes = await readFile(absolute);
   return {
@@ -204,7 +235,7 @@ const captureTargetPrecondition = async (
   };
 };
 
-const captureTargetPreconditions = async (
+export const captureRepositoryTargetPreconditions = async (
   root: string,
   targets: readonly string[],
 ): Promise<readonly RepositoryTargetPrecondition[]> =>
@@ -217,6 +248,8 @@ const integrationBlockers = (
     if (
       precondition.kind === "symbolic-link" ||
       precondition.kind === "directory" ||
+      precondition.kind === "unsafe-parent" ||
+      precondition.kind === "unsupported" ||
       (precondition.kind === "file" && (precondition.linkCount ?? 0) !== 1)
     ) {
       return [
@@ -228,7 +261,13 @@ const integrationBlockers = (
               ? `Installation target cannot use a symbolic link: ${precondition.target}`
               : precondition.kind === "directory"
                 ? `Installation file target is a directory: ${precondition.target}`
-                : `Installation target cannot be hard-linked: ${precondition.target}`,
+                : precondition.kind === "unsafe-parent"
+                  ? `Installation target has an unsafe parent ${
+                      precondition.unsafePath ?? "(unknown)"
+                    }: ${precondition.target}`
+                  : precondition.kind === "unsupported"
+                    ? `Installation target has an unsupported filesystem shape: ${precondition.target}`
+                    : `Installation target cannot be hard-linked: ${precondition.target}`,
         },
       ];
     }
@@ -245,8 +284,18 @@ export const assertRepositoryIntegrationPlanCurrent = async (
   if (!equalJson(currentLifecycle, plan.lifecycle)) {
     throw new Error("Repository lifecycle changed after repository integration planning.");
   }
-  for (const expected of plan.stages.repositoryApplyUnit.preconditions) {
-    const current = await captureTargetPrecondition(plan.repoRoot, expected.target);
+  await assertRepositoryTargetPreconditionsCurrent(
+    plan.repoRoot,
+    plan.stages.repositoryApplyUnit.preconditions,
+  );
+};
+
+export const assertRepositoryTargetPreconditionsCurrent = async (
+  root: string,
+  preconditions: readonly RepositoryTargetPrecondition[],
+): Promise<void> => {
+  for (const expected of preconditions) {
+    const current = await captureTargetPrecondition(root, expected.target);
     if (!equalJson(current, expected)) {
       throw new Error(
         `Repository target changed after repository integration planning: ${expected.target}`,
@@ -268,12 +317,9 @@ export const planRepositoryIntegration = async (
     profiles: [...new Set(selection.profiles)].sort(),
   };
   const lifecycle = await inspectLifecycle(root);
-  const targets = await plannedTargets(root, normalizedOptions);
-  const preconditions = await captureTargetPreconditions(root, targets);
+  const targets = plannedTargets(root, normalizedOptions);
+  const preconditions = await captureRepositoryTargetPreconditions(root, targets);
   const blockers = integrationBlockers(preconditions);
-  const canApply =
-    (lifecycle.kind === "fresh" || lifecycle.legacyTransitionRequired === true) &&
-    blockers.length === 0;
   const externalPrerequisites: readonly RepositoryExternalPrerequisite[] = [
     {
       capability: "bearing-package",
@@ -286,6 +332,10 @@ export const planRepositoryIntegration = async (
       state: "not-evaluated",
     },
   ];
+  const canApply =
+    (lifecycle.kind === "fresh" || lifecycle.legacyTransitionRequired === true) &&
+    blockers.length === 0 &&
+    externalPrerequisites.every((prerequisite) => prerequisite.state === "satisfied");
   return Object.freeze({
     planVersion: 1,
     repoRoot: root,

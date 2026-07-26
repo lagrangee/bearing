@@ -187,11 +187,13 @@ export const applyInstallPlans = async (
   homeDir: string,
   plans: readonly TargetPlan[],
   writer: InstallTargetWriter = writeInstallTarget,
+  beforeSnapshot: () => Promise<void> = async () => {},
 ): Promise<InstallResult> => {
   await ensureInstallDirectoryTargets(
     homeDir,
     plans.map((plan) => plan.target),
   );
+  await beforeSnapshot();
   const snapshots = await snapshotPlans(plans);
   const changed = snapshots.filter(needsWrite);
   if (changed.length === 0) {

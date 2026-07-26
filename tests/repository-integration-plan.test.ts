@@ -61,7 +61,7 @@ describe("repository integration planning CLI", () => {
     expect(plan).toMatchObject({
       planVersion: 1,
       lifecycle: { kind: "fresh" },
-      canApply: true,
+      canApply: false,
       stages: {
         externalPrerequisites: {
           owner: "external-capabilities",
@@ -94,6 +94,7 @@ describe("repository integration planning CLI", () => {
     expect(plan.stages.repositoryApplyUnit.targets).toEqual([
       ".bearing/executor-profiles/generic-agent.md",
       ".bearing/manifest.json",
+      ".bearing/provider.json",
       "AGENTS.md",
     ]);
     expect(await readFile(agentsPath, "utf8")).toBe(originalAgents);
@@ -171,7 +172,7 @@ describe("repository integration planning CLI", () => {
     expect(activeResult.exitCode).toBe(0);
     expect(JSON.parse(activeResult.stdout)).toMatchObject({
       lifecycle: { kind: "active", legacyTransitionRequired: true },
-      canApply: true,
+      canApply: false,
     });
     expect(deactivatedResult.exitCode).toBe(0);
     expect(JSON.parse(deactivatedResult.stdout)).toMatchObject({
@@ -188,7 +189,27 @@ describe("repository integration planning CLI", () => {
     );
   });
 
-  test("includes removal of an existing managed block on an unselected surface", async () => {
+  test("classifies retained configuration without a manifest as Invalid", async () => {
+    const repoRoot = await makeTemporaryDirectory("bearing-plan-orphaned-config-");
+    await mkdir(join(repoRoot, ".bearing/executor-profiles"), { recursive: true });
+    const profilePath = join(repoRoot, ".bearing/executor-profiles/custom.md");
+    await writeFile(profilePath, "# Retained user configuration\n");
+
+    const plan = await planRepositoryIntegration({
+      repoRoot,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills"],
+      profiles: ["generic-agent"],
+    });
+
+    expect(plan).toMatchObject({
+      lifecycle: { kind: "invalid-or-unsupported" },
+      canApply: false,
+    });
+    expect(await readFile(profilePath, "utf8")).toBe("# Retained user configuration\n");
+  });
+
+  test("leaves an unselected Agent Surface outside the Apply Unit", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-plan-unselected-");
     const homeDir = await makeTemporaryDirectory("bearing-plan-home-");
     const block = `<!-- bearing:managed-start -->
@@ -214,8 +235,8 @@ For every project request, load and follow the global \`bearing\` skill as the g
     expect(JSON.parse(result.stdout).stages.repositoryApplyUnit.targets).toEqual([
       ".bearing/executor-profiles/generic-agent.md",
       ".bearing/manifest.json",
+      ".bearing/provider.json",
       "AGENTS.md",
-      "CLAUDE.md",
     ]);
     expect(await readFile(join(repoRoot, "CLAUDE.md"), "utf8")).toContain("bearing:managed-start");
   });
@@ -242,6 +263,36 @@ For every project request, load and follow the global \`bearing\` skill as the g
     });
     expect(await readFile(externalAgents, "utf8")).toBe("# External bytes\n");
     await expect(access(join(repoRoot, ".bearing"))).rejects.toThrow();
+  });
+
+  test("fails the plan closed before following a nested repository symlink", async () => {
+    const repoRoot = await makeTemporaryDirectory("bearing-plan-nested-link-");
+    const outsideRoot = await makeTemporaryDirectory("bearing-plan-nested-outside-");
+    const externalProfiles = join(outsideRoot, "executor-profiles");
+    const externalProfile = join(externalProfiles, "generic-agent.md");
+    await mkdir(join(repoRoot, ".bearing"));
+    await mkdir(externalProfiles);
+    await writeFile(externalProfile, "# External profile bytes\n");
+    await symlink(externalProfiles, join(repoRoot, ".bearing/executor-profiles"));
+
+    const plan = await planRepositoryIntegration({
+      repoRoot,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills"],
+      profiles: ["generic-agent"],
+    });
+
+    expect(plan).toMatchObject({
+      lifecycle: { kind: "invalid-or-unsupported" },
+      canApply: false,
+      blockers: [
+        {
+          code: "unsafe-repository-target",
+          target: ".bearing/executor-profiles/generic-agent.md",
+        },
+      ],
+    });
+    expect(await readFile(externalProfile, "utf8")).toBe("# External profile bytes\n");
   });
 
   test("refuses an Apply when a planned target changes before precondition re-read", async () => {

@@ -1,23 +1,22 @@
 import { lstat, mkdir, readFile, rmdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
+import {
+  AGENT_SURFACES,
+  agentSurfaceEntryFile,
+  withBearingManagedPointer,
+  withoutBearingManagedPointer,
+} from "./agent-surface-entry";
 import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans, type InstallTargetWriter, preflightInstallTargets } from "./installer";
 import { resolveRepositoryRoot } from "./path-boundary";
 import {
-  assertRepositoryIntegrationPlanCurrent,
-  planRepositoryIntegration,
-  type RepositoryIntegrationPlan,
+  assertRepositoryTargetPreconditionsCurrent,
+  captureRepositoryTargetPreconditions,
+  type RepositoryTargetPrecondition,
 } from "./repository-integration-plan";
 import { manifestSchema } from "./schema-definitions";
-import type { AgentSurface, RepositorySetupOptions, RepositorySetupResult } from "./types";
-
-const START_MARKER = "<!-- bearing:managed-start -->";
-const END_MARKER = "<!-- bearing:managed-end -->";
-const POINTER =
-  "For every project request, load and follow the global `bearing` skill as the governing runbook.";
-const MANAGED_BLOCK = `${START_MARKER}\n${POINTER}\n${END_MARKER}`;
-const SUPPORTED_SURFACES = ["agent-skills", "claude"] as const;
+import type { RepositorySetupOptions, RepositorySetupResult } from "./types";
 
 const packageSchema = z.object({ version: z.string().min(1) });
 const profileNameSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
@@ -30,41 +29,6 @@ const readOptional = async (target: string): Promise<Buffer | undefined> => {
     throw error;
   }
 };
-
-const managedRange = (source: string): Readonly<{ start: number; end: number }> | undefined => {
-  const starts = [...source.matchAll(new RegExp(START_MARKER, "gu"))];
-  const ends = [...source.matchAll(new RegExp(END_MARKER, "gu"))];
-  if (starts.length === 0 && ends.length === 0) return undefined;
-  const start = starts[0]?.index;
-  const endStart = ends[0]?.index;
-  if (
-    starts.length !== 1 ||
-    ends.length !== 1 ||
-    start === undefined ||
-    endStart === undefined ||
-    endStart < start
-  ) {
-    throw new Error("Agent Surface entry contains a malformed Bearing managed block.");
-  }
-  return { start, end: endStart + END_MARKER.length };
-};
-
-const withManagedPointer = (source: string): string => {
-  const range = managedRange(source);
-  if (range !== undefined)
-    return `${source.slice(0, range.start)}${MANAGED_BLOCK}${source.slice(range.end)}`;
-  const separator = source.length === 0 ? "" : source.endsWith("\n") ? "\n" : "\n\n";
-  return `${source}${separator}${MANAGED_BLOCK}\n`;
-};
-
-const withoutManagedPointer = (source: string): string => {
-  const range = managedRange(source);
-  if (range === undefined) return source;
-  return `${source.slice(0, range.start)}${source.slice(range.end)}`;
-};
-
-const entryFile = (surface: AgentSurface): string =>
-  surface === "agent-skills" ? "AGENTS.md" : "CLAUDE.md";
 
 const packageVersion = async (packageRoot: string): Promise<string> => {
   const metadata = packageSchema.parse(
@@ -103,10 +67,10 @@ const assertCompatibleExistingManifest = async (root: string): Promise<void> => 
 const validatedProfiles = (profiles: readonly string[]): string[] =>
   [...new Set(profiles.map((profile) => profileNameSchema.parse(profile)))].sort();
 
-const candidateTargets = (root: string, profiles: readonly string[]): string[] => [
+const legacyCandidateTargets = (root: string, profiles: readonly string[]): string[] => [
   join(root, ".bearing/manifest.json"),
   ...profiles.map((profile) => join(root, ".bearing/executor-profiles", `${profile}.md`)),
-  ...SUPPORTED_SURFACES.map((surface) => join(root, entryFile(surface))),
+  ...AGENT_SURFACES.map((surface) => join(root, agentSurfaceEntryFile(surface))),
   join(root, ".bearing/state/.boundary-check"),
   join(root, ".bearing/cache/.boundary-check"),
 ];
@@ -140,7 +104,7 @@ const removeCreatedNamespaces = async (directories: readonly string[]): Promise<
   for (const directory of [...directories].reverse()) await rmdir(directory);
 };
 
-const buildRepositoryPlans = async (
+const buildLegacyRepositoryPlans = async (
   root: string,
   options: RepositorySetupOptions,
 ): Promise<readonly TargetPlan[]> => {
@@ -171,20 +135,20 @@ const buildRepositoryPlans = async (
   }
 
   for (const surface of surfaces) {
-    const target = join(root, entryFile(surface));
+    const target = join(root, agentSurfaceEntryFile(surface));
     const existing = await readOptional(target);
     plans.push({
       target,
-      bytes: Buffer.from(withManagedPointer(existing?.toString("utf8") ?? ""), "utf8"),
+      bytes: Buffer.from(withBearingManagedPointer(existing?.toString("utf8") ?? ""), "utf8"),
       executable: false,
     });
   }
-  for (const surface of SUPPORTED_SURFACES.filter((surface) => !surfaces.includes(surface))) {
-    const target = join(root, entryFile(surface));
+  for (const surface of AGENT_SURFACES.filter((surface) => !surfaces.includes(surface))) {
+    const target = join(root, agentSurfaceEntryFile(surface));
     const existing = await readOptional(target);
     if (existing === undefined) continue;
     const source = existing.toString("utf8");
-    const revised = withoutManagedPointer(source);
+    const revised = withoutBearingManagedPointer(source);
     if (revised === source) continue;
     plans.push({ target, bytes: Buffer.from(revised, "utf8"), executable: false });
   }
@@ -194,29 +158,39 @@ const buildRepositoryPlans = async (
 export const setupRepository = async (
   options: RepositorySetupOptions,
   hooks: Readonly<{
-    afterPlan?: (plan: RepositoryIntegrationPlan) => Promise<void>;
+    afterPlan?: (
+      plan: Readonly<{
+        repoRoot: string;
+        preconditions: readonly RepositoryTargetPrecondition[];
+      }>,
+    ) => Promise<void>;
     writeTarget?: InstallTargetWriter;
   }> = {},
 ): Promise<RepositorySetupResult> => {
-  const integrationPlan = await planRepositoryIntegration(options);
-  await hooks.afterPlan?.(integrationPlan);
-  if (!integrationPlan.canApply) {
-    const blocker = integrationPlan.blockers[0];
-    if (blocker !== undefined) throw new Error(blocker.message);
-    throw new Error(
-      `Repository integration cannot be applied: ${integrationPlan.lifecycle.reason}`,
-    );
-  }
-  await assertRepositoryIntegrationPlanCurrent(integrationPlan);
-  const root = await resolveRepositoryRoot(integrationPlan.repoRoot);
+  const root = await resolveRepositoryRoot(options.repoRoot);
   const profiles = validatedProfiles(options.profiles);
   await assertCompatibleExistingManifest(root);
-  await preflightInstallTargets(root, candidateTargets(root, profiles));
-  const plans = await buildRepositoryPlans(root, { ...options, repoRoot: root, profiles });
+  await preflightInstallTargets(root, legacyCandidateTargets(root, profiles));
+  // Ticket 08 adds the read-only 0.1.1 planning seam without cutting the current 0.1.0
+  // setup execution over to provider-aware semantics. Later delivery tickets own that cutover.
+  const plans = await buildLegacyRepositoryPlans(root, {
+    ...options,
+    repoRoot: root,
+    profiles,
+  });
+  const plannedTargets = plans.map((plan) => relative(root, plan.target));
+  const preconditions = await captureRepositoryTargetPreconditions(root, plannedTargets);
+  const compatibilityPlan = Object.freeze({
+    repoRoot: root,
+    preconditions: Object.freeze(preconditions),
+  });
+  await hooks.afterPlan?.(compatibilityPlan);
   const createdDirectories = await ensureNamespaces(root);
   let result: Awaited<ReturnType<typeof applyInstallPlans>>;
   try {
-    result = await applyInstallPlans(root, plans, hooks.writeTarget);
+    result = await applyInstallPlans(root, plans, hooks.writeTarget, async () => {
+      await assertRepositoryTargetPreconditionsCurrent(root, preconditions);
+    });
   } catch (error) {
     await removeCreatedNamespaces(createdDirectories);
     throw error;

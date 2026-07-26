@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { readFile, rename, rm, unlink } from "node:fs/promises";
 import { join, relative } from "node:path";
+import {
+  AGENT_SURFACES,
+  agentSurfaceEntryFile,
+  withoutBearingManagedPointer,
+} from "./agent-surface-entry";
 import { removeCatalogEntryByRepoRoot } from "./catalog/store";
 import { inspectInstallPath } from "./install-boundary";
 import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans } from "./installer";
 import { resolveRepositoryRoot } from "./path-boundary";
-
-const START_MARKER = "<!-- bearing:managed-start -->";
-const END_MARKER = "<!-- bearing:managed-end -->";
-const ENTRY_FILES = ["AGENTS.md", "CLAUDE.md"] as const;
 
 const readOptional = async (target: string): Promise<Buffer | undefined> => {
   try {
@@ -20,34 +21,16 @@ const readOptional = async (target: string): Promise<Buffer | undefined> => {
   }
 };
 
-const withoutManagedPointer = (source: string): string => {
-  const starts = [...source.matchAll(new RegExp(START_MARKER, "gu"))];
-  const ends = [...source.matchAll(new RegExp(END_MARKER, "gu"))];
-  if (starts.length === 0 && ends.length === 0) return source;
-  const start = starts[0]?.index;
-  const endStart = ends[0]?.index;
-  if (
-    starts.length !== 1 ||
-    ends.length !== 1 ||
-    start === undefined ||
-    endStart === undefined ||
-    endStart < start
-  ) {
-    throw new Error("Agent Surface entry contains a malformed Bearing managed block.");
-  }
-  return `${source.slice(0, start)}${source.slice(endStart + END_MARKER.length)}`;
-};
-
 const pointerPlans = async (
   root: string,
 ): Promise<Readonly<{ plans: readonly TargetPlan[]; originals: readonly TargetPlan[] }>> => {
   const plans: TargetPlan[] = [];
   const originals: TargetPlan[] = [];
-  for (const name of ENTRY_FILES) {
-    const target = join(root, name);
+  for (const surface of AGENT_SURFACES) {
+    const target = join(root, agentSurfaceEntryFile(surface));
     const existing = await readOptional(target);
     if (existing === undefined) continue;
-    const revised = Buffer.from(withoutManagedPointer(existing.toString("utf8")), "utf8");
+    const revised = Buffer.from(withoutBearingManagedPointer(existing.toString("utf8")), "utf8");
     if (revised.equals(existing)) continue;
     plans.push({ target, bytes: revised, executable: false });
     originals.push({ target, bytes: existing, executable: false });
