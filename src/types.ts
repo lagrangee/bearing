@@ -53,10 +53,37 @@ export type RepositorySetupOptions = Readonly<{
   packageRoot: string;
   surfaces: readonly AgentSurface[];
   profiles: readonly string[];
+  registrations?: readonly ExecutorRegistration[];
+  executorHomeDir?: string;
   provider?: Readonly<{
     key: "matt-skills/v1";
     contractLocator: string;
   }>;
+}>;
+
+export type ExecutorRegistration = Readonly<{
+  profileKey: string;
+  displayName: string;
+  surface: AgentSurface;
+  capabilityLocator: string;
+  nativeArtifacts: readonly string[];
+  writebackBehavior: string;
+  assessment: Readonly<{
+    capabilityLocator: string;
+    conclusion: "owns-end-to-end-execution-and-final-writeback";
+    requiredReferences: readonly string[];
+    executionOwnershipEvidence: string;
+    finalWritebackEvidence: string;
+    nativeArtifacts: readonly Readonly<{
+      description: string;
+      evidence: string;
+    }>[];
+    writebackBehavior: Readonly<{
+      description: string;
+      evidence: string;
+    }>;
+  }>;
+  sourceContractSnapshot: string;
 }>;
 
 export type RepositorySetupResult = Readonly<{

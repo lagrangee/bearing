@@ -8,6 +8,11 @@ import {
   withBearingManagedPointer,
   withoutBearingManagedPointer,
 } from "./agent-surface-entry";
+import {
+  assertExecutorRegistrationsCurrent,
+  renderExecutionProfile,
+  validateExecutorRegistrationSelection,
+} from "./executor-registration";
 import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans, type InstallTargetWriter, preflightInstallTargets } from "./installer";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
@@ -182,9 +187,12 @@ const buildFreshRepositoryPlans = async (
   },
 ): Promise<readonly TargetPlan[]> => {
   if (options.surfaces.length === 0) throw new Error("Select at least one Agent Surface.");
-  if (options.profiles.length > 0) {
-    throw new Error("Fresh specialized executor registrations require their accepted profiles.");
-  }
+  const profiles = validatedProfiles(options.profiles);
+  const registrations = validateExecutorRegistrationSelection(
+    options.registrations ?? [],
+    options.surfaces,
+    profiles,
+  );
   const surfaces = [...new Set(options.surfaces)].sort();
   const plans: TargetPlan[] = [
     {
@@ -196,7 +204,7 @@ const buildFreshRepositoryPlans = async (
             packageVersion: await packageVersion(options.packageRoot),
             status: "active",
             surfaces,
-            executorProfiles: [],
+            executorProfiles: profiles,
           },
           null,
           2,
@@ -222,6 +230,13 @@ const buildFreshRepositoryPlans = async (
       executable: false,
     },
   ];
+  for (const registration of registrations) {
+    plans.push({
+      target: join(root, ".bearing/executor-profiles", `${registration.profileKey}.md`),
+      bytes: renderExecutionProfile(registration),
+      executable: false,
+    });
+  }
   for (const surface of surfaces) {
     const target = join(root, agentSurfaceEntryFile(surface));
     const existing = await readOptional(target);
@@ -250,6 +265,17 @@ export const setupRepository = async (
   const profiles = validatedProfiles(options.profiles);
   if (options.provider !== undefined) {
     const provider = options.provider;
+    const registrations = validateExecutorRegistrationSelection(
+      options.registrations ?? [],
+      options.surfaces,
+      profiles,
+    );
+    if (registrations.length > 0 && options.executorHomeDir === undefined) {
+      throw new Error("Fresh Executor Registration validation requires its Agent Surface home.");
+    }
+    if (options.executorHomeDir !== undefined) {
+      await assertExecutorRegistrationsCurrent(options.executorHomeDir, registrations);
+    }
     const integrationPlan = await planRepositoryIntegration({
       ...options,
       repoRoot: root,
@@ -303,6 +329,9 @@ export const setupRepository = async (
             providerContract,
           );
           await assertRepositoryTargetPreconditionsCurrent(root, preconditions);
+          if (options.executorHomeDir !== undefined) {
+            await assertExecutorRegistrationsCurrent(options.executorHomeDir, registrations);
+          }
         },
         async () => {
           await assertRepositoryPlansCurrent(root, plans);
@@ -312,6 +341,9 @@ export const setupRepository = async (
             options.surfaces,
             providerContract,
           );
+          if (options.executorHomeDir !== undefined) {
+            await assertExecutorRegistrationsCurrent(options.executorHomeDir, registrations);
+          }
           const syncPlan = await prepareSync(root);
           if (syncPlan.diagnostics.length > 0) {
             throw new Error(
@@ -333,6 +365,9 @@ export const setupRepository = async (
             options.surfaces,
             providerContract,
           );
+          if (options.executorHomeDir !== undefined) {
+            await assertExecutorRegistrationsCurrent(options.executorHomeDir, registrations);
+          }
         },
       );
     } catch (error) {

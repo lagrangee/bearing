@@ -1,6 +1,11 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { access, mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  type ExecutorNominationAssessment,
+  resolveExecutorNomination,
+  resolveExecutorWritebackProfile,
+} from "../src/executor-registration";
 import { writeInstallTarget } from "../src/installer";
 import { setupRepository } from "../src/repo-setup";
 import { planRepositoryIntegration } from "../src/repository-integration-plan";
@@ -10,6 +15,7 @@ const runSetupCli = async (
   repoRoot: string,
   homeDir: string,
   extraArgs: readonly string[],
+  surfaces: readonly ("agent-skills" | "claude")[] = ["agent-skills"],
 ): Promise<Readonly<{ stdout: string; stderr: string; exitCode: number }>> => {
   const child = Bun.spawn(
     [
@@ -18,8 +24,7 @@ const runSetupCli = async (
       "setup",
       "--repo",
       repoRoot,
-      "--surface",
-      "agent-skills",
+      ...surfaces.flatMap((surface) => ["--surface", surface]),
       ...extraArgs,
     ],
     {
@@ -35,6 +40,60 @@ const runSetupCli = async (
   ]);
   return { stdout, stderr, exitCode };
 };
+
+const writeExecutorSkillFixture = async (
+  homeDir: string,
+  surface: "agent-skills" | "claude",
+  name: string,
+  body: string,
+): Promise<void> => {
+  const surfaceRoot = surface === "agent-skills" ? ".agents/skills" : ".claude/skills";
+  const directory = join(homeDir, surfaceRoot, name);
+  await mkdir(directory, { recursive: true });
+  await writeFile(
+    join(directory, "SKILL.md"),
+    `---
+name: ${name}
+description: "${name} executor"
+---
+
+${body}
+`,
+  );
+};
+
+const executorAssessment = (
+  capabilityLocator: string,
+  executionOwnershipEvidence: string,
+  finalWritebackEvidence: string,
+): ExecutorNominationAssessment => ({
+  capabilityLocator,
+  conclusion: "owns-end-to-end-execution-and-final-writeback",
+  requiredReferences: [],
+  executionOwnershipEvidence,
+  finalWritebackEvidence,
+  nativeArtifacts: [
+    {
+      description: "Execution outcome produced by the nominated executor.",
+      evidence: finalWritebackEvidence,
+    },
+  ],
+  writebackBehavior: {
+    description: "Complete the final writeback declared by the nominated executor.",
+    evidence: finalWritebackEvidence,
+  },
+});
+
+const executorAssessmentArgs = (
+  capabilityLocator: string,
+  executionOwnershipEvidence: string,
+  finalWritebackEvidence: string,
+): readonly string[] => [
+  "--executor-assessment",
+  JSON.stringify(
+    executorAssessment(capabilityLocator, executionOwnershipEvidence, finalWritebackEvidence),
+  ),
+];
 
 const writeMattProviderFixture = async (
   repoRoot: string,
@@ -114,7 +173,6 @@ describe("repository integration planning CLI", () => {
       },
     });
     expect(plan.stages.repositoryApplyUnit.targets).toEqual([
-      ".bearing/executor-profiles/generic-agent.md",
       ".bearing/manifest.json",
       ".bearing/provider.json",
       "AGENTS.md",
@@ -192,6 +250,192 @@ describe("repository integration planning CLI", () => {
     expect(await readFile(join(repoRoot, ".bearing/cache/sync-report.md"), "utf8")).toContain(
       "No structural diagnostics.",
     );
+  });
+
+  test("applies zero, one, or multiple accepted surface-scoped Executor Registrations", async () => {
+    const codexRoot = await makeTemporaryDirectory("bearing-setup-codex-executor-");
+    const codexHome = await makeTemporaryDirectory("bearing-setup-codex-executor-home-");
+    const codexContract = await writeMattProviderFixture(codexRoot);
+    await writeExecutorSkillFixture(
+      codexHome,
+      "agent-skills",
+      "implement",
+      "Implement the work from its spec through verification, then commit your work.",
+    );
+    await writeExecutorSkillFixture(
+      codexHome,
+      "agent-skills",
+      "execute-plan",
+      "Execute the plan end to end and publish the final completion report.",
+    );
+
+    const codexResult = await runSetupCli(codexRoot, codexHome, [
+      "--provider-contract",
+      codexContract,
+      "--executor",
+      "agent-skills:implement",
+      ...executorAssessmentArgs(
+        "agent-skills:implement",
+        "Implement the work from its spec through verification",
+        "commit your work",
+      ),
+      "--executor",
+      "agent-skills:execute-plan",
+      ...executorAssessmentArgs(
+        "agent-skills:execute-plan",
+        "Execute the plan end to end",
+        "publish the final completion report",
+      ),
+    ]);
+    expect(codexResult.exitCode).toBe(0);
+    expect(
+      JSON.parse(await readFile(join(codexRoot, ".bearing/manifest.json"), "utf8")),
+    ).toMatchObject({
+      executorProfiles: ["agent-skills-execute-plan", "agent-skills-implement"],
+    });
+    expect(
+      await readFile(
+        join(codexRoot, ".bearing/executor-profiles/agent-skills-implement.md"),
+        "utf8",
+      ),
+    ).toContain("Capability locator: agent-skills:implement");
+    await expect(
+      resolveExecutorWritebackProfile(codexRoot, "agent-skills:implement"),
+    ).resolves.toMatchObject({
+      profileKey: "agent-skills-implement",
+      matchedRegistration: true,
+    });
+    await expect(
+      resolveExecutorWritebackProfile(codexRoot, "claude:unregistered-executor"),
+    ).resolves.toMatchObject({
+      profileKey: "generic-agent",
+      matchedRegistration: false,
+      disclosure: expect.stringMatching(/no specialized Executor Registration matched/iu),
+    });
+
+    const claudeRoot = await makeTemporaryDirectory("bearing-setup-claude-executor-");
+    const claudeHome = await makeTemporaryDirectory("bearing-setup-claude-executor-home-");
+    const claudeContract = await writeMattProviderFixture(claudeRoot, {
+      surfaces: ["claude"],
+    });
+    await writeExecutorSkillFixture(
+      claudeHome,
+      "claude",
+      "execute-plan",
+      "Execute the plan and own the final writeback.",
+    );
+    const claudeResult = await runSetupCli(
+      claudeRoot,
+      claudeHome,
+      [
+        "--provider-contract",
+        claudeContract,
+        "--executor",
+        "claude:execute-plan",
+        ...executorAssessmentArgs(
+          "claude:execute-plan",
+          "Execute the plan",
+          "own the final writeback",
+        ),
+      ],
+      ["claude"],
+    );
+    expect(claudeResult.exitCode).toBe(0);
+    expect(
+      JSON.parse(await readFile(join(claudeRoot, ".bearing/manifest.json"), "utf8")),
+    ).toMatchObject({ surfaces: ["claude"], executorProfiles: ["claude-execute-plan"] });
+    expect(await readFile(join(claudeRoot, "CLAUDE.md"), "utf8")).toContain(
+      "bearing:managed-start",
+    );
+    await expect(
+      resolveExecutorWritebackProfile(claudeRoot, "claude:execute-plan"),
+    ).resolves.toMatchObject({
+      profileKey: "claude-execute-plan",
+      matchedRegistration: true,
+    });
+  });
+
+  test("keeps an invalid optional nomination skippable and makes no partial writes", async () => {
+    const repoRoot = await makeTemporaryDirectory("bearing-setup-invalid-executor-");
+    const homeDir = await makeTemporaryDirectory("bearing-setup-invalid-executor-home-");
+    const contractLocator = await writeMattProviderFixture(repoRoot);
+    await writeExecutorSkillFixture(
+      homeDir,
+      "agent-skills",
+      "tdd",
+      "Use test-driven development and run focused tests.",
+    );
+
+    const invalid = await runSetupCli(repoRoot, homeDir, [
+      "--provider-contract",
+      contractLocator,
+      "--executor",
+      "agent-skills:tdd",
+    ]);
+    expect(invalid.exitCode).toBe(1);
+    expect(invalid.stderr).toContain("semantic assessments must match");
+    await expect(access(join(repoRoot, ".bearing"))).rejects.toThrow();
+
+    const skipped = await runSetupCli(repoRoot, homeDir, ["--provider-contract", contractLocator]);
+    expect(skipped.exitCode).toBe(0);
+    expect(
+      JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8")),
+    ).toMatchObject({ executorProfiles: [] });
+  });
+
+  test("revalidates a nominated executor contract through the complete Apply Unit", async () => {
+    const repoRoot = await makeTemporaryDirectory("bearing-setup-executor-race-");
+    const homeDir = await makeTemporaryDirectory("bearing-setup-executor-race-home-");
+    const contractLocator = await writeMattProviderFixture(repoRoot);
+    await writeExecutorSkillFixture(
+      homeDir,
+      "agent-skills",
+      "implement",
+      "Implement the work through verification, then commit your work.",
+    );
+    const registration = await resolveExecutorNomination(
+      homeDir,
+      "agent-skills:implement",
+      executorAssessment(
+        "agent-skills:implement",
+        "Implement the work through verification",
+        "commit your work",
+      ),
+    );
+    const skillPath = join(homeDir, ".agents/skills/implement/SKILL.md");
+
+    await expect(
+      setupRepository(
+        {
+          repoRoot,
+          packageRoot: process.cwd(),
+          surfaces: ["agent-skills"],
+          profiles: [registration.profileKey],
+          registrations: [registration],
+          executorHomeDir: homeDir,
+          provider: { key: "matt-skills/v1", contractLocator },
+        },
+        {
+          writeTarget: async (plan, ordinal) => {
+            await writeInstallTarget(plan, ordinal);
+            if (ordinal === 0) {
+              await writeFile(
+                skillPath,
+                `---
+name: implement
+description: "changed helper"
+---
+
+Review an existing patch.
+`,
+              );
+            }
+          },
+        },
+      ),
+    ).rejects.toThrow("all written targets were restored");
+
+    await expect(access(join(repoRoot, ".bearing"))).rejects.toThrow();
   });
 
   test("fails closed before repository writes for an unsupported provider contract", async () => {
@@ -273,16 +517,52 @@ describe("repository integration planning CLI", () => {
 
     const profileRoot = await makeTemporaryDirectory("bearing-setup-profile-before-ticket14-");
     const profileContract = await writeMattProviderFixture(profileRoot);
+    const unavailableRegistration = {
+      profileKey: "agent-skills-implement",
+      displayName: "/implement",
+      surface: "agent-skills" as const,
+      capabilityLocator: "agent-skills:implement",
+      nativeArtifacts: ["Implementation changes."],
+      writebackBehavior: "Commit the completed work.",
+      assessment: executorAssessment(
+        "agent-skills:implement",
+        "Implement the work.",
+        "Commit the completed work.",
+      ),
+      sourceContractSnapshot: "unavailable-test-snapshot",
+    };
     const profilePlan = await planRepositoryIntegration({
       repoRoot: profileRoot,
       packageRoot: process.cwd(),
       surfaces: ["agent-skills"],
-      profiles: ["matt-implement"],
+      profiles: [unavailableRegistration.profileKey],
+      registrations: [unavailableRegistration],
       provider: { key: "matt-skills/v1", contractLocator: profileContract },
     });
     expect(profilePlan.canApply).toBe(false);
     expect(profilePlan.blockers).toContainEqual(
-      expect.objectContaining({ code: "unsupported-executor-registration" }),
+      expect.objectContaining({
+        code: "unsupported-executor-registration",
+        message: expect.stringMatching(/Agent Surface home/iu),
+      }),
+    );
+
+    const missingExecutorHome = await makeTemporaryDirectory("bearing-setup-profile-missing-home-");
+    const unavailablePlan = await planRepositoryIntegration({
+      repoRoot: profileRoot,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills"],
+      profiles: [unavailableRegistration.profileKey],
+      registrations: [unavailableRegistration],
+      executorHomeDir: missingExecutorHome,
+      provider: { key: "matt-skills/v1", contractLocator: profileContract },
+    });
+    expect(unavailablePlan.canApply).toBe(false);
+    expect(unavailablePlan.blockers).toContainEqual(
+      expect.objectContaining({
+        code: "unsupported-executor-registration",
+        message: expect.stringMatching(/unavailable/iu),
+      }),
     );
   });
 
@@ -608,7 +888,6 @@ For every project request, load and follow the global \`bearing\` skill as the g
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout).stages.repositoryApplyUnit.targets).toEqual([
-      ".bearing/executor-profiles/generic-agent.md",
       ".bearing/manifest.json",
       ".bearing/provider.json",
       "AGENTS.md",

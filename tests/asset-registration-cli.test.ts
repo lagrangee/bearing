@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, readFile, rename, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { registerAsset } from "../src/asset-registration";
+import { renderExecutionProfile } from "../src/executor-registration";
 import { parseFrontmatter } from "../src/frontmatter";
 import { createValidBearingRepo, makeTemporaryDirectory } from "./helpers";
 
@@ -10,6 +11,22 @@ const runAssetRegistration = async (
   overrides: readonly string[] = [],
   environment: Readonly<Record<string, string>> = {},
 ): Promise<Readonly<{ stdout: string; stderr: string; exitCode: number }>> => {
+  const manifestPath = join(repoRoot, ".bearing/manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+    status?: string;
+    executorProfiles?: readonly string[];
+    [key: string]: unknown;
+  };
+  if (
+    manifest.status === undefined &&
+    JSON.stringify(manifest.executorProfiles) === JSON.stringify(["generic-agent"])
+  ) {
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, status: "active", executorProfiles: [] }, null, 2)}\n`,
+    );
+    await rm(join(repoRoot, ".bearing/executor-profiles/generic-agent.md"), { force: true });
+  }
   const defaults = [
     "--repo",
     repoRoot,
@@ -27,10 +44,15 @@ const runAssetRegistration = async (
     "executor-profile",
     "--producer-name",
     "generic-agent",
+    "--executor-capability",
+    "agent-skills:unregistered-executor",
     "--produced-for",
     ".scratch/work/issues/09.md",
   ];
   const overridden = new Set(overrides.filter((value) => value.startsWith("--")));
+  if (overridden.has("--producer-kind") && !overridden.has("--executor-capability")) {
+    overridden.add("--executor-capability");
+  }
   const args: string[] = [];
   for (let index = 0; index < defaults.length; index += 2) {
     const key = defaults[index];
@@ -100,11 +122,214 @@ describe("typed Asset Registration Route CLI", () => {
 
     const replay = await runAssetRegistration(root);
     expect(replay.exitCode).toBe(0);
-    expect(JSON.parse(replay.stdout)).toEqual({
+    expect(JSON.parse(replay.stdout)).toMatchObject({
       outcome: "no-op",
       assetId: "asset:test-execution",
+      writebackProfile: {
+        capabilityLocator: "agent-skills:unregistered-executor",
+        profileKey: "generic-agent",
+        matchedRegistration: false,
+      },
     });
     expect(await readFile(join(root, ".bearing/state/assets.md"))).toEqual(bytesAfterFirst);
+  });
+
+  test("matches the actual unregistered capability to Generic provenance and discloses fallback", async () => {
+    const root = await createValidBearingRepo();
+    const manifestPath = join(root, ".bearing/manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, status: "active", executorProfiles: [] }, null, 2)}\n`,
+    );
+    await rm(join(root, ".bearing/executor-profiles/generic-agent.md"), { force: true });
+    await writeFile(join(root, ".scratch/work/evidence.md"), "# Generic fallback evidence\n");
+
+    const result = await runAssetRegistration(root, [
+      "--executor-capability",
+      "claude:unregistered-executor",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      writebackProfile: {
+        capabilityLocator: "claude:unregistered-executor",
+        profileKey: "generic-agent",
+        matchedRegistration: false,
+        disclosure: expect.stringMatching(/no specialized Executor Registration matched/iu),
+      },
+    });
+    expect(await registryAssets(root)).toContainEqual(
+      expect.objectContaining({
+        Producer: {
+          Kind: "executor-profile",
+          Name: "generic-agent",
+        },
+      }),
+    );
+  });
+
+  test("rejects executor-profile provenance without the actual capability locator", async () => {
+    const root = await createValidBearingRepo();
+
+    await expect(
+      registerAsset({
+        repoRoot: root,
+        id: "asset:unmatched-without-capability",
+        title: "Missing actual executor identity",
+        kind: "execution-evidence",
+        location: ".scratch/work/evidence.md",
+        owner: "effort:test",
+        producer: {
+          kind: "executor-profile",
+          name: "generic-agent",
+        },
+        producedFor: ".scratch/work/issues/14.md",
+      }),
+    ).rejects.toThrow("actual executor capability locator");
+  });
+
+  test("matches an actual executor capability to its configured specialized provenance", async () => {
+    const root = await createValidBearingRepo();
+    const manifestPath = join(root, ".bearing/manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        { ...manifest, status: "active", executorProfiles: ["agent-skills-implement"] },
+        null,
+        2,
+      )}\n`,
+    );
+    await mkdir(join(root, ".bearing/executor-profiles"), { recursive: true });
+    await writeFile(
+      join(root, ".bearing/executor-profiles/agent-skills-implement.md"),
+      renderExecutionProfile({
+        profileKey: "agent-skills-implement",
+        displayName: "/implement",
+        surface: "agent-skills",
+        capabilityLocator: "agent-skills:implement",
+        nativeArtifacts: ["Implementation changes."],
+        writebackBehavior: "Commit the completed work.",
+      }),
+    );
+    await writeFile(join(root, ".scratch/work/evidence.md"), "# Specialized evidence\n");
+
+    const result = await runAssetRegistration(root, [
+      "--producer-name",
+      "agent-skills-implement",
+      "--executor-capability",
+      "agent-skills:implement",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      writebackProfile: {
+        capabilityLocator: "agent-skills:implement",
+        profileKey: "agent-skills-implement",
+        matchedRegistration: true,
+      },
+    });
+    expect(await registryAssets(root)).toContainEqual(
+      expect.objectContaining({
+        Producer: {
+          Kind: "executor-profile",
+          Name: "agent-skills-implement",
+        },
+      }),
+    );
+
+    const mismatched = await runAssetRegistration(root, [
+      "--id",
+      "asset:mismatched-executor-profile",
+      "--producer-name",
+      "generic-agent",
+      "--executor-capability",
+      "agent-skills:implement",
+    ]);
+    expect(mismatched.exitCode).not.toBe(0);
+    expect(mismatched.stderr).toContain("expected agent-skills-implement");
+
+    const profilePath = join(root, ".bearing/executor-profiles/agent-skills-implement.md");
+    await writeFile(
+      profilePath,
+      (await readFile(profilePath, "utf8")).replace("Version: 1", "Version: 99"),
+    );
+    const unsupportedProfileVersion = await runAssetRegistration(root, [
+      "--id",
+      "asset:unsupported-profile-version",
+      "--producer-name",
+      "agent-skills-implement",
+      "--executor-capability",
+      "agent-skills:implement",
+    ]);
+    expect(unsupportedProfileVersion.exitCode).not.toBe(0);
+    expect(unsupportedProfileVersion.stderr).toContain(
+      "Configured Execution Profile identity is invalid",
+    );
+  });
+
+  test("revalidates executor matching immediately before Registry mutation", async () => {
+    const root = await createValidBearingRepo();
+    const manifestPath = join(root, ".bearing/manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        { ...manifest, status: "active", executorProfiles: ["agent-skills-implement"] },
+        null,
+        2,
+      )}\n`,
+    );
+    await mkdir(join(root, ".bearing/executor-profiles"), { recursive: true });
+    const profilePath = join(root, ".bearing/executor-profiles/agent-skills-implement.md");
+    await writeFile(
+      profilePath,
+      renderExecutionProfile({
+        profileKey: "agent-skills-implement",
+        displayName: "/implement",
+        surface: "agent-skills",
+        capabilityLocator: "agent-skills:implement",
+        nativeArtifacts: ["Implementation changes."],
+        writebackBehavior: "Commit the completed work.",
+      }),
+    );
+    await writeFile(join(root, ".scratch/work/evidence.md"), "# Raced evidence\n");
+    const registryPath = join(root, ".bearing/state/assets.md");
+    const registryBefore = await readFile(registryPath);
+
+    await expect(
+      registerAsset(
+        {
+          repoRoot: root,
+          id: "asset:executor-selection-race",
+          title: "Executor selection race",
+          kind: "execution-evidence",
+          location: ".scratch/work/evidence.md",
+          owner: "effort:test",
+          producer: {
+            kind: "executor-profile",
+            name: "agent-skills-implement",
+          },
+          executorCapabilityLocator: "agent-skills:implement",
+          producedFor: ".scratch/work/issues/14.md",
+        },
+        {
+          beforeRegistrySnapshot: async () => {
+            await writeFile(
+              profilePath,
+              (await readFile(profilePath, "utf8")).replace(
+                "Commit the completed work.",
+                "Write a changed completion report.",
+              ),
+            );
+          },
+        },
+      ),
+    ).rejects.toThrow("failed before Registry mutation");
+
+    expect(await readFile(registryPath)).toEqual(registryBefore);
   });
 
   test("fails closed on a conflicting ID or invalid producer provenance", async () => {

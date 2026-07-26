@@ -18,7 +18,9 @@ Report detected facts before asking anything. Ask one material decision at a tim
 
 A missing Matt prerequisite routes to its owning capability. If the user accepts, let that owner finish, revalidate the result, and resume Setup in the same visible continuation. Refusal produces no Bearing repository writes. A compatible selection records exactly one `matt-skills/v1` Provider Configuration containing its resolved contract locator. Bearing never stores or asks for a tracker driver, rewrites the Matt contract, or falls back from an unsupported contract. It may report discovered native scopes but never binds them or creates an Effort.
 
-The optional executor question accepts zero executor nominations as a complete Fresh configuration. The package-owned Generic fallback remains hidden during Setup and creates no repository profile. Only explicitly nominated executor contracts may be inspected; Ticket 14 owns their registration path.
+The optional executor question accepts zero or more familiar skill names or commands, and zero nominations is a complete Fresh configuration. Never scan, rank, recommend, install, whitelist-match, prefer, or select a default executor. Resolve only the exact nominated skill on the user-selected Agent Surface. Read its `SKILL.md` and directly required local execution-contract references, then make an explicit semantic assessment of whether that owned contract covers end-to-end execution and the final outcome or writeback. Do not infer eligibility from keywords or ask the deterministic CLI to interpret free prose. The structured assessment must list the exact directly required local reference locators, contain the explicit eligibility conclusion, quote exact source excerpts for execution ownership and final writeback, and provide one evidence excerpt for every proposed native artifact and writeback behavior; pass it with the matching `--executor-assessment`. Explain that planning, testing, TDD, debugging, and review helpers remain supporting skills. An unavailable, malformed, ambiguous, or insufficient nomination may be retried or skipped and never blocks Fresh completion.
+
+Each accepted assessment creates one surface-scoped project-owned Execution Profile with a stable key, familiar display name, portable surface-qualified capability locator, source-supported native-artifact rule and writeback behavior, durable-evidence rule, fallback-receipt behavior, and executor-profile provenance. Show the familiar name and concise writeback summary for explicit confirmation before Apply. Multiple registrations coexist without cross-surface deduplication, priority, preference, or default semantics. Registration installs or changes no skill. The package-owned Generic fallback remains hidden during Setup, creates no repository profile, and is disclosed only when an actual later writeback matches no specialized registration.
 
 After decisions are complete, show one final owner-separated Apply review. The repository Apply Unit contains the active manifest, Provider Configuration, any explicitly accepted profiles, and managed blocks on selected surfaces. Re-read and validate the complete virtual result before writing it atomically. Catalog registration follows repository validation as an independent outcome.
 
@@ -27,7 +29,7 @@ An applied Fresh outcome states the selected surfaces, verified Matt contract, c
 ## Read Set
 
 - Established public orientation, including repository identity, manifest state, and the original request; do not re-enter the router
-- Package metadata, templates, and installed skill catalog
+- Package metadata and only the exact user-nominated skill contracts
 - Root `AGENTS.md` and/or `CLAUDE.md`
 - `docs/agents/issue-tracker.md` and the configured Work Management adapter contract
 - `.bearing/manifest.json`, state, cache, and executor profiles

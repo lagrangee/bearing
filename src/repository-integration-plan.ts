@@ -3,6 +3,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { z } from "zod";
 import { agentSurfaceEntryFile } from "./agent-surface-entry";
+import {
+  assertExecutorRegistrationsCurrent,
+  validateExecutorRegistrationSelection,
+} from "./executor-registration";
 import { inspectInstallPath } from "./install-boundary";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
 import { validateMattSkillsV1Contract } from "./providers/matt-skills-v1";
@@ -389,15 +393,32 @@ export const planRepositoryIntegration = async (
   const lifecycle = await inspectLifecycle(root);
   const targets = plannedTargets(root, normalizedOptions);
   const preconditions = await captureRepositoryTargetPreconditions(root, targets);
+  let executorRegistrationError: string | undefined;
+  if (normalizedOptions.provider !== undefined) {
+    try {
+      const registrations = validateExecutorRegistrationSelection(
+        options.registrations ?? [],
+        normalizedOptions.surfaces,
+        normalizedOptions.profiles,
+      );
+      if (registrations.length > 0 && options.executorHomeDir === undefined) {
+        throw new Error("Executor Registration planning requires the selected Agent Surface home.");
+      }
+      if (options.executorHomeDir !== undefined) {
+        await assertExecutorRegistrationsCurrent(options.executorHomeDir, registrations);
+      }
+    } catch (error) {
+      executorRegistrationError = error instanceof Error ? error.message : String(error);
+    }
+  }
   const blockers = [
     ...integrationBlockers(preconditions),
-    ...(normalizedOptions.provider !== undefined && normalizedOptions.profiles.length > 0
+    ...(executorRegistrationError !== undefined
       ? [
           {
             code: "unsupported-executor-registration" as const,
             target: ".bearing/executor-profiles",
-            message:
-              "Fresh Executor Registration is not available until its contract-validation path is installed.",
+            message: executorRegistrationError,
           },
         ]
       : []),

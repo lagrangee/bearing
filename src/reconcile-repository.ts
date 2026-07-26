@@ -1,7 +1,7 @@
 import { dirname } from "node:path";
 import { upsertCatalogEntry } from "./catalog/store";
 import { setupRepository } from "./repo-setup";
-import type { AgentSurface, RepositorySetupResult } from "./types";
+import type { AgentSurface, ExecutorRegistration, RepositorySetupResult } from "./types";
 
 export type ReconcileRepositoryResult = Readonly<{
   outcome: "applied" | "no-op" | "partial";
@@ -17,12 +17,13 @@ export const reconcileRepository = async (options: {
   readonly homeDir: string;
   readonly surfaces: readonly AgentSurface[];
   readonly profiles: readonly string[];
+  readonly registrations?: readonly ExecutorRegistration[];
   readonly provider?: Readonly<{
     key: "matt-skills/v1";
     contractLocator: string;
   }>;
 }): Promise<ReconcileRepositoryResult> => {
-  const repository = await setupRepository(options);
+  const repository = await setupRepository({ ...options, executorHomeDir: options.homeDir });
   try {
     const catalog = await upsertCatalogEntry({
       homeDir: options.homeDir,

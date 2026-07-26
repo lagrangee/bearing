@@ -45,7 +45,9 @@ release 对应的 verified backup；否则 downgrade 会 fail closed。
 
 ```bash
 bearing setup --repo . --surface agent-skills \
-  --provider-contract docs/agents/issue-tracker.md
+  --provider-contract docs/agents/issue-tracker.md \
+  --executor agent-skills:implement \
+  --executor-assessment '<由 Agent Surface 生成的语义评估 JSON>'
 ```
 
 `setup` 启用仓库，但不会把 global protocol 或 skills 复制进仓库。
@@ -54,6 +56,12 @@ locator。它会把 active manifest、Provider Configuration 以及仅针对所�
 managed pointers 作为一个 repository Apply Unit 写入；零 executor nomination 也是完整成功，
 且不会安装 Generic fallback。Catalog registration 会在 repository validation 后独立执行并
 单独报告 outcome。
+`--executor` 可重复使用，并且只接受用户已点名 skill 的 portable、surface-qualified locator。
+每个 nomination 必须带一个对应的 `--executor-assessment`，其中包含 Agent Surface 对
+直接 required local references 的精确 locators、end-to-end execution/final writeback
+的明确结论、精确 source excerpts，以及有 source 支持的 profile 内容。CLI 只对被点名
+skill 的 contract 核对这些 references 与 excerpts，不从自由 prose 关键词推断 ownership。
+Setup 不读取其他 executor skill；同时省略两个选项即可跳过 specialized registration。
 遇到不支持的较新 repository schema 时，`setup` 会拒绝写入并指向兼容的 Bearing 版本；
 它不会把较新 state 重写成 schema 1。
 

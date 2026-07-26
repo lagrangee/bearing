@@ -10,6 +10,11 @@ import { z } from "zod";
 import packageMetadata from "../package.json";
 import { registerAsset } from "./asset-registration";
 import { runCatalogCommand } from "./catalog/cli";
+import {
+  executorNominationAssessmentSchema,
+  resolveExecutorNominations,
+  resolveExecutorWritebackProfile,
+} from "./executor-registration";
 import { writeInspectBenchmarkMetrics } from "./inspect-benchmark";
 import { installKit } from "./installer";
 import { createPlanningGraphInstrumentation } from "./planning-graph-instrumentation";
@@ -27,10 +32,10 @@ const HELP = `Bearing ${packageMetadata.version}
 Usage:
   bearing
   bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
-  bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--profile <key>] [--plan]
+  bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--executor <surface:skill> --executor-assessment <json>] [--plan]
   bearing deactivate --repo <path>
   bearing purge --repo <path> --confirm-purge
-  bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> --producer-name <name> [options]
+  bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [options]
   bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
   bearing sync [--repo <path>]
   bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>]
@@ -55,7 +60,6 @@ Environment:
 `;
 
 const surfaceSchema = z.array(z.enum(["agent-skills", "claude"])).min(1);
-const profileSchema = z.array(z.string().min(1));
 
 const packageRoot = (): string => {
   const adjacent = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -121,7 +125,8 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
     options: {
       repo: { type: "string" },
       surface: { type: "string", multiple: true },
-      profile: { type: "string", multiple: true },
+      executor: { type: "string", multiple: true },
+      "executor-assessment": { type: "string", multiple: true },
       "provider-contract": { type: "string" },
       plan: { type: "boolean" },
     },
@@ -136,15 +141,28 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
           key: "matt-skills/v1" as const,
           contractLocator: parsed.values["provider-contract"],
         };
-  const profiles = profileSchema.parse(
-    parsed.values.profile ?? (provider === undefined ? ["generic-agent"] : []),
+  const registrations = await resolveExecutorNominations(
+    homeDirectory(),
+    parsed.values.executor ?? [],
+    (parsed.values["executor-assessment"] ?? []).map((encoded) => {
+      let assessment: unknown;
+      try {
+        assessment = JSON.parse(encoded);
+      } catch (error) {
+        throw new Error("Executor semantic assessment must be valid JSON.", { cause: error });
+      }
+      return executorNominationAssessmentSchema.parse(assessment);
+    }),
   );
+  const profiles = registrations.map((registration) => registration.profileKey);
   if (parsed.values.plan === true) {
     const plan = await planRepositoryIntegration({
       repoRoot: resolve(parsed.values.repo ?? process.cwd()),
       packageRoot: packageRoot(),
       surfaces,
       profiles,
+      registrations,
+      executorHomeDir: homeDirectory(),
       ...(provider === undefined ? {} : { provider }),
     });
     process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
@@ -161,6 +179,7 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
     homeDir: homeDirectory(),
     surfaces,
     profiles,
+    registrations,
     ...(provider === undefined ? {} : { provider }),
   });
   process.stdout.write(
@@ -207,6 +226,7 @@ const runAssetCommand = async (args: readonly string[]): Promise<void> => {
       "producer-kind": { type: "string" },
       "producer-name": { type: "string" },
       "producer-reference": { type: "string" },
+      "executor-capability": { type: "string" },
       "produced-for": { type: "string" },
     },
     allowPositionals: true,
@@ -215,6 +235,29 @@ const runAssetCommand = async (args: readonly string[]): Promise<void> => {
   if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "register") {
     throw new Error("Usage: bearing asset register [options]");
   }
+  const repoRoot = resolve(parsed.values.repo ?? process.cwd());
+  let producerName = parsed.values["producer-name"];
+  if (
+    parsed.values["producer-kind"] === "executor-profile" &&
+    parsed.values["executor-capability"] === undefined
+  ) {
+    throw new Error("--producer-kind executor-profile requires the actual --executor-capability.");
+  }
+  if (parsed.values["executor-capability"] !== undefined) {
+    if (parsed.values["producer-kind"] !== "executor-profile") {
+      throw new Error("--executor-capability requires --producer-kind executor-profile.");
+    }
+    const writebackProfile = await resolveExecutorWritebackProfile(
+      repoRoot,
+      parsed.values["executor-capability"],
+    );
+    if (producerName !== undefined && producerName !== writebackProfile.profileKey) {
+      throw new Error(
+        `--producer-name does not match the actual executor capability; expected ${writebackProfile.profileKey}.`,
+      );
+    }
+    producerName = writebackProfile.profileKey;
+  }
   const required = {
     id: parsed.values.id,
     title: parsed.values.title,
@@ -222,13 +265,13 @@ const runAssetCommand = async (args: readonly string[]): Promise<void> => {
     location: parsed.values.location,
     owner: parsed.values.owner,
     producerKind: parsed.values["producer-kind"],
-    producerName: parsed.values["producer-name"],
+    producerName,
   };
   if (Object.values(required).some((value) => value === undefined)) {
     throw new Error("Asset registration requires identity, location, owner, kind and producer.");
   }
   const result = await registerAsset({
-    repoRoot: resolve(parsed.values.repo ?? process.cwd()),
+    repoRoot,
     id: required.id ?? "",
     title: required.title ?? "",
     kind: required.kind ?? "",
@@ -241,6 +284,9 @@ const runAssetCommand = async (args: readonly string[]): Promise<void> => {
         ? {}
         : { reference: parsed.values["producer-reference"] }),
     },
+    ...(parsed.values["executor-capability"] === undefined
+      ? {}
+      : { executorCapabilityLocator: parsed.values["executor-capability"] }),
     ...(parsed.values["produced-for"] === undefined
       ? {}
       : { producedFor: parsed.values["produced-for"] }),

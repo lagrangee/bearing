@@ -9,6 +9,11 @@ import { z } from "zod";
 import packageMetadata from "../package.json";
 import { writeFileAtomically } from "./atomic-write";
 import { inspectRepository } from "./catalog/repository-inspection";
+import {
+  assertExecutorWritebackSelectionCurrent,
+  type ExecutorWritebackSelection,
+  resolveExecutorWritebackProfile,
+} from "./executor-registration";
 import { parseFrontmatter } from "./frontmatter";
 import { ensureInstallDirectoryTargets, inspectInstallPath } from "./install-boundary";
 import { applyInstallPlans, type InstallTargetWriter } from "./installer";
@@ -42,20 +47,48 @@ const producerReferenceSchema = z.union([
   z.string().regex(/^commit:[0-9a-f]{7,64}$/u),
 ]);
 
-const registrationInputSchema = z.strictObject({
-  repoRoot: z.string().min(1),
-  id: z.string(),
-  title: z.string(),
-  kind: z.string(),
-  location: z.string(),
-  owner: z.string(),
-  producer: z.strictObject({
-    kind: producerKindSchema,
-    name: producerNameSchema,
-    reference: producerReferenceSchema.optional(),
-  }),
-  producedFor: z.string().optional(),
-});
+const registrationInputSchema = z
+  .strictObject({
+    repoRoot: z.string().min(1),
+    id: z.string(),
+    title: z.string(),
+    kind: z.string(),
+    location: z.string(),
+    owner: z.string(),
+    producer: z.strictObject({
+      kind: producerKindSchema,
+      name: producerNameSchema,
+      reference: producerReferenceSchema.optional(),
+    }),
+    executorCapabilityLocator: z
+      .string()
+      .regex(/^(agent-skills|claude):([a-z0-9]+(?:-[a-z0-9]+)*)$/u)
+      .optional(),
+    producedFor: z.string().optional(),
+  })
+  .superRefine((input, context) => {
+    if (
+      input.producer.kind === "executor-profile" &&
+      input.executorCapabilityLocator === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["executorCapabilityLocator"],
+        message: "Executor Profile provenance requires the actual executor capability locator.",
+      });
+    }
+    if (
+      input.producer.kind !== "executor-profile" &&
+      input.executorCapabilityLocator !== undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["executorCapabilityLocator"],
+        message:
+          "Executor capability matching is valid only for executor-profile Producer provenance.",
+      });
+    }
+  });
 
 const assetRegistrySchema = z.strictObject({
   Type: z.literal("asset-registry"),
@@ -72,10 +105,12 @@ export type AssetRegistrationResult = Readonly<
   | {
       outcome: "no-op";
       assetId: string;
+      writebackProfile?: ExecutorWritebackSelection;
     }
   | {
       outcome: "applied";
       assetId: string;
+      writebackProfile?: ExecutorWritebackSelection;
       sync: Readonly<{
         fingerprint: string;
         diagnostics: 0;
@@ -306,6 +341,20 @@ export const registerAsset = async (
     throw new Error("Asset registration requires a repository with a safe Bearing manifest.");
   }
   const root = inspection.canonicalRoot;
+  let writebackProfile: ExecutorWritebackSelection | undefined;
+  if (input.executorCapabilityLocator !== undefined) {
+    if (input.producer.kind !== "executor-profile") {
+      throw new Error(
+        "Executor capability matching is valid only for executor-profile Producer provenance.",
+      );
+    }
+    writebackProfile = await resolveExecutorWritebackProfile(root, input.executorCapabilityLocator);
+    if (input.producer.name !== writebackProfile.profileKey) {
+      throw new Error(
+        `Executor Profile provenance does not match the actual capability: expected ${writebackProfile.profileKey}.`,
+      );
+    }
+  }
   await assertProducerIsDurable(root, input.producer);
   const registryPath = join(root, ".bearing/state/assets.md");
   await ensureInstallDirectoryTargets(root, [registryPath]);
@@ -317,7 +366,16 @@ export const registerAsset = async (
   const asset = assetFromInput(input);
   const existing = current.registry.Assets.find((candidate) => candidate.ID === asset.ID);
   if (existing !== undefined) {
-    if (equalMetadata(existing, asset)) return { outcome: "no-op", assetId: asset.ID };
+    if (equalMetadata(existing, asset)) {
+      if (writebackProfile !== undefined) {
+        await assertExecutorWritebackSelectionCurrent(root, writebackProfile);
+      }
+      return {
+        outcome: "no-op",
+        assetId: asset.ID,
+        ...(writebackProfile === undefined ? {} : { writebackProfile }),
+      };
+    }
     throw new Error(`Asset ${asset.ID} is already registered with different metadata.`);
   }
 
@@ -341,10 +399,27 @@ export const registerAsset = async (
       undefined,
       async () => {
         await hooks.beforeRegistrySnapshot?.();
+        if (writebackProfile !== undefined) {
+          await assertExecutorWritebackSelectionCurrent(root, writebackProfile);
+        }
         await assertRegistrySnapshotCurrent(registryPath, previous);
+      },
+      async () => {
+        if (writebackProfile !== undefined) {
+          await assertExecutorWritebackSelectionCurrent(root, writebackProfile);
+        }
+        return undefined;
+      },
+      async () => {
+        if (writebackProfile !== undefined) {
+          await assertExecutorWritebackSelectionCurrent(root, writebackProfile);
+        }
       },
     );
     registryApplied = true;
+    if (writebackProfile !== undefined) {
+      await assertExecutorWritebackSelectionCurrent(root, writebackProfile);
+    }
     const syncPlan = await prepareSync(root);
     await assertCurrentRegistryBytes(registryPath, proposed);
     if (syncPlan.diagnostics.length > 0) {
@@ -362,12 +437,27 @@ export const registerAsset = async (
       syncTransaction.targets,
       hooks.writeSyncTarget,
       async () => {
+        if (writebackProfile !== undefined) {
+          await assertExecutorWritebackSelectionCurrent(root, writebackProfile);
+        }
         await assertCurrentRegistryBytes(registryPath, proposed);
+      },
+      async () => {
+        if (writebackProfile !== undefined) {
+          await assertExecutorWritebackSelectionCurrent(root, writebackProfile);
+        }
+        return undefined;
+      },
+      async () => {
+        if (writebackProfile !== undefined) {
+          await assertExecutorWritebackSelectionCurrent(root, writebackProfile);
+        }
       },
     );
     return {
       outcome: "applied",
       assetId: asset.ID,
+      ...(writebackProfile === undefined ? {} : { writebackProfile }),
       sync: {
         fingerprint: syncPlan.fingerprint,
         diagnostics: 0,

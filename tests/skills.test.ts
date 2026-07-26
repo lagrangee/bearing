@@ -257,8 +257,24 @@ describe("package-owned planning skills", () => {
       /matt-skills\/v1[\s\S]*Provider Configuration[\s\S]*never stores or asks for a tracker driver/iu,
     );
     expect(setup).toMatch(/native scopes[\s\S]*never binds/iu);
-    expect(setup).toMatch(/zero executor nominations[\s\S]*complete/iu);
+    expect(setup).toMatch(/zero nominations[\s\S]*complete/iu);
     expect(setup).toMatch(/Generic[\s\S]*hidden during Setup/iu);
+    expect(setup).toMatch(
+      /Never scan, rank, recommend, install, whitelist-match, prefer, or select a default executor/iu,
+    );
+    expect(setup).toMatch(
+      /end-to-end execution[\s\S]*final outcome or writeback[\s\S]*planning, testing, TDD, debugging, and review helpers/iu,
+    );
+    expect(setup).toMatch(
+      /explicit semantic assessment[\s\S]*Do not infer eligibility from keywords[\s\S]*exact directly required local reference locators[\s\S]*exact source excerpts[\s\S]*--executor-assessment/iu,
+    );
+    expect(setup).toMatch(
+      /unavailable, malformed, ambiguous, or insufficient nomination[\s\S]*retried or skipped[\s\S]*never blocks/iu,
+    );
+    expect(setup).toMatch(
+      /surface-scoped[\s\S]*portable surface-qualified capability locator[\s\S]*Multiple registrations[\s\S]*without cross-surface deduplication, priority, preference, or default/iu,
+    );
+    expect(setup).toMatch(/Generic fallback[\s\S]*only when[\s\S]*no specialized registration/iu);
     expect(setup).toMatch(/Catalog[\s\S]*independent outcome/iu);
     expect(setup).toMatch(
       /Catalog failure[\s\S]*return `partial` with separate `Repository` and `Catalog` outcomes/iu,

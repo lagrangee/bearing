@@ -46,7 +46,9 @@ backup first; otherwise the downgrade fails closed.
 
 ```bash
 bearing setup --repo . --surface agent-skills \
-  --provider-contract docs/agents/issue-tracker.md
+  --provider-contract docs/agents/issue-tracker.md \
+  --executor agent-skills:implement \
+  --executor-assessment '<Agent-Surface-authored semantic assessment JSON>'
 ```
 
 `setup` enables the repository without copying global protocol or skills into the repository.
@@ -55,6 +57,13 @@ It writes an active manifest, the Provider Configuration, and managed pointers o
 Agent Surfaces as one repository Apply Unit; zero executor nominations is a complete success and
 does not install the Generic fallback. Catalog registration follows repository validation and is
 reported independently.
+`--executor` is repeatable and accepts only a portable, surface-qualified locator for a skill the
+user already nominated. Each nomination requires one matching `--executor-assessment` containing
+the Agent Surface's exact directly required local reference locators, explicit
+end-to-end/final-writeback conclusion, exact source excerpts, and source-supported profile content.
+The CLI verifies those references and excerpts against only the nominated skill contract; it does
+not infer ownership from free-prose keywords. Setup reads no other executor skill. Omit both options
+to skip specialized registration.
 It refuses an unsupported newer repository schema and directs you to a compatible Bearing version;
 it never rewrites newer state as schema 1.
 
