@@ -7,6 +7,7 @@ import {
   G1_LIVE_PLAN_ID,
   G1_LIVE_SURFACES,
   G1_MATT_SKILL_CLOSURE,
+  surfaceLaunchContract,
 } from "../scripts/g1-live-fixture";
 
 describe("G1 live fixture recipe", () => {
@@ -38,8 +39,28 @@ describe("G1 live fixture recipe", () => {
     ]);
   });
 
+  test("separates Codex identity reuse from each isolated fixture home", () => {
+    expect(
+      surfaceLaunchContract({
+        surface: "codex",
+        repositoryRoot: "/private/tmp/g1/repo",
+        isolatedHome: "/private/tmp/g1/home",
+        codexHome: "/Users/example/.codex",
+      }),
+    ).toEqual({
+      mode: "codex-exec",
+      identityHome: "/Users/example/.codex",
+      initial:
+        'env HOME="/private/tmp/g1/home" CODEX_HOME="/Users/example/.codex" codex exec --ignore-user-config --sandbox workspace-write --add-dir "/private/tmp/g1/home" --cd "/private/tmp/g1/repo" --json',
+      resume:
+        'env HOME="/private/tmp/g1/home" CODEX_HOME="/Users/example/.codex" codex exec resume --ignore-user-config --json <session-id>',
+    });
+  });
+
   test("refuses equal or canonical-alias targets before creating fixture state", async () => {
     const parent = await mkdtemp("/tmp/bearing-g1-targets-");
+    const codexHome = join(parent, "codex-home");
+    await mkdir(codexHome);
     const canonicalParent = await realpath(parent);
     const target = join(parent, "same-target");
     const canonicalAlias = join(canonicalParent, "same-target");
@@ -52,6 +73,8 @@ describe("G1 live fixture recipe", () => {
       join(parent, "unused-skills"),
       "--matt-contract-source",
       join(parent, "unused-contract.md"),
+      "--codex-home",
+      codexHome,
     ] as const;
 
     const run = async (

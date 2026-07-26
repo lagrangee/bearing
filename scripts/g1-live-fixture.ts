@@ -40,6 +40,7 @@ type Arguments = Readonly<{
   tarball: string;
   mattSkillsRoot: string;
   mattContractSource: string;
+  codexHome?: string;
 }>;
 
 type FileDigest = Readonly<{ locator: string; sha256: string }>;
@@ -82,7 +83,8 @@ const parseArguments = (argv: readonly string[]): Arguments => {
     --manifest <absolute-new-manifest-path> \\
     --tarball <absolute-development-tarball-path> \\
     --matt-skills-root <absolute-.agents/skills-path> \\
-    --matt-contract-source <absolute-reviewed-contract-path>
+    --matt-contract-source <absolute-reviewed-contract-path> \\
+    [--codex-home <absolute-existing-codex-identity-home>]
 `);
       process.exit(0);
     }
@@ -102,15 +104,24 @@ const parseArguments = (argv: readonly string[]): Arguments => {
   for (const option of required) {
     if (parsed[option] === undefined) throw new Error(`Missing required option: ${option}.`);
   }
+  const surface = takeChoice(parsed["--surface"] ?? "", G1_LIVE_SURFACES, "--surface");
+  const codexHome = parsed["--codex-home"];
+  if (surface === "codex" && codexHome === undefined) {
+    throw new Error("--codex-home is required for the Codex execution lane.");
+  }
+  if (surface === "claude-code" && codexHome !== undefined) {
+    throw new Error("--codex-home is only valid for the Codex execution lane.");
+  }
   return {
     journey: takeChoice(parsed["--journey"] ?? "", G1_LIVE_JOURNEYS, "--journey"),
-    surface: takeChoice(parsed["--surface"] ?? "", G1_LIVE_SURFACES, "--surface"),
+    surface,
     root: resolve(parsed["--root"] ?? ""),
     home: resolve(parsed["--home"] ?? ""),
     manifest: resolve(parsed["--manifest"] ?? ""),
     tarball: resolve(parsed["--tarball"] ?? ""),
     mattSkillsRoot: resolve(parsed["--matt-skills-root"] ?? ""),
     mattContractSource: resolve(parsed["--matt-contract-source"] ?? ""),
+    ...(codexHome === undefined ? {} : { codexHome: resolve(codexHome) }),
   };
 };
 
@@ -140,6 +151,13 @@ const assertRegularFile = async (path: string, label: string): Promise<void> => 
   }
 };
 
+const assertDirectory = async (path: string, label: string): Promise<void> => {
+  const state = await lstat(path);
+  if (!state.isDirectory()) {
+    throw new Error(`${label} must be a directory and not a symbolic link: ${path}`);
+  }
+};
+
 const canonicalNewTarget = async (path: string): Promise<string> =>
   join(await realpath(dirname(path)), basename(path));
 
@@ -165,6 +183,72 @@ const assertIndependentTargets = async (
       }
     }
   }
+};
+
+const assertTargetsOutsideBoundary = async (
+  targets: readonly Readonly<{ path: string; label: string }>[],
+  boundary: string,
+  boundaryLabel: string,
+): Promise<void> => {
+  const canonicalBoundary = await realpath(boundary);
+  for (const target of targets) {
+    const canonicalTarget = await canonicalNewTarget(target.path);
+    if (
+      sameOrDescendant(canonicalTarget, canonicalBoundary) ||
+      sameOrDescendant(canonicalBoundary, canonicalTarget)
+    ) {
+      throw new Error(`${target.label} and ${boundaryLabel} must be independent canonical paths.`);
+    }
+  }
+};
+
+export const surfaceLaunchContract = (
+  input: Readonly<{
+    surface: G1LiveSurface;
+    repositoryRoot: string;
+    isolatedHome: string;
+    codexHome?: string;
+  }>,
+):
+  | Readonly<{
+      mode: "codex-exec";
+      identityHome: string;
+      initial: string;
+      resume: string;
+    }>
+  | Readonly<{
+      mode: "claude-interactive";
+      identityHome: null;
+      initial: string;
+      resume: null;
+    }> => {
+  if (input.surface === "claude-code") {
+    if (input.codexHome !== undefined) {
+      throw new Error("Claude Code launch cannot use a Codex identity home.");
+    }
+    return {
+      mode: "claude-interactive",
+      identityHome: null,
+      initial: `(cd ${JSON.stringify(input.repositoryRoot)} && env HOME=${JSON.stringify(
+        input.isolatedHome,
+      )} claude)`,
+      resume: null,
+    };
+  }
+  if (input.codexHome === undefined) {
+    throw new Error("Codex launch requires an explicit identity home.");
+  }
+  const environment = `env HOME=${JSON.stringify(input.isolatedHome)} CODEX_HOME=${JSON.stringify(
+    input.codexHome,
+  )}`;
+  return {
+    mode: "codex-exec",
+    identityHome: input.codexHome,
+    initial: `${environment} codex exec --ignore-user-config --sandbox workspace-write --add-dir ${JSON.stringify(
+      input.isolatedHome,
+    )} --cd ${JSON.stringify(input.repositoryRoot)} --json`,
+    resume: `${environment} codex exec resume --ignore-user-config --json <session-id>`,
+  };
 };
 
 const writeFixture = async (
@@ -744,6 +828,9 @@ const createFixture = async (args: Arguments): Promise<void> => {
     "--matt-contract-source",
     originalValue("--matt-contract-source"),
   );
+  if (args.codexHome !== undefined) {
+    assertAbsoluteInput(args.codexHome, "--codex-home", originalValue("--codex-home"));
+  }
   const prerequisiteSource = args.journey.startsWith("L3-")
     ? `${args.root}.matt-prerequisite.md`
     : undefined;
@@ -762,10 +849,16 @@ const createFixture = async (args: Arguments): Promise<void> => {
       : [{ path: externalAsset, label: "External Asset payload" }]),
   ];
   await assertIndependentTargets(generatedTargets);
+  if (args.codexHome !== undefined) {
+    await assertTargetsOutsideBoundary(generatedTargets, args.codexHome, "Codex identity home");
+  }
   await Promise.all([
     ...generatedTargets.map((target) => assertMissing(target.path, target.label)),
     assertRegularFile(args.tarball, "Development tarball"),
     assertRegularFile(args.mattContractSource, "Reviewed Matt contract source"),
+    ...(args.codexHome === undefined
+      ? []
+      : [assertDirectory(args.codexHome, "Codex identity home")]),
   ]);
 
   await Promise.all([
@@ -887,10 +980,12 @@ const createFixture = async (args: Arguments): Promise<void> => {
     instructionFile: surface.instruction,
     initialSync: initialSync ?? null,
     externalAsset: externalAsset ?? null,
-    launch:
-      args.surface === "codex"
-        ? `env HOME=${JSON.stringify(args.home)} codex -C ${JSON.stringify(args.root)} --no-alt-screen`
-        : `(cd ${JSON.stringify(args.root)} && env HOME=${JSON.stringify(args.home)} claude)`,
+    launch: surfaceLaunchContract({
+      surface: args.surface,
+      repositoryRoot: args.root,
+      isolatedHome: args.home,
+      ...(args.codexHome === undefined ? {} : { codexHome: await realpath(args.codexHome) }),
+    }),
   };
   await mkdir(dirname(args.manifest), { recursive: true });
   await writeFile(args.manifest, `${JSON.stringify(manifest, null, 2)}\n`, {
