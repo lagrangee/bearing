@@ -32,7 +32,7 @@ const HELP = `Bearing ${packageMetadata.version}
 Usage:
   bearing
   bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
-  bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--executor <surface:skill> --executor-assessment <json>] [--plan]
+  bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>] [--confirm-repair] [--confirm-reactivate] [--plan]
   bearing deactivate --repo <path>
   bearing purge --repo <path> --confirm-purge
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [options]
@@ -128,6 +128,10 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
       executor: { type: "string", multiple: true },
       "executor-assessment": { type: "string", multiple: true },
       "provider-contract": { type: "string" },
+      "retain-executor": { type: "string", multiple: true },
+      "remove-executor": { type: "string", multiple: true },
+      "confirm-repair": { type: "boolean" },
+      "confirm-reactivate": { type: "boolean" },
       plan: { type: "boolean" },
     },
     allowPositionals: false,
@@ -154,7 +158,10 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
       return executorNominationAssessmentSchema.parse(assessment);
     }),
   );
-  const profiles = registrations.map((registration) => registration.profileKey);
+  const profiles = [
+    ...registrations.map((registration) => registration.profileKey),
+    ...(parsed.values["retain-executor"] ?? []),
+  ];
   if (parsed.values.plan === true) {
     const plan = await planRepositoryIntegration({
       repoRoot: resolve(parsed.values.repo ?? process.cwd()),
@@ -163,6 +170,10 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
       profiles,
       registrations,
       executorHomeDir: homeDirectory(),
+      retainProfiles: parsed.values["retain-executor"] ?? [],
+      removeProfiles: parsed.values["remove-executor"] ?? [],
+      confirmRepair: parsed.values["confirm-repair"] === true,
+      confirmReactivate: parsed.values["confirm-reactivate"] === true,
       ...(provider === undefined ? {} : { provider }),
     });
     process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
@@ -180,13 +191,19 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
     surfaces,
     profiles,
     registrations,
+    retainProfiles: parsed.values["retain-executor"] ?? [],
+    removeProfiles: parsed.values["remove-executor"] ?? [],
+    confirmRepair: parsed.values["confirm-repair"] === true,
+    confirmReactivate: parsed.values["confirm-reactivate"] === true,
     ...(provider === undefined ? {} : { provider }),
   });
   process.stdout.write(
     `Outcome: ${result.outcome}\nRepository: ${result.repository.outcome}\nCatalog: ${result.catalog.outcome}\nManifest: ${result.repository.manifestPath}\nChanged targets: ${result.repository.changedTargets.length}\n`,
   );
   if (result.catalog.outcome === "failed") {
-    process.stderr.write(`Catalog registration failed: ${result.catalog.message}\n`);
+    process.stderr.write(
+      `Catalog registration failed: ${result.catalog.message}\nCompleted: repository Setup Apply.\nPending: Project Catalog registration.\nPersistent external effects: the repository configuration is already valid and is not rolled back by Catalog failure.\nResumption point: apply the Catalog recovery named by the error, then rerun this exact Setup request; its repository stage will reconcile idempotently.\n`,
+    );
     process.exitCode = 1;
   }
 };
@@ -326,13 +343,15 @@ const runRepositoryLifecycle = async (
   );
   if (result.repository.cleanup?.outcome === "residue") {
     process.stderr.write(
-      `Purge cleanup residue: ${result.repository.cleanup.location}\n${result.repository.cleanup.message}\n`,
+      `Lifecycle cleanup residue: ${result.repository.cleanup.location}\n${result.repository.cleanup.message}\n`,
     );
   }
   if (result.catalog.outcome === "failed") {
-    process.stderr.write(`Catalog removal failed: ${result.catalog.message}\n`);
+    process.stderr.write(
+      `Catalog removal failed: ${result.catalog.message}\nCompleted: repository lifecycle apply.\nPending: Project Catalog removal.\nPersistent external effects: the repository lifecycle state is already committed and is not rolled back by Catalog failure.\nResumption point: repair the Catalog if required, then run \`bearing catalog remove --repo ${options.repoRoot}\`.\n`,
+    );
   }
-  if (result.outcome === "blocked") process.exitCode = 1;
+  if (result.outcome === "blocked" || result.outcome === "partial") process.exitCode = 1;
 };
 
 const runSyncCommand = async (args: readonly string[]): Promise<void> => {

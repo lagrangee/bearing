@@ -71,15 +71,21 @@ export type RepositoryTargetPrecondition = Readonly<{
 
 const uniqueSorted = (values: readonly string[]): string[] =>
   [...new Set(values)].sort((left, right) => left.localeCompare(right, "en"));
+const profileKeySchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
+const validatedProfileDisposition = (profiles: readonly string[]): readonly string[] =>
+  uniqueSorted(profiles.map((profile) => profileKeySchema.parse(profile)));
 
 const plannedTargets = (
   root: string,
-  options: Pick<RepositorySetupOptions, "surfaces" | "profiles">,
+  options: Pick<RepositorySetupOptions, "surfaces" | "profiles" | "removeProfiles">,
 ): readonly string[] => {
   const targets = [
     join(root, ".bearing/manifest.json"),
     join(root, ".bearing/provider.json"),
     ...options.profiles.map((profile) => join(root, ".bearing/executor-profiles", `${profile}.md`)),
+    ...(options.removeProfiles ?? []).map((profile) =>
+      join(root, ".bearing/executor-profiles", `${profile}.md`),
+    ),
     ...options.surfaces.map((surface) => join(root, agentSurfaceEntryFile(surface))),
   ];
   return uniqueSorted(targets).map((target) => relative(root, target));
@@ -92,7 +98,7 @@ const setupPlanningSelectionSchema = z.object({
   surfaces: z
     .array(z.enum(["agent-skills", "claude"]))
     .min(1, "Select at least one Agent Surface."),
-  profiles: z.array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)),
+  profiles: z.array(profileKeySchema),
   provider: z
     .strictObject({
       key: z.literal("matt-skills/v1"),
@@ -388,6 +394,7 @@ export const planRepositoryIntegration = async (
   const normalizedOptions = {
     surfaces: [...new Set(selection.surfaces)].sort(),
     profiles: [...new Set(selection.profiles)].sort(),
+    removeProfiles: validatedProfileDisposition(options.removeProfiles ?? []),
     provider: selection.provider,
   };
   const lifecycle = await inspectLifecycle(root);
@@ -399,13 +406,34 @@ export const planRepositoryIntegration = async (
       const registrations = validateExecutorRegistrationSelection(
         options.registrations ?? [],
         normalizedOptions.surfaces,
-        normalizedOptions.profiles,
+        (options.registrations ?? []).map((registration) => registration.profileKey),
       );
       if (registrations.length > 0 && options.executorHomeDir === undefined) {
         throw new Error("Executor Registration planning requires the selected Agent Surface home.");
       }
       if (options.executorHomeDir !== undefined) {
         await assertExecutorRegistrationsCurrent(options.executorHomeDir, registrations);
+      }
+      if (
+        (lifecycle.kind === "active" || lifecycle.kind === "deactivated") &&
+        lifecycle.legacyTransitionRequired !== true
+      ) {
+        const manifest = lifecycleManifestSchema.parse(
+          JSON.parse(await readFile(join(root, ".bearing/manifest.json"), "utf8")),
+        );
+        const dispositions = new Set([
+          ...registrations.map((registration) => registration.profileKey),
+          ...validatedProfileDisposition(options.retainProfiles ?? []),
+          ...normalizedOptions.removeProfiles,
+        ]);
+        const missingRevalidation = manifest.executorProfiles.filter(
+          (profile) => !dispositions.has(profile),
+        );
+        if (missingRevalidation.length > 0) {
+          throw new Error(
+            `Existing Execution Profiles require a current semantic revalidation assessment or an explicit retain/remove decision: ${missingRevalidation.join(", ")}.`,
+          );
+        }
       }
     } catch (error) {
       executorRegistrationError = error instanceof Error ? error.message : String(error);
@@ -445,8 +473,13 @@ export const planRepositoryIntegration = async (
       state: providerSatisfied ? "satisfied" : "not-evaluated",
     },
   ];
+  const lifecycleCanApply =
+    lifecycle.kind === "fresh" ||
+    (lifecycle.kind === "active" && lifecycle.legacyTransitionRequired !== true) ||
+    lifecycle.legacyTransitionRequired === true ||
+    (lifecycle.kind === "deactivated" && options.confirmReactivate === true);
   const canApply =
-    (lifecycle.kind === "fresh" || lifecycle.legacyTransitionRequired === true) &&
+    lifecycleCanApply &&
     blockers.length === 0 &&
     externalPrerequisites.every((prerequisite) => prerequisite.state === "satisfied");
   return Object.freeze({

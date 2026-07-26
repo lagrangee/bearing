@@ -55,6 +55,10 @@ export type RepositorySetupOptions = Readonly<{
   profiles: readonly string[];
   registrations?: readonly ExecutorRegistration[];
   executorHomeDir?: string;
+  confirmRepair?: boolean;
+  confirmReactivate?: boolean;
+  retainProfiles?: readonly string[];
+  removeProfiles?: readonly string[];
   provider?: Readonly<{
     key: "matt-skills/v1";
     contractLocator: string;

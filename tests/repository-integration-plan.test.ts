@@ -41,6 +41,28 @@ const runSetupCli = async (
   return { stdout, stderr, exitCode };
 };
 
+const runLifecycleCli = async (
+  repoRoot: string,
+  homeDir: string,
+  command: "deactivate" | "purge",
+  extraArgs: readonly string[] = [],
+): Promise<Readonly<{ stdout: string; stderr: string; exitCode: number }>> => {
+  const child = Bun.spawn(
+    ["node", join(process.cwd(), "dist/cli.js"), command, "--repo", repoRoot, ...extraArgs],
+    {
+      env: { ...process.env, HOME: homeDir },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  return { stdout, stderr, exitCode };
+};
+
 const writeExecutorSkillFixture = async (
   homeDir: string,
   surface: "agent-skills" | "claude",
@@ -633,9 +655,222 @@ Review an existing patch.
     expect(result.stdout).toContain("Repository: applied");
     expect(result.stdout).toContain("Catalog: failed");
     expect(result.stderr).toContain("Catalog registration failed");
+    expect(result.stderr).toContain("Completed: repository Setup Apply");
+    expect(result.stderr).toContain("Pending: Project Catalog registration");
+    expect(result.stderr).toContain("Persistent external effects:");
+    expect(result.stderr).toContain("Resumption point:");
     expect(
       JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8")),
     ).toMatchObject({ status: "active", executorProfiles: [] });
+  });
+
+  test("returns a byte-preserving Active exact no-op without replaying Fresh Setup", async () => {
+    const repoRoot = await makeTemporaryDirectory("bearing-setup-active-exact-");
+    const homeDir = await makeTemporaryDirectory("bearing-setup-active-exact-home-");
+    const contractLocator = await writeMattProviderFixture(repoRoot);
+    const args = ["--provider-contract", contractLocator] as const;
+
+    expect((await runSetupCli(repoRoot, homeDir, args)).exitCode).toBe(0);
+    const manifestBefore = await readFile(join(repoRoot, ".bearing/manifest.json"));
+    const agentsBefore = await readFile(join(repoRoot, "AGENTS.md"));
+    const receiptBefore = await readFile(join(repoRoot, ".bearing/cache/sync-receipt.json"));
+
+    const exact = await runSetupCli(repoRoot, homeDir, args);
+
+    expect(exact).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(exact.stdout).toContain("Outcome: no-op");
+    expect(exact.stdout).toContain("Repository: no-op");
+    expect(exact.stdout).toContain("Catalog: no-op");
+    expect(await readFile(join(repoRoot, ".bearing/manifest.json"))).toEqual(manifestBefore);
+    expect(await readFile(join(repoRoot, "AGENTS.md"))).toEqual(agentsBefore);
+    expect(await readFile(join(repoRoot, ".bearing/cache/sync-receipt.json"))).toEqual(
+      receiptBefore,
+    );
+  });
+
+  test("reports exact Active drift when repair is declined and applies only after confirmation", async () => {
+    const repoRoot = await makeTemporaryDirectory("bearing-setup-active-repair-");
+    const homeDir = await makeTemporaryDirectory("bearing-setup-active-repair-home-");
+    const contractLocator = await writeMattProviderFixture(repoRoot);
+    const args = ["--provider-contract", contractLocator] as const;
+    expect((await runSetupCli(repoRoot, homeDir, args)).exitCode).toBe(0);
+    const drifted = `Work-management contract: \`${contractLocator}\`\n`;
+    await writeFile(join(repoRoot, "AGENTS.md"), drifted);
+
+    const declined = await runSetupCli(repoRoot, homeDir, args);
+
+    expect(declined.exitCode).toBe(1);
+    expect(declined.stderr).toContain("Active repository is degraded at: AGENTS.md");
+    expect(declined.stderr).toContain("--confirm-repair");
+    expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(drifted);
+
+    const repaired = await runSetupCli(repoRoot, homeDir, [...args, "--confirm-repair"]);
+    expect(repaired.exitCode).toBe(0);
+    expect(repaired.stdout).toContain("Repository: applied");
+    expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toContain("bearing:managed-start");
+  });
+
+  test("revalidates unchanged profiles without replay and requires explicit profile changes", async () => {
+    const repoRoot = await makeTemporaryDirectory("bearing-setup-profile-disposition-");
+    const homeDir = await makeTemporaryDirectory("bearing-setup-profile-disposition-home-");
+    const contractLocator = await writeMattProviderFixture(repoRoot);
+    await writeExecutorSkillFixture(
+      homeDir,
+      "agent-skills",
+      "implement",
+      "Implement the work through verification and commit the completed work.",
+    );
+    const registrationArgs = [
+      "--provider-contract",
+      contractLocator,
+      "--executor",
+      "agent-skills:implement",
+      ...executorAssessmentArgs(
+        "agent-skills:implement",
+        "Implement the work through verification",
+        "commit the completed work",
+      ),
+    ] as const;
+    expect((await runSetupCli(repoRoot, homeDir, registrationArgs)).exitCode).toBe(0);
+
+    const omitted = await runSetupCli(repoRoot, homeDir, ["--provider-contract", contractLocator]);
+    expect(omitted.exitCode).toBe(1);
+    expect(omitted.stderr).toContain("require a current semantic revalidation assessment");
+
+    const revalidated = await runSetupCli(repoRoot, homeDir, registrationArgs);
+    expect(revalidated.exitCode).toBe(0);
+    expect(revalidated.stdout).toContain("Outcome: no-op");
+
+    await unlink(join(homeDir, ".agents/skills/implement/SKILL.md"));
+    const unavailable = await runSetupCli(repoRoot, homeDir, registrationArgs);
+    expect(unavailable.exitCode).toBe(1);
+    expect(unavailable.stderr).toContain("unavailable");
+
+    const retained = await runSetupCli(repoRoot, homeDir, [
+      "--provider-contract",
+      contractLocator,
+      "--retain-executor",
+      "agent-skills-implement",
+    ]);
+    expect(retained.exitCode).toBe(0);
+    expect(retained.stdout).toContain("Outcome: no-op");
+
+    const declinedRemoval = await runSetupCli(repoRoot, homeDir, [
+      "--provider-contract",
+      contractLocator,
+      "--remove-executor",
+      "agent-skills-implement",
+    ]);
+    expect(declinedRemoval.exitCode).toBe(1);
+    expect(declinedRemoval.stderr).toContain("--confirm-repair");
+
+    const manifestBeforeRemoval = await readFile(join(repoRoot, ".bearing/manifest.json"));
+    const profilePath = join(repoRoot, ".bearing/executor-profiles/agent-skills-implement.md");
+    const profileBeforeRemoval = await readFile(profilePath);
+    await expect(
+      setupRepository(
+        {
+          repoRoot,
+          packageRoot: process.cwd(),
+          surfaces: ["agent-skills"],
+          profiles: [],
+          removeProfiles: ["agent-skills-implement"],
+          confirmRepair: true,
+          provider: { key: "matt-skills/v1", contractLocator },
+        },
+        {
+          writeTarget: async (plan, ordinal) => {
+            if (plan.target.endsWith(".bearing/cache/sync-receipt.json")) {
+              throw new Error("injected profile removal transaction failure");
+            }
+            await writeInstallTarget(plan, ordinal);
+          },
+        },
+      ),
+    ).rejects.toThrow("all written targets were restored");
+    expect(await readFile(join(repoRoot, ".bearing/manifest.json"))).toEqual(manifestBeforeRemoval);
+    expect(await readFile(profilePath)).toEqual(profileBeforeRemoval);
+
+    const removed = await runSetupCli(repoRoot, homeDir, [
+      "--provider-contract",
+      contractLocator,
+      "--remove-executor",
+      "agent-skills-implement",
+      "--confirm-repair",
+    ]);
+    expect(removed.exitCode).toBe(0);
+    expect(
+      JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8")),
+    ).toMatchObject({ executorProfiles: [] });
+    await expect(
+      access(join(repoRoot, ".bearing/executor-profiles/agent-skills-implement.md")),
+    ).rejects.toThrow();
+  });
+
+  test("runs a real reversible deactivate and explicit reactivation lifecycle idempotently", async () => {
+    const repoRoot = await makeTemporaryDirectory("bearing-setup-reactivate-");
+    const homeDir = await makeTemporaryDirectory("bearing-setup-reactivate-home-");
+    const contractLocator = await writeMattProviderFixture(repoRoot);
+    const args = ["--provider-contract", contractLocator] as const;
+    expect((await runSetupCli(repoRoot, homeDir, args)).exitCode).toBe(0);
+    await mkdir(join(repoRoot, ".bearing/state"), { recursive: true });
+    await writeFile(join(repoRoot, ".bearing/state/accepted.md"), "accepted truth\n");
+    const providerBefore = await readFile(join(repoRoot, ".bearing/provider.json"));
+
+    const deactivated = await runLifecycleCli(repoRoot, homeDir, "deactivate");
+    expect(deactivated).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(deactivated.stdout).toContain("Repository: applied");
+    expect(
+      JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8")),
+    ).toMatchObject({ status: "deactivated" });
+    expect(await readFile(join(repoRoot, ".bearing/provider.json"))).toEqual(providerBefore);
+    expect(await readFile(join(repoRoot, ".bearing/state/accepted.md"), "utf8")).toBe(
+      "accepted truth\n",
+    );
+    await expect(access(join(repoRoot, ".bearing/cache"))).rejects.toThrow();
+
+    const implicit = await runSetupCli(repoRoot, homeDir, args);
+    expect(implicit.exitCode).toBe(1);
+    expect(implicit.stderr).toContain("--confirm-reactivate");
+
+    const reactivated = await runSetupCli(repoRoot, homeDir, [...args, "--confirm-reactivate"]);
+    expect(reactivated.exitCode).toBe(0);
+    expect(reactivated.stdout).toContain("Repository: applied");
+    expect(
+      JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8")),
+    ).toMatchObject({ status: "active" });
+    expect(await readFile(join(repoRoot, ".bearing/state/accepted.md"), "utf8")).toBe(
+      "accepted truth\n",
+    );
+
+    const exact = await runSetupCli(repoRoot, homeDir, args);
+    expect(exact.exitCode).toBe(0);
+    expect(exact.stdout).toContain("Outcome: no-op");
+  });
+
+  test("reports repository completion and pending Catalog cleanup as a lifecycle split outcome", async () => {
+    const repoRoot = await makeTemporaryDirectory("bearing-deactivate-catalog-split-");
+    const homeDir = await makeTemporaryDirectory("bearing-deactivate-catalog-split-home-");
+    const contractLocator = await writeMattProviderFixture(repoRoot);
+    expect(
+      (await runSetupCli(repoRoot, homeDir, ["--provider-contract", contractLocator])).exitCode,
+    ).toBe(0);
+    await writeFile(join(homeDir, ".bearing/catalog.json"), "{ invalid\n");
+
+    const result = await runLifecycleCli(repoRoot, homeDir, "deactivate");
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("Outcome: partial");
+    expect(result.stdout).toContain("Repository: applied");
+    expect(result.stdout).toContain("Catalog: failed");
+    expect(result.stderr).toContain("Catalog removal failed");
+    expect(result.stderr).toContain("Completed: repository lifecycle apply");
+    expect(result.stderr).toContain("Pending: Project Catalog removal");
+    expect(result.stderr).toContain("Persistent external effects:");
+    expect(result.stderr).toContain("Resumption point:");
+    expect(
+      JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8")),
+    ).toMatchObject({ status: "deactivated" });
   });
 
   test("rolls back the Fresh Apply Unit when post-write repository validation fails", async () => {

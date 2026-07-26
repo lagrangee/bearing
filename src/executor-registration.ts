@@ -213,26 +213,20 @@ export type ExecutorWritebackSelection = Readonly<{
   disclosure?: string;
 }>;
 
-export const resolveExecutorWritebackProfile = async (
+export const readConfiguredExecutionProfiles = async (
   repoRoot: string,
-  actualCapabilityLocator: string,
-): Promise<ExecutorWritebackSelection> => {
-  const capabilityLocator = capabilityLocatorSchema.parse(actualCapabilityLocator);
+  surfaces: readonly AgentSurface[],
+  profileKeys: readonly string[],
+): Promise<
+  readonly Readonly<{ profileKey: string; capabilityLocator: string; body: string }>[]
+> => {
   const root = await resolveRepositoryRoot(repoRoot);
-  const manifest = manifestSchema.parse(
-    JSON.parse(
-      (await readContainedFile(root, join(root, ".bearing/manifest.json"))).toString("utf8"),
-    ),
-  );
-  if (manifest.status !== "active") {
-    throw new Error("Executor writeback requires an active Bearing repository.");
-  }
   const configuredProfiles: Array<{
     profileKey: string;
     capabilityLocator: string;
     body: string;
   }> = [];
-  for (const profileKey of manifest.executorProfiles) {
+  for (const profileKey of profileKeys) {
     const profilePath = join(root, ".bearing/executor-profiles", `${profileKey}.md`);
     let parsed: ReturnType<typeof parseFrontmatter>;
     try {
@@ -256,7 +250,7 @@ export const resolveExecutorWritebackProfile = async (
       locatorSurface !== header.data["Agent surface"] ||
       profileKey !== `${locatorSurface}-${skillName}` ||
       header.data["Display name"] !== `/${skillName}` ||
-      !manifest.surfaces.includes(header.data["Agent surface"]) ||
+      !surfaces.includes(header.data["Agent surface"]) ||
       requiredExecutionProfileSections.some((section) => !parsed.body.includes(`## ${section}\n`))
     ) {
       throw new Error(`Configured Execution Profile identity is invalid: ${profileKey}`);
@@ -267,6 +261,28 @@ export const resolveExecutorWritebackProfile = async (
       body: parsed.body,
     });
   }
+  return Object.freeze(configuredProfiles.map((profile) => Object.freeze(profile)));
+};
+
+export const resolveExecutorWritebackProfile = async (
+  repoRoot: string,
+  actualCapabilityLocator: string,
+): Promise<ExecutorWritebackSelection> => {
+  const capabilityLocator = capabilityLocatorSchema.parse(actualCapabilityLocator);
+  const root = await resolveRepositoryRoot(repoRoot);
+  const manifest = manifestSchema.parse(
+    JSON.parse(
+      (await readContainedFile(root, join(root, ".bearing/manifest.json"))).toString("utf8"),
+    ),
+  );
+  if (manifest.status !== "active") {
+    throw new Error("Executor writeback requires an active Bearing repository.");
+  }
+  const configuredProfiles = await readConfiguredExecutionProfiles(
+    root,
+    manifest.surfaces,
+    manifest.executorProfiles,
+  );
   const matched = configuredProfiles.find(
     (profile) => profile.capabilityLocator === capabilityLocator,
   );

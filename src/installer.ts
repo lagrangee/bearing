@@ -20,7 +20,12 @@ import {
   missingInstallParentDirectories,
   preflightInstallTargets,
 } from "./install-boundary";
-import type { FileTargetPlan, SymlinkTargetPlan, TargetPlan } from "./install-manifest";
+import type {
+  DeleteTargetPlan,
+  FileTargetPlan,
+  SymlinkTargetPlan,
+  TargetPlan,
+} from "./install-manifest";
 import { buildBundlePlans } from "./install-manifest";
 import type { AgentSurface, InstallOptions, InstallResult } from "./types";
 
@@ -43,7 +48,7 @@ type Snapshot = Readonly<{
 
 const isSymlinkPlan = (plan: TargetPlan): plan is SymlinkTargetPlan => plan.kind === "symlink";
 
-const isFilePlan = (plan: TargetPlan): plan is FileTargetPlan => !isSymlinkPlan(plan);
+const isDeletePlan = (plan: TargetPlan): plan is DeleteTargetPlan => plan.kind === "delete";
 
 const normalizedLinkTarget = (target: string, linkTarget: string): string =>
   resolve(dirname(target), linkTarget);
@@ -91,7 +96,7 @@ const snapshotPlans = async (plans: readonly TargetPlan[]): Promise<readonly Sna
   }
   for (const snapshot of snapshots) {
     if (
-      isFilePlan(snapshot.plan) &&
+      !isSymlinkPlan(snapshot.plan) &&
       needsWrite(snapshot) &&
       snapshot.original.kind === "file" &&
       snapshot.original.linkCount !== undefined &&
@@ -106,6 +111,9 @@ const snapshotPlans = async (plans: readonly TargetPlan[]): Promise<readonly Sna
 const needsWrite = (snapshot: Snapshot): boolean => {
   if (isSymlinkPlan(snapshot.plan)) {
     return snapshot.original.kind !== "symlink" || snapshot.original.source === undefined;
+  }
+  if (isDeletePlan(snapshot.plan)) {
+    return snapshot.original.kind === "file" && snapshot.original.bytes !== undefined;
   }
   if (snapshot.original.kind !== "file") return true;
   if (snapshot.original.bytes === undefined || !snapshot.original.bytes.equals(snapshot.plan.bytes))
@@ -131,6 +139,10 @@ const removeCreatedDirectories = async (directories: readonly string[]): Promise
 };
 
 export const writeInstallTarget = async (plan: TargetPlan, _ordinal: number): Promise<void> => {
+  if (isDeletePlan(plan)) {
+    await unlink(plan.target);
+    return;
+  }
   await mkdir(dirname(plan.target), { recursive: true });
   if (isSymlinkPlan(plan)) {
     await symlink(plan.source, plan.target, "dir");
@@ -209,7 +221,7 @@ export const applyInstallPlans = async (
   try {
     for (const [index, snapshot] of changed.entries()) {
       applied.push(snapshot);
-      if (isSymlinkPlan(snapshot.plan)) {
+      if (isSymlinkPlan(snapshot.plan) || isDeletePlan(snapshot.plan)) {
         await writer(snapshot.plan, index);
         continue;
       }
@@ -237,7 +249,7 @@ export const applyInstallPlans = async (
       allChanged.push(...additionalChanged);
       for (const [index, snapshot] of additionalChanged.entries()) {
         applied.push(snapshot);
-        if (isSymlinkPlan(snapshot.plan)) {
+        if (isSymlinkPlan(snapshot.plan) || isDeletePlan(snapshot.plan)) {
           await writer(snapshot.plan, changed.length + index);
           continue;
         }

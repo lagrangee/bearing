@@ -2,22 +2,33 @@ import { describe, expect, test } from "bun:test";
 import { access, lstat, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readCatalogDocument, upsertCatalogEntry } from "../src/catalog/store";
+import { writeInstallTarget } from "../src/installer";
 import { deactivateRepository, purgeRepository } from "../src/repo-lifecycle";
 import { setupRepository } from "../src/repo-setup";
 import { makeTemporaryDirectory } from "./helpers";
 
 const seedRepository = async (repoRoot: string): Promise<void> => {
-  await writeFile(join(repoRoot, "AGENTS.md"), "# User rules\n");
+  const contractLocator = "docs/agents/issue-tracker.md";
+  await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
+  await writeFile(
+    join(repoRoot, contractLocator),
+    "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
+  );
+  await writeFile(
+    join(repoRoot, "AGENTS.md"),
+    `# User rules\n\nWork-management contract: \`${contractLocator}\`\n`,
+  );
   await writeFile(join(repoRoot, "source.txt"), "source stays\n");
-  await mkdir(join(repoRoot, ".scratch/work/evidence"), { recursive: true });
-  await writeFile(join(repoRoot, ".scratch/work/effort.md"), "# Effort\n");
-  await writeFile(join(repoRoot, ".scratch/work/evidence/result.md"), "durable\n");
   await setupRepository({
     repoRoot,
     packageRoot: process.cwd(),
     surfaces: ["agent-skills"],
-    profiles: ["generic-agent"],
+    profiles: [],
+    provider: { key: "matt-skills/v1", contractLocator },
   });
+  await mkdir(join(repoRoot, ".scratch/work/evidence"), { recursive: true });
+  await writeFile(join(repoRoot, ".scratch/work/effort.md"), "# Effort\n");
+  await writeFile(join(repoRoot, ".scratch/work/evidence/result.md"), "durable\n");
 };
 
 const seedNestedManifestSymlink = async (
@@ -62,7 +73,11 @@ describe("repository Bearing lifecycle", () => {
     const result = await deactivateRepository({ homeDir, repoRoot });
 
     expect(result.outcome).toBe("applied");
-    await expect(access(join(repoRoot, ".bearing/manifest.json"))).rejects.toThrow();
+    expect(
+      JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8")),
+    ).toMatchObject({ status: "deactivated", surfaces: ["agent-skills"] });
+    await access(join(repoRoot, ".bearing/provider.json"));
+    await expect(access(join(repoRoot, ".bearing/cache"))).rejects.toThrow();
     expect(await readFile(join(repoRoot, ".bearing/state/accepted.md"), "utf8")).toBe(
       "accepted truth\n",
     );
@@ -74,6 +89,10 @@ describe("repository Bearing lifecycle", () => {
     expect(agents).toStartWith("# User rules\n");
     expect(agents).not.toContain("bearing:managed-start");
     expect((await readCatalogDocument({ homeDir })).entries).toEqual([]);
+
+    const replay = await deactivateRepository({ homeDir, repoRoot });
+    expect(replay.outcome).toBe("no-op");
+    expect(replay.repository.outcome).toBe("no-op");
   });
 
   test("purge removes only .bearing and managed blocks after explicit confirmation", async () => {
@@ -142,6 +161,40 @@ For every project request, load and follow the global \`bearing\` skill as the g
     expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(managedAgents);
   });
 
+  test("deactivate rejects retained namespace state without its lifecycle authority", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const repoRoot = await makeTemporaryDirectory("bearing-project-");
+    await mkdir(join(repoRoot, ".bearing/state"), { recursive: true });
+    await writeFile(join(repoRoot, ".bearing/state/accepted.md"), "retained truth\n");
+
+    await expect(deactivateRepository({ homeDir, repoRoot })).rejects.toThrow(
+      "requires a valid lifecycle manifest",
+    );
+    expect(await readFile(join(repoRoot, ".bearing/state/accepted.md"), "utf8")).toBe(
+      "retained truth\n",
+    );
+  });
+
+  test("deactivate rejects an unsafe cache shape before lifecycle writes", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const repoRoot = await makeTemporaryDirectory("bearing-project-");
+    const outside = await makeTemporaryDirectory("bearing-outside-cache-");
+    await seedRepository(repoRoot);
+    await writeFile(join(outside, "preserved.txt"), "outside cache target\n");
+    await rm(join(repoRoot, ".bearing/cache"), { recursive: true });
+    await symlink(outside, join(repoRoot, ".bearing/cache"));
+    const manifestBefore = await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8");
+    const agentsBefore = await readFile(join(repoRoot, "AGENTS.md"), "utf8");
+
+    await expect(deactivateRepository({ homeDir, repoRoot })).rejects.toThrow(
+      "unsafe `.bearing/cache` shape",
+    );
+
+    expect(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8")).toBe(manifestBefore);
+    expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(agentsBefore);
+    expect(await readFile(join(outside, "preserved.txt"), "utf8")).toBe("outside cache target\n");
+  });
+
   test("deactivate rejects a nested manifest symlink before pointer or Catalog writes", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
@@ -174,6 +227,62 @@ For every project request, load and follow the global \`bearing\` skill as the g
     expect(await readFile(join(homeDir, ".bearing/catalog.json"), "utf8")).toBe(
       fixture.catalogBefore,
     );
+  });
+
+  test("purge preserves a concurrent Agent Surface generation and the reviewed namespace", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const repoRoot = await makeTemporaryDirectory("bearing-project-");
+    await seedRepository(repoRoot);
+    await upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "purge-race" });
+    const concurrentAgents = `${await readFile(join(repoRoot, "AGENTS.md"), "utf8")}
+# Concurrent user update
+`;
+
+    await expect(
+      purgeRepository(
+        { homeDir, repoRoot, confirmed: true },
+        {
+          beforeApply: async () => {
+            await writeFile(join(repoRoot, "AGENTS.md"), concurrentAgents);
+          },
+        },
+      ),
+    ).rejects.toThrow("original targets were restored");
+
+    expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(concurrentAgents);
+    await access(join(repoRoot, ".bearing/manifest.json"));
+    expect((await readCatalogDocument({ homeDir })).entries).toHaveLength(1);
+  });
+
+  test("purge rolls pointers back when the namespace generation changes during writes", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const repoRoot = await makeTemporaryDirectory("bearing-project-");
+    await seedRepository(repoRoot);
+    await upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "purge-generation-race" });
+    const agentsBefore = await readFile(join(repoRoot, "AGENTS.md"), "utf8");
+    const manifestPath = join(repoRoot, ".bearing/manifest.json");
+    const racedManifest = {
+      ...JSON.parse(await readFile(manifestPath, "utf8")),
+      packageVersion: "concurrent-generation",
+    };
+
+    await expect(
+      purgeRepository(
+        { homeDir, repoRoot, confirmed: true },
+        {
+          writeTarget: async (plan, ordinal) => {
+            await writeInstallTarget(plan, ordinal);
+            await writeFile(manifestPath, `${JSON.stringify(racedManifest, null, 2)}\n`);
+          },
+        },
+      ),
+    ).rejects.toThrow("original targets were restored");
+
+    expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(agentsBefore);
+    expect(JSON.parse(await readFile(manifestPath, "utf8"))).toMatchObject({
+      packageVersion: "concurrent-generation",
+    });
+    expect((await readCatalogDocument({ homeDir })).entries).toHaveLength(1);
   });
 
   test("reports a committed partial quarantine truthfully when purge cleanup fails", async () => {

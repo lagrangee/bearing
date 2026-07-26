@@ -64,6 +64,15 @@ end-to-end/final-writeback conclusion, exact source excerpts, and source-support
 The CLI verifies those references and excerpts against only the nominated skill contract; it does
 not infer ownership from free-prose keywords. Setup reads no other executor skill. Omit both options
 to skip specialized registration.
+Repeated Setup returns a byte-preserving no-op when the active configuration matches. Material
+drift requires `--confirm-repair`. The Agent Surface revalidates each existing specialized profile
+by supplying its current `--executor` and structured `--executor-assessment`; an unchanged
+assessment produces no write and does not replay an accepted user decision. If the skill is
+missing or materially changed, the user explicitly chooses an assessed update,
+`--retain-executor <profile-key>`, or `--remove-executor <profile-key>` with `--confirm-repair`.
+A deactivated repository is never re-enabled implicitly; after
+reviewing its retained surfaces, Provider Configuration, and profiles, pass
+`--confirm-reactivate` to restore the managed pointers and active manifest in one Apply Unit.
 It refuses an unsupported newer repository schema and directs you to a compatible Bearing version;
 it never rewrites newer state as schema 1.
 
@@ -74,17 +83,20 @@ bearing deactivate --repo .
 bearing purge --repo . --confirm-purge
 ```
 
-Use these only through an accepted `bearing-setup` lifecycle decision. `deactivate` removes the
-manifest and managed root pointers while preserving `.bearing/state`, profiles, cache, native
-`.scratch` work, and durable artifacts. `purge` removes only the repository `.bearing` namespace
-and managed root pointers after confirmation; it preserves `.scratch`, source, docs, and other
-native artifacts. After either repository mutation commits, Catalog removal is reported separately
-and can be retried safely if it fails. Purge first atomically detaches `.bearing`; if recursive
+Use these only through an accepted `bearing-setup` lifecycle decision. `deactivate` changes the
+manifest to `status: deactivated` and removes only its registered managed root pointers, disposable
+cache, and Catalog registration. It preserves `.bearing/state`, Provider Configuration, profiles,
+backups, native `.scratch` work, and durable artifacts as the reactivation baseline. `purge`
+removes only the repository `.bearing` namespace and managed root pointers after confirmation; it
+preserves `.scratch`, source, docs, and other native artifacts. After either repository mutation
+commits, Catalog removal is reported separately and can be retried safely if it fails. Purge first
+atomically detaches `.bearing`; if recursive
 cleanup then fails, the command returns blocked and prints the exact partial quarantine path. That
 residue is not a backup, and Bearing never claims that partially deleted bytes were restored.
 Both lifecycle commands reject a linked or otherwise unsafe `.bearing` namespace. Before reading or
-changing `.bearing/manifest.json`, they also require it to be missing or one single-link regular
-file; a symlink, directory, multiply-linked file, or special type fails closed.
+changing `.bearing/manifest.json`, they require one supported single-link regular lifecycle
+manifest when repository configuration exists; a missing authority with retained configuration,
+symlink, directory, multiply-linked file, or special type fails closed.
 
 ## Sync
 

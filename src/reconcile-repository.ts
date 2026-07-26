@@ -18,6 +18,10 @@ export const reconcileRepository = async (options: {
   readonly surfaces: readonly AgentSurface[];
   readonly profiles: readonly string[];
   readonly registrations?: readonly ExecutorRegistration[];
+  readonly confirmRepair?: boolean;
+  readonly confirmReactivate?: boolean;
+  readonly retainProfiles?: readonly string[];
+  readonly removeProfiles?: readonly string[];
   readonly provider?: Readonly<{
     key: "matt-skills/v1";
     contractLocator: string;

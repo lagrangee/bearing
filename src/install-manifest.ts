@@ -16,7 +16,12 @@ export type SymlinkTargetPlan = Readonly<{
   source: string;
 }>;
 
-export type TargetPlan = FileTargetPlan | SymlinkTargetPlan;
+export type DeleteTargetPlan = Readonly<{
+  kind: "delete";
+  target: string;
+}>;
+
+export type TargetPlan = FileTargetPlan | SymlinkTargetPlan | DeleteTargetPlan;
 
 const skillNames = ["bearing"];
 

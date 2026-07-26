@@ -62,6 +62,15 @@ managed pointers 作为一个 repository Apply Unit 写入；零 executor nomina
 的明确结论、精确 source excerpts，以及有 source 支持的 profile 内容。CLI 只对被点名
 skill 的 contract 核对这些 references 与 excerpts，不从自由 prose 关键词推断 ownership。
 Setup 不读取其他 executor skill；同时省略两个选项即可跳过 specialized registration。
+重复 Setup 在 active configuration 完全匹配时返回 byte-preserving no-op。Material drift 必须
+经 `--confirm-repair` 确认。Agent Surface 会为每个已有 specialized profile 提供当前
+`--executor` 与结构化 `--executor-assessment` 进行重新验证；assessment 未变化时不产生写入，
+也不会重问已接受的用户决定。skill 缺失或发生 material change 时，用户再显式选择 assessed
+update、`--retain-executor <profile-key>`，或用 `--remove-executor <profile-key>` 与
+`--confirm-repair` 移除 active registration。
+Deactivated repository 绝不会被隐式启用；审阅保留的 surfaces、Provider Configuration 与
+profiles 后，使用 `--confirm-reactivate` 在同一个 Apply Unit 中恢复 managed pointers 与
+active manifest。
 遇到不支持的较新 repository schema 时，`setup` 会拒绝写入并指向兼容的 Bearing 版本；
 它不会把较新 state 重写成 schema 1。
 
@@ -72,16 +81,19 @@ bearing deactivate --repo .
 bearing purge --repo . --confirm-purge
 ```
 
-这些命令只应在已接受的 `bearing-setup` lifecycle 决策下执行。`deactivate` 移除 manifest
-和 managed root pointers，但保留 `.bearing/state`、profiles、cache、原生 `.scratch` work
-与 durable artifacts。`purge` 经确认后只移除仓库的 `.bearing` namespace 和 managed root
-pointers；它保留 `.scratch`、source、docs 与其他 native artifacts。任一 repository mutation
-提交后，Catalog removal 会单独报告；如果失败，可以安全重试。
+这些命令只应在已接受的 `bearing-setup` lifecycle 决策下执行。`deactivate` 把 manifest
+改为 `status: deactivated`，并且只移除其中登记的 managed root pointers、disposable cache
+与 Catalog registration；它保留 `.bearing/state`、Provider Configuration、profiles、backups、
+原生 `.scratch` work 与 durable artifacts，作为 reactivation baseline。`purge` 经确认后只
+移除仓库的 `.bearing` namespace 和 managed root pointers；它保留 `.scratch`、source、docs
+与其他 native artifacts。任一 repository mutation 提交后，Catalog removal 会单独报告；
+如果失败，可以安全重试。
 Purge 会先原子 detach `.bearing`；如果后续递归 cleanup 失败，命令返回 blocked 并打印精确的
 partial quarantine 路径。这份 residue 不是 backup，Bearing 也绝不会声称已恢复部分删除的 bytes。
-两个 lifecycle commands 都会拒绝 linked 或其他 unsafe `.bearing` namespace。在读取或修改
-`.bearing/manifest.json` 前，它还必须是 missing 或 single-link regular file；symlink、directory、
-multiply-linked file 或 special type 都会 fail closed。
+两个 lifecycle commands 都会拒绝 linked 或其他 unsafe `.bearing` namespace。repository
+configuration 存在时，`.bearing/manifest.json` 必须是受支持的 single-link regular lifecycle
+manifest；缺失 authority 但保留 configuration、symlink、directory、multiply-linked file 或
+special type 都会 fail closed。
 
 ## Sync
 
