@@ -423,7 +423,7 @@ const decodeContent = (
                   code: "invalid-next-work-alternatives",
                   impact: "blocking",
                   target: locator,
-                  message: "Next Work Guidance requires exactly two Alternatives.",
+                  message: "Next Work Guidance permits zero to two Alternatives.",
                 },
               ]
             : [

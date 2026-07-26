@@ -124,7 +124,10 @@ const guidanceProjection = (
       sources: [parsed.value.source],
     };
   }
-  const itemSources = ["primary", "alternative-1", "alternative-2"].map((fragment) =>
+  const itemSources = [
+    "primary",
+    ...body.result.value.alternatives.map((_, index) => `alternative-${index + 1}`),
+  ].map((fragment) =>
     createSourceRecord(input.sitemapFingerprint, {
       kind: "canonical",
       locator: parsed.value.locator,
@@ -136,9 +139,7 @@ const guidanceProjection = (
     }),
   );
   const primarySource = itemSources[0];
-  const firstSource = itemSources[1];
-  const secondSource = itemSources[2];
-  if (primarySource === undefined || firstSource === undefined || secondSource === undefined) {
+  if (primarySource === undefined) {
     return {
       projection: invalid(bodyIssue(parsed.value, "invalid-next-work-guidance-body")),
       sources: [parsed.value.source],
@@ -150,6 +151,16 @@ const guidanceProjection = (
     supportingReferences: value.supportingReferences,
     source: source.reference,
   });
+  const alternatives = body.result.value.alternatives.flatMap((value, index) => {
+    const source = itemSources[index + 1];
+    return source === undefined ? [] : [item(value, source)];
+  });
+  if (alternatives.length !== body.result.value.alternatives.length) {
+    return {
+      projection: invalid(bodyIssue(parsed.value, "invalid-next-work-guidance-body")),
+      sources: [parsed.value.source],
+    };
+  }
   const projected = nextWorkGuidanceSchema.safeParse({
     id: parsed.value.data.ID,
     generatedAt: parsed.value.data["Generated at"],
@@ -159,10 +170,7 @@ const guidanceProjection = (
       ? {}
       : { basedOnAuditId: parsed.value.data["Based on audit"] }),
     primary: item(body.result.value.primary, primarySource),
-    alternatives: [
-      item(body.result.value.alternatives[0], firstSource),
-      item(body.result.value.alternatives[1], secondSource),
-    ],
+    alternatives,
     source: parsed.value.source.reference,
   });
   if (!projected.success) {

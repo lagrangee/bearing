@@ -1,12 +1,13 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { access, lstat, mkdir, readFile, readlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { BEARING_POINTER } from "../src/agent-surface-entry";
 import { installKit } from "../src/installer";
 import { setupRepository } from "../src/repo-setup";
 import { makeTemporaryDirectory } from "./helpers";
 
-const skillNames = [
-  "bearing",
+const publicSkillNames = ["bearing"] as const;
+const internalCompatibilitySkillNames = [
   "bearing-setup",
   "bearing-summary",
   "bearing-roadmap",
@@ -45,13 +46,19 @@ describe("Bearing kit installer", () => {
       join(homeDir, ".bearing/kit/current/skills/bearing/references/branch-manifest.yaml"),
     );
     await access(join(homeDir, ".bearing/kit/current/skills/bearing/references/branches/setup.md"));
-    for (const skillName of skillNames) {
+    for (const skillName of publicSkillNames) {
       const canonical = join(homeDir, ".bearing/kit/current/skills", skillName);
       for (const surfaceRoot of [".agents/skills", ".claude/skills"]) {
         const surfaceSkill = join(homeDir, surfaceRoot, skillName);
         expect((await lstat(surfaceSkill)).isSymbolicLink()).toBe(true);
         expect(await readlink(surfaceSkill)).toBe(canonical);
         await access(join(surfaceSkill, "SKILL.md"));
+      }
+    }
+    for (const skillName of internalCompatibilitySkillNames) {
+      await access(join(homeDir, ".bearing/kit/current/skills", skillName, "SKILL.md"));
+      for (const surfaceRoot of [".agents/skills", ".claude/skills"]) {
+        await expect(access(join(homeDir, surfaceRoot, skillName))).rejects.toThrow();
       }
     }
 
@@ -103,8 +110,7 @@ describe("Bearing kit installer", () => {
       executorProfiles: ["generic-agent"],
     });
     await access(join(repoRoot, ".bearing/executor-profiles/generic-agent.md"));
-    const pointer =
-      "For every project request, load and follow the global `bearing` skill as the governing runbook.";
+    const pointer = BEARING_POINTER;
     expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toContain(pointer);
     expect(await readFile(join(repoRoot, "CLAUDE.md"), "utf8")).toContain(pointer);
     await expect(access(join(repoRoot, ".bearing/kit/protocol.md"))).rejects.toThrow();

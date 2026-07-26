@@ -50,6 +50,9 @@ const readSkill = async (name: string): Promise<{ frontmatter: unknown; body: st
 const readBranch = async (name: string): Promise<string> =>
   readFile(join(process.cwd(), "skills/bearing/references/branches", `${name}.md`), "utf8");
 
+const readSharedContract = async (name: string): Promise<string> =>
+  readFile(join(process.cwd(), "skills/bearing/references/shared", `${name}.md`), "utf8");
+
 describe("package-owned planning skills", () => {
   for (const name of skillNames) {
     test(`${name} ships the standard package-owned contract shape`, async () => {
@@ -57,7 +60,12 @@ describe("package-owned planning skills", () => {
 
       expect(skill.frontmatter).toEqual({ name, description: expect.any(String) });
       if (name === "bearing") {
-        expect(skill.body).toContain("$HOME/.bearing/kit/current/docs/agents/bearing/protocol.md");
+        expect(skill.body).toContain(
+          "$HOME/.bearing/kit/current/skills/bearing/references/branch-manifest.yaml",
+        );
+        expect(skill.body).not.toContain(
+          "$HOME/.bearing/kit/current/docs/agents/bearing/protocol.md",
+        );
         expect(skill.body).toMatch(/^## Process$/mu);
         expect(skill.body).toContain("## Read Set");
         expect(skill.body).toContain("## Write Set");
@@ -70,7 +78,7 @@ describe("package-owned planning skills", () => {
     });
   }
 
-  test("ships one explicit expand-phase branch manifest", async () => {
+  test("ships one explicit migrate-phase branch manifest", async () => {
     const source = await readFile(
       join(process.cwd(), "skills/bearing/references/branch-manifest.yaml"),
       "utf8",
@@ -79,25 +87,40 @@ describe("package-owned planning skills", () => {
     expect(document.errors).toEqual([]);
     expect(document.toJS()).toEqual({
       schemaVersion: 1,
-      phase: "expand",
+      phase: "migrate",
       publicEntry: "skills/bearing/SKILL.md",
       progressiveLoading: {
         rule: "Load exactly one selected branch after public routing.",
         internalBranchesReenterPublicRouter: false,
-        legacyEntriesRemainInstalled: true,
+        legacyEntries: {
+          packagedCompatibility: true,
+          freshSurfaceExposure: false,
+          ownedUpgradeRemoval: "deferred-to-contract",
+        },
       },
       sharedContracts: [
         {
-          key: "bearing-protocol",
-          reference: "docs/agents/bearing/protocol.md",
+          key: "typed-inspection",
+          reference: "skills/bearing/references/shared/typed-inspection.md",
+          loading: "on-completeness-demand",
+        },
+        {
+          key: "planning-transaction",
+          reference: "skills/bearing/references/shared/planning-transaction.md",
           loading: "branch-declared",
         },
+        {
+          key: "artifact-registration",
+          reference: "skills/bearing/references/shared/artifact-registration.md",
+          loading: "on-durable-output",
+        },
       ],
+      publicSharedContracts: ["typed-inspection", "artifact-registration"],
       branches: branchEntries.map(([key, legacyName]) => ({
         key,
         reference: `skills/bearing/references/branches/${key}.md`,
         legacyEntry: `skills/${legacyName}/SKILL.md`,
-        sharedContracts: ["bearing-protocol"],
+        sharedContracts: ["planning-transaction"],
       })),
     });
   });
@@ -124,6 +147,51 @@ describe("package-owned planning skills", () => {
       expect(legacy.body).not.toContain(
         "$HOME/.bearing/kit/current/docs/agents/bearing/protocol.md",
       );
+      expect(branch).not.toContain("$HOME/.bearing/kit/current/docs/agents/bearing/protocol.md");
+      expect(branch).not.toContain("Global protocol");
+      expect(branch).toMatch(/Established public orientation[\s\S]*do not (?:reload|re-enter)/iu);
+      expect(branch).toContain(
+        "$HOME/.bearing/kit/current/skills/bearing/references/shared/planning-transaction.md",
+      );
+    }
+  });
+
+  test("public bearing encodes activation, continuation, routing and truthful reconciliation", async () => {
+    const { body } = await readSkill("bearing");
+
+    for (const activationRule of [
+      "correct answer or action may depend on",
+      "Explicit Bearing invocation",
+      "ambiguous repository relevance",
+      "working directory alone",
+      "clear repository-independent conversation",
+    ]) {
+      expect(body).toContain(activationRule);
+    }
+    expect(body).toMatch(/direct continuation[\s\S]*visibly reliable orientation/iu);
+    expect(body).toMatch(
+      /repository, target, or request[\s\S]*context loss[\s\S]*freshness doubt/iu,
+    );
+    expect(body).toContain("Project Summary");
+    expect(body).toContain("Project Sitemap");
+    expect(body).toMatch(/exactly one selected internal branch/iu);
+    expect(body).toContain("Do not re-enter the public router");
+    expect(body).toContain("produced-output manifest");
+    for (const disposition of ["transient", "durable-registered", "durable-unregistered"]) {
+      expect(body).toContain(disposition);
+    }
+    expect(body).toMatch(/durable-unregistered[\s\S]*incomplete/iu);
+    expect(body).toContain("bearing asset register");
+    expect(body).toMatch(/current user's language/iu);
+  });
+
+  test("keeps Next Work cardinality aligned across branch and compatibility protocol", async () => {
+    const branch = await readBranch("next-work");
+    const protocol = await readFile(join(process.cwd(), "docs/agents/bearing/protocol.md"), "utf8");
+
+    for (const contract of [branch, protocol]) {
+      expect(contract).toMatch(/zero to two meaningful alternatives/iu);
+      expect(contract).not.toMatch(/exactly two alternatives|two distinct alternatives/iu);
     }
   });
 
@@ -154,9 +222,9 @@ describe("package-owned planning skills", () => {
   });
 
   test("bearing clean-cuts completeness-sensitive retrieval to typed package CLI inspection", async () => {
-    const skill = await readSkill("bearing");
+    const skill = await readSharedContract("typed-inspection");
 
-    expect(skill.body).toContain(
+    expect(skill).toContain(
       "$HOME/.bearing/bin/bearing inspect <roadmap|gate|effort> <stable-id> --repo <repo-root>",
     );
     for (const trigger of [
@@ -172,47 +240,47 @@ describe("package-owned planning skills", () => {
       "registered evidence",
       "scope-complete planning mutation",
     ]) {
-      expect(skill.body).toContain(trigger);
+      expect(skill).toContain(trigger);
     }
-    expect(skill.body).toMatch(/automatically invoke/iu);
-    expect(skill.body).toMatch(/do not ask the user to run/iu);
-    expect(skill.body).toMatch(/package-owned CLI/iu);
+    expect(skill).toMatch(/automatically invoke/iu);
+    expect(skill).toMatch(/do not ask the user to run/iu);
+    expect(skill).toMatch(/package-owned CLI/iu);
   });
 
   test("bearing preserves Sitemap orientation while inspect state bounds completeness claims", async () => {
-    const skill = await readSkill("bearing");
+    const skill = await readSharedContract("typed-inspection");
 
-    expect(skill.body).toMatch(
+    expect(skill).toMatch(
       /Sitemap remains limited to whole-project orientation, target discovery, source routing, and top-level Attention/iu,
     );
-    expect(skill.body).toMatch(/`complete`[\s\S]*source retrieval[\s\S]*semantic judgment/iu);
-    expect(skill.body).toMatch(/`partial`[\s\S]*bounded orientation/iu);
-    expect(skill.body).toMatch(/`partial`[\s\S]*Do not[\s\S]*scope-complete planning mutation/iu);
+    expect(skill).toMatch(/`complete`[\s\S]*source retrieval[\s\S]*semantic judgment/iu);
+    expect(skill).toMatch(/`partial`[\s\S]*bounded orientation/iu);
+    expect(skill).toMatch(/`partial`[\s\S]*Do not[\s\S]*scope-complete planning mutation/iu);
     for (const forbiddenClaim of [
       "all contributors are known",
       "definitive readiness",
       "Gate passage",
       "scope-complete planning mutation",
     ]) {
-      expect(skill.body).toContain(forbiddenClaim);
+      expect(skill).toContain(forbiddenClaim);
     }
-    expect(skill.body).toMatch(
+    expect(skill).toMatch(
       /`invalid`[\s\S]*unknown target[\s\S]*truthful `incomplete` or `blocked`/iu,
     );
   });
 
   test("bearing permits bounded owned repair without treating partial as complete", async () => {
-    const skill = await readSkill("bearing");
+    const skill = await readSharedContract("typed-inspection");
 
-    expect(skill.body).toContain("user-authorized issue-scoped repair");
-    expect(skill.body).toContain("unrelated bounded mutation");
-    expect(skill.body).toMatch(/route[\s\S]*owning `bearing-\*` capability/iu);
-    expect(skill.body).toMatch(/must not treat `partial` as `complete`/iu);
-    expect(skill.body).toMatch(/scope-complete mutation[\s\S]*requires[\s\S]*`complete`/iu);
+    expect(skill).toContain("user-authorized issue-scoped repair");
+    expect(skill).toContain("unrelated bounded mutation");
+    expect(skill).toMatch(/route[\s\S]*owning branch/iu);
+    expect(skill).toMatch(/must not treat `partial` as `complete`/iu);
+    expect(skill).toMatch(/scope-complete mutation[\s\S]*requires[\s\S]*`complete`/iu);
   });
 
   test("bearing forbids compatibility retrieval and runtime fallbacks", async () => {
-    const skill = await readSkill("bearing");
+    const skill = await readSharedContract("typed-inspection");
 
     for (const forbiddenFallback of [
       "title match",
@@ -226,10 +294,10 @@ describe("package-owned planning skills", () => {
       "daemon",
       "skills-only runtime",
     ]) {
-      expect(skill.body).toContain(forbiddenFallback);
+      expect(skill).toContain(forbiddenFallback);
     }
-    expect(skill.body).toMatch(/never use[\s\S]*fallback/iu);
-    expect(skill.body).toContain("$HOME/.bearing/bin/bearing");
+    expect(skill).toMatch(/never use[\s\S]*fallback/iu);
+    expect(skill).toContain("$HOME/.bearing/bin/bearing");
   });
 
   test("bearing keeps unmanaged composition and mutation ownership contracts intact", async () => {
@@ -238,8 +306,8 @@ describe("package-owned planning skills", () => {
     expect(skill.body).toContain("Continue ordinary unmanaged work");
     expect(skill.body).toContain("Never mutate canonical planning state");
     expect(skill.body).toContain("Read their canonical source locators");
-    expect(skill.body).toContain(
-      "leave native status, blocker, dependency, claim, and resolution writes",
+    expect(skill.body).toMatch(
+      /leave native status, blocker, dependency, claim, and resolution writes/iu,
     );
   });
 });

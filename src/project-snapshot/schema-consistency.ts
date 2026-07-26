@@ -80,7 +80,7 @@ type GuidanceBasis = Readonly<{
   basedOnAuditId?: "planning-audit:current" | undefined;
   source: string;
   primary: Readonly<{ source: string }>;
-  alternatives: readonly [Readonly<{ source: string }>, Readonly<{ source: string }>];
+  alternatives: readonly Readonly<{ source: string }>[];
 }>;
 
 type PrimarySource = Readonly<{ id: string; source: string }>;

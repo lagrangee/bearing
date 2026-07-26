@@ -50,7 +50,7 @@ Capabilities may be user-invoked or composed by `bearing` only for a current use
 - **Item Alignment Check:** a durable target-scoped material conflict or drift decision point.
 - **Planning Review:** a durable project-wide material question and accepted outcome.
 - **Planning Audit:** one replaceable current semantic whole-project snapshot.
-- **Next Work Guidance:** one replaceable current recommendation with a primary direction and exactly two alternatives. Every item has an explicit H3 plain-text title, plain-text rationale, and an H4 Supporting References list of stable Bearing IDs or repository-relative locators; consumers never infer those fields from prose.
+- **Next Work Guidance:** one replaceable current recommendation with a primary direction and zero to two meaningful alternatives. Every item has an explicit H3 plain-text title, plain-text rationale, and an H4 Supporting References list of stable Bearing IDs or repository-relative locators; consumers never infer those fields from prose.
 - **Project Sitemap:** a deterministic materialized projection for orientation and retrieval, never canonical truth.
 
 Fog, readiness, counts, diagnostics, Attention, and derived Effort state are annotations, not canonical objects.

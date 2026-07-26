@@ -130,6 +130,9 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/skills/bearing/references/branches/roadmap.md",
         "package/skills/bearing/references/branches/setup.md",
         "package/skills/bearing/references/branches/summary.md",
+        "package/skills/bearing/references/shared/artifact-registration.md",
+        "package/skills/bearing/references/shared/planning-transaction.md",
+        "package/skills/bearing/references/shared/typed-inspection.md",
         "package/templates/executor-profiles/generic-agent.md",
         "package/templates/executor-profiles/matt-implement.md",
         "package/templates/executor-profiles/omo-start-work.md",
@@ -186,7 +189,9 @@ test("the packed CLI runs through offline local npm exec", async () => {
     expect(repeated.stdout).toContain("Changed targets: 0");
     for (const surfaceRoot of [".agents/skills", ".claude/skills"]) {
       await access(join(homeDirectory, surfaceRoot, "bearing", "SKILL.md"));
-      await access(join(homeDirectory, surfaceRoot, "bearing-summary", "SKILL.md"));
+      await expect(
+        access(join(homeDirectory, surfaceRoot, "bearing-summary", "SKILL.md")),
+      ).rejects.toThrow();
     }
     const installedBearingSkill = await readFile(
       join(homeDirectory, ".agents/skills/bearing/SKILL.md"),
@@ -197,11 +202,18 @@ test("the packed CLI runs through offline local npm exec", async () => {
       "utf8",
     );
     expect(installedBearingSkill).toBe(bundledBearingSkill);
-    expect(installedBearingSkill).toContain(
+    const bundledTypedInspection = await readFile(
+      join(
+        homeDirectory,
+        ".bearing/kit/current/skills/bearing/references/shared/typed-inspection.md",
+      ),
+      "utf8",
+    );
+    expect(bundledTypedInspection).toContain(
       "$HOME/.bearing/bin/bearing inspect <roadmap|gate|effort> <stable-id> --repo <repo-root>",
     );
-    expect(installedBearingSkill).toMatch(/`complete`[\s\S]*`partial`[\s\S]*`invalid`/u);
-    expect(installedBearingSkill).toContain("skills-only runtime");
+    expect(bundledTypedInspection).toMatch(/`complete`[\s\S]*`partial`[\s\S]*`invalid`/u);
+    expect(bundledTypedInspection).toContain("skills-only runtime");
 
     syncRoot = await createValidBearingRepo();
     const setupCommand = [

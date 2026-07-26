@@ -530,17 +530,7 @@ const bundleMatches = async (
   return true;
 };
 
-const skillNamesForInstall = [
-  "bearing",
-  "bearing-setup",
-  "bearing-summary",
-  "bearing-roadmap",
-  "bearing-milestone-gate",
-  "bearing-alignment-check",
-  "bearing-planning-audit",
-  "bearing-planning-review",
-  "bearing-next-work",
-] as const;
+const skillNamesForInstall = ["bearing"] as const;
 
 const managedSurfaceTargets = (
   homeDir: string,

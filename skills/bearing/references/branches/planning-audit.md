@@ -1,19 +1,19 @@
 # Bearing Planning Audit
 
-Produce one current whole-project semantic snapshot and promote material questions without deciding them. This capability may be invoked directly or composed by `/bearing` for a current user request.
+Produce one current whole-project semantic snapshot and promote material questions without deciding them. This internal branch continues from established public orientation and never re-enters the public router.
 
 ## Process
 
-1. **Discover scope.** Read `$HOME/.bearing/kit/current/docs/agents/bearing/protocol.md`. If uninitialized, compose `/bearing-setup` and resume. Discover Roadmaps, Gates, bound Efforts, Authorities, Assets, persistent Checks and Reviews, and each bound scope's native Map and Tickets. If no managed scope exists, return `no-op` with reason `no-managed-scope`, write no advisory snapshot, and continue the user's original request. Completion: every included or absent scope is explicit.
+1. **Discover scope.** Read `$HOME/.bearing/kit/current/skills/bearing/references/shared/planning-transaction.md`. If uninitialized, compose the Setup branch and resume. Discover Roadmaps, Gates, bound Efforts, Authorities, Assets, persistent Checks and Reviews, and each bound scope's native Map and Tickets. If no managed scope exists, return `no-op` with reason `no-managed-scope`, write no advisory snapshot, and continue the user's original request. Completion: every included or absent scope is explicit.
 2. **Refresh structure.** Run `$HOME/.bearing/bin/bearing sync --repo <repo-root>`. Accept Structural Diagnostics only when their ordered Inputs and fingerprint match current discovery. Exclude scopes affected by blocking diagnostics and record them as skipped; if nothing trustworthy remains, return `blocked`. Completion: semantic coverage has a freshness-backed boundary.
 3. **Audit semantics.** Evaluate cross-Roadmap balance, Gate coherence, Effort alignment, Authority use, Asset adoption and zero-citation signals, unresolved Attention, stale direction, and contradictions between accepted current intent and recent durable work. Separate ordinary observations from Material Findings. Completion: each finding names evidence, affected scope, consequence, and confidence boundary.
-4. **Promote decision points.** Create or refresh an open Alignment Check for each target-scoped Material Finding and a pending Planning Review for each project-wide Material Finding. Promotion needs no Accepted Decision but never resolves the concern, invokes `/bearing-planning-review`, or mutates accepted direction. Completion: every promoted finding has exactly one durable decision point.
+4. **Promote decision points.** Create or refresh an open Alignment Check for each target-scoped Material Finding and a pending Planning Review for each project-wide Material Finding. Promotion needs no Accepted Decision but never resolves the concern, invokes the Planning Review branch, or mutates accepted direction. Completion: every promoted finding has exactly one durable decision point.
 5. **Write the snapshot.** Re-read the post-promotion graph. Write only `.bearing/state/planning-audit.md` plus promoted or refreshed unresolved decision points. Use `Type: planning-audit`, `ID: planning-audit:current`, `Generated at`, ordered `Inputs`, `Input fingerprint`, `Coverage: complete | incomplete`, and `Skipped targets`; keep findings in the body. `Coverage: complete` requires an empty unique `Skipped targets` list, while `incomplete` requires at least one unique skipped planning reference. Author the exact body contract below. Completion: coverage, skipped targets, promotions, and final fingerprint validate together.
 6. **Refresh orientation.** Run centralized sync and verify current Audit, open Checks, pending Reviews, and Attention appear in the Project Sitemap. Completion: Bearing can display the whole-picture result separately from Next Work.
 
 ## Read Set
 
-- Global protocol, manifest, Summary, and current Sitemap
+- Established public orientation, including manifest, Summary, and current Sitemap; do not reload it
 - Planning Audit discovery set: canonical governance objects, persistent Checks and Reviews, bound Maps and Tickets, and referenced Asset contents
 - Fresh `.bearing/cache/sync-report.md`
 

@@ -15,7 +15,7 @@ type ReferencedSource = Readonly<{ reference: string; source: string }>;
 type Guidance = IdentifiedSource &
   Readonly<{
     primary: Readonly<{ source: string }>;
-    alternatives: readonly [Readonly<{ source: string }>, Readonly<{ source: string }>];
+    alternatives: readonly Readonly<{ source: string }>[];
   }>;
 type SourceRecord = Readonly<{
   reference: string;

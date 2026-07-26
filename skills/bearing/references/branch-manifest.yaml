@@ -1,52 +1,64 @@
 schemaVersion: 1
-phase: expand
+phase: migrate
 publicEntry: skills/bearing/SKILL.md
 progressiveLoading:
   rule: Load exactly one selected branch after public routing.
   internalBranchesReenterPublicRouter: false
-  legacyEntriesRemainInstalled: true
+  legacyEntries:
+    packagedCompatibility: true
+    freshSurfaceExposure: false
+    ownedUpgradeRemoval: deferred-to-contract
 sharedContracts:
-  - key: bearing-protocol
-    reference: docs/agents/bearing/protocol.md
+  - key: typed-inspection
+    reference: skills/bearing/references/shared/typed-inspection.md
+    loading: on-completeness-demand
+  - key: planning-transaction
+    reference: skills/bearing/references/shared/planning-transaction.md
     loading: branch-declared
+  - key: artifact-registration
+    reference: skills/bearing/references/shared/artifact-registration.md
+    loading: on-durable-output
+publicSharedContracts:
+  - typed-inspection
+  - artifact-registration
 branches:
   - key: setup
     reference: skills/bearing/references/branches/setup.md
     legacyEntry: skills/bearing-setup/SKILL.md
     sharedContracts:
-      - bearing-protocol
+      - planning-transaction
   - key: summary
     reference: skills/bearing/references/branches/summary.md
     legacyEntry: skills/bearing-summary/SKILL.md
     sharedContracts:
-      - bearing-protocol
+      - planning-transaction
   - key: roadmap
     reference: skills/bearing/references/branches/roadmap.md
     legacyEntry: skills/bearing-roadmap/SKILL.md
     sharedContracts:
-      - bearing-protocol
+      - planning-transaction
   - key: milestone-gate
     reference: skills/bearing/references/branches/milestone-gate.md
     legacyEntry: skills/bearing-milestone-gate/SKILL.md
     sharedContracts:
-      - bearing-protocol
+      - planning-transaction
   - key: alignment-check
     reference: skills/bearing/references/branches/alignment-check.md
     legacyEntry: skills/bearing-alignment-check/SKILL.md
     sharedContracts:
-      - bearing-protocol
+      - planning-transaction
   - key: planning-audit
     reference: skills/bearing/references/branches/planning-audit.md
     legacyEntry: skills/bearing-planning-audit/SKILL.md
     sharedContracts:
-      - bearing-protocol
+      - planning-transaction
   - key: planning-review
     reference: skills/bearing/references/branches/planning-review.md
     legacyEntry: skills/bearing-planning-review/SKILL.md
     sharedContracts:
-      - bearing-protocol
+      - planning-transaction
   - key: next-work
     reference: skills/bearing/references/branches/next-work.md
     legacyEntry: skills/bearing-next-work/SKILL.md
     sharedContracts:
-      - bearing-protocol
+      - planning-transaction

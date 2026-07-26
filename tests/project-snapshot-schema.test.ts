@@ -226,14 +226,38 @@ test("accepts only explicit BCP-47 metadata for Project Summary parts", () => {
   expect(invalid.success).toBe(false);
 });
 
-test("requires one primary and exactly two Guidance alternatives", () => {
+test("requires one primary and permits zero to two Guidance alternatives", () => {
   expect(projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance }).success).toBe(true);
+  const noAlternatives = {
+    ...guidance,
+    value: { ...guidance.value, alternatives: [] },
+  };
   const oneAlternative = {
     ...guidance,
-    value: { ...guidance.value, alternatives: [guidanceItem] },
+    value: {
+      ...guidance.value,
+      alternatives: [{ ...guidanceItem, source: firstAlternativeRecord.reference }],
+    },
   };
   expect(
+    projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance: noAlternatives }).success,
+  ).toBe(true);
+  expect(
     projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance: oneAlternative }).success,
+  ).toBe(true);
+  const threeAlternatives = {
+    ...guidance,
+    value: {
+      ...guidance.value,
+      alternatives: [guidanceItem, guidanceItem, guidanceItem],
+    },
+  };
+  expect(
+    projectSnapshotSchema.safeParse({
+      ...validSnapshot,
+      audit,
+      guidance: threeAlternatives,
+    }).success,
   ).toBe(false);
 });
 

@@ -1,14 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { access, chmod, link, lstat, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { BEARING_POINTER } from "../src/agent-surface-entry";
 import { applyInstallPlans } from "../src/installer";
 import { setupRepository } from "../src/repo-setup";
 import { makeTemporaryDirectory } from "./helpers";
 
-const pointer =
-  "For every project request, load and follow the global `bearing` skill as the governing runbook.";
+const pointer = BEARING_POINTER;
 
 describe("repository setup review regressions", () => {
+  test("keeps the managed pointer inside the accepted English activation boundary", () => {
+    expect(pointer.trim().split(/\s+/u).length).toBeLessThanOrEqual(100);
+    expect(pointer).not.toMatch(/[\u3400-\u9fff]/u);
+    expect(pointer).toContain("new request");
+    expect(pointer).toContain("explicit `/bearing` request");
+    expect(pointer).toContain("ambiguous repository relevance");
+    expect(pointer).toContain("direct continuation");
+    expect(pointer).toContain("Clear repository-independent conversation");
+  });
+
   test("creates state and cache namespaces and removes an unselected surface pointer", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
     await writeFile(join(repoRoot, "AGENTS.md"), "# Agent rules\n");

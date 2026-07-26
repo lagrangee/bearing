@@ -139,7 +139,7 @@ export const nextWorkGuidanceSchema = z
     semanticCoverage: z.enum(["absent", "partial", "complete"]),
     basedOnAuditId: z.literal("planning-audit:current").optional(),
     primary: guidanceItemSchema,
-    alternatives: z.tuple([guidanceItemSchema, guidanceItemSchema]),
+    alternatives: z.array(guidanceItemSchema).max(2),
     source: sourceReferenceSchema,
   })
   .superRefine((guidance, context) => {

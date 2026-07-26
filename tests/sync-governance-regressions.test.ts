@@ -83,12 +83,12 @@ describe("sync governance review regressions", () => {
     });
   });
 
-  test("diagnoses Next Work Guidance without exactly two alternatives", async () => {
+  test("diagnoses Next Work Guidance with more than two alternatives", async () => {
     const root = await createValidBearingRepo();
     await writeFixture(
       root,
       ".bearing/state/next-work-guidance.md",
-      `---\nType: next-work-guidance\nID: next-work-guidance:current\nGenerated at: now\nInputs: []\nInput fingerprint: sha256:${"b".repeat(64)}\nSemantic coverage: absent\n---\n\n# Guidance\n\n## Primary Recommendation\n\n### Continue\n\nContinue the current work.\n\n#### Supporting References\n\n- \`roadmap:test\`\n\n## Alternatives\n\n### Only one\n\nUse one alternative.\n\n#### Supporting References\n\n- \`roadmap:test\`\n`,
+      `---\nType: next-work-guidance\nID: next-work-guidance:current\nGenerated at: now\nInputs: []\nInput fingerprint: sha256:${"b".repeat(64)}\nSemantic coverage: absent\n---\n\n# Guidance\n\n## Primary Recommendation\n\n### Continue\n\nContinue the current work.\n\n#### Supporting References\n\n- \`roadmap:test\`\n\n## Alternatives\n\n### First\n\nUse the first alternative.\n\n#### Supporting References\n\n- \`roadmap:test\`\n\n### Second\n\nUse the second alternative.\n\n#### Supporting References\n\n- \`roadmap:test\`\n\n### Third\n\nUse the third alternative.\n\n#### Supporting References\n\n- \`roadmap:test\`\n`,
     );
 
     const result = await runSync(root);
@@ -97,7 +97,7 @@ describe("sync governance review regressions", () => {
       code: "invalid-next-work-alternatives",
       impact: "blocking",
       target: ".bearing/state/next-work-guidance.md",
-      message: "Next Work Guidance requires exactly two Alternatives.",
+      message: "Next Work Guidance permits zero to two Alternatives.",
     });
   });
 

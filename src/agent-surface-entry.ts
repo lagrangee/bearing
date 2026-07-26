@@ -4,7 +4,7 @@ export const AGENT_SURFACES = ["agent-skills", "claude"] as const;
 export const BEARING_MANAGED_START = "<!-- bearing:managed-start -->";
 export const BEARING_MANAGED_END = "<!-- bearing:managed-end -->";
 export const BEARING_POINTER =
-  "For every project request, load and follow the global `bearing` skill as the governing runbook.";
+  "For a new request whose correct answer or action may depend on this repository, invoke the global `bearing` skill before proceeding. Treat an explicit `/bearing` request or ambiguous repository relevance as qualifying. For a direct continuation with reliable Bearing orientation already visible in the conversation, preserve that context and do not reload it. Clear repository-independent conversation does not invoke Bearing.";
 
 const MANAGED_BLOCK = `${BEARING_MANAGED_START}\n${BEARING_POINTER}\n${BEARING_MANAGED_END}`;
 

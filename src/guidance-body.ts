@@ -9,7 +9,7 @@ export type GuidanceBodyItem = Readonly<{
 
 export type NextWorkGuidanceBody = Readonly<{
   primary: GuidanceBodyItem;
-  alternatives: readonly [GuidanceBodyItem, GuidanceBodyItem];
+  alternatives: readonly GuidanceBodyItem[];
 }>;
 
 export type GuidanceBodyResult =
@@ -114,20 +114,19 @@ export const parseNextWorkGuidanceBody = (body: string): GuidanceBodyResult => {
     return { ok: false, reason: "invalid-structure" };
   }
   const primary = parseItems(lines, primarySection.line + 1, alternativesSection.line);
-  const alternatives = parseItems(lines, alternativesSection.line + 1, lines.length);
-  if (alternatives !== undefined && alternatives.length !== 2) {
+  const alternativeLines = lines.slice(alternativesSection.line + 1);
+  const alternatives =
+    trimBlankLines(alternativeLines).length === 0
+      ? []
+      : parseItems(lines, alternativesSection.line + 1, lines.length);
+  if (alternatives !== undefined && alternatives.length > 2) {
     return { ok: false, reason: "alternatives-count" };
   }
-  if (primary?.length !== 1 || alternatives?.length !== 2) {
-    return { ok: false, reason: "invalid-structure" };
-  }
-  const first = alternatives[0];
-  const second = alternatives[1];
-  if (first === undefined || second === undefined) {
+  if (primary?.length !== 1 || alternatives === undefined) {
     return { ok: false, reason: "invalid-structure" };
   }
   return {
     ok: true,
-    value: { primary: primary[0] as GuidanceBodyItem, alternatives: [first, second] },
+    value: { primary: primary[0] as GuidanceBodyItem, alternatives },
   };
 };

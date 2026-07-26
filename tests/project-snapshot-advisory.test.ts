@@ -100,6 +100,55 @@ test("projects exact Guidance items with Sync-owned freshness", async () => {
   });
 });
 
+test("projects Guidance with zero or one meaningful Alternative", async () => {
+  const root = await createValidBearingRepo();
+  await writeGuidance(root);
+  const path = join(root, ".bearing/state/next-work-guidance.md");
+  const guidance = await readFile(path, "utf8");
+  const secondAlternative = `
+### Run an Audit later
+
+Review the whole project after the seam is ready.
+
+#### Supporting References
+
+- \`.scratch/work/map.md\`
+`;
+
+  await writeFixture(
+    root,
+    ".bearing/state/next-work-guidance.md",
+    guidance.replace(secondAlternative, ""),
+  );
+  const oneAlternative = await project(root);
+  expect(oneAlternative.projected.guidance).toMatchObject({
+    validity: "available",
+    value: { alternatives: [{ title: "Inspect the Roadmap" }] },
+  });
+  expect(oneAlternative.projected.sources).toHaveLength(3);
+
+  const firstAlternative = `
+### Inspect the Roadmap
+
+Confirm the current horizon.
+
+#### Supporting References
+
+- \`roadmap:test\`
+`;
+  await writeFixture(
+    root,
+    ".bearing/state/next-work-guidance.md",
+    guidance.replace(firstAlternative, "").replace(secondAlternative, ""),
+  );
+  const zeroAlternatives = await project(root);
+  expect(zeroAlternatives.projected.guidance).toMatchObject({
+    validity: "available",
+    value: { alternatives: [] },
+  });
+  expect(zeroAlternatives.projected.sources).toHaveLength(2);
+});
+
 test("keeps Audit and malformed Guidance validity independent", async () => {
   const root = await createValidBearingRepo();
   const fingerprint = `sha256:${"a".repeat(64)}`;

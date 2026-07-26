@@ -83,10 +83,31 @@ test("rejects prose-shaped, near-match, duplicate, and reference-free Guidance",
   for (const body of cases) expect(parseNextWorkGuidanceBody(body).ok).toBe(false);
 });
 
-test("requires exactly two structured Alternatives", () => {
+test("accepts zero to two structured Alternatives and rejects a third", () => {
   const oneAlternative = validBody.replace(/\n### Run a Planning Audit[\s\S]*$/u, "\n");
-  const result = parseNextWorkGuidanceBody(oneAlternative);
-  expect(result).toEqual({ ok: false, reason: "alternatives-count" });
+  const zeroAlternatives = validBody.replace(/## Alternatives[\s\S]*$/u, "## Alternatives\n");
+  const threeAlternatives = `${validBody}
+### Review current Assets
+
+Inspect durable evidence before selecting work.
+
+#### Supporting References
+
+- \`roadmap:bearing-product-evolution\`
+`;
+
+  expect(parseNextWorkGuidanceBody(oneAlternative)).toMatchObject({
+    ok: true,
+    value: { alternatives: [expect.any(Object)] },
+  });
+  expect(parseNextWorkGuidanceBody(zeroAlternatives)).toMatchObject({
+    ok: true,
+    value: { alternatives: [] },
+  });
+  expect(parseNextWorkGuidanceBody(threeAlternatives)).toEqual({
+    ok: false,
+    reason: "alternatives-count",
+  });
 });
 
 test("rejects markup in Guidance titles and rationales without rejecting reference syntax", () => {

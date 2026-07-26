@@ -18,17 +18,7 @@ export type SymlinkTargetPlan = Readonly<{
 
 export type TargetPlan = FileTargetPlan | SymlinkTargetPlan;
 
-const skillNames = [
-  "bearing",
-  "bearing-setup",
-  "bearing-summary",
-  "bearing-roadmap",
-  "bearing-milestone-gate",
-  "bearing-alignment-check",
-  "bearing-planning-audit",
-  "bearing-planning-review",
-  "bearing-next-work",
-];
+const skillNames = ["bearing"];
 
 const surfaceRoot = (homeDir: string, surface: AgentSurface): string =>
   surface === "agent-skills" ? join(homeDir, ".agents/skills") : join(homeDir, ".claude/skills");
