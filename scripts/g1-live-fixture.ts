@@ -42,7 +42,6 @@ export const G1_CODEX_DISABLED_FEATURES = [
   "hooks",
   "image_generation",
   "memories",
-  "multi_agent",
   "plugin_sharing",
   "plugins",
   "skill_mcp_dependency_install",
@@ -318,6 +317,13 @@ const codexHardeningArguments = (disabledOperatorSkillPaths: readonly string[]):
   return arguments_;
 };
 
+const codexApprovalArguments = [
+  "-c",
+  'approval_policy="on-request"',
+  "-c",
+  'approvals_reviewer="auto_review"',
+] as const;
+
 export const surfaceLaunchContract = (
   input: Readonly<{
     surface: G1LiveSurface;
@@ -386,6 +392,7 @@ export const surfaceLaunchContract = (
         "exec",
         "--ignore-user-config",
         "--ignore-rules",
+        ...codexApprovalArguments,
         "--sandbox",
         "workspace-write",
         "--add-dir",
@@ -404,6 +411,7 @@ export const surfaceLaunchContract = (
         "resume",
         "--ignore-user-config",
         "--ignore-rules",
+        ...codexApprovalArguments,
         "-c",
         'sandbox_mode="workspace-write"',
         "-c",
