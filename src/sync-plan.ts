@@ -14,6 +14,7 @@ import {
 } from "./bearing-record-decoder";
 import { deriveStructuralDiagnosticsFromGeneration } from "./diagnostics";
 import { listFiles } from "./discovery";
+import { retainContainedInputs } from "./input-boundary";
 import type { NativeSourceRecord } from "./native-work";
 import { resolveRepositoryRoot } from "./path-boundary";
 import { buildPlanningGraph, type PlanningGraph } from "./planning-graph";
@@ -67,6 +68,7 @@ export type SyncPerformanceMetrics = Readonly<{
 export type PrepareSyncOptions = Readonly<{
   planningGraph?: PlanningGraph;
   planningGraphInstrumentation?: PlanningGraphInstrumentation;
+  explicitInputs?: readonly string[];
 }>;
 
 const readExisting = async (target: string): Promise<Buffer | undefined> => {
@@ -147,12 +149,19 @@ export const prepareSync = async (
   const root = await resolveRepositoryRoot(repoRoot);
   await ensureCacheBoundary(root);
   const discovery = await discoverProjectSitemapInputs(root);
+  const explicit =
+    options.explicitInputs === undefined
+      ? { inputs: [], diagnostics: [] }
+      : await retainContainedInputs(root, options.explicitInputs);
+  const discoveryInputs = [...new Set([...discovery.inputs, ...explicit.inputs])].sort(
+    (left, right) => left.localeCompare(right, "en"),
+  );
   const discovered = performance.now();
-  const baseGeneration = await captureSyncInputGeneration(root, discovery.inputs);
+  const baseGeneration = await captureSyncInputGeneration(root, discoveryInputs);
   const baseCaptured = performance.now();
   const initiallyDecoded = decodeBearingRecordGeneration(baseGeneration);
   const decodedAt = performance.now();
-  const discoveryDiagnostics = [...discovery.diagnostics];
+  const discoveryDiagnostics = [...discovery.diagnostics, ...explicit.diagnostics];
   const assetResolution = await resolveAssetInputs(
     root,
     initiallyDecoded,

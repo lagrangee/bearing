@@ -103,8 +103,11 @@ const recoveryInventorySchema = z
     });
   });
 
-const assertLegacySourceSyncClean = async (root: string): Promise<void> => {
-  const sourceSync = await prepareSync(root);
+const assertLegacySourceSyncClean = async (
+  root: string,
+  effortLocators: readonly string[],
+): Promise<void> => {
+  const sourceSync = await prepareSync(root, { explicitInputs: effortLocators });
   const diagnostics = sourceSync.diagnostics.filter(
     (diagnostic) =>
       !(
@@ -749,7 +752,7 @@ export const cutOverLegacyRepository = async (
     throw new Error("Legacy cutover requires one trustworthy matt-skills/v1 provider contract.");
   }
   await convertEfforts(root, effortLocators, validation.driver);
-  await assertLegacySourceSyncClean(root);
+  await assertLegacySourceSyncClean(root, effortLocators);
   const bundleRelative = posix.join(".bearing/backups", `0.1.0-to-0.1.1-${timestamp.suffix}`);
   const bundleRoot = join(root, bundleRelative);
   const recoveryEntries = await buildRecoveryEntries(root, effortLocators);
@@ -930,7 +933,7 @@ export const inspectLegacyCutoverPlan = async (
     throw new Error("Legacy cutover requires one trustworthy matt-skills/v1 provider contract.");
   }
   await convertEfforts(root, effortLocators, validation.driver);
-  await assertLegacySourceSyncClean(root);
+  await assertLegacySourceSyncClean(root, effortLocators);
   const recoveryEntries = await buildRecoveryEntries(root, effortLocators);
   const integrationPlans = await buildIntegrationPlans(
     root,

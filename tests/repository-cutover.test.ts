@@ -274,6 +274,47 @@ describe("0.1.0 repository cutover", () => {
     await expectMissing(join(repoRoot, ".bearing/backups"));
   });
 
+  test("validates reference-rich legacy truth only through the explicit cutover route", async () => {
+    const repoRoot = await createLegacyRepository();
+    const homeDir = await makeTemporaryDirectory("bearing-cutover-home-");
+    await writeFixture(
+      repoRoot,
+      ".bearing/state/assets.md",
+      `---
+Type: asset-registry
+Assets:
+  - ID: asset:legacy-proof
+    Title: Legacy Proof
+    Kind: verification-report
+    Location: .scratch/test/issues/01-finish.md
+    Owner: effort:test
+    Producer:
+      Kind: agent-surface
+      Name: codex
+    Lifecycle source: native
+---
+
+# Asset Registry
+`,
+    );
+
+    const normal = await prepareSync(repoRoot);
+    expect(normal.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "broken-canonical-reference",
+        target: ".bearing/state/assets.md",
+      }),
+    );
+
+    const result = await runSetupCli(repoRoot, homeDir, ["--plan"]);
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout).cutover.objectCounts.efforts).toBe(1);
+    expect(await readFile(join(repoRoot, ".bearing/state/assets.md"), "utf8")).toContain(
+      "Owner: effort:test",
+    );
+  });
+
   test("requires distinct upgrade-direction and inspected-Apply consent without mutation", async () => {
     const repoRoot = await createLegacyRepository();
     const homeDir = await makeTemporaryDirectory("bearing-cutover-home-");
