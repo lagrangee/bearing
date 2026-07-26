@@ -1,0 +1,52 @@
+schemaVersion: 1
+phase: expand
+publicEntry: skills/bearing/SKILL.md
+progressiveLoading:
+  rule: Load exactly one selected branch after public routing.
+  internalBranchesReenterPublicRouter: false
+  legacyEntriesRemainInstalled: true
+sharedContracts:
+  - key: bearing-protocol
+    reference: docs/agents/bearing/protocol.md
+    loading: branch-declared
+branches:
+  - key: setup
+    reference: skills/bearing/references/branches/setup.md
+    legacyEntry: skills/bearing-setup/SKILL.md
+    sharedContracts:
+      - bearing-protocol
+  - key: summary
+    reference: skills/bearing/references/branches/summary.md
+    legacyEntry: skills/bearing-summary/SKILL.md
+    sharedContracts:
+      - bearing-protocol
+  - key: roadmap
+    reference: skills/bearing/references/branches/roadmap.md
+    legacyEntry: skills/bearing-roadmap/SKILL.md
+    sharedContracts:
+      - bearing-protocol
+  - key: milestone-gate
+    reference: skills/bearing/references/branches/milestone-gate.md
+    legacyEntry: skills/bearing-milestone-gate/SKILL.md
+    sharedContracts:
+      - bearing-protocol
+  - key: alignment-check
+    reference: skills/bearing/references/branches/alignment-check.md
+    legacyEntry: skills/bearing-alignment-check/SKILL.md
+    sharedContracts:
+      - bearing-protocol
+  - key: planning-audit
+    reference: skills/bearing/references/branches/planning-audit.md
+    legacyEntry: skills/bearing-planning-audit/SKILL.md
+    sharedContracts:
+      - bearing-protocol
+  - key: planning-review
+    reference: skills/bearing/references/branches/planning-review.md
+    legacyEntry: skills/bearing-planning-review/SKILL.md
+    sharedContracts:
+      - bearing-protocol
+  - key: next-work
+    reference: skills/bearing/references/branches/next-work.md
+    legacyEntry: skills/bearing-next-work/SKILL.md
+    sharedContracts:
+      - bearing-protocol

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { access, lstat, readFile, readlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { installKit } from "../src/installer";
 import { setupRepository } from "../src/repo-setup";
@@ -41,6 +41,10 @@ describe("Bearing kit installer", () => {
     expect(result.outcome).toBe("applied");
     await access(join(homeDir, ".bearing/bin/bearing"));
     await access(join(homeDir, ".bearing/kit/current/docs/agents/bearing/protocol.md"));
+    await access(
+      join(homeDir, ".bearing/kit/current/skills/bearing/references/branch-manifest.yaml"),
+    );
+    await access(join(homeDir, ".bearing/kit/current/skills/bearing/references/branches/setup.md"));
     for (const skillName of skillNames) {
       const canonical = join(homeDir, ".bearing/kit/current/skills", skillName);
       for (const surfaceRoot of [".agents/skills", ".claude/skills"]) {
@@ -58,6 +62,24 @@ describe("Bearing kit installer", () => {
     });
     expect(rerun.outcome).toBe("no-op");
     expect(rerun.changedTargets).toEqual([]);
+  });
+
+  test("fails closed on a user-owned public skill conflict before installing the branch package", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-conflict-");
+    const conflict = join(homeDir, ".agents/skills/bearing");
+    await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
+    await writeFile(conflict, "user-owned skill entry\n");
+
+    await expect(
+      installKit({
+        homeDir,
+        packageRoot: process.cwd(),
+        surfaces: ["agent-skills"],
+      }),
+    ).rejects.toThrow("conflicts with existing content");
+
+    expect(await readFile(conflict, "utf8")).toBe("user-owned skill entry\n");
+    await expect(access(join(homeDir, ".bearing/kit/current/package.json"))).rejects.toThrow();
   });
 
   test("enables a repository without copying protocol or skills into it", async () => {
