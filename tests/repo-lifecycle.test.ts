@@ -1,9 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { access, lstat, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  lstat,
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { readCatalogDocument, upsertCatalogEntry } from "../src/catalog/store";
 import { writeInstallTarget } from "../src/installer";
-import { deactivateRepository, purgeRepository } from "../src/repo-lifecycle";
+import {
+  deactivateRepository,
+  inspectPurgePlan,
+  type PurgeTransactionHooks,
+  purgeRepository,
+} from "../src/repo-lifecycle";
 import { setupRepository } from "../src/repo-setup";
 import { makeTemporaryDirectory } from "./helpers";
 
@@ -29,6 +44,24 @@ const seedRepository = async (repoRoot: string): Promise<void> => {
   await mkdir(join(repoRoot, ".scratch/work/evidence"), { recursive: true });
   await writeFile(join(repoRoot, ".scratch/work/effort.md"), "# Effort\n");
   await writeFile(join(repoRoot, ".scratch/work/evidence/result.md"), "durable\n");
+};
+
+const confirmedPurge = async (
+  homeDir: string,
+  repoRoot: string,
+  hooks: PurgeTransactionHooks = {},
+) => {
+  const plan = await inspectPurgePlan({ homeDir, repoRoot });
+  return purgeRepository(
+    {
+      homeDir,
+      repoRoot,
+      confirmed: true,
+      planToken: plan.confirmationToken,
+      acceptNoRecoveryExport: true,
+    },
+    hooks,
+  );
 };
 
 const seedNestedManifestSymlink = async (
@@ -106,7 +139,7 @@ describe("repository Bearing lifecycle", () => {
     );
     await access(join(repoRoot, ".bearing/manifest.json"));
 
-    const result = await purgeRepository({ homeDir, repoRoot, confirmed: true });
+    const result = await confirmedPurge(homeDir, repoRoot);
     expect(result.outcome).toBe("applied");
     await expect(access(join(repoRoot, ".bearing"))).rejects.toThrow();
     expect(await readFile(join(repoRoot, ".scratch/work/effort.md"), "utf8")).toBe("# Effort\n");
@@ -124,9 +157,7 @@ describe("repository Bearing lifecycle", () => {
     await writeFile(join(outside, "preserved.txt"), "outside\n");
     await symlink(outside, join(repoRoot, ".bearing"));
 
-    await expect(purgeRepository({ homeDir, repoRoot, confirmed: true })).rejects.toThrow(
-      "unsafe `.bearing` namespace shape",
-    );
+    await expect(confirmedPurge(homeDir, repoRoot)).rejects.toThrow("unsafe Bearing-owned target");
     expect(await readFile(join(outside, "preserved.txt"), "utf8")).toBe("outside\n");
   });
 
@@ -217,9 +248,7 @@ For every project request, load and follow the global \`bearing\` skill as the g
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
     const fixture = await seedNestedManifestSymlink(homeDir, repoRoot, "nested-purge");
 
-    await expect(purgeRepository({ homeDir, repoRoot, confirmed: true })).rejects.toThrow(
-      "manifest must be one single-link regular file",
-    );
+    await expect(confirmedPurge(homeDir, repoRoot)).rejects.toThrow("unsafe Bearing-owned target");
 
     expect((await lstat(join(repoRoot, ".bearing/manifest.json"))).isSymbolicLink()).toBe(true);
     expect(await readFile(fixture.externalManifest, "utf8")).toBe(fixture.externalBytes);
@@ -239,14 +268,11 @@ For every project request, load and follow the global \`bearing\` skill as the g
 `;
 
     await expect(
-      purgeRepository(
-        { homeDir, repoRoot, confirmed: true },
-        {
-          beforeApply: async () => {
-            await writeFile(join(repoRoot, "AGENTS.md"), concurrentAgents);
-          },
+      confirmedPurge(homeDir, repoRoot, {
+        beforeApply: async () => {
+          await writeFile(join(repoRoot, "AGENTS.md"), concurrentAgents);
         },
-      ),
+      }),
     ).rejects.toThrow("original targets were restored");
 
     expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(concurrentAgents);
@@ -267,15 +293,12 @@ For every project request, load and follow the global \`bearing\` skill as the g
     };
 
     await expect(
-      purgeRepository(
-        { homeDir, repoRoot, confirmed: true },
-        {
-          writeTarget: async (plan, ordinal) => {
-            await writeInstallTarget(plan, ordinal);
-            await writeFile(manifestPath, `${JSON.stringify(racedManifest, null, 2)}\n`);
-          },
+      confirmedPurge(homeDir, repoRoot, {
+        writeTarget: async (plan, ordinal) => {
+          await writeInstallTarget(plan, ordinal);
+          await writeFile(manifestPath, `${JSON.stringify(racedManifest, null, 2)}\n`);
         },
-      ),
+      }),
     ).rejects.toThrow("original targets were restored");
 
     expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(agentsBefore);
@@ -283,6 +306,159 @@ For every project request, load and follow the global \`bearing\` skill as the g
       packageVersion: "concurrent-generation",
     });
     expect((await readCatalogDocument({ homeDir })).entries).toHaveLength(1);
+  });
+
+  test("purge binds the quarantine rename to the reviewed namespace inode", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const repoRoot = await makeTemporaryDirectory("bearing-project-");
+    await seedRepository(repoRoot);
+    await upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "purge-inode-race" });
+    const agentsBefore = await readFile(join(repoRoot, "AGENTS.md"), "utf8");
+    const reviewedAside = join(repoRoot, ".reviewed-bearing-generation");
+
+    await expect(
+      confirmedPurge(homeDir, repoRoot, {
+        beforeNamespaceRename: async () => {
+          await rename(join(repoRoot, ".bearing"), reviewedAside);
+          await mkdir(join(repoRoot, ".bearing"));
+          await writeFile(join(repoRoot, ".bearing/replacement.txt"), "replacement survives\n");
+        },
+      }),
+    ).rejects.toThrow("original targets were restored");
+
+    expect(await readFile(join(repoRoot, ".bearing/replacement.txt"), "utf8")).toBe(
+      "replacement survives\n",
+    );
+    await access(join(reviewedAside, "manifest.json"));
+    expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(agentsBefore);
+    expect((await readCatalogDocument({ homeDir })).entries).toHaveLength(1);
+  });
+
+  test("purge preserves Catalog identity when a new repository generation appears", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const repoRoot = await makeTemporaryDirectory("bearing-project-");
+    await seedRepository(repoRoot);
+    await upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "purge-recreated" });
+    const plan = await inspectPurgePlan({ homeDir, repoRoot });
+
+    const result = await purgeRepository(
+      {
+        homeDir,
+        repoRoot,
+        confirmed: true,
+        planToken: plan.confirmationToken,
+        acceptNoRecoveryExport: true,
+      },
+      {
+        removeQuarantine: async (target) => {
+          await rm(target, { recursive: true });
+          await mkdir(join(repoRoot, ".bearing"));
+          await writeFile(join(repoRoot, ".bearing/new-generation.txt"), "new\n");
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      outcome: "partial",
+      catalog: { outcome: "failed", message: expect.stringContaining("new `.bearing` generation") },
+    });
+    expect((await readCatalogDocument({ homeDir })).entries).toEqual([
+      expect.objectContaining({ entryId: "purge-recreated" }),
+    ]);
+    expect(await readFile(join(repoRoot, ".bearing/new-generation.txt"), "utf8")).toBe("new\n");
+  });
+
+  test("purge never removes a matching Catalog entry whose identity changed after review", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const repoRoot = await makeTemporaryDirectory("bearing-project-");
+    await seedRepository(repoRoot);
+    await upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "purge-reviewed-entry" });
+    const plan = await inspectPurgePlan({ homeDir, repoRoot });
+    const catalogRepoRoot = plan.inventory.catalogEntry?.repoRoot;
+    if (catalogRepoRoot === undefined) throw new Error("Expected reviewed Catalog entry.");
+    const replacement = {
+      version: 1 as const,
+      entries: [
+        {
+          entryId: "purge-new-entry",
+          repoRoot: catalogRepoRoot,
+          displayName: "Relinked project",
+        },
+      ],
+    };
+
+    const result = await purgeRepository(
+      {
+        homeDir,
+        repoRoot,
+        confirmed: true,
+        planToken: plan.confirmationToken,
+        acceptNoRecoveryExport: true,
+      },
+      {
+        removeQuarantine: async (target) => {
+          await rm(target, { recursive: true });
+          await writeFile(
+            join(homeDir, ".bearing/catalog.json"),
+            `${JSON.stringify(replacement, null, 2)}\n`,
+          );
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      outcome: "partial",
+      catalog: { outcome: "failed", message: expect.stringContaining("identity changed") },
+    });
+    expect(await readCatalogDocument({ homeDir })).toEqual(replacement);
+  });
+
+  test("purge preserves a matching Catalog entry created after a no-entry review", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const repoRoot = await makeTemporaryDirectory("bearing-project-");
+    await seedRepository(repoRoot);
+    const plan = await inspectPurgePlan({ homeDir, repoRoot });
+    expect(plan.inventory.catalogEntry).toBeUndefined();
+    const canonicalRoot = await realpath(repoRoot);
+
+    const result = await purgeRepository(
+      {
+        homeDir,
+        repoRoot,
+        confirmed: true,
+        planToken: plan.confirmationToken,
+        acceptNoRecoveryExport: true,
+      },
+      {
+        removeQuarantine: async (target) => {
+          await rm(target, { recursive: true });
+          await mkdir(join(homeDir, ".bearing"), { recursive: true });
+          await writeFile(
+            join(homeDir, ".bearing/catalog.json"),
+            `${JSON.stringify(
+              {
+                version: 1,
+                entries: [
+                  {
+                    entryId: "purge-late-entry",
+                    repoRoot: canonicalRoot,
+                    displayName: "Late entry",
+                  },
+                ],
+              },
+              null,
+              2,
+            )}\n`,
+          );
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      outcome: "partial",
+      catalog: { outcome: "failed", message: expect.stringContaining("unreviewed matching entry") },
+    });
+    expect((await readCatalogDocument({ homeDir })).entries[0]?.entryId).toBe("purge-late-entry");
   });
 
   test("reports a committed partial quarantine truthfully when purge cleanup fails", async () => {
@@ -293,15 +469,12 @@ For every project request, load and follow the global \`bearing\` skill as the g
     await writeFile(join(repoRoot, ".bearing/state/second.md"), "second\n");
     await upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "partial-purge" });
 
-    const result = await purgeRepository(
-      { homeDir, repoRoot, confirmed: true },
-      {
-        removeQuarantine: async (target) => {
-          await rm(join(target, "state/first.md"));
-          throw new Error("injected mid-tree deletion failure");
-        },
+    const result = await confirmedPurge(homeDir, repoRoot, {
+      removeQuarantine: async (target) => {
+        await rm(join(target, "state/first.md"));
+        throw new Error("injected mid-tree deletion failure");
       },
-    );
+    });
 
     expect(result.outcome).toBe("blocked");
     expect(result.repository.outcome).toBe("applied");

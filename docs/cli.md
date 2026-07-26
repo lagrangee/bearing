@@ -101,15 +101,26 @@ reported as a separate resumable partial outcome.
 
 ```bash
 bearing deactivate --repo .
-bearing purge --repo . --confirm-purge
+bearing purge --repo . --plan
+bearing purge --repo . --confirm-purge --purge-plan-token <confirmationToken> \
+  --recovery-export /safe/external/bearing-recovery
+# Or explicitly accept unrecoverable removal:
+bearing purge --repo . --confirm-purge --purge-plan-token <confirmationToken> \
+  --accept-no-recovery-export
 ```
 
 Use these only through an accepted `bearing-setup` lifecycle decision. `deactivate` changes the
 manifest to `status: deactivated` and removes only its registered managed root pointers, disposable
 cache, and Catalog registration. It preserves `.bearing/state`, Provider Configuration, profiles,
 backups, native `.scratch` work, and durable artifacts as the reactivation baseline. `purge`
-removes only the repository `.bearing` namespace and managed root pointers after confirmation; it
-preserves `.scratch`, source, docs, and other native artifacts. After either repository mutation
+first returns a no-write exact inventory of every `.bearing` path (including State, profiles,
+Registry and backups), each verifiable managed block, and the matching Catalog entry. Its token
+binds confirmation to that generation. Confirmation must either create and verify one recovery
+export outside `.bearing`, or explicitly accept that canonical history and local backups are
+unrecoverable. It then removes only the reviewed `.bearing` namespace and managed root pointers;
+it preserves `.scratch`, source, docs, external Asset payloads, and the global kit. A recognized
+older or newer schema, unsafe owned target, ambiguous block, or changed generation fails closed.
+Invalid repositories may be purged only when every target remains safely identifiable. After either repository mutation
 commits, Catalog removal is reported separately and can be retried safely if it fails. Purge first
 atomically detaches `.bearing`; if recursive
 cleanup then fails, the command returns blocked and prints the exact partial quarantine path. That

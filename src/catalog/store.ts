@@ -20,6 +20,7 @@ export {
   type CatalogUpsertResult,
   forgetCatalogEntry,
   relinkCatalogEntry,
+  removeCatalogEntryByExactIdentity,
   removeCatalogEntryByRepoRoot,
   renameCatalogEntry,
   upsertCatalogEntry,

@@ -1030,7 +1030,7 @@ Review an existing patch.
     ).rejects.toThrow();
   });
 
-  test("classifies Active, Deactivated, and Invalid repositories from inspectable facts", async () => {
+  test("classifies legacy Active, dependency-invalid Deactivated, and Invalid repositories from inspectable facts", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-plan-home-");
     const activeRoot = await makeTemporaryDirectory("bearing-plan-active-");
     const deactivatedRoot = await makeTemporaryDirectory("bearing-plan-deactivated-");
@@ -1066,7 +1066,16 @@ Review an existing patch.
     });
     expect(deactivatedResult.exitCode).toBe(0);
     expect(JSON.parse(deactivatedResult.stdout)).toMatchObject({
-      lifecycle: { kind: "deactivated", legacyTransitionRequired: false },
+      lifecycle: { kind: "invalid-or-unsupported" },
+      recoveryDiagnosis: {
+        blockers: [
+          { cause: "owner-dependency", unsafeInputs: [".bearing/provider.json"] },
+          {
+            cause: "owner-dependency",
+            unsafeInputs: [".bearing/executor-profiles/generic-agent.md"],
+          },
+        ],
+      },
       canApply: false,
     });
     expect(invalidResult.exitCode).toBe(0);

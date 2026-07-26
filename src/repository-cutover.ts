@@ -52,25 +52,45 @@ const recoveryInventorySchema = z
     createdAt: z.string().datetime(),
     sourceSchema: z.literal(SOURCE_SCHEMA),
     targetSchema: z.literal(TARGET_SCHEMA),
-    entries: z.array(
-      z.strictObject({
-        source: z.string().min(1),
-        bundlePath: displaySourceLocatorSchema,
-        sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
-        bytes: z.number().int().nonnegative(),
-        disposition: z.enum(["preserve", "transform", "remove", "replace"]),
-        filePrecondition: z
-          .strictObject({
-            sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
-            bytes: z.number().int().nonnegative(),
-            mode: z.number().int().min(0).max(0o777),
-          })
-          .optional(),
-      }),
-    ),
+    entries: z
+      .array(
+        z.strictObject({
+          source: z.string().min(1),
+          bundlePath: displaySourceLocatorSchema,
+          sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+          bytes: z.number().int().nonnegative(),
+          disposition: z.enum(["preserve", "transform", "remove", "replace"]),
+          filePrecondition: z
+            .strictObject({
+              sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+              bytes: z.number().int().nonnegative(),
+              mode: z.number().int().min(0).max(0o777),
+            })
+            .optional(),
+        }),
+      )
+      .min(1),
   })
   .superRefine((inventory, context) => {
+    const sources = new Set<string>();
+    const bundlePaths = new Set<string>();
     inventory.entries.forEach((entry, index) => {
+      if (sources.has(entry.source)) {
+        context.addIssue({
+          code: "custom",
+          path: ["entries", index, "source"],
+          message: "Recovery Bundle sources must be unique.",
+        });
+      }
+      if (bundlePaths.has(entry.bundlePath)) {
+        context.addIssue({
+          code: "custom",
+          path: ["entries", index, "bundlePath"],
+          message: "Recovery Bundle payload paths must be unique.",
+        });
+      }
+      sources.add(entry.source);
+      bundlePaths.add(entry.bundlePath);
       const managedBlock = entry.source.endsWith("#bearing-managed-block");
       if (managedBlock === (entry.filePrecondition !== undefined)) return;
       context.addIssue({
@@ -311,7 +331,7 @@ const inventoryBytes = (createdAt: string, entries: readonly RecoveryEntry[]): B
     "utf8",
   );
 
-const verifyRecoveryBundle = async (
+export const verifyRecoveryBundle = async (
   root: string,
   bundleRoot: string,
   requireReceipt = true,

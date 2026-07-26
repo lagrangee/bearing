@@ -98,15 +98,25 @@ blocks、hashes、inventory 与 receipt；排除 cache、Matt-native work、unma
 
 ```bash
 bearing deactivate --repo .
-bearing purge --repo . --confirm-purge
+bearing purge --repo . --plan
+bearing purge --repo . --confirm-purge --purge-plan-token <confirmationToken> \
+  --recovery-export /safe/external/bearing-recovery
+# 或明确接受不可恢复的删除：
+bearing purge --repo . --confirm-purge --purge-plan-token <confirmationToken> \
+  --accept-no-recovery-export
 ```
 
 这些命令只应在已接受的 `bearing-setup` lifecycle 决策下执行。`deactivate` 把 manifest
 改为 `status: deactivated`，并且只移除其中登记的 managed root pointers、disposable cache
 与 Catalog registration；它保留 `.bearing/state`、Provider Configuration、profiles、backups、
-原生 `.scratch` work 与 durable artifacts，作为 reactivation baseline。`purge` 经确认后只
-移除仓库的 `.bearing` namespace 和 managed root pointers；它保留 `.scratch`、source、docs
-与其他 native artifacts。任一 repository mutation 提交后，Catalog removal 会单独报告；
+原生 `.scratch` work 与 durable artifacts，作为 reactivation baseline。`purge` 首先以 no-write
+plan 返回全部 `.bearing` paths（包括 State、profiles、Registry 与 backups）、每个可验证 managed
+block 和匹配 Catalog entry 的精确 inventory；confirmation token 与该 generation 绑定。最终确认
+必须选择并验证一个 `.bearing` 之外的 recovery export，或明确接受 canonical history 与本地
+backups 将不可恢复。随后它只移除 reviewed `.bearing` namespace 和 managed root pointers，并保留
+`.scratch`、source、docs、external Asset payloads 与 global kit。recognized older/newer schema、
+unsafe owned target、ambiguous block 或 generation drift 都会 fail closed；Invalid repository 只有
+在所有 target 都可安全识别时才能 Purge。任一 repository mutation 提交后，Catalog removal 会单独报告；
 如果失败，可以安全重试。
 Purge 会先原子 detach `.bearing`；如果后续递归 cleanup 失败，命令返回 blocked 并打印精确的
 partial quarantine 路径。这份 residue 不是 backup，Bearing 也绝不会声称已恢复部分删除的 bytes。

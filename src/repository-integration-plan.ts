@@ -11,6 +11,10 @@ import { inspectInstallPath } from "./install-boundary";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
 import { validateMattSkillsV1Contract } from "./providers/matt-skills-v1";
 import { displaySourceLocatorSchema } from "./reference-schema";
+import {
+  diagnoseRepositoryRecovery,
+  type RepositoryRecoveryDiagnosis,
+} from "./repository-recovery";
 import { manifestSchema } from "./schema-definitions";
 import type { RepositorySetupOptions } from "./types";
 
@@ -24,6 +28,7 @@ export type RepositoryIntegrationPlan = Readonly<{
   planVersion: 1;
   repoRoot: string;
   lifecycle: RepositoryIntegrationLifecycle;
+  recoveryDiagnosis?: RepositoryRecoveryDiagnosis;
   canApply: boolean;
   blockers: readonly RepositoryIntegrationBlocker[];
   stages: Readonly<{
@@ -397,7 +402,21 @@ export const planRepositoryIntegration = async (
     removeProfiles: validatedProfileDisposition(options.removeProfiles ?? []),
     provider: selection.provider,
   };
-  const lifecycle = await inspectLifecycle(root);
+  const inspectedLifecycle = await inspectLifecycle(root);
+  const inspectedDiagnosis =
+    inspectedLifecycle.kind === "invalid-or-unsupported" ||
+    inspectedLifecycle.kind === "deactivated" ||
+    (inspectedLifecycle.kind === "active" && inspectedLifecycle.legacyTransitionRequired !== true)
+      ? await diagnoseRepositoryRecovery(root, options.executorHomeDir)
+      : undefined;
+  const recoveryDiagnosis =
+    inspectedDiagnosis?.classification === "invalid-or-unsupported"
+      ? inspectedDiagnosis
+      : undefined;
+  const lifecycle =
+    recoveryDiagnosis === undefined
+      ? inspectedLifecycle
+      : invalidLifecycle(recoveryDiagnosis.blockers.map((blocker) => blocker.impact).join(" "));
   const targets = plannedTargets(root, normalizedOptions);
   const preconditions = await captureRepositoryTargetPreconditions(root, targets);
   let executorRegistrationError: string | undefined;
@@ -506,6 +525,9 @@ export const planRepositoryIntegration = async (
     planVersion: 1,
     repoRoot: root,
     lifecycle: Object.freeze(lifecycle),
+    ...(recoveryDiagnosis === undefined
+      ? {}
+      : { recoveryDiagnosis: Object.freeze(recoveryDiagnosis) }),
     canApply,
     blockers: Object.freeze(blockers.map((blocker) => Object.freeze(blocker))),
     stages: Object.freeze({

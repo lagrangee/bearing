@@ -21,7 +21,7 @@ import { createPlanningGraphInstrumentation } from "./planning-graph-instrumenta
 import { parsePortalPort } from "./portal/port";
 import { startPortalServer } from "./portal/server";
 import { reconcileRepository } from "./reconcile-repository";
-import { deactivateRepository, purgeRepository } from "./repo-lifecycle";
+import { deactivateRepository, inspectPurgePlan, purgeRepository } from "./repo-lifecycle";
 import { inspectLegacyCutoverPlan } from "./repository-cutover";
 import { planRepositoryIntegration } from "./repository-integration-plan";
 import { runSync } from "./sync";
@@ -35,7 +35,7 @@ Usage:
   bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
   bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>] [--confirm-repair] [--confirm-reactivate] [--accept-upgrade-direction --confirm-cutover --cutover-at <ISO-8601> --cutover-plan-token <sha256>] [--plan]
   bearing deactivate --repo <path>
-  bearing purge --repo <path> --confirm-purge
+  bearing purge --repo <path> [--plan] [--confirm-purge --purge-plan-token <sha256> (--recovery-export <path> | --accept-no-recovery-export)]
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [options]
   bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
   bearing sync [--repo <path>]
@@ -369,23 +369,49 @@ const runRepositoryLifecycle = async (
     options: {
       repo: { type: "string" },
       "confirm-purge": { type: "boolean" },
+      plan: { type: "boolean" },
+      "purge-plan-token": { type: "string" },
+      "recovery-export": { type: "string" },
+      "accept-no-recovery-export": { type: "boolean" },
     },
     allowPositionals: false,
     strict: true,
   });
-  if (command === "deactivate" && parsed.values["confirm-purge"] === true) {
-    throw new Error("--confirm-purge is valid only for `bearing purge`.");
+  if (
+    command === "deactivate" &&
+    (parsed.values["confirm-purge"] === true ||
+      parsed.values.plan === true ||
+      parsed.values["purge-plan-token"] !== undefined ||
+      parsed.values["recovery-export"] !== undefined ||
+      parsed.values["accept-no-recovery-export"] === true)
+  ) {
+    throw new Error("Purge planning and confirmation options are valid only for `bearing purge`.");
   }
   const options = {
     repoRoot: resolve(parsed.values.repo ?? process.cwd()),
     homeDir: homeDirectory(),
   };
+  if (
+    command === "purge" &&
+    (parsed.values.plan === true || parsed.values["confirm-purge"] !== true)
+  ) {
+    const plan = await inspectPurgePlan(options);
+    process.stdout.write(`${JSON.stringify({ outcome: "cancelled", ...plan }, null, 2)}\n`);
+    return;
+  }
   const result =
     command === "deactivate"
       ? await deactivateRepository(options)
       : await purgeRepository({
           ...options,
           confirmed: parsed.values["confirm-purge"] === true,
+          ...(parsed.values["purge-plan-token"] === undefined
+            ? {}
+            : { planToken: parsed.values["purge-plan-token"] }),
+          ...(parsed.values["recovery-export"] === undefined
+            ? {}
+            : { recoveryExport: parsed.values["recovery-export"] }),
+          acceptNoRecoveryExport: parsed.values["accept-no-recovery-export"] === true,
         });
   process.stdout.write(
     `Outcome: ${result.outcome}\nRepository: ${result.repository.outcome}\nCatalog: ${result.catalog.outcome}\nChanged targets: ${result.repository.changedTargets.length}\n`,

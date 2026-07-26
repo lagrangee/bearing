@@ -145,6 +145,43 @@ export const removeCatalogEntryByRepoRoot = async (options: {
   return removeCatalogEntry(options, (entry) => entry.repoRoot === canonicalRoot);
 };
 
+export const removeCatalogEntryByExactIdentity = async (options: {
+  readonly homeDir: string;
+  readonly repoRoot: string;
+  readonly expectedEntry?: CatalogEntry;
+  readonly assertBeforeMutation?: () => Promise<void>;
+  readonly lockTimeoutMs?: number;
+}): Promise<CatalogRemovalResult> => {
+  const canonicalRoot = parseCatalogRepositoryRoot(options.repoRoot);
+  return runCatalogTransaction<CatalogRemovalResult>({
+    homeDir: options.homeDir,
+    ...(options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs }),
+    mutate: async (current) => {
+      await options.assertBeforeMutation?.();
+      const matching = current.entries.find((entry) => entry.repoRoot === canonicalRoot);
+      if (options.expectedEntry === undefined) {
+        if (matching !== undefined) {
+          throw new Error(
+            "Project Catalog gained an unreviewed matching entry after Purge confirmation.",
+          );
+        }
+        return { result: { outcome: "no-op" } };
+      }
+      if (matching === undefined) return { result: { outcome: "no-op" } };
+      if (JSON.stringify(matching) !== JSON.stringify(options.expectedEntry)) {
+        throw new Error(
+          "Project Catalog matching entry identity changed after Purge confirmation.",
+        );
+      }
+      const next = parseCatalogDocument({
+        version: 1,
+        entries: current.entries.filter((entry) => entry.entryId !== matching.entryId),
+      });
+      return { result: { outcome: "applied", removedEntry: matching }, next };
+    },
+  });
+};
+
 export const relinkCatalogEntry = async (options: {
   readonly homeDir: string;
   readonly entryId: string;
