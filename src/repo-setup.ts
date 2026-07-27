@@ -465,11 +465,13 @@ export const setupRepository = async (
               `Fresh Setup validation requires zero Sync diagnostics; found ${syncPlan.diagnostics.length}.`,
             );
           }
-          syncPlans = buildSyncTransactionTargets(syncPlan, {
-            packageName: packageMetadata.name,
-            packageVersion: packageMetadata.version,
-            completedAt: new Date().toISOString(),
-          }).targets;
+          syncPlans = syncPlan.changed
+            ? buildSyncTransactionTargets(syncPlan, {
+                packageName: packageMetadata.name,
+                packageVersion: packageMetadata.version,
+                completedAt: new Date().toISOString(),
+              }).targets
+            : [];
           return syncPlans;
         },
         async () => {

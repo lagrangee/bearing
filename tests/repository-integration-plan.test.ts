@@ -700,6 +700,7 @@ Review an existing patch.
     const contractLocator = await writeMattProviderFixture(repoRoot);
     const args = ["--provider-contract", contractLocator] as const;
     expect((await runSetupCli(repoRoot, homeDir, args)).exitCode).toBe(0);
+    const receiptBefore = await readFile(join(repoRoot, ".bearing/cache/sync-receipt.json"));
     const drifted = `Work-management contract: \`${contractLocator}\`\n`;
     await writeFile(join(repoRoot, "AGENTS.md"), drifted);
 
@@ -713,7 +714,11 @@ Review an existing patch.
     const repaired = await runSetupCli(repoRoot, homeDir, [...args, "--confirm-repair"]);
     expect(repaired.exitCode).toBe(0);
     expect(repaired.stdout).toContain("Repository: applied");
+    expect(repaired.stdout).toContain("Changed targets: 1");
     expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toContain("bearing:managed-start");
+    expect(await readFile(join(repoRoot, ".bearing/cache/sync-receipt.json"))).toEqual(
+      receiptBefore,
+    );
   });
 
   test("revalidates unchanged profiles without replay and requires explicit profile changes", async () => {
