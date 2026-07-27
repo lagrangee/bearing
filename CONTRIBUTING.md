@@ -4,6 +4,12 @@ Thanks for considering a contribution to Bearing.
 
 Bearing is a maintainer-led Public Preview, so the first contribution rule is alignment before effort.
 
+## Development branches
+
+`main` carries the latest released product source. The current development base is `0.1.1`.
+
+Open pull requests against `0.1.1`. Unfinished maintainer work remains on topic branches and enters the version branch only after review and relevant checks pass.
+
 ## Before opening a pull request
 
 - Open or join an Issue or Discussion for substantive behavior, architecture, or product changes.

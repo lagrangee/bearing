@@ -208,7 +208,9 @@ test("Assets keeps stable rows searchable, filterable, inspectable, and read-onl
   const inspector = page.getByRole("complementary", { name: "Selected context" });
   await expect(inspector.getByRole("heading", { name: "Planning Model Evidence" })).toBeVisible();
   await expect(inspector.getByText("asset:planning-model-evidence", { exact: true })).toBeVisible();
-  await expect(inspector.getByText(/effort:model.+\.scratch\/model\/effort\.md/u)).toBeVisible();
+  await expect(
+    inspector.getByText(/effort:model.+\.bearing\/state\/efforts\/model\.md/u),
+  ).toBeVisible();
   await expect(
     inspector
       .getByRole("heading", { name: "Gate Passage evidence" })

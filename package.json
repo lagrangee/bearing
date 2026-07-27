@@ -48,7 +48,7 @@
     "release:smoke": "node scripts/release-smoke.mjs"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

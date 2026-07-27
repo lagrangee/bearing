@@ -40,6 +40,7 @@ jobs:
           case "$EXPECTED_RUN_ID" in *[!0-9]*) exit 1 ;; esac
           test "${#EXPECTED_COMMIT}" -eq 40
           case "$EXPECTED_COMMIT" in *[!0-9a-f]*) exit 1 ;; esac
+          test "$GITHUB_REF_NAME" = "main"
           test "$GITHUB_SHA" = "$EXPECTED_COMMIT"
           RUN_FACTS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EXPECTED_RUN_ID" --jq '[.id, .path, .name, .event, .status, .conclusion, .head_sha] | @tsv')"
           IFS=$'\t' read -r ACTUAL_RUN_ID ACTUAL_PATH ACTUAL_NAME ACTUAL_EVENT ACTUAL_STATUS ACTUAL_CONCLUSION ACTUAL_COMMIT <<< "$RUN_FACTS"

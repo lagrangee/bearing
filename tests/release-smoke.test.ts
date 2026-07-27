@@ -322,11 +322,11 @@ describe("release smoke arguments", () => {
         "--version",
         "0.1.0",
       ]),
-    ).toThrow("node24 or node22");
+    ).toThrow("node24 or node26");
     expect(() =>
       parseReleaseSmokeArgs([
         "--lane",
-        "node22",
+        "node26",
         "--source-commit",
         "a".repeat(40),
         "--candidate-receipt",
@@ -369,7 +369,7 @@ describe("release smoke arguments", () => {
 
   test("refuses a lane that does not match the selected Node runtime", () => {
     expect(() => assertLaneRuntime("node24", "v24.11.0")).not.toThrow();
-    expect(() => assertLaneRuntime("node22", "v24.11.0")).toThrow("node22 requires Node.js 22");
+    expect(() => assertLaneRuntime("node26", "v24.11.0")).toThrow("node26 requires Node.js 26");
   });
 });
 

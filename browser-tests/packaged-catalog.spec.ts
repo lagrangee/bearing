@@ -1,10 +1,10 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { createValidBearingRepo } from "../tests/helpers";
+import { createValidBearingRepo, writeFixture } from "../tests/helpers";
 import {
   runHarnessCommand,
   spawnHarnessProcess,
@@ -34,6 +34,8 @@ test("a freshly reconciled repository is selectable through the packed installed
   const packDirectory = join(root, "pack");
   const homeDirectory = join(root, "home");
   const repoRoot = await createValidBearingRepo();
+  const retainedState = join(root, "retained-state");
+  const retainedScratch = join(root, "retained-scratch");
   let portal: ChildProcessWithoutNullStreams | undefined;
   await mkdir(packDirectory);
   await mkdir(homeDirectory);
@@ -46,6 +48,20 @@ test("a freshly reconciled repository is selectable through the packed installed
   let testFailure: unknown;
 
   try {
+    await rename(join(repoRoot, ".bearing/state"), retainedState);
+    await rename(join(repoRoot, ".scratch"), retainedScratch);
+    await rm(join(repoRoot, ".bearing"), { recursive: true });
+    await writeFixture(
+      repoRoot,
+      "docs/agents/issue-tracker.md",
+      "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
+    );
+    await writeFixture(
+      repoRoot,
+      "AGENTS.md",
+      "Work-management contract: `docs/agents/issue-tracker.md`\n",
+    );
+
     const packed = await runHarnessCommand("npm", ["pack", "--pack-destination", packDirectory], {
       environment,
       label: "npm pack",
@@ -77,11 +93,21 @@ test("a freshly reconciled repository is selectable through the packed installed
     const installedCli = join(homeDirectory, ".bearing/bin/bearing");
     const reconciled = await runHarnessCommand(
       installedCli,
-      ["setup", "--repo", repoRoot, "--surface", "agent-skills", "--profile", "generic-agent"],
+      [
+        "setup",
+        "--repo",
+        repoRoot,
+        "--surface",
+        "agent-skills",
+        "--provider-contract",
+        "docs/agents/issue-tracker.md",
+      ],
       { environment, label: "packaged Bearing setup", timeoutMs: 30_000 },
     );
     expect(reconciled.exitCode, reconciled.stderr).toBe(0);
     expect(reconciled.stdout).toContain("Catalog: applied");
+    await rename(retainedState, join(repoRoot, ".bearing/state"));
+    await rename(retainedScratch, join(repoRoot, ".scratch"));
 
     const port = await reservePort();
     const runningPortal = spawnHarnessProcess(installedCli, ["portal", "--port", String(port)], {

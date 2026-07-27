@@ -665,8 +665,11 @@ test("publish workflow has parseable exact-artifact wiring", async () => {
   expect(runProof).not.toContain("scripts/");
   expect(runProof).not.toContain("node ");
   expect(runProof).not.toContain("bun ");
+  const dispatchBranchCheck = 'test "$GITHUB_REF_NAME" = "main"';
   const dispatchCommitCheck = 'test "$GITHUB_SHA" = "$EXPECTED_COMMIT"';
+  expect(runProof).toContain(dispatchBranchCheck);
   expect(runProof).toContain(dispatchCommitCheck);
+  expect(runProof.indexOf(dispatchBranchCheck)).toBeLessThan(runProof.indexOf("gh api"));
   expect(runProof.indexOf(dispatchCommitCheck)).toBeLessThan(runProof.indexOf("gh api"));
   const fakeRoot = await mkdtemp(join(tmpdir(), "bearing-workflow-proof-"));
   temporaryRoots.push(fakeRoot);
@@ -684,7 +687,7 @@ printf '%s\\n' "$FAKE_RUN_FACTS"
   );
   await chmod(fakeGh, 0o755);
   const sourceCommit = "a".repeat(40);
-  const executeRunProof = (facts: string, dispatchCommit = sourceCommit) =>
+  const executeRunProof = (facts: string, dispatchCommit = sourceCommit, dispatchBranch = "main") =>
     spawnSync("/bin/bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", runProof], {
       encoding: "utf8",
       env: {
@@ -694,6 +697,7 @@ printf '%s\\n' "$FAKE_RUN_FACTS"
         EXPECTED_COMMIT: sourceCommit,
         GITHUB_REPOSITORY: "lagrangee/bearing",
         GH_TOKEN: "test-token",
+        GITHUB_REF_NAME: dispatchBranch,
         GITHUB_SHA: dispatchCommit,
         FAKE_RUN_FACTS: facts,
       },
@@ -711,6 +715,8 @@ printf '%s\\n' "$FAKE_RUN_FACTS"
   expect(successful.status, successful.stderr).toBe(0);
   const wrongDispatchCommit = executeRunProof(successfulFacts.join("\t"), "b".repeat(40));
   expect(wrongDispatchCommit.status).not.toBe(0);
+  const wrongDispatchBranch = executeRunProof(successfulFacts.join("\t"), sourceCommit, "0.1.1");
+  expect(wrongDispatchBranch.status).not.toBe(0);
   for (const [index, mismatch] of [
     [0, "999"],
     [1, ".github/workflows/ci.yml"],
@@ -1227,9 +1233,16 @@ test("CI and release workflows pin every third-party action to a reviewed commit
 test("CI matrix executes the built CLI with each selected Node runtime", async () => {
   const workflow = await readFile(".github/workflows/ci.yml", "utf8");
   const parsed = parseYaml(workflow) as {
-    jobs?: { verify?: { steps?: readonly { name?: string; run?: string }[] } };
+    jobs?: {
+      verify?: {
+        strategy?: { matrix?: { "node-version"?: readonly number[] } };
+        steps?: readonly { name?: string; run?: string }[];
+      };
+      browser?: { steps?: readonly { uses?: string; with?: { "node-version"?: number } }[] };
+    };
   };
   const steps = parsed.jobs?.verify?.steps ?? [];
+  expect(parsed.jobs?.verify?.strategy?.matrix?.["node-version"]).toEqual([24, 26]);
   expect(
     steps.some(
       (step) =>
@@ -1237,6 +1250,10 @@ test("CI matrix executes the built CLI with each selected Node runtime", async (
         step.run === "node dist/cli.js --version",
     ),
   ).toBe(true);
+  const browserNode = (parsed.jobs?.browser?.steps ?? []).find((step) =>
+    step.uses?.startsWith("actions/setup-node@"),
+  );
+  expect(browserNode?.with?.["node-version"]).toBe(24);
 });
 
 test("CI can run manually on the exact dispatched clean-root ref", async () => {

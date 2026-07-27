@@ -1,4 +1,4 @@
-export type ReleaseSmokeLane = "node24" | "node22";
+export type ReleaseSmokeLane = "node24" | "node26";
 
 export type ReleaseSmokeOptions = Readonly<{
   lane: ReleaseSmokeLane;

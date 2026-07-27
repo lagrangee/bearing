@@ -23,7 +23,7 @@ import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } fr
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PACKAGE_NAME = "@lagrangee/bearing";
-const SUPPORTED_LANES = Object.freeze({ node24: 24, node22: 22 });
+const SUPPORTED_LANES = Object.freeze({ node24: 24, node26: 26 });
 const SCRIPT_ROOT = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(SCRIPT_ROOT, "..");
 export const RELEASE_SMOKE_SEED = join(PROJECT_ROOT, "tests/fixtures/release-smoke-seed");
@@ -42,13 +42,13 @@ const GIT_ENVIRONMENT = Object.freeze({
 });
 
 const usage = () => `Usage:
-  node scripts/release-smoke.mjs --lane <node24|node22> \\
+  node scripts/release-smoke.mjs --lane <node24|node26> \\
     --source-commit <full-commit> \\
     --candidate-receipt <absolute-path.json> \\
     --tarball <absolute-path.tgz> --sha256 <digest> --version <version> \\
     [--evidence <absolute-path.json>]
 
-The node24 lane runs the deterministic exact-tarball release journey. The node22 lane runs
+The node24 lane runs the deterministic exact-tarball release journey. The node26 lane runs
 the lighter packaged-runtime compatibility check. Evidence is written only when requested.
 `;
 
@@ -78,7 +78,7 @@ export const parseReleaseSmokeArgs = (args) => {
   }
 
   if (!(options.lane in SUPPORTED_LANES)) {
-    throw new Error("--lane must be node24 or node22.");
+    throw new Error("--lane must be node24 or node26.");
   }
   if (
     typeof options.sourceCommit !== "string" ||
@@ -813,7 +813,7 @@ const installArguments = Object.freeze([
   "claude",
 ]);
 
-const setupArguments = (repository) => [
+const setupArguments = (repository, { confirmReactivate = false } = {}) => [
   "setup",
   "--repo",
   repository,
@@ -821,8 +821,9 @@ const setupArguments = (repository) => [
   "agent-skills",
   "--surface",
   "claude",
-  "--profile",
-  "generic-agent",
+  "--provider-contract",
+  "docs/agents/issue-tracker.md",
+  ...(confirmReactivate ? ["--confirm-reactivate"] : []),
 ];
 
 const proveIdempotentUpdate = async ({ cli, roots, environment }) => {
@@ -900,7 +901,7 @@ const proveRepositoryLifecycle = async ({ cli, roots, environment }) => {
     throw new Error("Repository deactivation retained its Project Catalog entry.");
   }
 
-  await runCandidateCli(cli, setupArguments(roots.repository), {
+  await runCandidateCli(cli, setupArguments(roots.repository, { confirmReactivate: true }), {
     cwd: roots.repository,
     env: environment,
   });
@@ -911,17 +912,31 @@ const proveRepositoryLifecycle = async ({ cli, roots, environment }) => {
     throw new Error("Repository re-setup did not preserve state and restore Catalog registration.");
   }
 
-  const unconfirmed = await runCommand(
-    process.execPath,
-    [cli, "purge", "--repo", roots.repository],
+  const purgePlan = await runCandidateCli(
+    cli,
+    ["purge", "--repo", roots.repository, "--plan"],
     { cwd: roots.repository, env: environment },
   );
-  if (unconfirmed.exitCode === 0 || !(await pathExists(join(roots.repository, ".bearing")))) {
-    throw new Error("Repository purge did not require explicit confirmation.");
+  const reviewedPurge = JSON.parse(purgePlan.stdout);
+  if (
+    reviewedPurge.outcome !== "cancelled" ||
+    typeof reviewedPurge.confirmationToken !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(reviewedPurge.confirmationToken) ||
+    !(await pathExists(join(roots.repository, ".bearing")))
+  ) {
+    throw new Error("Repository purge did not return one non-mutating confirmation plan.");
   }
   const purged = await runCandidateCli(
     cli,
-    ["purge", "--repo", roots.repository, "--confirm-purge"],
+    [
+      "purge",
+      "--repo",
+      roots.repository,
+      "--confirm-purge",
+      "--purge-plan-token",
+      reviewedPurge.confirmationToken,
+      "--accept-no-recovery-export",
+    ],
     { cwd: roots.repository, env: environment },
   );
   if (!purged.stdout.includes("Catalog: applied")) {
