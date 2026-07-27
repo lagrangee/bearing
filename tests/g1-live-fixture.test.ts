@@ -8,6 +8,7 @@ import {
   G1_LIVE_SURFACES,
   G1_MATT_SKILL_CLOSURE,
   inspectCodexOperatorContext,
+  serializeG1LiveSkillInvocation,
   surfaceLaunchContract,
 } from "../scripts/g1-live-fixture";
 
@@ -38,6 +39,15 @@ describe("G1 live fixture recipe", () => {
       "tdd",
       "code-review",
     ]);
+  });
+
+  test("serializes explicit skill invocation for each raw live-runner surface", () => {
+    expect(serializeG1LiveSkillInvocation("codex", "implement", "执行 Ticket 01-add-alpha。")).toBe(
+      "$implement 执行 Ticket 01-add-alpha。",
+    );
+    expect(
+      serializeG1LiveSkillInvocation("claude-code", "implement", "执行 Ticket 01-add-alpha。"),
+    ).toBe("/implement 执行 Ticket 01-add-alpha。");
   });
 
   test("separates Codex identity reuse from each isolated fixture home", () => {

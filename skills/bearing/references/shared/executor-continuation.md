@@ -8,7 +8,7 @@ A fresh direct invocation completes Bearing activation and the necessary Minimal
 
 Before executor entry, resolve one explicit Matt Delivery Ticket through the configured Work Management contract. Supply its identity, acceptance criteria, dependencies, blockers, native scope, current user-language requirement, and either its established Effort and Work Binding context or the explicit fact that it is unbound. An ambiguous Ticket identity or Spec-only invocation is a truthful nonterminal outcome and does not enter execution. Never guess a Ticket from recency, title similarity, a Spec, or the current directory.
 
-Read the project-owned Execution Profile only after the actual executor is known and its portable capability locator matches. When no specialized registration matches, use the package-owned Generic writeback contract and disclose that fact at reconciliation; this fallback never selects or changes the executor.
+Read the project-owned Execution Profile only after the actual executor is known and its portable capability locator matches. When no specialized registration matches, use the package-owned Generic contract and disclose that fact at reconciliation. Generic governs execution evidence reconciliation only: it never selects or changes the executor and grants no native Ticket lifecycle authority.
 
 ## Owner Pipeline
 
@@ -24,7 +24,7 @@ Classify every output as `transient`, `durable-registered`, or `durable-unregist
 
 Only a successful terminal outcome under the actual executor contract, with verified acceptance criteria and complete artifact reconciliation, may proceed to native completion. A matched Execution Profile interprets artifacts, evidence, fallback receipt, and provenance only; it never defines or translates the executor outcome taxonomy. Preserve the native outcome exactly; for example, `completed` remains `completed` and is never translated to Bearing `applied`. Invoke the concrete Work Management provider completion contract, observe its returned terminal state, then run Sync.
 
-When the provider completion contract is unavailable, run deterministic Sync after artifact reconciliation, require zero diagnostics, then make a truthful stop. Report implementation, verification, commit, artifact reconciliation, Sync fingerprint and diagnostics, the unavailable native stage, and the exact resumption point. Do not forge a resolved Ticket, label the request fully applied, or imply Gate completion.
+When the provider completion contract is unavailable, run deterministic Sync after artifact reconciliation, require zero diagnostics, then make a truthful stop. Zero diagnostics confirms projection consistency only; it does not authorize native Ticket lifecycle mutation or cure the unavailable provider stage. Report implementation, verification, commit, artifact reconciliation, Sync fingerprint and diagnostics, the unavailable native stage, and the exact resumption point. Do not forge a resolved Ticket, label the request fully applied, or imply Gate completion.
 
 Preserve failure, incomplete, ambiguous, and spec-only outcomes exactly as returned. Reconcile any outputs already produced, run deterministic Sync, and return the native outcome without authorizing native terminal resolution, successful completion reconciliation, or a Gate or Effort change. A provider failure or nonterminal result remains its own truthful outcome and blocks the full-success claim.
 

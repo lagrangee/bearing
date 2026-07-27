@@ -206,6 +206,8 @@ export type ExecutorWritebackSelection = Readonly<{
   capabilityLocator: string;
   profileKey: string;
   matchedRegistration: boolean;
+  reconciliationScope: "execution-evidence-only";
+  authorizesNativeTerminalWriteback: false;
   profileContract: Readonly<{
     version: 1;
     body: string;
@@ -291,6 +293,8 @@ export const resolveExecutorWritebackProfile = async (
       capabilityLocator,
       profileKey: matched.profileKey,
       matchedRegistration: true,
+      reconciliationScope: "execution-evidence-only",
+      authorizesNativeTerminalWriteback: false,
       profileContract: {
         version: 1 as const,
         body: matched.body,
@@ -301,12 +305,14 @@ export const resolveExecutorWritebackProfile = async (
     capabilityLocator,
     profileKey: "generic-agent",
     matchedRegistration: false,
+    reconciliationScope: "execution-evidence-only",
+    authorizesNativeTerminalWriteback: false,
     profileContract: {
       version: 1 as const,
-      body: "package-owned:generic-agent/v1",
+      body: "package-owned:generic-agent/v1; reconciliation-scope=execution-evidence-only; native-terminal-authority=none",
     },
     disclosure:
-      "No specialized Executor Registration matched; the package-owned Generic Agent contract governed this writeback.",
+      "No specialized Executor Registration matched; the package-owned Generic Agent contract governed evidence reconciliation only and grants no native Ticket lifecycle authority.",
   });
 };
 

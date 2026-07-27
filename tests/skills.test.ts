@@ -188,6 +188,12 @@ describe("package-owned planning skills", () => {
     expect(contract).toMatch(
       /provider completion contract[\s\S]*unavailable[\s\S]*deterministic Sync[\s\S]*truthful stop/iu,
     );
+    expect(contract).toMatch(
+      /Generic[\s\S]*evidence reconciliation only[\s\S]*no native Ticket lifecycle authority/iu,
+    );
+    expect(contract).toMatch(
+      /zero diagnostics[\s\S]*does not authorize[\s\S]*native Ticket lifecycle/iu,
+    );
     expect(contract).toMatch(/failure[\s\S]*incomplete[\s\S]*ambiguous[\s\S]*spec-only/iu);
     expect(contract).toMatch(
       /actual executor contract[\s\S]*Execution Profile[\s\S]*never defines or translates the executor outcome taxonomy[\s\S]*`completed` remains `completed`/iu,
@@ -237,7 +243,9 @@ describe("package-owned planning skills", () => {
     expect(setup).toMatch(
       /surface-scoped[\s\S]*portable surface-qualified capability locator[\s\S]*Multiple registrations[\s\S]*without cross-surface deduplication, priority, preference, or default/iu,
     );
-    expect(setup).toMatch(/Generic fallback[\s\S]*only when[\s\S]*no specialized registration/iu);
+    expect(setup).toMatch(
+      /Generic evidence-reconciliation fallback[\s\S]*only when[\s\S]*no specialized registration/iu,
+    );
     expect(setup).toMatch(/Catalog[\s\S]*independent outcome/iu);
     expect(setup).toMatch(
       /Catalog failure[\s\S]*return `partial` with separate `Repository` and `Catalog` outcomes/iu,
@@ -246,7 +254,18 @@ describe("package-owned planning skills", () => {
     expect(setup).toMatch(
       /created no Roadmap, Milestone Gate, Effort, Work Binding, or Matt-owned mutation/iu,
     );
-    expect(setup).toMatch(/Portal[\s\S]*never changes Setup success/iu);
+    expect(setup).toMatch(
+      /configured loopback origin[\s\S]*BEARING_PORT[\s\S]*127\.0\.0\.1:4178[\s\S]*never scan/iu,
+    );
+    expect(setup).toMatch(
+      /\/healthz[\s\S]*compatible Bearing package and read-model[\s\S]*current Catalog Entry[\s\S]*\/projects\/<catalog-entry-id>/iu,
+    );
+    expect(setup).toMatch(
+      /incompatible[\s\S]*current kit[\s\S]*no Host[\s\S]*bearing portal[\s\S]*separate terminal/iu,
+    );
+    expect(setup).toMatch(
+      /Portal[\s\S]*never changes Setup success[\s\S]*Fresh[\s\S]*routine Active no-op/iu,
+    );
     expect(setup).toMatch(
       /Initial Bearing Analysis[\s\S]*only after complete Fresh success[\s\S]*non-mutating/iu,
     );

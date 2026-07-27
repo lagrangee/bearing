@@ -24,6 +24,23 @@ export type G1LiveJourney = (typeof G1_LIVE_JOURNEYS)[number];
 export const G1_LIVE_SURFACES = ["codex", "claude-code"] as const;
 export type G1LiveSurface = (typeof G1_LIVE_SURFACES)[number];
 
+const explicitSkillNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+
+export const serializeG1LiveSkillInvocation = (
+  surface: G1LiveSurface,
+  skillName: string,
+  instruction: string,
+): string => {
+  if (!explicitSkillNamePattern.test(skillName)) {
+    throw new Error(`Invalid explicit skill name: ${skillName}`);
+  }
+  if (instruction.length === 0 || instruction.trim() !== instruction) {
+    throw new Error("Explicit skill instruction must be one trimmed non-empty string.");
+  }
+  const token = surface === "codex" ? `$${skillName}` : `/${skillName}`;
+  return `${token} ${instruction}`;
+};
+
 export const G1_MATT_SKILL_CLOSURE = [
   "setup-matt-pocock-skills",
   "wayfinder",

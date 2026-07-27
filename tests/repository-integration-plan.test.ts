@@ -326,13 +326,19 @@ describe("repository integration planning CLI", () => {
     ).resolves.toMatchObject({
       profileKey: "agent-skills-implement",
       matchedRegistration: true,
+      reconciliationScope: "execution-evidence-only",
+      authorizesNativeTerminalWriteback: false,
     });
     await expect(
       resolveExecutorWritebackProfile(codexRoot, "claude:unregistered-executor"),
     ).resolves.toMatchObject({
       profileKey: "generic-agent",
       matchedRegistration: false,
-      disclosure: expect.stringMatching(/no specialized Executor Registration matched/iu),
+      reconciliationScope: "execution-evidence-only",
+      authorizesNativeTerminalWriteback: false,
+      disclosure: expect.stringMatching(
+        /no specialized Executor Registration matched[\s\S]*evidence reconciliation only[\s\S]*no native Ticket lifecycle authority/iu,
+      ),
     });
 
     const claudeRoot = await makeTemporaryDirectory("bearing-setup-claude-executor-");
