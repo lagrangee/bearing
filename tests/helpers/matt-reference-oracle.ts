@@ -169,3 +169,124 @@ export const mattReferenceSemanticView = (
   aliases: Readonly<Record<string, string>>,
 ): MattReferenceSemanticView =>
   buildMattReferenceSemanticView(capture, aliases) as MattReferenceSemanticView;
+
+type MattReferenceRole = "map" | "spec" | "wayfinder" | "delivery" | "incoming";
+
+const roleByReference = (
+  capture: MattSkillsV1ScopeCapture,
+): ReadonlyMap<string, MattReferenceRole> => {
+  const roles = new Map<string, MattReferenceRole>();
+  const projection = capture.projection;
+  if (projection?.map !== undefined) roles.set(String(projection.map.ref), "map");
+  if (projection?.spec !== undefined) roles.set(String(projection.spec.ref), "spec");
+  for (const ticket of projection?.wayfinderTickets ?? []) {
+    roles.set(String(ticket.ref), "wayfinder");
+  }
+  for (const ticket of projection?.deliveryTickets ?? []) {
+    roles.set(String(ticket.ref), "delivery");
+  }
+  for (const issue of projection?.incomingIssues ?? []) {
+    roles.set(String(issue.ref), "incoming");
+  }
+  return roles;
+};
+
+const buildMattReferenceRelationPartition = (
+  capture: MattSkillsV1ScopeCapture,
+  aliases: Readonly<Record<string, string>>,
+) => {
+  const roles = roleByReference(capture);
+  const workflow: string[] = [];
+  const nativeAcquisition: { relation: string; evidence: string }[] = [];
+  const relations = capture.projection?.graph.parentChild ?? [];
+
+  for (const relation of relations) {
+    const parentRole = roles.get(String(relation.parent));
+    const childRole = roles.get(String(relation.child));
+    const semanticRelation = `${scenarioAlias(
+      aliases,
+      String(relation.parent),
+    )}>${scenarioAlias(aliases, String(relation.child))}`;
+    if (
+      (parentRole === "map" && childRole === "wayfinder") ||
+      (parentRole === "spec" && childRole === "delivery")
+    ) {
+      workflow.push(semanticRelation);
+      continue;
+    }
+    if (
+      relation.evidence === "github-native" &&
+      parentRole === "map" &&
+      (childRole === "spec" || childRole === "incoming")
+    ) {
+      nativeAcquisition.push({
+        relation: semanticRelation,
+        evidence: relation.evidence,
+      });
+      continue;
+    }
+    throw new TypeError(
+      `Reference scenario relation has no semantic partition: ${String(
+        relation.parent,
+      )}>${String(relation.child)} (${relation.evidence}).`,
+    );
+  }
+
+  if (workflow.length + nativeAcquisition.length !== relations.length) {
+    throw new TypeError("Reference scenario relation partition is incomplete.");
+  }
+  return { workflow, nativeAcquisition };
+};
+
+export type MattReferenceRelationPartition = DeepReadonly<
+  ReturnType<typeof buildMattReferenceRelationPartition>
+>;
+
+export const mattReferenceRelationPartition = (
+  capture: MattSkillsV1ScopeCapture,
+  aliases: Readonly<Record<string, string>>,
+): MattReferenceRelationPartition =>
+  buildMattReferenceRelationPartition(capture, aliases) as MattReferenceRelationPartition;
+
+const buildMattReferenceEquivalenceView = (
+  capture: MattSkillsV1ScopeCapture,
+  aliases: Readonly<Record<string, string>>,
+) => {
+  const view = buildMattReferenceSemanticView(capture, aliases);
+  const relations = buildMattReferenceRelationPartition(capture, aliases);
+  return {
+    ...view,
+    capture: {
+      state: view.capture.state,
+      freshness: view.capture.freshness,
+      coverage: view.capture.coverage,
+      completion: view.capture.completion,
+      diagnostics: view.capture.diagnostics,
+    },
+    wayfinder: view.wayfinder.map((ticket) => ({
+      ...ticket,
+      comments: ticket.comments.map((comment) => ({
+        role: comment.role,
+        body: comment.body,
+      })),
+    })),
+    delivery: view.delivery.map((ticket) => ({
+      ...ticket,
+      comments: ticket.comments.map((comment) => ({
+        role: comment.role,
+        body: comment.body,
+      })),
+    })),
+    parentChild: relations.workflow,
+  };
+};
+
+export type MattReferenceEquivalenceView = DeepReadonly<
+  ReturnType<typeof buildMattReferenceEquivalenceView>
+>;
+
+export const mattReferenceEquivalenceView = (
+  capture: MattSkillsV1ScopeCapture,
+  aliases: Readonly<Record<string, string>>,
+): MattReferenceEquivalenceView =>
+  buildMattReferenceEquivalenceView(capture, aliases) as MattReferenceEquivalenceView;
