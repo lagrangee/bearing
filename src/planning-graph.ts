@@ -1,6 +1,7 @@
 import type { AssetContentObservation } from "./asset-inputs";
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
 import { buildCapturedNativeNodes } from "./captured-native-work";
+import { deepFreeze } from "./immutable";
 import { type NativeSourceRecord, scopeFor } from "./native-work";
 import type { PlanningGraphInstrumentation } from "./planning-graph-instrumentation";
 import { buildAssetProjection } from "./project-snapshot/assets";
@@ -195,13 +196,6 @@ const trackerSources = (
       }),
     ];
   });
-
-const deepFreeze = <T>(value: T, seen = new WeakSet<object>()): T => {
-  if (typeof value !== "object" || value === null || seen.has(value)) return value;
-  seen.add(value);
-  for (const child of Object.values(value)) deepFreeze(child, seen);
-  return Object.freeze(value);
-};
 
 const issueKey = (issue: PlanningGraphIssue): string =>
   `${issue.code}\u0000${issue.target}\u0000${issue.source ?? ""}\u0000${issue.message}`;
