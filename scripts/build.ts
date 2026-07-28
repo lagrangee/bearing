@@ -15,6 +15,7 @@ import {
   type BundleDependencyMetadata,
   normalizeBundleModuleId,
 } from "./bundle-dependency-boundary";
+import { dependencyLicenseFor } from "./dependency-license-overrides";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const finalDist = join(projectRoot, "dist");
@@ -59,13 +60,14 @@ const createBundleDependencyMetadata = (
   const packages: BundleDependency[] = [...packageBundles]
     .map(([name, bundles]) => {
       const dependency = packageLockEntries[`node_modules/${name}`];
-      if (dependency?.version === undefined || dependency.license === undefined) {
+      const license = dependencyLicenseFor(name, dependency?.version, dependency?.license);
+      if (dependency?.version === undefined || license === undefined) {
         throw new Error(`Bundled dependency metadata is incomplete for ${name}.`);
       }
       return {
         name,
         version: dependency.version,
-        license: dependency.license,
+        license,
         bundles: [...bundles].sort(),
       };
     })

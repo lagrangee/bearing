@@ -5,6 +5,7 @@ import {
   type BundleDependencyMetadata,
   findBundleNoticeMismatches,
 } from "./bundle-dependency-boundary";
+import { dependencyLicenseFor, dependencyLicenseOverrides } from "./dependency-license-overrides";
 
 type LockPackage = Readonly<{
   version?: string;
@@ -36,8 +37,6 @@ const requiredNoticeMarkers = [
   "Copyright Eemeli Aro <eemeli@gmail.com>",
   "Copyright (c) 2013-present Cole Bemis",
 ] as const;
-const licenseOverrides = new Map([["@react-grab/cli@0.1.48", "MIT"]]);
-
 const packages = (lockfile as PackageLock).packages ?? {};
 const findings: string[] = [];
 for (const [locator, metadata] of Object.entries(packages)) {
@@ -47,15 +46,24 @@ for (const [locator, metadata] of Object.entries(packages)) {
     findings.push(`${name}@${metadata.version ?? "unknown"} remains in package-lock.json`);
   }
   const identity = `${name}@${metadata.version ?? "unknown"}`;
-  const license = metadata.license ?? licenseOverrides.get(identity);
+  const license = dependencyLicenseFor(name, metadata.version, metadata.license);
   if (license === undefined) findings.push(`${identity} has no verified license metadata`);
   else if (!acceptedLicenses.has(license))
     findings.push(`${identity} uses unaccepted license ${license}`);
 
-  if (metadata.license === undefined && licenseOverrides.has(identity)) {
-    const evidence = readFileSync(join(process.cwd(), locator, "LICENSE"), "utf8");
-    if (!evidence.includes("MIT License"))
-      findings.push(`${identity} license override lacks MIT evidence`);
+  if (metadata.license === undefined && dependencyLicenseOverrides.has(identity)) {
+    if (identity === "format@0.2.2") {
+      const packageDocument = JSON.parse(
+        readFileSync(join(process.cwd(), locator, "package.json"), "utf8"),
+      ) as { licenses?: readonly { type?: string }[] };
+      if (!packageDocument.licenses?.some((license) => license.type === "MIT")) {
+        findings.push(`${identity} legacy package metadata lacks MIT evidence`);
+      }
+    } else {
+      const evidence = readFileSync(join(process.cwd(), locator, "LICENSE"), "utf8");
+      if (!evidence.includes("MIT License"))
+        findings.push(`${identity} license override lacks MIT evidence`);
+    }
   }
 }
 
@@ -72,9 +80,10 @@ if (
 }
 for (const dependency of bundleMetadata.packages) {
   const locked = packages[`node_modules/${dependency.name}`];
+  const lockedLicense = dependencyLicenseFor(dependency.name, locked?.version, locked?.license);
   if (
     locked?.version !== dependency.version ||
-    locked.license !== dependency.license ||
+    lockedLicense !== dependency.license ||
     dependency.bundles.length === 0
   ) {
     findings.push(
