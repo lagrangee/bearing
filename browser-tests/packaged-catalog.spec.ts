@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { createValidBearingRepo, writeFixture } from "../tests/helpers";
+import { createValidBearingRepo } from "../tests/helpers";
 import {
   runHarnessCommand,
   spawnHarnessProcess,
@@ -51,16 +51,6 @@ test("a freshly reconciled repository is selectable through the packed installed
     await rename(join(repoRoot, ".bearing/state"), retainedState);
     await rename(join(repoRoot, ".scratch"), retainedScratch);
     await rm(join(repoRoot, ".bearing"), { recursive: true });
-    await writeFixture(
-      repoRoot,
-      "docs/agents/issue-tracker.md",
-      "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
-    );
-    await writeFixture(
-      repoRoot,
-      "AGENTS.md",
-      "Work-management contract: `docs/agents/issue-tracker.md`\n",
-    );
 
     const packed = await runHarnessCommand("npm", ["pack", "--pack-destination", packDirectory], {
       environment,

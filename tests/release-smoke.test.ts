@@ -9,6 +9,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -28,6 +29,8 @@ import {
   validateCandidateTarball,
   verifyFrozenSourceInputs,
 } from "../scripts/release-smoke.mjs";
+import { validateMattSkillsV1Contract } from "../src/providers/matt-skills-v1";
+import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
 
 const temporaryDirectories: string[] = [];
 
@@ -387,10 +390,41 @@ describe("release smoke frozen source binding", () => {
     expect(binding.seedManifest.map((file) => file.path)).toEqual([
       "CONTEXT.md",
       "docs/agents/issue-tracker.md",
+      "docs/agents/triage-labels.md",
       "scratch/release-smoke/issues/01-orient.md",
       "scratch/release-smoke/map.md",
       "scratch/release-smoke/PRD.md",
     ]);
+  });
+
+  test("keeps the frozen Local seed valid through the production G2 provider seam", async () => {
+    const repository = await temporaryDirectory();
+    await cp(RELEASE_SMOKE_SEED, repository, { recursive: true });
+    await rename(join(repository, "scratch"), join(repository, ".scratch"));
+    const contract = await readFile(join(repository, "docs/agents/issue-tracker.md"), "utf8");
+
+    expect(validateMattSkillsV1Contract(contract)).toEqual({
+      state: "supported",
+      driver: "local-markdown",
+    });
+    const capture = await createLocalMarkdownMattProvider({
+      repoRoot: repository,
+      contractLocator: "docs/agents/issue-tracker.md",
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    }).capture(
+      {
+        provider: "matt-skills/v1",
+        nativeScope: ".scratch/release-smoke",
+      },
+      { fingerprint: "sha256:release-smoke-seed" },
+    );
+    expect(capture).toMatchObject({
+      state: "available",
+      freshness: { assessment: "current" },
+      coverage: { assessment: "complete" },
+      completion: "incomplete",
+      diagnostics: [],
+    });
   });
 
   test("rejects a supplied source commit that is not the exact current HEAD", async () => {
