@@ -8,6 +8,7 @@ import {
   queryMarkdownHeading,
   queryMarkdownLinks,
   queryMarkdownList,
+  queryMarkdownLists,
   queryMarkdownPreamble,
   queryMarkdownSection,
   queryMarkdownTable,
@@ -104,6 +105,39 @@ Additional native prose.
       state: "found",
       value: { label: "Status", value: "claimed" },
     });
+  });
+
+  test("supports whole-emphasis fields, space-separated relations and all-list queries", () => {
+    const document = parseMarkdownDocument(`**PRs as a request surface: yes.**
+
+Part of #7
+
+**Related to** #8
+
+**Parent #9**
+
+- [ ] [First child](https://github.com/example/repo/issues/8)
+
+1. Ordered evidence
+`);
+
+    expect(queryMarkdownField(document, { label: "PRs as a request surface" })).toEqual({
+      state: "found",
+      value: { label: "PRs as a request surface", value: "yes." },
+    });
+    expect(queryMarkdownField(document, { label: "Part of", separator: "space" })).toEqual({
+      state: "found",
+      value: { label: "Part of", value: "#7" },
+    });
+    expect(queryMarkdownField(document, { label: "Related to", separator: "space" })).toEqual({
+      state: "found",
+      value: { label: "Related to", value: "#8" },
+    });
+    expect(queryMarkdownField(document, { label: "Parent", separator: "space" })).toEqual({
+      state: "found",
+      value: { label: "Parent", value: "#9" },
+    });
+    expect(queryMarkdownLists(document).map((list) => list.ordered)).toEqual([false, true]);
   });
 
   test("returns typed absence and ambiguity for required semantic queries", () => {

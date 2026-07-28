@@ -140,22 +140,40 @@ const matchingHeadings = (
     return [{ node, value, index }];
   });
 
-const fieldFromParagraph = (paragraph: Paragraph, label: string): FieldCandidate | undefined => {
+const fieldFromParagraph = (
+  paragraph: Paragraph,
+  label: string,
+  separator: "colon" | "space",
+): FieldCandidate | undefined => {
   const first = paragraph.children[0];
   if (first === undefined) return undefined;
 
   if (first.type === "strong") {
     const emphasized = mdastToString(first).trim();
-    const carriesColon = emphasized.endsWith(":");
+    const inlinePrefix = separator === "colon" ? `${label}:` : `${label} `;
+    if (paragraph.children.length === 1 && emphasized.startsWith(inlinePrefix)) {
+      const value = emphasized.slice(inlinePrefix.length).trim();
+      return value.length === 0 || value.startsWith(":")
+        ? { state: "malformed" }
+        : { state: "found", value: { label, value } };
+    }
+    const carriesColon = separator === "colon" && emphasized.endsWith(":");
     const emphasizedLabel = carriesColon ? emphasized.slice(0, -1).trimEnd() : emphasized;
     if (emphasizedLabel !== label) return undefined;
-    let remainder = mdastToString({
+    const remainderText = mdastToString({
       type: "paragraph",
       children: paragraph.children.slice(1),
-    }).trimStart();
+    });
+    let remainder = remainderText.trimStart();
     if (!carriesColon) {
-      if (!remainder.startsWith(":")) return { state: "malformed" };
-      remainder = remainder.slice(1).trimStart();
+      if (separator === "space") {
+        const hasSourceWhitespace = remainderText.length > remainderText.trimStart().length;
+        if (!hasSourceWhitespace) return { state: "malformed" };
+        remainder = remainderText.trim();
+      } else {
+        if (!remainder.startsWith(":")) return { state: "malformed" };
+        remainder = remainder.slice(1).trimStart();
+      }
     }
     return remainder.length === 0 || remainder.startsWith(":")
       ? { state: "malformed" }
@@ -163,7 +181,7 @@ const fieldFromParagraph = (paragraph: Paragraph, label: string): FieldCandidate
   }
 
   if (first.type !== "text") return undefined;
-  const prefix = `${label}:`;
+  const prefix = separator === "colon" ? `${label}:` : `${label} `;
   if (!first.value.startsWith(prefix)) return undefined;
   const paragraphText = mdastToString(paragraph);
   const value = paragraphText.slice(prefix.length).trim();
@@ -364,11 +382,15 @@ export const queryMarkdownSection = (
 
 export const queryMarkdownField = (
   document: MarkdownDocument,
-  query: Readonly<{ label: string; within?: MarkdownSection }>,
+  query: Readonly<{
+    label: string;
+    within?: MarkdownSection;
+    separator?: "colon" | "space";
+  }>,
 ): MarkdownQueryResult<MarkdownField> => {
   const candidates = nodesWithin(document, query.within).flatMap((node) => {
     if (node.type !== "paragraph") return [];
-    const field = fieldFromParagraph(node, query.label);
+    const field = fieldFromParagraph(node, query.label, query.separator ?? "colon");
     return field === undefined ? [] : [field];
   });
   const malformed = candidates.filter((candidate) => candidate.state === "malformed");
@@ -385,18 +407,28 @@ export const queryMarkdownField = (
   return resultFromCardinality(values, "conflict");
 };
 
-export const queryMarkdownList = (
+const markdownListsWithin = (
   document: MarkdownDocument,
-  query: Readonly<{ within?: MarkdownSection; ordered?: boolean }> = {},
-): MarkdownQueryResult<MarkdownList> =>
-  resultFromCardinality(
+  query: Readonly<{ within?: MarkdownSection; ordered?: boolean }>,
+): readonly MarkdownList[] =>
+  Object.freeze(
     nodesWithin(document, query.within).flatMap((node) =>
       node.type === "list" && (query.ordered === undefined || node.ordered === query.ordered)
         ? [markdownList(node)]
         : [],
     ),
-    "duplicate",
   );
+
+export const queryMarkdownList = (
+  document: MarkdownDocument,
+  query: Readonly<{ within?: MarkdownSection; ordered?: boolean }> = {},
+): MarkdownQueryResult<MarkdownList> =>
+  resultFromCardinality(markdownListsWithin(document, query), "duplicate");
+
+export const queryMarkdownLists = (
+  document: MarkdownDocument,
+  query: Readonly<{ within?: MarkdownSection; ordered?: boolean }> = {},
+): readonly MarkdownList[] => markdownListsWithin(document, query);
 
 export const queryMarkdownLinks = (
   document: MarkdownDocument,
