@@ -2,12 +2,15 @@ import { describe, expect, test } from "bun:test";
 import {
   markdownDocumentBody,
   parseMarkdownDocument,
+  queryMarkdownDocumentTitle,
   queryMarkdownField,
   queryMarkdownFrontmatter,
   queryMarkdownHeading,
   queryMarkdownLinks,
   queryMarkdownList,
+  queryMarkdownPreamble,
   queryMarkdownSection,
+  queryMarkdownTable,
   serializeMarkdownDocument,
 } from "../src/markdown-document";
 
@@ -63,7 +66,15 @@ Status: fake
         ordered: false,
         items: [
           { text: "Parse legacy GFM", checked: true },
-          { text: "Preserve https://example.com/docs" },
+          {
+            text: "Preserve https://example.com/docs",
+            links: [
+              {
+                label: "https://example.com/docs",
+                target: "https://example.com/docs",
+              },
+            ],
+          },
         ],
       },
     });
@@ -189,6 +200,91 @@ owner: Blue
         },
       );
     }
+  });
+
+  test("exposes document titles and GFM tables without leaking mdast", () => {
+    const document = parseMarkdownDocument(`# Triage Labels
+
+| Semantic role | Label in our tracker | Meaning |
+| --- | --- | --- |
+| \`ready-for-agent\` | **custom-ready** | Ready |
+| \`enhancement\` | \`custom-enhancement\` | Feature |
+`);
+
+    expect(queryMarkdownDocumentTitle(document)).toEqual({
+      state: "found",
+      value: { depth: 1, title: "Triage Labels" },
+    });
+    expect(queryMarkdownTable(document)).toEqual({
+      state: "found",
+      value: {
+        columns: ["Semantic role", "Label in our tracker", "Meaning"],
+        rows: [
+          ["ready-for-agent", "custom-ready", "Ready"],
+          ["enhancement", "custom-enhancement", "Feature"],
+        ],
+      },
+    });
+  });
+
+  test("fails closed on duplicate document titles and tables", () => {
+    const document = parseMarkdownDocument(`# First
+
+# Second
+
+| A |
+| - |
+| 1 |
+
+| B |
+| - |
+| 2 |
+`);
+
+    expect(queryMarkdownDocumentTitle(document)).toEqual({
+      state: "ambiguous",
+      reason: "conflict",
+      matches: 2,
+    });
+    expect(queryMarkdownTable(document)).toEqual({
+      state: "ambiguous",
+      reason: "duplicate",
+      matches: 2,
+    });
+  });
+
+  test("isolates the document preamble from later Answer lists and fields", () => {
+    const document = parseMarkdownDocument(`# Delivery
+
+Status: resolved
+
+- [x] Acceptance one
+- [x] Acceptance two
+
+## Answer
+
+Status: evidence-only
+
+- Verification one
+- Verification two
+`);
+    const preamble = queryMarkdownPreamble(document);
+    expect(preamble.state).toBe("found");
+    if (preamble.state !== "found") throw new Error("Expected document preamble.");
+    expect(queryMarkdownField(document, { label: "Status", within: preamble.value })).toEqual({
+      state: "found",
+      value: { label: "Status", value: "resolved" },
+    });
+    expect(queryMarkdownList(document, { within: preamble.value })).toEqual({
+      state: "found",
+      value: {
+        ordered: false,
+        items: [
+          { text: "Acceptance one", checked: true },
+          { text: "Acceptance two", checked: true },
+        ],
+      },
+    });
   });
 
   test("writes the frontmatter envelope through the shared structural stack", () => {

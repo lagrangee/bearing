@@ -2,6 +2,7 @@ import type {
   Heading as MdastHeading,
   Link as MdastLink,
   List as MdastList,
+  Table as MdastTable,
   Paragraph,
   Root,
   RootContent,
@@ -40,6 +41,7 @@ export type MarkdownField = Readonly<{
 export type MarkdownListItem = Readonly<{
   text: string;
   checked?: boolean;
+  links?: readonly MarkdownLink[];
 }>;
 
 export type MarkdownList = Readonly<{
@@ -52,6 +54,11 @@ export type MarkdownLink = Readonly<{
   label: string;
   target: string;
   title?: string;
+}>;
+
+export type MarkdownTable = Readonly<{
+  columns: readonly string[];
+  rows: readonly (readonly string[])[];
 }>;
 
 export type MarkdownQueryResult<Value> =
@@ -164,12 +171,24 @@ const fieldFromParagraph = (paragraph: Paragraph, label: string): FieldCandidate
   return { state: "found", value: { label, value } };
 };
 
+const markdownLink = (link: MdastLink): MarkdownLink =>
+  Object.freeze({
+    label: mdastToString(link),
+    target: link.url,
+    ...(link.title === null || link.title === undefined ? {} : { title: link.title }),
+  });
+
 const markdownList = (list: MdastList): MarkdownList => {
   const items = list.children.map((item) => {
     const checked = item.checked;
+    const links: MarkdownLink[] = [];
+    visit(item, "link", (link: MdastLink) => {
+      links.push(markdownLink(link));
+    });
     return Object.freeze({
       text: mdastToString(item).trim(),
       ...(checked === null || checked === undefined ? {} : { checked }),
+      ...(links.length === 0 ? {} : { links: Object.freeze(links) }),
     });
   });
   return Object.freeze({
@@ -178,6 +197,16 @@ const markdownList = (list: MdastList): MarkdownList => {
       ? { start: list.start }
       : {}),
     items: Object.freeze(items),
+  });
+};
+
+const markdownTable = (table: MdastTable): MarkdownTable => {
+  const cells = table.children.map((row) =>
+    Object.freeze(row.children.map((cell) => mdastToString(cell).trim())),
+  );
+  return Object.freeze({
+    columns: cells[0] ?? Object.freeze([]),
+    rows: Object.freeze(cells.slice(1)),
   });
 };
 
@@ -260,6 +289,47 @@ export const queryMarkdownHeading = (
     "duplicate",
   );
 
+export const queryMarkdownDocumentTitle = (
+  document: MarkdownDocument,
+): MarkdownQueryResult<MarkdownHeading> =>
+  resultFromCardinality(
+    internalsFor(document).tree.children.flatMap((node) =>
+      node.type === "heading" && node.depth === 1 ? [headingValue(node)] : [],
+    ),
+    "conflict",
+  );
+
+export const queryMarkdownPreamble = (
+  document: MarkdownDocument,
+): MarkdownQueryResult<MarkdownSection> => {
+  const titleMatches = internalsFor(document).tree.children.flatMap((node, index) =>
+    node.type === "heading" && node.depth === 1 ? [{ node, value: headingValue(node), index }] : [],
+  );
+  if (titleMatches.length === 0) return { state: "absent" };
+  if (titleMatches.length > 1) {
+    return { state: "ambiguous", reason: "conflict", matches: titleMatches.length };
+  }
+  const title = titleMatches[0];
+  if (title === undefined) return { state: "absent" };
+  const { source, tree } = internalsFor(document);
+  const nextHeadingIndex = tree.children.findIndex(
+    (node, index) => index > title.index && node.type === "heading",
+  );
+  const endIndex = nextHeadingIndex === -1 ? tree.children.length : nextHeadingIndex;
+  const nodes = tree.children.slice(title.index + 1, endIndex);
+  const contentStart = title.node.position?.end.offset;
+  const contentEnd = tree.children[endIndex]?.position?.start.offset ?? source.length;
+  const section: MarkdownSection = Object.freeze({
+    heading: title.value,
+    markdown:
+      contentStart === undefined || contentEnd === undefined
+        ? ""
+        : source.slice(contentStart, contentEnd).trim(),
+  });
+  sectionInternals.set(section, { document, nodes });
+  return found(section);
+};
+
 export const queryMarkdownSection = (
   document: MarkdownDocument,
   query: Readonly<{ title: string; depth?: MarkdownHeadingDepth }>,
@@ -335,14 +405,19 @@ export const queryMarkdownLinks = (
   const links: MarkdownLink[] = [];
   for (const node of nodesWithin(document, query.within)) {
     visit(node, "link", (link: MdastLink) => {
-      links.push(
-        Object.freeze({
-          label: mdastToString(link),
-          target: link.url,
-          ...(link.title === null || link.title === undefined ? {} : { title: link.title }),
-        }),
-      );
+      links.push(markdownLink(link));
     });
   }
   return Object.freeze(links);
 };
+
+export const queryMarkdownTable = (
+  document: MarkdownDocument,
+  query: Readonly<{ within?: MarkdownSection }> = {},
+): MarkdownQueryResult<MarkdownTable> =>
+  resultFromCardinality(
+    nodesWithin(document, query.within).flatMap((node) =>
+      node.type === "table" ? [markdownTable(node)] : [],
+    ),
+    "duplicate",
+  );

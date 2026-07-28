@@ -71,13 +71,13 @@ export type MattMap = Readonly<{
   destination: string;
   notes: readonly string[];
   decisions: readonly Readonly<{
-    ticket: MattObjectReference;
+    ticket?: MattObjectReference;
     gist: string;
     sourceAnchor: MattSourceAnchor;
   }>[];
   fog: readonly string[];
   outOfScope: readonly Readonly<{
-    ticket: MattObjectReference;
+    ticket?: MattObjectReference;
     rationale: string;
     sourceAnchor: MattSourceAnchor;
   }>[];

@@ -79,13 +79,17 @@ const buildMattReferenceSemanticView = (
           destination: capture.projection.map.destination,
           notes: capture.projection.map.notes,
           decisions: capture.projection.map.decisions.map((decision) => ({
-            ticket: scenarioAlias(aliases, String(decision.ticket)),
+            ...(decision.ticket === undefined
+              ? {}
+              : { ticket: scenarioAlias(aliases, String(decision.ticket)) }),
             gist: decision.gist,
             sourceKind: decision.sourceAnchor.kind,
           })),
           fog: capture.projection.map.fog,
           outOfScope: capture.projection.map.outOfScope.map((entry) => ({
-            ticket: scenarioAlias(aliases, String(entry.ticket)),
+            ...(entry.ticket === undefined
+              ? {}
+              : { ticket: scenarioAlias(aliases, String(entry.ticket)) }),
             rationale: entry.rationale,
             sourceKind: entry.sourceAnchor.kind,
           })),
