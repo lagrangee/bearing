@@ -1,28 +1,38 @@
 import type {
   CollectionProjection,
   Effort,
-  MapProjection,
   MilestoneGate,
   Roadmap,
   SnapshotDiagnostic,
   SourceRecord,
-  TicketProjection,
 } from "./contract";
-import { assessScopedProjectionIssues, isValueAttributedToEffort } from "./scoped-native-relations";
 
-type Issue = Readonly<{ code: string; target: string; source?: string | undefined }>;
+export type CompletionCapture = Readonly<{
+  provider: "matt-skills/v1";
+  binding: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>;
+  generation: Readonly<{ fingerprint: string }>;
+  completion: "incomplete" | "complete" | "undetermined";
+}>;
+
 export type DerivedCollection<T> =
   | Readonly<{ validity: "available"; items: readonly T[] }>
-  | Readonly<{ validity: "partial"; items: readonly T[]; issues?: readonly Issue[] }>
-  | Readonly<{ validity: "invalid"; issues?: readonly Issue[] }>;
-export type DerivedRoadmap = Readonly<{
+  | Readonly<{
+      validity: "partial";
+      items: readonly T[];
+      issues?: readonly unknown[];
+    }>
+  | Readonly<{ validity: "invalid"; issues?: readonly unknown[] }>;
+
+type DerivedEffort = Readonly<{
   id: string;
-  lifecycle: "active" | "completed" | "superseded";
-  focusedGateId: string | null;
-  gateOrder: readonly string[];
-  horizon: "active-horizon" | "exhausted" | "unknown";
+  source: string;
+  roadmapId: string;
+  targetGateId: string;
+  workBinding?: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }> | undefined;
+  derivedState: "active" | "resolved" | "unknown";
 }>;
-export type DerivedGate = Readonly<{
+
+type DerivedGate = Readonly<{
   id: string;
   source: string;
   roadmapId: string;
@@ -31,141 +41,75 @@ export type DerivedGate = Readonly<{
   horizonState: "passed" | "focused" | "planned" | "superseded" | "unknown";
   effortIds: readonly string[];
 }>;
-export type DerivedEffort = Readonly<{
+
+type DerivedRoadmap = Readonly<{
   id: string;
-  source: string;
-  roadmapId: string;
-  targetGateId: string;
-  workBinding?: Readonly<{ nativeScope: string }> | undefined;
-  derivedState: "active" | "resolved" | "unknown";
-}>;
-type DerivedMap = Readonly<{
-  effortId?: string | undefined;
-  state: "active" | "resolved" | "unknown";
-  fogCount: number;
-}>;
-type DerivedTicket = Readonly<{
-  effortId?: string | undefined;
-  state: "claimed" | "ready" | "blocked" | "resolved" | "triage";
-}>;
-export type DerivedDiagnostic = Readonly<{
-  impact: "blocking" | "non-blocking";
-  target: string;
-  source?: string | undefined;
-}>;
-export type DerivedSource = Readonly<{ reference: string; displayLocator: string }>;
-export type NormalizedPlanningTruth = Readonly<{
-  roadmaps: DerivedCollection<DerivedRoadmap>;
-  gates: DerivedCollection<DerivedGate>;
-  efforts: DerivedCollection<DerivedEffort>;
-  maps: DerivedCollection<DerivedMap>;
-  tickets: DerivedCollection<DerivedTicket>;
-  diagnostics: readonly DerivedDiagnostic[];
-  sources: readonly DerivedSource[];
+  lifecycle: "active" | "completed" | "superseded";
+  focusedGateId: string | null;
+  gateOrder: readonly string[];
+  horizon: "active-horizon" | "exhausted" | "unknown";
 }>;
 
 const trusted = <T>(collection: DerivedCollection<T>): readonly T[] =>
   collection.validity === "invalid" ? [] : collection.items;
-const compareUtf8 = (left: string, right: string): number =>
-  Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
-const sourceIndex = (sources: readonly DerivedSource[]): ReadonlyMap<string, string> =>
-  new Map(sources.map((source) => [source.reference, source.displayLocator]));
-export const nativeProjectionUncertainForEffort = (
-  collection: DerivedCollection<unknown>,
-  effort: Pick<DerivedEffort, "source" | "workBinding">,
-  sources: readonly DerivedSource[],
-): boolean => {
-  return assessScopedProjectionIssues(
-    collection,
-    [{ source: effort.source, nativeScope: effort.workBinding?.nativeScope }],
-    sources,
-    {
-      unscopableIsUncertain: false,
-    },
-  ).uncertain;
-};
 
-export const blockingDiagnosticForEffort = (
-  effort: DerivedEffort,
-  diagnostics: readonly DerivedDiagnostic[],
-  sources: readonly DerivedSource[],
-): boolean => {
-  return diagnostics.some(
-    (diagnostic) =>
-      diagnostic.impact === "blocking" &&
-      isValueAttributedToEffort(
-        diagnostic,
-        { source: effort.source, nativeScope: effort.workBinding?.nativeScope },
-        sources,
-      ),
+const captureFor = (
+  effort: Pick<DerivedEffort, "workBinding">,
+  captures: readonly CompletionCapture[],
+): CompletionCapture | undefined => {
+  const binding = effort.workBinding;
+  if (binding === undefined) return undefined;
+  return captures.find(
+    (capture) =>
+      capture.provider === binding.provider && capture.binding.nativeScope === binding.nativeScope,
   );
 };
 
 export const normalizedEffortState = (
   effort: DerivedEffort,
-  truth: Pick<NormalizedPlanningTruth, "maps" | "tickets" | "diagnostics" | "sources">,
+  captures: readonly CompletionCapture[],
 ): DerivedEffort["derivedState"] => {
-  const uncertain =
-    nativeProjectionUncertainForEffort(truth.maps, effort, truth.sources) ||
-    nativeProjectionUncertainForEffort(truth.tickets, effort, truth.sources) ||
-    blockingDiagnosticForEffort(effort, truth.diagnostics, truth.sources);
-  if (uncertain) return "unknown";
-  const maps = trusted(truth.maps).filter((map) => map.effortId === effort.id);
-  const tickets = trusted(truth.tickets).filter((ticket) => ticket.effortId === effort.id);
-  if (maps.length + tickets.length === 0) return "unknown";
-  return maps.every((map) => map.state === "resolved" && map.fogCount === 0) &&
-    tickets.every((ticket) => ticket.state === "resolved")
-    ? "resolved"
-    : "active";
-};
-
-const diagnosticForSource = (
-  source: string,
-  diagnostics: readonly DerivedDiagnostic[],
-  sources: readonly DerivedSource[],
-): boolean => {
-  const index = sourceIndex(sources);
-  const locator = index.get(source);
-  return diagnostics.some(
-    (diagnostic) =>
-      diagnostic.impact === "blocking" &&
-      (diagnostic.source === source ||
-        (locator !== undefined &&
-          (diagnostic.target === locator || diagnostic.target.startsWith(`${locator}#`)))),
-  );
+  const completion = captureFor(effort, captures)?.completion;
+  if (completion === "complete") return "resolved";
+  if (completion === "incomplete") return "active";
+  return "unknown";
 };
 
 export const normalizedGateReadiness = (
   gate: DerivedGate,
-  truth: Pick<
-    NormalizedPlanningTruth,
-    "gates" | "efforts" | "maps" | "tickets" | "diagnostics" | "sources"
-  >,
+  efforts: DerivedCollection<DerivedEffort>,
+  captures: readonly CompletionCapture[],
+  hasUntrustedContributor = false,
 ): DerivedGate["readiness"] => {
-  if (
-    gate.effortIds.length === 0 ||
-    (truth.gates.validity === "partial" &&
-      truth.gates.issues?.some(
-        (issue) => issue.code === "untrusted-effort-contributor" && issue.target === gate.id,
-      )) ||
-    diagnosticForSource(gate.source, truth.diagnostics, truth.sources)
-  )
-    return "unknown";
-  const efforts = new Map(trusted(truth.efforts).map((effort) => [effort.id, effort]));
-  const states: DerivedEffort["derivedState"][] = [];
-  for (const effortId of gate.effortIds) {
-    const effort = efforts.get(effortId);
-    if (
-      effort === undefined ||
+  if (hasUntrustedContributor) return "unknown";
+  if (gate.effortIds.length === 0) return "unknown";
+  const effortIndex = new Map(trusted(efforts).map((effort) => [effort.id, effort]));
+  const states = gate.effortIds.map((effortId) => {
+    const effort = effortIndex.get(effortId);
+    return effort === undefined ||
       effort.targetGateId !== gate.id ||
       effort.roadmapId !== gate.roadmapId
-    )
-      return "unknown";
-    states.push(normalizedEffortState(effort, truth));
-  }
+      ? "unknown"
+      : normalizedEffortState(effort, captures);
+  });
   if (states.some((state) => state === "unknown")) return "unknown";
   return states.every((state) => state === "resolved") ? "ready-for-review" : "not-ready";
 };
+
+export const hasUntrustedEffortContributor = (
+  gates: DerivedCollection<unknown>,
+  gateId: string,
+): boolean =>
+  gates.validity === "partial" &&
+  (gates.issues ?? []).some(
+    (issue) =>
+      typeof issue === "object" &&
+      issue !== null &&
+      "code" in issue &&
+      issue.code === "untrusted-effort-contributor" &&
+      "target" in issue &&
+      issue.target === gateId,
+  );
 
 export const normalizedRoadmapHorizon = (
   roadmap: DerivedRoadmap,
@@ -214,8 +158,7 @@ type ProjectionInput = Readonly<{
   roadmaps: CollectionProjection<Roadmap>;
   gates: CollectionProjection<MilestoneGate>;
   efforts: CollectionProjection<Effort>;
-  maps: CollectionProjection<MapProjection>;
-  tickets: CollectionProjection<TicketProjection>;
+  providerCaptures: readonly CompletionCapture[];
   diagnostics: readonly SnapshotDiagnostic[];
   sources: readonly SourceRecord[];
 }>;
@@ -226,27 +169,6 @@ type NormalizedPlanningProjection = Readonly<{
   efforts: CollectionProjection<Effort>;
 }>;
 
-const effortFrontier = (
-  effort: Effort,
-  maps: CollectionProjection<MapProjection>,
-  tickets: CollectionProjection<TicketProjection>,
-): Effort["frontier"] => {
-  const scopedMaps = trusted(maps).filter((map) => map.effortId === effort.id);
-  const scopedTickets = trusted(tickets).filter((ticket) => ticket.effortId === effort.id);
-  const referencesIn = (state: TicketProjection["state"]): Effort["frontier"]["claimed"] =>
-    scopedTickets
-      .filter((ticket) => ticket.state === state)
-      .map((ticket) => ticket.reference)
-      .sort(compareUtf8);
-  return {
-    claimed: referencesIn("claimed"),
-    ready: referencesIn("ready"),
-    blocked: referencesIn("blocked"),
-    resolved: referencesIn("resolved"),
-    fogCount: scopedMaps.reduce((total, map) => total + map.fogCount, 0),
-  };
-};
-
 const effortIdsFor = (
   efforts: CollectionProjection<Effort>,
   matches: (effort: Effort) => boolean,
@@ -254,33 +176,33 @@ const effortIdsFor = (
   trusted(efforts)
     .filter(matches)
     .map((effort) => effort.id)
-    .sort(compareUtf8);
+    .sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)));
 
 export const normalizePlanningDerivations = (
   input: ProjectionInput,
 ): NormalizedPlanningProjection => {
-  const efforts = mapCollection<Effort>(input.efforts, (effort) => ({
+  const efforts = mapCollection(input.efforts, (effort) => ({
     ...effort,
-    derivedState: normalizedEffortState(effort, input),
-    frontier: effortFrontier(effort, input.maps, input.tickets),
+    derivedState: normalizedEffortState(effort, input.providerCaptures),
   }));
-  const roadmaps = mapCollection<Roadmap>(input.roadmaps, (roadmap) => ({
+  const roadmaps = mapCollection(input.roadmaps, (roadmap) => ({
     ...roadmap,
     horizon: normalizedRoadmapHorizon(roadmap, input.gates),
     effortIds: effortIdsFor(efforts, (effort) => effort.roadmapId === roadmap.id),
   }));
-  const gatesWithRelations = mapCollection<MilestoneGate>(input.gates, (gate) => ({
+  const gatesWithRelations = mapCollection(input.gates, (gate) => ({
     ...gate,
     horizonState: normalizedGateHorizon(gate, roadmaps),
     effortIds: effortIdsFor(efforts, (effort) => effort.targetGateId === gate.id),
   }));
-  const gates = mapCollection<MilestoneGate>(gatesWithRelations, (gate) => ({
+  const gates = mapCollection(gatesWithRelations, (gate) => ({
     ...gate,
-    readiness: normalizedGateReadiness(gate, {
-      ...input,
+    readiness: normalizedGateReadiness(
+      gate,
       efforts,
-      gates: gatesWithRelations,
-    }),
+      input.providerCaptures,
+      hasUntrustedEffortContributor(gatesWithRelations, gate.id),
+    ),
   }));
   return { roadmaps, gates, efforts };
 };

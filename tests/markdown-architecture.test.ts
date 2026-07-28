@@ -17,15 +17,13 @@ const requiredBoundaryPackages = [
 const rawBoundaryPackages = ["micromark", "unist"] as const;
 const boundaryPackages = [...requiredBoundaryPackages, ...rawBoundaryPackages] as const;
 
-const legacyPreG2StructuralOwners = new Set([
+const approvedStructuralOwners = new Set([
   "src/asset-registration.ts",
   "src/audit-body.ts",
   "src/bearing-record-decoder.ts",
   "src/bearing-record-sections.ts",
-  "src/captured-native-work.ts",
   "src/executor-registration.ts",
   "src/guidance-body.ts",
-  "src/native-work.ts",
   "src/providers/matt-skills-v1.ts",
   "src/repository-cutover.ts",
   "src/sitemap.ts",
@@ -80,7 +78,7 @@ test("keeps the raw mdast and micromark stack inside one Bearing-owned boundary"
   expect(declaration).not.toMatch(/\b(?:mdast|micromark|unist|Mdast|RootContent)\b/u);
 });
 
-test("freezes known pre-G2 readers while blocking new parallel structural parsers", async () => {
+test("freezes approved readers while blocking new parallel structural parsers", async () => {
   expect(
     claimsMarkdownStructureOwnership(
       'source.split("\\n").find((line) => line.slice(0, 3) === "## ")',
@@ -93,8 +91,8 @@ test("freezes known pre-G2 readers while blocking new parallel structural parser
   ).toBe(true);
 
   const files = await sourceFiles();
-  for (const legacy of legacyPreG2StructuralOwners) {
-    expect(files).toContain(legacy);
+  for (const owner of approvedStructuralOwners) {
+    expect(files).toContain(owner);
   }
 
   const detected = new Set<string>();
@@ -104,16 +102,15 @@ test("freezes known pre-G2 readers while blocking new parallel structural parser
     if (claimsMarkdownStructureOwnership(source)) {
       detected.add(file);
       expect(
-        legacyPreG2StructuralOwners.has(file),
+        approvedStructuralOwners.has(file),
         `${file} claims Markdown heading, section, field, or frontmatter structure outside the shared boundary`,
       ).toBe(true);
     }
   }
 
-  for (const legacy of legacyPreG2StructuralOwners) {
-    expect(
-      detected.has(legacy),
-      `${legacy} is an explicit pre-G2 migration responsibility for G4`,
-    ).toBe(true);
+  for (const owner of approvedStructuralOwners) {
+    expect(detected.has(owner), `${owner} is an explicit structural parsing responsibility`).toBe(
+      true,
+    );
   }
 });

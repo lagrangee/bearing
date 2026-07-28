@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { writeInstallTarget } from "../src/installer";
 import { cutOverLegacyRepository, inspectLegacyCutoverPlan } from "../src/repository-cutover";
 import { prepareSync } from "../src/sync-plan";
-import { makeTemporaryDirectory, writeFixture } from "./helpers";
+import {
+  LOCAL_MATT_CONTRACT,
+  LOCAL_MATT_TRIAGE_LABELS,
+  makeTemporaryDirectory,
+  writeFixture,
+} from "./helpers";
 
 const CUTOVER_AT = "2026-07-26T12:34:56.000Z";
 const BUNDLE_NAME = "0.1.0-to-0.1.1-20260726T123456000Z";
@@ -182,18 +187,15 @@ Assets: []
   await writeFixture(
     root,
     ".scratch/test/map.md",
-    "# Native Map\n\nType: wayfinder:map\nStatus: resolved\n\n## Destination\n\nTest.\n\n## Not yet specified\n",
+    "# Native Map\n\nStatus: resolved\n\n## Destination\n\nTest.\n\n## Decisions so far\n\n- [Finish](issues/01-finish.md) — Done.\n\n## Fog\n",
   );
   await writeFixture(
     root,
     ".scratch/test/issues/01-finish.md",
-    "# Native Ticket\n\nType: task\nStatus: resolved\n\n## Question\n\nTest?\n\n## Answer\n\nYes.\n",
+    "# Native Ticket\n\nType: task\n\nStatus: resolved\n\n## Question\n\nTest?\n\n## Answer\n\nYes.\n",
   );
-  await writeFixture(
-    root,
-    "docs/agents/issue-tracker.md",
-    "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
-  );
+  await writeFixture(root, "docs/agents/issue-tracker.md", LOCAL_MATT_CONTRACT);
+  await writeFixture(root, "docs/agents/triage-labels.md", LOCAL_MATT_TRIAGE_LABELS);
   await writeFixture(
     root,
     "AGENTS.md",
@@ -423,7 +425,7 @@ Assets:
     const effort = await readFile(join(repoRoot, ".bearing/state/efforts/test.md"), "utf8");
     expect(effort).toContain("Work binding:");
     expect(effort).toContain("Provider: matt-skills/v1");
-    expect(effort).toContain("Driver: local-markdown");
+    expect(effort).not.toContain("Driver:");
     expect(effort).toContain("Native scope: .scratch/test");
     await expectMissing(join(repoRoot, ".scratch/test/effort.md"));
     await expectMissing(join(repoRoot, ".bearing/executor-profiles/generic-agent.md"));
@@ -440,12 +442,15 @@ Assets:
     });
     expect(effortContext.state, JSON.stringify(effortContext)).toBe("complete");
     expect(effortContext.context?.effort.value.workBinding?.provider).toBe("matt-skills/v1");
-    expect(effortContext.context?.effort.value.workBinding?.driver).toBe("local-markdown");
     expect(String(effortContext.context?.effort.value.workBinding?.nativeScope)).toBe(
       ".scratch/test",
     );
-    expect(effortContext.context?.map?.source.displayLocator).toBe(".scratch/test/map.md");
-    expect(effortContext.context?.tickets.map((ticket) => ticket.source.displayLocator)).toEqual([
+    const capture = effortContext.context?.providerCapture;
+    if (capture === undefined || (capture.state !== "available" && capture.state !== "partial")) {
+      throw new Error("Expected the cut-over provider capture.");
+    }
+    expect(String(capture.projection.map?.ref)).toBe(".scratch/test/map.md");
+    expect(capture.projection.wayfinderTickets.map((ticket) => String(ticket.ref))).toEqual([
       ".scratch/test/issues/01-finish.md",
     ]);
 

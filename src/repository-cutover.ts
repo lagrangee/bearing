@@ -113,6 +113,10 @@ const assertLegacySourceSyncClean = async (
       !(
         diagnostic.code === "invalid-bearing-manifest" &&
         diagnostic.target === ".bearing/manifest.json"
+      ) &&
+      !(
+        diagnostic.code === "missing-provider-configuration" &&
+        diagnostic.target === ".bearing/provider.json"
       ),
   );
   if (diagnostics.length > 0) {
@@ -555,7 +559,6 @@ const convertEfforts = async (
       ...parsed.data,
       "Work binding": {
         Provider: "matt-skills/v1",
-        Driver: driver,
         "Native scope": nativeScope,
       },
     };
@@ -943,8 +946,8 @@ export const inspectLegacyCutoverPlan = async (
     throw new Error("Legacy cutover requires one trustworthy matt-skills/v1 provider contract.");
   }
   await convertEfforts(root, effortLocators, validation.driver);
-  await assertLegacySourceSyncClean(root, effortLocators);
   const recoveryEntries = await buildRecoveryEntries(root, effortLocators);
+  await assertLegacySourceSyncClean(root, effortLocators);
   const integrationPlans = await buildIntegrationPlans(
     root,
     options,

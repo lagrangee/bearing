@@ -66,7 +66,7 @@ export function RoadmapDetailWork({
             {model.efforts.map((effort) => (
               <EffortRow
                 key={effort.effort.id}
-                fog={effort.effort.frontier.fogCount}
+                fog={effort.fogCount}
                 frontier={frontierSummary(effort)}
                 gate={gateLabels.get(effort.effort.targetGateId) ?? "Unavailable"}
                 lifecycle={effort.effort.derivedState}

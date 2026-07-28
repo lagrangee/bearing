@@ -65,8 +65,7 @@ describe("bearing sync", () => {
     expect(
       result.diagnostics.filter(
         (diagnostic) =>
-          diagnostic.code === "repository-input-outside-boundary" &&
-          diagnostic.target === ".scratch",
+          diagnostic.code === "matt.local.scope.invalid" && diagnostic.target === ".scratch/work",
       ),
     ).toHaveLength(1);
   });
@@ -88,12 +87,22 @@ describe("bearing sync", () => {
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(result.inputs).not.toContain(locator);
-    expect(result.diagnostics).toContainEqual({
-      code: "repository-input-shared-file",
-      impact: "blocking",
-      target: locator,
-      message: "Repository input must be one unlinked regular file.",
-    });
+    expect(result.diagnostics).toContainEqual(
+      locator.startsWith(".scratch/")
+        ? {
+            code: "matt.local.input.unsafe",
+            impact: "blocking",
+            target: locator,
+            message:
+              "Local Markdown input failed containment, symlink, file-type or identity safety.",
+          }
+        : {
+            code: "repository-input-shared-file",
+            impact: "blocking",
+            target: locator,
+            message: "Repository input must be one unlinked regular file.",
+          },
+    );
     expect(sitemap).not.toContain("FOREIGN_REPOSITORY_SECRET");
   });
 
@@ -114,7 +123,6 @@ Citations:
     Note: This directory is a repository-local evidence input.
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/work
 ---
 
@@ -177,7 +185,6 @@ Citations:
     Note: This input is deliberately outside the repository.
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/work
 ---
 
@@ -267,10 +274,10 @@ Assets:
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(result.diagnostics).toContainEqual({
-      code: "invalid-input-directory",
+      code: "matt.local.scope.invalid",
       impact: "blocking",
-      target: ".scratch",
-      message: "Repository input must be a directory.",
+      target: ".scratch/work",
+      message: "Local scope failed repository containment, symlink or file-type validation.",
     });
     expect(sitemap).toContain("`roadmap:test` | Test Roadmap | active");
   });

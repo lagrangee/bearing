@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { discoverPlanningAuditInputs } from "../src/discovery";
 import {
   createGhCliGitHubReadTransport,
   createGitHubMattProvider,
@@ -365,6 +368,76 @@ describe("GitHub matt-skills/v1 capture", () => {
       transport.requests.filter((request) => request.endpoint.endsWith("/parent")),
     ).toHaveLength(2);
     expect(JSON.stringify(result)).not.toContain("token");
+  });
+
+  test("uses generation-captured contract and vocabulary after repository files change", async () => {
+    const root = await makeTemporaryDirectory("bearing-github-provider-custom-contract-");
+    const customContractLocator = "config/matt/issue-tracker.md";
+    const customTriageLocator = "config/matt/triage-labels.md";
+    await writeFixture(root, customContractLocator, contract);
+    await writeFixture(root, customTriageLocator, triage);
+    await writeFixture(
+      root,
+      ".bearing/provider.json",
+      JSON.stringify({
+        schemaVersion: 1,
+        provider: "matt-skills/v1",
+        contractLocator: customContractLocator,
+      }),
+    );
+    const discovery = await discoverPlanningAuditInputs(root);
+    expect(discovery.inputs).toEqual([
+      ".bearing/provider.json",
+      customContractLocator,
+      customTriageLocator,
+    ]);
+    const capturedDocuments = new Map(
+      await Promise.all(
+        discovery.inputs.map(async (locator) => {
+          const bytes = await readFile(join(root, locator));
+          return [locator, { locator, source: bytes.toString("utf8"), bytes }] as const;
+        }),
+      ),
+    );
+    await writeFixture(root, customContractLocator, "# Changed after generation capture\n");
+    await writeFixture(root, customTriageLocator, "# Changed after generation capture\n");
+    const transport = new FixtureGitHubTransport({
+      "repos/example/reference": {
+        first: response(repository, '"repo-v1"'),
+      },
+      "repos/example/reference/issues/109": {
+        first: response(incomingIssue, '"issue-109-v1"'),
+      },
+      "repos/example/reference/issues/109/comments?per_page=100&page=1": {
+        first: response([], '"comments-109-v1"'),
+      },
+      "repos/example/reference/issues/109/dependencies/blocked_by?per_page=100&page=1": {
+        first: response([], '"blocked-109-v1"'),
+      },
+    });
+
+    const result = await createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator: customContractLocator,
+      triageLocator: customTriageLocator,
+      capturedDocuments,
+      transport,
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    }).capture(
+      { provider: "matt-skills/v1", nativeScope: nativeScopeFor(incomingIssue) },
+      generation,
+    );
+
+    expect(result.state).toBe("available");
+    expect(result.diagnostics).toEqual([]);
+    expect(result.projection?.incomingIssues[0]).toMatchObject({
+      classification: {
+        category: "enhancement",
+        state: "ready-for-agent",
+        nativeCategory: "custom-enhancement",
+        nativeState: "custom-ready",
+      },
+    });
   });
 
   test("captures a transitive native Map scope with workflow roles, relations and a uniquely referenced Answer", async () => {

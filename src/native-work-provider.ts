@@ -40,6 +40,14 @@ export type CaptureGeneration = Readonly<{
   fingerprint: string;
 }>;
 
+export type CapturedProviderDocument = Readonly<{
+  locator: string;
+  source: string;
+  bytes: Buffer;
+}>;
+
+export type CapturedProviderDocuments = ReadonlyMap<string, CapturedProviderDocument>;
+
 export type ProviderProjectionState = "available" | "partial" | "absent" | "invalid";
 export type ProviderFreshnessAssessment = "current" | "stale" | "undetermined";
 export type ProviderCompletionAssessment = "incomplete" | "complete" | "undetermined";
@@ -81,6 +89,31 @@ export type ProviderDiagnostic = Readonly<{
   target: string;
   message: string;
 }>;
+
+export type ProviderCompletionInvariantInput = Readonly<{
+  state: ProviderProjectionState;
+  freshness: Readonly<{ assessment: ProviderFreshnessAssessment }>;
+  coverage: Readonly<{
+    assessment: "complete" | "incomplete";
+    dimensions: readonly Readonly<{
+      state: "covered" | "excluded" | "gap" | "conflict";
+    }>[];
+  }>;
+  completion: ProviderCompletionAssessment;
+  diagnostics: readonly Readonly<{ impact: "blocking" | "non-blocking" }>[];
+}>;
+
+export const hasConsistentProviderCompletion = (
+  capture: ProviderCompletionInvariantInput,
+): boolean =>
+  capture.completion !== "complete" ||
+  (capture.state === "available" &&
+    capture.freshness.assessment === "current" &&
+    capture.coverage.assessment === "complete" &&
+    capture.coverage.dimensions.every(
+      (dimension) => dimension.state !== "gap" && dimension.state !== "conflict",
+    ) &&
+    capture.diagnostics.every((diagnostic) => diagnostic.impact !== "blocking"));
 
 type ProviderScopeCaptureBase<ProviderId extends string> = Readonly<{
   provider: ProviderId;
@@ -137,16 +170,7 @@ export const createProviderScopeCapture = <
       "Available and partial captures require one projection; absent and invalid captures forbid it.",
     );
   }
-  if (
-    capture.completion === "complete" &&
-    (capture.state !== "available" ||
-      capture.freshness.assessment !== "current" ||
-      capture.coverage.assessment !== "complete" ||
-      capture.coverage.dimensions.some(
-        (dimension) => dimension.state === "gap" || dimension.state === "conflict",
-      ) ||
-      capture.diagnostics.some((diagnostic) => diagnostic.impact === "blocking"))
-  ) {
+  if (!hasConsistentProviderCompletion(capture)) {
     throw new TypeError(
       "Provider completion can be complete only for an available, current, fully covered capture without gaps, conflicts or blocking diagnostics.",
     );
@@ -159,3 +183,21 @@ export const createProviderScopeCapture = <
   }
   return deepFreeze(structuralCapture.data) as ProviderScopeCapture<ProviderId, Projection>;
 };
+
+export const rebaseProviderScopeCaptureGeneration = <
+  ProviderId extends string,
+  Projection extends ProviderProjection,
+>(
+  capture: ProviderScopeCapture<ProviderId, Projection>,
+  fingerprint: string,
+): ProviderScopeCapture<ProviderId, Projection> =>
+  capture.state === "available" || capture.state === "partial"
+    ? createProviderScopeCapture({
+        ...capture,
+        generation: { fingerprint },
+        projection: capture.projection,
+      })
+    : createProviderScopeCapture({
+        ...capture,
+        generation: { fingerprint },
+      });

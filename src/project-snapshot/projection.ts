@@ -1,3 +1,4 @@
+import { mattObjectLocator, mattObjects } from "../providers/matt-skills-v1/projection";
 import { buildAdvisoryProjection } from "./advisory";
 import { rebuildAssetReverseRelations } from "./asset-reverse-relations";
 import { buildAssetProjection } from "./assets";
@@ -10,26 +11,18 @@ import type { ProjectSnapshotBuildInput } from "./projection-input";
 import { PROJECT_SNAPSHOT_VERSION, projectSnapshotSchema } from "./schema";
 import { createSourceRecord, mergeSourceRecords } from "./source-records";
 
-const isTrackerSource = (locator: string): boolean =>
-  /^\.scratch\/[^/]+\/(?:map\.md|issues\/(?:.*\/)?\d+-[^/]+\.md)$/u.test(locator);
-
 const trackerSources = (
-  records: ProjectSnapshotBuildInput["nativeRecords"],
+  captures: ProjectSnapshotBuildInput["providerCaptures"],
   sitemapFingerprint: string,
 ): readonly SourceRecord[] =>
-  records.flatMap((record) =>
-    isTrackerSource(record.locator)
-      ? [
-          createSourceRecord(sitemapFingerprint, {
-            kind: "tracker",
-            locator: record.locator,
-            binding: {
-              role: record.locator.endsWith("/map.md") ? "map" : "ticket",
-              identity: record.locator,
-            },
-          }),
-        ]
-      : [],
+  captures.flatMap((capture) =>
+    mattObjects(capture).map((object) =>
+      createSourceRecord(sitemapFingerprint, {
+        kind: "tracker",
+        locator: mattObjectLocator(object),
+        binding: { role: object.kind, identity: object.ref },
+      }),
+    ),
   );
 
 export const buildProjectSnapshot = async (
@@ -74,7 +67,7 @@ export const buildProjectSnapshot = async (
     assetProjection.sources,
     decisions.sources,
     advisory.sources,
-    trackerSources(input.nativeRecords, input.sitemapFingerprint),
+    trackerSources(input.providerCaptures, input.sitemapFingerprint),
   ]);
   const diagnosticProjection = buildSnapshotDiagnostics({
     sitemapFingerprint: input.sitemapFingerprint,
@@ -109,8 +102,7 @@ export const buildProjectSnapshot = async (
     reviews: decisions.reviews,
     audit: advisory.audit,
     guidance: advisory.guidance,
-    maps: planning.maps,
-    tickets: planning.tickets,
+    providerCaptures: input.providerCaptures,
     diagnostics: diagnosticProjection.diagnostics,
     attention: [...diagnosticProjection.attention, ...decisions.attention],
     sources,

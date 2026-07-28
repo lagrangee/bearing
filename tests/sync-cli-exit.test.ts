@@ -59,7 +59,8 @@ Only one section exists.
       `# Open
 
 Type: task
-Status: open
+
+Status: claimed
 
 ## Question
 
@@ -72,8 +73,10 @@ What remains?
       `# Claimed
 
 Type: task
-Status: claimed
+
 Blocked by: 02
+
+Status: claimed
 
 ## Question
 
@@ -84,7 +87,7 @@ Should this remain claimed?
     const result = await runSyncCli(repoRoot);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Diagnostics: 1");
+    expect(result.stdout).toContain("Diagnostics: 0");
     expect(result.stderr).toBe("");
   });
 });

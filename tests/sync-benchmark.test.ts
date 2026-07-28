@@ -25,6 +25,7 @@ test("builds deterministic representative and stress fixtures at the declared sc
       expect(measured.metrics.inputReadCount).toBe(measured.metrics.capturedInputCount);
       expect(measured.metrics.recordDecodeCount).toBe(measured.metrics.bearingRecordCount);
       expect(measured.metrics.repositoryRevalidationCount).toBe(0);
+      expect(measured.metrics.providerCaptureCount).toBe(BENCHMARK_SCALES[scale].scopeCount);
       expect(Object.keys(measured.metrics.phaseMs)).toEqual([
         "discovery",
         "capture",
@@ -56,7 +57,7 @@ test("keeps the schema v1 Sync benchmark phase summary unchanged", () => {
       processIndex: 1,
       fixture: {
         digest: `sha256:${"a".repeat(64)}`,
-        inputCount: 128,
+        inputCount: 36,
         bearingRecordCount: 30,
         totalBytes: 1,
       },
@@ -66,8 +67,8 @@ test("keeps the schema v1 Sync benchmark phase summary unchanged", () => {
         {
           totalMs: 10,
           phaseMs,
-          inputReads: 128,
-          capturedInputs: 128,
+          inputReads: 36,
+          capturedInputs: 36,
           bearingRecords: 30,
           recordDecodes: 30,
           repositoryRevalidations: 0,
@@ -84,14 +85,14 @@ test("keeps the schema v1 Sync benchmark phase summary unchanged", () => {
 
 test("declares the accepted after-only scenario and iteration matrix", () => {
   expect(BENCHMARK_SCALES.representative).toMatchObject({
-    inputCount: 128,
+    inputCount: 36,
     bearingRecordCount: 30,
     warmupIterations: 20,
     measuredIterations: 100,
     scenarios: ["no-op", "changed-bearing-record", "changed-native-work", "invalid-bearing-record"],
   });
   expect(BENCHMARK_SCALES.stress).toMatchObject({
-    inputCount: 512,
+    inputCount: 126,
     bearingRecordCount: 120,
     warmupIterations: 10,
     measuredIterations: 50,

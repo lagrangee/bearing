@@ -71,7 +71,7 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   });
 
   expect(snapshot).toMatchObject({
-    schemaVersion: 2,
+    schemaVersion: 3,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapFingerprint: sync.fingerprint },
     summary: {
@@ -105,8 +105,9 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   expect(snapshot).toHaveProperty("assets");
   expect(snapshot).toHaveProperty("checks");
   expect(snapshot).toHaveProperty("reviews");
-  expect(snapshot).toHaveProperty("maps");
-  expect(snapshot).toHaveProperty("tickets");
+  expect(snapshot).toHaveProperty("providerCaptures");
+  expect(snapshot).not.toHaveProperty("maps");
+  expect(snapshot).not.toHaveProperty("tickets");
   expect(snapshot.sources.length).toBeGreaterThan(0);
   for (const source of snapshot.sources) {
     expect(source.reference).not.toContain(source.displayLocator);
@@ -182,6 +183,7 @@ test("projects adversarial native diagnostics without echoing source details int
     `# Invalid status
 
 Type: task
+
 Status: **bad**
 
 ## Question
@@ -195,8 +197,10 @@ Can the project remain readable?
     `# Invalid blocker
 
 Type: task
-Status: open
+
 Blocked by: **missing**
+
+Status: claimed
 
 ## Question
 
@@ -269,15 +273,38 @@ Input fingerprint: sha256:${"a".repeat(64)}
   });
 
   // Then: fixed plain prose reaches Diagnostics and every blocking fact reaches Attention.
-  const expected = new Map([
-    ["unsupported-tracker-status", "Tracker-native Ticket Status is not supported."],
-    ["missing-ticket-blocker", "Tracker-native Ticket blocker does not resolve."],
-    ["unsupported-map-status", "Wayfinder Map Status is not supported."],
-    ["missing-asset-input", "Referenced Asset Location is unavailable."],
-    ["invalid-bearing-schema", "Bearing frontmatter does not match its minimum schema."],
-  ]);
-  for (const [code, message] of expected) {
-    const diagnostic = snapshot.diagnostics.find((candidate) => candidate.code === code);
+  const expected = [
+    {
+      code: "matt.local.lifecycle.unknown",
+      target: ".scratch/work/issues/02-invalid-status.md",
+      message: "Wayfinder Status must be claimed or resolved.",
+    },
+    {
+      code: "matt.local.relation.broken",
+      target: ".scratch/work/issues/03-invalid-blocker.md",
+      message: "Blocked by reference does not uniquely resolve to a ticket: missing.",
+    },
+    {
+      code: "matt.local.lifecycle.unknown",
+      target: ".scratch/work/map.md",
+      message: "Map Status must be active or resolved.",
+    },
+    {
+      code: "missing-asset-input",
+      target: undefined,
+      message: "Referenced Asset Location is unavailable.",
+    },
+    {
+      code: "invalid-bearing-schema",
+      target: undefined,
+      message: "Bearing frontmatter does not match its minimum schema.",
+    },
+  ];
+  for (const { code, target, message } of expected) {
+    const diagnostic = snapshot.diagnostics.find(
+      (candidate) =>
+        candidate.code === code && (target === undefined || candidate.target === target),
+    );
     expect(diagnostic?.message).toBe(message);
     expect(diagnostic?.message).not.toContain("**");
     expect(

@@ -4,6 +4,10 @@ import { dirname, join } from "node:path";
 import { sha256Hex } from "../src/sha256";
 import { runSyncMeasured } from "../src/sync";
 import type { SyncPerformanceMetrics } from "../src/sync-plan";
+import {
+  LOCAL_MATT_CONTRACT,
+  LOCAL_MATT_TRIAGE_LABELS,
+} from "../tests/fixtures/local-matt-contract";
 
 export type BenchmarkScale = "representative" | "stress";
 export type BenchmarkScenario =
@@ -14,7 +18,7 @@ export type BenchmarkScenario =
 
 export const BENCHMARK_SCALES = {
   representative: {
-    inputCount: 128,
+    inputCount: 36,
     bearingRecordCount: 30,
     scopeCount: 9,
     ticketCounts: [10, 10, 10, 9, 9, 9, 9, 9, 9],
@@ -28,7 +32,7 @@ export const BENCHMARK_SCALES = {
     ] as const,
   },
   stress: {
-    inputCount: 512,
+    inputCount: 126,
     bearingRecordCount: 120,
     scopeCount: 39,
     ticketCounts: [...Array.from({ length: 3 }, () => 8), ...Array.from({ length: 36 }, () => 9)],
@@ -99,6 +103,18 @@ const fixtureFiles = (scale: BenchmarkScale): FixtureFile[] => {
         2,
       )}\n`,
     },
+    {
+      locator: ".bearing/provider.json",
+      content: `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          provider: "matt-skills/v1",
+          contractLocator: "docs/agents/issue-tracker.md",
+        },
+        null,
+        2,
+      )}\n`,
+    },
     { locator: ".bearing/state/project-summary.md", content: summary("a") },
     {
       locator: ".bearing/state/assets.md",
@@ -106,8 +122,8 @@ const fixtureFiles = (scale: BenchmarkScale): FixtureFile[] => {
     },
     { locator: "CONTEXT.md", content: "# Benchmark Context\n\nDeterministic fixture.\n" },
     { locator: "docs/agents/domain.md", content: "# Domain\n\nBenchmark fixture.\n" },
-    { locator: "docs/agents/issue-tracker.md", content: "# Issues\n\nLocal Markdown.\n" },
-    { locator: "docs/agents/triage-labels.md", content: "# Triage\n\nCanonical labels.\n" },
+    { locator: "docs/agents/issue-tracker.md", content: LOCAL_MATT_CONTRACT },
+    { locator: "docs/agents/triage-labels.md", content: LOCAL_MATT_TRIAGE_LABELS },
   ];
   const roadmapIds = Array.from(
     { length: specification.scopeCount },
@@ -123,6 +139,11 @@ const fixtureFiles = (scale: BenchmarkScale): FixtureFile[] => {
     const gateId = `gate:g${ordinal}`;
     const effortId = `effort:e${ordinal}`;
     const scope = `.scratch/scope-${ordinal}`;
+    const ticketCount = specification.ticketCounts[index] ?? 0;
+    const decisions = Array.from({ length: ticketCount }, (_, ticket) => {
+      const ticketNumber = number(ticket + 1);
+      return `- [Generated ${ordinal}-${ticketNumber}](issues/${ticketNumber}-generated.md) — Resolved.`;
+    }).join("\n");
     files.push(
       {
         locator: `.bearing/state/roadmaps/r${ordinal}.md`,
@@ -134,19 +155,18 @@ const fixtureFiles = (scale: BenchmarkScale): FixtureFile[] => {
       },
       {
         locator: `.bearing/state/efforts/e${ordinal}.md`,
-        content: `---\nType: effort\nID: ${effortId}\nTitle: Effort ${ordinal}\nRoadmap: ${roadmapId}\nTarget gate: ${gateId}\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Driver: local-markdown\n  Native scope: ${scope}\n---\n\n# Effort ${ordinal}\n\n## Intent\n\nExercise deterministic native scope ${ordinal}.\n\n## Work\n\n- [Map](map.md)\n`,
+        content: `---\nType: effort\nID: ${effortId}\nTitle: Effort ${ordinal}\nRoadmap: ${roadmapId}\nTarget gate: ${gateId}\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: ${scope}\n---\n\n# Effort ${ordinal}\n\n## Intent\n\nExercise deterministic native scope ${ordinal}.\n\n## Work\n\n- [Map](map.md)\n`,
       },
       {
         locator: `${scope}/map.md`,
-        content: `# Map ${ordinal}\n\nType: wayfinder:map\nStatus: resolved\n\n## Destination\n\nResolve the generated tickets.\n\n## Not yet specified\n`,
+        content: `# Map ${ordinal}\n\nStatus: resolved\n\n## Destination\n\nResolve the generated tickets.\n\n## Decisions so far\n\n${decisions}\n\n## Fog\n`,
       },
     );
-    const ticketCount = specification.ticketCounts[index] ?? 0;
     for (let ticket = 1; ticket <= ticketCount; ticket += 1) {
       const ticketNumber = number(ticket);
       files.push({
         locator: `${scope}/issues/${ticketNumber}-generated.md`,
-        content: `# Generated ${ordinal}-${ticketNumber}\n\nType: task\nStatus: resolved\n\n## Question\n\nCan generated work ${ordinal}-${ticketNumber} finish?\n\n## Answer\n\nYes.\n`,
+        content: `# Generated ${ordinal}-${ticketNumber}\n\nType: task\n\nStatus: resolved\n\n## Question\n\nCan generated work ${ordinal}-${ticketNumber} finish?\n\n## Answer\n\nYes.\n`,
       });
     }
   }
@@ -186,7 +206,7 @@ export const createBenchmarkFixture = async (
 };
 
 const nativeVariant = (variant: "a" | "b"): string =>
-  `# Generated 001-001\n\nType: task\nStatus: ${variant === "a" ? "resolved" : "claimed"}\n\n## Question\n\nCan generated work 001-001 finish?\n\n## Answer\n\nYes.\n`;
+  `# Generated 001-001\n\nType: task\n\nStatus: ${variant === "a" ? "resolved" : "claimed"}\n\n## Question\n\nCan generated work 001-001 finish?\n\n## Answer\n\nYes.\n`;
 
 export const applyBenchmarkScenario = async (
   fixture: BenchmarkFixture,

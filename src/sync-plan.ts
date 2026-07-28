@@ -15,10 +15,11 @@ import {
 import { deriveStructuralDiagnosticsFromGeneration } from "./diagnostics";
 import { listFiles } from "./discovery";
 import { retainContainedInputs } from "./input-boundary";
-import type { NativeSourceRecord } from "./native-work";
 import { resolveRepositoryRoot } from "./path-boundary";
 import { buildPlanningGraph, type PlanningGraph } from "./planning-graph";
 import type { PlanningGraphInstrumentation } from "./planning-graph-instrumentation";
+import { captureProviderGeneration, type MattProviderFactory } from "./provider-capture-generation";
+import type { MattSkillsV1ScopeCapture } from "./providers/matt-skills-v1/capture";
 import { buildProjectSitemapFromGeneration } from "./sitemap";
 import { discoverProjectSitemapInputs } from "./sitemap-discovery";
 import { captureSyncInputGeneration, extendSyncInputGeneration } from "./sync-input-generation";
@@ -38,7 +39,7 @@ export type SyncPlan = Readonly<{
   diagnostics: readonly StructuralDiagnostic[];
   advisoryFreshness: AdvisoryFreshness;
   decoded: DecodedBearingRecordGeneration;
-  nativeRecords: readonly NativeSourceRecord[];
+  providerCaptures: readonly MattSkillsV1ScopeCapture[];
   assetContentObservations: readonly AssetContentObservation[];
   planningGraph: PlanningGraph;
   planningPhaseMs: Readonly<{
@@ -55,6 +56,7 @@ export type SyncPerformanceMetrics = Readonly<{
   bearingRecordCount: number;
   recordDecodeCount: number;
   repositoryRevalidationCount: number;
+  providerCaptureCount: number;
   phaseMs: Readonly<{
     discovery: number;
     capture: number;
@@ -69,6 +71,7 @@ export type PrepareSyncOptions = Readonly<{
   planningGraph?: PlanningGraph;
   planningGraphInstrumentation?: PlanningGraphInstrumentation;
   explicitInputs?: readonly string[];
+  providerFactory?: MattProviderFactory;
 }>;
 
 const readExisting = async (target: string): Promise<Buffer | undefined> => {
@@ -177,27 +180,35 @@ export const prepareSync = async (
     })),
   });
   const extended = performance.now();
-  const decoded = rebaseDecodedBearingRecordGeneration(
+  const providerBasisDecoded = rebaseDecodedBearingRecordGeneration(
     initiallyDecoded,
     generation.fingerprint,
     generation.records.length,
   );
-  const diagnostics = deriveStructuralDiagnosticsFromGeneration(
-    decoded,
-    generation.records,
-    discoveryDiagnostics,
+  const providerGeneration = await captureProviderGeneration(
+    generation,
+    providerBasisDecoded,
+    options.providerFactory,
   );
+  const decoded = rebaseDecodedBearingRecordGeneration(
+    providerBasisDecoded,
+    providerGeneration.fingerprint,
+    generation.records.length,
+  );
+  const diagnostics = [
+    ...deriveStructuralDiagnosticsFromGeneration(decoded, generation.records, discoveryDiagnostics),
+    ...providerGeneration.diagnostics,
+  ];
   const advisoryFreshness = deriveAdvisoryFreshnessFromGeneration(decoded, generation.records);
-  const nativeRecords = generation.records.filter((record) => record.native !== undefined);
   const graphStarted = performance.now();
-  const reusableGraph = options.planningGraph?.fingerprint === generation.fingerprint;
+  const reusableGraph = options.planningGraph?.fingerprint === providerGeneration.fingerprint;
   const planningGraph = reusableGraph
     ? options.planningGraph
     : await buildPlanningGraph({
         decoded,
-        nativeRecords,
+        providerCaptures: providerGeneration.captures,
         diagnostics,
-        fingerprint: generation.fingerprint,
+        fingerprint: providerGeneration.fingerprint,
         assetContentObservations: assetResolution.observations,
         ...(options.planningGraphInstrumentation === undefined
           ? {}
@@ -206,14 +217,18 @@ export const prepareSync = async (
   const graphBuilt = performance.now();
   const sitemap = buildProjectSitemapFromGeneration(
     decoded,
-    nativeRecords,
-    generation.inputs,
-    generation.fingerprint,
+    providerGeneration.captures,
+    providerGeneration.inputs,
+    providerGeneration.fingerprint,
     diagnostics,
     advisoryFreshness,
     planningGraph,
   );
-  const report = serializeReport(generation.inputs, generation.fingerprint, diagnostics);
+  const report = serializeReport(
+    providerGeneration.inputs,
+    providerGeneration.fingerprint,
+    diagnostics,
+  );
   const outputBuilt = performance.now();
   const reportPath = join(root, ".bearing/cache/sync-report.md");
   const sitemapPath = join(root, ".bearing/cache/project-sitemap.md");
@@ -232,12 +247,12 @@ export const prepareSync = async (
     sitemap,
     reportPath,
     sitemapPath,
-    inputs: generation.inputs,
-    fingerprint: generation.fingerprint,
+    inputs: providerGeneration.inputs,
+    fingerprint: providerGeneration.fingerprint,
     diagnostics,
     advisoryFreshness,
     decoded,
-    nativeRecords,
+    providerCaptures: providerGeneration.captures,
     assetContentObservations: assetResolution.observations,
     planningGraph,
     planningPhaseMs: {
@@ -251,6 +266,7 @@ export const prepareSync = async (
       bearingRecordCount: decoded.metrics.bearingRecordCount,
       recordDecodeCount: decoded.metrics.decodeCount,
       repositoryRevalidationCount: operationMetrics.repositoryRevalidationCount,
+      providerCaptureCount: providerGeneration.captureCount,
       phaseMs: {
         discovery: discovered - started,
         capture: baseCaptured - discovered + (extended - assetsResolved),

@@ -1,6 +1,7 @@
-import type { MapProjection, SourceRecord } from "../project-snapshot/contract";
+import type { SourceRecord } from "../project-snapshot/contract";
 import type { ProjectInspectorSelection } from "./project-inspector";
 import type {
+  MattMapView,
   RoadmapDetailModel,
   RoadmapEffortModel,
   RoadmapGateModel,
@@ -109,7 +110,7 @@ export const effortInspection = (model: RoadmapEffortModel): ProjectInspectorSel
     { label: "Lifecycle", value: model.effort.derivedState },
     { label: "Target Gate", value: model.targetGate?.title ?? "Unavailable" },
     { label: "Frontier", value: frontierSummary(model) },
-    { label: "Fog", value: String(model.effort.frontier.fogCount) },
+    { label: "Fog", value: String(model.fogCount) },
     {
       label: "Map",
       value: model.maps.map((map) => map.reference).join(", ") || "No Map",
@@ -125,7 +126,7 @@ export const effortInspection = (model: RoadmapEffortModel): ProjectInspectorSel
 });
 
 export const mapInspection = (
-  map: MapProjection,
+  map: MattMapView,
   source: SourceRecord | undefined,
 ): ProjectInspectorSelection => ({
   eyebrow: "Tracker-native Map",

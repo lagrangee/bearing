@@ -61,13 +61,6 @@ test("projects exact governance prose without owning planning derivation", async
       {
         id: "effort:test",
         derivedState: "unknown",
-        frontier: {
-          claimed: [],
-          ready: [],
-          blocked: [],
-          resolved: [],
-          fogCount: 0,
-        },
       },
     ],
   });

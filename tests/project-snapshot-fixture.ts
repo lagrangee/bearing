@@ -4,10 +4,11 @@ import {
   rebaseDecodedBearingRecordGeneration,
 } from "../src/bearing-record-decoder";
 import { listFiles } from "../src/discovery";
-import { normalizeNativeSource } from "../src/native-work";
+import { rebaseProviderScopeCaptureGeneration } from "../src/native-work-provider";
 import { buildPlanningGraph } from "../src/planning-graph";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
 import type { ProjectSnapshotBuildInput } from "../src/project-snapshot/projection-input";
+import { captureProviderGeneration } from "../src/provider-capture-generation";
 import { captureSyncInputGeneration } from "../src/sync-input-generation";
 import type { StructuralDiagnostic } from "../src/types";
 
@@ -18,7 +19,8 @@ export const decodeSourceFixtures = (
   fingerprint = `sha256:${"0".repeat(64)}`,
 ) => {
   const captured = records.map((record) => ({
-    ...normalizeNativeSource(record.locator, record.source),
+    locator: record.locator,
+    source: record.source,
     bytes: Buffer.from(record.source, "utf8"),
   }));
   return decodeBearingRecordGeneration({
@@ -34,15 +36,25 @@ export const captureDecodedInputs = async (
 ) => {
   const generation = await captureSyncInputGeneration(repoRoot, inputs);
   const initial = decodeBearingRecordGeneration(generation);
+  const providerGeneration = await captureProviderGeneration(generation, initial);
   const decoded =
     fingerprint === undefined
-      ? initial
+      ? rebaseDecodedBearingRecordGeneration(
+          initial,
+          providerGeneration.fingerprint,
+          generation.records.length,
+        )
       : rebaseDecodedBearingRecordGeneration(initial, fingerprint, generation.records.length);
   const diagnostics: StructuralDiagnostic[] = [];
   const assets = await resolveAssetInputs(repoRoot, decoded, diagnostics, listFiles);
   return {
     decoded,
-    nativeRecords: generation.records.filter((record) => record.native !== undefined),
+    providerCaptures:
+      fingerprint === undefined
+        ? providerGeneration.captures
+        : providerGeneration.captures.map((capture) =>
+            rebaseProviderScopeCaptureGeneration(capture, fingerprint),
+          ),
     assetContentObservations: assets.observations,
   };
 };
@@ -60,7 +72,7 @@ export const captureDecodedSourceInputs = async (input: {
 
 type LegacySnapshotFixtureInput = Omit<
   ProjectSnapshotBuildInput,
-  "decoded" | "nativeRecords" | "assetContentObservations" | "planningGraph"
+  "decoded" | "providerCaptures" | "assetContentObservations" | "planningGraph"
 > &
   Readonly<{
     inputs: readonly string[];
@@ -77,7 +89,7 @@ export const buildProjectSnapshotForTest = async (input: LegacySnapshotFixtureIn
     input.assetContentObservations ?? captured.assetContentObservations;
   const planningGraph = await buildPlanningGraph({
     decoded: captured.decoded,
-    nativeRecords: captured.nativeRecords,
+    providerCaptures: captured.providerCaptures,
     diagnostics: input.diagnostics,
     fingerprint: input.sitemapFingerprint,
     assetContentObservations,

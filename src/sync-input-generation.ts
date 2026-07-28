@@ -5,10 +5,13 @@ import {
   orderedInputLocators,
 } from "./fingerprint";
 import { probeContainedInput, readContainedInput } from "./input-boundary";
-import { type NativeSourceRecord, normalizeNativeSource } from "./native-work";
 import { resolveRepositoryRoot } from "./path-boundary";
 
-export type SyncInputRecord = NativeSourceRecord & Readonly<{ bytes: Buffer }>;
+export type SyncInputRecord = Readonly<{
+  locator: string;
+  source: string;
+  bytes: Buffer;
+}>;
 
 export type SyncInputGeneration = Readonly<{
   root: string;
@@ -53,8 +56,7 @@ const captureRecord = async (
 ): Promise<SyncInputRecord | Readonly<{ unavailable: string }>> => {
   const input = await instrumentation.readInput(root, locator);
   if (input.status === "blocked") return { unavailable: input.diagnostic.message };
-  const normalized = normalizeNativeSource(locator, input.bytes.toString("utf8"));
-  return { ...normalized, bytes: input.bytes };
+  return { locator, source: input.bytes.toString("utf8"), bytes: input.bytes };
 };
 
 const fingerprintGeneration = (

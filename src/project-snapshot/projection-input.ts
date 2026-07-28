@@ -3,8 +3,8 @@ import type {
   DecodedBearingRecord,
   DecodedBearingRecordGeneration,
 } from "../bearing-record-decoder";
-import type { NativeSourceRecord } from "../native-work";
 import type { PlanningGraph } from "../planning-graph";
+import type { MattSkillsV1ScopeCapture } from "../providers/matt-skills-v1/capture";
 import type { AdvisoryFreshness, StructuralDiagnostic } from "../types";
 
 export type ProjectSnapshotBuildInput = Readonly<{
@@ -14,7 +14,7 @@ export type ProjectSnapshotBuildInput = Readonly<{
   diagnostics: readonly StructuralDiagnostic[];
   advisoryFreshness: AdvisoryFreshness;
   decoded: DecodedBearingRecordGeneration;
-  nativeRecords: readonly NativeSourceRecord[];
+  providerCaptures: readonly MattSkillsV1ScopeCapture[];
   assetContentObservations: readonly AssetContentObservation[];
   planningGraph: PlanningGraph;
 }>;

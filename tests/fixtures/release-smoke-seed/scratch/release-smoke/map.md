@@ -1,6 +1,5 @@
 # Map: Release Smoke Slice
 
-Type: wayfinder:map
 Status: active
 
 ## Destination

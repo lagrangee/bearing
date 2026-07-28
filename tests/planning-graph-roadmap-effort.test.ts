@@ -61,7 +61,6 @@ Authorities:
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/work
 ---
 
@@ -89,7 +88,6 @@ Authorities: []
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/optional
 ---
 
@@ -190,7 +188,7 @@ test("Roadmap closure preserves canonical Gate order, focus, and all nested cont
 
   const reversed = await buildPlanningGraph({
     decoded: { ...plan.decoded, records: [...plan.decoded.records].reverse() },
-    nativeRecords: [...plan.nativeRecords].reverse(),
+    providerCaptures: [...plan.providerCaptures].reverse(),
     diagnostics: [...plan.diagnostics].reverse(),
     fingerprint: plan.fingerprint,
     assetContentObservations: [...plan.assetContentObservations].reverse(),
@@ -211,8 +209,12 @@ test("Effort closure returns full nested context and treats optional absences as
   expect(complete.context.authorities.map(({ value }) => String(value.id))).toEqual([
     "authority:architecture",
   ]);
-  expect(String(complete.context.map?.value.reference)).toBe(".scratch/work/map.md");
-  expect(complete.context.tickets.map(({ value }) => String(value.reference))).toEqual([
+  const capture = complete.context.providerCapture;
+  if (capture === undefined || (capture.state !== "available" && capture.state !== "partial")) {
+    throw new Error("Expected an available Effort provider capture.");
+  }
+  expect(String(capture.projection.map?.ref)).toBe(".scratch/work/map.md");
+  expect(capture.projection.wayfinderTickets.map((ticket) => String(ticket.ref))).toEqual([
     ".scratch/work/issues/01-finish.md",
   ]);
   expect(complete.context.alignmentChecks.map(({ value }) => String(value.id))).toEqual([
@@ -226,8 +228,11 @@ test("Effort closure returns full nested context and treats optional absences as
   const optional = graph.contextFor({ kind: "effort", id: "effort:optional" });
   expect(optional.state).toBe("complete");
   if (optional.state === "invalid") throw new Error("Expected optional Effort context.");
-  expect(optional.context.map).toBeUndefined();
-  expect(optional.context.tickets).toEqual([]);
+  expect(optional.context.providerCapture).toMatchObject({
+    state: "absent",
+    completion: "incomplete",
+    binding: { nativeScope: ".scratch/optional" },
+  });
   expect(optional.context.evidence).toEqual([]);
 });
 
@@ -246,7 +251,6 @@ Authorities: []
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/broken
 ---
 
@@ -305,7 +309,6 @@ Roadmap: roadmap:test
 Target gate: gate:test
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/uncertain
 ---
 
@@ -318,6 +321,7 @@ Work binding:
     `# Potential contribution
 
 Type: task
+
 Status: open
 `,
   );
@@ -368,7 +372,6 @@ Authorities: []
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/detached
 ---
 
@@ -418,7 +421,6 @@ Citations:
     Note: Ambiguous evidence must not disappear.
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/work
 ---
 

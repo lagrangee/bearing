@@ -9,46 +9,6 @@ import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
 const fixture = (): ProjectSnapshot => createProjectOverviewFixture();
 
-const independentRoadmapsFixture = (): ProjectSnapshot => {
-  const snapshot = fixture();
-  if (
-    snapshot.roadmaps.validity !== "available" ||
-    snapshot.gates.validity !== "available" ||
-    snapshot.efforts.validity !== "available"
-  ) {
-    throw new Error("Expected complete Roadmap fixture projections.");
-  }
-  return projectSnapshotSchema.parse({
-    ...snapshot,
-    roadmaps: {
-      validity: "available",
-      items: snapshot.roadmaps.items.map((roadmap) =>
-        roadmap.id === "roadmap:portal"
-          ? { ...roadmap, gateOrder: ["gate:two"], effortIds: ["effort:portal"] }
-          : {
-              ...roadmap,
-              focusedGateId: null,
-              gateOrder: ["gate:one"],
-              horizon: "exhausted",
-              effortIds: ["effort:model"],
-            },
-      ),
-    },
-    gates: {
-      validity: "available",
-      items: snapshot.gates.items.map((gate) =>
-        gate.id === "gate:one" ? { ...gate, roadmapId: "roadmap:second" } : gate,
-      ),
-    },
-    efforts: {
-      validity: "available",
-      items: snapshot.efforts.items.map((effort) =>
-        effort.id === "effort:model" ? { ...effort, roadmapId: "roadmap:second" } : effort,
-      ),
-    },
-  });
-};
-
 test("builds lifecycle Index rows in canonical order with complete Gate horizons", () => {
   const model = buildRoadmapIndexModel(fixture());
   expect(model.state).toBe("available");
@@ -112,21 +72,12 @@ test("keeps scoped Index and Detail failures readable without inventing relation
   expect(detail.missingGateIds.map(String)).toEqual(["gate:one"]);
   expect(detail.gates.map((entry) => String(entry.gate.id))).toEqual(["gate:two"]);
 
-  if (snapshot.maps.validity === "invalid") throw new Error("Expected Maps fixture.");
   const mapPartial = buildRoadmapDetailModel(
     {
       ...snapshot,
-      maps: {
-        validity: "partial",
-        items: snapshot.maps.items.filter((map) => map.effortId !== "effort:portal"),
-        issues: [
-          {
-            code: "invalid-map-body",
-            target: ".scratch/portal/map.md",
-            message: "Map source is invalid.",
-          },
-        ],
-      },
+      providerCaptures: snapshot.providerCaptures.filter(
+        (capture) => capture.binding.nativeScope !== ".scratch/portal",
+      ),
     } as ProjectSnapshot,
     "roadmap:portal",
   );
@@ -148,35 +99,30 @@ test("propagates scoped partial Ticket issues without hiding trustworthy frontie
   if (
     snapshot.efforts.validity !== "available" ||
     snapshot.gates.validity !== "available" ||
-    snapshot.tickets.validity !== "available"
+    snapshot.providerCaptures.length !== 2
   ) {
     throw new Error("Expected Efforts, Gates, and Tickets fixture.");
   }
   const parsed = projectSnapshotSchema.safeParse({
     ...snapshot,
-    efforts: {
-      validity: "available",
-      items: snapshot.efforts.items.map((effort) =>
-        effort.id === "effort:portal" ? { ...effort, derivedState: "unknown" } : effort,
-      ),
-    },
-    gates: {
-      validity: "available",
-      items: snapshot.gates.items.map((gate) =>
-        gate.id === "gate:two" ? { ...gate, readiness: "unknown" } : gate,
-      ),
-    },
-    tickets: {
-      validity: "partial",
-      items: snapshot.tickets.items,
-      issues: [
-        {
-          code: "invalid-native-ticket",
-          target: ".scratch/portal/issues/04-corrupt.md",
-          message: "One native Ticket is structurally uncertain.",
-        },
-      ],
-    },
+    providerCaptures: snapshot.providerCaptures.map((capture) =>
+      capture.binding.nativeScope === ".scratch/portal"
+        ? {
+            ...capture,
+            state: "partial",
+            coverage: { ...capture.coverage, assessment: "incomplete" },
+            diagnostics: [
+              {
+                code: "matt.local.ticket.invalid",
+                class: "format",
+                impact: "blocking",
+                target: ".scratch/portal/issues/04-corrupt.md",
+                message: "One native Ticket is structurally uncertain.",
+              },
+            ],
+          }
+        : capture,
+    ),
   });
   expect(parsed.success).toBe(true);
   if (!parsed.success) throw new Error("Expected a trustworthy partial Ticket Snapshot.");
@@ -190,84 +136,4 @@ test("propagates scoped partial Ticket issues without hiding trustworthy frontie
     blocked: [{ title: "Pass the integration gate" }],
   });
   expect(buildRoadmapDetailModel(parsed.data, "roadmap:second").state).toBe("available");
-});
-
-test("scopes partial and invalid Map issues by target or source to one Roadmap", () => {
-  const snapshot = independentRoadmapsFixture();
-  if (snapshot.maps.validity !== "available") throw new Error("Expected complete Maps fixture.");
-  const portalMap = snapshot.maps.items.find((map) => map.effortId === "effort:portal");
-  if (portalMap === undefined) throw new Error("Expected the Portal Map fixture.");
-  const issues = [
-    {
-      code: "invalid-native-map",
-      target: ".scratch/portal/broken-map.md",
-      message: "One Portal Map is invalid.",
-    },
-    {
-      code: "invalid-native-map",
-      target: "maps",
-      message: "One Portal Map source is invalid.",
-      source: portalMap.source,
-    },
-  ] as const;
-
-  for (const issue of issues) {
-    for (const validity of ["partial", "invalid"] as const) {
-      const maps =
-        validity === "partial"
-          ? { validity, items: snapshot.maps.items, issues: [issue] }
-          : { validity, issues: [issue] };
-      const scoped = { ...snapshot, maps } as ProjectSnapshot;
-      const portal = buildRoadmapDetailModel(scoped, "roadmap:portal");
-      const second = buildRoadmapDetailModel(scoped, "roadmap:second");
-
-      expect(portal.state).toBe("partial");
-      expect(second.state).toBe("available");
-      if (portal.state !== "partial" || second.state !== "available") {
-        throw new Error("Expected only the issue-owning Roadmap to become partial.");
-      }
-      expect(portal.missingMapRelationCount).toBe(1);
-      expect(second.missingMapRelationCount).toBe(0);
-      expect(
-        portal.efforts.flatMap((effort) => effort.maps).map((map) => String(map.reference)),
-      ).toEqual(validity === "partial" ? [".scratch/portal/map.md"] : []);
-      expect(
-        second.efforts.flatMap((effort) => effort.maps).map((map) => String(map.reference)),
-      ).toEqual(validity === "partial" ? [".scratch/model/map.md"] : []);
-    }
-  }
-});
-
-test("fails closed on an unscopable Map issue without inventing a missing relation count", () => {
-  const snapshot = independentRoadmapsFixture();
-  if (snapshot.maps.validity !== "available") throw new Error("Expected complete Maps fixture.");
-  const issue = {
-    code: "invalid-native-map",
-    target: "maps",
-    message: "Map scope cannot be recovered.",
-  };
-
-  for (const validity of ["partial", "invalid"] as const) {
-    const maps =
-      validity === "partial"
-        ? { validity, items: snapshot.maps.items, issues: [issue] }
-        : { validity, issues: [issue] };
-    const scoped = { ...snapshot, maps } as ProjectSnapshot;
-    const portal = buildRoadmapDetailModel(scoped, "roadmap:portal");
-    const second = buildRoadmapDetailModel(scoped, "roadmap:second");
-
-    expect(portal.state).toBe("partial");
-    expect(second.state).toBe("partial");
-    if (portal.state !== "partial" || second.state !== "partial") {
-      throw new Error("Expected every Map-bearing Roadmap to fail closed.");
-    }
-    expect(portal.missingMapRelationCount).toBe(0);
-    expect(second.missingMapRelationCount).toBe(0);
-    expect(
-      portal.efforts.flatMap((effort) => effort.maps).map((map) => String(map.reference)),
-    ).toEqual(validity === "partial" ? [".scratch/portal/map.md"] : []);
-    expect(
-      second.efforts.flatMap((effort) => effort.maps).map((map) => String(map.reference)),
-    ).toEqual(validity === "partial" ? [".scratch/model/map.md"] : []);
-  }
 });

@@ -4,10 +4,9 @@ import { join } from "node:path";
 import type {
   CollectionProjection,
   Effort,
-  MapProjection,
   MilestoneGate,
+  ProviderScopeCapture,
   Roadmap,
-  TicketProjection,
 } from "../src/project-snapshot/contract";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
 import { prepareSync } from "../src/sync-plan";
@@ -17,8 +16,7 @@ type SharedPlanningProjection = Readonly<{
   roadmaps: CollectionProjection<Roadmap>;
   gates: CollectionProjection<MilestoneGate>;
   efforts: CollectionProjection<Effort>;
-  maps: CollectionProjection<MapProjection>;
-  tickets: CollectionProjection<TicketProjection>;
+  providerCaptures: readonly ProviderScopeCapture[];
 }>;
 
 const sharedProjection = (graph: unknown): SharedPlanningProjection => {
@@ -38,7 +36,7 @@ const snapshotFor = async (root: string) => {
     diagnostics: plan.diagnostics,
     advisoryFreshness: plan.advisoryFreshness,
     decoded: plan.decoded,
-    nativeRecords: plan.nativeRecords,
+    providerCaptures: plan.providerCaptures,
     assetContentObservations: plan.assetContentObservations,
     planningGraph: plan.planningGraph,
   });
@@ -59,8 +57,7 @@ test("one generation Planning Graph owns Snapshot relations and inspect agreemen
   expect(snapshot.roadmaps).toEqual(projection.roadmaps);
   expect(snapshot.gates).toEqual(projection.gates);
   expect(snapshot.efforts).toEqual(projection.efforts);
-  expect(snapshot.maps).toEqual(projection.maps);
-  expect(snapshot.tickets).toEqual(projection.tickets);
+  expect(snapshot.providerCaptures).toEqual(projection.providerCaptures);
 
   const roadmap = plan.planningGraph.contextFor({ kind: "roadmap", id: "roadmap:test" });
   const gate = plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" });
@@ -105,11 +102,7 @@ test("shared graph projection isolates an invalid contributor consistently", asy
   expect(gate.issues.filter((issue) => issue.code === "untrusted-effort-contributor")).toHaveLength(
     2,
   );
-  if (projection.maps.validity === "invalid" || projection.tickets.validity === "invalid") {
-    throw new Error("Expected trustworthy native siblings with isolated Effort bindings.");
-  }
-  expect(projection.maps.items[0]?.effortId).toBeUndefined();
-  expect(projection.tickets.items[0]?.effortId).toBeUndefined();
+  expect(projection.providerCaptures).toEqual(plan.providerCaptures);
   const sitemap = plan.sitemap.toString("utf8");
   const mapLine = sitemap.split("\n").find((line) => line.startsWith("- `.scratch/work/map.md`"));
   const ticketLine = sitemap
@@ -168,7 +161,6 @@ test("duplicate Snapshot and Sitemap planning derivation owners are deleted", as
     governance,
     snapshotProjection,
     sitemapEnrichment,
-    legacyDerivation,
     planningGraph,
     sitemapModel,
     sitemapSerialization,
@@ -176,7 +168,6 @@ test("duplicate Snapshot and Sitemap planning derivation owners are deleted", as
     readFile(join(process.cwd(), "src/project-snapshot/governance.ts"), "utf8"),
     readFile(join(process.cwd(), "src/project-snapshot/projection.ts"), "utf8"),
     readFile(join(process.cwd(), "src/sitemap-enrichment.ts"), "utf8"),
-    readFile(join(process.cwd(), "src/planning-derivation.ts"), "utf8"),
     readFile(join(process.cwd(), "src/planning-graph.ts"), "utf8"),
     readFile(join(process.cwd(), "src/sitemap-model.ts"), "utf8"),
     readFile(join(process.cwd(), "src/sitemap.ts"), "utf8"),
@@ -191,7 +182,6 @@ test("duplicate Snapshot and Sitemap planning derivation owners are deleted", as
   ]) {
     expect(governance).not.toContain(legacyHelper);
     expect(sitemapEnrichment).not.toContain(legacyHelper);
-    expect(legacyDerivation).not.toContain(legacyHelper);
   }
   expect(snapshotProjection).not.toContain("normalizePlanningDerivations");
   expect(snapshotProjection).not.toContain("buildProjectSitemapModelFromGeneration");

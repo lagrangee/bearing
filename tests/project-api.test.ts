@@ -22,7 +22,7 @@ const assets: PortalAssets = {
     schemaVersion: 1,
     packageVersion: "0.0.0-test",
     interfaceVersion: 1,
-    projectSnapshotVersion: 2,
+    projectSnapshotVersion: 3,
     entry: "index.html",
     buildId: "0".repeat(64),
     assets: [
@@ -418,24 +418,26 @@ test("ensure-current, cooldown, and force return complete typed project views", 
             id: "effort:test",
             roadmapId: "roadmap:test",
             targetGateId: "gate:test",
-            frontier: { resolved: [".scratch/work/issues/01-finish.md"] },
+            derivedState: "resolved",
+            workBinding: {
+              provider: "matt-skills/v1",
+              nativeScope: ".scratch/work",
+            },
           },
         ],
       },
-      maps: {
-        validity: "available",
-        items: [{ reference: ".scratch/work/map.md", effortId: "effort:test" }],
-      },
-      tickets: {
-        validity: "available",
-        items: [
-          {
-            reference: ".scratch/work/issues/01-finish.md",
-            effortId: "effort:test",
-            state: "resolved",
+      providerCaptures: [
+        {
+          provider: "matt-skills/v1",
+          binding: { nativeScope: ".scratch/work" },
+          state: "available",
+          completion: "complete",
+          projection: {
+            map: { ref: ".scratch/work/map.md" },
+            wayfinderTickets: [{ ref: ".scratch/work/issues/01-finish.md" }],
           },
-        ],
-      },
+        },
+      ],
     });
 
     expect(await (await sync("ensure-current")).json()).toMatchObject({

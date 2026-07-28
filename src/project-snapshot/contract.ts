@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { MattSkillsV1ScopeCapture } from "../providers/matt-skills-v1/capture";
 import {
   type alignmentCheckSchema,
   type assetProjectionSchema,
@@ -8,7 +9,6 @@ import {
   type effortSchema,
   type gateSchema,
   type guidanceItemSchema,
-  type mapProjectionSchema,
   type nextWorkGuidanceSchema,
   PROJECT_SNAPSHOT_VERSION,
   type planningAuditSchema,
@@ -18,7 +18,6 @@ import {
   type projectSummarySchema,
   type roadmapSchema,
   type structuralDiagnosticSchema,
-  type ticketProjectionSchema,
 } from "./schema";
 import type { roadmapIndexSchema } from "./schema-roadmap-index";
 import type { sourceRecordSchema } from "./source-schema";
@@ -66,8 +65,7 @@ export type AuditFinding = DeepReadonly<z.infer<typeof auditFindingSchema>>;
 export type PlanningAudit = DeepReadonly<z.infer<typeof planningAuditSchema>>;
 export type GuidanceItem = DeepReadonly<z.infer<typeof guidanceItemSchema>>;
 export type NextWorkGuidance = DeepReadonly<z.infer<typeof nextWorkGuidanceSchema>>;
-export type MapProjection = DeepReadonly<z.infer<typeof mapProjectionSchema>>;
-export type TicketProjection = DeepReadonly<z.infer<typeof ticketProjectionSchema>>;
+export type ProviderScopeCapture = DeepReadonly<MattSkillsV1ScopeCapture>;
 export type SnapshotDiagnostic = DeepReadonly<z.infer<typeof structuralDiagnosticSchema>>;
 export type AttentionItem = DeepReadonly<z.infer<typeof attentionItemSchema>>;
 export type SourceRecord = DeepReadonly<z.infer<typeof sourceRecordSchema>>;

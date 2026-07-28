@@ -13,7 +13,11 @@ import {
   queryMarkdownSection,
   queryMarkdownTable,
 } from "../../markdown-document";
-import { createProviderScopeCapture, type ProviderDiagnostic } from "../../native-work-provider";
+import {
+  type CapturedProviderDocuments,
+  createProviderScopeCapture,
+  type ProviderDiagnostic,
+} from "../../native-work-provider";
 import {
   isRepositoryPathBoundaryError,
   readContainedFile,
@@ -70,13 +74,17 @@ type FileStamp = Readonly<{
   ctimeNs: string;
 }>;
 
-type CapturedFile = Readonly<{
+type MarkdownInput = Readonly<{
   locator: string;
   bytes: Buffer;
   source: string;
   document: MarkdownDocument;
-  stamp: FileStamp;
 }>;
+
+type CapturedFile = MarkdownInput &
+  Readonly<{
+    stamp: FileStamp;
+  }>;
 
 type CaptureDiagnostic = ProviderDiagnostic;
 
@@ -111,6 +119,7 @@ export type LocalMarkdownMattProviderOptions = Readonly<{
   triageLocator?: string;
   maximumFileBytes?: number;
   clock?: () => Date;
+  capturedDocuments?: CapturedProviderDocuments;
   onCaptureEvent?: (event: LocalMarkdownCaptureEvent) => void | Promise<void>;
 }>;
 
@@ -359,7 +368,7 @@ const supplementaryContent = (file: CapturedFile): readonly MattContent[] => {
   return content;
 };
 
-const parseContract = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): boolean => {
+const parseContract = (file: MarkdownInput, diagnostics: CaptureDiagnostic[]): boolean => {
   const title = queryMarkdownDocumentTitle(file.document);
   const conventions = queryMarkdownSection(file.document, { title: "Conventions" });
   const wayfinding = queryMarkdownSection(file.document, { title: "Wayfinding operations" });
@@ -407,7 +416,7 @@ const parseContract = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): bo
 };
 
 const parseTriageVocabulary = (
-  file: CapturedFile,
+  file: MarkdownInput,
   diagnostics: CaptureDiagnostic[],
 ): TriageVocabulary | undefined => {
   const table = queryMarkdownTable(file.document);
@@ -1061,6 +1070,9 @@ const scopeCompletion = (projection: MattScopeProjection): "complete" | "incompl
   if (projection.map !== undefined && projection.map.lifecycle.state !== "resolved") {
     return "incomplete";
   }
+  if (projection.map !== undefined && projection.map.fog.length > 0) {
+    return "incomplete";
+  }
   if (
     projection.spec !== undefined &&
     projection.spec.lifecycle.state !== "ready-for-agent" &&
@@ -1138,6 +1150,7 @@ const captureLocalScope = async (
   }
 
   const capturedFiles = new Map<string, CapturedFile>();
+  const interpretationFiles = new Map<string, MarkdownInput>();
   const attemptedLocators = new Set<string>();
   const readTarget = async (
     locator: string,
@@ -1217,7 +1230,56 @@ const captureLocalScope = async (
     }
   };
 
-  const contractFile = await readTarget(contractLocator, true);
+  const interpretationTarget = async (locator: string): Promise<MarkdownInput | undefined> => {
+    if (options.capturedDocuments === undefined) return readTarget(locator, true);
+    const captured = options.capturedDocuments.get(locator);
+    if (captured === undefined) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.input.unavailable",
+          "source",
+          locator,
+          "Generation-captured interpretation input is unavailable.",
+        ),
+      );
+      return undefined;
+    }
+    if (captured.bytes.length > maximumFileBytes) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.input.too-large",
+          "source",
+          locator,
+          `Local Markdown input exceeds ${maximumFileBytes} bytes.`,
+        ),
+      );
+      return undefined;
+    }
+    let source: string;
+    try {
+      source = new TextDecoder("utf-8", { fatal: true }).decode(captured.bytes);
+    } catch {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.input.encoding",
+          "format",
+          locator,
+          "Local Markdown input is not valid UTF-8.",
+        ),
+      );
+      return undefined;
+    }
+    const file = {
+      locator,
+      bytes: captured.bytes,
+      source,
+      document: parseMarkdownDocument(source),
+    };
+    interpretationFiles.set(locator, file);
+    return file;
+  };
+
+  const contractFile = await interpretationTarget(contractLocator);
   if (contractFile === undefined || !parseContract(contractFile, diagnostics)) {
     return captureWithoutProjection({
       binding,
@@ -1229,7 +1291,7 @@ const captureLocalScope = async (
       diagnostics,
     });
   }
-  const triageFile = await readTarget(triageLocator, true);
+  const triageFile = await interpretationTarget(triageLocator);
   const vocabulary =
     triageFile === undefined ? undefined : parseTriageVocabulary(triageFile, diagnostics);
 
@@ -1258,7 +1320,7 @@ const captureLocalScope = async (
     }
     scopeStamp = await stampFor(scopePath);
   } catch (error) {
-    if (isSystemError(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
+    if (isSystemError(error) && error.code === "ENOENT") {
       const configurationInvalid =
         vocabulary === undefined ||
         diagnostics.some(
@@ -1643,7 +1705,7 @@ const captureLocalScope = async (
   const state = blocking ? "partial" : "available";
   const freshness = concurrentMutation ? "undetermined" : "current";
   const sourceRevision = fingerprintInputRecords(
-    [...capturedFiles.values()].map((file) => ({
+    [...interpretationFiles.values(), ...capturedFiles.values()].map((file) => ({
       locator: file.locator,
       bytes: file.bytes,
     })),

@@ -19,15 +19,23 @@ const materialize = async (root: string): Promise<ProjectSnapshot> => {
   });
 };
 
-test("derives Effort and Gate truth from the final normalized native projection", async () => {
+test("derives Effort and Gate truth from the final provider capture", async () => {
   const root = await createValidBearingRepo();
   const path = join(root, ".scratch/work/map.md");
   const source = await readFile(path, "utf8");
-  await writeFixture(root, ".scratch/work/map.md", source.replace("Test", "**Test**"));
+  await writeFixture(
+    root,
+    ".scratch/work/map.md",
+    source.replace("Status: resolved", "Status: unsupported"),
+  );
 
   const snapshot = await materialize(root);
 
-  expect(snapshot.maps.validity).toBe("invalid");
+  const capture = snapshot.providerCaptures.find(
+    (candidate) => candidate.binding.nativeScope === ".scratch/work",
+  );
+  expect(capture).toBeDefined();
+  expect(capture?.completion).toBe("undetermined");
   expect(snapshot.efforts).toMatchObject({
     validity: "available",
     items: [{ id: "effort:test", derivedState: "unknown" }],
@@ -137,22 +145,22 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
   await writeFixture(
     root,
     ".bearing/state/efforts/other.md",
-    `---\nType: effort\nID: effort:other\nTitle: Other Effort\nRoadmap: roadmap:other\nTarget gate: gate:other\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Driver: local-markdown\n  Native scope: .scratch/other\n---\n\n# Effort: Other\n\n## Intent\n\nProve scoped contributor isolation.\n\n## Work\n\n- [Map](map.md)\n`,
+    `---\nType: effort\nID: effort:other\nTitle: Other Effort\nRoadmap: roadmap:other\nTarget gate: gate:other\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/other\n---\n\n# Effort: Other\n\n## Intent\n\nProve scoped contributor isolation.\n\n## Work\n\n- [Map](map.md)\n`,
   );
   await writeFixture(
     root,
     ".scratch/other/map.md",
-    "# Wayfinder Map: Other\n\nType: wayfinder:map\nStatus: resolved\n\n## Destination\n\nResolve sibling work.\n\n## Not yet specified\n",
+    "# Wayfinder Map: Other\n\nStatus: resolved\n\n## Destination\n\nResolve sibling work.\n\n## Decisions so far\n\n- [Finish Other](issues/01-finish.md) — Done.\n\n## Fog\n",
   );
   await writeFixture(
     root,
     ".scratch/other/issues/01-finish.md",
-    "# Finish Other\n\nType: task\nStatus: resolved\n\n## Answer\n\nDone.\n",
+    "# Finish Other\n\nType: task\n\nStatus: resolved\n\n## Question\n\nCan the other effort finish?\n\n## Answer\n\nDone.\n",
   );
   await writeFixture(
     root,
     ".bearing/state/efforts/broken.md",
-    `---\nType: effort\nID: effort:broken\nTitle: Broken Contributor\nRoadmap: roadmap:test\nTarget gate: gate:test\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Driver: local-markdown\n  Native scope: .scratch/broken\n---\n\n# Effort: Broken\n\n## Intent\n\nThis contributor has no Work section.\n`,
+    `---\nType: effort\nID: effort:broken\nTitle: Broken Contributor\nRoadmap: roadmap:test\nTarget gate: gate:test\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/broken\n---\n\n# Effort: Broken\n\n## Intent\n\nThis contributor has no Work section.\n`,
   );
 
   const snapshot = await materialize(root);
@@ -179,133 +187,4 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
   });
   expect(buildRoadmapDetailModel(snapshot, "roadmap:test").state).toBe("partial");
   expect(buildRoadmapDetailModel(snapshot, "roadmap:other").state).toBe("available");
-});
-
-test("keeps ready aliases blocker-aware through the real Snapshot builder", async () => {
-  const root = await createValidBearingRepo();
-  const ticketPath = join(root, ".scratch/work/issues/01-finish.md");
-  const ticket = await readFile(ticketPath, "utf8");
-  await writeFixture(
-    root,
-    ".scratch/work/issues/01-finish.md",
-    ticket.replace("Status: resolved", "Status: ready-for-agent\nBlocked by: 02"),
-  );
-  await writeFixture(
-    root,
-    ".scratch/work/issues/02-blocker.md",
-    "# Blocker\n\nType: task\nStatus: open\n\n## Question\n\nIs work still open?\n",
-  );
-
-  const snapshot = await materialize(root);
-
-  expect(snapshot.tickets).toMatchObject({
-    validity: "available",
-    items: [
-      { reference: ".scratch/work/issues/01-finish.md", state: "blocked" },
-      { reference: ".scratch/work/issues/02-blocker.md", state: "ready" },
-    ],
-  });
-  expect(snapshot.gates).toMatchObject({
-    validity: "available",
-    items: [{ id: "gate:test", readiness: "not-ready" }],
-  });
-});
-
-test("isolates ambiguous native Ticket numbers without leaking blocker relations across scopes", async () => {
-  const root = await createValidBearingRepo();
-  await writeFixture(
-    root,
-    ".scratch/work/issues/02-resolved.md",
-    "# Resolved Duplicate\n\nType: task\nStatus: resolved\n\n## Answer\n\nDone.\n",
-  );
-  await writeFixture(
-    root,
-    ".scratch/work/issues/02-open.md",
-    "# Open Duplicate\n\nType: task\nStatus: open\n\n## Question\n\nWhat remains?\n",
-  );
-  await writeFixture(
-    root,
-    ".scratch/work/issues/03-ambiguous.md",
-    "# Ambiguous Dependent\n\nType: task\nStatus: open\nBlocked by: 02\n\n## Question\n\nWhich Ticket blocks this?\n",
-  );
-  await writeFixture(
-    root,
-    ".scratch/healthy/issues/02-resolved.md",
-    "# Healthy Blocker\n\nType: task\nStatus: resolved\n\n## Answer\n\nDone.\n",
-  );
-  await writeFixture(
-    root,
-    ".scratch/healthy/issues/03-ready.md",
-    "# Healthy Dependent\n\nType: task\nStatus: open\nBlocked by: 02\n\n## Question\n\nCan this start?\n",
-  );
-
-  const sync = await runSync(root);
-  const snapshot = await buildProjectSnapshot({
-    repoRoot: root,
-    packageVersion: "0.0.0-test",
-    inputs: sync.inputs,
-    sitemapFingerprint: sync.fingerprint,
-    diagnostics: sync.diagnostics,
-    advisoryFreshness: sync.advisoryFreshness,
-  });
-  const sitemap = await readFile(sync.sitemapPath, "utf8");
-  const ambiguousLine = sitemap
-    .split("\n")
-    .find((line) => line.includes("`.scratch/work/issues/03-ambiguous.md`"));
-  const healthyLine = sitemap
-    .split("\n")
-    .find((line) => line.includes("`.scratch/healthy/issues/03-ready.md`"));
-
-  expect(sync.diagnostics).toContainEqual({
-    code: "ambiguous-ticket-blocker",
-    impact: "blocking",
-    target: ".scratch/work/issues/03-ambiguous.md",
-    message: "Tracker-native Ticket blocker is ambiguous within its work scope.",
-  });
-  expect(
-    sync.diagnostics.filter((diagnostic) => diagnostic.code === "duplicate-ticket-number"),
-  ).toEqual([
-    {
-      code: "duplicate-ticket-number",
-      impact: "blocking",
-      target: ".scratch/work/issues/02-open.md",
-      message: "Tracker-native Ticket number is duplicated within its work scope.",
-    },
-    {
-      code: "duplicate-ticket-number",
-      impact: "blocking",
-      target: ".scratch/work/issues/02-resolved.md",
-      message: "Tracker-native Ticket number is duplicated within its work scope.",
-    },
-  ]);
-  expect(ambiguousLine).not.toContain("blocked-by:");
-  expect(healthyLine).toContain("blocked-by: `.scratch/healthy/issues/02-resolved.md`");
-  expect(snapshot.tickets).toMatchObject({
-    validity: "partial",
-    items: expect.arrayContaining([
-      expect.objectContaining({
-        reference: ".scratch/healthy/issues/02-resolved.md",
-        state: "resolved",
-        blockedBy: [],
-      }),
-      expect.objectContaining({
-        reference: ".scratch/healthy/issues/03-ready.md",
-        state: "ready",
-        blockedBy: [".scratch/healthy/issues/02-resolved.md"],
-      }),
-    ]),
-  });
-  expect(
-    snapshot.tickets.validity === "available"
-      ? snapshot.tickets.items
-      : snapshot.tickets.validity === "partial"
-        ? snapshot.tickets.items
-        : [],
-  ).not.toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ reference: ".scratch/work/issues/02-open.md" }),
-      expect.objectContaining({ reference: ".scratch/work/issues/02-resolved.md" }),
-      expect.objectContaining({ reference: ".scratch/work/issues/03-ambiguous.md" }),
-    ]),
-  );
 });

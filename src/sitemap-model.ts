@@ -3,11 +3,14 @@ import type {
   DecodedBearingRecord,
   DecodedBearingRecordGeneration,
 } from "./bearing-record-decoder";
-import { buildCapturedNativeNodes } from "./captured-native-work";
-import type { NativeSourceRecord, NativeWork } from "./native-work";
 import type { PlanningGraphProjection } from "./planning-graph";
+import type { MattSkillsV1ScopeCapture } from "./providers/matt-skills-v1/capture";
+import {
+  mattObjectLocator,
+  mattObjectState,
+  mattObjects,
+} from "./providers/matt-skills-v1/projection";
 import { enrichSitemapNodes } from "./sitemap-enrichment";
-import { sitemapNodeForNative } from "./sitemap-native";
 import type { AdvisoryFreshness, StructuralDiagnostic } from "./types";
 
 export type SitemapLink = Readonly<{ label: string; target: string }>;
@@ -20,7 +23,6 @@ export type SitemapNode = {
   scope?: string;
   links: SitemapLink[];
   annotations: string[];
-  native?: NativeWork;
 };
 export type ProjectSitemapModel = Readonly<{
   nodes: readonly SitemapNode[];
@@ -174,26 +176,51 @@ const bearingNodes = (
 
 export const buildProjectSitemapModelFromGeneration = (
   decoded: DecodedBearingRecordGeneration,
-  nativeRecords: readonly NativeSourceRecord[],
+  providerCaptures: readonly MattSkillsV1ScopeCapture[],
   diagnostics: readonly StructuralDiagnostic[],
   advisoryFreshness: AdvisoryFreshness,
   planning: PlanningGraphProjection,
 ): ProjectSitemapModel => {
   const nodes = decoded.records.flatMap((record) => bearingNodes(record, advisoryFreshness));
-  const projectedEffortByNativeReference = new Map<string, string>();
-  for (const collection of [planning.maps, planning.tickets]) {
-    if (collection.validity === "invalid") continue;
-    for (const item of collection.items) {
-      if (item.effortId !== undefined) {
-        projectedEffortByNativeReference.set(item.reference, item.effortId);
-      }
-    }
-  }
-  nodes.push(
-    ...buildCapturedNativeNodes(nativeRecords).map((captured) =>
-      sitemapNodeForNative(captured, projectedEffortByNativeReference.get(captured.reference)),
+  const effortByBinding = new Map(
+    (planning.efforts.validity === "invalid" ? [] : planning.efforts.items).flatMap((effort) =>
+      effort.workBinding === undefined
+        ? []
+        : [
+            [
+              `${effort.workBinding.provider}\0${effort.workBinding.nativeScope}`,
+              effort.id,
+            ] as const,
+          ],
     ),
   );
+  for (const capture of providerCaptures) {
+    const effortId = effortByBinding.get(`${capture.provider}\0${capture.binding.nativeScope}`);
+    for (const object of mattObjects(capture)) {
+      const links: SitemapLink[] =
+        effortId === undefined ? [] : [{ label: "effort", target: effortId }];
+      if (capture.state === "available" || capture.state === "partial") {
+        for (const relation of capture.projection.graph.blockedBy) {
+          if (relation.blocked === object.ref) {
+            links.push({ label: "blocked-by", target: relation.blocker });
+          }
+        }
+      }
+      nodes.push({
+        type: object.kind === "map" ? "Maps" : object.kind === "spec" ? "Specs" : "Tickets",
+        reference: object.ref,
+        title: object.title,
+        state: mattObjectState(object),
+        locator: mattObjectLocator(object),
+        scope: capture.binding.nativeScope,
+        links,
+        annotations:
+          object.kind === "map"
+            ? [`fog-count=${object.fog.length}`, `provider-completion=${capture.completion}`]
+            : [`role=${object.kind}`],
+      });
+    }
+  }
   const readiness = enrichSitemapNodes(nodes, decoded, planning);
   nodes.sort((left, right) =>
     Buffer.compare(Buffer.from(left.reference), Buffer.from(right.reference)),

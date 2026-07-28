@@ -23,7 +23,6 @@ Citations:
     Note: The current mock governs this effort.
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/work
 ---
 
@@ -184,8 +183,10 @@ Inspect the accepted Gate outcome and its remaining evidence.
       `# Follow Up
 
 Type: task
-Status: open
+
 Blocked by: 01
+
+Status: claimed
 
 ## Question
 

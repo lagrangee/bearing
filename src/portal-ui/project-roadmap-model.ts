@@ -1,14 +1,12 @@
 import type {
   AssetProjection,
   Effort,
-  MapProjection,
   MilestoneGate,
   ProjectSnapshot,
   Roadmap,
   SourceRecord,
-  TicketProjection,
 } from "../project-snapshot/contract";
-import { nativeProjectionUncertainForEffort } from "../project-snapshot/schema-native-scope-consistency";
+import { mattPlanningPresentation } from "../providers/matt-skills-v1/projection";
 import {
   assessScopedMapIssues,
   collectRoadmapEvidenceIds,
@@ -40,17 +38,33 @@ export type RoadmapIndexModel =
   | Readonly<{ state: "invalid"; groups: readonly []; issueCount: number }>;
 
 type Frontier = Readonly<{
-  claimed: readonly TicketProjection[];
-  ready: readonly TicketProjection[];
-  blocked: readonly TicketProjection[];
-  resolved: readonly TicketProjection[];
+  claimed: readonly MattTicketView[];
+  ready: readonly MattTicketView[];
+  blocked: readonly MattTicketView[];
+  resolved: readonly MattTicketView[];
+}>;
+
+export type MattMapView = Readonly<{
+  reference: string;
+  title: string;
+  source: string;
+  state: string;
+  fogCount: number;
+}>;
+export type MattTicketView = Readonly<{
+  reference: string;
+  title: string;
+  source: string;
+  state: "claimed" | "ready" | "blocked" | "resolved";
+  blockedBy: readonly string[];
 }>;
 
 export type RoadmapEffortModel = Readonly<{
   effort: Effort;
   source: SourceRecord | undefined;
   targetGate: MilestoneGate | undefined;
-  maps: readonly MapProjection[];
+  maps: readonly MattMapView[];
+  fogCount: number;
   frontier: Frontier;
   missingFrontierReferences: readonly string[];
 }>;
@@ -149,25 +163,52 @@ export const buildRoadmapIndexModel = (snapshot: ProjectSnapshot): RoadmapIndexM
   };
 };
 
+const sourceFor = (sources: ReadonlyMap<string, SourceRecord>, identity: string): string =>
+  [...sources.values()].find(
+    (source) => source.kind === "tracker" && source.binding?.identity === identity,
+  )?.reference ?? "";
+
 const frontierFor = (
+  snapshot: ProjectSnapshot,
   effort: Effort,
-  tickets: ReadonlyMap<string, TicketProjection>,
-): Readonly<{ frontier: Frontier; missing: readonly string[] }> => {
-  const missing: string[] = [];
-  const lane = (references: readonly string[]): TicketProjection[] =>
-    references.flatMap((reference) => {
-      const ticket = tickets.get(reference);
-      if (ticket === undefined) missing.push(reference);
-      return ticket === undefined ? [] : [ticket];
-    });
+  sources: ReadonlyMap<string, SourceRecord>,
+): Readonly<{ frontier: Frontier; maps: readonly MattMapView[]; missing: readonly string[] }> => {
+  const binding = effort.workBinding;
+  const capture =
+    binding === undefined
+      ? undefined
+      : snapshot.providerCaptures.find(
+          (candidate) =>
+            candidate.provider === binding.provider &&
+            candidate.binding.nativeScope === binding.nativeScope,
+        );
+  if (capture === undefined || (capture.state !== "available" && capture.state !== "partial")) {
+    return {
+      frontier: { claimed: [], ready: [], blocked: [], resolved: [] },
+      maps: [],
+      missing: binding === undefined ? [] : [binding.nativeScope],
+    };
+  }
+  const presentation = mattPlanningPresentation(capture);
+  const tickets: MattTicketView[] = presentation.tickets.map((ticket) => ({
+    ...ticket,
+    source: sourceFor(sources, ticket.reference),
+  }));
+  const lane = (state: MattTicketView["state"]) =>
+    tickets.filter((ticket) => ticket.state === state);
+  const maps: MattMapView[] = presentation.maps.map((map) => ({
+    ...map,
+    source: sourceFor(sources, map.reference),
+  }));
   return {
     frontier: {
-      claimed: lane(effort.frontier.claimed),
-      ready: lane(effort.frontier.ready),
-      blocked: lane(effort.frontier.blocked),
-      resolved: lane(effort.frontier.resolved),
+      claimed: lane("claimed"),
+      ready: lane("ready"),
+      blocked: lane("blocked"),
+      resolved: lane("resolved"),
     },
-    missing,
+    maps,
+    missing: [],
   };
 };
 
@@ -184,8 +225,6 @@ export const buildRoadmapDetailModel = (
   const gateIndex = indexBy(items(snapshot.gates), (gate) => gate.id);
   const summary = gateSummary(roadmap, gateIndex, sources);
   const effortIndex = indexBy(items(snapshot.efforts), (effort) => effort.id);
-  const mapItems = items(snapshot.maps);
-  const ticketIndex = indexBy(items(snapshot.tickets), (ticket) => ticket.reference);
   const efforts: RoadmapEffortModel[] = [];
   const missingEffortIds: string[] = [];
   let missingFrontierCount = 0;
@@ -195,13 +234,14 @@ export const buildRoadmapDetailModel = (
       missingEffortIds.push(effortId);
       continue;
     }
-    const resolved = frontierFor(effort, ticketIndex);
+    const resolved = frontierFor(snapshot, effort, sources);
     missingFrontierCount += resolved.missing.length;
     efforts.push({
       effort,
       source: sources.get(effort.source),
       targetGate: gateIndex.get(effort.targetGateId),
-      maps: mapItems.filter((map) => map.effortId === effort.id),
+      maps: resolved.maps,
+      fogCount: resolved.maps.reduce((total, map) => total + map.fogCount, 0),
       frontier: resolved.frontier,
       missingFrontierReferences: resolved.missing,
     });
@@ -220,12 +260,9 @@ export const buildRoadmapDetailModel = (
   }
   const focusedGate = summary.gates.find((entry) => entry.gate.id === roadmap.focusedGateId);
   const mapIssues = assessScopedMapIssues(
-    snapshot.maps,
+    snapshot.providerCaptures,
     efforts.map(({ effort }) => effort),
     snapshot.sources,
-  );
-  const hasScopedTicketIssue = efforts.some(({ effort }) =>
-    nativeProjectionUncertainForEffort(snapshot.tickets, effort, snapshot.sources),
   );
   const partial =
     summary.missingGateIds.length > 0 ||
@@ -234,7 +271,6 @@ export const buildRoadmapDetailModel = (
     missingEvidenceAssetIds.length > 0 ||
     mapIssues.uncertain ||
     hasScopedGateIssue(snapshot.gates, roadmap.gateOrder) ||
-    hasScopedTicketIssue ||
     (roadmap.focusedGateId !== null && focusedGate === undefined);
   return {
     state: partial ? "partial" : "available",

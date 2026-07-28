@@ -1,9 +1,8 @@
 import { expect, test } from "bun:test";
 import { decodeBearingRecordGeneration } from "../src/bearing-record-decoder";
-import { normalizeNativeSource } from "../src/native-work";
 
 const analyzeFixture = (locator: string, source: string) => {
-  const record = { ...normalizeNativeSource(locator, source), bytes: Buffer.from(source) };
+  const record = { locator, source, bytes: Buffer.from(source) };
   const decoded = decodeBearingRecordGeneration({
     fingerprint: FINGERPRINT,
     records: [record],

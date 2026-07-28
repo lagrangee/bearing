@@ -11,7 +11,6 @@ type Singleton<T> =
   | Readonly<{ validity: "partial"; value: T; issues?: readonly unknown[] }>
   | Readonly<{ validity: "absent" | "invalid" }>;
 type IdentifiedSource = Readonly<{ id: string; source: string }>;
-type ReferencedSource = Readonly<{ reference: string; source: string }>;
 type Guidance = IdentifiedSource &
   Readonly<{
     primary: Readonly<{ source: string }>;
@@ -37,8 +36,6 @@ export type SourceBindingConsistencySnapshot = Readonly<{
   reviews: Collection<IdentifiedSource>;
   audit: Singleton<IdentifiedSource>;
   guidance: Singleton<Guidance>;
-  maps: Collection<ReferencedSource>;
-  tickets: Collection<ReferencedSource>;
   sources: readonly SourceRecord[];
 }>;
 
@@ -168,20 +165,6 @@ export const validateSourceBindingConsistency = (
       ["assets", "items", position],
       context,
     );
-  }
-  for (const [name, role] of [
-    ["maps", "map"],
-    ["tickets", "ticket"],
-  ] as const) {
-    for (const [position, item] of trustedItems(snapshot[name]).entries()) {
-      validateBinding(
-        index,
-        item.source,
-        { kind: "tracker", role, identity: item.reference, locator: item.reference },
-        [name, "items", position],
-        context,
-      );
-    }
   }
   const audit = trustedValue(snapshot.audit);
   if (audit !== undefined) {

@@ -123,12 +123,10 @@ const effortProjection = (input: Input): BuildResult<Effort>[] =>
           : {
               workBinding: {
                 provider: data["Work binding"].Provider,
-                driver: data["Work binding"].Driver,
                 nativeScope: data["Work binding"]["Native scope"],
               },
             }),
         derivedState: "unknown",
-        frontier: { claimed: [], ready: [], blocked: [], resolved: [], fogCount: 0 },
       }),
     };
   });

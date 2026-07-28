@@ -1,6 +1,8 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
+export { LOCAL_MATT_CONTRACT, LOCAL_MATT_TRIAGE_LABELS } from "./fixtures/local-matt-contract";
 
 export const makeTemporaryDirectory = async (prefix: string): Promise<string> =>
   mkdtemp(join(tmpdir(), prefix));
@@ -15,18 +17,61 @@ export const writeFixture = async (
   await writeFile(target, content);
 };
 
+export const writeStandardMattLocalRepository = async (root: string): Promise<void> => {
+  const standardContract = await readFile(join(process.cwd(), "docs/agents/issue-tracker.md"));
+  const standardTriageVocabulary = await readFile(
+    join(process.cwd(), "docs/agents/triage-labels.md"),
+  );
+  await writeFixture(root, "CONTEXT.md", "# Local Matt repository\n");
+  await writeFixture(root, "docs/agents/domain.md", "# Domain\n");
+  await writeFixture(root, "docs/agents/issue-tracker.md", standardContract);
+  await writeFixture(root, "docs/agents/triage-labels.md", standardTriageVocabulary);
+  await writeFixture(
+    root,
+    "AGENTS.md",
+    "Work-management contract: `docs/agents/issue-tracker.md`\n",
+  );
+  await writeFixture(
+    root,
+    ".scratch/work/map.md",
+    `# Wayfinder Map: Test
+
+Status: resolved
+
+## Destination
+
+Resolve the work.
+
+## Decisions so far
+
+- [Finish](issues/01-finish.md) — The fixture is complete.
+
+## Fog
+`,
+  );
+  await writeFixture(
+    root,
+    ".scratch/work/issues/01-finish.md",
+    `# Finish
+
+Type: task
+
+Status: resolved
+
+## Question
+
+Can the fixture finish?
+
+## Answer
+
+Yes.
+`,
+  );
+};
+
 export const createValidBearingRepo = async (): Promise<string> => {
   const root = await makeTemporaryDirectory("bearing-repo-");
-  const interpretationFiles = [
-    "CONTEXT.md",
-    "docs/agents/issue-tracker.md",
-    "docs/agents/triage-labels.md",
-    "docs/agents/domain.md",
-  ];
-  for (const locator of interpretationFiles) {
-    await writeFixture(root, locator, `# ${locator}\n`);
-  }
-
+  await writeStandardMattLocalRepository(root);
   await writeFixture(
     root,
     ".bearing/manifest.json",
@@ -37,6 +82,24 @@ export const createValidBearingRepo = async (): Promise<string> => {
         status: "active",
         surfaces: ["agent-skills"],
         executorProfiles: [],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  await writeValidBearingState(root);
+  return root;
+};
+
+export const writeValidBearingState = async (root: string): Promise<void> => {
+  await writeFixture(
+    root,
+    ".bearing/provider.json",
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        provider: "matt-skills/v1",
+        contractLocator: "docs/agents/issue-tracker.md",
       },
       null,
       2,
@@ -153,7 +216,6 @@ Authorities: []
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/work
 ---
 
@@ -168,37 +230,4 @@ Exercise the sync contract.
 - [Map](map.md)
 `,
   );
-  await writeFixture(
-    root,
-    ".scratch/work/map.md",
-    `# Wayfinder Map: Test
-
-Type: wayfinder:map
-Status: resolved
-
-## Destination
-
-Resolve the work.
-
-## Not yet specified
-`,
-  );
-  await writeFixture(
-    root,
-    ".scratch/work/issues/01-finish.md",
-    `# Finish
-
-Type: task
-Status: resolved
-
-## Question
-
-Can the fixture finish?
-
-## Answer
-
-Yes.
-`,
-  );
-  return root;
 };

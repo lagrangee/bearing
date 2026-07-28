@@ -16,6 +16,7 @@ import {
   queryMarkdownTable,
 } from "../../markdown-document";
 import {
+  type CapturedProviderDocuments,
   createProviderScopeCapture,
   type ProviderDiagnostic,
   type ProviderFreshnessEvidence,
@@ -170,6 +171,7 @@ export type GitHubMattProviderOptions = Readonly<{
   repoRoot: string;
   contractLocator: string;
   triageLocator?: string;
+  capturedDocuments?: CapturedProviderDocuments;
   transport?: GitHubReadTransport;
   clock?: () => Date;
 }>;
@@ -477,6 +479,15 @@ const readRepositoryDocument = async (
     return undefined;
   }
 };
+
+const readInterpretationDocument = async (
+  options: GitHubMattProviderOptions,
+  root: string,
+  locator: string,
+): Promise<string | undefined> =>
+  options.capturedDocuments === undefined
+    ? readRepositoryDocument(root, locator)
+    : options.capturedDocuments.get(locator)?.source;
 
 const parseTriageVocabulary = (
   source: string,
@@ -1725,7 +1736,7 @@ const captureGitHubScope = async (
   const triageLocator = normalizeLocator(
     options.triageLocator ?? posix.join(posix.dirname(contractLocator), "triage-labels.md"),
   );
-  const contractSource = await readRepositoryDocument(root, contractLocator);
+  const contractSource = await readInterpretationDocument(options, root, contractLocator);
   const contract =
     contractSource === undefined ? undefined : validateMattSkillsV1Contract(contractSource);
   if (
@@ -1750,7 +1761,7 @@ const captureGitHubScope = async (
     });
   }
   const pullRequestsEnabled = externalPullRequestsEnabled(contractSource);
-  const triageSource = await readRepositoryDocument(root, triageLocator);
+  const triageSource = await readInterpretationDocument(options, root, triageLocator);
   const vocabulary =
     triageSource === undefined
       ? undefined

@@ -36,7 +36,7 @@ const runAssetRegistration = async (
       canonicalEffortPath,
       legacyEffort.replace(
         "Citations: []",
-        "Citations: []\nWork binding:\n  Provider: matt-skills/v1\n  Driver: local-markdown\n  Native scope: .scratch/work",
+        "Citations: []\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/work",
       ),
     );
     await rm(legacyEffortPath);

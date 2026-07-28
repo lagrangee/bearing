@@ -79,7 +79,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -93,8 +93,7 @@ const validSnapshot = {
   reviews: availableItems,
   audit: { validity: "absent" },
   guidance: { validity: "absent" },
-  maps: availableItems,
-  tickets: availableItems,
+  providerCaptures: [],
   diagnostics: [],
   attention: [],
   sources: [
@@ -108,6 +107,30 @@ const validSnapshot = {
     assetRecord,
   ],
 };
+const providerCapture = {
+  provider: "matt-skills/v1",
+  binding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
+  generation: { fingerprint: BASIS },
+  state: "available",
+  freshness: {
+    assessment: "current",
+    capturedAt: "2026-07-28T12:00:00.000Z",
+    sourceRevision: `sha256:${"b".repeat(64)}`,
+    evidence: [{ kind: "local-scope", value: ".scratch/work" }],
+  },
+  coverage: {
+    assessment: "complete",
+    dimensions: [{ key: "scope-membership", state: "covered" }],
+  },
+  completion: "incomplete",
+  diagnostics: [],
+  projection: {
+    wayfinderTickets: [],
+    deliveryTickets: [],
+    incomingIssues: [],
+    graph: { parentChild: [], blockedBy: [] },
+  },
+} as const;
 const guidanceItem = {
   title: "Complete Snapshot",
   rationale: "Unlock every reading path.",
@@ -162,8 +185,7 @@ test("parses a repository-scoped Snapshot with the complete domain breadth", () 
     "reviews",
     "audit",
     "guidance",
-    "maps",
-    "tickets",
+    "providerCaptures",
     "diagnostics",
     "attention",
     "sources",
@@ -192,6 +214,63 @@ test("rejects extras and impossible projection variants at nested boundaries", (
   expect(projectSnapshotSchema.safeParse(extraProducer).success).toBe(false);
   expect(projectSnapshotSchema.safeParse(impossibleAbsent).success).toBe(false);
   expect(projectSnapshotSchema.safeParse(emptyPartial).success).toBe(false);
+});
+
+test("rejects false-complete or generation-mismatched provider captures", () => {
+  const falseCompleteCaptures = [
+    { ...providerCapture, state: "partial", completion: "complete" },
+    {
+      ...providerCapture,
+      completion: "complete",
+      freshness: { ...providerCapture.freshness, assessment: "stale" },
+    },
+    {
+      ...providerCapture,
+      completion: "complete",
+      coverage: {
+        assessment: "complete",
+        dimensions: [{ key: "scope-membership", state: "gap" }],
+      },
+    },
+    {
+      ...providerCapture,
+      completion: "complete",
+      diagnostics: [
+        {
+          code: "matt.local.capture.blocked",
+          class: "source",
+          impact: "blocking",
+          target: ".scratch/work",
+          message: "The capture is blocked.",
+        },
+      ],
+    },
+  ];
+  for (const capture of falseCompleteCaptures) {
+    expect(
+      projectSnapshotSchema.safeParse({
+        ...validSnapshot,
+        providerCaptures: [capture],
+      }).success,
+    ).toBe(false);
+  }
+  expect(
+    projectSnapshotSchema.safeParse({
+      ...validSnapshot,
+      providerCaptures: [
+        {
+          ...providerCapture,
+          generation: { fingerprint: `sha256:${"c".repeat(64)}` },
+        },
+      ],
+    }).success,
+  ).toBe(false);
+  expect(
+    projectSnapshotSchema.safeParse({
+      ...validSnapshot,
+      providerCaptures: [providerCapture],
+    }).success,
+  ).toBe(true);
 });
 
 test("accepts only explicit BCP-47 metadata for Project Summary parts", () => {

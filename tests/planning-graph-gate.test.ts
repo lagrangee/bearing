@@ -20,7 +20,6 @@ ${authorities.length === 0 ? "Authorities: []" : `Authorities:\n${authorities.ma
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/second
 ---
 
@@ -37,11 +36,34 @@ Exercise the second contribution.
   );
   await writeFixture(
     root,
+    ".scratch/second/map.md",
+    `# Wayfinder Map: Second
+
+Status: resolved
+
+## Destination
+
+Finish the second effort.
+
+## Decisions so far
+
+- [Finish second effort](issues/01-finish.md) — Done.
+
+## Fog
+`,
+  );
+  await writeFixture(
+    root,
     ".scratch/second/issues/01-finish.md",
     `# Finish second effort
 
 Type: task
+
 Status: resolved
+
+## Question
+
+Can the second effort finish?
 
 ## Answer
 
@@ -134,8 +156,15 @@ test("Gate closure returns every inbound Effort with native, governance, evidenc
   expect(second.authorities.map(({ value }) => String(value.id))).toEqual([
     "authority:architecture",
   ]);
-  expect(second.map).toBeUndefined();
-  expect(second.tickets.map(({ value }) => String(value.reference))).toEqual([
+  const secondCapture = second.providerCapture;
+  if (
+    secondCapture === undefined ||
+    (secondCapture.state !== "available" && secondCapture.state !== "partial")
+  ) {
+    throw new Error("Expected the second Effort provider capture.");
+  }
+  expect(String(secondCapture.projection.map?.ref)).toBe(".scratch/second/map.md");
+  expect(secondCapture.projection.wayfinderTickets.map((ticket) => String(ticket.ref))).toEqual([
     ".scratch/second/issues/01-finish.md",
   ]);
   expect(second.alignmentChecks.map(({ value }) => String(value.id))).toEqual([
@@ -151,7 +180,7 @@ test("Gate closure returns every inbound Effort with native, governance, evidenc
 
   const reversed = await buildPlanningGraph({
     decoded: { ...plan.decoded, records: [...plan.decoded.records].reverse() },
-    nativeRecords: [...plan.nativeRecords].reverse(),
+    providerCaptures: [...plan.providerCaptures].reverse(),
     diagnostics: [...plan.diagnostics].reverse(),
     fingerprint: plan.fingerprint,
     assetContentObservations: [...plan.assetContentObservations].reverse(),
@@ -210,7 +239,6 @@ Authorities: []
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/duplicate
 ---
 
@@ -242,13 +270,11 @@ Remain ambiguous.
   ).toHaveLength(2);
 });
 
-test("Gate closure reports ambiguous Maps without selecting an arbitrary Map", async () => {
+test("Gate closure exposes the same immutable provider capture used by Sync", async () => {
   const plan = await prepareSync(await createValidBearingRepo());
-  const map = plan.nativeRecords.find((record) => record.locator === ".scratch/work/map.md");
-  if (map === undefined) throw new Error("Expected fixture Map record.");
   const graph = await buildPlanningGraph({
     decoded: plan.decoded,
-    nativeRecords: [...plan.nativeRecords, map],
+    providerCaptures: plan.providerCaptures,
     diagnostics: plan.diagnostics,
     fingerprint: plan.fingerprint,
     assetContentObservations: plan.assetContentObservations,
@@ -256,15 +282,9 @@ test("Gate closure reports ambiguous Maps without selecting an arbitrary Map", a
 
   const result = graph.contextFor({ kind: "gate", id: "gate:test" });
 
-  expect(result.state).toBe("partial");
-  if (result.state === "invalid") throw new Error("Expected partial Gate context.");
-  expect(result.context.efforts[0]?.map).toBeUndefined();
-  expect(result.issues).toContainEqual({
-    code: "ambiguous-native-map",
-    target: "effort:test",
-    message: "Multiple native Maps are attributed to one Effort.",
-    source: result.context.efforts[0]?.effort.value.source,
-  });
+  expect(result.state).toBe("complete");
+  if (result.state === "invalid") throw new Error("Expected complete Gate context.");
+  expect(result.context.efforts[0]?.providerCapture).toBe(plan.providerCaptures[0]);
 });
 
 test("invalid Gate closure includes only issues belonging to the requested Gate", async () => {
@@ -332,7 +352,6 @@ Authorities: []
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/uncertain
 ---
 
@@ -345,6 +364,7 @@ Work binding:
     `# Potential contribution
 
 Type: task
+
 Status: open
 `,
   );
@@ -354,6 +374,7 @@ Status: open
     `# Safely unbound diagnostic
 
 Type: task
+
 Status: unsupported
 `,
   );
@@ -386,26 +407,32 @@ Status: unsupported
   ).toBe(false);
 });
 
-test("Gate closure exposes a native diagnostic that has no safe scope", async () => {
+test("Gate closure exposes diagnostics from its bound provider capture", async () => {
   const plan = await prepareSync(await createValidBearingRepo());
+  const capture = plan.providerCaptures[0];
+  if (capture === undefined || capture.state !== "available") {
+    throw new Error("Expected an available provider capture.");
+  }
   const graph = await buildPlanningGraph({
     decoded: plan.decoded,
-    nativeRecords: plan.nativeRecords,
-    diagnostics: [
-      ...plan.diagnostics,
+    providerCaptures: [
       {
-        code: "unsupported-tracker-status",
-        impact: "blocking",
-        target: "unscopable-native-input",
-        message: "Native work cannot be attributed to a safe scope.",
-      },
-      {
-        code: "native-asset-has-registry-disposition",
-        impact: "blocking",
-        target: "asset:unrelated",
-        message: "An unrelated Asset diagnostic stays outside Gate closure.",
+        ...capture,
+        state: "partial",
+        coverage: { ...capture.coverage, assessment: "incomplete" },
+        completion: "undetermined",
+        diagnostics: [
+          {
+            code: "matt.local.scope.invalid",
+            class: "format",
+            impact: "blocking",
+            target: capture.binding.nativeScope,
+            message: "Provider scope is structurally uncertain.",
+          },
+        ],
       },
     ],
+    diagnostics: plan.diagnostics,
     fingerprint: plan.fingerprint,
     assetContentObservations: plan.assetContentObservations,
   });
@@ -414,11 +441,8 @@ test("Gate closure exposes a native diagnostic that has no safe scope", async ()
 
   expect(result.state).toBe("partial");
   expect(result.issues).toContainEqual({
-    code: "unsupported-tracker-status",
-    target: "unscopable-native-input",
-    message: "Native work cannot be attributed to a safe scope.",
+    code: "matt.local.scope.invalid",
+    target: ".scratch/work",
+    message: "Provider scope is structurally uncertain.",
   });
-  expect(
-    result.issues.some((issue) => issue.code === "native-asset-has-registry-disposition"),
-  ).toBe(false);
 });
