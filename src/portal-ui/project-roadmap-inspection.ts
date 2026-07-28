@@ -94,6 +94,9 @@ export const frontierSummary = (model: RoadmapEffortModel): string => {
   const counts = [
     ["Claimed", model.frontier.claimed.length],
     ["Ready", model.frontier.ready.length],
+    ...(model.frontier.uncertain.length === 0
+      ? []
+      : ([["Uncertain", model.frontier.uncertain.length]] as const)),
     ["Blocked", model.frontier.blocked.length],
     ["Resolved", model.frontier.resolved.length],
   ] as const;
@@ -111,6 +114,19 @@ export const effortInspection = (model: RoadmapEffortModel): ProjectInspectorSel
     { label: "Target Gate", value: model.targetGate?.title ?? "Unavailable" },
     { label: "Frontier", value: frontierSummary(model) },
     { label: "Fog", value: String(model.fogCount) },
+    ...(model.providerAssessment === undefined
+      ? []
+      : [
+          { label: "Capture", value: model.providerAssessment.projectionState },
+          { label: "Freshness", value: model.providerAssessment.freshness },
+          { label: "Coverage", value: model.providerAssessment.coverage },
+          { label: "Completion", value: model.providerAssessment.completion },
+          { label: "Frontier evidence", value: model.providerAssessment.frontierEvidence },
+          {
+            label: "Blocking diagnostics",
+            value: String(model.providerAssessment.blockingDiagnosticCount),
+          },
+        ]),
     {
       label: "Map",
       value: model.maps.map((map) => map.reference).join(", ") || "No Map",
@@ -120,6 +136,7 @@ export const effortInspection = (model: RoadmapEffortModel): ProjectInspectorSel
   sections: [
     ...laneItems("Claimed", model.frontier.claimed),
     ...laneItems("Ready", model.frontier.ready),
+    ...laneItems("Uncertain", model.frontier.uncertain),
     ...laneItems("Blocked", model.frontier.blocked),
     ...laneItems("Resolved", model.frontier.resolved),
   ],

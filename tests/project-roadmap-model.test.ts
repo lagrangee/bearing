@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { effortInspection, frontierSummary } from "../src/portal-ui/project-roadmap-inspection";
 import {
   buildRoadmapDetailModel,
   buildRoadmapIndexModel,
@@ -94,7 +95,7 @@ test("keeps scoped Index and Detail failures readable without inventing relation
   expect(buildRoadmapDetailModel(snapshot, "roadmap:missing")).toEqual({ state: "missing" });
 });
 
-test("propagates scoped partial Ticket issues without hiding trustworthy frontier work", () => {
+test("propagates scoped partial Ticket issues without publishing a false-ready frontier", () => {
   const snapshot = fixture();
   if (
     snapshot.efforts.validity !== "available" ||
@@ -131,9 +132,33 @@ test("propagates scoped partial Ticket issues without hiding trustworthy frontie
   expect(detail.state).toBe("partial");
   if (detail.state !== "partial") throw new Error("Expected a partial Roadmap Detail.");
   expect(detail.efforts[1]?.frontier).toMatchObject({
-    claimed: [{ title: "Build the Roadmap journey" }],
-    ready: [{ title: "Review the Roadmap journey" }],
+    claimed: [],
+    ready: [],
+    uncertain: [{ title: "Build the Roadmap journey" }, { title: "Review the Roadmap journey" }],
     blocked: [{ title: "Pass the integration gate" }],
   });
+  const effort = detail.efforts[1];
+  if (effort === undefined) throw new Error("Expected the degraded Effort.");
+  expect(effort.providerAssessment).toEqual({
+    projectionState: "partial",
+    freshness: "current",
+    coverage: "incomplete",
+    completion: "incomplete",
+    blockingDiagnosticCount: 1,
+    frontierEvidence: "withheld",
+  });
+  expect(frontierSummary(effort)).toBe(
+    "Claimed 0 · Ready 0 · Uncertain 2 · Blocked 1 · Resolved 0",
+  );
+  expect(effortInspection(effort).facts).toEqual(
+    expect.arrayContaining([
+      { label: "Capture", value: "partial" },
+      { label: "Freshness", value: "current" },
+      { label: "Coverage", value: "incomplete" },
+      { label: "Completion", value: "incomplete" },
+      { label: "Frontier evidence", value: "withheld" },
+      { label: "Blocking diagnostics", value: "1" },
+    ]),
+  );
   expect(buildRoadmapDetailModel(parsed.data, "roadmap:second").state).toBe("available");
 });

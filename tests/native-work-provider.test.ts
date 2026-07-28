@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  assessProviderCaptureEvidence,
   createProviderScopeCapture,
   type ProviderConfiguration,
   type WorkBinding,
@@ -208,6 +209,60 @@ describe("NativeWorkProvider capture contract", () => {
         projection: createMattReferenceProjection("local"),
       }),
     ).toThrow("blocking diagnostics");
+  });
+
+  test("assesses executable frontier evidence from wrapper axes without deriving completion", () => {
+    const available = {
+      state: "available" as const,
+      freshness: { assessment: "current" as const },
+      coverage: {
+        assessment: "complete" as const,
+        dimensions: [{ state: "covered" as const }],
+      },
+      completion: "incomplete" as const,
+      diagnostics: [],
+    };
+
+    expect(assessProviderCaptureEvidence(available)).toEqual({
+      projectionState: "available",
+      freshness: "current",
+      coverage: "complete",
+      completion: "incomplete",
+      blockingDiagnosticCount: 0,
+      frontierEvidence: "trustworthy",
+    });
+
+    const degraded = [
+      { ...available, state: "partial" as const },
+      { ...available, state: "absent" as const },
+      { ...available, state: "invalid" as const },
+      { ...available, freshness: { assessment: "stale" as const } },
+      { ...available, freshness: { assessment: "undetermined" as const } },
+      {
+        ...available,
+        coverage: {
+          assessment: "incomplete" as const,
+          dimensions: [{ state: "gap" as const }],
+        },
+      },
+      { ...available, completion: "undetermined" as const },
+      {
+        ...available,
+        diagnostics: [{ impact: "blocking" as const }],
+      },
+    ];
+    for (const capture of degraded) {
+      expect(assessProviderCaptureEvidence(capture).frontierEvidence).toBe("withheld");
+    }
+
+    expect(assessProviderCaptureEvidence(undefined)).toEqual({
+      projectionState: "missing",
+      freshness: "undetermined",
+      coverage: "undetermined",
+      completion: "undetermined",
+      blockingDiagnosticCount: 0,
+      frontierEvidence: "withheld",
+    });
   });
 
   test("delegates deep immutability of validated structural data to the package boundary", () => {

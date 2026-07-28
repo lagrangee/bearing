@@ -103,17 +103,55 @@ export type ProviderCompletionInvariantInput = Readonly<{
   diagnostics: readonly Readonly<{ impact: "blocking" | "non-blocking" }>[];
 }>;
 
+export type ProviderCaptureEvidenceAssessment = Readonly<{
+  projectionState: ProviderProjectionState | "missing";
+  freshness: ProviderFreshnessAssessment;
+  coverage: ProjectionCoverage["assessment"] | "undetermined";
+  completion: ProviderCompletionAssessment;
+  blockingDiagnosticCount: number;
+  frontierEvidence: "trustworthy" | "withheld";
+}>;
+
+const hasTrustworthyProviderEvidence = (capture: ProviderCompletionInvariantInput): boolean =>
+  capture.state === "available" &&
+  capture.freshness.assessment === "current" &&
+  capture.coverage.assessment === "complete" &&
+  capture.coverage.dimensions.every(
+    (dimension) => dimension.state !== "gap" && dimension.state !== "conflict",
+  ) &&
+  capture.diagnostics.every((diagnostic) => diagnostic.impact !== "blocking");
+
 export const hasConsistentProviderCompletion = (
   capture: ProviderCompletionInvariantInput,
-): boolean =>
-  capture.completion !== "complete" ||
-  (capture.state === "available" &&
-    capture.freshness.assessment === "current" &&
-    capture.coverage.assessment === "complete" &&
-    capture.coverage.dimensions.every(
-      (dimension) => dimension.state !== "gap" && dimension.state !== "conflict",
-    ) &&
-    capture.diagnostics.every((diagnostic) => diagnostic.impact !== "blocking"));
+): boolean => capture.completion !== "complete" || hasTrustworthyProviderEvidence(capture);
+
+export const assessProviderCaptureEvidence = (
+  capture: ProviderCompletionInvariantInput | undefined,
+): ProviderCaptureEvidenceAssessment => {
+  if (capture === undefined) {
+    return deepFreeze({
+      projectionState: "missing",
+      freshness: "undetermined",
+      coverage: "undetermined",
+      completion: "undetermined",
+      blockingDiagnosticCount: 0,
+      frontierEvidence: "withheld",
+    });
+  }
+  const blockingDiagnosticCount = capture.diagnostics.filter(
+    (diagnostic) => diagnostic.impact === "blocking",
+  ).length;
+  const trustworthy =
+    hasTrustworthyProviderEvidence(capture) && capture.completion !== "undetermined";
+  return deepFreeze({
+    projectionState: capture.state,
+    freshness: capture.freshness.assessment,
+    coverage: capture.coverage.assessment,
+    completion: capture.completion,
+    blockingDiagnosticCount,
+    frontierEvidence: trustworthy ? "trustworthy" : "withheld",
+  });
+};
 
 type ProviderScopeCaptureBase<ProviderId extends string> = Readonly<{
   provider: ProviderId;

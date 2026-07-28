@@ -3,6 +3,7 @@ import type {
   DecodedBearingRecord,
   DecodedBearingRecordGeneration,
 } from "./bearing-record-decoder";
+import { assessProviderCaptureEvidence } from "./native-work-provider";
 import type { PlanningGraphProjection } from "./planning-graph";
 import type { MattSkillsV1ScopeCapture } from "./providers/matt-skills-v1/capture";
 import {
@@ -194,6 +195,29 @@ export const buildProjectSitemapModelFromGeneration = (
           ],
     ),
   );
+  const effortNodes = new Map(
+    nodes.filter((node) => node.type === "Efforts").map((node) => [node.reference, node]),
+  );
+  for (const effort of planning.efforts.validity === "invalid" ? [] : planning.efforts.items) {
+    const binding = effort.workBinding;
+    if (binding === undefined) continue;
+    const capture = providerCaptures.find(
+      (candidate) =>
+        candidate.provider === binding.provider &&
+        candidate.binding.nativeScope === binding.nativeScope,
+    );
+    const assessment = assessProviderCaptureEvidence(capture);
+    effortNodes
+      .get(effort.id)
+      ?.annotations.push(
+        `provider-state=${assessment.projectionState}`,
+        `provider-freshness=${assessment.freshness}`,
+        `provider-coverage=${assessment.coverage}`,
+        `provider-completion=${assessment.completion}`,
+        `provider-blocking-diagnostics=${assessment.blockingDiagnosticCount}`,
+        `provider-frontier-evidence=${assessment.frontierEvidence}`,
+      );
+  }
   for (const capture of providerCaptures) {
     const effortId = effortByBinding.get(`${capture.provider}\0${capture.binding.nativeScope}`);
     for (const object of mattObjects(capture)) {

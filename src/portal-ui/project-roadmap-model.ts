@@ -1,3 +1,7 @@
+import {
+  assessProviderCaptureEvidence,
+  type ProviderCaptureEvidenceAssessment,
+} from "../native-work-provider";
 import type {
   AssetProjection,
   Effort,
@@ -40,6 +44,7 @@ export type RoadmapIndexModel =
 type Frontier = Readonly<{
   claimed: readonly MattTicketView[];
   ready: readonly MattTicketView[];
+  uncertain: readonly MattTicketView[];
   blocked: readonly MattTicketView[];
   resolved: readonly MattTicketView[];
 }>;
@@ -66,6 +71,7 @@ export type RoadmapEffortModel = Readonly<{
   maps: readonly MattMapView[];
   fogCount: number;
   frontier: Frontier;
+  providerAssessment: ProviderCaptureEvidenceAssessment | undefined;
   missingFrontierReferences: readonly string[];
 }>;
 
@@ -172,7 +178,12 @@ const frontierFor = (
   snapshot: ProjectSnapshot,
   effort: Effort,
   sources: ReadonlyMap<string, SourceRecord>,
-): Readonly<{ frontier: Frontier; maps: readonly MattMapView[]; missing: readonly string[] }> => {
+): Readonly<{
+  frontier: Frontier;
+  maps: readonly MattMapView[];
+  missing: readonly string[];
+  providerAssessment: ProviderCaptureEvidenceAssessment | undefined;
+}> => {
   const binding = effort.workBinding;
   const capture =
     binding === undefined
@@ -182,11 +193,14 @@ const frontierFor = (
             candidate.provider === binding.provider &&
             candidate.binding.nativeScope === binding.nativeScope,
         );
+  const providerAssessment =
+    binding === undefined ? undefined : assessProviderCaptureEvidence(capture);
   if (capture === undefined || (capture.state !== "available" && capture.state !== "partial")) {
     return {
-      frontier: { claimed: [], ready: [], blocked: [], resolved: [] },
+      frontier: { claimed: [], ready: [], uncertain: [], blocked: [], resolved: [] },
       maps: [],
-      missing: binding === undefined ? [] : [binding.nativeScope],
+      missing: binding === undefined || capture !== undefined ? [] : [binding.nativeScope],
+      providerAssessment,
     };
   }
   const presentation = mattPlanningPresentation(capture);
@@ -202,13 +216,18 @@ const frontierFor = (
   }));
   return {
     frontier: {
-      claimed: lane("claimed"),
-      ready: lane("ready"),
+      claimed: providerAssessment?.frontierEvidence === "trustworthy" ? lane("claimed") : [],
+      ready: providerAssessment?.frontierEvidence === "trustworthy" ? lane("ready") : [],
+      uncertain:
+        providerAssessment?.frontierEvidence === "withheld"
+          ? [...lane("claimed"), ...lane("ready")]
+          : [],
       blocked: lane("blocked"),
       resolved: lane("resolved"),
     },
     maps,
     missing: [],
+    providerAssessment,
   };
 };
 
@@ -243,6 +262,7 @@ export const buildRoadmapDetailModel = (
       maps: resolved.maps,
       fogCount: resolved.maps.reduce((total, map) => total + map.fogCount, 0),
       frontier: resolved.frontier,
+      providerAssessment: resolved.providerAssessment,
       missingFrontierReferences: resolved.missing,
     });
   }

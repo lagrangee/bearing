@@ -1,3 +1,4 @@
+import { assessProviderCaptureEvidence } from "../native-work-provider";
 import type { Effort, MilestoneGate, ProjectSnapshot, Roadmap } from "../project-snapshot/contract";
 
 export const collectRoadmapEvidenceIds = (
@@ -35,11 +36,7 @@ export const assessScopedMapIssues = (
         capture.provider === binding.provider &&
         capture.binding.nativeScope === binding.nativeScope,
     );
-    if (
-      capture !== undefined &&
-      (capture.state !== "available" ||
-        capture.diagnostics.some((diagnostic) => diagnostic.impact === "blocking"))
-    ) {
+    if (assessProviderCaptureEvidence(capture).frontierEvidence === "withheld") {
       uncertain = true;
     }
     return capture === undefined;
