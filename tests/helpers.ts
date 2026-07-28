@@ -1,11 +1,51 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { buildProjectSnapshot } from "../src/project-snapshot/projection";
+import type { SyncPlan } from "../src/sync-plan";
 
 export { LOCAL_MATT_CONTRACT, LOCAL_MATT_TRIAGE_LABELS } from "./fixtures/local-matt-contract";
 
 export const makeTemporaryDirectory = async (prefix: string): Promise<string> =>
   mkdtemp(join(tmpdir(), prefix));
+
+export const buildSnapshotForSyncPlan = (root: string, packageVersion: string, plan: SyncPlan) =>
+  buildProjectSnapshot({
+    repoRoot: root,
+    packageVersion,
+    sitemapFingerprint: plan.fingerprint,
+    diagnostics: plan.diagnostics,
+    advisoryFreshness: plan.advisoryFreshness,
+    decoded: plan.decoded,
+    providerCaptures: plan.providerCaptures,
+    assetContentObservations: plan.assetContentObservations,
+    planningGraph: plan.planningGraph,
+  });
+
+const CONSOLE_LOG_METHODS = ["debug", "error", "info", "log", "warn"] as const;
+
+export const captureConsoleLogs = async <Result>(
+  operation: () => Promise<Result>,
+): Promise<Readonly<{ result: Result; logs: readonly string[] }>> => {
+  type ConsoleLogMethod = (typeof CONSOLE_LOG_METHODS)[number];
+  const writableConsole = console as unknown as Record<
+    ConsoleLogMethod,
+    (...values: unknown[]) => void
+  >;
+  const originals = new Map<ConsoleLogMethod, (...values: unknown[]) => void>();
+  const logs: string[] = [];
+  for (const method of CONSOLE_LOG_METHODS) {
+    originals.set(method, writableConsole[method]);
+    writableConsole[method] = (...values) => {
+      logs.push(values.map(String).join(" "));
+    };
+  }
+  try {
+    return { result: await operation(), logs };
+  } finally {
+    for (const [method, original] of originals) writableConsole[method] = original;
+  }
+};
 
 export const writeFixture = async (
   root: string,

@@ -48,6 +48,11 @@ describe("G2 Matt-native regression core", () => {
           "tests/project-isolation.test.ts",
         ],
       },
+      {
+        key: "zero-intrusion-credential-safety",
+        seam: "native-ownership-boundary",
+        files: ["tests/zero-intrusion-proof.test.ts", "tests/github-provider.test.ts"],
+      },
     ] as const;
     expect(G2_REGRESSION_CORE).toEqual(expected);
     expect(G2_REGRESSION_CHECKS).toEqual([

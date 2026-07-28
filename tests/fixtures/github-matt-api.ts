@@ -1,10 +1,15 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { MattProviderFactory } from "../../src/provider-capture-generation";
 import {
+  createGitHubMattProvider,
   encodeGitHubMattNativeScope,
   type GitHubReadRequest,
   type GitHubReadResponse,
   type GitHubReadTransport,
 } from "../../src/providers/matt-skills-v1/github";
-import { makeTemporaryDirectory, writeFixture } from "../helpers";
+import { setupRepository } from "../../src/repo-setup";
+import { makeTemporaryDirectory, writeFixture, writeValidBearingState } from "../helpers";
 
 export const githubContractLocator = "docs/agents/issue-tracker.md";
 export const githubTriageLocator = "docs/agents/triage-labels.md";
@@ -33,6 +38,19 @@ Run \`gh issue view <number> --comments\`.
 Use one issue with child issues.
 `;
 
+export const standardGitHubMattAgentSurface = `# Repository instructions
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs for this repo live as GitHub issues. See \`${githubContractLocator}\`.
+
+### Triage labels
+
+Use the repository mappings in \`${githubTriageLocator}\`.
+`;
+
 export const customGitHubTriageMapping = `# Triage Labels
 
 | Label in mattpocock/skills | Label in our tracker | Meaning |
@@ -45,6 +63,83 @@ export const customGitHubTriageMapping = `# Triage Labels
 | \`bug\` | \`custom-bug\` | Defect |
 | \`enhancement\` | \`custom-enhancement\` | Feature |
 `;
+
+export const githubMattProviderFactoryFor = (
+  transport: GitHubReadTransport,
+): MattProviderFactory => {
+  return (input) =>
+    createGitHubMattProvider({
+      repoRoot: input.repoRoot,
+      contractLocator: input.configuration.contractLocator,
+      capturedDocuments: input.capturedDocuments,
+      transport,
+      clock: () => new Date("2026-07-28T00:00:00.000Z"),
+    });
+};
+
+export const writeStandardGitHubMattProductRepository = async (
+  root: string,
+  effort: Readonly<{
+    title: string;
+    intent: string;
+    work: string;
+  }>,
+) => {
+  const nativeScope = githubNativeScopeFor(githubMapIssue, "wayfinder-map");
+  await writeFixture(root, "CONTEXT.md", `# ${effort.title}\n`);
+  await writeFixture(root, "docs/agents/domain.md", "# Domain\n");
+  await writeFixture(root, githubContractLocator, standardGitHubMattContract);
+  await writeFixture(root, githubTriageLocator, customGitHubTriageMapping);
+  await writeFixture(root, "AGENTS.md", standardGitHubMattAgentSurface);
+  const contractBefore = await readFile(join(root, githubContractLocator));
+  const triageBefore = await readFile(join(root, githubTriageLocator));
+  const agentSurfaceBefore = await readFile(join(root, "AGENTS.md"), "utf8");
+  const setup = await setupRepository({
+    repoRoot: root,
+    packageRoot: process.cwd(),
+    surfaces: ["agent-skills"],
+    profiles: [],
+    provider: {
+      key: "matt-skills/v1",
+      contractLocator: githubContractLocator,
+    },
+  });
+  await writeValidBearingState(root);
+  await writeFixture(
+    root,
+    ".bearing/state/efforts/test.md",
+    `---
+Type: effort
+ID: effort:test
+Title: ${effort.title}
+Roadmap: roadmap:test
+Target gate: gate:test
+Authorities: []
+Citations: []
+Work binding:
+  Provider: matt-skills/v1
+  Native scope: ${nativeScope}
+---
+
+# Effort: ${effort.title}
+
+## Intent
+
+${effort.intent}
+
+## Work
+
+${effort.work}
+`,
+  );
+  return {
+    nativeScope,
+    setup,
+    contractBefore,
+    triageBefore,
+    agentSurfaceBefore,
+  } as const;
+};
 
 export type GitHubFixtureResponse = Readonly<{
   first: GitHubReadResponse;

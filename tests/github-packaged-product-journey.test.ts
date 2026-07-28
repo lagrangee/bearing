@@ -1,62 +1,34 @@
 import { expect, test } from "bun:test";
 import { readFile, rm } from "node:fs/promises";
+import { withBearingManagedPointer } from "../src/agent-surface-entry";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
 import type { MattProviderFactory } from "../src/provider-capture-generation";
 import {
-  createGitHubMattProvider,
   GitHubReadError,
   type GitHubReadRequest,
   type GitHubReadTransport,
 } from "../src/providers/matt-skills-v1/github";
-import { setupRepository } from "../src/repo-setup";
-import { prepareSync, type SyncPlan } from "../src/sync-plan";
+import { prepareSync } from "../src/sync-plan";
 import {
   createReferenceGitHubFixtures,
-  customGitHubTriageMapping,
   FixtureGitHubTransport,
   githubComment,
   githubContractLocator,
   githubFixtureResponse,
   githubIssue,
-  githubMapIssue,
-  githubNativeScopeFor,
+  githubMattProviderFactoryFor,
   githubResearchIssue,
   githubScopedIncomingIssue,
   githubSpecIssue,
   githubTriageLocator,
-  standardGitHubMattContract,
+  standardGitHubMattAgentSurface,
+  writeStandardGitHubMattProductRepository,
 } from "./fixtures/github-matt-api";
-import { makeTemporaryDirectory, writeFixture, writeValidBearingState } from "./helpers";
+import { buildSnapshotForSyncPlan, captureConsoleLogs, makeTemporaryDirectory } from "./helpers";
 
 const PACKAGE_VERSION = "0.1.1-test";
 const CREDENTIAL_SENTINEL = "fixture-credential-must-never-enter-bearing";
-
-const standardMattAgentSurface = `# Repository instructions
-
-## Agent skills
-
-### Issue tracker
-
-Issues and PRDs for this repo live as GitHub issues. See \`${githubContractLocator}\`.
-
-### Triage labels
-
-Use the repository mappings in \`${githubTriageLocator}\`.
-`;
-
-const snapshotFor = (root: string, plan: SyncPlan) =>
-  buildProjectSnapshot({
-    repoRoot: root,
-    packageVersion: PACKAGE_VERSION,
-    sitemapFingerprint: plan.fingerprint,
-    diagnostics: plan.diagnostics,
-    advisoryFreshness: plan.advisoryFreshness,
-    decoded: plan.decoded,
-    providerCaptures: plan.providerCaptures,
-    assetContentObservations: plan.assetContentObservations,
-    planningGraph: plan.planningGraph,
-  });
 
 const instrumentedProviderFactory = (
   transport: GitHubReadTransport,
@@ -65,20 +37,10 @@ const instrumentedProviderFactory = (
   captureCalls: () => number;
 }> => {
   let captureCalls = 0;
-  const providerFactory: MattProviderFactory = ({
-    driver,
-    configuration,
-    repoRoot,
-    capturedDocuments,
-  }) => {
-    expect(driver).toBe("github-issues");
-    const provider = createGitHubMattProvider({
-      repoRoot,
-      contractLocator: configuration.contractLocator,
-      capturedDocuments,
-      transport,
-      clock: () => new Date("2026-07-28T00:00:00.000Z"),
-    });
+  const createProvider = githubMattProviderFactoryFor(transport);
+  const providerFactory: MattProviderFactory = (input) => {
+    expect(input.driver).toBe("github-issues");
+    const provider = createProvider(input);
     return {
       id: provider.id,
       capture: async (binding, generation) => {
@@ -94,30 +56,17 @@ const prepareStandardGitHubRepository = async (): Promise<
   Readonly<{ root: string; nativeScope: string }>
 > => {
   const root = await makeTemporaryDirectory("bearing-packaged-github-");
-  const nativeScope = githubNativeScopeFor(githubMapIssue, "wayfinder-map");
-  await writeFixture(root, "CONTEXT.md", "# GitHub Matt packaged journey\n");
-  await writeFixture(root, "docs/agents/domain.md", "# Domain\n");
-  await writeFixture(root, githubContractLocator, standardGitHubMattContract);
-  await writeFixture(root, githubTriageLocator, customGitHubTriageMapping);
-  await writeFixture(root, "AGENTS.md", standardMattAgentSurface);
-
-  const contractBefore = await readFile(`${root}/${githubContractLocator}`);
-  const triageBefore = await readFile(`${root}/${githubTriageLocator}`);
-  const setup = await setupRepository({
-    repoRoot: root,
-    packageRoot: process.cwd(),
-    surfaces: ["agent-skills"],
-    profiles: [],
-    provider: {
-      key: "matt-skills/v1",
-      contractLocator: githubContractLocator,
-    },
+  const prepared = await writeStandardGitHubMattProductRepository(root, {
+    title: "GitHub Matt delivery",
+    intent: "Exercise one deterministic GitHub provider capture through every product surface.",
+    work: "- [Reference Map](https://github.com/example/reference/issues/1)",
   });
-  expect(setup.outcome).toBe("applied");
-  expect(await readFile(`${root}/${githubContractLocator}`)).toEqual(contractBefore);
-  expect(await readFile(`${root}/${githubTriageLocator}`)).toEqual(triageBefore);
+  expect(prepared.setup.outcome).toBe("applied");
+  expect(await readFile(`${root}/${githubContractLocator}`)).toEqual(prepared.contractBefore);
+  expect(await readFile(`${root}/${githubTriageLocator}`)).toEqual(prepared.triageBefore);
   const agentSurfaceAfter = await readFile(`${root}/AGENTS.md`, "utf8");
-  expect(agentSurfaceAfter).toContain(standardMattAgentSurface.trimEnd());
+  expect(agentSurfaceAfter).toBe(withBearingManagedPointer(prepared.agentSurfaceBefore));
+  expect(agentSurfaceAfter).toContain(standardGitHubMattAgentSurface.trimEnd());
   expect(agentSurfaceAfter).not.toContain("Work-management contract:");
   expect(agentSurfaceAfter).not.toContain("Provider contract:");
   expect(JSON.parse(await readFile(`${root}/.bearing/provider.json`, "utf8"))).toEqual({
@@ -125,36 +74,7 @@ const prepareStandardGitHubRepository = async (): Promise<
     provider: "matt-skills/v1",
     contractLocator: githubContractLocator,
   });
-
-  await writeValidBearingState(root);
-  await writeFixture(
-    root,
-    ".bearing/state/efforts/test.md",
-    `---
-Type: effort
-ID: effort:test
-Title: GitHub Matt delivery
-Roadmap: roadmap:test
-Target gate: gate:test
-Authorities: []
-Citations: []
-Work binding:
-  Provider: matt-skills/v1
-  Native scope: ${nativeScope}
----
-
-# Effort: GitHub Matt delivery
-
-## Intent
-
-Exercise one deterministic GitHub provider capture through every product surface.
-
-## Work
-
-- [Reference Map](https://github.com/example/reference/issues/1)
-`,
-  );
-  return { root, nativeScope };
+  return { root, nativeScope: prepared.nativeScope };
 };
 
 test("standard GitHub Setup feeds one immutable provider capture through every product surface", async () => {
@@ -349,7 +269,7 @@ test("standard GitHub Setup feeds one immutable provider capture through every p
     });
     expect(plan.sitemap.toString("utf8")).toContain("github/example/reference/issues/4");
 
-    const snapshot = await snapshotFor(root, plan);
+    const snapshot = await buildSnapshotForSyncPlan(root, PACKAGE_VERSION, plan);
     expect(snapshot.providerCaptures[0]).toEqual(capture);
     expect(snapshot.providerCaptures[0]?.generation.fingerprint).toBe(
       String(snapshot.basis.sitemapFingerprint),
@@ -503,9 +423,12 @@ for (const scenario of degradationScenarios) {
       };
       const instrumented = instrumentedProviderFactory(transport);
 
-      const plan = await prepareSync(root, {
-        providerFactory: instrumented.providerFactory,
-      });
+      const preparation = await captureConsoleLogs(() =>
+        prepareSync(root, {
+          providerFactory: instrumented.providerFactory,
+        }),
+      );
+      const plan = preparation.result;
       expect(instrumented.captureCalls()).toBe(1);
       if (scenario.expectedFirstEndpoint !== undefined) {
         expect(requests[0]?.endpoint).toBe(scenario.expectedFirstEndpoint);
@@ -542,16 +465,19 @@ for (const scenario of degradationScenarios) {
       }
       expect(plan.sitemap.toString("utf8")).toMatch(/[1-9][0-9]* blocking diagnostic\(s\)/u);
 
-      const snapshot = await snapshotFor(root, plan);
+      const snapshot = await buildSnapshotForSyncPlan(root, PACKAGE_VERSION, plan);
       expect(snapshot.providerCaptures[0]).toEqual(capture);
       const requestCountAfterSync = requests.length;
-      const portal = await createProjectMaterializer({
-        packageVersion: PACKAGE_VERSION,
-        dependencies: {
-          prepare: async () => plan,
-          buildSnapshot: buildProjectSnapshot,
-        },
-      }).run(root, "ensure-current");
+      const materialization = await captureConsoleLogs(() =>
+        createProjectMaterializer({
+          packageVersion: PACKAGE_VERSION,
+          dependencies: {
+            prepare: async () => plan,
+            buildSnapshot: buildProjectSnapshot,
+          },
+        }).run(root, "ensure-current"),
+      );
+      const portal = materialization.result;
       expect(portal.snapshot.providerCaptures[0]).toEqual(capture);
       expect(requests).toHaveLength(requestCountAfterSync);
 
@@ -572,6 +498,8 @@ for (const scenario of degradationScenarios) {
         JSON.stringify(plan.diagnostics),
         JSON.stringify(snapshot),
         JSON.stringify(portal.snapshot),
+        ...preparation.logs,
+        ...materialization.logs,
       ].join("\n");
       expect(serializedProductState).not.toContain(CREDENTIAL_SENTINEL);
     } finally {

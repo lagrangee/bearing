@@ -5,8 +5,9 @@ import { buildProjectSnapshot } from "../src/project-snapshot/projection";
 import type { MattProviderFactory } from "../src/provider-capture-generation";
 import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
 import { setupRepository } from "../src/repo-setup";
-import { prepareSync, type SyncPlan } from "../src/sync-plan";
+import { prepareSync } from "../src/sync-plan";
 import {
+  buildSnapshotForSyncPlan,
   LOCAL_MATT_CONTRACT,
   LOCAL_MATT_TRIAGE_LABELS,
   makeTemporaryDirectory,
@@ -254,19 +255,6 @@ Implemented and verified through the packaged seam.
   );
 };
 
-const snapshotFor = (root: string, plan: SyncPlan) =>
-  buildProjectSnapshot({
-    repoRoot: root,
-    packageVersion: PACKAGE_VERSION,
-    sitemapFingerprint: plan.fingerprint,
-    diagnostics: plan.diagnostics,
-    advisoryFreshness: plan.advisoryFreshness,
-    decoded: plan.decoded,
-    providerCaptures: plan.providerCaptures,
-    assetContentObservations: plan.assetContentObservations,
-    planningGraph: plan.planningGraph,
-  });
-
 test("fresh packaged Local journey uses one generation-bound capture through Portal", async () => {
   const root = await makeTemporaryDirectory("bearing-packaged-local-");
   try {
@@ -385,7 +373,7 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
       "`.scratch/journey/issues/02-deliver.md` | Deliver the packaged journey | completed",
     );
 
-    const snapshot = await snapshotFor(root, completedPlan);
+    const snapshot = await buildSnapshotForSyncPlan(root, PACKAGE_VERSION, completedPlan);
     expect(snapshot.providerCaptures).toEqual(completedPlan.providerCaptures);
     expect(snapshot.providerCaptures[0]?.generation.fingerprint).toBe(
       String(snapshot.basis.sitemapFingerprint),

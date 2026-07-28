@@ -38,6 +38,11 @@ export const G2_REGRESSION_CORE = [
       "tests/project-isolation.test.ts",
     ],
   },
+  {
+    key: "zero-intrusion-credential-safety",
+    seam: "native-ownership-boundary",
+    files: ["tests/zero-intrusion-proof.test.ts", "tests/github-provider.test.ts"],
+  },
 ] as const;
 
 export const G2_REGRESSION_CHECKS = [
