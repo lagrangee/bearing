@@ -29,6 +29,23 @@ const readCacheBytes = async (root: string): Promise<Readonly<Record<string, str
     ),
   );
 
+test("the fixed fixture remains valid through the production Local provider seam", async () => {
+  const root = await copyPortalProjectFixture("current-local-provider-project");
+
+  const result = await materializer("0.0.0-current").run(root, "force");
+
+  expect(result.snapshot.providerCaptures).toMatchObject([
+    {
+      state: "available",
+      freshness: { assessment: "current" },
+      coverage: { assessment: "complete" },
+      completion: "complete",
+      diagnostics: [],
+    },
+  ]);
+  expect(result.snapshot.diagnostics).toEqual([]);
+});
+
 test("the fixed fixture gives an independently invalid Summary its own validity", async () => {
   const root = await copyPortalProjectFixture("invalid-summary-project");
   await writeFile(join(root, SUMMARY_LOCATOR), INVALID_SUMMARY, "utf8");
