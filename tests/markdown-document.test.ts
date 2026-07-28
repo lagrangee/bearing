@@ -6,6 +6,7 @@ import {
   queryMarkdownField,
   queryMarkdownFrontmatter,
   queryMarkdownHeading,
+  queryMarkdownInlineCodes,
   queryMarkdownLinks,
   queryMarkdownList,
   queryMarkdownLists,
@@ -86,6 +87,56 @@ Status: fake
         target: "https://example.com/docs",
       },
     ]);
+    expect(queryMarkdownInlineCodes(document, { within: section.value })).toEqual([]);
+  });
+
+  test("extracts inline code locators within one structural section", () => {
+    const document = parseMarkdownDocument(`# Agent instructions
+
+Outside \`docs/agents/decoy.md\`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub. See \`docs/agents/issue-tracker.md\`.
+
+\`\`\`md
+\`docs/agents/code-fence-decoy.md\`
+\`\`\`
+
+### Triage labels
+
+See \`docs/agents/triage-labels.md\`.
+`);
+    const issueTracker = queryMarkdownSection(document, { title: "Issue tracker" });
+    expect(issueTracker.state).toBe("found");
+    if (issueTracker.state !== "found") throw new Error("Expected Issue tracker section.");
+
+    expect(queryMarkdownInlineCodes(document, { within: issueTracker.value })).toEqual([
+      "docs/agents/issue-tracker.md",
+    ]);
+
+    const agentSkills = queryMarkdownSection(document, {
+      title: "Agent skills",
+      depth: 2,
+    });
+    expect(agentSkills.state).toBe("found");
+    if (agentSkills.state !== "found") throw new Error("Expected Agent skills section.");
+    expect(
+      queryMarkdownSection(document, {
+        title: "Issue tracker",
+        depth: 3,
+        within: agentSkills.value,
+      }),
+    ).toEqual(issueTracker);
+    expect(
+      queryMarkdownSection(document, {
+        title: "Triage labels",
+        depth: 3,
+        within: issueTracker.value,
+      }),
+    ).toEqual({ state: "absent" });
   });
 
   test("accepts plain field labels and heading-depth variation without line parsing", () => {

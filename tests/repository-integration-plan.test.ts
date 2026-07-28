@@ -9,7 +9,8 @@ import {
 import { writeInstallTarget } from "../src/installer";
 import { setupRepository } from "../src/repo-setup";
 import { planRepositoryIntegration } from "../src/repository-integration-plan";
-import { makeTemporaryDirectory } from "./helpers";
+import { standardGitHubMattContract } from "./fixtures/github-matt-api";
+import { LOCAL_MATT_CONTRACT, makeTemporaryDirectory, standardMattAgentSurface } from "./helpers";
 
 const runSetupCli = async (
   repoRoot: string,
@@ -128,12 +129,30 @@ const writeMattProviderFixture = async (
   await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
   await writeFile(
     join(repoRoot, contractLocator),
-    options.contract ?? "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
+    options.contract ??
+      `# Issue tracker: Local Markdown
+
+## Conventions
+
+- One feature per directory.
+
+## When a skill says "publish to the issue tracker"
+
+Create a Markdown file.
+
+## When a skill says "fetch the relevant ticket"
+
+Read the referenced file.
+
+## Wayfinding operations
+
+Use one Map with child tickets.
+`,
   );
   for (const surface of options.surfaces ?? ["agent-skills"]) {
     await writeFile(
       join(repoRoot, surface === "agent-skills" ? "AGENTS.md" : "CLAUDE.md"),
-      `Work-management contract: \`${contractLocator}\`\n`,
+      standardMattAgentSurface(contractLocator),
     );
   }
   return contractLocator;
@@ -236,6 +255,65 @@ describe("repository integration planning CLI", () => {
       ".bearing/provider.json",
       "AGENTS.md",
     ]);
+  });
+
+  test("accepts the standard Matt GitHub block without a marker or standalone pointer", async () => {
+    const repoRoot = await makeTemporaryDirectory("bearing-plan-standard-github-");
+    const contractLocator = "docs/agents/issue-tracker.md";
+    const standardContract = `# Issue tracker: GitHub
+
+Issues and PRDs for this repo live as GitHub issues. Use the \`gh\` CLI for all operations.
+
+## Conventions
+
+- Read an issue with \`gh issue view\`.
+
+## Pull requests as a triage surface
+
+**PRs as a request surface: no.**
+
+## When a skill says "publish to the issue tracker"
+
+Create a GitHub issue.
+
+## When a skill says "fetch the relevant ticket"
+
+Run \`gh issue view <number> --comments\`.
+
+## Wayfinding operations
+
+Use one issue with child issues.
+`;
+    const standardSurface = `# Repository instructions
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live as GitHub issues. See \`${contractLocator}\`.
+
+### Triage labels
+
+Use the repository mappings.
+`;
+    await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
+    await writeFile(join(repoRoot, contractLocator), standardContract);
+    await writeFile(join(repoRoot, "AGENTS.md"), standardSurface);
+    const contractBefore = await readFile(join(repoRoot, contractLocator));
+    const surfaceBefore = await readFile(join(repoRoot, "AGENTS.md"));
+
+    const plan = await planRepositoryIntegration({
+      repoRoot,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills"],
+      profiles: [],
+      provider: { key: "matt-skills/v1", contractLocator },
+    });
+
+    expect(plan.canApply).toBe(true);
+    expect(plan.stages.externalPrerequisites.items[1]?.state).toBe("satisfied");
+    expect(await readFile(join(repoRoot, contractLocator))).toEqual(contractBefore);
+    expect(await readFile(join(repoRoot, "AGENTS.md"))).toEqual(surfaceBefore);
   });
 
   test("applies one Fresh provider-aware repository unit before Catalog registration", async () => {
@@ -479,7 +557,7 @@ Review an existing patch.
     expect(result.stderr).toContain("Matt provider contract is unsupported");
     await expect(access(join(repoRoot, ".bearing"))).rejects.toThrow();
     expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      `Work-management contract: \`${contractLocator}\`\n`,
+      standardMattAgentSurface(contractLocator),
     );
     await expect(access(join(homeDir, ".bearing"))).rejects.toThrow();
   });
@@ -488,13 +566,15 @@ Review an existing patch.
     const missingPointerRoot = await makeTemporaryDirectory("bearing-setup-missing-pointer-");
     const contractLocator = "docs/agents/issue-tracker.md";
     await mkdir(join(missingPointerRoot, "docs/agents"), { recursive: true });
-    await writeFile(
-      join(missingPointerRoot, contractLocator),
-      "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
-    );
+    await writeFile(join(missingPointerRoot, contractLocator), LOCAL_MATT_CONTRACT);
     await writeFile(
       join(missingPointerRoot, "AGENTS.md"),
-      `Example only; do not configure \`${contractLocator}\` here.\n`,
+      `## Documentation
+
+### Issue tracker
+
+Example only; do not configure \`${contractLocator}\` here.
+`,
     );
     const missingPointerPlan = await planRepositoryIntegration({
       repoRoot: missingPointerRoot,
@@ -509,14 +589,8 @@ Review an existing patch.
     const divergentRoot = await makeTemporaryDirectory("bearing-setup-divergent-pointer-");
     const firstLocator = await writeMattProviderFixture(divergentRoot);
     const secondLocator = "docs/agents/other-tracker.md";
-    await writeFile(
-      join(divergentRoot, secondLocator),
-      "# Issue tracker: GitHub Issues\n\nProvider contract: `matt-skills/v1`\n",
-    );
-    await writeFile(
-      join(divergentRoot, "CLAUDE.md"),
-      `Work-management contract: \`${secondLocator}\`\n`,
-    );
+    await writeFile(join(divergentRoot, secondLocator), standardGitHubMattContract);
+    await writeFile(join(divergentRoot, "CLAUDE.md"), standardMattAgentSurface(secondLocator));
     const divergentPlan = await planRepositoryIntegration({
       repoRoot: divergentRoot,
       packageRoot: process.cwd(),
@@ -643,7 +717,7 @@ Review an existing patch.
 
     await expect(access(join(repoRoot, ".bearing"))).rejects.toThrow();
     expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      `Work-management contract: \`${contractLocator}\`\n`,
+      standardMattAgentSurface(contractLocator),
     );
   });
 
@@ -701,7 +775,7 @@ Review an existing patch.
     const args = ["--provider-contract", contractLocator] as const;
     expect((await runSetupCli(repoRoot, homeDir, args)).exitCode).toBe(0);
     const receiptBefore = await readFile(join(repoRoot, ".bearing/cache/sync-receipt.json"));
-    const drifted = `Work-management contract: \`${contractLocator}\`\n`;
+    const drifted = standardMattAgentSurface(contractLocator);
     await writeFile(join(repoRoot, "AGENTS.md"), drifted);
 
     const declined = await runSetupCli(repoRoot, homeDir, args);
@@ -910,7 +984,7 @@ Review an existing patch.
 
     await expect(access(join(repoRoot, ".bearing"))).rejects.toThrow();
     expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      `Work-management contract: \`${contractLocator}\`\n`,
+      standardMattAgentSurface(contractLocator),
     );
   });
 
@@ -967,7 +1041,7 @@ Review an existing patch.
 
     await expect(access(join(repoRoot, ".bearing"))).rejects.toThrow();
     expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      `Work-management contract: \`${contractLocator}\`\n`,
+      standardMattAgentSurface(contractLocator),
     );
   });
 
@@ -1214,7 +1288,7 @@ For every project request, load and follow the global \`bearing\` skill as the g
     const contractLocator = await writeMattProviderFixture(repoRoot);
     await writeFile(
       agentsPath,
-      `# Before planning\n\nWork-management contract: \`${contractLocator}\`\n`,
+      `# Before planning\n\n${standardMattAgentSurface(contractLocator)}`,
     );
 
     await expect(
@@ -1242,7 +1316,7 @@ For every project request, load and follow the global \`bearing\` skill as the g
     const repoRoot = await makeTemporaryDirectory("bearing-plan-rollback-");
     const agentsPath = join(repoRoot, "AGENTS.md");
     const contractLocator = await writeMattProviderFixture(repoRoot);
-    const originalAgents = `# Preserve these instructions\n\nWork-management contract: \`${contractLocator}\`\n`;
+    const originalAgents = `# Preserve these instructions\n\n${standardMattAgentSurface(contractLocator)}`;
     await writeFile(agentsPath, originalAgents);
 
     await expect(

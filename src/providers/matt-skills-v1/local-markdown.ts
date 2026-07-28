@@ -7,6 +7,7 @@ import {
   parseMarkdownDocument,
   queryMarkdownDocumentTitle,
   queryMarkdownField,
+  queryMarkdownInlineCodes,
   queryMarkdownLinks,
   queryMarkdownList,
   queryMarkdownPreamble,
@@ -368,7 +369,14 @@ const supplementaryContent = (file: CapturedFile): readonly MattContent[] => {
   return content;
 };
 
-const parseContract = (file: MarkdownInput, diagnostics: CaptureDiagnostic[]): boolean => {
+type LocalContractLayout = Readonly<{
+  specFilename: "spec.md" | "PRD.md";
+}>;
+
+const parseContract = (
+  file: MarkdownInput,
+  diagnostics: CaptureDiagnostic[],
+): LocalContractLayout | undefined => {
   const title = queryMarkdownDocumentTitle(file.document);
   const conventions = queryMarkdownSection(file.document, { title: "Conventions" });
   const wayfinding = queryMarkdownSection(file.document, { title: "Wayfinding operations" });
@@ -386,16 +394,23 @@ const parseContract = (file: MarkdownInput, diagnostics: CaptureDiagnostic[]): b
         "Confirmed contract does not expose the supported Local Markdown headings.",
       ),
     );
-    return false;
+    return undefined;
   }
   const conventionList = queryMarkdownList(file.document, { within: conventions.value });
   const wayfindingList = queryMarkdownList(file.document, { within: wayfinding.value });
+  const conventionCodes = queryMarkdownInlineCodes(file.document, {
+    within: conventions.value,
+  });
   const conventionItems =
     conventionList.state === "found" ? conventionList.value.items.map((item) => item.text) : [];
   const wayfindingItems =
     wayfindingList.state === "found" ? wayfindingList.value.items.map((item) => item.text) : [];
+  const specTemplates = [
+    ".scratch/<feature-slug>/spec.md",
+    ".scratch/<feature-slug>/PRD.md",
+  ].filter((template) => conventionCodes.includes(template));
   const supported =
-    conventionItems.some((item) => item.includes(".scratch/<feature-slug>/PRD.md")) &&
+    specTemplates.length === 1 &&
     conventionItems.some((item) =>
       item.includes(".scratch/<feature-slug>/issues/<NN>-<slug>.md"),
     ) &&
@@ -412,7 +427,10 @@ const parseContract = (file: MarkdownInput, diagnostics: CaptureDiagnostic[]): b
       ),
     );
   }
-  return supported;
+  if (!supported) return undefined;
+  return {
+    specFilename: specTemplates[0]?.endsWith("/spec.md") ? "spec.md" : "PRD.md",
+  };
 };
 
 const parseTriageVocabulary = (
@@ -1280,7 +1298,9 @@ const captureLocalScope = async (
   };
 
   const contractFile = await interpretationTarget(contractLocator);
-  if (contractFile === undefined || !parseContract(contractFile, diagnostics)) {
+  const contractLayout =
+    contractFile === undefined ? undefined : parseContract(contractFile, diagnostics);
+  if (contractLayout === undefined) {
     return captureWithoutProjection({
       binding,
       generation,
@@ -1360,7 +1380,7 @@ const captureLocalScope = async (
   }
 
   const mapLocator = normalizeLocator(posix.join(scopeLocator, "map.md"));
-  const specLocator = normalizeLocator(posix.join(scopeLocator, "PRD.md"));
+  const specLocator = normalizeLocator(posix.join(scopeLocator, contractLayout.specFilename));
   const issuesLocator = normalizeLocator(posix.join(scopeLocator, "issues"));
   const slotPresence = async (locator: string): Promise<string> => {
     try {

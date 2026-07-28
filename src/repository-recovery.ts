@@ -7,6 +7,7 @@ import { readCatalogState } from "./catalog/store";
 import { inspectInstallPath } from "./install-boundary";
 import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans } from "./installer";
+import { pointsToMattContractLocator } from "./matt-agent-surface";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
 import {
   decodeMattProviderConfiguration,
@@ -204,13 +205,6 @@ const invalidStateInputs = async (
   }
 };
 
-const workManagementPointerPattern = /^Work-management contract:\s*`([^`\r\n]+)`\s*$/gmu;
-
-const pointsToContract = (source: string, locator: string): boolean => {
-  const declarations = [...source.matchAll(workManagementPointerPattern)];
-  return declarations.length === 1 && declarations[0]?.[1] === locator;
-};
-
 const dependencyBlockers = async (
   root: string,
   manifest: z.infer<typeof lifecycleManifestSchema>,
@@ -297,7 +291,7 @@ const dependencyBlockers = async (
       let matches = false;
       try {
         const source = (await readContainedFile(root, join(root, locator))).toString("utf8");
-        matches = pointsToContract(source, provider.contractLocator);
+        matches = pointsToMattContractLocator(source, provider.contractLocator);
       } catch {
         matches = false;
       }

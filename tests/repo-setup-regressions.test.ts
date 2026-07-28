@@ -14,19 +14,16 @@ import { join } from "node:path";
 import { BEARING_POINTER } from "../src/agent-surface-entry";
 import { applyInstallPlans } from "../src/installer";
 import { setupRepository } from "../src/repo-setup";
-import { makeTemporaryDirectory } from "./helpers";
+import { LOCAL_MATT_CONTRACT, makeTemporaryDirectory, standardMattAgentSurface } from "./helpers";
 
 const pointer = BEARING_POINTER;
 const contractLocator = "docs/agents/issue-tracker.md";
-const workManagementPointer = `Work-management contract: \`${contractLocator}\``;
+const mattAgentSurface = standardMattAgentSurface(contractLocator);
 const provider = { key: "matt-skills/v1" as const, contractLocator };
 
 const writeMattProviderContract = async (repoRoot: string): Promise<void> => {
   await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
-  await writeFile(
-    join(repoRoot, contractLocator),
-    "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
-  );
+  await writeFile(join(repoRoot, contractLocator), LOCAL_MATT_CONTRACT);
 };
 
 describe("repository setup review regressions", () => {
@@ -43,8 +40,8 @@ describe("repository setup review regressions", () => {
   test("creates state and cache namespaces and removes an unselected surface pointer", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
     await writeMattProviderContract(repoRoot);
-    await writeFile(join(repoRoot, "AGENTS.md"), `# Agent rules\n\n${workManagementPointer}\n`);
-    await writeFile(join(repoRoot, "CLAUDE.md"), `# Claude rules\n\n${workManagementPointer}\n`);
+    await writeFile(join(repoRoot, "AGENTS.md"), `# Agent rules\n\n${mattAgentSurface}`);
+    await writeFile(join(repoRoot, "CLAUDE.md"), `# Claude rules\n\n${mattAgentSurface}`);
     await setupRepository({
       repoRoot,
       packageRoot: process.cwd(),
@@ -134,10 +131,7 @@ describe("repository setup review regressions", () => {
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
     const block = `<!-- bearing:managed-start -->\n${pointer}\n<!-- bearing:managed-end -->`;
     await writeMattProviderContract(repoRoot);
-    await writeFile(
-      join(repoRoot, "AGENTS.md"),
-      `${workManagementPointer}\n\n${block}\n${block}\n`,
-    );
+    await writeFile(join(repoRoot, "AGENTS.md"), `${mattAgentSurface}\n${block}\n${block}\n`);
 
     await expect(
       setupRepository({
@@ -153,9 +147,9 @@ describe("repository setup review regressions", () => {
   test("preserves surrounding root pointer bytes across selection and removal", async () => {
     const repoRoot = await makeTemporaryDirectory("bearing-project-");
     await writeMattProviderContract(repoRoot);
-    const original = `# Agent rules\n\n${workManagementPointer}\n\n  `;
+    const original = `# Agent rules\n\n${mattAgentSurface}\n  `;
     await writeFile(join(repoRoot, "AGENTS.md"), original);
-    await writeFile(join(repoRoot, "CLAUDE.md"), `${workManagementPointer}\n`);
+    await writeFile(join(repoRoot, "CLAUDE.md"), mattAgentSurface);
 
     await setupRepository({
       repoRoot,

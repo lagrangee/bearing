@@ -1,5 +1,6 @@
 import type {
   Heading as MdastHeading,
+  InlineCode as MdastInlineCode,
   Link as MdastLink,
   List as MdastList,
   Table as MdastTable,
@@ -129,16 +130,27 @@ const headingValue = (heading: MdastHeading): MarkdownHeading =>
 
 const matchingHeadings = (
   document: MarkdownDocument,
-  query: Readonly<{ title: string; depth?: MarkdownHeadingDepth }>,
-): readonly Readonly<{ node: MdastHeading; value: MarkdownHeading; index: number }>[] =>
-  internalsFor(document).tree.children.flatMap((node, index) => {
+  query: Readonly<{
+    title: string;
+    depth?: MarkdownHeadingDepth;
+    within?: MarkdownSection;
+  }>,
+): readonly Readonly<{
+  node: MdastHeading;
+  value: MarkdownHeading;
+  index: number;
+  scopeNodes: readonly RootContent[];
+}>[] => {
+  const scopeNodes = nodesWithin(document, query.within);
+  return scopeNodes.flatMap((node, index) => {
     if (node.type !== "heading") return [];
     const value = headingValue(node);
     if (value.title !== query.title || (query.depth !== undefined && value.depth !== query.depth)) {
       return [];
     }
-    return [{ node, value, index }];
+    return [{ node, value, index, scopeNodes }];
   });
+};
 
 const fieldFromParagraph = (
   paragraph: Paragraph,
@@ -350,7 +362,11 @@ export const queryMarkdownPreamble = (
 
 export const queryMarkdownSection = (
   document: MarkdownDocument,
-  query: Readonly<{ title: string; depth?: MarkdownHeadingDepth }>,
+  query: Readonly<{
+    title: string;
+    depth?: MarkdownHeadingDepth;
+    within?: MarkdownSection;
+  }>,
 ): MarkdownQueryResult<MarkdownSection> => {
   const matches = matchingHeadings(document, query);
   if (matches.length === 0) return { state: "absent" };
@@ -359,15 +375,20 @@ export const queryMarkdownSection = (
   const match = matches[0];
   if (match === undefined) return { state: "absent" };
 
-  const { source, tree } = internalsFor(document);
-  const nextHeadingIndex = tree.children.findIndex(
+  const { source } = internalsFor(document);
+  const nextHeadingIndex = match.scopeNodes.findIndex(
     (node, index) =>
       index > match.index && node.type === "heading" && node.depth <= match.node.depth,
   );
-  const endIndex = nextHeadingIndex === -1 ? tree.children.length : nextHeadingIndex;
-  const nodes = tree.children.slice(match.index + 1, endIndex);
+  const endIndex = nextHeadingIndex === -1 ? match.scopeNodes.length : nextHeadingIndex;
+  const nodes = match.scopeNodes.slice(match.index + 1, endIndex);
   const contentStart = match.node.position?.end.offset;
-  const contentEnd = tree.children[endIndex]?.position?.start.offset ?? source.length;
+  const containingSectionEnd =
+    query.within === undefined
+      ? source.length
+      : sectionInternals.get(query.within)?.nodes.at(-1)?.position?.end.offset;
+  const contentEnd =
+    match.scopeNodes[endIndex]?.position?.start.offset ?? containingSectionEnd ?? source.length;
   const markdown =
     contentStart === undefined || contentEnd === undefined
       ? ""
@@ -441,6 +462,19 @@ export const queryMarkdownLinks = (
     });
   }
   return Object.freeze(links);
+};
+
+export const queryMarkdownInlineCodes = (
+  document: MarkdownDocument,
+  query: Readonly<{ within?: MarkdownSection }> = {},
+): readonly string[] => {
+  const values: string[] = [];
+  for (const node of nodesWithin(document, query.within)) {
+    visit(node, "inlineCode", (inlineCode: MdastInlineCode) => {
+      values.push(inlineCode.value);
+    });
+  }
+  return Object.freeze(values);
 };
 
 export const queryMarkdownTable = (

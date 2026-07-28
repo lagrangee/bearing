@@ -10,6 +10,7 @@ import {
   LOCAL_MATT_CONTRACT,
   LOCAL_MATT_TRIAGE_LABELS,
   makeTemporaryDirectory,
+  standardMattAgentSurface,
   writeFixture,
 } from "./helpers";
 
@@ -127,7 +128,7 @@ Deliver the accepted Local Matt product seam.
 ## Work
 
 - [Map](map.md)
-- [Spec](PRD.md)
+- [Spec](spec.md)
 `,
   );
   await writeFixture(
@@ -195,7 +196,7 @@ Deliver the packaged Local product seam.
 ## Fog
 `,
   );
-  await writeFixture(root, ".scratch/journey/PRD.md", SPEC);
+  await writeFixture(root, ".scratch/journey/spec.md", SPEC);
   await writeFixture(
     root,
     ".scratch/journey/issues/01-decide.md",
@@ -271,11 +272,7 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
   try {
     await writeFixture(root, "docs/agents/issue-tracker.md", LOCAL_MATT_CONTRACT);
     await writeFixture(root, "docs/agents/triage-labels.md", LOCAL_MATT_TRIAGE_LABELS);
-    await writeFixture(
-      root,
-      "AGENTS.md",
-      "Work-management contract: `docs/agents/issue-tracker.md`\n",
-    );
+    await writeFixture(root, "AGENTS.md", standardMattAgentSurface());
 
     const setup = await setupRepository({
       repoRoot: root,
@@ -382,7 +379,7 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
     });
     const sitemap = completedPlan.sitemap.toString("utf8");
     expect(sitemap).toContain(
-      "`.scratch/journey/PRD.md` | Packaged Local Journey | ready-for-agent",
+      "`.scratch/journey/spec.md` | Packaged Local Journey | ready-for-agent",
     );
     expect(sitemap).toContain(
       "`.scratch/journey/issues/02-deliver.md` | Deliver the packaged journey | completed",

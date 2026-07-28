@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { writeInstallTarget } from "../src/installer";
 import { cutOverLegacyRepository, inspectLegacyCutoverPlan } from "../src/repository-cutover";
 import { prepareSync } from "../src/sync-plan";
+import { standardGitHubMattContract } from "./fixtures/github-matt-api";
 import {
   LOCAL_MATT_CONTRACT,
   LOCAL_MATT_TRIAGE_LABELS,
   makeTemporaryDirectory,
+  standardMattAgentSurface,
   writeFixture,
 } from "./helpers";
 
@@ -199,7 +201,11 @@ Assets: []
   await writeFixture(
     root,
     "AGENTS.md",
-    "Work-management contract: `docs/agents/issue-tracker.md`\n\n<!-- bearing:managed-start -->\nLegacy Bearing pointer.\n<!-- bearing:managed-end -->\n",
+    `${standardMattAgentSurface()}
+<!-- bearing:managed-start -->
+Legacy Bearing pointer.
+<!-- bearing:managed-end -->
+`,
   );
   await writeFixture(root, ".bearing/cache/stale.txt", "discard me\n");
   return root;
@@ -365,10 +371,7 @@ Assets:
   test("refuses to infer a GitHub scope root from legacy local sidecars", async () => {
     const repoRoot = await createLegacyRepository();
     const homeDir = await makeTemporaryDirectory("bearing-cutover-home-");
-    await writeFile(
-      join(repoRoot, "docs/agents/issue-tracker.md"),
-      "# Issue tracker: GitHub Issues\n\nProvider contract: `matt-skills/v1`\n",
-    );
+    await writeFile(join(repoRoot, "docs/agents/issue-tracker.md"), standardGitHubMattContract);
 
     const result = await runSetupCli(repoRoot, homeDir, ["--plan"]);
 

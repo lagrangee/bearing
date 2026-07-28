@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { BEARING_POINTER } from "../src/agent-surface-entry";
 import { installKit } from "../src/installer";
 import { setupRepository } from "../src/repo-setup";
-import { makeTemporaryDirectory } from "./helpers";
+import { LOCAL_MATT_CONTRACT, makeTemporaryDirectory, standardMattAgentSurface } from "./helpers";
 
 const publicSkillNames = ["bearing"] as const;
 const internalCompatibilitySkillNames = [
@@ -24,16 +24,13 @@ const writeMattProviderFixture = async (
 ): Promise<string> => {
   const contractLocator = "docs/agents/issue-tracker.md";
   await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
-  await writeFile(
-    join(repoRoot, contractLocator),
-    "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
-  );
+  await writeFile(join(repoRoot, contractLocator), LOCAL_MATT_CONTRACT);
   for (const surface of surfaces) {
     const target = join(repoRoot, surface === "agent-skills" ? "AGENTS.md" : "CLAUDE.md");
     const existing = await readFile(target, "utf8");
     await writeFile(
       target,
-      `${existing.trimEnd()}\n\nWork-management contract: \`${contractLocator}\`\n`,
+      `${existing.trimEnd()}\n\n${standardMattAgentSurface(contractLocator)}`,
     );
   }
   return contractLocator;

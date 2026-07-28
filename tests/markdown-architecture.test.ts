@@ -24,7 +24,6 @@ const approvedStructuralOwners = new Set([
   "src/bearing-record-sections.ts",
   "src/executor-registration.ts",
   "src/guidance-body.ts",
-  "src/providers/matt-skills-v1.ts",
   "src/repository-cutover.ts",
   "src/sitemap.ts",
   "src/sync-plan.ts",

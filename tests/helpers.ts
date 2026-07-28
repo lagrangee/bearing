@@ -17,6 +17,15 @@ export const writeFixture = async (
   await writeFile(target, content);
 };
 
+export const standardMattAgentSurface = (
+  contractLocator = "docs/agents/issue-tracker.md",
+): string => `## Agent skills
+
+### Issue tracker
+
+Issues and specs use the repository tracker. See \`${contractLocator}\`.
+`;
+
 export const writeStandardMattLocalRepository = async (root: string): Promise<void> => {
   const standardContract = await readFile(join(process.cwd(), "docs/agents/issue-tracker.md"));
   const standardTriageVocabulary = await readFile(
@@ -26,11 +35,7 @@ export const writeStandardMattLocalRepository = async (root: string): Promise<vo
   await writeFixture(root, "docs/agents/domain.md", "# Domain\n");
   await writeFixture(root, "docs/agents/issue-tracker.md", standardContract);
   await writeFixture(root, "docs/agents/triage-labels.md", standardTriageVocabulary);
-  await writeFixture(
-    root,
-    "AGENTS.md",
-    "Work-management contract: `docs/agents/issue-tracker.md`\n",
-  );
+  await writeFixture(root, "AGENTS.md", standardMattAgentSurface());
   await writeFixture(
     root,
     ".scratch/work/map.md",

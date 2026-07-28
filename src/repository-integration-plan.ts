@@ -8,6 +8,7 @@ import {
   validateExecutorRegistrationSelection,
 } from "./executor-registration";
 import { inspectInstallPath } from "./install-boundary";
+import { pointsToMattContractLocator } from "./matt-agent-surface";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
 import { validateMattSkillsV1Contract } from "./providers/matt-skills-v1";
 import { displaySourceLocatorSchema } from "./reference-schema";
@@ -287,19 +288,6 @@ const integrationBlockers = (
 const equalJson = (left: unknown, right: unknown): boolean =>
   JSON.stringify(left) === JSON.stringify(right);
 
-const workManagementPointerPattern = /^Work-management contract:\s*`([^`\r\n]+)`\s*$/gmu;
-
-const pointsToContractLocator = (pointer: string, locator: string): boolean => {
-  const declarations = [...pointer.matchAll(workManagementPointerPattern)];
-  if (declarations.length !== 1) return false;
-  const declaredLocator = declarations[0]?.[1];
-  return (
-    declaredLocator !== undefined &&
-    displaySourceLocatorSchema.safeParse(declaredLocator).success &&
-    declaredLocator === locator
-  );
-};
-
 export type MattProviderContractInspection = Readonly<{
   supported: boolean;
   precondition: RepositoryTargetPrecondition;
@@ -321,7 +309,7 @@ export const inspectMattProviderContract = async (
         const pointer = (
           await readContainedFile(root, join(root, agentSurfaceEntryFile(surface)))
         ).toString("utf8");
-        return pointsToContractLocator(pointer, contractLocator);
+        return pointsToMattContractLocator(pointer, contractLocator);
       } catch {
         return false;
       }
