@@ -72,6 +72,7 @@ test("keeps the schema v1 Sync benchmark phase summary unchanged", () => {
           bearingRecords: 30,
           recordDecodes: 30,
           repositoryRevalidations: 0,
+          providerCaptures: 9,
           fingerprint: `sha256:${"b".repeat(64)}`,
           changed: false,
           blockingDiagnostics: 0,
@@ -81,6 +82,7 @@ test("keeps the schema v1 Sync benchmark phase summary unchanged", () => {
   ]);
 
   expect(Object.keys(summary.phases)).toEqual(Object.keys(phaseMs));
+  expect(summary.structural.providerCaptures).toEqual([9]);
 });
 
 test("declares the accepted after-only scenario and iteration matrix", () => {

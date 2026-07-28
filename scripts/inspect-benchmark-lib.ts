@@ -81,6 +81,11 @@ export const assertInspectBenchmarkStructure = (
   ) {
     throw new Error("Structural assertion failed: every Bearing Record must be decoded once.");
   }
+  if (structural.providerCaptures !== specification.scopeCount) {
+    throw new Error(
+      "Structural assertion failed: every bound provider scope must be captured once.",
+    );
+  }
   if (structural.planningGraphBuilds !== 1) {
     throw new Error("Structural assertion failed: inspect must build one Planning Graph.");
   }
@@ -299,6 +304,7 @@ const summarize = (samples: readonly InspectBenchmarkSample[]) => {
       capturedInputs: [...new Set(samples.map((sample) => sample.structural.capturedInputs))],
       bearingRecords: [...new Set(samples.map((sample) => sample.structural.bearingRecords))],
       recordDecodes: [...new Set(samples.map((sample) => sample.structural.recordDecodes))],
+      providerCaptures: [...new Set(samples.map((sample) => sample.structural.providerCaptures))],
       planningGraphBuilds: [
         ...new Set(samples.map((sample) => sample.structural.planningGraphBuilds)),
       ],
@@ -380,6 +386,7 @@ export const createInspectBenchmarkReport = (workers: readonly InspectBenchmarkW
       structuralAssertions: {
         oneReadPerCapturedInput: true,
         oneDecodePerBearingRecord: true,
+        oneCapturePerProviderScope: true,
         onePlanningGraphBuild: true,
         oneRootClosure: true,
         zeroRepositoryRevalidations: true,

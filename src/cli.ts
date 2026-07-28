@@ -516,6 +516,7 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
         capturedInputs: plan.metrics.capturedInputCount,
         bearingRecords: plan.metrics.bearingRecordCount,
         recordDecodes: plan.metrics.recordDecodeCount,
+        providerCaptures: plan.metrics.providerCaptureCount,
         planningGraphBuilds: observed.planningGraphBuilds,
         rootClosures: observed.rootClosures,
         repositoryRevalidations: plan.metrics.repositoryRevalidationCount,

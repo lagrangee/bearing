@@ -234,6 +234,7 @@ export type BenchmarkSample = Readonly<{
   bearingRecords: number;
   recordDecodes: number;
   repositoryRevalidations: number;
+  providerCaptures: number;
   fingerprint: string;
   changed: boolean;
   blockingDiagnostics: number;
@@ -243,6 +244,7 @@ const sample = async (
   fixture: BenchmarkFixture,
   scenario: BenchmarkScenario,
   iteration: number,
+  expectedProviderCaptures: number,
 ): Promise<BenchmarkSample> => {
   await applyBenchmarkScenario(fixture, scenario, iteration);
   const started = performance.now();
@@ -261,6 +263,11 @@ const sample = async (
   if (metrics.repositoryRevalidationCount !== 0) {
     throw new Error("Structural assertion failed: repository revalidation must remain zero.");
   }
+  if (metrics.providerCaptureCount !== expectedProviderCaptures) {
+    throw new Error(
+      "Structural assertion failed: every bound provider scope must be captured once.",
+    );
+  }
   const blockingDiagnostics = measured.result.diagnostics.filter(
     (diagnostic) => diagnostic.impact === "blocking",
   ).length;
@@ -275,6 +282,7 @@ const sample = async (
     bearingRecords: metrics.bearingRecordCount,
     recordDecodes: metrics.recordDecodeCount,
     repositoryRevalidations: metrics.repositoryRevalidationCount,
+    providerCaptures: metrics.providerCaptureCount,
     fingerprint: measured.result.fingerprint,
     changed: measured.result.changed,
     blockingDiagnostics,
@@ -309,11 +317,11 @@ export const runBenchmarkWorker = async (options: {
       completedAt: "2026-07-18T00:00:00.000Z",
     });
     for (let index = 0; index < specification.warmupIterations; index += 1) {
-      await sample(fixture, options.scenario, index);
+      await sample(fixture, options.scenario, index, specification.scopeCount);
     }
     const samples: BenchmarkSample[] = [];
     for (let index = 0; index < specification.measuredIterations; index += 1) {
-      samples.push(await sample(fixture, options.scenario, index));
+      samples.push(await sample(fixture, options.scenario, index, specification.scopeCount));
     }
     const first = samples[0];
     if (
@@ -376,6 +384,7 @@ export const summarizeWorkers = (workers: readonly BenchmarkWorkerResult[]) => {
       bearingRecords: [...new Set(samples.map((entry) => entry.bearingRecords))],
       recordDecodes: [...new Set(samples.map((entry) => entry.recordDecodes))],
       repositoryRevalidations: [...new Set(samples.map((entry) => entry.repositoryRevalidations))],
+      providerCaptures: [...new Set(samples.map((entry) => entry.providerCaptures))],
     },
     outputFingerprints: [...new Set(samples.map((entry) => entry.fingerprint))].sort(),
   };

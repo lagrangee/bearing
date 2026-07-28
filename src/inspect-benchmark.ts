@@ -24,6 +24,7 @@ export type InspectBenchmarkMetrics = Readonly<{
     capturedInputs: number;
     bearingRecords: number;
     recordDecodes: number;
+    providerCaptures: number;
     planningGraphBuilds: number;
     rootClosures: number;
     repositoryRevalidations: number;
