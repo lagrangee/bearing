@@ -193,6 +193,11 @@ test("a freshly reconciled repository is selectable through the packed installed
       await expect(link).toHaveAttribute("aria-current", "page");
     }
 
+    await projectNavigation.getByRole("link", { name: "Roadmaps", exact: true }).click();
+    await page.getByRole("link", { name: "Test Roadmap", exact: true }).click();
+    await page.getByRole("button", { name: /^Test Effort,/u }).click();
+    await expect(page.getByText("Finish", { exact: true })).toBeVisible();
+
     const sync = page.getByRole("button", { name: "Sync", exact: true });
     await expect(sync).toBeEnabled();
     const syncResponsePromise = page.waitForResponse((response) => {

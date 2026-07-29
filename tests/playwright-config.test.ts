@@ -1,6 +1,24 @@
 import { expect, test } from "bun:test";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { browserOutputContract } from "../browser-tests/browser-artifact-output";
 import config from "../playwright.config";
+
+test("ordinary Bun test files do not launch Playwright browsers", async () => {
+  const testRoot = import.meta.dir;
+  const sources = await Promise.all(
+    (await readdir(testRoot))
+      .filter((name) => name.endsWith(".test.ts") && name !== "playwright-config.test.ts")
+      .map(async (name) => ({ name, source: await readFile(join(testRoot, name), "utf8") })),
+  );
+  expect(
+    sources.flatMap(({ name, source }) =>
+      source.includes('from "@playwright/test"') || source.includes("chromium.launch(")
+        ? [name]
+        : [],
+    ),
+  ).toEqual([]);
+});
 
 test("the root browser suite excludes specs with a dedicated Host contract", () => {
   expect(config.testIgnore).toEqual([

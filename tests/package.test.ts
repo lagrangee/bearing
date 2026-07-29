@@ -3,7 +3,6 @@ import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium } from "@playwright/test";
 import { writeStandardMattLocalRepository, writeValidBearingState } from "./helpers";
 
 type CommandResult = Readonly<{
@@ -319,19 +318,6 @@ test("the packed CLI runs through offline local npm exec", async () => {
     );
     expect(packagedSnapshot).not.toHaveProperty("maps");
     expect(packagedSnapshot).not.toHaveProperty("tickets");
-    const browser = await chromium.launch({ headless: true });
-    try {
-      const page = await browser.newPage();
-      await page.goto(
-        `http://127.0.0.1:${portalPort}/projects/${encodeURIComponent(entryId)}/roadmaps`,
-      );
-      await page.getByRole("heading", { name: "Roadmaps", level: 1 }).waitFor();
-      await page.getByRole("link", { name: "Test Roadmap", exact: true }).click();
-      await page.getByRole("button", { name: /^Test Effort,/u }).click();
-      await page.getByText("Finish", { exact: true }).waitFor();
-    } finally {
-      await browser.close();
-    }
     portal.kill("SIGTERM");
     expect(await portal.exited).toBe(0);
     ready.reader.releaseLock();
