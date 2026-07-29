@@ -484,7 +484,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
           writeFixture(
             root,
             `${nativeScope}/issues/06-incoming.md`,
-            "# Partial Wayfinder\n\nType: research\n\n## Question\n\nWhich semantics?\n",
+            "# Partial Wayfinder\n\nType: research\n\nStatus: claimed\n\nWhich semantics?\n",
           ),
         code: "matt.local.role.ambiguous",
       },
