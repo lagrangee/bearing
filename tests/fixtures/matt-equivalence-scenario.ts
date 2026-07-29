@@ -105,7 +105,7 @@ const localWayfinder = (input: {
   slug: string;
   title: string;
   type: "research" | "prototype" | "grilling" | "task";
-  status: "claimed" | "resolved";
+  status?: "claimed" | "resolved";
   question: string;
   blockedBy?: string;
   claimant?: string;
@@ -118,7 +118,7 @@ const localWayfinder = (input: {
 Type: ${input.type}
 ${input.blockedBy === undefined ? "" : `\nBlocked by: ${input.blockedBy}\n`}
 
-Status: ${input.status}
+${input.status === undefined ? "" : `Status: ${input.status}\n`}
 ${input.claimant === undefined ? "" : `\nClaimed by: ${input.claimant}\n`}
 
 ## Question
@@ -172,10 +172,8 @@ export const writeMattEquivalenceLocalRepository = async (): Promise<string> => 
       slug: "prototype",
       title: "Prototype the capture seam",
       type: "prototype",
-      status: "claimed",
       question: "Does one capture preserve all axes?",
       blockedBy: "03",
-      claimant: "lago",
     }),
     localWayfinder({
       number: "05",
@@ -251,7 +249,6 @@ const mattEquivalenceGitHubPrototype = githubIssue({
   number: 4,
   title: "Prototype the capture seam",
   labels: ["wayfinder:prototype"],
-  assignees: ["lago"],
   body: `## Question
 
 Does one capture preserve all axes?
@@ -551,7 +548,7 @@ export const expectedMattEquivalenceSemantics: MattReferenceEquivalenceView = {
       title: "Prototype the capture seam",
       subtype: "prototype",
       question: "Does one capture preserve all axes?",
-      claim: { state: "claimed", claimantAmbiguous: undefined },
+      claim: { state: "unclaimed" },
       answer: { availability: "unavailable", reason: "not-authored" },
       lifecycle: "open",
       closure: "open",

@@ -184,7 +184,7 @@ const writeDecisionPhaseComplete = async (root: string): Promise<void> => {
     ".scratch/journey/map.md",
     `# Wayfinder Map: Packaged Journey
 
-Status: resolved
+Status: active
 
 ## Destination
 
@@ -218,12 +218,26 @@ The versioned provider capture.
   );
   await writeFixture(
     root,
-    ".scratch/journey/issues/02-deliver.md",
+    ".scratch/journey/issues/02-review.md",
+    `# Review the capture boundary
+
+Type: grilling
+
+Blocked by: 01
+
+## Question
+
+Does the accepted boundary preserve an unclaimed planning frontier?
+`,
+  );
+  await writeFixture(
+    root,
+    ".scratch/journey/issues/03-deliver.md",
     `# Deliver the packaged journey
 
 **What to build:** The Setup through Portal product seam.
 
-Blocked by: 01
+Blocked by: 02
 
 Status: claimed
 
@@ -236,12 +250,51 @@ Status: claimed
 const writeDeliveryComplete = async (root: string): Promise<void> => {
   await writeFixture(
     root,
-    ".scratch/journey/issues/02-deliver.md",
+    ".scratch/journey/map.md",
+    `# Wayfinder Map: Packaged Journey
+
+Status: resolved
+
+## Destination
+
+Deliver the packaged Local product seam.
+
+## Decisions so far
+
+- [Choose the capture boundary](issues/01-decide.md) — Use one provider capture.
+- [Review the capture boundary](issues/02-review.md) — Preserve a Status-absent open and unclaimed frontier.
+
+## Fog
+`,
+  );
+  await writeFixture(
+    root,
+    ".scratch/journey/issues/02-review.md",
+    `# Review the capture boundary
+
+Type: grilling
+
+Blocked by: 01
+
+Status: resolved
+
+## Question
+
+Does the accepted boundary preserve an unclaimed planning frontier?
+
+## Answer
+
+Yes. Status absence is the Local driver encoding for open and unclaimed Wayfinder work.
+`,
+  );
+  await writeFixture(
+    root,
+    ".scratch/journey/issues/03-deliver.md",
     `# Deliver the packaged journey
 
 **What to build:** The Setup through Portal product seam.
 
-Blocked by: 01
+Blocked by: 02
 
 Status: resolved
 
@@ -304,7 +357,7 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
     expect(captureCalls).toBe(1);
     expect(decisionPlan.metrics.providerCaptureCount).toBe(1);
     expect(decisionPlan.inputs).not.toContain(".scratch/journey/map.md");
-    expect(decisionPlan.inputs).not.toContain(".scratch/journey/issues/02-deliver.md");
+    expect(decisionPlan.inputs).not.toContain(".scratch/journey/issues/03-deliver.md");
     const decisionCapture = decisionPlan.providerCaptures[0];
     expect(decisionCapture?.generation.fingerprint).toBe(decisionPlan.fingerprint);
     expect(decisionCapture).toMatchObject({
@@ -312,9 +365,16 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
       completion: "incomplete",
       binding: { provider: "matt-skills/v1", nativeScope: ".scratch/journey" },
       projection: {
-        map: { lifecycle: { state: "resolved" } },
+        map: { lifecycle: { state: "active" } },
         spec: { lifecycle: { state: "ready-for-agent" } },
-        wayfinderTickets: [{ lifecycle: { state: "resolved-on-route" } }],
+        wayfinderTickets: [
+          { lifecycle: { state: "resolved-on-route" } },
+          {
+            claim: { state: "unclaimed" },
+            lifecycle: { state: "open" },
+            trackerClosure: { state: "open" },
+          },
+        ],
         deliveryTickets: [{ lifecycle: { state: "open" } }],
       },
     });
@@ -370,7 +430,7 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
       "`.scratch/journey/PRD.md` | Packaged Local Journey | ready-for-agent",
     );
     expect(sitemap).toContain(
-      "`.scratch/journey/issues/02-deliver.md` | Deliver the packaged journey | completed",
+      "`.scratch/journey/issues/03-deliver.md` | Deliver the packaged journey | completed",
     );
 
     const snapshot = await buildSnapshotForSyncPlan(root, PACKAGE_VERSION, completedPlan);

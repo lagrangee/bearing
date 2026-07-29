@@ -531,7 +531,6 @@ const issueRole = (file: CapturedFile): IssueRole => {
     question.state === "ambiguous" ||
     whatToBuild.state === "ambiguous" ||
     blockedBy.state === "ambiguous" ||
-    (hasWayfinderSignal && status.state !== "found") ||
     (hasDeliverySignal && (status.state !== "found" || !hasAcceptanceChecklist))
   ) {
     return "ambiguous";
@@ -539,7 +538,7 @@ const issueRole = (file: CapturedFile): IssueRole => {
   if (
     type.state === "found" &&
     WAYFINDER_SUBTYPES.has(type.value.value) &&
-    status.state === "found" &&
+    (status.state === "found" || status.state === "absent") &&
     question.state === "found"
   ) {
     return "wayfinder";
@@ -635,7 +634,7 @@ const decodeWayfinder = (
   const claimant = fieldValue(file, "Claimed by", diagnostics);
   const answer = contentSection(file, "Answer", "answer");
   const resolved = status === "resolved";
-  if (status !== "claimed" && !resolved) {
+  if (status !== undefined && status !== "claimed" && !resolved) {
     diagnostics.push(
       diagnostic(
         "matt.local.lifecycle.unknown",
