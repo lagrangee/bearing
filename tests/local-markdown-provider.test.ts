@@ -376,6 +376,23 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     expect(Object.isFrozen(result.projection)).toBe(true);
   });
 
+  test("captures a Status-absent Wayfinder ticket as open and unclaimed", async () => {
+    const root = await writeReferenceRepository();
+    const locator = `${nativeScope}/issues/02-prototype.md`;
+    const source = await readFile(join(root, locator), "utf8");
+    await writeFixture(root, locator, source.replace("Status: claimed\n\nClaimed by: lago\n", ""));
+
+    const result = await capture(root);
+
+    expect(result.state).toBe("available");
+    expect(result.diagnostics).toEqual([]);
+    expect(result.projection?.wayfinderTickets[1]).toMatchObject({
+      claim: { state: "unclaimed" },
+      lifecycle: { state: "open" },
+      trackerClosure: { state: "open" },
+    });
+  });
+
   test("treats absent optional Map and Spec plus untriaged Incoming as fully acquired", async () => {
     const root = await makeTemporaryDirectory("bearing-local-provider-optional-");
     await writeFixture(root, contractLocator, contract);
@@ -467,7 +484,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
           writeFixture(
             root,
             `${nativeScope}/issues/06-incoming.md`,
-            "# Partial Wayfinder\n\nType: research\n\n## Question\n\nWhich semantics?\n",
+            "# Partial Wayfinder\n\nType: research\n\nStatus: claimed\n\nWhich semantics?\n",
           ),
         code: "matt.local.role.ambiguous",
       },

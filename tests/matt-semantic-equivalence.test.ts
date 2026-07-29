@@ -233,7 +233,7 @@ describe("Matt Local/GitHub semantic equivalence", () => {
         );
       }
 
-      expect(github.projection?.wayfinderTickets[1]?.native.rawFacets).toContainEqual({
+      expect(github.projection?.wayfinderTickets[3]?.native.rawFacets).toContainEqual({
         key: "assignees",
         values: ["lago|100|U_lago"],
       });
