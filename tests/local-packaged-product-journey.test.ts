@@ -129,7 +129,7 @@ Deliver the accepted Local Matt product seam.
 ## Work
 
 - [Map](map.md)
-- [Spec](spec.md)
+- [PRD](PRD.md)
 `,
   );
   await writeFixture(
@@ -145,7 +145,7 @@ Assets: []
   );
 };
 
-const SPEC = `# Packaged Local Journey
+const PRD = `# Packaged Local Journey
 
 Status: ready-for-agent
 
@@ -197,7 +197,7 @@ Deliver the packaged Local product seam.
 ## Fog
 `,
   );
-  await writeFixture(root, ".scratch/journey/spec.md", SPEC);
+  await writeFixture(root, ".scratch/journey/PRD.md", PRD);
   await writeFixture(
     root,
     ".scratch/journey/issues/01-decide.md",
@@ -367,7 +367,7 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
     });
     const sitemap = completedPlan.sitemap.toString("utf8");
     expect(sitemap).toContain(
-      "`.scratch/journey/spec.md` | Packaged Local Journey | ready-for-agent",
+      "`.scratch/journey/PRD.md` | Packaged Local Journey | ready-for-agent",
     );
     expect(sitemap).toContain(
       "`.scratch/journey/issues/02-deliver.md` | Deliver the packaged journey | completed",

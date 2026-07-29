@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
 import type { SyncPlan } from "../src/sync-plan";
+import { LOCAL_MATT_CONTRACT, LOCAL_MATT_TRIAGE_LABELS } from "./fixtures/local-matt-contract";
 
 export { LOCAL_MATT_CONTRACT, LOCAL_MATT_TRIAGE_LABELS } from "./fixtures/local-matt-contract";
 
@@ -63,18 +64,14 @@ export const standardMattAgentSurface = (
 
 ### Issue tracker
 
-Issues and specs use the repository tracker. See \`${contractLocator}\`.
+Issues and PRDs use the repository tracker. See \`${contractLocator}\`.
 `;
 
 export const writeStandardMattLocalRepository = async (root: string): Promise<void> => {
-  const standardContract = await readFile(join(process.cwd(), "docs/agents/issue-tracker.md"));
-  const standardTriageVocabulary = await readFile(
-    join(process.cwd(), "docs/agents/triage-labels.md"),
-  );
   await writeFixture(root, "CONTEXT.md", "# Local Matt repository\n");
   await writeFixture(root, "docs/agents/domain.md", "# Domain\n");
-  await writeFixture(root, "docs/agents/issue-tracker.md", standardContract);
-  await writeFixture(root, "docs/agents/triage-labels.md", standardTriageVocabulary);
+  await writeFixture(root, "docs/agents/issue-tracker.md", LOCAL_MATT_CONTRACT);
+  await writeFixture(root, "docs/agents/triage-labels.md", LOCAL_MATT_TRIAGE_LABELS);
   await writeFixture(root, "AGENTS.md", standardMattAgentSurface());
   await writeFixture(
     root,
