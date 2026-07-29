@@ -4,27 +4,25 @@ import { runSync } from "../src/sync";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
 describe("sync governance review regressions", () => {
-  test("projects native Map and Ticket files from an unbound scope", async () => {
+  test("does not globally discover native work from an unbound scope", async () => {
     const root = await createValidBearingRepo();
     await writeFixture(
       root,
       ".scratch/unbound/map.md",
-      `# Wayfinder Map: Unbound\n\nType: wayfinder:map\nStatus: active\n\n## Not yet specified\n`,
+      `# Wayfinder Map: Unbound\n\nStatus: active\n\n## Destination\n\nRemain unbound.\n\n## Fog\n`,
     );
     await writeFixture(
       root,
       ".scratch/unbound/issues/01-ready.md",
-      `# Ready Without Binding\n\nType: task\nStatus: open\n\n## Question\n\nWhat changes?\n`,
+      `# Ready Without Binding\n\nType: task\n\nStatus: claimed\n\n## Question\n\nWhat changes?\n`,
     );
 
     const result = await runSync(root);
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
-    expect(sitemap).toContain("`.scratch/unbound/map.md` | Unbound | active");
-    expect(sitemap).toContain(
-      "`.scratch/unbound/issues/01-ready.md` | Ready Without Binding | open",
-    );
-    expect(sitemap).not.toContain("source: `.scratch/unbound/effort.md`");
+    expect(result.inputs).not.toContain(".scratch/unbound/map.md");
+    expect(result.inputs).not.toContain(".scratch/unbound/issues/01-ready.md");
+    expect(sitemap).not.toContain(".scratch/unbound");
   });
 
   test("diagnoses invalid manifest and advisory snapshot schemas", async () => {
@@ -178,10 +176,11 @@ Alignment Check: \`alignment-check:missing\`
 
   test("Fog prevents ready-for-review even when a Map is marked resolved", async () => {
     const root = await createValidBearingRepo();
+    const map = await readFile(`${root}/.scratch/work/map.md`, "utf8");
     await writeFixture(
       root,
       ".scratch/work/map.md",
-      `# Wayfinder Map: Test\n\nType: wayfinder:map\nStatus: resolved\n\n## Not yet specified\n\n- A material question remains.\n`,
+      map.replace("## Fog\n", "## Fog\n\n- A material question remains.\n"),
     );
 
     const result = await runSync(root);
@@ -195,17 +194,17 @@ Alignment Check: \`alignment-check:missing\`
     await writeFixture(
       root,
       ".scratch/work/issues/02-invalid.md",
-      `# Invalid\n\nType: task\nStatus: invented\n\n## Question\n\nCan this be classified?\n`,
+      `# Invalid\n\nType: task\n\nStatus: invented\n\n## Question\n\nCan this be classified?\n`,
     );
 
     const result = await runSync(root);
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(result.diagnostics).toContainEqual({
-      code: "unsupported-tracker-status",
+      code: "matt.local.lifecycle.unknown",
       impact: "blocking",
       target: ".scratch/work/issues/02-invalid.md",
-      message: "Tracker-native Ticket Status is not supported.",
+      message: "Wayfinder Status must be claimed or resolved.",
     });
     expect(sitemap).toContain("Gate readiness: `gate:test` = unknown");
   });
@@ -230,7 +229,7 @@ Alignment Check: \`alignment-check:missing\`
     await writeFixture(
       root,
       ".scratch/work/issues/02-missing-blocker.md",
-      `# Missing Blocker\n\nType: task\nStatus: open\nBlocked by: 99\n\n## Question\n\nWhere is the blocker?\n`,
+      `# Missing Blocker\n\nType: task\n\nBlocked by: 99\n\nStatus: claimed\n\n## Question\n\nWhere is the blocker?\n`,
     );
 
     const result = await runSync(root);
@@ -238,6 +237,6 @@ Alignment Check: \`alignment-check:missing\`
 
     expect(codes).toContain("gate-roadmap-mismatch");
     expect(codes).toContain("effort-roadmap-gate-mismatch");
-    expect(codes).toContain("missing-ticket-blocker");
+    expect(codes).toContain("matt.local.relation.broken");
   });
 });

@@ -7,9 +7,13 @@ import { readCatalogState } from "./catalog/store";
 import { inspectInstallPath } from "./install-boundary";
 import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans } from "./installer";
+import { pointsToMattContractLocator } from "./matt-agent-surface";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
+import {
+  decodeMattProviderConfiguration,
+  type MattProviderConfigurationFile,
+} from "./provider-configuration";
 import { validateMattSkillsV1Contract } from "./providers/matt-skills-v1";
-import { displaySourceLocatorSchema } from "./reference-schema";
 import { manifestSchema } from "./schema-definitions";
 import { prepareSync } from "./sync-plan";
 import type { AgentSurface } from "./types";
@@ -201,18 +205,6 @@ const invalidStateInputs = async (
   }
 };
 
-const providerConfigurationSchema = z.strictObject({
-  schemaVersion: z.literal(1),
-  provider: z.literal("matt-skills/v1"),
-  contractLocator: displaySourceLocatorSchema,
-});
-const workManagementPointerPattern = /^Work-management contract:\s*`([^`\r\n]+)`\s*$/gmu;
-
-const pointsToContract = (source: string, locator: string): boolean => {
-  const declarations = [...source.matchAll(workManagementPointerPattern)];
-  return declarations.length === 1 && declarations[0]?.[1] === locator;
-};
-
 const dependencyBlockers = async (
   root: string,
   manifest: z.infer<typeof lifecycleManifestSchema>,
@@ -253,12 +245,12 @@ const dependencyBlockers = async (
   }
 
   const providerTarget = join(root, ".bearing/provider.json");
-  let provider: z.infer<typeof providerConfigurationSchema> | undefined;
+  let provider: MattProviderConfigurationFile | undefined;
   try {
     const state = await inspectInstallPath(providerTarget);
     if (state.kind === "file" && state.linkCount === 1) {
-      provider = providerConfigurationSchema.parse(
-        JSON.parse((await readContainedFile(root, providerTarget)).toString("utf8")),
+      provider = decodeMattProviderConfiguration(
+        (await readContainedFile(root, providerTarget)).toString("utf8"),
       );
     }
   } catch {
@@ -299,7 +291,7 @@ const dependencyBlockers = async (
       let matches = false;
       try {
         const source = (await readContainedFile(root, join(root, locator))).toString("utf8");
-        matches = pointsToContract(source, provider.contractLocator);
+        matches = pointsToMattContractLocator(source, provider.contractLocator);
       } catch {
         matches = false;
       }

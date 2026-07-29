@@ -44,55 +44,30 @@ test("rejects cached Roadmap, Gate, and Effort ownership drift", () => {
   });
 });
 
-test("rejects forged frontier, Fog, Effort references, and blockers", () => {
+test("rejects provider capture identity drift and unknown bound-provider fields", () => {
   const snapshot = createProjectOverviewFixture();
-  if (
-    snapshot.efforts.validity !== "available" ||
-    snapshot.maps.validity !== "available" ||
-    snapshot.tickets.validity !== "available"
-  ) {
-    throw new Error("Expected complete native-work fixture.");
-  }
+  const portalCapture = snapshot.providerCaptures.find(
+    (capture) => capture.binding.nativeScope === ".scratch/portal",
+  );
+  if (portalCapture === undefined) throw new Error("Expected Portal provider capture.");
+
+  rejects({
+    ...snapshot,
+    providerCaptures: [
+      ...snapshot.providerCaptures,
+      { ...portalCapture, binding: { ...portalCapture.binding, nativeScope: ".scratch/model" } },
+    ],
+  });
+  if (snapshot.efforts.validity !== "available") throw new Error("Expected Effort fixture.");
   rejects({
     ...snapshot,
     efforts: {
       validity: "available",
       items: snapshot.efforts.items.map((effort) =>
         effort.id === "effort:portal"
-          ? {
-              ...effort,
-              frontier: {
-                ...effort.frontier,
-                claimed: [".scratch/portal/issues/02-review.md"],
-              },
-            }
+          ? { ...effort, workBinding: { ...effort.workBinding, Driver: "local-markdown" } }
           : effort,
       ),
-    },
-  });
-  rejects({
-    ...snapshot,
-    maps: {
-      validity: "available",
-      items: snapshot.maps.items.map((map) =>
-        map.effortId === "effort:portal" ? { ...map, fogCount: 7 } : map,
-      ),
-    },
-  });
-  rejects({
-    ...snapshot,
-    tickets: {
-      validity: "available",
-      items: snapshot.tickets.items.map((ticket) =>
-        ticket.state === "blocked" ? { ...ticket, blockedBy: [".scratch/missing.md"] } : ticket,
-      ),
-    },
-  });
-  rejects({
-    ...snapshot,
-    maps: {
-      validity: "available",
-      items: snapshot.maps.items.map((map) => ({ ...map, effortId: "effort:missing" })),
     },
   });
 });
@@ -112,7 +87,7 @@ test("allows unresolved relation IDs only when their owning collection is partia
             ),
           },
     efforts: {
-      validity: "partial",
+      validity: "partial" as const,
       items: snapshot.efforts.items.filter((effort) => effort.id !== "effort:portal"),
       issues: [
         {

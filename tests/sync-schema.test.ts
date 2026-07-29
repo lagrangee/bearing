@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { runSync } from "../src/sync";
+import { prepareSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
 describe("bearing sync", () => {
@@ -51,7 +52,7 @@ Only one section exists.
     });
   });
 
-  test("reports duplicate Stable IDs and claimed work with unresolved blockers", async () => {
+  test("reports duplicate Stable IDs and preserves claimed work with unresolved blockers", async () => {
     const root = await createValidBearingRepo();
     await writeFixture(
       root,
@@ -78,7 +79,8 @@ Conflict with the fixture.
       `# Blocked
 
 Type: task
-Status: open
+
+Status: claimed
 
 ## Question
 
@@ -91,8 +93,10 @@ What remains?
       `# Claimed
 
 Type: task
-Status: claimed
+
 Blocked by: 02
+
+Status: claimed
 
 ## Question
 
@@ -100,17 +104,33 @@ Should this have been claimed?
 `,
     );
 
-    const result = await runSync(root);
+    const result = await prepareSync(root);
 
     expect(result.diagnostics.filter((item) => item.code === "duplicate-stable-id")).toHaveLength(
       2,
     );
-    expect(result.diagnostics).toContainEqual({
-      code: "claimed-with-unresolved-blocker",
-      impact: "non-blocking",
-      target: ".scratch/work/issues/03-claimed.md",
-      message: "Claimed Ticket still depends on an unresolved Ticket.",
+    const capture = result.providerCaptures[0];
+    if (capture === undefined || (capture.state !== "available" && capture.state !== "partial")) {
+      throw new Error("Expected a provider capture.");
+    }
+    expect(
+      capture.projection.graph.blockedBy.map((relation) => ({
+        blocked: String(relation.blocked),
+        blocker: String(relation.blocker),
+        evidence: relation.evidence,
+      })),
+    ).toContainEqual({
+      blocked: ".scratch/work/issues/03-claimed.md",
+      blocker: ".scratch/work/issues/02-blocked.md",
+      evidence: "matt-contract",
     });
+    expect(capture.projection.wayfinderTickets).toContainEqual(
+      expect.objectContaining({
+        ref: ".scratch/work/issues/03-claimed.md",
+        claim: { state: "claimed" },
+        lifecycle: { state: "open" },
+      }),
+    );
   });
 
   test("rejects empty Stable ID slugs and retains an invalid Sitemap shell", async () => {

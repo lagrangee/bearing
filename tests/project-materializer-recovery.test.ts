@@ -103,8 +103,8 @@ test("detects added and deleted inputs through the shared discovery seam", async
   expect(String(added.snapshot.basis.sitemapFingerprint)).not.toBe(baseline.fingerprint);
   expect(addedSitemap.kind).toBe("available");
   if (addedSitemap.kind !== "available") throw new Error("Expected current Sitemap cache.");
-  expect(addedSitemap.envelope.inputs).toContain(addedLocator);
-  expect(JSON.stringify(added.snapshot.tickets)).toContain(addedLocator);
+  expect(addedSitemap.envelope.inputs).not.toContain(addedLocator);
+  expect(JSON.stringify(added.snapshot.providerCaptures)).toContain(addedLocator);
 
   await unlink(join(root, addedLocator));
   const deleted = await materializer.run(root, "ensure-current");
@@ -115,7 +115,7 @@ test("detects added and deleted inputs through the shared discovery seam", async
   expect(deletedSitemap.kind).toBe("available");
   if (deletedSitemap.kind !== "available") throw new Error("Expected current Sitemap cache.");
   expect(deletedSitemap.envelope.inputs).not.toContain(addedLocator);
-  expect(JSON.stringify(deleted.snapshot.tickets)).not.toContain(addedLocator);
+  expect(JSON.stringify(deleted.snapshot.providerCaptures)).not.toContain(addedLocator);
   expect(await readFile(summaryPath(root))).toEqual(source);
 });
 

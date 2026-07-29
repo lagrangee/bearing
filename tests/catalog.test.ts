@@ -5,7 +5,12 @@ import { parseCatalogDocument } from "../src/catalog/model";
 import { readCatalog } from "../src/catalog/probe";
 import { CatalogLockError, readCatalogDocument, upsertCatalogEntry } from "../src/catalog/store";
 import { reconcileRepository } from "../src/reconcile-repository";
-import { createValidBearingRepo, makeTemporaryDirectory } from "./helpers";
+import {
+  createValidBearingRepo,
+  LOCAL_MATT_CONTRACT,
+  makeTemporaryDirectory,
+  standardMattAgentSurface,
+} from "./helpers";
 
 const catalogDocument = (
   entries: readonly Readonly<{
@@ -196,14 +201,8 @@ describe("Project Catalog contract", () => {
     await writeFile(join(homeDir, ".bearing/catalog.json"), "{malformed\n");
     const contractLocator = "docs/agents/issue-tracker.md";
     await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
-    await writeFile(
-      join(repoRoot, contractLocator),
-      "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
-    );
-    await writeFile(
-      join(repoRoot, "AGENTS.md"),
-      `Work-management contract: \`${contractLocator}\`\n`,
-    );
+    await writeFile(join(repoRoot, contractLocator), LOCAL_MATT_CONTRACT);
+    await writeFile(join(repoRoot, "AGENTS.md"), standardMattAgentSurface(contractLocator));
 
     // When: reconcile completes repo-local setup before Catalog registration.
     const result = await reconcileRepository({

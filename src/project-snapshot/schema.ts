@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mattSkillsV1ScopeCaptureSchema } from "../providers/matt-skills-v1/schema";
 import { uniqueIdentityArraySchema } from "./projection-identity";
 import { assetProjectionSchema } from "./schema-asset";
 import { planningAuditSchema } from "./schema-audit";
@@ -18,7 +19,6 @@ import {
   roadmapIdSchema,
   semanticFreshnessSchema,
   semanticPlainTextSchema,
-  trackerReferenceSchema,
 } from "./schema-primitives";
 import { collectionProjectionSchema, singletonProjectionSchema } from "./schema-projection";
 import { roadmapIndexSchema } from "./schema-roadmap-index";
@@ -30,15 +30,7 @@ export { auditFindingSchema, planningAuditSchema } from "./schema-audit";
 export { diagnosticReferenceSchema } from "./schema-primitives";
 export { projectionIssueSchema } from "./schema-projection";
 export { projectSummarySchema } from "./schema-summary";
-export const PROJECT_SNAPSHOT_VERSION = 2 as const;
-
-const frontierSchema = z.strictObject({
-  claimed: uniqueIdentityArraySchema(trackerReferenceSchema, (reference) => reference),
-  ready: uniqueIdentityArraySchema(trackerReferenceSchema, (reference) => reference),
-  blocked: uniqueIdentityArraySchema(trackerReferenceSchema, (reference) => reference),
-  resolved: uniqueIdentityArraySchema(trackerReferenceSchema, (reference) => reference),
-  fogCount: z.number().int().nonnegative(),
-});
+export const PROJECT_SNAPSHOT_VERSION = 3 as const;
 const resolutionSchema = z.strictObject({
   acceptedDecision: semanticPlainTextSchema,
   rationale: semanticPlainTextSchema,
@@ -105,12 +97,10 @@ export const effortSchema = z.strictObject({
   workBinding: z
     .strictObject({
       provider: z.literal("matt-skills/v1"),
-      driver: z.enum(["local-markdown", "github-issues"]),
-      nativeScope: trackerReferenceSchema,
+      nativeScope: z.string().min(1),
     })
     .optional(),
   derivedState: z.enum(["active", "resolved", "unknown"]),
-  frontier: frontierSchema,
 });
 export const authoritySchema = z.strictObject({
   id: authorityIdSchema,
@@ -166,20 +156,6 @@ export const nextWorkGuidanceSchema = z
       });
     }
   });
-export const mapProjectionSchema = z.strictObject({
-  reference: trackerReferenceSchema,
-  ...titledSourceShape,
-  state: z.enum(["active", "resolved", "unknown"]),
-  effortId: effortIdSchema.optional(),
-  fogCount: z.number().int().nonnegative(),
-});
-export const ticketProjectionSchema = z.strictObject({
-  reference: trackerReferenceSchema,
-  ...titledSourceShape,
-  state: z.enum(["claimed", "ready", "blocked", "resolved", "triage"]),
-  effortId: effortIdSchema.optional(),
-  blockedBy: uniqueIdentityArraySchema(trackerReferenceSchema, (reference) => reference),
-});
 export const structuralDiagnosticSchema = z.strictObject({
   reference: diagnosticReferenceSchema,
   code: nonEmptyStringSchema,
@@ -216,8 +192,10 @@ export const projectSnapshotSchema = z
     reviews: collectionProjectionSchema(planningReviewSchema, (review) => review.id),
     audit: singletonProjectionSchema(planningAuditSchema),
     guidance: singletonProjectionSchema(nextWorkGuidanceSchema),
-    maps: collectionProjectionSchema(mapProjectionSchema, (map) => map.reference),
-    tickets: collectionProjectionSchema(ticketProjectionSchema, (ticket) => ticket.reference),
+    providerCaptures: uniqueIdentityArraySchema(
+      mattSkillsV1ScopeCaptureSchema,
+      (capture) => `${capture.provider}:${capture.binding.nativeScope}`,
+    ),
     diagnostics: uniqueIdentityArraySchema(
       structuralDiagnosticSchema,
       (diagnostic) => diagnostic.reference,

@@ -523,6 +523,7 @@ const collectFiles = async (root, directory = root) => {
 const REQUIRED_SEED_FILES = Object.freeze([
   "CONTEXT.md",
   "docs/agents/issue-tracker.md",
+  "docs/agents/triage-labels.md",
   "scratch/release-smoke/PRD.md",
   "scratch/release-smoke/issues/01-orient.md",
   "scratch/release-smoke/map.md",

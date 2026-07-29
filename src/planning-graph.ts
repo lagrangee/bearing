@@ -1,7 +1,6 @@
 import type { AssetContentObservation } from "./asset-inputs";
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
-import { buildCapturedNativeNodes } from "./captured-native-work";
-import { type NativeSourceRecord, scopeFor } from "./native-work";
+import { deepFreeze } from "./immutable";
 import type { PlanningGraphInstrumentation } from "./planning-graph-instrumentation";
 import { buildAssetProjection } from "./project-snapshot/assets";
 import type {
@@ -10,20 +9,20 @@ import type {
   Authority,
   CollectionProjection,
   Effort,
-  MapProjection,
   MilestoneGate,
   ProjectionIssue,
+  ProviderScopeCapture,
   Roadmap,
   SnapshotDiagnostic,
   SourceRecord,
-  TicketProjection,
 } from "./project-snapshot/contract";
 import { buildDecisionProjection } from "./project-snapshot/decisions";
 import { buildSnapshotDiagnostics } from "./project-snapshot/diagnostic-projection";
 import { buildGovernanceProjection } from "./project-snapshot/governance";
-import { buildNativeProjection } from "./project-snapshot/native";
 import { normalizePlanningDerivations } from "./project-snapshot/normalized-planning-derivation";
 import { createSourceRecord, mergeSourceRecords } from "./project-snapshot/source-records";
+import type { MattSkillsV1ScopeCapture } from "./providers/matt-skills-v1/capture";
+import { mattObjectLocator, mattObjects } from "./providers/matt-skills-v1/projection";
 import type { StructuralDiagnostic } from "./types";
 
 export type PlanningGraphIssue = Readonly<{
@@ -41,8 +40,7 @@ export type PlanningGraphEffortContext = Readonly<{
   roadmap?: PlanningGraphValue<Roadmap>;
   targetGate?: PlanningGraphValue<MilestoneGate>;
   authorities: readonly PlanningGraphValue<Authority>[];
-  map?: PlanningGraphValue<MapProjection>;
-  tickets: readonly PlanningGraphValue<TicketProjection>[];
+  providerCapture?: ProviderScopeCapture;
   alignmentChecks: readonly PlanningGraphValue<AlignmentCheck>[];
   evidence: readonly PlanningGraphValue<AssetProjection>[];
 }>;
@@ -104,7 +102,7 @@ export type PlanningContextResult = RoadmapContextResult | GateContextResult | E
 
 export type PlanningGraphBuildInput = Readonly<{
   decoded: DecodedBearingRecordGeneration;
-  nativeRecords: readonly NativeSourceRecord[];
+  providerCaptures: readonly MattSkillsV1ScopeCapture[];
   diagnostics: readonly StructuralDiagnostic[];
   fingerprint: string;
   assetContentObservations: readonly AssetContentObservation[];
@@ -115,8 +113,7 @@ export type PlanningGraphProjection = Readonly<{
   roadmaps: CollectionProjection<Roadmap>;
   gates: CollectionProjection<MilestoneGate>;
   efforts: CollectionProjection<Effort>;
-  maps: CollectionProjection<MapProjection>;
-  tickets: CollectionProjection<TicketProjection>;
+  providerCaptures: readonly ProviderScopeCapture[];
 }>;
 
 export interface PlanningGraph {
@@ -135,8 +132,7 @@ type GraphCollections = Readonly<{
   authorities: CollectionProjection<Authority>;
   assets: CollectionProjection<AssetProjection>;
   checks: CollectionProjection<AlignmentCheck>;
-  maps: CollectionProjection<MapProjection>;
-  tickets: CollectionProjection<TicketProjection>;
+  providerCaptures: readonly ProviderScopeCapture[];
 }>;
 
 type PlanningProjectionInput = PlanningGraphProjection &
@@ -147,14 +143,6 @@ type PlanningProjectionInput = PlanningGraphProjection &
 
 const compareUtf8 = (left: string, right: string): number =>
   Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
-
-const TRACKER_NATIVE_DIAGNOSTIC_CODES = new Set([
-  "duplicate-ticket-number",
-  "unsupported-tracker-status",
-  "missing-ticket-blocker",
-  "ambiguous-ticket-blocker",
-  "claimed-with-unresolved-blocker",
-]);
 
 const PLANNING_RELATION_DIAGNOSTIC_CODES = new Set([
   "broken-canonical-reference",
@@ -177,31 +165,21 @@ const issues = <T>(collection: CollectionProjection<T>): readonly ProjectionIssu
   collection.validity === "available" ? [] : collection.issues;
 
 const trackerSources = (
-  records: readonly NativeSourceRecord[],
+  captures: readonly MattSkillsV1ScopeCapture[],
   fingerprint: string,
 ): readonly SourceRecord[] =>
-  records.flatMap((record) => {
-    if (!/^\.scratch\/[^/]+\/(?:map\.md|issues\/(?:.*\/)?\d+-[^/]+\.md)$/u.test(record.locator)) {
-      return [];
-    }
-    return [
+  captures.flatMap((capture) =>
+    mattObjects(capture).map((object) =>
       createSourceRecord(fingerprint, {
         kind: "tracker",
-        locator: record.locator,
+        locator: mattObjectLocator(object),
         binding: {
-          role: record.locator.endsWith("/map.md") ? "map" : "ticket",
-          identity: record.locator,
+          role: object.kind,
+          identity: object.ref,
         },
       }),
-    ];
-  });
-
-const deepFreeze = <T>(value: T, seen = new WeakSet<object>()): T => {
-  if (typeof value !== "object" || value === null || seen.has(value)) return value;
-  seen.add(value);
-  for (const child of Object.values(value)) deepFreeze(child, seen);
-  return Object.freeze(value);
-};
+    ),
+  );
 
 const issueKey = (issue: PlanningGraphIssue): string =>
   `${issue.code}\u0000${issue.target}\u0000${issue.source ?? ""}\u0000${issue.message}`;
@@ -226,29 +204,6 @@ const valueWithSource = <T extends { source: string }>(
   if (source === undefined)
     throw new Error(`Planning Graph source is unavailable: ${value.source}`);
   return { value, source };
-};
-
-const effortScope = (effort: Effort, source: SourceRecord): string | undefined =>
-  effort.workBinding?.nativeScope ??
-  (source.displayLocator.endsWith("/effort.md")
-    ? source.displayLocator.slice(0, -"/effort.md".length)
-    : undefined);
-
-const issueInsideEffort = (
-  issue: PlanningGraphIssue,
-  effort: Effort,
-  effortSource: SourceRecord,
-  sourceByReference: ReadonlyMap<string, SourceRecord>,
-): boolean => {
-  const scope = effortScope(effort, effortSource);
-  if (scope === undefined) return true;
-  const issueSource = sourceByReference.get(issue.source ?? "")?.displayLocator;
-  return (
-    issue.target === scope ||
-    issue.target.startsWith(`${scope}/`) ||
-    issueSource === scope ||
-    issueSource?.startsWith(`${scope}/`) === true
-  );
 };
 
 const projectionWithIsolation = <T extends { source: string }>(
@@ -287,21 +242,6 @@ const projectionWithIsolation = <T extends { source: string }>(
   return retained.length === 0
     ? { validity: "invalid", issues: combined }
     : { validity: "partial", items: retained, issues: combined };
-};
-
-const stripUnavailableEffortBindings = <T extends MapProjection | TicketProjection>(
-  collection: CollectionProjection<T>,
-  effortIds: ReadonlySet<string>,
-): CollectionProjection<T> => {
-  if (collection.validity === "invalid") return collection;
-  const items = collection.items.map((item) =>
-    item.effortId === undefined || effortIds.has(item.effortId)
-      ? item
-      : ({ ...item, effortId: undefined } as T),
-  );
-  return collection.validity === "available"
-    ? { validity: "available", items }
-    : { validity: "partial", items, issues: collection.issues };
 };
 
 const buildPlanningProjection = (input: PlanningProjectionInput): PlanningGraphProjection => {
@@ -363,9 +303,6 @@ const buildPlanningProjection = (input: PlanningProjectionInput): PlanningGraphP
         gate?.roadmapId === effort.roadmapId)
     );
   });
-  const effortIds = new Set<string>(efforts.map((effort) => effort.id));
-  const maps = stripUnavailableEffortBindings(input.maps, effortIds);
-  const tickets = stripUnavailableEffortBindings(input.tickets, effortIds);
   const isolatedRoadmaps = projectionWithIsolation(
     input.roadmaps,
     roadmaps,
@@ -391,12 +328,11 @@ const buildPlanningProjection = (input: PlanningProjectionInput): PlanningGraphP
     roadmaps: isolatedRoadmaps,
     gates: isolatedGates,
     efforts: isolatedEfforts,
-    maps,
-    tickets,
+    providerCaptures: input.providerCaptures,
     diagnostics: input.diagnostics,
     sources: input.sources,
   });
-  return { ...normalized, maps, tickets };
+  return { ...normalized, providerCaptures: input.providerCaptures };
 };
 
 const overlayNormalizedItems = <T extends { id: string }>(
@@ -421,7 +357,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
   readonly #knownSources: ReadonlyMap<string, ReadonlySet<string>>;
   readonly #checkTargetBySource: ReadonlyMap<string, string>;
   readonly #assetOwnersBySource: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly #globalNativeIssues: readonly PlanningGraphIssue[];
+  readonly #globalProviderIssues: readonly PlanningGraphIssue[];
   readonly #instrumentation: PlanningGraphInstrumentation | undefined;
 
   constructor(
@@ -433,7 +369,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
     knownSources: ReadonlyMap<string, ReadonlySet<string>>,
     checkTargetBySource: ReadonlyMap<string, string>,
     assetOwnersBySource: ReadonlyMap<string, ReadonlySet<string>>,
-    globalNativeIssues: readonly PlanningGraphIssue[],
+    globalProviderIssues: readonly PlanningGraphIssue[],
     instrumentation?: PlanningGraphInstrumentation,
   ) {
     this.fingerprint = fingerprint;
@@ -445,7 +381,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
     this.#knownSources = knownSources;
     this.#checkTargetBySource = checkTargetBySource;
     this.#assetOwnersBySource = assetOwnersBySource;
-    this.#globalNativeIssues = deepFreeze([...globalNativeIssues]);
+    this.#globalProviderIssues = deepFreeze([...globalProviderIssues]);
     this.#instrumentation = instrumentation;
     Object.freeze(this);
   }
@@ -598,21 +534,31 @@ class ImmutablePlanningGraph implements PlanningGraph {
         closureIssues.push(...this.#scopedIssues(authorityId, this.#collections.authorities));
       } else authorityValues.push(valueWithSource(authority, sourceByReference));
     }
-    const maps = trusted(this.#collections.maps).filter(
-      (candidate) => candidate.effortId === effort.id,
-    );
-    if (maps.length > 1)
+    const providerCapture =
+      effort.workBinding === undefined
+        ? undefined
+        : this.#collections.providerCaptures.find(
+            (capture) =>
+              capture.provider === effort.workBinding?.provider &&
+              capture.binding.nativeScope === effort.workBinding.nativeScope,
+          );
+    if (effort.workBinding !== undefined && providerCapture === undefined) {
       closureIssues.push(
         relationIssue(
-          "ambiguous-native-map",
-          effort.id,
-          "Multiple native Maps are attributed to one Effort.",
+          "missing-provider-capture",
+          effort.workBinding.nativeScope,
+          "The Effort's required provider capture is unavailable.",
           effort.source,
         ),
       );
-    const tickets = trusted(this.#collections.tickets)
-      .filter((candidate) => candidate.effortId === effort.id)
-      .sort((left, right) => compareUtf8(left.reference, right.reference));
+    }
+    if (providerCapture !== undefined) {
+      closureIssues.push(
+        ...providerCapture.diagnostics.map((item) =>
+          relationIssue(item.code, item.target, item.message),
+        ),
+      );
+    }
     const relevantTargets = new Set<string>([
       effort.id,
       effort.roadmapId,
@@ -677,24 +623,13 @@ class ImmutablePlanningGraph implements PlanningGraph {
           ),
         );
     }
-    closureIssues.push(
-      ...issues(this.#collections.maps).filter((issue) =>
-        issueInsideEffort(issue, effort, effortSource, sourceByReference),
-      ),
-      ...issues(this.#collections.tickets).filter((issue) =>
-        issueInsideEffort(issue, effort, effortSource, sourceByReference),
-      ),
-    );
     return {
       effort: valueWithSource(effort, sourceByReference),
       source: effortSource,
       ...(roadmap === undefined ? {} : { roadmap: valueWithSource(roadmap, sourceByReference) }),
       ...(gate === undefined ? {} : { targetGate: valueWithSource(gate, sourceByReference) }),
       authorities: authorityValues,
-      ...(maps.length === 1 && maps[0] !== undefined
-        ? { map: valueWithSource(maps[0], sourceByReference) }
-        : {}),
-      tickets: tickets.map((ticket) => valueWithSource(ticket, sourceByReference)),
+      ...(providerCapture === undefined ? {} : { providerCapture }),
       alignmentChecks: checks.map((check) => valueWithSource(check, sourceByReference)),
       evidence: evidence.map((asset) => valueWithSource(asset, sourceByReference)),
     };
@@ -710,14 +645,14 @@ class ImmutablePlanningGraph implements PlanningGraph {
       references.add(context.effort.value.source);
       if (context.roadmap !== undefined) references.add(context.roadmap.value.source);
       if (context.targetGate !== undefined) references.add(context.targetGate.value.source);
-      for (const value of [
-        ...context.authorities,
-        ...context.tickets,
-        ...context.alignmentChecks,
-        ...context.evidence,
-        ...(context.map === undefined ? [] : [context.map]),
-      ])
+      for (const value of [...context.authorities, ...context.alignmentChecks, ...context.evidence])
         references.add(value.source.reference);
+      for (const object of mattObjects(context.providerCapture)) {
+        const source = this.#sources.find(
+          (candidate) => candidate.kind === "tracker" && candidate.binding?.identity === object.ref,
+        );
+        if (source !== undefined) references.add(source.reference);
+      }
     }
     for (const issue of finalIssues) if (issue.source !== undefined) references.add(issue.source);
     return this.#sources.filter((source) => references.has(source.reference));
@@ -742,7 +677,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       return this.#invalidTarget(target, "roadmap", "Roadmap", this.#collections.roadmaps);
     const closureIssues: PlanningGraphIssue[] = [
       ...this.#scopedIssues(roadmap.id, this.#collections.roadmaps),
-      ...this.#globalNativeIssues,
+      ...this.#globalProviderIssues,
     ];
     const orderedGates: MilestoneGate[] = [];
     for (const gateId of roadmap.gateOrder) {
@@ -842,7 +777,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       return this.#invalidTarget(target, "milestone-gate", "Gate", this.#collections.gates);
     const closureIssues: PlanningGraphIssue[] = [
       ...this.#scopedIssues(gate.id, this.#collections.gates),
-      ...this.#globalNativeIssues,
+      ...this.#globalProviderIssues,
     ];
     const roadmap = trusted(this.#collections.roadmaps).find(
       (candidate) => candidate.id === gate.roadmapId,
@@ -941,21 +876,6 @@ export const buildPlanningGraph = async (
         ),
     ),
   });
-  const governanceSourceByReference = new Map(
-    governance.sources.map((source) => [source.reference, source]),
-  );
-  const effortByScope = new Map<string, string>();
-  for (const effort of trusted(governance.efforts)) {
-    const source = governanceSourceByReference.get(effort.source);
-    const scope = source === undefined ? undefined : effortScope(effort, source);
-    if (scope !== undefined) effortByScope.set(scope, effort.id);
-  }
-  const native = buildNativeProjection({
-    nodes: buildCapturedNativeNodes(input.nativeRecords),
-    effortByScope,
-    sitemapFingerprint: input.fingerprint,
-    diagnostics: input.diagnostics,
-  });
   const assets = await buildAssetProjection({
     records: input.decoded.records,
     sitemapFingerprint: input.fingerprint,
@@ -969,7 +889,7 @@ export const buildPlanningGraph = async (
     governance.sources,
     assets.sources,
     decisions.sources,
-    trackerSources(input.nativeRecords, input.fingerprint),
+    trackerSources(input.providerCaptures, input.fingerprint),
   ]);
   const assetSourceByIdentity = new Map(
     sources.flatMap((source) =>
@@ -1006,8 +926,7 @@ export const buildPlanningGraph = async (
     roadmaps: governance.roadmaps,
     gates: governance.gates,
     efforts: governance.efforts,
-    maps: native.maps,
-    tickets: native.tickets,
+    providerCaptures: input.providerCaptures,
     diagnostics: diagnosticProjection.diagnostics,
     sources,
   });
@@ -1028,49 +947,6 @@ export const buildPlanningGraph = async (
       checkTargetBySource.set(record.source.reference, data.Target);
     }
   }
-  const effortScopeTrust = new Map<string, "known" | "untrustworthy">();
-  for (const record of input.decoded.records) {
-    if (record.type !== "effort") continue;
-    const scope = scopeFor(record.locator);
-    if (scope === undefined) continue;
-    const trust = record.data?.Type === "effort" ? "known" : "untrustworthy";
-    if (effortScopeTrust.get(scope) !== "known") effortScopeTrust.set(scope, trust);
-  }
-  const sourceForLocator = new Map(
-    sources
-      .filter((source) => source.kind === "tracker")
-      .map((source) => [source.displayLocator, source.reference]),
-  );
-  const globalNativeIssues: PlanningGraphIssue[] = input.nativeRecords.flatMap((record) => {
-    const scope = record.native?.scope;
-    if (scope === undefined || effortScopeTrust.get(scope) !== "untrustworthy") return [];
-    return [
-      relationIssue(
-        "unscopable-native-work",
-        record.locator,
-        "Native work belongs to a scope whose Effort relation is unavailable.",
-        sourceForLocator.get(record.locator),
-      ),
-    ];
-  });
-  const nativeLocators = new Set(input.nativeRecords.map((record) => record.locator));
-  for (const diagnostic of input.diagnostics) {
-    const scope = scopeFor(diagnostic.target);
-    const unscopable =
-      (scope !== undefined &&
-        effortScopeTrust.get(scope) === "untrustworthy" &&
-        nativeLocators.has(diagnostic.target)) ||
-      (scope === undefined && TRACKER_NATIVE_DIAGNOSTIC_CODES.has(diagnostic.code));
-    if (!unscopable) continue;
-    globalNativeIssues.push(
-      relationIssue(
-        diagnostic.code,
-        diagnostic.target,
-        diagnostic.message,
-        sourceForLocator.get(diagnostic.target),
-      ),
-    );
-  }
   return new ImmutablePlanningGraph(
     input.fingerprint,
     {
@@ -1080,8 +956,7 @@ export const buildPlanningGraph = async (
       authorities: governance.authorities,
       assets: assets.assets,
       checks: decisions.checks,
-      maps: native.maps,
-      tickets: native.tickets,
+      providerCaptures: input.providerCaptures,
     },
     planningProjection,
     sources,
@@ -1089,7 +964,7 @@ export const buildPlanningGraph = async (
     knownSources,
     checkTargetBySource,
     assetOwnersBySource,
-    stableIssues(globalNativeIssues),
+    [],
     input.instrumentation,
   );
 };

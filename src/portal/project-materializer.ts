@@ -123,7 +123,7 @@ export const createProjectMaterializer = (options: {
           diagnostics: plan.diagnostics,
           advisoryFreshness: plan.advisoryFreshness,
           decoded: plan.decoded,
-          nativeRecords: plan.nativeRecords,
+          providerCaptures: plan.providerCaptures,
           assetContentObservations: plan.assetContentObservations,
           planningGraph: plan.planningGraph,
         }),

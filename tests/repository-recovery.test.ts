@@ -9,7 +9,7 @@ import {
   purgeRepository,
 } from "../src/repo-lifecycle";
 import { setupRepository } from "../src/repo-setup";
-import { makeTemporaryDirectory } from "./helpers";
+import { LOCAL_MATT_CONTRACT, makeTemporaryDirectory, standardMattAgentSurface } from "./helpers";
 
 const expectMissing = async (target: string): Promise<void> => {
   await expect(access(target)).rejects.toThrow();
@@ -121,14 +121,8 @@ const seedRepository = async (
   catalogEntryId = "recovery-project",
 ): Promise<Readonly<{ agentsBefore: string }>> => {
   await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
-  await writeFile(
-    join(repoRoot, "docs/agents/issue-tracker.md"),
-    "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
-  );
-  await writeFile(
-    join(repoRoot, "AGENTS.md"),
-    "# User rules\n\nWork-management contract: `docs/agents/issue-tracker.md`\n",
-  );
+  await writeFile(join(repoRoot, "docs/agents/issue-tracker.md"), LOCAL_MATT_CONTRACT);
+  await writeFile(join(repoRoot, "AGENTS.md"), `# User rules\n\n${standardMattAgentSurface()}`);
   await setupRepository({
     repoRoot,
     packageRoot: process.cwd(),

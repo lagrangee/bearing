@@ -18,6 +18,11 @@ const inspect = async (root: string, kind: "roadmap" | "gate" | "effort", id: st
   return { stdout, stderr, exitCode };
 };
 
+const stableInspectOutput = (stdout: string): string =>
+  JSON.stringify(JSON.parse(stdout), (key, value) =>
+    key === "capturedAt" || key === "sourceObservedAt" || key === "observedAt" ? undefined : value,
+  );
+
 const addRev002Context = async (root: string): Promise<void> => {
   await writeFixture(
     root,
@@ -33,7 +38,6 @@ Authorities:
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/second
 ---
 
@@ -50,11 +54,38 @@ Exercise the REV-002 contribution.
   );
   await writeFixture(
     root,
+    ".scratch/second/map.md",
+    `# Wayfinder Map: Second
+
+Status: resolved
+
+## Destination
+
+Finish the second contribution.
+
+## Decisions so far
+
+- [Finish second effort](issues/01-finish.md) — Done.
+
+## Fog
+`,
+  );
+  await writeFixture(
+    root,
     ".scratch/second/issues/01-finish.md",
     `# Finish second effort
 
 Type: task
+
 Status: resolved
+
+## Question
+
+Can the second contribution finish?
+
+## Answer
+
+Done.
 `,
   );
   await writeFixture(
@@ -146,7 +177,14 @@ test("real inspect gate command returns one structured captured closure and writ
     roadmap: { value: { id: "roadmap:test" } },
     targetGate: { value: { id: "gate:test" } },
     authorities: [{ value: { id: "authority:architecture" } }],
-    tickets: [{ value: { reference: ".scratch/second/issues/01-finish.md" } }],
+    providerCapture: {
+      state: "available",
+      completion: "complete",
+      projection: {
+        map: { ref: ".scratch/second/map.md" },
+        wayfinderTickets: [{ ref: ".scratch/second/issues/01-finish.md" }],
+      },
+    },
     alignmentChecks: [{ value: { id: "alignment-check:second" } }],
     evidence: [{ value: { id: "asset:second-evidence" } }],
     source: { displayLocator: ".bearing/state/efforts/second.md" },
@@ -192,7 +230,12 @@ test("real inspect gate command returns partial context successfully for scoped 
     `# Invalid native work
 
 Type: task
+
 Status: unsupported
+
+## Question
+
+Can this work be classified?
 `,
   );
 
@@ -205,7 +248,7 @@ Status: unsupported
     context: { efforts: [{ effort: { value: { id: "effort:test" } } }] },
     issues: [
       {
-        code: "unsupported-tracker-status",
+        code: "matt.local.lifecycle.unknown",
         target: ".scratch/work/issues/02-invalid.md",
       },
     ],
@@ -221,6 +264,7 @@ test("real inspect roadmap and effort commands use the same complete typed closu
     ".bearing/state/assets.md",
     ".bearing/state/alignment-checks/second.md",
     ".bearing/state/authorities/architecture.md",
+    ".scratch/second/map.md",
     ".scratch/second/issues/01-finish.md",
     ".bearing/state/efforts/second.md",
   ]) {
@@ -239,13 +283,13 @@ test("real inspect roadmap and effort commands use the same complete typed closu
   expect(effort.stderr).toBe("");
   expect(repeatedRoadmap.exitCode).toBe(0);
   expect(repeatedRoadmap.stderr).toBe("");
-  expect(repeatedRoadmap.stdout).toBe(roadmap.stdout);
+  expect(stableInspectOutput(repeatedRoadmap.stdout)).toBe(stableInspectOutput(roadmap.stdout));
   expect(perturbedRoadmap.exitCode).toBe(0);
   expect(perturbedEffort.exitCode).toBe(0);
   expect(perturbedRoadmap.stderr).toBe("");
   expect(perturbedEffort.stderr).toBe("");
-  expect(perturbedRoadmap.stdout).toBe(roadmap.stdout);
-  expect(perturbedEffort.stdout).toBe(effort.stdout);
+  expect(stableInspectOutput(perturbedRoadmap.stdout)).toBe(stableInspectOutput(roadmap.stdout));
+  expect(stableInspectOutput(perturbedEffort.stdout)).toBe(stableInspectOutput(effort.stdout));
   const roadmapOutput = JSON.parse(roadmap.stdout);
   const effortOutput = JSON.parse(effort.stdout);
   expect(roadmapOutput).toMatchObject({
@@ -266,7 +310,14 @@ test("real inspect roadmap and effort commands use the same complete typed closu
       roadmap: { value: { id: "roadmap:test" } },
       targetGate: { value: { id: "gate:test" } },
       authorities: [{ value: { id: "authority:architecture" } }],
-      tickets: [{ value: { reference: ".scratch/second/issues/01-finish.md" } }],
+      providerCapture: {
+        state: "available",
+        completion: "complete",
+        projection: {
+          map: { ref: ".scratch/second/map.md" },
+          wayfinderTickets: [{ ref: ".scratch/second/issues/01-finish.md" }],
+        },
+      },
       alignmentChecks: [{ value: { id: "alignment-check:second" } }],
       evidence: [{ value: { id: "asset:second-evidence" } }],
     },
@@ -311,7 +362,6 @@ Authorities: []
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/detached
 ---
 

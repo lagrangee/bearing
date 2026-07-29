@@ -19,7 +19,10 @@ export const SOURCE_BINDING_ROLES = [
   "guidance-item",
   "audit-finding",
   "map",
-  "ticket",
+  "spec",
+  "wayfinder-ticket",
+  "delivery-ticket",
+  "incoming-issue",
 ] as const;
 
 export const sourceKindSchema = z.enum(SOURCE_KINDS);

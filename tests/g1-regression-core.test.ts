@@ -67,7 +67,7 @@ describe("G1 deterministic regression core", () => {
       "bun run build && bun scripts/g1-regression-core.ts",
     );
     expect(metadata.scripts["verify"]).toBe(
-      "bun run typecheck && bun run check && bun run build && bun test tests/*.test.ts && bun run test:g1-regression",
+      "bun run typecheck && bun run check && bun run build && bun test tests/*.test.ts && bun run test:g2-regression",
     );
   });
 

@@ -1,7 +1,8 @@
-import { parseDocument } from "yaml";
-import { z } from "zod";
-
-const recordSchema = z.record(z.string(), z.unknown());
+import {
+  markdownDocumentBody,
+  parseMarkdownDocument,
+  queryMarkdownFrontmatter,
+} from "./markdown-document";
 
 export type FrontmatterResult =
   | Readonly<{
@@ -12,23 +13,13 @@ export type FrontmatterResult =
   | Readonly<{ ok: false; reason: "missing" | "malformed" }>;
 
 export const parseFrontmatter = (source: string): FrontmatterResult => {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/u.exec(source);
-  if (match === null) {
-    return { ok: false, reason: "missing" };
-  }
-  const yamlSource = match[1];
-  const body = match[2];
-  if (yamlSource === undefined || body === undefined) {
-    return { ok: false, reason: "missing" };
-  }
-
-  const document = parseDocument(yamlSource, { uniqueKeys: true });
-  if (document.errors.length > 0) {
-    return { ok: false, reason: "malformed" };
-  }
-  const parsed = recordSchema.safeParse(document.toJS());
-  if (!parsed.success) {
-    return { ok: false, reason: "malformed" };
-  }
-  return { ok: true, data: parsed.data, body };
+  const document = parseMarkdownDocument(source);
+  const frontmatter = queryMarkdownFrontmatter(document);
+  if (frontmatter.state === "absent") return { ok: false, reason: "missing" };
+  if (frontmatter.state === "ambiguous") return { ok: false, reason: "malformed" };
+  return {
+    ok: true,
+    data: frontmatter.value,
+    body: markdownDocumentBody(document),
+  };
 };

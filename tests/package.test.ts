@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createValidBearingRepo } from "./helpers";
+import { writeStandardMattLocalRepository, writeValidBearingState } from "./helpers";
 
 type CommandResult = Readonly<{
   exitCode: number;
@@ -201,20 +201,9 @@ test("the packed CLI runs through offline local npm exec", async () => {
     expect(bundledTypedInspection).toMatch(/`complete`[\s\S]*`partial`[\s\S]*`invalid`/u);
     expect(bundledTypedInspection).toContain("skills-only runtime");
 
-    syncRoot = await createValidBearingRepo();
-    const retainedState = join(root, "package-fixture-state");
-    const retainedScratch = join(root, "package-fixture-scratch");
-    await rename(join(syncRoot, ".bearing/state"), retainedState);
-    await rename(join(syncRoot, ".scratch"), retainedScratch);
-    await rm(join(syncRoot, ".bearing"), { recursive: true });
-    await writeFile(
-      join(syncRoot, "docs/agents/issue-tracker.md"),
-      "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
-    );
-    await writeFile(
-      join(syncRoot, "AGENTS.md"),
-      "Work-management contract: `docs/agents/issue-tracker.md`\n",
-    );
+    syncRoot = await mkdtemp(join(root, "fresh-local-repository-"));
+    await writeStandardMattLocalRepository(syncRoot);
+    await expect(access(join(syncRoot, ".bearing"))).rejects.toThrow();
     const setupCommand = [
       join(homeDirectory, ".bearing/bin/bearing"),
       "setup",
@@ -233,8 +222,18 @@ test("the packed CLI runs through offline local npm exec", async () => {
       access(join(syncRoot, ".bearing/executor-profiles/generic-agent.md")),
     ).rejects.toThrow();
     await expect(access(join(syncRoot, ".agents/skills/bearing/SKILL.md"))).rejects.toThrow();
-    await rename(retainedState, join(syncRoot, ".bearing/state"));
-    await rename(retainedScratch, join(syncRoot, ".scratch"));
+    await writeValidBearingState(syncRoot);
+
+    const syncCommand = [join(homeDirectory, ".bearing/bin/bearing"), "sync", "--repo", syncRoot];
+    const firstSync = await run(syncCommand, { HOME: homeDirectory });
+    const secondSync = await run(syncCommand, { HOME: homeDirectory });
+    expect(firstSync.exitCode).toBe(0);
+    expect(firstSync.stdout).toContain("Diagnostics: 0");
+    expect(firstSync.stdout).toContain("Outcome: applied");
+    expect(secondSync.exitCode).toBe(0);
+    expect(secondSync.stdout).toContain("Outcome: no-op");
+    await access(join(syncRoot, ".bearing/cache/sync-report.md"));
+    await access(join(syncRoot, ".bearing/cache/project-sitemap.md"));
 
     const portalPort = await reservePort();
     const portal = Bun.spawn(
@@ -254,26 +253,74 @@ test("the packed CLI runs through offline local npm exec", async () => {
     if (firstAsset === undefined) throw new Error("Packed Portal contains no browser assets.");
     const browserAsset = await fetch(`http://127.0.0.1:${portalPort}/${firstAsset.path}`);
     expect(await health.json()).toMatchObject({ state: "ready" });
-    expect(await catalog.json()).toMatchObject({
+    const catalogBody = (await catalog.json()) as {
+      readonly state: string;
+      readonly entries: readonly Readonly<{
+        entryId: string;
+        displayName: string;
+        availability: string;
+      }>[];
+    };
+    expect(catalogBody).toMatchObject({
       state: "ready",
       entries: [{ displayName: syncRoot.split("/").at(-1), availability: "available" }],
     });
     expect(await application.text()).toContain("Bearing Portal");
     expect(browserAsset.status).toBe(200);
+    const entryId = catalogBody.entries[0]?.entryId;
+    if (entryId === undefined) throw new Error("Packaged Portal Catalog contains no project.");
+    const firstSnapshot = await fetch(
+      `http://127.0.0.1:${portalPort}/api/v1/projects/${entryId}/snapshot`,
+    );
+    const cookie = firstSnapshot.headers.get("set-cookie");
+    const csrf = firstSnapshot.headers.get("x-bearing-csrf-token");
+    if (cookie === null || csrf === null) throw new Error("Packaged Portal created no session.");
+    const portalSync = await fetch(
+      `http://127.0.0.1:${portalPort}/api/v1/projects/${entryId}/sync`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          "Content-Type": "application/json",
+          "X-Bearing-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({ version: 1, mode: "ensure-current" }),
+      },
+    );
+    const portalSyncBody = (await portalSync.json()) as {
+      readonly state: string;
+      readonly view?: Readonly<{
+        cache: Readonly<{
+          snapshot: Readonly<{
+            state: string;
+            snapshot?: Readonly<{
+              basis: Readonly<{ sitemapFingerprint: string }>;
+              providerCaptures: readonly Readonly<{
+                generation: Readonly<{ fingerprint: string }>;
+              }>[];
+              maps?: unknown;
+              tickets?: unknown;
+            }>;
+          }>;
+        }>;
+      }>;
+    };
+    expect(portalSync.status).toBe(200);
+    expect(portalSyncBody).toMatchObject({
+      state: "completed",
+      view: { cache: { snapshot: { state: "available" } } },
+    });
+    const packagedSnapshot = portalSyncBody.view?.cache.snapshot.snapshot;
+    if (packagedSnapshot === undefined) throw new Error("Packaged Portal returned no Snapshot.");
+    expect(packagedSnapshot.providerCaptures).toHaveLength(1);
+    expect(packagedSnapshot.providerCaptures[0]?.generation.fingerprint).toBe(
+      packagedSnapshot.basis.sitemapFingerprint,
+    );
+    expect(packagedSnapshot).not.toHaveProperty("maps");
+    expect(packagedSnapshot).not.toHaveProperty("tickets");
     portal.kill("SIGTERM");
     expect(await portal.exited).toBe(0);
     ready.reader.releaseLock();
-
-    const syncCommand = [join(homeDirectory, ".bearing/bin/bearing"), "sync", "--repo", syncRoot];
-    const firstSync = await run(syncCommand, { HOME: homeDirectory });
-    const secondSync = await run(syncCommand, { HOME: homeDirectory });
-    expect(firstSync.exitCode).toBe(0);
-    expect(firstSync.stdout).toContain("Diagnostics: 0");
-    expect(firstSync.stdout).toContain("Outcome: applied");
-    expect(secondSync.exitCode).toBe(0);
-    expect(secondSync.stdout).toContain("Outcome: no-op");
-    await access(join(syncRoot, ".bearing/cache/sync-report.md"));
-    await access(join(syncRoot, ".bearing/cache/project-sitemap.md"));
 
     const inspectOutputs = await Promise.all(
       (
@@ -340,4 +387,4 @@ test("the packed CLI runs through offline local npm exec", async () => {
     if (syncRoot !== undefined) await rm(syncRoot, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
   }
-}, 20_000);
+}, 60_000);

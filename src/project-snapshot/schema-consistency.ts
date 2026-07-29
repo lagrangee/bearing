@@ -13,10 +13,6 @@ import {
   validateAuditConsistency,
 } from "./schema-audit-consistency";
 import {
-  type NativeConsistencySnapshot,
-  validateNativeConsistency,
-} from "./schema-native-consistency";
-import {
   type PlanningDerivationConsistencySnapshot,
   validatePlanningDerivationConsistency,
 } from "./schema-planning-derivation-consistency";
@@ -100,14 +96,12 @@ type GovernanceSnapshot = Readonly<{
   >;
   efforts: Collection<
     CollectionItem<PlanningDerivationConsistencySnapshot["efforts"]> &
-      CollectionItem<NativeConsistencySnapshot["efforts"]> &
       CollectionItem<AssetConsistencySnapshot["efforts"]> &
       PrimarySource
   >;
   authorities: Collection<CollectionItem<AssetConsistencySnapshot["authorities"]> & PrimarySource>;
   assets: Collection<CollectionItem<AssetConsistencySnapshot["assets"]> & PrimarySource>;
-  maps: PlanningDerivationConsistencySnapshot["maps"];
-  tickets: PlanningDerivationConsistencySnapshot["tickets"];
+  providerCaptures: PlanningDerivationConsistencySnapshot["providerCaptures"];
   roadmapIndex: Singleton<RoadmapIndex>;
   diagnostics: PlanningDerivationConsistencySnapshot["diagnostics"];
   checks: Collection<
@@ -189,7 +183,6 @@ export const validateProjectSnapshotConsistency = (
   validateAttentionConsistency(snapshot, context);
   validateRoadmapIndex(snapshot, context);
   validateRoadmapConsistency(snapshot, context);
-  validateNativeConsistency(snapshot, context);
   validatePlanningDerivationConsistency(snapshot, context);
   validateAssetConsistency(snapshot, context);
   validateAdvisoryConsistency(snapshot, context);

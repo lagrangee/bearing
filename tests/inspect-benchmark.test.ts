@@ -49,11 +49,11 @@ test("declares one after-only packaged CLI benchmark across both scales and all 
     { kind: "effort", id: "effort:e001" },
   ]);
   expect(BENCHMARK_SCALES.representative).toMatchObject({
-    inputCount: 128,
+    inputCount: 36,
     bearingRecordCount: 30,
   });
   expect(BENCHMARK_SCALES.stress).toMatchObject({
-    inputCount: 512,
+    inputCount: 126,
     bearingRecordCount: 120,
   });
 });
@@ -68,7 +68,7 @@ test("worker invokes the packaged-equivalent CLI in one independent process per 
 
   expect(worker.fixture).toMatchObject({
     digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
-    inputCount: 128,
+    inputCount: 36,
     bearingRecordCount: 30,
   });
   expect(worker.samples.map((sample) => sample.target)).toEqual([...INSPECT_BENCHMARK_TARGETS]);
@@ -105,10 +105,11 @@ test("worker invokes the packaged-equivalent CLI in one independent process per 
       ].sort(),
     );
     expect(sample.structural).toEqual({
-      inputReads: 128,
-      capturedInputs: 128,
+      inputReads: 36,
+      capturedInputs: 36,
       bearingRecords: 30,
       recordDecodes: 30,
+      providerCaptures: 9,
       planningGraphBuilds: 1,
       rootClosures: 1,
       repositoryRevalidations: 0,
@@ -155,10 +156,11 @@ test("counts actual Planning Graph builds and root closures and rejects duplicat
       rootClosures: 2,
     });
     const valid = {
-      inputReads: 128,
-      capturedInputs: 128,
+      inputReads: 36,
+      capturedInputs: 36,
       bearingRecords: 30,
       recordDecodes: 30,
+      providerCaptures: 9,
       planningGraphBuilds: 1,
       rootClosures: 1,
       repositoryRevalidations: 0,
@@ -196,6 +198,7 @@ const metrics = (): InspectBenchmarkMetrics => ({
     capturedInputs: 1,
     bearingRecords: 1,
     recordDecodes: 1,
+    providerCaptures: 1,
     planningGraphBuilds: 1,
     rootClosures: 1,
     repositoryRevalidations: 0,
@@ -276,10 +279,11 @@ test("report records metadata, medians, p95s, and the explainable scale rule wit
       cacheComparison: 1,
     },
     structural: {
-      inputReads: scale === "representative" ? 128 : 512,
-      capturedInputs: scale === "representative" ? 128 : 512,
+      inputReads: scale === "representative" ? 36 : 126,
+      capturedInputs: scale === "representative" ? 36 : 126,
       bearingRecords: scale === "representative" ? 30 : 120,
       recordDecodes: scale === "representative" ? 30 : 120,
+      providerCaptures: scale === "representative" ? 9 : 39,
       planningGraphBuilds: 1,
       rootClosures: 1,
       repositoryRevalidations: 0,
@@ -287,7 +291,7 @@ test("report records metadata, medians, p95s, and the explainable scale rule wit
   });
   const fixture = (scale: "representative" | "stress") => ({
     digest: `sha256:${(scale === "representative" ? "c" : "d").repeat(64)}`,
-    inputCount: scale === "representative" ? 128 : 512,
+    inputCount: scale === "representative" ? 36 : 126,
     bearingRecordCount: scale === "representative" ? 30 : 120,
     totalBytes: 1,
   });
@@ -326,7 +330,7 @@ test("report records metadata, medians, p95s, and the explainable scale rule wit
       nodeVersion: expect.any(String),
     },
     scaleAssessment: {
-      inputRatio: 4,
+      inputRatio: 3.5,
       medianLatencyRatio: 6,
       concern: true,
       explanation: expect.stringMatching(/exceed/iu),

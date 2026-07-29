@@ -22,7 +22,6 @@ Citations:
     Note: Preserve this healthy referenced input.
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/work
 ---
 
@@ -212,7 +211,6 @@ Citations:
     Note: Exercise trusted citation isolation.
 ${extra === "" ? "" : `${extra}\n`}Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/${id.slice("effort:".length)}
 ---
 

@@ -1,0 +1,2697 @@
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { posix, resolve } from "node:path";
+import stableStringify from "safe-stable-stringify";
+import { z } from "zod";
+import { normalizeLocator } from "../../fingerprint";
+import {
+  type MarkdownDocument,
+  type MarkdownSection,
+  parseMarkdownDocument,
+  queryMarkdownField,
+  queryMarkdownLinks,
+  queryMarkdownList,
+  queryMarkdownLists,
+  queryMarkdownSection,
+  queryMarkdownTable,
+} from "../../markdown-document";
+import {
+  type CapturedProviderDocuments,
+  createProviderScopeCapture,
+  type ProviderDiagnostic,
+  type ProviderFreshnessEvidence,
+} from "../../native-work-provider";
+import {
+  readContainedFile,
+  resolveContainedPath,
+  resolveRepositoryRoot,
+} from "../../path-boundary";
+import { validateMattSkillsV1Contract } from "../matt-skills-v1";
+import {
+  MATT_SKILLS_V1_PROVIDER_ID,
+  type MattSkillsV1Provider,
+  type MattSkillsV1ScopeCapture,
+} from "./capture";
+import { parseGitHubCliIncludedResponse } from "./github-cli-response";
+import type {
+  MattBlockedByRelation,
+  MattContent,
+  MattDeliveryTicket,
+  MattIncomingIssue,
+  MattMap,
+  MattNativeEvidence,
+  MattObjectReference,
+  MattParentChildRelation,
+  MattRawFacet,
+  MattScopeProjection,
+  MattSourceAnchor,
+  MattSpec,
+  MattTrackerClosure,
+  MattWayfinderTicket,
+} from "./model";
+
+export const GITHUB_API_VERSION = "2026-03-10" as const;
+const PAGE_SIZE = 100;
+const REQUIRED_TRIAGE_ROLES = [
+  "needs-triage",
+  "needs-info",
+  "ready-for-agent",
+  "ready-for-human",
+  "wontfix",
+] as const;
+const WAYFINDER_SUBTYPES = ["research", "prototype", "grilling", "task"] as const;
+const SPEC_SECTIONS = [
+  ["problem", "Problem Statement"],
+  ["solution", "Solution"],
+  ["user-stories", "User Stories"],
+  ["implementation", "Implementation Decisions"],
+  ["testing", "Testing Decisions"],
+  ["out-of-scope", "Out of Scope"],
+  ["further-notes", "Further Notes"],
+] as const;
+
+type TriageSemanticRole = (typeof REQUIRED_TRIAGE_ROLES)[number] | "bug" | "enhancement";
+
+type TriageVocabulary = Readonly<{
+  semanticToNative: ReadonlyMap<TriageSemanticRole, string>;
+  nativeToSemantic: ReadonlyMap<string, TriageSemanticRole>;
+  complete: boolean;
+}>;
+
+const githubOwnerSchema = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/u);
+const githubRepositoryNameSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9._-]+$/u)
+  .refine((value) => value !== "." && value !== "..");
+
+const githubNativeScopeSchema = z.object({
+  host: z.literal("github.com"),
+  rootKind: z.enum(["wayfinder-map", "parent-issue", "standalone-request"]),
+  repository: z.object({
+    owner: githubOwnerSchema,
+    name: githubRepositoryNameSchema,
+    databaseId: z.string().min(1),
+    nodeId: z.string().min(1),
+  }),
+  root: z.object({
+    objectKind: z.enum(["issue", "pull-request"]),
+    number: z.number().int().positive(),
+    databaseId: z.string().min(1),
+    nodeId: z.string().min(1),
+  }),
+});
+
+export type GitHubMattNativeScope = Readonly<z.infer<typeof githubNativeScopeSchema>>;
+
+export const encodeGitHubMattNativeScope = (scope: GitHubMattNativeScope): string => {
+  const decoded = githubNativeScopeSchema.parse(scope);
+  return `github-matt-v1:${Buffer.from(JSON.stringify(decoded), "utf8").toString("base64url")}`;
+};
+
+const decodeGitHubMattNativeScope = (value: string): GitHubMattNativeScope | undefined => {
+  const prefix = "github-matt-v1:";
+  if (!value.startsWith(prefix)) return undefined;
+  try {
+    return githubNativeScopeSchema.parse(
+      JSON.parse(Buffer.from(value.slice(prefix.length), "base64url").toString("utf8")),
+    );
+  } catch {
+    return undefined;
+  }
+};
+
+export type GitHubReadRequest = Readonly<{
+  endpoint: string;
+  apiVersion: typeof GITHUB_API_VERSION;
+  validator?: string;
+}>;
+
+export type GitHubReadResponse = Readonly<{
+  status: number;
+  headers: Readonly<Record<string, string>>;
+  body?: unknown;
+}>;
+
+export type GitHubReadFailureKind =
+  | "authentication"
+  | "permission"
+  | "rate-limit"
+  | "network"
+  | "timeout"
+  | "acquisition";
+
+export class GitHubReadError extends Error {
+  readonly kind: GitHubReadFailureKind;
+
+  constructor(kind: GitHubReadFailureKind, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "GitHubReadError";
+    this.kind = kind;
+  }
+}
+
+export interface GitHubReadTransport {
+  get(request: GitHubReadRequest): Promise<GitHubReadResponse>;
+}
+
+export type GitHubCommandResult = Readonly<{
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}>;
+
+export type GitHubCommandExecutor = (
+  command: string,
+  args: readonly string[],
+) => Promise<GitHubCommandResult>;
+
+export type GitHubMattProviderOptions = Readonly<{
+  repoRoot: string;
+  contractLocator: string;
+  triageLocator?: string;
+  capturedDocuments?: CapturedProviderDocuments;
+  transport?: GitHubReadTransport;
+  clock?: () => Date;
+}>;
+
+type ResolvedGitHubMattProviderOptions = GitHubMattProviderOptions &
+  Readonly<{ transport: GitHubReadTransport }>;
+
+const executeGitHubCommand: GitHubCommandExecutor = (command, args) =>
+  new Promise((resolveCommand, rejectCommand) => {
+    execFile(
+      command,
+      [...args],
+      {
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: 60_000,
+        windowsHide: true,
+      },
+      (error, stdout, stderr) => {
+        if (error !== null && typeof error.code !== "number") {
+          rejectCommand(
+            new GitHubReadError(
+              error.killed ? "timeout" : "acquisition",
+              error.killed ? "GitHub CLI read timed out." : "GitHub CLI could not be started.",
+              { cause: error },
+            ),
+          );
+          return;
+        }
+        resolveCommand({
+          exitCode: error === null ? 0 : typeof error.code === "number" ? error.code : 1,
+          stdout,
+          stderr,
+        });
+      },
+    );
+  });
+
+const failureKindForCommand = (stderr: string): GitHubReadFailureKind => {
+  const normalized = stderr.toLowerCase();
+  if (
+    normalized.includes("rate limit") ||
+    normalized.includes("secondary rate") ||
+    normalized.includes("http 429")
+  ) {
+    return "rate-limit";
+  }
+  if (
+    normalized.includes("authentication") ||
+    normalized.includes("bad credentials") ||
+    normalized.includes("auth login") ||
+    normalized.includes("http 401")
+  ) {
+    return "authentication";
+  }
+  if (
+    normalized.includes("resource not accessible") ||
+    normalized.includes("forbidden") ||
+    normalized.includes("http 403")
+  ) {
+    return "permission";
+  }
+  if (normalized.includes("timeout") || normalized.includes("timed out")) return "timeout";
+  if (
+    normalized.includes("network") ||
+    normalized.includes("connection") ||
+    normalized.includes("resolve") ||
+    normalized.includes("dns") ||
+    normalized.includes("tls") ||
+    normalized.includes("socket") ||
+    /\bhttp 5[0-9]{2}\b/u.test(normalized)
+  ) {
+    return "network";
+  }
+  return "acquisition";
+};
+
+const commandFailureMessage = (kind: GitHubReadFailureKind): string => {
+  const messages: Readonly<Record<GitHubReadFailureKind, string>> = {
+    authentication: "GitHub CLI authentication failed.",
+    permission: "GitHub CLI permission denied this read.",
+    "rate-limit": "GitHub API rate limiting prevented this read.",
+    network: "GitHub CLI could not complete the network read.",
+    timeout: "GitHub CLI read timed out.",
+    acquisition: "GitHub CLI could not complete this read.",
+  };
+  return messages[kind];
+};
+
+export const createGhCliGitHubReadTransport = (
+  options: Readonly<{ execute?: GitHubCommandExecutor }> = {},
+): GitHubReadTransport => {
+  const execute = options.execute ?? executeGitHubCommand;
+  return {
+    async get(request) {
+      const endpointPath = request.endpoint.split("?", 1)[0] ?? "";
+      const endpointSegments = endpointPath.split("/");
+      if (
+        !/^repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_./?=&-]+)?$/u.test(
+          request.endpoint,
+        ) ||
+        endpointSegments.some((segment) => segment === "." || segment === "..")
+      ) {
+        throw new GitHubReadError(
+          "acquisition",
+          "GitHub REST endpoint is outside the read-only repository boundary.",
+        );
+      }
+      const args = [
+        "api",
+        "--method",
+        "GET",
+        "--hostname",
+        "github.com",
+        "--include",
+        "--header",
+        "Accept: application/vnd.github+json",
+        "--header",
+        `X-GitHub-Api-Version: ${request.apiVersion}`,
+        ...(request.validator === undefined
+          ? []
+          : ["--header", `If-None-Match: ${request.validator}`]),
+        request.endpoint,
+      ];
+      const result = await execute("gh", args);
+      let included: GitHubReadResponse | undefined;
+      try {
+        included = parseGitHubCliIncludedResponse(result.stdout);
+      } catch (error) {
+        throw new GitHubReadError("acquisition", "GitHub CLI returned a non-JSON response body.", {
+          cause: error,
+        });
+      }
+      if (included !== undefined) return included;
+      const statusMatch = /\bHTTP\s+([1-5][0-9]{2})\b/u.exec(result.stderr);
+      const status = statusMatch?.[1] === undefined ? undefined : Number(statusMatch[1]);
+      if (status === 404 || status === 410) return { status, headers: {} };
+      const kind = failureKindForCommand(result.stderr);
+      throw new GitHubReadError(kind, commandFailureMessage(kind));
+    },
+  };
+};
+
+const repositorySchema = z.object({
+  id: z.union([z.number(), z.string()]).transform(String),
+  node_id: z.string().min(1),
+  name: z.string().min(1),
+  full_name: z.string().min(1),
+  html_url: z.string().url(),
+  owner: z.object({
+    login: z.string().min(1),
+    id: z.union([z.number(), z.string()]).transform(String),
+    node_id: z.string().min(1),
+  }),
+});
+
+const labelSchema = z.union([
+  z.string().transform((name) => ({ name, id: undefined, nodeId: undefined })),
+  z
+    .object({
+      name: z.string(),
+      id: z.union([z.number(), z.string()]).optional(),
+      node_id: z.string().optional(),
+    })
+    .transform((label) => ({
+      name: label.name,
+      ...(label.id === undefined ? {} : { id: String(label.id) }),
+      ...(label.node_id === undefined ? {} : { nodeId: label.node_id }),
+    })),
+]);
+
+const accountSchema = z.object({
+  login: z.string().min(1),
+  id: z.union([z.number(), z.string()]).transform(String),
+  node_id: z.string().min(1),
+});
+
+const issueSchema = z.object({
+  id: z.union([z.number(), z.string()]).transform(String),
+  node_id: z.string().min(1),
+  number: z.number().int().positive(),
+  html_url: z.string().url(),
+  repository_url: z.string().url(),
+  title: z.string(),
+  body: z
+    .string()
+    .nullable()
+    .transform((value) => value ?? ""),
+  state: z.enum(["open", "closed"]),
+  state_reason: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  closed_at: z.string().nullable().optional(),
+  closed_by: accountSchema.nullable().optional(),
+  labels: z.array(labelSchema),
+  assignees: z.array(accountSchema),
+  milestone: z
+    .object({
+      id: z.union([z.number(), z.string()]).transform(String),
+      node_id: z.string().min(1),
+      number: z.number().int(),
+      title: z.string(),
+    })
+    .nullable()
+    .optional(),
+  user: accountSchema,
+  author_association: z.string(),
+  pull_request: z.object({ url: z.string().url() }).optional(),
+});
+
+const commentSchema = z.object({
+  id: z.union([z.number(), z.string()]).transform(String),
+  node_id: z.string().min(1),
+  html_url: z.string().url(),
+  body: z.string(),
+  user: accountSchema,
+  created_at: z.string(),
+  updated_at: z.string(),
+  author_association: z.string(),
+});
+
+type GitHubIssue = z.infer<typeof issueSchema>;
+type GitHubRepository = z.infer<typeof repositorySchema>;
+type GitHubComment = z.infer<typeof commentSchema>;
+
+type AcquiredIssue = Readonly<{
+  issue: GitHubIssue;
+  document: MarkdownDocument;
+  comments: readonly GitHubComment[];
+  dependencies: readonly GitHubIssue[];
+  dependencyCapability: "available" | "unsupported" | "failed";
+  parentCapability: "available" | "absent" | "unsupported" | "failed";
+  nativeParent?: GitHubIssue;
+  externalAnchors: MattSourceAnchor[];
+  relationFacets: MattRawFacet[];
+}>;
+
+type ObservedResponse = Readonly<{
+  endpoint: string;
+  status: number;
+  validator?: string;
+  body: unknown;
+}>;
+
+const diagnostic = (
+  code: string,
+  diagnosticClass: ProviderDiagnostic["class"],
+  target: string,
+  message: string,
+): ProviderDiagnostic => ({
+  code,
+  class: diagnosticClass,
+  impact: "blocking",
+  target,
+  message,
+});
+
+const captureWithoutProjection = (
+  input: Readonly<{
+    binding: Parameters<MattSkillsV1Provider["capture"]>[0];
+    generation: Parameters<MattSkillsV1Provider["capture"]>[1];
+    capturedAt: string;
+    state: "absent" | "invalid";
+    freshness: "current" | "undetermined";
+    freshnessEvidence?: ProviderFreshnessEvidence;
+    diagnostics: readonly ProviderDiagnostic[];
+  }>,
+): MattSkillsV1ScopeCapture =>
+  createProviderScopeCapture({
+    provider: MATT_SKILLS_V1_PROVIDER_ID,
+    binding: input.binding,
+    generation: input.generation,
+    state: input.state,
+    freshness:
+      input.freshnessEvidence ??
+      ({
+        assessment: input.freshness,
+        capturedAt: input.capturedAt,
+        evidence: [{ kind: "github-scope", value: input.binding.nativeScope }],
+      } satisfies ProviderFreshnessEvidence),
+    coverage: {
+      assessment:
+        input.state === "absent" && input.freshness === "current" ? "complete" : "incomplete",
+      dimensions: [
+        {
+          key: input.state === "absent" ? "root-existence" : "scope-acquisition",
+          state: input.state === "absent" && input.freshness === "current" ? "covered" : "gap",
+        },
+      ],
+    },
+    completion:
+      input.state === "absent" && input.freshness === "current" ? "incomplete" : "undetermined",
+    diagnostics: input.diagnostics,
+  });
+
+const readRepositoryDocument = async (
+  root: string,
+  locator: string,
+): Promise<string | undefined> => {
+  try {
+    const normalized = normalizeLocator(locator);
+    const target = await resolveContainedPath(root, resolve(root, normalized));
+    return new TextDecoder("utf-8", { fatal: true }).decode(await readContainedFile(root, target));
+  } catch {
+    return undefined;
+  }
+};
+
+const readInterpretationDocument = async (
+  options: GitHubMattProviderOptions,
+  root: string,
+  locator: string,
+): Promise<string | undefined> =>
+  options.capturedDocuments === undefined
+    ? readRepositoryDocument(root, locator)
+    : options.capturedDocuments.get(locator)?.source;
+
+const parseTriageVocabulary = (
+  source: string,
+  locator: string,
+  diagnostics: ProviderDiagnostic[],
+): TriageVocabulary | undefined => {
+  const table = queryMarkdownTable(parseMarkdownDocument(source));
+  if (table.state !== "found") {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.mapping.ambiguous",
+        "mapping",
+        locator,
+        `Triage vocabulary table is ${table.state}.`,
+      ),
+    );
+    return undefined;
+  }
+  const semanticColumn = table.value.columns.findIndex(
+    (column) => column === "Label in mattpocock/skills" || column === "Semantic role",
+  );
+  const nativeColumn = table.value.columns.indexOf("Label in our tracker");
+  if (semanticColumn === -1 || nativeColumn === -1) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.mapping.ambiguous",
+        "mapping",
+        locator,
+        "Triage vocabulary is missing a semantic or tracker-value column.",
+      ),
+    );
+    return undefined;
+  }
+  const semanticToNative = new Map<TriageSemanticRole, string>();
+  const nativeToSemantic = new Map<string, TriageSemanticRole>();
+  const candidates: Array<Readonly<{ semantic: TriageSemanticRole; native: string }>> = [];
+  const semanticCounts = new Map<TriageSemanticRole, number>();
+  let ambiguous = false;
+  for (const row of table.value.rows) {
+    const semantic = row[semanticColumn];
+    const native = row[nativeColumn];
+    if (
+      semantic === undefined ||
+      !(
+        REQUIRED_TRIAGE_ROLES.includes(semantic as (typeof REQUIRED_TRIAGE_ROLES)[number]) ||
+        semantic === "bug" ||
+        semantic === "enhancement"
+      )
+    ) {
+      continue;
+    }
+    const semanticRole = semantic as TriageSemanticRole;
+    semanticCounts.set(semanticRole, (semanticCounts.get(semanticRole) ?? 0) + 1);
+    if (native === undefined || native.trim().length === 0) {
+      ambiguous = true;
+      continue;
+    }
+    candidates.push({ semantic: semanticRole, native });
+  }
+  const nativeCounts = new Map<string, number>();
+  for (const candidate of candidates) {
+    nativeCounts.set(candidate.native, (nativeCounts.get(candidate.native) ?? 0) + 1);
+  }
+  for (const candidate of candidates) {
+    if (semanticCounts.get(candidate.semantic) !== 1 || nativeCounts.get(candidate.native) !== 1) {
+      ambiguous = true;
+      continue;
+    }
+    semanticToNative.set(candidate.semantic, candidate.native);
+    nativeToSemantic.set(candidate.native, candidate.semantic);
+  }
+  if (REQUIRED_TRIAGE_ROLES.some((role) => !semanticToNative.has(role))) ambiguous = true;
+  if (ambiguous) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.mapping.ambiguous",
+        "mapping",
+        locator,
+        "Triage vocabulary contains missing, duplicate or conflicting mappings.",
+      ),
+    );
+  }
+  return { semanticToNative, nativeToSemantic, complete: !ambiguous };
+};
+
+const externalPullRequestsEnabled = (contractSource: string): boolean => {
+  const document = parseMarkdownDocument(contractSource);
+  const pullRequests = queryMarkdownSection(document, {
+    title: "Pull requests as a triage surface",
+  });
+  if (pullRequests.state !== "found") return false;
+  const field = queryMarkdownField(document, {
+    label: "PRs as a request surface",
+    within: pullRequests.value,
+  });
+  return field.state === "found" && field.value.value.trim().toLowerCase() === "yes.";
+};
+
+const validatorFor = (response: GitHubReadResponse): string | undefined =>
+  response.headers["etag"] ?? response.headers["last-modified"];
+
+const responseForReadError = (error: GitHubReadError): GitHubReadResponse => ({
+  status: 0,
+  headers: { "x-bearing-failure-kind": error.kind },
+});
+
+const acquire = async (
+  transport: GitHubReadTransport,
+  endpoint: string,
+  observed: ObservedResponse[],
+): Promise<GitHubReadResponse> => {
+  let response: GitHubReadResponse;
+  try {
+    response = await transport.get({ endpoint, apiVersion: GITHUB_API_VERSION });
+  } catch (error) {
+    if (!(error instanceof GitHubReadError)) throw error;
+    response = responseForReadError(error);
+  }
+  const validator = validatorFor(response);
+  observed.push({
+    endpoint,
+    status: response.status,
+    ...(validator === undefined ? {} : { validator }),
+    body: response.body,
+  });
+  return response;
+};
+
+type PageAcquisition =
+  | Readonly<{ state: "available"; values: readonly unknown[] }>
+  | Readonly<{ state: "unsupported" }>
+  | Readonly<{ state: "failed"; response: GitHubReadResponse }>;
+
+const acquirePages = async (
+  transport: GitHubReadTransport,
+  endpoint: string,
+  observed: ObservedResponse[],
+): Promise<PageAcquisition> => {
+  const values: unknown[] = [];
+  for (let page = 1; page <= 10_000; page += 1) {
+    const pageEndpoint = `${endpoint}?per_page=${PAGE_SIZE}&page=${page}`;
+    const response = await acquire(transport, pageEndpoint, observed);
+    if (page === 1 && response.status === 410) return { state: "unsupported" };
+    if (response.status !== 200 || !Array.isArray(response.body)) {
+      return { state: "failed", response };
+    }
+    values.push(...response.body);
+    if (response.body.length < PAGE_SIZE) return { state: "available", values };
+  }
+  return {
+    state: "failed",
+    response: {
+      status: 0,
+      headers: { "x-bearing-failure-kind": "acquisition" },
+    },
+  };
+};
+
+const acquisitionFailureDiagnostic = (
+  response: GitHubReadResponse,
+  target: string,
+): ProviderDiagnostic => {
+  const syntheticKind = response.headers["x-bearing-failure-kind"];
+  const kind: GitHubReadFailureKind =
+    syntheticKind === "authentication" ||
+    syntheticKind === "permission" ||
+    syntheticKind === "rate-limit" ||
+    syntheticKind === "network" ||
+    syntheticKind === "timeout" ||
+    syntheticKind === "acquisition"
+      ? syntheticKind
+      : response.status === 401
+        ? "authentication"
+        : response.status === 429 ||
+            (response.status === 403 && response.headers["x-ratelimit-remaining"] === "0")
+          ? "rate-limit"
+          : response.status === 403
+            ? "permission"
+            : "acquisition";
+  const diagnosticClass: ProviderDiagnostic["class"] =
+    kind === "authentication" || kind === "permission"
+      ? "permission"
+      : kind === "network" || kind === "timeout"
+        ? "network"
+        : "acquisition";
+  const messages: Readonly<Record<GitHubReadFailureKind, string>> = {
+    authentication: "GitHub authentication did not authorize this read.",
+    permission: "GitHub denied access to this required read.",
+    "rate-limit": "GitHub rate limiting prevented this required read.",
+    network: "A network failure prevented this required GitHub read.",
+    timeout: "The required GitHub read timed out.",
+    acquisition: "The required GitHub resource could not be acquired.",
+  };
+  const code =
+    kind === "acquisition" ? "matt.github.acquisition.failed" : `matt.github.acquisition.${kind}`;
+  return diagnostic(code, diagnosticClass, target, messages[kind]);
+};
+
+const stableBody = (value: unknown): string => {
+  const serialized = stableStringify(
+    value === undefined ? { presence: "absent" } : { presence: "present", value },
+  );
+  if (serialized === undefined) {
+    throw new TypeError("GitHub response normalization requires a JSON-serializable value.");
+  }
+  return serialized;
+};
+
+type RevalidationResult =
+  | Readonly<{ state: "stable" }>
+  | Readonly<{ state: "changed" }>
+  | Readonly<{
+      state: "failed";
+      endpoint: string;
+      response: GitHubReadResponse;
+    }>;
+
+const revalidate = async (
+  transport: GitHubReadTransport,
+  observed: readonly ObservedResponse[],
+): Promise<RevalidationResult> => {
+  for (const response of observed) {
+    if (response.status !== 200 && response.status !== 404 && response.status !== 410) continue;
+    let current: GitHubReadResponse;
+    try {
+      current = await transport.get({
+        endpoint: response.endpoint,
+        apiVersion: GITHUB_API_VERSION,
+        ...(response.validator === undefined ? {} : { validator: response.validator }),
+      });
+    } catch (error) {
+      if (!(error instanceof GitHubReadError)) throw error;
+      return {
+        state: "failed",
+        endpoint: response.endpoint,
+        response: responseForReadError(error),
+      };
+    }
+    if (current.status === 304) continue;
+    if (
+      current.status === 0 ||
+      current.status === 401 ||
+      current.status === 403 ||
+      current.status === 429 ||
+      current.status >= 500
+    ) {
+      return { state: "failed", endpoint: response.endpoint, response: current };
+    }
+    if (
+      current.status !== response.status ||
+      stableBody(current.body) !== stableBody(response.body) ||
+      (response.validator !== undefined &&
+        validatorFor(current) !== undefined &&
+        validatorFor(current) !== response.validator)
+    ) {
+      return { state: "changed" };
+    }
+  }
+  return { state: "stable" };
+};
+
+const sourceRevision = (input: {
+  observed: readonly ObservedResponse[];
+  observationWindow: Readonly<{ startedAt: string; endedAt: string }>;
+  acquisitionComplete: boolean;
+  revalidation: RevalidationResult["state"];
+  fullRetryCount: number;
+  blocking: boolean;
+}): string =>
+  `sha256:${createHash("sha256")
+    .update(
+      stableBody({
+        apiVersion: GITHUB_API_VERSION,
+        responses: input.observed,
+        observationWindow: input.observationWindow,
+        coverage: {
+          acquisitionComplete: input.acquisitionComplete,
+          blocking: input.blocking,
+        },
+        revalidation: input.revalidation,
+        fullRetryCount: input.fullRetryCount,
+      }),
+    )
+    .digest("hex")}`;
+
+type ObservedGenerationFinalization = Readonly<{
+  revalidation: RevalidationResult;
+  sourceObservedAt: string;
+  retryRequired: boolean;
+  diagnostics: readonly ProviderDiagnostic[];
+}>;
+
+const finalizeObservedGeneration = async (input: {
+  transport: GitHubReadTransport;
+  observed: readonly ObservedResponse[];
+  fullRetryCount: number;
+  target: string;
+  clock: () => Date;
+}): Promise<ObservedGenerationFinalization> => {
+  const revalidation = await revalidate(input.transport, input.observed);
+  const diagnostics: ProviderDiagnostic[] = [];
+  if (revalidation.state === "failed") {
+    diagnostics.push(acquisitionFailureDiagnostic(revalidation.response, revalidation.endpoint));
+  } else if (revalidation.state === "changed") {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.concurrent-change",
+        "concurrency",
+        input.target,
+        "GitHub response set changed during conditional revalidation.",
+      ),
+    );
+  }
+  return {
+    revalidation,
+    sourceObservedAt: input.clock().toISOString(),
+    retryRequired: revalidation.state === "changed" && input.fullRetryCount === 0,
+    diagnostics,
+  };
+};
+
+const freshnessForObservedGeneration = (input: {
+  finalization: ObservedGenerationFinalization;
+  observed: readonly ObservedResponse[];
+  capturedAt: string;
+  fullRetryCount: number;
+  assessment: "current" | "undetermined";
+  acquisitionComplete: boolean;
+  blocking: boolean;
+  extraEvidence?: ProviderFreshnessEvidence["evidence"];
+}): ProviderFreshnessEvidence => ({
+  assessment: input.assessment,
+  capturedAt: input.capturedAt,
+  sourceRevision: sourceRevision({
+    observed: input.observed,
+    observationWindow: {
+      startedAt: input.capturedAt,
+      endedAt: input.finalization.sourceObservedAt,
+    },
+    acquisitionComplete: input.acquisitionComplete,
+    revalidation: input.finalization.revalidation.state,
+    fullRetryCount: input.fullRetryCount,
+    blocking: input.blocking,
+  }),
+  sourceObservedAt: input.finalization.sourceObservedAt,
+  evidence: [
+    { kind: "github-api-version", value: GITHUB_API_VERSION },
+    {
+      kind: "observation-window",
+      value: `${input.capturedAt}/${input.finalization.sourceObservedAt}`,
+    },
+    { kind: "request-count", value: String(input.observed.length) },
+    { kind: "full-retry-count", value: String(input.fullRetryCount) },
+    {
+      kind: "conditional-revalidation",
+      value: input.finalization.revalidation.state,
+    },
+    ...(input.extraEvidence ?? []),
+    ...input.observed.map((item) => ({
+      kind: "endpoint-validator",
+      value: `${item.endpoint}|${item.validator ?? "content-digest"}`,
+    })),
+  ],
+});
+
+const issueReference = (repository: GitHubRepository, issue: GitHubIssue): MattObjectReference =>
+  `github:${repository.node_id}:${issue.node_id}` as MattObjectReference;
+
+const repositoryApiUrl = (repository: GitHubRepository): string =>
+  `https://api.github.com/repos/${repository.owner.login}/${repository.name}`;
+
+const canonicalIssueUrl = (repository: GitHubRepository, issue: GitHubIssue): string =>
+  `https://github.com/${repository.owner.login}/${repository.name}/${
+    issue.pull_request === undefined ? "issues" : "pull"
+  }/${issue.number}`;
+
+const canonicalIssueUrlForNumber = (repository: GitHubRepository, number: number): string =>
+  `https://github.com/${repository.owner.login}/${repository.name}/issues/${number}`;
+
+const hasCanonicalRepositoryLocation = (
+  repository: GitHubRepository,
+  issue: GitHubIssue,
+): boolean =>
+  issue.repository_url === repositoryApiUrl(repository) &&
+  issue.html_url === canonicalIssueUrl(repository, issue);
+
+const isCanonicalSameRepositoryIssue = (
+  repository: GitHubRepository,
+  issue: GitHubIssue,
+): boolean => issue.pull_request === undefined && hasCanonicalRepositoryLocation(repository, issue);
+
+const nativeRelationIdentity = (issue: GitHubIssue): string =>
+  [issue.repository_url, issue.id, issue.node_id, issue.number, issue.html_url].join("|");
+
+const fallbackRelationIdentity = (repository: GitHubRepository, number: number): string =>
+  [
+    repositoryApiUrl(repository),
+    repository.node_id,
+    repository.owner.login,
+    repository.name,
+    number,
+    canonicalIssueUrlForNumber(repository, number),
+  ].join("|");
+
+const appendRelationFacet = (acquired: AcquiredIssue, key: string, value: string): void => {
+  const index = acquired.relationFacets.findIndex((facet) => facet.key === key);
+  const existing = index === -1 ? undefined : acquired.relationFacets[index];
+  if (existing?.values.includes(value)) return;
+  if (existing === undefined) {
+    acquired.relationFacets.push({ key, values: [value] });
+    return;
+  }
+  acquired.relationFacets[index] = { key, values: [...existing.values, value] };
+};
+
+const appendExternalRelationEvidence = (
+  acquired: AcquiredIssue,
+  key: string,
+  target: string,
+  identity: string,
+): void => {
+  if (
+    !acquired.externalAnchors.some(
+      (anchor) => anchor.kind === "external" && anchor.target === target,
+    )
+  ) {
+    acquired.externalAnchors.push({ kind: "external", target });
+  }
+  appendRelationFacet(acquired, key, identity);
+};
+
+const nativeEvidenceFor = (
+  repository: GitHubRepository,
+  issue: GitHubIssue,
+  comments: readonly GitHubComment[] = [],
+  extraAnchors: readonly MattSourceAnchor[] = [],
+  extraRawFacets: readonly MattRawFacet[] = [],
+): MattNativeEvidence => {
+  const sourceAnchors: MattSourceAnchor[] = [{ kind: "source", target: issue.html_url }];
+  const externalTargets = new Set<string>();
+  const appendExternal = (target: string): void => {
+    if (externalTargets.has(target)) return;
+    externalTargets.add(target);
+    sourceAnchors.push({ kind: "external", target });
+  };
+  for (const anchor of extraAnchors) {
+    if (anchor.kind === "external") appendExternal(anchor.target);
+    else sourceAnchors.push(anchor);
+  }
+  const document = parseMarkdownDocument(issue.body);
+  for (const link of queryMarkdownLinks(document)) {
+    if (URL.canParse(link.target)) {
+      appendExternal(link.target);
+    }
+  }
+  const rawFacets: MattRawFacet[] = [
+    { key: "body", values: [issue.body] },
+    { key: "labels", values: issue.labels.map((label) => label.name) },
+    {
+      key: "assignees",
+      values: issue.assignees.map(
+        (assignee) => `${assignee.login}|${assignee.id}|${assignee.node_id}`,
+      ),
+    },
+    { key: "state", values: [issue.state] },
+    ...(issue.state_reason === null || issue.state_reason === undefined
+      ? []
+      : [{ key: "state-reason", values: [issue.state_reason] }]),
+    {
+      key: "timestamps",
+      values: [
+        issue.created_at,
+        issue.updated_at,
+        ...(issue.closed_at === null || issue.closed_at === undefined ? [] : [issue.closed_at]),
+      ],
+    },
+    ...(issue.closed_by === null || issue.closed_by === undefined
+      ? []
+      : [
+          {
+            key: "closed-by",
+            values: [`${issue.closed_by.login}|${issue.closed_by.id}|${issue.closed_by.node_id}`],
+          },
+        ]),
+    ...(issue.milestone === null || issue.milestone === undefined
+      ? []
+      : [
+          {
+            key: "milestone",
+            values: [
+              [
+                issue.milestone.id,
+                issue.milestone.node_id,
+                issue.milestone.number,
+                issue.milestone.title,
+              ].join("|"),
+            ],
+          },
+        ]),
+    {
+      key: "comments",
+      values: comments.map(
+        (comment) =>
+          `${comment.id}|${comment.node_id}|${comment.user.login}|${comment.created_at}|${comment.updated_at}`,
+      ),
+    },
+    {
+      key: "author",
+      values: [
+        `${issue.user.login}|${issue.user.id}|${issue.user.node_id}|${issue.author_association}`,
+      ],
+    },
+    ...extraRawFacets,
+  ];
+  return {
+    kind: "github",
+    identity: {
+      repositoryDatabaseId: repository.id,
+      repositoryNodeId: repository.node_id,
+      objectKind: issue.pull_request === undefined ? "issue" : "pull-request",
+      objectDatabaseId: issue.id,
+      objectNodeId: issue.node_id,
+      number: issue.number,
+      url: issue.html_url,
+      owner: repository.owner.login,
+      repository: repository.name,
+    },
+    sourceAnchors,
+    rawFacets,
+  };
+};
+
+const nativeEvidenceForAcquired = (
+  repository: GitHubRepository,
+  acquired: AcquiredIssue,
+): MattNativeEvidence =>
+  nativeEvidenceFor(
+    repository,
+    acquired.issue,
+    acquired.comments,
+    acquired.externalAnchors,
+    acquired.relationFacets,
+  );
+
+const trackerClosureFor = (issue: GitHubIssue, capturedAt: string): MattTrackerClosure => {
+  if (issue.state === "open") return { state: "open" };
+  const disposition =
+    issue.state_reason === "completed"
+      ? "completed"
+      : issue.state_reason === "not_planned"
+        ? "not-planned"
+        : "unknown";
+  return {
+    state: "closed",
+    disposition,
+    observedAt: issue.closed_at ?? capturedAt,
+    ...(issue.closed_by === null || issue.closed_by === undefined
+      ? {}
+      : { actor: issue.closed_by.login }),
+  };
+};
+
+const section = (acquired: AcquiredIssue, title: string): MarkdownSection | undefined => {
+  const result = queryMarkdownSection(acquired.document, { title });
+  return result.state === "found" ? result.value : undefined;
+};
+
+const sectionItems = (
+  acquired: AcquiredIssue,
+  title: string,
+): readonly Readonly<{
+  text: string;
+  checked?: boolean;
+  links?: readonly Readonly<{ label: string; target: string; title?: string }>[];
+}>[] => {
+  const target = section(acquired, title);
+  if (target === undefined) return [];
+  const list = queryMarkdownList(acquired.document, { within: target });
+  return list.state === "found" ? list.value.items : [];
+};
+
+type MarkdownSectionItem = ReturnType<typeof sectionItems>[number];
+
+const mapSectionItems = (
+  acquired: AcquiredIssue,
+  title: string,
+  diagnostics: ProviderDiagnostic[],
+): readonly MarkdownSectionItem[] => {
+  const target = queryMarkdownSection(acquired.document, { title });
+  if (target.state === "ambiguous") {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.role.ambiguous-map-structure",
+        "format",
+        acquired.issue.html_url,
+        `Map section "${title}" is duplicated or malformed.`,
+      ),
+    );
+    return [];
+  }
+  if (target.state === "absent") return [];
+  const list = queryMarkdownList(acquired.document, { within: target.value });
+  if (list.state === "ambiguous") {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.role.ambiguous-map-structure",
+        "format",
+        acquired.issue.html_url,
+        `Map section "${title}" contains multiple or conflicting lists.`,
+      ),
+    );
+    return [];
+  }
+  return list.state === "found" ? list.value.items : [];
+};
+
+const commentContent = (comment: GitHubComment): MattContent => {
+  const document = parseMarkdownDocument(comment.body);
+  const agentBrief = queryMarkdownSection(document, { title: "Agent Brief" });
+  const triageNotes = queryMarkdownSection(document, { title: "Triage Notes" });
+  const role =
+    agentBrief.state === "found"
+      ? "agent-brief"
+      : triageNotes.state === "found"
+        ? "triage-note"
+        : "ordinary-comment";
+  const body =
+    agentBrief.state === "found"
+      ? agentBrief.value.markdown
+      : triageNotes.state === "found"
+        ? triageNotes.value.markdown
+        : comment.body;
+  return {
+    role,
+    body,
+    nativeIdentity: comment.node_id,
+    author: comment.user.login,
+    authoredAt: comment.created_at,
+    sourceAnchor: { kind: "source", target: comment.html_url },
+  };
+};
+
+type CanonicalGitHubIssueLink = Readonly<{
+  number: number;
+  commentId?: string;
+}>;
+
+const canonicalIssueLink = (
+  target: string,
+  repository: GitHubRepository,
+): CanonicalGitHubIssueLink | undefined => {
+  let parsed: URL;
+  try {
+    parsed = new URL(target);
+  } catch {
+    return undefined;
+  }
+  if (parsed.hostname !== "github.com") return undefined;
+  const segments = parsed.pathname.split("/").filter((segment) => segment.length > 0);
+  if (
+    segments.length !== 4 ||
+    segments[0] !== repository.owner.login ||
+    segments[1] !== repository.name ||
+    (segments[2] !== "issues" && segments[2] !== "pull")
+  ) {
+    return undefined;
+  }
+  const numberSource = segments[3] ?? "";
+  if (!/^[1-9][0-9]*$/u.test(numberSource)) return undefined;
+  const number = Number(numberSource);
+  if (!Number.isSafeInteger(number) || number <= 0) return undefined;
+  const fragmentMatch = /^#issuecomment-([1-9][0-9]*)$/u.exec(parsed.hash);
+  const fragment = fragmentMatch?.[1];
+  return {
+    number,
+    ...(fragment === undefined || fragment.length === 0 ? {} : { commentId: fragment }),
+  };
+};
+
+const numericIssueReference = (value: string): number | undefined => {
+  const trimmed = value.trim();
+  const match = /^#([1-9][0-9]*)$/u.exec(trimmed);
+  if (match?.[1] === undefined) return undefined;
+  const number = Number(match[1]);
+  return Number.isSafeInteger(number) && number > 0 ? number : undefined;
+};
+
+const bodyBlockerNumbers = (
+  acquired: AcquiredIssue,
+  repository: GitHubRepository,
+): readonly number[] => {
+  const numbers = new Set<number>();
+  for (const item of sectionItems(acquired, "Blocked by")) {
+    for (const link of item.links ?? []) {
+      const target = canonicalIssueLink(link.target, repository);
+      if (target !== undefined) numbers.add(target.number);
+    }
+    const direct = numericIssueReference(item.text);
+    if (direct !== undefined) numbers.add(direct);
+  }
+  const field = queryMarkdownField(acquired.document, {
+    label: "Blocked by",
+  });
+  if (field.state === "found") {
+    for (const value of field.value.value.split(",")) {
+      const direct = numericIssueReference(value);
+      if (direct !== undefined) numbers.add(direct);
+    }
+  }
+  return [...numbers];
+};
+
+const bodyChildNumbers = (
+  acquired: AcquiredIssue,
+  repository: GitHubRepository,
+): readonly number[] => {
+  if (!acquired.issue.labels.some((label) => label.name === "wayfinder:map")) return [];
+  const numbers: number[] = [];
+  for (const list of queryMarkdownLists(acquired.document)) {
+    for (const item of list.items) {
+      if (item.checked === undefined) continue;
+      const candidates = (item.links ?? []).flatMap((link) => {
+        const target = canonicalIssueLink(link.target, repository);
+        return target === undefined ? [] : [target.number];
+      });
+      if (candidates.length === 1 && candidates[0] !== undefined) {
+        numbers.push(candidates[0]);
+      }
+    }
+  }
+  return numbers;
+};
+
+const bodyParentNumber = (acquired: AcquiredIssue): number | undefined => {
+  const field = queryMarkdownField(acquired.document, {
+    label: "Part of",
+    separator: "space",
+  });
+  return field.state === "found" ? numericIssueReference(field.value.value) : undefined;
+};
+
+const wouldCreateParentCycle = (
+  childNodeId: string,
+  parentNodeId: string,
+  parentByChild: ReadonlyMap<string, string>,
+): boolean => {
+  const visited = new Set<string>();
+  let current: string | undefined = parentNodeId;
+  while (current !== undefined && !visited.has(current)) {
+    if (current === childNodeId) return true;
+    visited.add(current);
+    current = parentByChild.get(current);
+  }
+  return false;
+};
+
+const gistAfterLinkLabel = (text: string, label: string): string => {
+  const suffix = text.startsWith(label) ? text.slice(label.length).trim() : text.trim();
+  return suffix.startsWith("—") || suffix.startsWith("-") ? suffix.slice(1).trim() : suffix;
+};
+
+const mapEntries = (
+  map: AcquiredIssue,
+  items: readonly MarkdownSectionItem[],
+  repository: GitHubRepository,
+  byNumber: ReadonlyMap<number, AcquiredIssue>,
+  diagnostics: ProviderDiagnostic[],
+  anchorKind: "decision" | "disposition",
+): readonly Readonly<{
+  ticket?: MattObjectReference;
+  text: string;
+  anchor: MattSourceAnchor;
+}>[] =>
+  items.map((item, index) => {
+    const nativeLinks = (item.links ?? []).flatMap((link) => {
+      const target = canonicalIssueLink(link.target, repository);
+      return target === undefined ? [] : [{ link, target }];
+    });
+    if (nativeLinks.length > 1) {
+      diagnostics.push(
+        diagnostic(
+          "matt.github.workflow.route-ambiguous",
+          "format",
+          `${map.issue.html_url}#${anchorKind}-${index + 1}`,
+          "One Matt Map route entry contains more than one canonical ticket link.",
+        ),
+      );
+    }
+    const only = nativeLinks.length === 1 ? nativeLinks[0] : undefined;
+    const linked = only === undefined ? undefined : byNumber.get(only.target.number);
+    return {
+      ...(linked === undefined ? {} : { ticket: issueReference(repository, linked.issue) }),
+      text: only === undefined ? item.text : gistAfterLinkLabel(item.text, only.link.label),
+      anchor: {
+        kind: anchorKind,
+        target: only?.link.target ?? `${map.issue.html_url}#${anchorKind}-${index + 1}`,
+      },
+    };
+  });
+
+const decodeMap = (
+  acquired: AcquiredIssue,
+  repository: GitHubRepository,
+  byNumber: ReadonlyMap<number, AcquiredIssue>,
+  diagnostics: ProviderDiagnostic[],
+): MattMap | undefined => {
+  const destination = section(acquired, "Destination");
+  if (destination === undefined) return undefined;
+  const decisions = mapEntries(
+    acquired,
+    mapSectionItems(acquired, "Decisions so far", diagnostics),
+    repository,
+    byNumber,
+    diagnostics,
+    "decision",
+  );
+  const outOfScope = mapEntries(
+    acquired,
+    mapSectionItems(acquired, "Out of scope", diagnostics),
+    repository,
+    byNumber,
+    diagnostics,
+    "disposition",
+  );
+  const fogItems = mapSectionItems(acquired, "Not yet specified", diagnostics);
+  const fallbackFogItems =
+    fogItems.length === 0 ? mapSectionItems(acquired, "Fog", diagnostics) : [];
+  return {
+    kind: "map",
+    ref: issueReference(repository, acquired.issue),
+    title: acquired.issue.title,
+    destination: destination.markdown,
+    notes: mapSectionItems(acquired, "Notes", diagnostics).map((item) => item.text),
+    decisions: decisions.map((entry) => ({
+      ...(entry.ticket === undefined ? {} : { ticket: entry.ticket }),
+      gist: entry.text,
+      sourceAnchor: entry.anchor,
+    })),
+    fog: [...fogItems, ...fallbackFogItems].map((item) => item.text),
+    outOfScope: outOfScope.map((entry) => ({
+      ...(entry.ticket === undefined ? {} : { ticket: entry.ticket }),
+      rationale: entry.text,
+      sourceAnchor: entry.anchor,
+    })),
+    lifecycle:
+      acquired.issue.state === "closed"
+        ? {
+            state: "resolved",
+            resolutionEvidence: decisions.map((entry) => entry.anchor),
+          }
+        : { state: "active" },
+    native: nativeEvidenceForAcquired(repository, acquired),
+  };
+};
+
+const decodeSpec = (
+  acquired: AcquiredIssue,
+  repository: GitHubRepository,
+  vocabulary: TriageVocabulary | undefined,
+): MattSpec | undefined => {
+  const sections: MattSpec["sections"][number][] = [];
+  for (const [role, title] of SPEC_SECTIONS) {
+    const value = section(acquired, title);
+    if (value !== undefined) sections.push({ role, title, body: value.markdown });
+  }
+  if (sections.length !== SPEC_SECTIONS.length) return undefined;
+  const labels = acquired.issue.labels.map((label) => label.name);
+  const readyLabel = vocabulary?.semanticToNative.get("ready-for-agent");
+  const lifecycle =
+    acquired.issue.state === "closed" && acquired.issue.state_reason === "not_planned"
+      ? "superseded"
+      : readyLabel !== undefined && labels.includes(readyLabel)
+        ? "ready-for-agent"
+        : "draft";
+  return {
+    kind: "spec",
+    ref: issueReference(repository, acquired.issue),
+    title: acquired.issue.title,
+    sections,
+    lifecycle: { state: lifecycle },
+    native: nativeEvidenceForAcquired(repository, acquired),
+  };
+};
+
+const decodeDelivery = (
+  acquired: AcquiredIssue,
+  repository: GitHubRepository,
+  capturedAt: string,
+): MattDeliveryTicket | undefined => {
+  const whatToBuild = section(acquired, "What to build");
+  const acceptance = sectionItems(acquired, "Acceptance criteria");
+  if (
+    whatToBuild === undefined ||
+    acceptance.length === 0 ||
+    acceptance.some((item) => item.checked === undefined)
+  ) {
+    return undefined;
+  }
+  return {
+    kind: "delivery-ticket",
+    ref: issueReference(repository, acquired.issue),
+    title: acquired.issue.title,
+    whatToBuild: whatToBuild.markdown,
+    acceptanceCriteria: acceptance.map((item) => item.text),
+    lifecycle:
+      acquired.issue.state === "open"
+        ? { state: "open" }
+        : { state: "completion-unavailable", reason: "source-contract-gap" },
+    trackerClosure: trackerClosureFor(acquired.issue, capturedAt),
+    comments: acquired.comments.map(commentContent),
+    native: nativeEvidenceForAcquired(repository, acquired),
+  };
+};
+
+const decodeWayfinder = (
+  acquired: AcquiredIssue,
+  repository: GitHubRepository,
+  map: MattMap | undefined,
+  capturedAt: string,
+  diagnostics: ProviderDiagnostic[],
+): MattWayfinderTicket | undefined => {
+  const subtypeLabels = acquired.issue.labels
+    .map((label) => label.name)
+    .flatMap((label) => (label.startsWith("wayfinder:") ? [label.slice("wayfinder:".length)] : []))
+    .filter((value): value is MattWayfinderTicket["subtype"] =>
+      WAYFINDER_SUBTYPES.some((subtype) => subtype === value),
+    );
+  const wayfinderSignals = acquired.issue.labels
+    .map((label) => label.name)
+    .filter((label) => label.startsWith("wayfinder:"));
+  const question = section(acquired, "Question");
+  if (subtypeLabels.length !== 1 || wayfinderSignals.length !== 1 || question === undefined) {
+    return undefined;
+  }
+  const reference = issueReference(repository, acquired.issue);
+  const decisions = map?.decisions.filter((entry) => entry.ticket === reference) ?? [];
+  const dispositions = map?.outOfScope.filter((entry) => entry.ticket === reference) ?? [];
+  const routeAmbiguous = decisions.length + dispositions.length > 1;
+  const decision = !routeAmbiguous && decisions.length === 1 ? decisions[0] : undefined;
+  const disposition = !routeAmbiguous && dispositions.length === 1 ? dispositions[0] : undefined;
+  if (routeAmbiguous) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.workflow.route-ambiguous",
+        "mapping",
+        acquired.issue.html_url,
+        "Wayfinder ticket has duplicate or conflicting canonical Map route pointers.",
+      ),
+    );
+  }
+  const decisionLink =
+    decision === undefined
+      ? undefined
+      : canonicalIssueLink(decision.sourceAnchor.target, repository);
+  const answerComment =
+    decisionLink?.commentId === undefined
+      ? undefined
+      : acquired.comments.filter((comment) => comment.id === decisionLink.commentId);
+  const referencedAnswerCount =
+    decisionLink?.commentId === undefined
+      ? 0
+      : [...(map?.decisions ?? []), ...(map?.outOfScope ?? [])].filter(
+          (entry) =>
+            canonicalIssueLink(entry.sourceAnchor.target, repository)?.commentId ===
+            decisionLink.commentId,
+        ).length;
+  const uniqueAnswer =
+    answerComment?.length === 1 && referencedAnswerCount === 1 ? answerComment[0] : undefined;
+  const claim: MattWayfinderTicket["claim"] =
+    acquired.issue.assignees.length === 0
+      ? { state: "unclaimed" }
+      : acquired.issue.assignees.length === 1
+        ? {
+            state: "claimed",
+            claimant: (acquired.issue.assignees[0] as GitHubIssue["assignees"][number]).login,
+          }
+        : { state: "claimed", claimantAmbiguous: true };
+  const trackerClosure = trackerClosureFor(acquired.issue, capturedAt);
+  if (acquired.issue.assignees.length > 1) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.workflow.claimant-ambiguous",
+        "mapping",
+        acquired.issue.html_url,
+        "Wayfinder ticket is claimed, but multiple assignees prevent one claimant identity.",
+      ),
+    );
+  }
+  if (
+    trackerClosure.state === "closed" &&
+    decision === undefined &&
+    disposition === undefined &&
+    !routeAmbiguous
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.workflow.closed-without-route",
+        "mapping",
+        acquired.issue.html_url,
+        "Closed Wayfinder ticket has no canonical Map decision or out-of-scope pointer.",
+      ),
+    );
+  }
+  return {
+    kind: "wayfinder-ticket",
+    ref: reference,
+    title: acquired.issue.title,
+    subtype: subtypeLabels[0] as MattWayfinderTicket["subtype"],
+    question: question.markdown,
+    claim,
+    answer:
+      uniqueAnswer === undefined
+        ? {
+            availability: "unavailable",
+            reason:
+              decision !== undefined || acquired.comments.length > 0
+                ? "no-unique-native-reference"
+                : "not-authored",
+          }
+        : {
+            availability: "available",
+            content: {
+              ...commentContent(uniqueAnswer),
+              role: "answer",
+              sourceAnchor: { kind: "answer", target: uniqueAnswer.html_url },
+            },
+          },
+    comments: acquired.comments.filter((comment) => comment !== uniqueAnswer).map(commentContent),
+    lifecycle:
+      trackerClosure.state === "closed" && decision !== undefined
+        ? { state: "resolved-on-route", decisionSource: decision.sourceAnchor }
+        : trackerClosure.state === "closed" && disposition !== undefined
+          ? {
+              state: "ruled-out-of-scope",
+              dispositionSource: disposition.sourceAnchor,
+            }
+          : { state: "open" },
+    trackerClosure:
+      trackerClosure.state === "closed" && disposition !== undefined
+        ? { ...trackerClosure, disposition: "wontfix" }
+        : trackerClosure,
+    native: nativeEvidenceForAcquired(repository, acquired),
+  };
+};
+
+const isRequiredTriageRole = (
+  value: TriageSemanticRole,
+): value is (typeof REQUIRED_TRIAGE_ROLES)[number] =>
+  REQUIRED_TRIAGE_ROLES.some((role) => role === value);
+
+const incomingIssueFor = (
+  repository: GitHubRepository,
+  acquired: AcquiredIssue,
+  vocabulary: TriageVocabulary | undefined,
+  capturedAt: string,
+  diagnostics: ProviderDiagnostic[],
+): MattIncomingIssue => {
+  const { issue } = acquired;
+  const labels = issue.labels.map((label) => label.name);
+  const semanticLabels = labels.flatMap((label) => {
+    const semantic = vocabulary?.nativeToSemantic.get(label);
+    return semantic === undefined ? [] : [semantic];
+  });
+  const categories = semanticLabels.filter(
+    (value): value is "bug" | "enhancement" => value === "bug" || value === "enhancement",
+  );
+  const states = semanticLabels.filter(isRequiredTriageRole);
+  const category: MattIncomingIssue["classification"]["category"] =
+    categories.length === 0
+      ? "unknown"
+      : categories.length === 1
+        ? (categories[0] as "bug" | "enhancement")
+        : "ambiguous";
+  const state: MattIncomingIssue["classification"]["state"] =
+    states.length === 0
+      ? "unknown"
+      : states.length === 1
+        ? (states[0] as (typeof REQUIRED_TRIAGE_ROLES)[number])
+        : "ambiguous";
+  if (
+    categories.length > 1 ||
+    states.length > 1 ||
+    (categories.length === 0) !== (states.length === 0)
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.triage.ambiguous",
+        "mapping",
+        issue.html_url,
+        "Incoming request has incomplete or conflicting mapped category/state labels.",
+      ),
+    );
+  }
+  const nativeCategory =
+    categories.length === 1
+      ? labels.find((label) => vocabulary?.nativeToSemantic.get(label) === categories[0])
+      : undefined;
+  const nativeState =
+    states.length === 1
+      ? labels.find((label) => vocabulary?.nativeToSemantic.get(label) === states[0])
+      : undefined;
+  const content: MattContent[] = [
+    ...nativeEvidenceForAcquired(repository, acquired).sourceAnchors.flatMap((anchor) =>
+      anchor.kind === "external"
+        ? [
+            {
+              role: "source-anchor",
+              body: anchor.target,
+              sourceAnchor: anchor,
+            } as const,
+          ]
+        : [],
+    ),
+    ...acquired.comments.map(commentContent),
+  ];
+  return {
+    kind: "incoming-issue",
+    ref: issueReference(repository, issue),
+    title: issue.title,
+    classification: {
+      category,
+      state,
+      ...(nativeCategory === undefined ? {} : { nativeCategory }),
+      ...(nativeState === undefined ? {} : { nativeState }),
+    },
+    content,
+    lifecycle:
+      issue.state === "open"
+        ? { state: "open" }
+        : {
+            state: "closed",
+            disposition:
+              state === "wontfix"
+                ? "wontfix"
+                : issue.state_reason === "not_planned"
+                  ? "not-planned"
+                  : issue.state_reason === "completed"
+                    ? "completed"
+                    : "unknown",
+            observedAt: issue.closed_at ?? capturedAt,
+          },
+    native: nativeEvidenceForAcquired(repository, acquired),
+  };
+};
+
+const collectBlockedByRelations = (
+  acquired: readonly AcquiredIssue[],
+  repository: GitHubRepository,
+  diagnostics: ProviderDiagnostic[],
+): readonly MattBlockedByRelation[] => {
+  const acquiredByNode = new Map(acquired.map((entry) => [entry.issue.node_id, entry]));
+  const byNumber = new Map(acquired.map((entry) => [entry.issue.number, entry]));
+  const blockedBy: MattBlockedByRelation[] = [];
+  for (const entry of acquired) {
+    for (const dependency of entry.dependencies) {
+      const blocker = acquiredByNode.get(dependency.node_id);
+      if (blocker === undefined) continue;
+      blockedBy.push({
+        blocked: issueReference(repository, entry.issue),
+        blocker: issueReference(repository, blocker.issue),
+        evidence: "github-native",
+      });
+    }
+    const fallbackNumbers = bodyBlockerNumbers(entry, repository);
+    if (entry.dependencyCapability !== "failed") {
+      for (const blockerNumber of fallbackNumbers) {
+        if (byNumber.has(blockerNumber)) continue;
+        const target = canonicalIssueUrlForNumber(repository, blockerNumber);
+        appendExternalRelationEvidence(
+          entry,
+          "fallback-external-blocked-by",
+          target,
+          fallbackRelationIdentity(repository, blockerNumber),
+        );
+      }
+    }
+    if (entry.dependencyCapability === "unsupported") {
+      for (const blockerNumber of fallbackNumbers) {
+        const blocker = byNumber.get(blockerNumber);
+        if (blocker === undefined) continue;
+        blockedBy.push({
+          blocked: issueReference(repository, entry.issue),
+          blocker: issueReference(repository, blocker.issue),
+          evidence: "matt-body-fallback",
+        });
+      }
+      continue;
+    }
+    if (entry.dependencyCapability !== "available" || fallbackNumbers.length === 0) continue;
+    const nativeTargets = entry.dependencies.map((blocker) => blocker.html_url).sort();
+    const fallbackTargets = fallbackNumbers
+      .map((number) => canonicalIssueUrlForNumber(repository, number))
+      .sort();
+    if (nativeTargets.join("\n") === fallbackTargets.join("\n")) continue;
+    diagnostics.push(
+      diagnostic(
+        "matt.github.relation.native-fallback-conflict",
+        "identity",
+        entry.issue.html_url,
+        "GitHub native dependencies and Matt body fallback disagree.",
+      ),
+    );
+    for (const blockerNumber of fallbackNumbers) {
+      const blocker = byNumber.get(blockerNumber);
+      appendRelationFacet(
+        entry,
+        "relation-conflict:blocked-by-fallback",
+        blocker === undefined
+          ? fallbackRelationIdentity(repository, blockerNumber)
+          : String(issueReference(repository, blocker.issue)),
+      );
+    }
+  }
+  return blockedBy;
+};
+
+const captureGitHubScope = async (
+  options: ResolvedGitHubMattProviderOptions,
+  binding: Parameters<MattSkillsV1Provider["capture"]>[0],
+  generation: Parameters<MattSkillsV1Provider["capture"]>[1],
+  fullRetryCount = 0,
+): Promise<MattSkillsV1ScopeCapture> => {
+  const capturedAt = (options.clock ?? (() => new Date()))().toISOString();
+  const diagnostics: ProviderDiagnostic[] = [];
+  let root: string;
+  try {
+    root = await resolveRepositoryRoot(options.repoRoot);
+  } catch {
+    return captureWithoutProjection({
+      binding,
+      generation,
+      capturedAt,
+      state: "invalid",
+      freshness: "undetermined",
+      diagnostics: [
+        diagnostic(
+          "matt.github.repository.unavailable",
+          "source",
+          options.repoRoot,
+          "Repository root is unavailable while reading the confirmed GitHub contract.",
+        ),
+      ],
+    });
+  }
+  const contractLocator = normalizeLocator(options.contractLocator);
+  const triageLocator = normalizeLocator(
+    options.triageLocator ?? posix.join(posix.dirname(contractLocator), "triage-labels.md"),
+  );
+  const contractSource = await readInterpretationDocument(options, root, contractLocator);
+  const contract =
+    contractSource === undefined ? undefined : validateMattSkillsV1Contract(contractSource);
+  if (
+    contractSource === undefined ||
+    contract?.state !== "supported" ||
+    contract.driver !== "github-issues"
+  ) {
+    return captureWithoutProjection({
+      binding,
+      generation,
+      capturedAt,
+      state: "invalid",
+      freshness: "undetermined",
+      diagnostics: [
+        diagnostic(
+          "matt.github.contract.unsupported",
+          "contract",
+          contractLocator,
+          "Confirmed repository contract does not select matt-skills/v1 GitHub Issues.",
+        ),
+      ],
+    });
+  }
+  const pullRequestsEnabled = externalPullRequestsEnabled(contractSource);
+  const triageSource = await readInterpretationDocument(options, root, triageLocator);
+  const vocabulary =
+    triageSource === undefined
+      ? undefined
+      : parseTriageVocabulary(triageSource, triageLocator, diagnostics);
+  if (triageSource === undefined) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.mapping.unavailable",
+        "mapping",
+        triageLocator,
+        "Repository triage vocabulary could not be read.",
+      ),
+    );
+  }
+  const scope = decodeGitHubMattNativeScope(binding.nativeScope);
+  if (scope === undefined) {
+    return captureWithoutProjection({
+      binding,
+      generation,
+      capturedAt,
+      state: "invalid",
+      freshness: "undetermined",
+      diagnostics: [
+        ...diagnostics,
+        diagnostic(
+          "matt.github.scope.invalid",
+          "identity",
+          binding.nativeScope,
+          "GitHub native scope identity is malformed or uses an unsupported host.",
+        ),
+      ],
+    });
+  }
+
+  const observed: ObservedResponse[] = [];
+  const finalizeObservedCapture = async (input: {
+    state: "absent" | "invalid";
+    target: string;
+    diagnostics: readonly ProviderDiagnostic[];
+  }): Promise<MattSkillsV1ScopeCapture> => {
+    const finalization = await finalizeObservedGeneration({
+      transport: options.transport,
+      observed,
+      fullRetryCount,
+      target: input.target,
+      clock: options.clock ?? (() => new Date()),
+    });
+    if (finalization.retryRequired) {
+      return captureGitHubScope(options, binding, generation, 1);
+    }
+    const finalDiagnostics = [...input.diagnostics, ...finalization.diagnostics];
+    const freshness = finalization.revalidation.state === "stable" ? "current" : "undetermined";
+    const blocking = input.state === "invalid" || finalization.revalidation.state !== "stable";
+    return captureWithoutProjection({
+      binding,
+      generation,
+      capturedAt,
+      state: input.state,
+      freshness,
+      freshnessEvidence: freshnessForObservedGeneration({
+        finalization,
+        observed,
+        capturedAt,
+        fullRetryCount,
+        assessment: freshness,
+        acquisitionComplete: finalization.revalidation.state === "stable",
+        blocking,
+        extraEvidence: [{ kind: "github-scope", value: binding.nativeScope }],
+      }),
+      diagnostics: finalDiagnostics,
+    });
+  };
+  const repositoryEndpoint = `repos/${scope.repository.owner}/${scope.repository.name}`;
+  const repositoryResponse = await acquire(options.transport, repositoryEndpoint, observed);
+  const repositoryResult = repositorySchema.safeParse(repositoryResponse.body);
+  if (repositoryResponse.status !== 200 || !repositoryResult.success) {
+    const failureDiagnostics = [
+      ...diagnostics,
+      repositoryResponse.status !== 200 && repositoryResponse.status !== 404
+        ? acquisitionFailureDiagnostic(repositoryResponse, repositoryEndpoint)
+        : diagnostic(
+            "matt.github.repository.acquisition",
+            "acquisition",
+            repositoryEndpoint,
+            "GitHub repository identity could not be acquired and decoded.",
+          ),
+    ];
+    if (repositoryResponse.status !== 200 && repositoryResponse.status !== 404) {
+      return captureWithoutProjection({
+        binding,
+        generation,
+        capturedAt,
+        state: "invalid",
+        freshness: "undetermined",
+        diagnostics: failureDiagnostics,
+      });
+    }
+    return finalizeObservedCapture({
+      state: repositoryResponse.status === 404 ? "absent" : "invalid",
+      target: repositoryEndpoint,
+      diagnostics: failureDiagnostics,
+    });
+  }
+  const repository = repositoryResult.data;
+  if (
+    repository.id !== scope.repository.databaseId ||
+    repository.node_id !== scope.repository.nodeId ||
+    repository.owner.login !== scope.repository.owner ||
+    repository.name !== scope.repository.name ||
+    repository.full_name !== `${scope.repository.owner}/${scope.repository.name}` ||
+    repository.html_url !== `https://github.com/${scope.repository.owner}/${scope.repository.name}`
+  ) {
+    return finalizeObservedCapture({
+      state: "invalid",
+      target: repository.html_url,
+      diagnostics: [
+        ...diagnostics,
+        diagnostic(
+          "matt.github.identity.rebind-required",
+          "identity",
+          repository.html_url,
+          "GitHub repository locator and native identity differ; explicit rebind is required.",
+        ),
+      ],
+    });
+  }
+
+  const issueEndpoint = `${repositoryEndpoint}/issues/${scope.root.number}`;
+  const issueResponse = await acquire(options.transport, issueEndpoint, observed);
+  const issueResult = issueSchema.safeParse(issueResponse.body);
+  if (issueResponse.status !== 200 || !issueResult.success) {
+    const failureDiagnostics = [
+      ...diagnostics,
+      issueResponse.status !== 200 && issueResponse.status !== 404
+        ? acquisitionFailureDiagnostic(issueResponse, issueEndpoint)
+        : diagnostic(
+            "matt.github.root.acquisition",
+            "acquisition",
+            issueEndpoint,
+            "GitHub root identity and body could not be acquired and decoded.",
+          ),
+    ];
+    if (issueResponse.status !== 200 && issueResponse.status !== 404) {
+      return captureWithoutProjection({
+        binding,
+        generation,
+        capturedAt,
+        state: "invalid",
+        freshness: "undetermined",
+        diagnostics: failureDiagnostics,
+      });
+    }
+    return finalizeObservedCapture({
+      state: issueResponse.status === 404 ? "absent" : "invalid",
+      target: issueEndpoint,
+      diagnostics: failureDiagnostics,
+    });
+  }
+  const issue = issueResult.data;
+  const objectKind = issue.pull_request === undefined ? "issue" : "pull-request";
+  if (
+    issue.id !== scope.root.databaseId ||
+    issue.node_id !== scope.root.nodeId ||
+    issue.number !== scope.root.number ||
+    objectKind !== scope.root.objectKind ||
+    !hasCanonicalRepositoryLocation(repository, issue)
+  ) {
+    return finalizeObservedCapture({
+      state: "invalid",
+      target: issue.html_url,
+      diagnostics: [
+        ...diagnostics,
+        diagnostic(
+          "matt.github.identity.rebind-required",
+          "identity",
+          issue.html_url,
+          "GitHub root locator and native identity differ; explicit rebind is required.",
+        ),
+      ],
+    });
+  }
+  if (objectKind === "pull-request") {
+    if (scope.rootKind !== "standalone-request") {
+      return finalizeObservedCapture({
+        state: "invalid",
+        target: issue.html_url,
+        diagnostics: [
+          ...diagnostics,
+          diagnostic(
+            "matt.github.root.pr-kind",
+            "contract",
+            issue.html_url,
+            "A pull request may only be bound as a standalone request.",
+          ),
+        ],
+      });
+    }
+    if (!pullRequestsEnabled) {
+      return finalizeObservedCapture({
+        state: "invalid",
+        target: issue.html_url,
+        diagnostics: [
+          ...diagnostics,
+          diagnostic(
+            "matt.github.root.pr-not-enabled",
+            "contract",
+            issue.html_url,
+            "Repository contract does not enable pull requests as a triage surface.",
+          ),
+        ],
+      });
+    }
+    if (!["CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "NONE"].includes(issue.author_association)) {
+      return finalizeObservedCapture({
+        state: "invalid",
+        target: issue.html_url,
+        diagnostics: [
+          ...diagnostics,
+          diagnostic(
+            "matt.github.root.pr-not-external",
+            "contract",
+            issue.html_url,
+            "Pull request author association is not an external Matt request.",
+          ),
+        ],
+      });
+    }
+  }
+  if (
+    (scope.rootKind !== "standalone-request" && objectKind !== "issue") ||
+    (scope.rootKind === "wayfinder-map" &&
+      !issue.labels.some((label) => label.name === "wayfinder:map")) ||
+    (scope.rootKind === "parent-issue" &&
+      issue.labels.some((label) => label.name === "wayfinder:map"))
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.root.role",
+        "contract",
+        issue.html_url,
+        "GitHub root kind does not match its Matt-owned native role.",
+      ),
+    );
+  }
+
+  const pending: GitHubIssue[] = [issue];
+  const discoveredByNode = new Map([[issue.node_id, issue]]);
+  const parentByChild = new Map<string, string>();
+  const acquired: AcquiredIssue[] = [];
+  const parentChild: MattParentChildRelation[] = [];
+  const nativeChildrenByParent = new Map<string, readonly GitHubIssue[]>();
+  let acquisitionComplete = true;
+  for (let cursor = 0; cursor < pending.length; cursor += 1) {
+    const currentIssue = pending[cursor];
+    if (currentIssue === undefined) continue;
+    const currentEndpoint = `${repositoryEndpoint}/issues/${currentIssue.number}`;
+    const parentResponse = await acquire(options.transport, `${currentEndpoint}/parent`, observed);
+    const parent =
+      parentResponse.status === 200 ? issueSchema.safeParse(parentResponse.body) : undefined;
+    const parentIdentityValid =
+      parent?.success === true &&
+      parent.data.pull_request === undefined &&
+      (parent.data.repository_url !== repositoryApiUrl(repository) ||
+        hasCanonicalRepositoryLocation(repository, parent.data));
+    const commentPages = await acquirePages(
+      options.transport,
+      `${currentEndpoint}/comments`,
+      observed,
+    );
+    const dependencyPages = await acquirePages(
+      options.transport,
+      `${currentEndpoint}/dependencies/blocked_by`,
+      observed,
+    );
+    const comments =
+      commentPages.state !== "available"
+        ? undefined
+        : z.array(commentSchema).safeParse(commentPages.values);
+    const dependencies =
+      dependencyPages.state !== "available"
+        ? undefined
+        : z.array(issueSchema).safeParse(dependencyPages.values);
+    if (
+      (parentResponse.status !== 200 &&
+        parentResponse.status !== 404 &&
+        parentResponse.status !== 410) ||
+      (parentResponse.status === 200 && !parentIdentityValid) ||
+      comments === undefined ||
+      !comments.success ||
+      (dependencyPages.state !== "unsupported" &&
+        (dependencies === undefined || !dependencies.success))
+    ) {
+      acquisitionComplete = false;
+      if (
+        parentResponse.status !== 200 &&
+        parentResponse.status !== 404 &&
+        parentResponse.status !== 410
+      ) {
+        diagnostics.push(acquisitionFailureDiagnostic(parentResponse, `${currentEndpoint}/parent`));
+      } else if (parentResponse.status === 200 && !parentIdentityValid) {
+        diagnostics.push(
+          diagnostic(
+            "matt.github.parent.invalid",
+            "format",
+            `${currentEndpoint}/parent`,
+            "GitHub native parent identity could not be decoded.",
+          ),
+        );
+      }
+      if (commentPages.state === "failed") {
+        diagnostics.push(
+          acquisitionFailureDiagnostic(commentPages.response, `${currentEndpoint}/comments`),
+        );
+      }
+      if (dependencyPages.state === "failed") {
+        diagnostics.push(
+          acquisitionFailureDiagnostic(
+            dependencyPages.response,
+            `${currentEndpoint}/dependencies/blocked_by`,
+          ),
+        );
+      }
+      diagnostics.push(
+        diagnostic(
+          "matt.github.pagination.incomplete",
+          "pagination",
+          currentIssue.html_url,
+          "Required GitHub parent, comments or dependency resources were not acquired and decoded completely.",
+        ),
+      );
+    }
+    const acquiredCurrent: AcquiredIssue = {
+      issue: currentIssue,
+      document: parseMarkdownDocument(currentIssue.body),
+      comments: comments?.success === true ? comments.data : [],
+      dependencies: dependencies?.success === true ? dependencies.data : [],
+      dependencyCapability:
+        dependencyPages.state === "available" && dependencies?.success === true
+          ? "available"
+          : dependencyPages.state === "unsupported"
+            ? "unsupported"
+            : "failed",
+      parentCapability:
+        parentResponse.status === 200 && parentIdentityValid
+          ? "available"
+          : parentResponse.status === 404
+            ? "absent"
+            : parentResponse.status === 410
+              ? "unsupported"
+              : "failed",
+      ...(parentIdentityValid && parent?.success === true ? { nativeParent: parent.data } : {}),
+      externalAnchors: [],
+      relationFacets: [],
+    };
+    acquired.push(acquiredCurrent);
+    if (scope.rootKind === "standalone-request") continue;
+
+    const childPages = await acquirePages(
+      options.transport,
+      `${currentEndpoint}/sub_issues`,
+      observed,
+    );
+    const children =
+      childPages.state !== "available"
+        ? undefined
+        : z.array(issueSchema).safeParse(childPages.values);
+    if (childPages.state === "unsupported") {
+      if (
+        scope.rootKind === "parent-issue" &&
+        currentIssue.node_id === issue.node_id &&
+        !currentIssue.labels.some((label) => label.name === "wayfinder:map")
+      ) {
+        acquisitionComplete = false;
+        diagnostics.push(
+          diagnostic(
+            "matt.github.scope.fallback-unavailable",
+            "contract",
+            currentIssue.html_url,
+            "Native hierarchy is unavailable and this parent root has no Matt contract-defined hierarchy fallback.",
+          ),
+        );
+      }
+      for (const childNumber of bodyChildNumbers(acquiredCurrent, repository)) {
+        if (childNumber === currentIssue.number) {
+          acquisitionComplete = false;
+          diagnostics.push(
+            diagnostic(
+              "matt.github.scope.fallback-cycle",
+              "identity",
+              currentIssue.html_url,
+              "Matt task-list fallback cannot make an issue its own child.",
+            ),
+          );
+          continue;
+        }
+        const childEndpoint = `${repositoryEndpoint}/issues/${childNumber}`;
+        const childResponse = await acquire(options.transport, childEndpoint, observed);
+        const child = issueSchema.safeParse(childResponse.body);
+        if (
+          childResponse.status !== 200 ||
+          !child.success ||
+          !isCanonicalSameRepositoryIssue(repository, child.data)
+        ) {
+          acquisitionComplete = false;
+          diagnostics.push(
+            diagnostic(
+              "matt.github.scope.fallback-child",
+              "acquisition",
+              childEndpoint,
+              "Matt task-list fallback child could not be acquired as one same-repository issue.",
+            ),
+          );
+          continue;
+        }
+        const childDocument: AcquiredIssue = {
+          issue: child.data,
+          document: parseMarkdownDocument(child.data.body),
+          comments: [],
+          dependencies: [],
+          dependencyCapability: "failed",
+          parentCapability: "unsupported",
+          externalAnchors: [],
+          relationFacets: [],
+        };
+        if (bodyParentNumber(childDocument) !== currentIssue.number) {
+          acquisitionComplete = false;
+          diagnostics.push(
+            diagnostic(
+              "matt.github.scope.fallback-parent",
+              "identity",
+              child.data.html_url,
+              "Matt task-list fallback child does not confirm the same parent with Part of.",
+            ),
+          );
+          continue;
+        }
+        const previousParent = parentByChild.get(child.data.node_id);
+        if (wouldCreateParentCycle(child.data.node_id, currentIssue.node_id, parentByChild)) {
+          acquisitionComplete = false;
+          diagnostics.push(
+            diagnostic(
+              "matt.github.scope.hierarchy-cycle",
+              "identity",
+              child.data.html_url,
+              "Matt fallback hierarchy contains a parent-child cycle.",
+            ),
+          );
+          continue;
+        }
+        if (previousParent === currentIssue.node_id) {
+          acquisitionComplete = false;
+          diagnostics.push(
+            diagnostic(
+              "matt.github.scope.duplicate-child",
+              "identity",
+              child.data.html_url,
+              "Matt fallback hierarchy repeats one child under the same parent.",
+            ),
+          );
+          continue;
+        }
+        if (previousParent !== undefined && previousParent !== currentIssue.node_id) {
+          acquisitionComplete = false;
+          diagnostics.push(
+            diagnostic(
+              "matt.github.scope.ambiguous-parent",
+              "identity",
+              child.data.html_url,
+              "Matt fallback child appears under more than one in-scope parent.",
+            ),
+          );
+          continue;
+        }
+        parentByChild.set(child.data.node_id, currentIssue.node_id);
+        parentChild.push({
+          parent: issueReference(repository, currentIssue),
+          child: issueReference(repository, child.data),
+          evidence: "matt-body-fallback",
+        });
+        if (!discoveredByNode.has(child.data.node_id)) {
+          discoveredByNode.set(child.data.node_id, child.data);
+          pending.push(child.data);
+        }
+      }
+      continue;
+    }
+    if (children === undefined || !children.success) {
+      acquisitionComplete = false;
+      if (childPages.state === "failed") {
+        diagnostics.push(
+          acquisitionFailureDiagnostic(childPages.response, `${currentEndpoint}/sub_issues`),
+        );
+      }
+      diagnostics.push(
+        diagnostic(
+          "matt.github.scope.pagination",
+          "pagination",
+          currentIssue.html_url,
+          "GitHub native sub-issues were not acquired and decoded completely.",
+        ),
+      );
+      continue;
+    }
+    nativeChildrenByParent.set(currentIssue.node_id, children.data);
+    for (const childSummary of children.data) {
+      if (childSummary.repository_url !== repositoryApiUrl(repository)) {
+        appendExternalRelationEvidence(
+          acquiredCurrent,
+          "native-external-child",
+          childSummary.html_url,
+          nativeRelationIdentity(childSummary),
+        );
+        continue;
+      }
+      if (childSummary.pull_request !== undefined) {
+        acquisitionComplete = false;
+        diagnostics.push(
+          diagnostic(
+            "matt.github.scope.invalid-child",
+            "contract",
+            childSummary.html_url,
+            "Map and parent scope descendants must be GitHub issues.",
+          ),
+        );
+        continue;
+      }
+      const previousParent = parentByChild.get(childSummary.node_id);
+      if (wouldCreateParentCycle(childSummary.node_id, currentIssue.node_id, parentByChild)) {
+        acquisitionComplete = false;
+        diagnostics.push(
+          diagnostic(
+            "matt.github.scope.hierarchy-cycle",
+            "identity",
+            childSummary.html_url,
+            "GitHub native hierarchy contains a parent-child cycle.",
+          ),
+        );
+        continue;
+      }
+      if (previousParent === currentIssue.node_id) {
+        acquisitionComplete = false;
+        diagnostics.push(
+          diagnostic(
+            "matt.github.scope.duplicate-child",
+            "identity",
+            childSummary.html_url,
+            "GitHub native hierarchy repeats one child under the same parent.",
+          ),
+        );
+        continue;
+      }
+      if (previousParent !== undefined && previousParent !== currentIssue.node_id) {
+        acquisitionComplete = false;
+        diagnostics.push(
+          diagnostic(
+            "matt.github.scope.ambiguous-parent",
+            "identity",
+            childSummary.html_url,
+            "GitHub child appears under more than one in-scope parent.",
+          ),
+        );
+        continue;
+      }
+      parentByChild.set(childSummary.node_id, currentIssue.node_id);
+      parentChild.push({
+        parent: issueReference(repository, currentIssue),
+        child: issueReference(repository, childSummary),
+        evidence: "github-native",
+      });
+      if (discoveredByNode.has(childSummary.node_id)) continue;
+      const childEndpoint = `${repositoryEndpoint}/issues/${childSummary.number}`;
+      const childResponse = await acquire(options.transport, childEndpoint, observed);
+      const child = issueSchema.safeParse(childResponse.body);
+      if (
+        childResponse.status !== 200 ||
+        !child.success ||
+        child.data.id !== childSummary.id ||
+        child.data.node_id !== childSummary.node_id ||
+        child.data.number !== childSummary.number ||
+        !isCanonicalSameRepositoryIssue(repository, child.data)
+      ) {
+        acquisitionComplete = false;
+        diagnostics.push(
+          diagnostic(
+            "matt.github.scope.child-acquisition",
+            "acquisition",
+            childSummary.html_url,
+            "GitHub native child identity and full issue body could not be acquired consistently.",
+          ),
+        );
+        continue;
+      }
+      discoveredByNode.set(child.data.node_id, child.data);
+      pending.push(child.data);
+    }
+  }
+
+  const acquiredByNode = new Map(acquired.map((entry) => [entry.issue.node_id, entry]));
+  const byNumber = new Map(acquired.map((entry) => [entry.issue.number, entry]));
+  for (const entry of acquired) {
+    const nativeParent = entry.nativeParent;
+    if (nativeParent !== undefined) {
+      const parentInScope = acquiredByNode.get(nativeParent.node_id);
+      const parentIdentity = nativeRelationIdentity(nativeParent);
+      entry.relationFacets.push({
+        key: "native-parent",
+        values: [parentIdentity],
+      });
+      const expectedParent = parentByChild.get(entry.issue.node_id);
+      if (parentInScope === undefined) {
+        entry.externalAnchors.push({ kind: "external", target: nativeParent.html_url });
+      }
+      if (
+        (expectedParent !== undefined && expectedParent !== nativeParent.node_id) ||
+        (expectedParent === undefined && parentInScope !== undefined)
+      ) {
+        acquisitionComplete = false;
+        entry.relationFacets.push({
+          key: "relation-conflict:native-parent",
+          values: [parentIdentity],
+        });
+        diagnostics.push(
+          diagnostic(
+            "matt.github.relation.native-parent-conflict",
+            "identity",
+            entry.issue.html_url,
+            "GitHub native parent disagrees with the in-scope parent-child traversal.",
+          ),
+        );
+      }
+    }
+    const fallbackParentNumber = bodyParentNumber(entry);
+    if (fallbackParentNumber !== undefined && entry.parentCapability !== "failed") {
+      const fallbackParent = byNumber.get(fallbackParentNumber);
+      if (fallbackParent === undefined) {
+        const target = canonicalIssueUrlForNumber(repository, fallbackParentNumber);
+        appendExternalRelationEvidence(
+          entry,
+          "fallback-external-parent",
+          target,
+          fallbackRelationIdentity(repository, fallbackParentNumber),
+        );
+      }
+      if (entry.parentCapability !== "unsupported") {
+        const nativeMatchesFallback =
+          entry.parentCapability === "available" &&
+          nativeParent !== undefined &&
+          nativeParent.repository_url === repositoryApiUrl(repository) &&
+          nativeParent.number === fallbackParentNumber;
+        if (!nativeMatchesFallback) {
+          acquisitionComplete = false;
+          diagnostics.push(
+            diagnostic(
+              "matt.github.relation.native-fallback-conflict",
+              "identity",
+              entry.issue.html_url,
+              "GitHub native parent and Matt body fallback disagree.",
+            ),
+          );
+          appendRelationFacet(
+            entry,
+            "relation-conflict:parent-fallback",
+            fallbackParent === undefined
+              ? fallbackRelationIdentity(repository, fallbackParentNumber)
+              : String(issueReference(repository, fallbackParent.issue)),
+          );
+        }
+      }
+    }
+    for (const dependency of entry.dependencies) {
+      if (!acquiredByNode.has(dependency.node_id)) {
+        appendExternalRelationEvidence(
+          entry,
+          "native-external-blocked-by",
+          dependency.html_url,
+          nativeRelationIdentity(dependency),
+        );
+      }
+    }
+  }
+  for (const entry of acquired) {
+    const nativeChildren = nativeChildrenByParent.get(entry.issue.node_id);
+    if (nativeChildren === undefined) continue;
+    const fallbackNumbers = bodyChildNumbers(entry, repository);
+    if (fallbackNumbers.length === 0) continue;
+    for (const number of fallbackNumbers) {
+      const child = byNumber.get(number);
+      if (child === undefined) {
+        const target = canonicalIssueUrlForNumber(repository, number);
+        appendExternalRelationEvidence(
+          entry,
+          "fallback-external-child",
+          target,
+          fallbackRelationIdentity(repository, number),
+        );
+      }
+    }
+    const nativeTargets = nativeChildren.map((child) => child.html_url).sort();
+    const fallbackTargets = fallbackNumbers
+      .map((number) => canonicalIssueUrlForNumber(repository, number))
+      .sort();
+    if (nativeTargets.join("\n") === fallbackTargets.join("\n")) continue;
+    diagnostics.push(
+      diagnostic(
+        "matt.github.relation.native-fallback-conflict",
+        "identity",
+        entry.issue.html_url,
+        "GitHub native parent-child relations and Matt body fallback disagree.",
+      ),
+    );
+    for (const number of fallbackNumbers) {
+      const child = byNumber.get(number);
+      appendRelationFacet(
+        entry,
+        "relation-conflict:parent-child-fallback",
+        child === undefined
+          ? fallbackRelationIdentity(repository, number)
+          : String(issueReference(repository, child.issue)),
+      );
+    }
+  }
+  const blockedBy = collectBlockedByRelations(acquired, repository, diagnostics);
+  const mapCandidates = acquired.filter((entry) =>
+    entry.issue.labels.some((label) => label.name === "wayfinder:map"),
+  );
+  if (mapCandidates.length > 1) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.role.ambiguous-map",
+        "format",
+        issue.html_url,
+        "Bound GitHub scope contains more than one Matt Map role.",
+      ),
+    );
+  }
+  for (const candidate of mapCandidates) {
+    const mapSignals = candidate.issue.labels
+      .map((label) => label.name)
+      .filter((label) => label.startsWith("wayfinder:"));
+    if (mapSignals.length !== 1 || mapSignals[0] !== "wayfinder:map") {
+      diagnostics.push(
+        diagnostic(
+          "matt.github.role.ambiguous-map",
+          "format",
+          candidate.issue.html_url,
+          "Map issue has unknown or conflicting Wayfinder role evidence.",
+        ),
+      );
+    }
+  }
+  const mapProjection =
+    mapCandidates.length === 1 && mapCandidates[0] !== undefined
+      ? decodeMap(mapCandidates[0], repository, byNumber, diagnostics)
+      : undefined;
+  if (scope.rootKind === "wayfinder-map" && mapProjection === undefined) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.role.map-incomplete",
+        "format",
+        issue.html_url,
+        "Bound Wayfinder Map root lacks its complete canonical body.",
+      ),
+    );
+  }
+
+  const wayfinderTickets: MattWayfinderTicket[] = [];
+  const deliveryTickets: MattDeliveryTicket[] = [];
+  const incomingIssues: MattIncomingIssue[] = [];
+  const specCandidates: MattSpec[] = [];
+  for (const entry of acquired) {
+    if (mapCandidates.includes(entry)) continue;
+    const wayfinderLabels = entry.issue.labels.filter((label) =>
+      label.name.startsWith("wayfinder:"),
+    );
+    if (wayfinderLabels.length > 0) {
+      const wayfinder = decodeWayfinder(entry, repository, mapProjection, capturedAt, diagnostics);
+      if (wayfinder === undefined) {
+        diagnostics.push(
+          diagnostic(
+            "matt.github.role.ambiguous-wayfinder",
+            "format",
+            entry.issue.html_url,
+            "Wayfinder labels conflict or the canonical Question body is incomplete.",
+          ),
+        );
+      } else {
+        wayfinderTickets.push(wayfinder);
+      }
+      continue;
+    }
+    const spec = decodeSpec(entry, repository, vocabulary);
+    const delivery = decodeDelivery(entry, repository, capturedAt);
+    const specStructure = SPEC_SECTIONS.map(([, title]) =>
+      queryMarkdownSection(entry.document, { title }),
+    );
+    const deliveryStructure = [
+      queryMarkdownSection(entry.document, { title: "What to build" }),
+      queryMarkdownSection(entry.document, { title: "Acceptance criteria" }),
+    ];
+    const hasSpecSignal = specStructure.some((result) => result.state !== "absent");
+    const hasDeliverySignal = deliveryStructure.some((result) => result.state !== "absent");
+    const ambiguousStructure =
+      [...specStructure, ...deliveryStructure].some((result) => result.state === "ambiguous") ||
+      (hasSpecSignal && spec === undefined) ||
+      (hasDeliverySignal && delivery === undefined);
+    if (ambiguousStructure) {
+      diagnostics.push(
+        diagnostic(
+          "matt.github.role.ambiguous-structure",
+          "format",
+          entry.issue.html_url,
+          "GitHub issue contains partial or ambiguous canonical Spec or Delivery structure.",
+        ),
+      );
+      continue;
+    }
+    if (spec !== undefined && delivery !== undefined) {
+      diagnostics.push(
+        diagnostic(
+          "matt.github.role.conflict",
+          "format",
+          entry.issue.html_url,
+          "GitHub issue matches both canonical Spec and Delivery body roles.",
+        ),
+      );
+      continue;
+    }
+    if (spec !== undefined) {
+      specCandidates.push(spec);
+      continue;
+    }
+    if (delivery !== undefined) {
+      deliveryTickets.push(delivery);
+      continue;
+    }
+    incomingIssues.push(incomingIssueFor(repository, entry, vocabulary, capturedAt, diagnostics));
+  }
+  if (specCandidates.length > 1) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.role.ambiguous-spec",
+        "format",
+        issue.html_url,
+        "Bound GitHub scope contains more than one complete canonical Spec body.",
+      ),
+    );
+  }
+  const specProjection = specCandidates.length === 1 ? specCandidates[0] : undefined;
+  const projection: MattScopeProjection = {
+    ...(mapProjection === undefined ? {} : { map: mapProjection }),
+    ...(specProjection === undefined ? {} : { spec: specProjection }),
+    wayfinderTickets,
+    deliveryTickets,
+    incomingIssues,
+    graph: { parentChild, blockedBy },
+  };
+  const finalization = await finalizeObservedGeneration({
+    transport: options.transport,
+    observed,
+    fullRetryCount,
+    target: issue.html_url,
+    clock: options.clock ?? (() => new Date()),
+  });
+  if (finalization.retryRequired) {
+    return captureGitHubScope(options, binding, generation, 1);
+  }
+  diagnostics.push(...finalization.diagnostics);
+  if (finalization.revalidation.state === "failed") acquisitionComplete = false;
+  const current = finalization.revalidation.state === "stable";
+  const freshnessCurrent = current && acquisitionComplete;
+  const blocking = diagnostics.some((item) => item.impact === "blocking");
+  return createProviderScopeCapture({
+    provider: MATT_SKILLS_V1_PROVIDER_ID,
+    binding,
+    generation,
+    state: blocking ? "partial" : "available",
+    freshness: freshnessForObservedGeneration({
+      finalization,
+      observed,
+      capturedAt,
+      fullRetryCount,
+      assessment: freshnessCurrent ? "current" : "undetermined",
+      acquisitionComplete,
+      blocking,
+      extraEvidence: [
+        ...acquired.map((entry) => ({
+          kind: "object-updated-at",
+          value: `${entry.issue.node_id}|${entry.issue.updated_at}`,
+        })),
+      ],
+    }),
+    coverage: {
+      assessment: blocking ? "incomplete" : "complete",
+      dimensions: [
+        { key: "contract", state: "covered" },
+        {
+          key: "vocabulary",
+          state: vocabulary?.complete === true ? "covered" : "gap",
+        },
+        {
+          key: "scope-membership",
+          state: acquisitionComplete ? "covered" : "gap",
+        },
+        {
+          key: "roles-and-relations",
+          state: blocking ? "gap" : "covered",
+        },
+        {
+          key: "freshness",
+          state: freshnessCurrent ? "covered" : "gap",
+        },
+      ],
+    },
+    completion: blocking || !freshnessCurrent ? "undetermined" : "incomplete",
+    diagnostics,
+    projection,
+  });
+};
+
+export const createGitHubMattProvider = (
+  options: GitHubMattProviderOptions,
+): MattSkillsV1Provider => ({
+  id: MATT_SKILLS_V1_PROVIDER_ID,
+  capture: (binding, generation) =>
+    captureGitHubScope(
+      {
+        ...options,
+        transport: options.transport ?? createGhCliGitHubReadTransport(),
+      },
+      binding,
+      generation,
+    ),
+});

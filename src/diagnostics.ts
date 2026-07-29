@@ -1,7 +1,6 @@
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
-import { deriveNativeTicketDiagnostics, type NativeTicket } from "./native-ticket-diagnostics";
-import type { NativeSourceRecord } from "./native-work";
 import { repositoryManifestSchema } from "./schema-definitions";
+import type { SyncInputRecord } from "./sync-input-generation";
 import type { StructuralDiagnostic } from "./types";
 
 const compareText = (left: string, right: string): number =>
@@ -27,33 +26,15 @@ const manifestDiagnostic = (source: string): StructuralDiagnostic[] => {
 
 export const deriveStructuralDiagnosticsFromGeneration = (
   decoded: DecodedBearingRecordGeneration,
-  records: readonly NativeSourceRecord[],
+  records: readonly SyncInputRecord[],
   initial: readonly StructuralDiagnostic[],
 ): readonly StructuralDiagnostic[] => {
   const diagnostics = [...initial, ...decoded.diagnostics];
-  const tickets: NativeTicket[] = [];
   for (const record of records) {
     if (record.locator === ".bearing/manifest.json") {
       diagnostics.push(...manifestDiagnostic(record.source));
-      continue;
-    }
-    if (record.native?.kind === "ticket") tickets.push(record.native);
-    if (record.native?.kind === "map") {
-      const status = record.native.status;
-      if (status !== "active" && status !== "resolved") {
-        diagnostics.push({
-          code: "unsupported-map-status",
-          impact: "blocking",
-          target: record.locator,
-          message:
-            status === undefined
-              ? "Wayfinder Map has no Status."
-              : "Wayfinder Map Status is not supported.",
-        });
-      }
     }
   }
-  diagnostics.push(...deriveNativeTicketDiagnostics(tickets));
   return diagnostics.sort((left, right) => {
     const targetOrder = compareText(left.target, right.target);
     if (targetOrder !== 0) return targetOrder;

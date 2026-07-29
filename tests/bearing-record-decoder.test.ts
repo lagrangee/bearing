@@ -85,7 +85,6 @@ Citations:
     Note: Preserve the healthy partial member.
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/work
 ---
 

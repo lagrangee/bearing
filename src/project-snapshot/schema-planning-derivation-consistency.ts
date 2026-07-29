@@ -1,49 +1,55 @@
 import type { RefinementCtx } from "zod";
 import {
+  type CompletionCapture,
   type DerivedCollection,
-  type DerivedDiagnostic,
-  type DerivedEffort,
-  type DerivedGate,
-  type DerivedRoadmap,
-  type DerivedSource,
+  hasUntrustedEffortContributor,
+  normalizedEffortState,
   normalizedGateHorizon,
   normalizedGateReadiness,
   normalizedRoadmapHorizon,
 } from "./normalized-planning-derivation";
 
-type Frontier = Readonly<{
-  claimed: readonly string[];
-  ready: readonly string[];
-  blocked: readonly string[];
-  resolved: readonly string[];
-  fogCount: number;
+type Roadmap = Readonly<{
+  id: string;
+  lifecycle: "active" | "completed" | "superseded";
+  focusedGateId: string | null;
+  gateOrder: readonly string[];
+  horizon: "active-horizon" | "exhausted" | "unknown";
+  effortIds: readonly string[];
 }>;
-type Roadmap = DerivedRoadmap & Readonly<{ effortIds: readonly string[] }>;
-type Gate = DerivedGate;
-type Effort = DerivedEffort & Readonly<{ frontier: Frontier }>;
-type NativeMap = Readonly<{
-  reference: string;
+type Gate = Readonly<{
+  id: string;
   source: string;
-  state: "active" | "resolved" | "unknown";
-  effortId?: string | undefined;
-  fogCount: number;
+  roadmapId: string;
+  lifecycle: "planned" | "active" | "passed" | "superseded";
+  readiness: "unknown" | "not-ready" | "ready-for-review";
+  horizonState: "passed" | "focused" | "planned" | "superseded" | "unknown";
+  effortIds: readonly string[];
 }>;
-type Ticket = Readonly<{
-  reference: string;
+type Effort = Readonly<{
+  id: string;
   source: string;
-  state: "claimed" | "ready" | "blocked" | "resolved" | "triage";
-  effortId?: string | undefined;
-  blockedBy: readonly string[];
+  roadmapId: string;
+  targetGateId: string;
+  workBinding?: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }> | undefined;
+  derivedState: "active" | "resolved" | "unknown";
 }>;
 
 export type PlanningDerivationConsistencySnapshot = Readonly<{
+  basis: Readonly<{ sitemapFingerprint: string }>;
   roadmaps: DerivedCollection<Roadmap>;
   gates: DerivedCollection<Gate>;
   efforts: DerivedCollection<Effort>;
-  maps: DerivedCollection<NativeMap>;
-  tickets: DerivedCollection<Ticket>;
-  diagnostics: readonly (DerivedDiagnostic & Readonly<{ reference: string }>)[];
-  sources: readonly DerivedSource[];
+  providerCaptures: readonly CompletionCapture[];
+  diagnostics: readonly Readonly<{
+    reference: string;
+    code: string;
+    impact: "blocking" | "non-blocking";
+    target: string;
+    message: string;
+    source?: string | undefined;
+  }>[];
+  sources: readonly Readonly<{ reference: string; displayLocator: string }>[];
 }>;
 
 const trusted = <T>(collection: DerivedCollection<T>): readonly T[] =>
@@ -51,10 +57,31 @@ const trusted = <T>(collection: DerivedCollection<T>): readonly T[] =>
 const addIssue = (context: RefinementCtx, path: readonly (string | number)[], message: string) =>
   context.addIssue({ code: "custom", path: [...path], message });
 
-const validateHorizons = (
+export const validatePlanningDerivationConsistency = (
   snapshot: PlanningDerivationConsistencySnapshot,
   context: RefinementCtx,
 ): void => {
+  for (const [position, capture] of snapshot.providerCaptures.entries()) {
+    if (
+      "generation" in capture &&
+      capture.generation.fingerprint !== snapshot.basis.sitemapFingerprint
+    ) {
+      addIssue(
+        context,
+        ["providerCaptures", position, "generation", "fingerprint"],
+        "Provider capture generation must match the Project Snapshot basis.",
+      );
+    }
+  }
+  for (const [position, effort] of trusted(snapshot.efforts).entries()) {
+    if (effort.derivedState !== normalizedEffortState(effort, snapshot.providerCaptures)) {
+      addIssue(
+        context,
+        ["efforts", "items", position, "derivedState"],
+        "Effort state must match its provider completion assessment.",
+      );
+    }
+  }
   for (const [position, roadmap] of trusted(snapshot.roadmaps).entries()) {
     if (roadmap.horizon !== normalizedRoadmapHorizon(roadmap, snapshot.gates)) {
       addIssue(
@@ -72,28 +99,20 @@ const validateHorizons = (
         "Gate Horizon state must match trustworthy lifecycle and Roadmap focus truth.",
       );
     }
-  }
-};
-
-const validateReadiness = (
-  snapshot: PlanningDerivationConsistencySnapshot,
-  context: RefinementCtx,
-): void => {
-  for (const [position, gate] of trusted(snapshot.gates).entries()) {
-    if (gate.readiness !== normalizedGateReadiness(gate, snapshot)) {
+    if (
+      gate.readiness !==
+      normalizedGateReadiness(
+        gate,
+        snapshot.efforts,
+        snapshot.providerCaptures,
+        hasUntrustedEffortContributor(snapshot.gates, gate.id),
+      )
+    ) {
       addIssue(
         context,
         ["gates", "items", position, "readiness"],
-        "Gate Readiness must match trustworthy contributors, native work, and diagnostics.",
+        "Gate Readiness must match provider-assessed contributor completion.",
       );
     }
   }
-};
-
-export const validatePlanningDerivationConsistency = (
-  snapshot: PlanningDerivationConsistencySnapshot,
-  context: RefinementCtx,
-): void => {
-  validateHorizons(snapshot, context);
-  validateReadiness(snapshot, context);
 };

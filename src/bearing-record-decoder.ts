@@ -200,7 +200,6 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
           : {
               "Work binding": {
                 Provider: data["Work binding"].Provider,
-                Driver: data["Work binding"].Driver,
                 "Native scope": data["Work binding"]["Native scope"],
               },
             }),

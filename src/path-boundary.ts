@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { lstat, open, realpath, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 export type RepositoryPathBoundaryReason =
   | "changed"
@@ -66,7 +66,35 @@ export const resolveRepositoryRoot = async (repoRoot: string): Promise<string> =
 };
 
 export const resolveContainedPath = async (root: string, target: string): Promise<string> => {
-  const apparent = await lstat(target);
+  let apparent: Awaited<ReturnType<typeof lstat>>;
+  try {
+    apparent = await lstat(target);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
+      let ancestor = dirname(target);
+      while (ancestor !== dirname(ancestor)) {
+        try {
+          await resolveContainedPath(root, ancestor);
+          break;
+        } catch (ancestorError) {
+          if (
+            ancestorError instanceof Error &&
+            "code" in ancestorError &&
+            (ancestorError.code === "ENOENT" || ancestorError.code === "ENOTDIR")
+          ) {
+            ancestor = dirname(ancestor);
+            continue;
+          }
+          throw ancestorError;
+        }
+      }
+    }
+    throw error;
+  }
   let resolved: string;
   try {
     resolved = await realpath(target);

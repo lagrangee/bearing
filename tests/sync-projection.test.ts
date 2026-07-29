@@ -35,8 +35,8 @@ describe("bearing sync", () => {
     expect(sitemap).toContain("`roadmap:test` | Test Roadmap | active");
     expect(sitemap).toContain("`gate:test` | Test Gate | active");
     expect(sitemap).toContain("`effort:test` | Test Effort | resolved");
-    expect(sitemap).toContain("`.scratch/work/map.md` | Test | resolved");
-    expect(sitemap).toContain("`.scratch/work/issues/01-finish.md` | Finish | resolved");
+    expect(sitemap).toContain("`.scratch/work/map.md` | Wayfinder Map: Test | resolved");
+    expect(sitemap).toContain("`.scratch/work/issues/01-finish.md` | Finish | resolved-on-route");
     expect(sitemap).toContain("roadmap: `roadmap:test`");
     expect(sitemap).toContain("target-gate: `gate:test`");
     expect(sitemap).toContain("source: `.bearing/state/roadmaps/test.md`");

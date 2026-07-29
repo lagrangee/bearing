@@ -1,5 +1,5 @@
+import { assessProviderCaptureEvidence } from "../native-work-provider";
 import type { Effort, MilestoneGate, ProjectSnapshot, Roadmap } from "../project-snapshot/contract";
-import { assessScopedProjectionIssues } from "../project-snapshot/scoped-native-relations";
 
 export const collectRoadmapEvidenceIds = (
   roadmap: Roadmap,
@@ -23,21 +23,26 @@ type MapIssueAssessment = Readonly<{
 }>;
 
 export const assessScopedMapIssues = (
-  maps: ProjectSnapshot["maps"],
+  captures: ProjectSnapshot["providerCaptures"],
   efforts: readonly Effort[],
-  sources: ProjectSnapshot["sources"],
-): MapIssueAssessment =>
-  assessScopedProjectionIssues(
-    maps,
-    efforts.map((effort) => ({
-      source: effort.source,
-      nativeScope: effort.workBinding?.nativeScope,
-    })),
-    sources,
-    {
-      unscopableIsUncertain: true,
-    },
-  );
+  _sources: ProjectSnapshot["sources"],
+): MapIssueAssessment => {
+  let uncertain = false;
+  const missingRelationCount = efforts.filter((effort) => {
+    const binding = effort.workBinding;
+    if (binding === undefined) return false;
+    const capture = captures.find(
+      (capture) =>
+        capture.provider === binding.provider &&
+        capture.binding.nativeScope === binding.nativeScope,
+    );
+    if (assessProviderCaptureEvidence(capture).frontierEvidence === "withheld") {
+      uncertain = true;
+    }
+    return capture === undefined;
+  }).length;
+  return { missingRelationCount, uncertain: uncertain || missingRelationCount > 0 };
+};
 
 export const hasScopedGateIssue = (
   gates: ProjectSnapshot["gates"],

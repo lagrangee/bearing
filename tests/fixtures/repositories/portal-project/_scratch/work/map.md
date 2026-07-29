@@ -1,10 +1,13 @@
 # Wayfinder Map: Fixture Work
 
-Type: wayfinder:map
 Status: resolved
 
 ## Destination
 
 Keep the repository fixture deterministic.
 
-## Not yet specified
+## Decisions so far
+
+- [Verify repository isolation](issues/01-verify-isolation.md) — Preserve entry-scoped isolation.
+
+## Fog

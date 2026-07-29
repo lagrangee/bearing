@@ -111,25 +111,24 @@ const plannedGateFixture = (): ProjectSnapshot => {
 
 const oneFogFixture = (): ProjectSnapshot => {
   const snapshot = createProjectOverviewFixture();
-  if (snapshot.efforts.validity === "invalid" || snapshot.maps.validity === "invalid") {
-    throw new Error("Expected native planning fixture.");
-  }
   return projectSnapshotSchema.parse({
     ...snapshot,
-    efforts: {
-      ...snapshot.efforts,
-      items: snapshot.efforts.items.map((effort) =>
-        effort.id === "effort:portal"
-          ? { ...effort, frontier: { ...effort.frontier, fogCount: 1 } }
-          : effort,
-      ),
-    },
-    maps: {
-      ...snapshot.maps,
-      items: snapshot.maps.items.map((map) =>
-        map.effortId === "effort:portal" ? { ...map, fogCount: 1 } : map,
-      ),
-    },
+    providerCaptures: snapshot.providerCaptures.map((capture) =>
+      capture.binding.nativeScope === ".scratch/portal" &&
+      (capture.state === "available" || capture.state === "partial") &&
+      capture.projection.map !== undefined
+        ? {
+            ...capture,
+            projection: {
+              ...capture.projection,
+              map: {
+                ...capture.projection.map,
+                fog: ["One unresolved question."],
+              },
+            },
+          }
+        : capture,
+    ),
   });
 };
 
@@ -336,8 +335,6 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
   await expect(page.getByText(/remains readable with unresolved relations/u)).toBeVisible();
   await expect(page.getByText("1 ordered Gate relation is unavailable.")).toBeVisible();
 
-  const maps = snapshot.maps;
-  if (maps.validity === "invalid") throw new Error("Expected Map fixture.");
   const mapPartial = projectSnapshotSchema.parse({
     ...snapshot,
     gates:
@@ -360,17 +357,9 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
                 : effort,
             ),
           },
-    maps: {
-      validity: "partial" as const,
-      items: maps.items.filter((map) => map.effortId !== "effort:portal"),
-      issues: [
-        {
-          code: "invalid-map-body",
-          target: ".scratch/portal/map.md",
-          message: "Map source is invalid.",
-        },
-      ],
-    },
+    providerCaptures: snapshot.providerCaptures.filter(
+      (capture) => capture.binding.nativeScope !== ".scratch/portal",
+    ),
   });
   await page.unroute("**/api/v1/projects/roadmaps/snapshot");
   await serveSnapshot(page, mapPartial);

@@ -20,18 +20,15 @@ import {
   purgeRepository,
 } from "../src/repo-lifecycle";
 import { setupRepository } from "../src/repo-setup";
-import { makeTemporaryDirectory } from "./helpers";
+import { LOCAL_MATT_CONTRACT, makeTemporaryDirectory, standardMattAgentSurface } from "./helpers";
 
 const seedRepository = async (repoRoot: string): Promise<void> => {
   const contractLocator = "docs/agents/issue-tracker.md";
   await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
-  await writeFile(
-    join(repoRoot, contractLocator),
-    "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
-  );
+  await writeFile(join(repoRoot, contractLocator), LOCAL_MATT_CONTRACT);
   await writeFile(
     join(repoRoot, "AGENTS.md"),
-    `# User rules\n\nWork-management contract: \`${contractLocator}\`\n`,
+    `# User rules\n\n${standardMattAgentSurface(contractLocator)}`,
   );
   await writeFile(join(repoRoot, "source.txt"), "source stays\n");
   await setupRepository({
@@ -503,14 +500,8 @@ For every project request, load and follow the global \`bearing\` skill as the g
     await mkdir(join(repoRoot, ".bearing"));
     const contractLocator = "docs/agents/issue-tracker.md";
     await mkdir(join(repoRoot, "docs/agents"), { recursive: true });
-    await writeFile(
-      join(repoRoot, contractLocator),
-      "# Issue tracker: Local Markdown\n\nProvider contract: `matt-skills/v1`\n",
-    );
-    await writeFile(
-      join(repoRoot, "AGENTS.md"),
-      `Work-management contract: \`${contractLocator}\`\n`,
-    );
+    await writeFile(join(repoRoot, contractLocator), LOCAL_MATT_CONTRACT);
+    await writeFile(join(repoRoot, "AGENTS.md"), standardMattAgentSurface(contractLocator));
     const manifestPath = join(repoRoot, ".bearing/manifest.json");
     const newer = `${JSON.stringify({ schemaVersion: 2, packageVersion: "0.2.0" })}\n`;
     await writeFile(manifestPath, newer);

@@ -191,7 +191,6 @@ export const bearingSchema = z.discriminatedUnion("Type", [
     "Work binding": z
       .strictObject({
         Provider: z.literal("matt-skills/v1"),
-        Driver: z.enum(["local-markdown", "github-issues"]),
         "Native scope": displaySourceLocatorSchema,
       })
       .optional(),

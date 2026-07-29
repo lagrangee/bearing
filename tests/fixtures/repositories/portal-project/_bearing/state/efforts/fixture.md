@@ -8,7 +8,6 @@ Authorities: []
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/work
 ---
 

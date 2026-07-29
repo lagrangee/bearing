@@ -1,9 +1,9 @@
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
 import { fingerprintInputRecords, orderedInputLocators } from "./fingerprint";
-import type { NativeSourceRecord } from "./native-work";
+import type { SyncInputRecord } from "./sync-input-generation";
 import type { AdvisoryFreshness, AdvisoryId, SemanticFreshness } from "./types";
 
-type CapturedInputRecord = NativeSourceRecord & Readonly<{ bytes: Buffer }>;
+type CapturedInputRecord = SyncInputRecord;
 
 const advisoryIdentity = (type: "planning-audit" | "next-work-guidance"): AdvisoryId =>
   type === "planning-audit" ? "planning-audit:current" : "next-work-guidance:current";
