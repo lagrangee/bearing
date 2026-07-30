@@ -71,7 +71,7 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   });
 
   expect(snapshot).toMatchObject({
-    schemaVersion: 3,
+    schemaVersion: 4,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapFingerprint: sync.fingerprint },
     summary: {

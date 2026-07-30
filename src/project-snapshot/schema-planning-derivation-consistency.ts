@@ -1,9 +1,8 @@
 import type { RefinementCtx } from "zod";
 import {
-  type CompletionCapture,
+  type ContributorCapture,
   type DerivedCollection,
   hasUntrustedEffortContributor,
-  normalizedEffortState,
   normalizedGateHorizon,
   normalizedGateReadiness,
   normalizedRoadmapHorizon,
@@ -32,7 +31,13 @@ type Effort = Readonly<{
   roadmapId: string;
   targetGateId: string;
   workBinding?: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }> | undefined;
-  derivedState: "active" | "resolved" | "unknown";
+  lifecycle: "planned" | "active" | "concluded";
+  conclusion?:
+    | Readonly<{
+        disposition: "completed" | "withdrawn" | "superseded";
+        replacementEffortId?: string | undefined;
+      }>
+    | undefined;
 }>;
 
 export type PlanningDerivationConsistencySnapshot = Readonly<{
@@ -40,7 +45,7 @@ export type PlanningDerivationConsistencySnapshot = Readonly<{
   roadmaps: DerivedCollection<Roadmap>;
   gates: DerivedCollection<Gate>;
   efforts: DerivedCollection<Effort>;
-  providerCaptures: readonly CompletionCapture[];
+  providerCaptures: readonly ContributorCapture[];
   diagnostics: readonly Readonly<{
     reference: string;
     code: string;
@@ -73,15 +78,6 @@ export const validatePlanningDerivationConsistency = (
       );
     }
   }
-  for (const [position, effort] of trusted(snapshot.efforts).entries()) {
-    if (effort.derivedState !== normalizedEffortState(effort, snapshot.providerCaptures)) {
-      addIssue(
-        context,
-        ["efforts", "items", position, "derivedState"],
-        "Effort state must match its provider completion assessment.",
-      );
-    }
-  }
   for (const [position, roadmap] of trusted(snapshot.roadmaps).entries()) {
     if (roadmap.horizon !== normalizedRoadmapHorizon(roadmap, snapshot.gates)) {
       addIssue(
@@ -111,7 +107,7 @@ export const validatePlanningDerivationConsistency = (
       addIssue(
         context,
         ["gates", "items", position, "readiness"],
-        "Gate Readiness must match provider-assessed contributor completion.",
+        "Gate Readiness must match explicit Effort lifecycle and trustworthy contributor bindings.",
       );
     }
   }

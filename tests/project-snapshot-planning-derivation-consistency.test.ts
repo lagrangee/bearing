@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { normalizedGateReadiness } from "../src/project-snapshot/normalized-planning-derivation";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
@@ -8,18 +9,8 @@ const rejects = (snapshot: unknown): void => {
 
 const mapPlanning = (
   snapshot: ReturnType<typeof createProjectOverviewFixture>,
-  portalState: "active" | "resolved" | "unknown",
   gateReadiness: "not-ready" | "ready-for-review" | "unknown",
 ) => ({
-  efforts:
-    snapshot.efforts.validity === "invalid"
-      ? snapshot.efforts
-      : {
-          ...snapshot.efforts,
-          items: snapshot.efforts.items.map((effort) =>
-            effort.id === "effort:portal" ? { ...effort, derivedState: portalState } : effort,
-          ),
-        },
   gates:
     snapshot.gates.validity === "invalid"
       ? snapshot.gates
@@ -57,29 +48,52 @@ test("rejects tampered Roadmap and Gate horizon caches", () => {
   });
 });
 
-test("uses provider completion as the sole Effort and Gate completion authority", () => {
+test("keeps explicit Effort lifecycle and Gate readiness independent from provider completion", () => {
   const snapshot = createProjectOverviewFixture();
   const completedCaptures = snapshot.providerCaptures.map((capture) =>
     capture.binding.nativeScope === ".scratch/portal"
       ? { ...capture, completion: "complete" as const }
       : capture,
   );
-  const completedPlanning = mapPlanning(snapshot, "resolved", "ready-for-review");
 
   expect(
     projectSnapshotSchema.safeParse({
       ...snapshot,
-      ...completedPlanning,
       providerCaptures: completedCaptures,
     }).success,
   ).toBe(true);
-  rejects({ ...snapshot, providerCaptures: completedCaptures });
-  rejects({ ...snapshot, ...completedPlanning });
+  expect(snapshot.efforts).toMatchObject({
+    validity: "available",
+    items: [
+      { id: "effort:model", lifecycle: "concluded" },
+      { id: "effort:portal", lifecycle: "active" },
+    ],
+  });
+  expect(snapshot.gates).toMatchObject({
+    validity: "available",
+    items: [
+      { id: "gate:two", readiness: "not-ready" },
+      { id: "gate:one", readiness: "ready-for-review" },
+    ],
+  });
+  rejects({
+    ...snapshot,
+    efforts:
+      snapshot.efforts.validity === "invalid"
+        ? snapshot.efforts
+        : {
+            ...snapshot.efforts,
+            items: snapshot.efforts.items.map((effort) => ({
+              ...effort,
+              derivedState: effort.id === "effort:portal" ? "resolved" : "active",
+            })),
+          },
+  });
 });
 
-test("derives unknown completion only from a missing or unusable provider capture", () => {
+test("withholds Gate readiness when contributor binding evidence is missing or unusable", () => {
   const snapshot = createProjectOverviewFixture();
-  const unknownPlanning = mapPlanning(snapshot, "unknown", "unknown");
+  const unknownPlanning = mapPlanning(snapshot, "unknown");
   const capturesWithoutPortal = snapshot.providerCaptures.filter(
     (capture) => capture.binding.nativeScope !== ".scratch/portal",
   );
@@ -164,6 +178,98 @@ test("classifies Gate readiness per contributor when the Effort projection is pa
       validity: "available",
       items: scoped.gates.items.map((gate) =>
         gate.id === "gate:two" ? { ...gate, readiness: "not-ready" } : gate,
+      ),
+    },
+  });
+});
+
+test("derives the direct planned, completed, withdrawn, and superseded readiness matrix", () => {
+  const binding = {
+    provider: "matt-skills/v1" as const,
+    nativeScope: ".scratch/work",
+  };
+  const capture = {
+    provider: "matt-skills/v1" as const,
+    binding,
+    generation: { fingerprint: "sha256:test" },
+    state: "available" as const,
+    freshness: { assessment: "current" as const },
+    coverage: {
+      assessment: "complete" as const,
+      dimensions: [{ state: "covered" as const }],
+    },
+    completion: "complete" as const,
+    diagnostics: [],
+  };
+  const gate = {
+    id: "gate:test",
+    source: "source:test",
+    roadmapId: "roadmap:test",
+    effortIds: ["effort:test"],
+    lifecycle: "active" as const,
+    readiness: "not-ready" as const,
+    horizonState: "focused" as const,
+  };
+  const effort = {
+    id: "effort:test",
+    source: "source:test",
+    roadmapId: "roadmap:test",
+    targetGateId: "gate:test",
+    workBinding: binding,
+  };
+  const readiness = (
+    lifecycle: "planned" | "active" | "concluded",
+    disposition?: "completed" | "withdrawn" | "superseded",
+  ) =>
+    normalizedGateReadiness(
+      gate,
+      {
+        validity: "available",
+        items: [
+          {
+            ...effort,
+            lifecycle,
+            ...(disposition === undefined ? {} : { conclusion: { disposition } }),
+          },
+        ],
+      },
+      [capture],
+    );
+
+  expect(readiness("planned")).toBe("not-ready");
+  expect(readiness("active")).toBe("not-ready");
+  expect(readiness("concluded", "completed")).toBe("ready-for-review");
+  expect(readiness("concluded", "withdrawn")).toBe("unknown");
+  expect(readiness("concluded", "superseded")).toBe("unknown");
+});
+
+test("rejects a superseded Effort whose replacement does not preserve its contribution chain", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.efforts.validity !== "available" || snapshot.gates.validity !== "available") {
+    throw new Error("Expected complete Effort and Gate projections.");
+  }
+  rejects({
+    ...snapshot,
+    efforts: {
+      validity: "available",
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === "effort:model"
+          ? {
+              ...effort,
+              conclusion: {
+                disposition: "superseded",
+                rationale: "A replacement is explicitly required.",
+                concludedAt: { availability: "unavailable" },
+                replacementEffortId: "effort:missing",
+              },
+            }
+          : effort,
+      ),
+    },
+    gates: {
+      validity: "available",
+      items: snapshot.gates.items.map((gate) =>
+        gate.id === "gate:one" ? { ...gate, readiness: "unknown" } : gate,
       ),
     },
   });

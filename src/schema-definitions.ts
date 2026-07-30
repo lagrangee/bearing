@@ -54,6 +54,37 @@ const producerSchema = z.looseObject({
 });
 const fingerprintSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const advisoryInputsSchema = uniqueArray(displaySourceLocatorSchema);
+const utcSourceEventTimeSchema = z
+  .string()
+  .datetime({ offset: true })
+  .refine((value) => value.endsWith("Z"), {
+    message: "Bearing-owned Source Event Time must be UTC.",
+  })
+  .nullable();
+const effortConclusionSchema = z
+  .looseObject({
+    Disposition: z.enum(["completed", "withdrawn", "superseded"]),
+    Rationale: requiredPlainTextSchema,
+    "Concluded at": utcSourceEventTimeSchema,
+    "Replacement effort": effortIdSchema.optional(),
+  })
+  .superRefine((conclusion, context) => {
+    const replacement = conclusion["Replacement effort"];
+    if (conclusion.Disposition === "superseded" && replacement === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["Replacement effort"],
+        message: "A superseded Effort conclusion requires its replacement Effort.",
+      });
+    }
+    if (conclusion.Disposition !== "superseded" && replacement !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["Replacement effort"],
+        message: "Only a superseded Effort conclusion may name a replacement Effort.",
+      });
+    }
+  });
 const planningAuditSchema = z
   .strictObject({
     Type: z.literal("planning-audit"),
@@ -180,21 +211,66 @@ export const bearingSchema = z.discriminatedUnion("Type", [
     Passage: passageSchema.optional(),
     Citations: citationsSchema,
   }),
-  z.looseObject({
-    Type: z.literal("effort"),
-    ID: effortIdSchema,
-    Title: requiredPlainTextSchema,
-    Roadmap: roadmapIdSchema,
-    "Target gate": gateIdSchema,
-    Authorities: uniqueArray(authorityIdSchema),
-    Citations: z.array(citationSchema),
-    "Work binding": z
-      .strictObject({
-        Provider: z.literal("matt-skills/v1"),
-        "Native scope": displaySourceLocatorSchema,
-      })
-      .optional(),
-  }),
+  z
+    .looseObject({
+      Type: z.literal("effort"),
+      ID: effortIdSchema,
+      Title: requiredPlainTextSchema,
+      Roadmap: roadmapIdSchema,
+      "Target gate": gateIdSchema,
+      Authorities: uniqueArray(authorityIdSchema),
+      Citations: z.array(citationSchema),
+      Lifecycle: z.enum(["planned", "active", "concluded"]),
+      "Planned at": utcSourceEventTimeSchema,
+      "Activated at": utcSourceEventTimeSchema.optional(),
+      Conclusion: effortConclusionSchema.optional(),
+      "Work binding": z
+        .strictObject({
+          Provider: z.literal("matt-skills/v1"),
+          "Native scope": displaySourceLocatorSchema,
+        })
+        .optional(),
+    })
+    .superRefine((effort, context) => {
+      if (effort.Lifecycle === "planned") {
+        if (effort["Activated at"] !== undefined) {
+          context.addIssue({
+            code: "custom",
+            path: ["Activated at"],
+            message: "A planned Effort cannot have an activation event.",
+          });
+        }
+        if (effort.Conclusion !== undefined) {
+          context.addIssue({
+            code: "custom",
+            path: ["Conclusion"],
+            message: "A planned Effort cannot have a conclusion.",
+          });
+        }
+        return;
+      }
+      if (effort["Activated at"] === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["Activated at"],
+          message: "An active or concluded Effort requires its activation event.",
+        });
+      }
+      if (effort.Lifecycle === "active" && effort.Conclusion !== undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["Conclusion"],
+          message: "An active Effort cannot have a conclusion.",
+        });
+      }
+      if (effort.Lifecycle === "concluded" && effort.Conclusion === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["Conclusion"],
+          message: "A concluded Effort requires its explicit conclusion.",
+        });
+      }
+    }),
   z.looseObject({
     Type: z.literal("authority"),
     ID: authorityIdSchema,

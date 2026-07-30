@@ -195,6 +195,21 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         "Target gate": data["Target gate"],
         Authorities: [...data.Authorities],
         Citations: normalizeCitations(data.Citations) ?? [],
+        Lifecycle: data.Lifecycle,
+        "Planned at": data["Planned at"],
+        ...(data["Activated at"] === undefined ? {} : { "Activated at": data["Activated at"] }),
+        ...(data.Conclusion === undefined
+          ? {}
+          : {
+              Conclusion: {
+                Disposition: data.Conclusion.Disposition,
+                Rationale: data.Conclusion.Rationale,
+                "Concluded at": data.Conclusion["Concluded at"],
+                ...(data.Conclusion["Replacement effort"] === undefined
+                  ? {}
+                  : { "Replacement effort": data.Conclusion["Replacement effort"] }),
+              },
+            }),
         ...(data["Work binding"] === undefined
           ? {}
           : {

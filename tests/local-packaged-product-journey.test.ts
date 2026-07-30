@@ -109,6 +109,9 @@ Review the completed packaged journey.
     ".bearing/state/efforts/journey.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:journey
 Title: Local Matt delivery
 Roadmap: roadmap:journey
@@ -385,7 +388,7 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
     expect(decisionEffort.state).toBe("complete");
     if (decisionEffort.state === "invalid") throw new Error("Expected Effort context.");
     expect(decisionEffort.context.providerCapture).toBe(decisionCapture);
-    expect(decisionEffort.context.effort.value.derivedState).toBe("active");
+    expect(decisionEffort.context.effort.value.lifecycle).toBe("active");
     expect(
       decisionPlan.planningGraph.contextFor({ kind: "gate", id: "gate:journey" }),
     ).toMatchObject({
@@ -418,12 +421,12 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
     expect(inspect.state).toBe("complete");
     if (inspect.state === "invalid") throw new Error("Expected Effort context.");
     expect(inspect.context.providerCapture).toBe(completedCapture);
-    expect(inspect.context.effort.value.derivedState).toBe("resolved");
+    expect(inspect.context.effort.value.lifecycle).toBe("active");
     expect(
       completedPlan.planningGraph.contextFor({ kind: "gate", id: "gate:journey" }),
     ).toMatchObject({
       state: "complete",
-      context: { gate: { value: { readiness: "ready-for-review" } } },
+      context: { gate: { value: { readiness: "not-ready" } } },
     });
     const sitemap = completedPlan.sitemap.toString("utf8");
     expect(sitemap).toContain(

@@ -254,7 +254,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () =>
   projectSnapshotSchema.parse({
-    schemaVersion: 3,
+    schemaVersion: 4,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -366,7 +366,14 @@ export const createProjectOverviewFixture = () =>
             provider: "matt-skills/v1",
             nativeScope: ".scratch/model",
           },
-          derivedState: "resolved",
+          lifecycle: "concluded",
+          plannedAt: { availability: "unavailable" },
+          activatedAt: { availability: "unavailable" },
+          conclusion: {
+            disposition: "completed",
+            rationale: "The governed contribution was explicitly accepted as complete.",
+            concludedAt: { availability: "unavailable" },
+          },
         },
         {
           id: "effort:portal",
@@ -381,7 +388,9 @@ export const createProjectOverviewFixture = () =>
             provider: "matt-skills/v1",
             nativeScope: ".scratch/portal",
           },
-          derivedState: "active",
+          lifecycle: "active",
+          plannedAt: { availability: "unavailable" },
+          activatedAt: { availability: "unavailable" },
         },
       ],
     },

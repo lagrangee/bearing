@@ -168,6 +168,9 @@ Preserve readable partial work without false readiness.
       `.bearing/state/efforts/degraded-${scenario.slug}.md`,
       `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:degraded-${scenario.slug}
 Title: Degraded ${scenario.slug}
 Roadmap: roadmap:degraded
@@ -199,6 +202,9 @@ const writeRealLocalDegradedScope = async (root: string): Promise<void> => {
     ".bearing/state/efforts/degraded-cli.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:degraded-cli
 Title: Degraded CLI Effort
 Roadmap: roadmap:test
@@ -397,7 +403,7 @@ test("propagates every expected degradation class through one generation without
   const healthyEffort = plan.planningGraph.contextFor({ kind: "effort", id: "effort:test" });
   expect(healthyEffort.state).toBe("complete");
   if (healthyEffort.state === "invalid") throw new Error("Expected healthy Effort context.");
-  expect(healthyEffort.context.effort.value.derivedState).toBe("resolved");
+  expect(healthyEffort.context.effort.value.lifecycle).toBe("active");
   expect(healthyEffort.context.providerCapture).toMatchObject({
     state: "available",
     freshness: { assessment: "current" },
@@ -406,7 +412,7 @@ test("propagates every expected degradation class through one generation without
   });
   const healthyGate = plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" });
   if (healthyGate.state === "invalid") throw new Error("Expected healthy Gate context.");
-  expect(healthyGate.context.gate.value.readiness).toBe("ready-for-review");
+  expect(healthyGate.context.gate.value.readiness).toBe("not-ready");
 
   for (const scenario of failureScenarios) {
     const result = plan.planningGraph.contextFor({
@@ -420,7 +426,7 @@ test("propagates every expected degradation class through one generation without
     );
     expect(result.fingerprint).toBe(plan.fingerprint);
     expect(result.context.providerCapture).toBe(captured);
-    expect(result.context.effort.value.derivedState).not.toBe("resolved");
+    expect(result.context.effort.value.lifecycle).toBe("active");
     expect(result.context.providerCapture).toMatchObject({
       state: scenario.state,
       freshness: { assessment: scenario.freshness },
@@ -554,7 +560,7 @@ test("real Local mixed scopes keep CLI Inspect, Snapshot, Sitemap, and Portal on
     state: "partial",
     fingerprint: String(snapshot.basis.sitemapFingerprint),
     context: {
-      effort: { value: { id: "effort:degraded-cli", derivedState: "unknown" } },
+      effort: { value: { id: "effort:degraded-cli", lifecycle: "active" } },
       providerCapture: {
         state: degradedCapture?.state,
         freshness: { assessment: degradedCapture?.freshness.assessment },
@@ -644,7 +650,7 @@ test("treats an unsupported confirmed contract as a diagnostic capture boundary"
   expect(effort).toMatchObject({
     state: "partial",
     context: {
-      effort: { value: { derivedState: "unknown" } },
+      effort: { value: { lifecycle: "active" } },
     },
   });
   if (effort.state === "invalid") throw new Error("Expected degraded Effort context.");

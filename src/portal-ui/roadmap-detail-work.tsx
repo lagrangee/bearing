@@ -69,7 +69,7 @@ export function RoadmapDetailWork({
                 fog={effort.fogCount}
                 frontier={frontierSummary(effort)}
                 gate={gateLabels.get(effort.effort.targetGateId) ?? "Unavailable"}
-                lifecycle={effort.effort.derivedState}
+                lifecycle={effort.effort.lifecycle}
                 onSelect={(trigger) => onInspect(effortInspection(effort), trigger)}
                 title={effort.effort.title}
               />

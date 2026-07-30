@@ -60,7 +60,7 @@ test("projects exact governance prose without owning planning derivation", async
     items: [
       {
         id: "effort:test",
-        derivedState: "unknown",
+        lifecycle: "active",
       },
     ],
   });

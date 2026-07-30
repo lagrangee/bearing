@@ -155,7 +155,7 @@ const fixtureFiles = (scale: BenchmarkScale): FixtureFile[] => {
       },
       {
         locator: `.bearing/state/efforts/e${ordinal}.md`,
-        content: `---\nType: effort\nID: ${effortId}\nTitle: Effort ${ordinal}\nRoadmap: ${roadmapId}\nTarget gate: ${gateId}\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: ${scope}\n---\n\n# Effort ${ordinal}\n\n## Intent\n\nExercise deterministic native scope ${ordinal}.\n\n## Work\n\n- [Map](map.md)\n`,
+        content: `---\nType: effort\nLifecycle: active\nPlanned at: null\nActivated at: null\nID: ${effortId}\nTitle: Effort ${ordinal}\nRoadmap: ${roadmapId}\nTarget gate: ${gateId}\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: ${scope}\n---\n\n# Effort ${ordinal}\n\n## Intent\n\nExercise deterministic native scope ${ordinal}.\n\n## Work\n\n- [Map](map.md)\n`,
       },
       {
         locator: `${scope}/map.md`,

@@ -256,6 +256,9 @@ Roadmap: roadmap:test
 Target gate: gate:test
 Authorities: []
 Citations: []
+Lifecycle: active
+Planned at: null
+Activated at: null
 Work binding:
   Provider: matt-skills/v1
   Native scope: .scratch/work

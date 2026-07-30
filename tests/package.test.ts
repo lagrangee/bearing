@@ -113,6 +113,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/skills/bearing/SKILL.md",
         "package/skills/bearing/references/branch-manifest.yaml",
         "package/skills/bearing/references/branches/alignment-check.md",
+        "package/skills/bearing/references/branches/effort-lifecycle.md",
         "package/skills/bearing/references/branches/milestone-gate.md",
         "package/skills/bearing/references/branches/next-work.md",
         "package/skills/bearing/references/branches/planning-audit.md",

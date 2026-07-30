@@ -110,6 +110,9 @@ export const writeStandardGitHubMattProductRepository = async (
     ".bearing/state/efforts/test.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: ${effort.title}
 Roadmap: roadmap:test

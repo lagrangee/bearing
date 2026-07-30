@@ -38,7 +38,7 @@ Only one section exists.
     await writeFixture(
       root,
       ".bearing/state/efforts/broken.md",
-      "---\nType: effort\nID: [unterminated\n---\n\n# Broken\n",
+      "---\nType: effort\nLifecycle: active\nPlanned at: null\nActivated at: null\nID: [unterminated\n---\n\n# Broken\n",
     );
 
     const result = await runSync(root);

@@ -22,7 +22,7 @@ const assets: PortalAssets = {
     schemaVersion: 1,
     packageVersion: "0.0.0-test",
     interfaceVersion: 1,
-    projectSnapshotVersion: 3,
+    projectSnapshotVersion: 4,
     entry: "index.html",
     buildId: "0".repeat(64),
     assets: [
@@ -418,7 +418,7 @@ test("ensure-current, cooldown, and force return complete typed project views", 
             id: "effort:test",
             roadmapId: "roadmap:test",
             targetGateId: "gate:test",
-            derivedState: "resolved",
+            lifecycle: "active",
             workBinding: {
               provider: "matt-skills/v1",
               nativeScope: ".scratch/work",

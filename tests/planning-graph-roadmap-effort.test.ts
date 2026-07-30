@@ -52,6 +52,9 @@ Represent the first boundary.
     ".bearing/state/efforts/test.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: Test Effort
 Roadmap: roadmap:test
@@ -80,6 +83,9 @@ Exercise the full Effort context.
     ".bearing/state/efforts/optional.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:optional
 Title: Optional Native Work
 Roadmap: roadmap:test
@@ -243,6 +249,9 @@ test("Effort closure retains the Effort when its required Target Gate is broken"
     ".bearing/state/efforts/broken.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:broken
 Title: Broken Target Effort
 Roadmap: roadmap:test
@@ -303,6 +312,9 @@ test("Effort closure excludes unscopable native work from an unrelated invalid E
     ".bearing/state/efforts/uncertain.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:uncertain
 Title: Uncertain Effort
 Roadmap: roadmap:test
@@ -364,6 +376,9 @@ Exercise a broken nested ordering relation.
     ".bearing/state/efforts/detached.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:detached
 Title: Detached Effort
 Roadmap: roadmap:test
@@ -409,6 +424,9 @@ test("Effort closure reports missing and invalid cited Assets in the Effort scop
     ".bearing/state/efforts/test.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: Test Effort
 Roadmap: roadmap:test

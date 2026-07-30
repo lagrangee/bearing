@@ -38,6 +38,10 @@ branches:
     reference: skills/bearing/references/branches/milestone-gate.md
     sharedContracts:
       - planning-transaction
+  - key: effort-lifecycle
+    reference: skills/bearing/references/branches/effort-lifecycle.md
+    sharedContracts:
+      - planning-transaction
   - key: alignment-check
     reference: skills/bearing/references/branches/alignment-check.md
     sharedContracts:

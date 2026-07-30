@@ -53,6 +53,37 @@ test("resolves one Roadmap Detail through Gates, Efforts, native frontiers, and 
   expect(model.missingMapRelationCount).toBe(0);
 });
 
+test("presents explicit Effort lifecycle and conclusion independently from provider completion", () => {
+  const model = buildRoadmapDetailModel(fixture(), "roadmap:portal");
+  if (model.state !== "available") throw new Error("Expected available Roadmap Detail.");
+  const concluded = model.efforts[0];
+  const active = model.efforts[1];
+  if (concluded === undefined || active === undefined) throw new Error("Expected both Efforts.");
+
+  expect(effortInspection(concluded).facts).toEqual(
+    expect.arrayContaining([
+      { label: "Lifecycle", value: "concluded" },
+      { label: "Planned at", value: "Time unavailable" },
+      { label: "Activated at", value: "Time unavailable" },
+      { label: "Conclusion", value: "completed" },
+      {
+        label: "Conclusion rationale",
+        value: "The governed contribution was explicitly accepted as complete.",
+      },
+      { label: "Concluded at", value: "Time unavailable" },
+    ]),
+  );
+  expect(effortInspection(active).facts).toEqual(
+    expect.arrayContaining([
+      { label: "Lifecycle", value: "active" },
+      { label: "Completion", value: "incomplete" },
+    ]),
+  );
+  expect(effortInspection(active).facts).not.toEqual(
+    expect.arrayContaining([{ label: "Conclusion", value: expect.any(String) }]),
+  );
+});
+
 test("keeps scoped Index and Detail failures readable without inventing relations", () => {
   const snapshot = fixture();
   const issue = { code: "invalid-gate", target: "gate:one", message: "Gate unavailable." };
@@ -106,6 +137,12 @@ test("propagates scoped partial Ticket issues without publishing a false-ready f
   }
   const parsed = projectSnapshotSchema.safeParse({
     ...snapshot,
+    gates: {
+      validity: "available",
+      items: snapshot.gates.items.map((gate) =>
+        gate.id === "gate:two" ? { ...gate, readiness: "unknown" as const } : gate,
+      ),
+    },
     providerCaptures: snapshot.providerCaptures.map((capture) =>
       capture.binding.nativeScope === ".scratch/portal"
         ? {

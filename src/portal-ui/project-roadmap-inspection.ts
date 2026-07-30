@@ -103,6 +103,9 @@ export const frontierSummary = (model: RoadmapEffortModel): string => {
   return counts.map(([label, count]) => `${label} ${count}`).join(" · ");
 };
 
+const sourceEventTimeValue = (time: RoadmapEffortModel["effort"]["plannedAt"]): string =>
+  time.availability === "available" ? time.value : "Time unavailable";
+
 export const effortInspection = (model: RoadmapEffortModel): ProjectInspectorSelection => ({
   eyebrow: "Effort",
   title: model.effort.title,
@@ -110,7 +113,30 @@ export const effortInspection = (model: RoadmapEffortModel): ProjectInspectorSel
   handoff: true,
   source: model.source,
   facts: [
-    { label: "Lifecycle", value: model.effort.derivedState },
+    { label: "Lifecycle", value: model.effort.lifecycle },
+    { label: "Planned at", value: sourceEventTimeValue(model.effort.plannedAt) },
+    ...(model.effort.activatedAt === undefined
+      ? []
+      : [{ label: "Activated at", value: sourceEventTimeValue(model.effort.activatedAt) }]),
+    ...(model.effort.conclusion === undefined
+      ? []
+      : [
+          { label: "Conclusion", value: model.effort.conclusion.disposition },
+          { label: "Conclusion rationale", value: model.effort.conclusion.rationale },
+          {
+            label: "Concluded at",
+            value: sourceEventTimeValue(model.effort.conclusion.concludedAt),
+          },
+          ...(model.effort.conclusion.replacementEffortId === undefined
+            ? []
+            : [
+                {
+                  label: "Replacement Effort",
+                  value: model.effort.conclusion.replacementEffortId,
+                  code: true,
+                },
+              ]),
+        ]),
     { label: "Target Gate", value: model.targetGate?.title ?? "Unavailable" },
     { label: "Frontier", value: frontierSummary(model) },
     { label: "Fog", value: String(model.fogCount) },

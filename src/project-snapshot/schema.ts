@@ -30,7 +30,7 @@ export { auditFindingSchema, planningAuditSchema } from "./schema-audit";
 export { diagnosticReferenceSchema } from "./schema-primitives";
 export { projectionIssueSchema } from "./schema-projection";
 export { projectSummarySchema } from "./schema-summary";
-export const PROJECT_SNAPSHOT_VERSION = 3 as const;
+export const PROJECT_SNAPSHOT_VERSION = 4 as const;
 const resolutionSchema = z.strictObject({
   acceptedDecision: semanticPlainTextSchema,
   rationale: semanticPlainTextSchema,
@@ -87,21 +87,100 @@ export const gateSchema = z
       });
     }
   });
-export const effortSchema = z.strictObject({
-  id: effortIdSchema,
-  ...citedNodeShape,
-  intent: semanticPlainTextSchema,
-  roadmapId: roadmapIdSchema,
-  targetGateId: gateIdSchema,
-  authorityIds: uniqueIdentityArraySchema(authorityIdSchema, (authorityId) => authorityId),
-  workBinding: z
-    .strictObject({
-      provider: z.literal("matt-skills/v1"),
-      nativeScope: z.string().min(1),
-    })
-    .optional(),
-  derivedState: z.enum(["active", "resolved", "unknown"]),
-});
+const sourceEventTimeSchema = z.discriminatedUnion("availability", [
+  z.strictObject({
+    availability: z.literal("available"),
+    value: z
+      .string()
+      .datetime({ offset: true })
+      .refine((value) => value.endsWith("Z"), {
+        message: "Bearing-owned Source Event Time must be UTC.",
+      }),
+  }),
+  z.strictObject({ availability: z.literal("unavailable") }),
+]);
+const effortConclusionSchema = z
+  .strictObject({
+    disposition: z.enum(["completed", "withdrawn", "superseded"]),
+    rationale: semanticPlainTextSchema,
+    concludedAt: sourceEventTimeSchema,
+    replacementEffortId: effortIdSchema.optional(),
+  })
+  .superRefine((conclusion, context) => {
+    if (conclusion.disposition === "superseded" && conclusion.replacementEffortId === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["replacementEffortId"],
+        message: "A superseded Effort conclusion requires its replacement Effort.",
+      });
+    }
+    if (conclusion.disposition !== "superseded" && conclusion.replacementEffortId !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["replacementEffortId"],
+        message: "Only a superseded Effort conclusion may name a replacement Effort.",
+      });
+    }
+  });
+export const effortSchema = z
+  .strictObject({
+    id: effortIdSchema,
+    ...citedNodeShape,
+    intent: semanticPlainTextSchema,
+    roadmapId: roadmapIdSchema,
+    targetGateId: gateIdSchema,
+    authorityIds: uniqueIdentityArraySchema(authorityIdSchema, (authorityId) => authorityId),
+    workBinding: z
+      .strictObject({
+        provider: z.literal("matt-skills/v1"),
+        nativeScope: z.string().min(1),
+      })
+      .optional(),
+    lifecycle: z.enum(["planned", "active", "concluded"]),
+    plannedAt: sourceEventTimeSchema,
+    activatedAt: sourceEventTimeSchema.optional(),
+    conclusion: effortConclusionSchema.optional(),
+  })
+  .superRefine((effort, context) => {
+    if (effort.lifecycle === "planned") {
+      if (effort.activatedAt !== undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["activatedAt"],
+          message: "A planned Effort cannot have an activation event.",
+        });
+      }
+      if (effort.conclusion !== undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["conclusion"],
+          message: "A planned Effort cannot have a conclusion.",
+        });
+      }
+      return;
+    }
+    if (effort.activatedAt === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["activatedAt"],
+        message: "An active or concluded Effort requires its activation event.",
+      });
+    }
+    if (effort.lifecycle === "active" && effort.conclusion !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["conclusion"],
+        message: "An active Effort cannot have a conclusion.",
+      });
+    }
+    if (effort.lifecycle === "concluded" && effort.conclusion === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["conclusion"],
+        message: "A concluded Effort requires its explicit conclusion.",
+      });
+    }
+  });
 export const authoritySchema = z.strictObject({
   id: authorityIdSchema,
   ...citedNodeShape,

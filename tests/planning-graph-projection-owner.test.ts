@@ -200,7 +200,7 @@ test("Sitemap consumes graph states but remains a compact sibling without revers
   const roadmapLine = sitemap.split("\n").find((line) => line.startsWith("- `roadmap:test`"));
   const gateLine = sitemap.split("\n").find((line) => line.startsWith("- `gate:test`"));
 
-  expect(sitemap).toContain("Gate readiness: `gate:test` = ready-for-review");
+  expect(sitemap).toContain("Gate readiness: `gate:test` = not-ready");
   expect(roadmapLine).not.toContain("effort");
   expect(gateLine).not.toContain("effort");
   for (const forbidden of [

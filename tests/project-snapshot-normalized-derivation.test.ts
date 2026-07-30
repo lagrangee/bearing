@@ -19,7 +19,7 @@ const materialize = async (root: string): Promise<ProjectSnapshot> => {
   });
 };
 
-test("derives Effort and Gate truth from the final provider capture", async () => {
+test("keeps Effort lifecycle explicit when provider completion is undetermined", async () => {
   const root = await createValidBearingRepo();
   const path = join(root, ".scratch/work/map.md");
   const source = await readFile(path, "utf8");
@@ -38,7 +38,7 @@ test("derives Effort and Gate truth from the final provider capture", async () =
   expect(capture?.completion).toBe("undetermined");
   expect(snapshot.efforts).toMatchObject({
     validity: "available",
-    items: [{ id: "effort:test", derivedState: "unknown" }],
+    items: [{ id: "effort:test", lifecycle: "active" }],
   });
   expect(snapshot.gates).toMatchObject({
     validity: "available",
@@ -145,7 +145,7 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
   await writeFixture(
     root,
     ".bearing/state/efforts/other.md",
-    `---\nType: effort\nID: effort:other\nTitle: Other Effort\nRoadmap: roadmap:other\nTarget gate: gate:other\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/other\n---\n\n# Effort: Other\n\n## Intent\n\nProve scoped contributor isolation.\n\n## Work\n\n- [Map](map.md)\n`,
+    `---\nType: effort\nID: effort:other\nTitle: Other Effort\nRoadmap: roadmap:other\nTarget gate: gate:other\nAuthorities: []\nCitations: []\nLifecycle: concluded\nPlanned at: null\nActivated at: null\nConclusion:\n  Disposition: completed\n  Rationale: The other contribution was explicitly accepted as complete.\n  Concluded at: null\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/other\n---\n\n# Effort: Other\n\n## Intent\n\nProve scoped contributor isolation.\n\n## Work\n\n- [Map](map.md)\n`,
   );
   await writeFixture(
     root,
@@ -160,7 +160,7 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
   await writeFixture(
     root,
     ".bearing/state/efforts/broken.md",
-    `---\nType: effort\nID: effort:broken\nTitle: Broken Contributor\nRoadmap: roadmap:test\nTarget gate: gate:test\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/broken\n---\n\n# Effort: Broken\n\n## Intent\n\nThis contributor has no Work section.\n`,
+    `---\nType: effort\nID: effort:broken\nTitle: Broken Contributor\nRoadmap: roadmap:test\nTarget gate: gate:test\nAuthorities: []\nCitations: []\nLifecycle: active\nPlanned at: null\nActivated at: null\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/broken\n---\n\n# Effort: Broken\n\n## Intent\n\nThis contributor has no Work section.\n`,
   );
 
   const snapshot = await materialize(root);

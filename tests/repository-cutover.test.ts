@@ -52,6 +52,9 @@ const runSetupCli = async (
 
 const legacyEffort = (id = "effort:test", gate = "gate:test"): string => `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: ${id}
 Title: Test Effort
 Roadmap: roadmap:test

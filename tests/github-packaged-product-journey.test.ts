@@ -262,7 +262,7 @@ test("standard GitHub Setup feeds one immutable provider capture through every p
     expect(inspect.state).toBe("complete");
     if (inspect.state === "invalid") throw new Error("Expected typed Effort Inspect context.");
     expect(inspect.context.providerCapture).toBe(capture);
-    expect(inspect.context.effort.value.derivedState).toBe("active");
+    expect(inspect.context.effort.value.lifecycle).toBe("active");
     expect(plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" })).toMatchObject({
       state: "complete",
       context: { gate: { value: { readiness: "not-ready" } } },
@@ -455,7 +455,7 @@ for (const scenario of degradationScenarios) {
       expect(inspect.state).toBe("partial");
       if (inspect.state === "invalid") throw new Error("Expected typed Effort Inspect context.");
       expect(inspect.context.providerCapture).toBe(capture);
-      expect(inspect.context.effort.value.derivedState).not.toBe("resolved");
+      expect(inspect.context.effort.value.lifecycle).toBe("active");
       const gateInspect = plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" });
       expect(gateInspect.state).toBe("partial");
       if (gateInspect.state === "invalid") throw new Error("Expected typed Gate Inspect context.");

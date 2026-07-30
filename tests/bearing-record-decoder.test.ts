@@ -83,6 +83,9 @@ Authorities:
 Citations:
   - Asset: asset:healthy
     Note: Preserve the healthy partial member.
+Lifecycle: active
+Planned at: null
+Activated at: null
 Work binding:
   Provider: matt-skills/v1
   Native scope: .scratch/work

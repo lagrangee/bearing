@@ -161,10 +161,10 @@
 .roadmap-efforts .effort-row {
   min-height: 72px;
 }
-.effort-resolved .effort-title i {
+.effort-concluded .effort-title i {
   background: var(--success);
 }
-.effort-unknown .effort-title i {
+.effort-planned .effort-title i {
   background: var(--muted);
 }
 .source-list {

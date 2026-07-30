@@ -12,6 +12,9 @@ const addSecondEffort = async (
     ".bearing/state/efforts/second.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:second
 Title: Second Effort
 Roadmap: roadmap:test
@@ -231,6 +234,9 @@ test("Gate closure isolates duplicate Effort identities without dropping trustwo
     ".bearing/state/efforts/duplicate.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:second
 Title: Duplicate Second Effort
 Roadmap: roadmap:test
@@ -344,6 +350,9 @@ test("Gate closure scopes an untrustworthy canonical Effort contributor without 
     ".bearing/state/efforts/uncertain.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:uncertain
 Title: Uncertain Effort
 Roadmap: roadmap:test

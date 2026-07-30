@@ -346,17 +346,6 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
               gate.id === "gate:two" ? { ...gate, readiness: "unknown" as const } : gate,
             ),
           },
-    efforts:
-      snapshot.efforts.validity === "invalid"
-        ? snapshot.efforts
-        : {
-            ...snapshot.efforts,
-            items: snapshot.efforts.items.map((effort) =>
-              effort.id === "effort:portal"
-                ? { ...effort, derivedState: "unknown" as const }
-                : effort,
-            ),
-          },
     providerCaptures: snapshot.providerCaptures.filter(
       (capture) => capture.binding.nativeScope !== ".scratch/portal",
     ),

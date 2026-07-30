@@ -10,6 +10,7 @@ const branchEntries = [
   "summary",
   "roadmap",
   "milestone-gate",
+  "effort-lifecycle",
   "alignment-check",
   "planning-audit",
   "planning-review",
@@ -161,6 +162,20 @@ describe("package-owned planning skills", () => {
 
     expect(branch).toMatch(/zero to two meaningful alternatives/iu);
     expect(branch).not.toMatch(/exactly two alternatives|two distinct alternatives/iu);
+  });
+
+  test("keeps Effort lifecycle transitions explicit, atomic, and independent", async () => {
+    const branch = await readBranch("effort-lifecycle");
+
+    expect(branch).toMatch(/planned[\s\S]*active[\s\S]*concluded/iu);
+    expect(branch).toMatch(/completed[\s\S]*withdrawn[\s\S]*superseded/iu);
+    expect(branch).toMatch(/Planned at[\s\S]*Activated at[\s\S]*Concluded at/iu);
+    expect(branch).toMatch(/UTC[\s\S]*same atomic canonical mutation/iu);
+    expect(branch).toMatch(/historical migration authority[\s\S]*Time unavailable/iu);
+    expect(branch).toMatch(
+      /Provider Completion[\s\S]*Map lifecycle[\s\S]*Gate Readiness[\s\S]*Gate Passage[\s\S]*never transition/iu,
+    );
+    expect(branch).toMatch(/explicit user acceptance/iu);
   });
 
   test("direct executor continuation preserves owner and terminal truth", async () => {

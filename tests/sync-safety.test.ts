@@ -113,6 +113,9 @@ describe("bearing sync", () => {
       ".bearing/state/efforts/test.md",
       `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: Test Effort
 Roadmap: roadmap:test
@@ -175,6 +178,9 @@ Assets:
       ".bearing/state/efforts/test.md",
       `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: Test Effort
 Roadmap: roadmap:test
@@ -296,6 +302,6 @@ Assets:
       target: ".bearing/state/efforts/broken.md",
       message: "Repository input must be a file.",
     });
-    expect(sitemap).toContain("`effort:test` | Test Effort | resolved");
+    expect(sitemap).toContain("`effort:test` | Test Effort | active");
   });
 });

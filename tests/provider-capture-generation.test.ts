@@ -12,6 +12,9 @@ test("captures one provider observation for duplicate Effort bindings in one gen
     ".bearing/state/efforts/same-scope.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:same-scope
 Title: Same Scope Effort
 Roadmap: roadmap:test

@@ -34,13 +34,13 @@ describe("bearing sync", () => {
     expect(sitemap).toContain("`project-summary:current` | Test Project | current");
     expect(sitemap).toContain("`roadmap:test` | Test Roadmap | active");
     expect(sitemap).toContain("`gate:test` | Test Gate | active");
-    expect(sitemap).toContain("`effort:test` | Test Effort | resolved");
+    expect(sitemap).toContain("`effort:test` | Test Effort | active");
     expect(sitemap).toContain("`.scratch/work/map.md` | Wayfinder Map: Test | resolved");
     expect(sitemap).toContain("`.scratch/work/issues/01-finish.md` | Finish | resolved-on-route");
     expect(sitemap).toContain("roadmap: `roadmap:test`");
     expect(sitemap).toContain("target-gate: `gate:test`");
     expect(sitemap).toContain("source: `.bearing/state/roadmaps/test.md`");
-    expect(sitemap).toContain("Gate readiness: `gate:test` = ready-for-review");
+    expect(sitemap).toContain("Gate readiness: `gate:test` = not-ready");
     expect(sitemap).toContain("Attention: 0 blocking diagnostic(s)");
   });
 
@@ -98,6 +98,9 @@ Prove reconciliation.
       ".scratch/legacy/effort.md",
       `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:legacy
 Title: Legacy Effort
 Roadmap: roadmap:test

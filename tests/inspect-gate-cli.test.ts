@@ -29,6 +29,9 @@ const addRev002Context = async (root: string): Promise<void> => {
     ".bearing/state/efforts/second.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:second
 Title: Second Effort
 Roadmap: roadmap:test
@@ -354,6 +357,9 @@ Exercise a broken nested ordering relation.
     ".bearing/state/efforts/detached.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:detached
 Title: Detached Effort
 Roadmap: roadmap:test

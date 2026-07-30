@@ -37,6 +37,10 @@ type Governance = Pick<ProjectSnapshotInput, "summary" | "roadmapIndex"> &
     authorities: CollectionProjection<Authority>;
     sources: readonly SourceRecord[];
   }>;
+const sourceEventTime = (value: string | null) =>
+  value === null
+    ? ({ availability: "unavailable" } as const)
+    : ({ availability: "available", value } as const);
 const roadmapProjection = (input: Input): BuildResult<Roadmap>[] =>
   parsedFor(input, "roadmap").map((result): BuildResult<Roadmap> => {
     const record = result.item;
@@ -118,6 +122,23 @@ const effortProjection = (input: Input): BuildResult<Effort>[] =>
         roadmapId: data.Roadmap,
         targetGateId: data["Target gate"],
         authorityIds: data.Authorities,
+        lifecycle: data.Lifecycle,
+        plannedAt: sourceEventTime(data["Planned at"]),
+        ...(data["Activated at"] === undefined
+          ? {}
+          : { activatedAt: sourceEventTime(data["Activated at"]) }),
+        ...(data.Conclusion === undefined
+          ? {}
+          : {
+              conclusion: {
+                disposition: data.Conclusion.Disposition,
+                rationale: data.Conclusion.Rationale,
+                concludedAt: sourceEventTime(data.Conclusion["Concluded at"]),
+                ...(data.Conclusion["Replacement effort"] === undefined
+                  ? {}
+                  : { replacementEffortId: data.Conclusion["Replacement effort"] }),
+              },
+            }),
         ...(data["Work binding"] === undefined
           ? {}
           : {
@@ -126,7 +147,6 @@ const effortProjection = (input: Input): BuildResult<Effort>[] =>
                 nativeScope: data["Work binding"]["Native scope"],
               },
             }),
-        derivedState: "unknown",
       }),
     };
   });
