@@ -1,4 +1,5 @@
 import { createProviderScopeObservation } from "../../src/native-work-provider";
+import { buildPlanningLineageProjection } from "../../src/project-snapshot/planning-lineage";
 import { projectSnapshotSchema } from "../../src/project-snapshot/schema";
 import {
   createSourceReference,
@@ -143,7 +144,7 @@ const secondAlternativeSource = secondAlternativeRecord.reference;
 const checkSource = checkRecord.reference;
 const reviewSource = reviewRecord.reference;
 const diagnosticReference = `diagnostic:${"c".repeat(64)}`;
-const availableItems = { validity: "available", items: [] };
+const availableItems = { validity: "available", items: [] } as const;
 const guidanceItem = (title: string, rationale: string, source: typeof guidanceSource) => ({
   title,
   rationale,
@@ -256,7 +257,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 5,
+    schemaVersion: 6,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -577,14 +578,26 @@ export const createProjectOverviewFixture = () => {
       reviewRecord,
     ],
   } as const;
+  const providerObservationSelections = candidate.providerObservations.map((observation) => ({
+    provider: observation.provider,
+    nativeScope: observation.binding.nativeScope,
+    observationId: observation.id,
+    effectiveFreshness: observation.freshness.assessment,
+    latestAttempt: null,
+  }));
   return projectSnapshotSchema.parse({
     ...candidate,
-    providerObservationSelections: candidate.providerObservations.map((observation) => ({
-      provider: observation.provider,
-      nativeScope: observation.binding.nativeScope,
-      observationId: observation.id,
-      effectiveFreshness: observation.freshness.assessment,
-      latestAttempt: null,
-    })),
+    providerObservationSelections,
+    lineage: buildPlanningLineageProjection({
+      roadmaps: candidate.roadmaps,
+      gates: candidate.gates,
+      efforts: candidate.efforts,
+      authorities: candidate.authorities,
+      assets: candidate.assets,
+      checks: candidate.checks,
+      reviews: candidate.reviews,
+      providerObservations: candidate.providerObservations,
+      providerObservationSelections,
+    }),
   });
 };

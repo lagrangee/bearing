@@ -17,7 +17,6 @@ test("fails closed when a project inspector outlives its route or Snapshot view"
   const context = {
     entryId: "bearing",
     section: "roadmaps" as const,
-    roadmapId: "roadmap:portal",
     snapshotFingerprint: snapshot.basis.sitemapFingerprint,
   };
   const captured = captureProjectInspectorSelection(selection, context);
@@ -26,14 +25,13 @@ test("fails closed when a project inspector outlives its route or Snapshot view"
   expect(
     currentProjectInspectorSelection(captured, {
       ...context,
-      roadmapId: "roadmap:second",
+      routeIdentity: "roadmap:second",
     }),
   ).toBeNull();
   expect(
     currentProjectInspectorSelection(captured, {
       ...context,
       section: "overview",
-      roadmapId: undefined,
     }),
   ).toBeNull();
   expect(

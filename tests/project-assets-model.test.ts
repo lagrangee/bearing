@@ -8,6 +8,7 @@ import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createSourceRecord } from "../src/project-snapshot/source-records";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
 const twoAssetFixture = (): ProjectSnapshot => {
   const snapshot = createProjectOverviewFixture();
@@ -18,34 +19,36 @@ const twoAssetFixture = (): ProjectSnapshot => {
     binding: { role: "asset", identity: "asset:uncited-context" },
     fragment: "asset:uncited-context",
   });
-  return projectSnapshotSchema.parse({
-    ...snapshot,
-    assets: {
-      validity: "available",
-      items: [
-        ...snapshot.assets.items,
-        {
-          id: "asset:uncited-context",
-          title: "Uncited Product Context",
-          source: source.reference,
-          citations: [],
-          kind: "product-design",
-          owner: "effort:portal",
-          producer: { kind: "planning-skill", name: "impeccable", reference: "review:42" },
-          lifecycleSource: "registry",
-          disposition: "superseded",
-          supersededBy: "asset:planning-model-evidence",
-          producedFor: ".scratch/portal/issues/13-assets.md",
-          displayLocation: "PRODUCT.md",
-          contentAvailability: "available",
-          adoptedByAuthorityIds: [],
-          gatePassageEvidenceFor: [],
-          citationCount: 0,
-        },
-      ],
-    },
-    sources: [...snapshot.sources, source],
-  });
+  return projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      assets: {
+        validity: "available",
+        items: [
+          ...snapshot.assets.items,
+          {
+            id: "asset:uncited-context",
+            title: "Uncited Product Context",
+            source: source.reference,
+            citations: [],
+            kind: "product-design",
+            owner: "effort:portal",
+            producer: { kind: "planning-skill", name: "impeccable", reference: "review:42" },
+            lifecycleSource: "registry",
+            disposition: "superseded",
+            supersededBy: "asset:planning-model-evidence",
+            producedFor: ".scratch/portal/issues/13-assets.md",
+            displayLocation: "PRODUCT.md",
+            contentAvailability: "available",
+            adoptedByAuthorityIds: [],
+            gatePassageEvidenceFor: [],
+            citationCount: 0,
+          },
+        ],
+      },
+      sources: [...snapshot.sources, source],
+    }),
+  );
 };
 
 test("keeps projected Asset order while search and citation filters expose zero-reference Assets", () => {

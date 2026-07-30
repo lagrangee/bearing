@@ -3,7 +3,7 @@ import type { ProjectSection } from "./project-navigation";
 
 type ProjectInspectorContext = Readonly<{
   entryId: string;
-  roadmapId?: string | undefined;
+  routeIdentity?: string | undefined;
   section: ProjectSection;
   snapshotFingerprint?: string | undefined;
 }>;
@@ -26,7 +26,7 @@ export const currentProjectInspectorSelection = (
   const origin = captured.context;
   return origin.entryId === context.entryId &&
     origin.section === context.section &&
-    origin.roadmapId === context.roadmapId &&
+    origin.routeIdentity === context.routeIdentity &&
     origin.snapshotFingerprint === context.snapshotFingerprint
     ? captured.selection
     : null;

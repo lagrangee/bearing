@@ -8,6 +8,7 @@ import {
 import type { ProjectSnapshot } from "../../src/project-snapshot/contract";
 import { projectSnapshotSchema } from "../../src/project-snapshot/schema";
 import { createSourceRecord } from "../../src/project-snapshot/source-records";
+import { withRebuiltPlanningLineage } from "../planning-lineage-fixture";
 import { createProjectOverviewFixture } from "./project-overview";
 
 const AUDIT_LOCATOR = ".bearing/state/planning-audit.md";
@@ -109,25 +110,27 @@ export const createUnavailableAuditPromotionFixture = (): ProjectSnapshot => {
   if (snapshot.audit.validity !== "available") throw new Error("Expected Audit fixture.");
   const finding = snapshot.audit.value.findings[0];
   if (finding === undefined) throw new Error("Expected one Audit finding.");
-  return projectSnapshotSchema.parse({
-    ...snapshot,
-    checks: { validity: "available", items: [] },
-    audit: {
-      validity: "partial",
-      value: snapshot.audit.value,
-      issues: [
-        {
-          code: UNAVAILABLE_AUDIT_PROMOTION_CODE,
-          target: `${AUDIT_LOCATOR}#${AUDIT_FINDING_FRAGMENT}`,
-          message: UNAVAILABLE_AUDIT_PROMOTION_MESSAGE,
-          source: finding.source,
-        },
-      ],
-    },
-    attention: snapshot.attention.filter(
-      (item) => !(item.kind === "alignment-check" && item.id === "alignment-check:portal"),
-    ),
-  });
+  return projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      checks: { validity: "available", items: [] },
+      audit: {
+        validity: "partial",
+        value: snapshot.audit.value,
+        issues: [
+          {
+            code: UNAVAILABLE_AUDIT_PROMOTION_CODE,
+            target: `${AUDIT_LOCATOR}#${AUDIT_FINDING_FRAGMENT}`,
+            message: UNAVAILABLE_AUDIT_PROMOTION_MESSAGE,
+            source: finding.source,
+          },
+        ],
+      },
+      attention: snapshot.attention.filter(
+        (item) => !(item.kind === "alignment-check" && item.id === "alignment-check:portal"),
+      ),
+    }),
+  );
 };
 
 export const createInvalidProjectAuditFixture = (): ProjectSnapshot => {

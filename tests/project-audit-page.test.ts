@@ -13,7 +13,9 @@ import {
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
 const render = (snapshot: ProjectSnapshot): string =>
-  renderToStaticMarkup(createElement(AuditPage, { snapshot, onInspect: () => {} }));
+  renderToStaticMarkup(
+    createElement(AuditPage, { entryId: "audit", snapshot, onInspect: () => {} }),
+  );
 
 test("renders the accepted explanatory state when no Planning Audit exists", () => {
   const snapshot = createProjectOverviewFixture();

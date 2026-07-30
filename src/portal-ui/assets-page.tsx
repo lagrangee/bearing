@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import { AssetRow } from "./asset-row";
 import { Action } from "./primitives";
@@ -8,19 +9,28 @@ import {
   buildProjectAssetsModel,
   filterAssetRows,
 } from "./project-assets-model";
+import { readProjectCanvasHistory, updateAssetCanvasFilters } from "./project-canvas-history";
 import type { ProjectInspectorSelection } from "./project-inspector";
 
 type Inspect = (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
 
 export function AssetsPage({
+  entryId,
+  onNavigate,
   onInspect,
   snapshot,
 }: {
+  readonly entryId: string;
+  readonly onNavigate: (href: string) => void;
   readonly onInspect: Inspect;
   readonly snapshot: ProjectSnapshot;
 }) {
-  const [query, setQuery] = useState("");
-  const [citationFilter, setCitationFilter] = useState<AssetCitationFilter>("all");
+  const [query, setQuery] = useState(
+    () => readProjectCanvasHistory(entryId, "assets")?.assets?.query ?? "",
+  );
+  const [citationFilter, setCitationFilter] = useState<AssetCitationFilter>(
+    () => readProjectCanvasHistory(entryId, "assets")?.assets?.citationFilter ?? "all",
+  );
   const model = buildProjectAssetsModel(snapshot);
   if (model.state === "invalid") {
     return (
@@ -58,7 +68,11 @@ export function AssetsPage({
           <label className="search-field">
             <span>Search</span>
             <input
-              onChange={(event) => setQuery(event.currentTarget.value)}
+              onChange={(event) => {
+                const next = event.currentTarget.value;
+                setQuery(next);
+                updateAssetCanvasFilters(entryId, next, citationFilter);
+              }}
               placeholder="Find an Asset"
               type="search"
               value={query}
@@ -67,9 +81,11 @@ export function AssetsPage({
           <label className="asset-filter-field">
             <span>Planning Citations</span>
             <select
-              onChange={(event) =>
-                setCitationFilter(event.currentTarget.value as AssetCitationFilter)
-              }
+              onChange={(event) => {
+                const next = event.currentTarget.value as AssetCitationFilter;
+                setCitationFilter(next);
+                updateAssetCanvasFilters(entryId, query, next);
+              }}
               value={citationFilter}
             >
               <option value="all">All Assets</option>
@@ -100,6 +116,7 @@ export function AssetsPage({
             onClick={() => {
               setQuery("");
               setCitationFilter("all");
+              updateAssetCanvasFilters(entryId, "", "all");
             }}
           >
             Clear filters
@@ -113,19 +130,48 @@ export function AssetsPage({
             <span>Citations</span>
             <span>Location</span>
           </div>
-          {visibleRows.map((row) => (
-            <AssetRow
-              citations={row.asset.citationCount}
-              contentAvailability={row.asset.contentAvailability}
-              key={row.asset.id}
-              kind={row.asset.kind}
-              lifecycleSource={row.asset.lifecycleSource}
-              location={row.asset.displayLocation}
-              onSelect={(trigger) => onInspect(assetInspection(row), trigger)}
-              owner={row.asset.owner}
-              title={row.asset.title}
-            />
-          ))}
+          {visibleRows.map((row) => {
+            const href = planningLineageSubjectHref(entryId, {
+              kind: "asset",
+              id: row.asset.id,
+            });
+            return (
+              <AssetRow
+                citations={row.asset.citationCount}
+                contentAvailability={row.asset.contentAvailability}
+                href={href}
+                key={row.asset.id}
+                kind={row.asset.kind}
+                lifecycleSource={row.asset.lifecycleSource}
+                location={row.asset.displayLocation}
+                onOpen={(event) => {
+                  if (
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                  )
+                    return;
+                  event.preventDefault();
+                  onNavigate(href);
+                }}
+                onSelect={(trigger) =>
+                  onInspect(
+                    {
+                      ...assetInspection(row),
+                      fullDetailHref: href,
+                    },
+                    trigger,
+                  )
+                }
+                owner={row.asset.owner}
+                primaryFocusKey={`asset:${row.asset.id}:primary`}
+                quickLookFocusKey={`asset:${row.asset.id}:quick-look`}
+                title={row.asset.title}
+              />
+            );
+          })}
         </section>
       )}
       {filtering ? (

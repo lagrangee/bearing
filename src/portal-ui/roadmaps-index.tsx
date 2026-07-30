@@ -1,4 +1,5 @@
 import type { MouseEvent } from "react";
+import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import type { ProjectInspectorSelection } from "./project-inspector";
 import { gateInspection } from "./project-roadmap-inspection";
@@ -90,12 +91,17 @@ export function RoadmapsIndex({
             </p>
           )}
           {group.items.map((item) => {
-            const href = `/projects/${encodeURIComponent(entryId)}/roadmaps/${encodeURIComponent(
-              item.roadmap.id,
-            )}`;
+            const href = planningLineageSubjectHref(entryId, {
+              kind: "roadmap",
+              id: item.roadmap.id,
+            });
             const gateIndex = new Map(item.gates.map((entry) => [String(entry.gate.id), entry]));
             const gates: Gate[] = item.gates.map((entry) => ({
               id: entry.gate.id,
+              href: planningLineageSubjectHref(entryId, {
+                kind: "gate",
+                id: entry.gate.id,
+              }),
               label: `G${entry.ordinal}`,
               state: entry.gate.horizonState,
               title: entry.gate.title,
@@ -108,11 +114,19 @@ export function RoadmapsIndex({
                   horizon={item.roadmap.horizon}
                   intent={item.roadmap.intent}
                   onOpen={(event) => openLink(href, event, onNavigate)}
+                  onOpenGate={(gate, event) => openLink(gate.href ?? "", event, onNavigate)}
                   onSelectGate={(gate, trigger) => {
                     const selected = gateIndex.get(gate.id);
                     if (selected !== undefined) {
                       onInspect(
-                        gateInspection(selected, item.roadmap.title, item.roadmap.gateOrder.length),
+                        {
+                          ...gateInspection(
+                            selected,
+                            item.roadmap.title,
+                            item.roadmap.gateOrder.length,
+                          ),
+                          fullDetailHref: gate.href,
+                        },
                         trigger,
                       );
                     }

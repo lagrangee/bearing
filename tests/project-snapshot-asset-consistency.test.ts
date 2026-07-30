@@ -3,6 +3,7 @@ import type { AssetProjection, ProjectSnapshot } from "../src/project-snapshot/c
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createSourceReference } from "../src/project-snapshot/source-reference";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
 const BASIS = `sha256:${"b".repeat(64)}`;
 const relationIssue = {
@@ -34,35 +35,37 @@ const authorityFixture = (): ProjectSnapshot => {
     displayLocator: ".bearing/state/authorities/design.md",
     binding: { role: "authority", identity: "authority:design" },
   });
-  return projectSnapshotSchema.parse({
-    ...snapshot,
-    authorities: {
-      validity: "available",
-      items: [
+  return projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      authorities: {
+        validity: "available",
+        items: [
+          {
+            id: "authority:design",
+            title: "Product Design",
+            source: authoritySource,
+            citations: [],
+            scope: "Govern the accepted Portal direction.",
+            baselineAssetIds: ["asset:planning-model-evidence"],
+          },
+        ],
+      },
+      assets: {
+        validity: "available",
+        items: [{ ...onlyAsset(snapshot), adoptedByAuthorityIds: ["authority:design"] }],
+      },
+      sources: [
+        ...snapshot.sources,
         {
-          id: "authority:design",
-          title: "Product Design",
-          source: authoritySource,
-          citations: [],
-          scope: "Govern the accepted Portal direction.",
-          baselineAssetIds: ["asset:planning-model-evidence"],
+          reference: authoritySource,
+          kind: "canonical",
+          displayLocator: ".bearing/state/authorities/design.md",
+          binding: { role: "authority", identity: "authority:design" },
         },
       ],
-    },
-    assets: {
-      validity: "available",
-      items: [{ ...onlyAsset(snapshot), adoptedByAuthorityIds: ["authority:design"] }],
-    },
-    sources: [
-      ...snapshot.sources,
-      {
-        reference: authoritySource,
-        kind: "canonical",
-        displayLocator: ".bearing/state/authorities/design.md",
-        binding: { role: "authority", identity: "authority:design" },
-      },
-    ],
-  });
+    }),
+  );
 };
 
 const twoAuthorityFixture = (): ProjectSnapshot => {
@@ -78,39 +81,41 @@ const twoAuthorityFixture = (): ProjectSnapshot => {
     displayLocator: ".bearing/state/authorities/architecture.md",
     binding: { role: "authority", identity: "authority:architecture" },
   });
-  return projectSnapshotSchema.parse({
-    ...snapshot,
-    authorities: {
-      validity: "available",
-      items: [
-        designAuthority,
-        {
-          ...designAuthority,
-          id: "authority:architecture",
-          title: "Architecture",
-          source: architectureSource,
-        },
-      ],
-    },
-    assets: {
-      validity: "available",
-      items: [
-        {
-          ...onlyAsset(snapshot),
-          adoptedByAuthorityIds: ["authority:design", "authority:architecture"],
-        },
-      ],
-    },
-    sources: [
-      ...snapshot.sources,
-      {
-        reference: architectureSource,
-        kind: "canonical",
-        displayLocator: ".bearing/state/authorities/architecture.md",
-        binding: { role: "authority", identity: "authority:architecture" },
+  return projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      authorities: {
+        validity: "available",
+        items: [
+          designAuthority,
+          {
+            ...designAuthority,
+            id: "authority:architecture",
+            title: "Architecture",
+            source: architectureSource,
+          },
+        ],
       },
-    ],
-  });
+      assets: {
+        validity: "available",
+        items: [
+          {
+            ...onlyAsset(snapshot),
+            adoptedByAuthorityIds: ["authority:design", "authority:architecture"],
+          },
+        ],
+      },
+      sources: [
+        ...snapshot.sources,
+        {
+          reference: architectureSource,
+          kind: "canonical",
+          displayLocator: ".bearing/state/authorities/architecture.md",
+          binding: { role: "authority", identity: "authority:architecture" },
+        },
+      ],
+    }),
+  );
 };
 
 test("accepts exact Citation, Authority adoption, and Gate Passage Asset relations", () => {
@@ -235,11 +240,13 @@ test("requires superseded Assets to resolve their replacement in a complete Asse
   ];
 
   expect(
-    projectSnapshotSchema.safeParse({
-      ...snapshot,
-      assets: { validity: "available", items: [historical, replacement] },
-      sources,
-    }).success,
+    projectSnapshotSchema.safeParse(
+      withRebuiltPlanningLineage({
+        ...snapshot,
+        assets: { validity: "available", items: [historical, replacement] },
+        sources,
+      }),
+    ).success,
   ).toBe(true);
   expect(
     projectSnapshotSchema.safeParse({
@@ -343,19 +350,21 @@ test("allows unresolved forward references but requires exact reverse caches for
   };
   const partialAssets = {
     ...snapshot,
-    assets: { validity: "partial", items: [unrelatedAsset], issues: [relationIssue] },
+    assets: { validity: "partial" as const, items: [unrelatedAsset], issues: [relationIssue] },
     sources: [
       ...snapshot.sources,
       {
         reference: unrelatedSource,
-        kind: "asset",
+        kind: "asset" as const,
         displayLocator: ".bearing/state/assets.md",
         fragment: "asset:unrelated",
-        binding: { role: "asset", identity: "asset:unrelated" },
+        binding: { role: "asset" as const, identity: "asset:unrelated" },
       },
     ],
   };
-  expect(projectSnapshotSchema.safeParse(partialAssets).success).toBe(true);
+  expect(projectSnapshotSchema.safeParse(withRebuiltPlanningLineage(partialAssets)).success).toBe(
+    true,
+  );
 
   if (snapshot.efforts.validity === "invalid") throw new Error("Expected trustworthy Efforts.");
   const partialEfforts = {
@@ -370,20 +379,22 @@ test("allows unresolved forward references but requires exact reverse caches for
             ),
           },
     efforts: {
-      validity: "partial",
+      validity: "partial" as const,
       items: snapshot.efforts.items.filter((effort) => effort.id === "effort:portal"),
       issues: [relationIssue],
     },
   };
   expect(projectSnapshotSchema.safeParse(partialEfforts).success).toBe(false);
   expect(
-    projectSnapshotSchema.safeParse({
-      ...partialEfforts,
-      assets: {
-        validity: "available",
-        items: [{ ...onlyAsset(snapshot), citations: [], citationCount: 0 }],
-      },
-    }).success,
+    projectSnapshotSchema.safeParse(
+      withRebuiltPlanningLineage({
+        ...partialEfforts,
+        assets: {
+          validity: "available",
+          items: [{ ...onlyAsset(snapshot), citations: [], citationCount: 0 }],
+        },
+      }),
+    ).success,
   ).toBe(true);
 
   if (snapshot.gates.validity === "invalid") throw new Error("Expected trustworthy Gates.");
@@ -400,14 +411,16 @@ test("allows unresolved forward references but requires exact reverse caches for
     }).success,
   ).toBe(false);
   expect(
-    projectSnapshotSchema.safeParse({
-      ...snapshot,
-      gates: { validity: "partial", items: [knownGate], issues: [relationIssue] },
-      assets: {
-        validity: "available",
-        items: [{ ...onlyAsset(snapshot), gatePassageEvidenceFor: [] }],
-      },
-    }).success,
+    projectSnapshotSchema.safeParse(
+      withRebuiltPlanningLineage({
+        ...snapshot,
+        gates: { validity: "partial", items: [knownGate], issues: [relationIssue] },
+        assets: {
+          validity: "available",
+          items: [{ ...onlyAsset(snapshot), gatePassageEvidenceFor: [] }],
+        },
+      }),
+    ).success,
   ).toBe(true);
 
   const adopted = authorityFixture();
@@ -422,13 +435,15 @@ test("allows unresolved forward references but requires exact reverse caches for
     }).success,
   ).toBe(false);
   expect(
-    projectSnapshotSchema.safeParse({
-      ...adopted,
-      authorities: { validity: "invalid", issues: [relationIssue] },
-      assets: {
-        validity: "available",
-        items: [{ ...onlyAsset(adopted), adoptedByAuthorityIds: [] }],
-      },
-    }).success,
+    projectSnapshotSchema.safeParse(
+      withRebuiltPlanningLineage({
+        ...adopted,
+        authorities: { validity: "invalid", issues: [relationIssue] },
+        assets: {
+          validity: "available",
+          items: [{ ...onlyAsset(adopted), adoptedByAuthorityIds: [] }],
+        },
+      }),
+    ).success,
   ).toBe(true);
 });

@@ -1,0 +1,206 @@
+.lineage-page {
+  min-width: 0;
+}
+.lineage-breadcrumb {
+  margin: 0 0 var(--space-6);
+  color: var(--muted);
+  font-size: var(--type-tech);
+}
+.lineage-breadcrumb ol {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lineage-breadcrumb li {
+  min-width: 0;
+}
+.lineage-breadcrumb li + li::before {
+  margin-right: var(--space-1);
+  content: "/";
+}
+.lineage-breadcrumb a,
+.lineage-filtered-view a,
+.lineage-relation a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+.lineage-breadcrumb span[aria-current="page"] {
+  color: var(--ink);
+}
+.lineage-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.36fr);
+  gap: var(--space-8);
+  padding: var(--space-2) 0 var(--space-10);
+}
+.lineage-header h1 {
+  margin-bottom: var(--space-2);
+  overflow-wrap: anywhere;
+}
+.lineage-id {
+  color: var(--muted);
+  font-size: var(--type-tech);
+  overflow-wrap: anywhere;
+}
+.lineage-header dl {
+  margin: 0;
+}
+.lineage-header dl div {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.lineage-header dt {
+  color: var(--muted);
+  font-size: var(--type-micro);
+}
+.lineage-header dd {
+  margin: var(--space-1) 0 0;
+  font-size: var(--type-tech);
+  overflow-wrap: anywhere;
+}
+.lineage-sections {
+  border-top: 1px solid var(--border);
+}
+.lineage-sections > section {
+  max-width: 850px;
+  padding: var(--space-7) 0;
+  border-bottom: 1px solid var(--border);
+  scroll-margin-top: calc(var(--topbar) + var(--space-5));
+}
+.lineage-sections h2,
+.lineage-context h2 {
+  margin-bottom: var(--space-3);
+}
+.lineage-sections p,
+.lineage-sections li {
+  color: var(--muted);
+  line-height: 1.65;
+}
+.lineage-sections ul {
+  padding-left: var(--space-5);
+}
+.lineage-context {
+  padding: var(--space-10) 0;
+}
+.lineage-context > header {
+  max-width: 720px;
+  margin-bottom: var(--space-6);
+}
+.lineage-context > header > p:last-child {
+  color: var(--muted);
+}
+.lineage-relation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.lineage-relation {
+  min-width: 0;
+  padding: var(--space-5);
+  background: var(--surface);
+  border-radius: var(--radius-panel);
+  scroll-margin-top: calc(var(--topbar) + var(--space-5));
+}
+.lineage-relation-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.lineage-relation-heading h3 {
+  margin: 0;
+  font-size: var(--type-ui);
+}
+.lineage-relation-heading p,
+.lineage-relation > p {
+  color: var(--muted);
+  font-size: var(--type-tech);
+}
+.lineage-relation-heading span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: var(--type-micro);
+}
+.lineage-relation ul,
+.lineage-filtered-list {
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.lineage-relation-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+.lineage-relation-item > span {
+  min-width: 0;
+}
+.lineage-relation-item strong,
+.lineage-relation-item code,
+.lineage-relation-item small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.lineage-relation-item code,
+.lineage-relation-item small {
+  margin-top: var(--space-1);
+  color: var(--muted);
+  font-size: var(--type-micro);
+}
+.lineage-quick-look {
+  min-height: var(--control-size);
+  flex: 0 0 auto;
+  padding: 0 var(--space-2);
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.lineage-filtered-view-link {
+  display: inline-flex;
+  min-height: var(--control-size);
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  font-size: var(--type-tech);
+}
+.lineage-filtered-view-link svg {
+  width: 14px;
+}
+.lineage-filtered-view > .back-link {
+  margin-bottom: var(--space-6);
+}
+.lineage-filtered-view .lineage-header {
+  display: block;
+}
+.lineage-filtered-list {
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 820px) {
+  .lineage-header,
+  .lineage-relation-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .lineage-relation-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .lineage-quick-look {
+    width: 100%;
+    min-height: var(--control-touch);
+  }
+}

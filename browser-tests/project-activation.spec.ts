@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "../tests/planning-lineage-fixture";
 
 const completedAt = "2026-07-13T20:00:00+08:00";
 
@@ -7,13 +8,13 @@ const projectView = (entryId = "overview", clearAttention = false) => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.summary.validity !== "available") throw new Error("Expected Summary fixture.");
   const projectedSnapshot = clearAttention
-    ? {
+    ? withRebuiltPlanningLineage({
         ...snapshot,
         checks: { validity: "available" as const, items: [] },
         reviews: { validity: "available" as const, items: [] },
         diagnostics: [],
         attention: [],
-      }
+      })
     : snapshot;
   return {
     project: { entryId, displayName: `${entryId} project`, availability: "available" },

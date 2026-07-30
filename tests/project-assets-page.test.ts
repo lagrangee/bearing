@@ -6,7 +6,14 @@ import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
 const render = (snapshot: ProjectSnapshot): string =>
-  renderToStaticMarkup(createElement(AssetsPage, { snapshot, onInspect: () => {} }));
+  renderToStaticMarkup(
+    createElement(AssetsPage, {
+      entryId: "bearing",
+      snapshot,
+      onInspect: () => {},
+      onNavigate: () => {},
+    }),
+  );
 
 test("renders the accepted Assets reading surface without embedding Asset content", () => {
   const html = render(createProjectOverviewFixture());

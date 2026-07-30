@@ -19,6 +19,11 @@ import {
   type roadmapSchema,
   type structuralDiagnosticSchema,
 } from "./schema";
+import type {
+  planningLineageProjectionSchema,
+  planningLineageRelationSchema,
+  planningLineageSubjectProjectionSchema,
+} from "./schema-planning-lineage";
 import type { roadmapIndexSchema } from "./schema-roadmap-index";
 import type { sourceRecordSchema } from "./source-schema";
 
@@ -63,6 +68,13 @@ export type AlignmentCheck = DeepReadonly<z.infer<typeof alignmentCheckSchema>>;
 export type PlanningReview = DeepReadonly<z.infer<typeof planningReviewSchema>>;
 export type AuditFinding = DeepReadonly<z.infer<typeof auditFindingSchema>>;
 export type PlanningAudit = DeepReadonly<z.infer<typeof planningAuditSchema>>;
+export type PlanningLineageProjection = DeepReadonly<
+  z.infer<typeof planningLineageProjectionSchema>
+>;
+export type PlanningLineageRelation = DeepReadonly<z.infer<typeof planningLineageRelationSchema>>;
+export type PlanningLineageSubjectProjection = DeepReadonly<
+  z.infer<typeof planningLineageSubjectProjectionSchema>
+>;
 export type GuidanceItem = DeepReadonly<z.infer<typeof guidanceItemSchema>>;
 export type NextWorkGuidance = DeepReadonly<z.infer<typeof nextWorkGuidanceSchema>>;
 export type ProviderScopeObservation = DeepReadonly<MattSkillsV1ProviderObservation>;

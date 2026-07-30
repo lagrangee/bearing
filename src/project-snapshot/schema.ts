@@ -6,6 +6,7 @@ import { assetProjectionSchema } from "./schema-asset";
 import { planningAuditSchema } from "./schema-audit";
 import { validateProjectSnapshotConsistency } from "./schema-consistency";
 import { citedNodeShape, titledSourceShape } from "./schema-node";
+import { planningLineageProjectionSchema } from "./schema-planning-lineage";
 import {
   assetIdSchema,
   authorityIdSchema,
@@ -28,10 +29,11 @@ import { sourceRecordSchema, sourceReferenceSchema } from "./source-schema";
 
 export { assetProjectionSchema } from "./schema-asset";
 export { auditFindingSchema, planningAuditSchema } from "./schema-audit";
+export { planningLineageProjectionSchema } from "./schema-planning-lineage";
 export { diagnosticReferenceSchema } from "./schema-primitives";
 export { projectionIssueSchema } from "./schema-projection";
 export { projectSummarySchema } from "./schema-summary";
-export const PROJECT_SNAPSHOT_VERSION = 5 as const;
+export const PROJECT_SNAPSHOT_VERSION = 6 as const;
 const resolutionSchema = z.strictObject({
   acceptedDecision: semanticPlainTextSchema,
   rationale: semanticPlainTextSchema,
@@ -270,6 +272,7 @@ export const projectSnapshotSchema = z
     assets: collectionProjectionSchema(assetProjectionSchema, (asset) => asset.id),
     checks: collectionProjectionSchema(alignmentCheckSchema, (check) => check.id),
     reviews: collectionProjectionSchema(planningReviewSchema, (review) => review.id),
+    lineage: planningLineageProjectionSchema,
     audit: singletonProjectionSchema(planningAuditSchema),
     guidance: singletonProjectionSchema(nextWorkGuidanceSchema),
     providerObservations: uniqueIdentityArraySchema(

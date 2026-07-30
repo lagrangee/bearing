@@ -108,7 +108,10 @@ test("Audit findings preserve advisory truth, decision paths, and display-only p
   await expect(
     inspector.getByText(/The Audit does not decide whether the revision is accepted/u),
   ).toBeVisible();
-  await expect(inspector.locator("a[href]")).toHaveCount(0);
+  await expect(inspector.getByRole("link", { name: "Open full detail" })).toHaveAttribute(
+    "href",
+    "/projects/audit/lineage/alignment-check/alignment-check%3Aportal",
+  );
   await expect(
     inspector.getByRole("button", { name: /Resume|Accept|Dismiss|Revise|Generate/iu }),
   ).toHaveCount(0);
@@ -167,6 +170,8 @@ test("Audit findings reflow at 200 percent equivalent and narrow modal widths", 
   await expect(dialog.getByText(/Source source:[0-9a-f]{64}/u).first()).toBeVisible();
   expect(await dialog.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(false);
   await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("link", { name: "Open full detail" })).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(close).toBeFocused();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({
@@ -196,7 +201,7 @@ test("Audit keeps absent, zero, partial, and invalid projection states distinct"
   const resume = page.getByRole("button", { name: /Resume Audit in Agent Surface/u });
   await resume.click();
   const inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(inspector.getByRole("button", { name: /Resume in Agent Surface/u })).toBeDisabled();
+  await expect(inspector.getByRole("button", { name: /Resume in Agent Surface/u })).toHaveCount(0);
   await expect(inspector.locator("a[href]")).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(resume).toBeFocused();

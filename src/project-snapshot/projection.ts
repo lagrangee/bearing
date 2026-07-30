@@ -109,6 +109,7 @@ export const buildProjectSnapshot = async (
     assets,
     checks: decisions.checks,
     reviews: decisions.reviews,
+    lineage: input.planningGraph.lineageProjection(),
     audit: advisory.audit,
     guidance: advisory.guidance,
     providerObservations: input.providerObservations,

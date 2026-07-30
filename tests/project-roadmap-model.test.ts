@@ -8,6 +8,7 @@ import {
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
 const fixture = (): ProjectSnapshot => createProjectOverviewFixture();
 
@@ -158,24 +159,26 @@ test("propagates scoped partial Ticket issues without publishing a false-ready f
     (observation) => observation.binding.nativeScope === ".scratch/portal",
   );
   if (portalObservation === undefined) throw new Error("Expected the Portal observation.");
-  const parsed = projectSnapshotSchema.safeParse({
-    ...snapshot,
-    gates: {
-      validity: "available",
-      items: snapshot.gates.items.map((gate) =>
-        gate.id === "gate:two" ? { ...gate, readiness: "unknown" as const } : gate,
+  const parsed = projectSnapshotSchema.safeParse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      gates: {
+        validity: "available",
+        items: snapshot.gates.items.map((gate) =>
+          gate.id === "gate:two" ? { ...gate, readiness: "unknown" as const } : gate,
+        ),
+      },
+      providerObservations,
+      providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+        selection.nativeScope === ".scratch/portal"
+          ? {
+              ...selection,
+              observationId: portalObservation.id,
+            }
+          : selection,
       ),
-    },
-    providerObservations,
-    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
-      selection.nativeScope === ".scratch/portal"
-        ? {
-            ...selection,
-            observationId: portalObservation.id,
-          }
-        : selection,
-    ),
-  });
+    }),
+  );
   expect(parsed.success).toBe(true);
   if (!parsed.success) throw new Error("Expected a trustworthy partial Ticket Snapshot.");
 

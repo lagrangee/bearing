@@ -1,3 +1,4 @@
+import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import { AuditFindingRow } from "./audit-finding-row";
 import { Icons } from "./icons";
@@ -111,9 +112,11 @@ function AuditScope({ model }: { readonly model: ReadableAudit }) {
 }
 
 function ReadableAuditPage({
+  entryId,
   model,
   onInspect,
 }: {
+  readonly entryId: string;
   readonly model: ReadableAudit;
   readonly onInspect: Inspect;
 }) {
@@ -181,13 +184,33 @@ function ReadableAuditPage({
           </div>
         ) : (
           <div className="audit-finding-list">
-            {model.findings.map((row) => (
-              <AuditFindingRow
-                key={row.finding.id}
-                row={row}
-                onSelect={(trigger) => onInspect(findingInspection(row), trigger)}
-              />
-            ))}
+            {model.findings.map((row) => {
+              const promotion = row.promotion;
+              const fullDetailHref =
+                promotion?.available === true
+                  ? planningLineageSubjectHref(
+                      entryId,
+                      promotion.kind === "alignment-check"
+                        ? { kind: "alignment-check", id: promotion.id }
+                        : { kind: "planning-review", id: promotion.id },
+                    )
+                  : undefined;
+              return (
+                <AuditFindingRow
+                  key={row.finding.id}
+                  row={row}
+                  onSelect={(trigger) =>
+                    onInspect(
+                      {
+                        ...findingInspection(row),
+                        ...(fullDetailHref === undefined ? {} : { fullDetailHref }),
+                      },
+                      trigger,
+                    )
+                  }
+                />
+              );
+            })}
           </div>
         )}
       </section>
@@ -211,9 +234,11 @@ function ReadableAuditPage({
 }
 
 export function AuditPage({
+  entryId,
   onInspect,
   snapshot,
 }: {
+  readonly entryId: string;
   readonly onInspect: Inspect;
   readonly snapshot: ProjectSnapshot;
 }) {
@@ -239,7 +264,7 @@ export function AuditPage({
           </p>
         </section>
       ) : (
-        <ReadableAuditPage model={model} onInspect={onInspect} />
+        <ReadableAuditPage entryId={entryId} model={model} onInspect={onInspect} />
       )}
     </div>
   );

@@ -10,6 +10,7 @@ import "./styles/overview.css";
 import "./styles/roadmaps.css";
 import "./styles/assets.css";
 import "./styles/audit.css";
+import "./styles/lineage.css";
 
 const root = document.querySelector("#root");
 if (!(root instanceof HTMLElement)) {

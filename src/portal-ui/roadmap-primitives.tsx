@@ -5,6 +5,7 @@ import { Icons } from "./icons";
 export type GateState = "passed" | "focused" | "planned" | "superseded" | "unknown";
 
 export type Gate = {
+  readonly href?: string;
   readonly id: string;
   readonly label: string;
   readonly state: GateState;
@@ -49,10 +50,12 @@ function GateMarker({ state }: { readonly state: GateState }) {
 export function RoadmapHorizon({
   gates,
   label,
+  onOpen,
   onSelect,
 }: {
   readonly gates: readonly Gate[];
   readonly label: string;
+  readonly onOpen?: (gate: Gate, event: MouseEvent<HTMLAnchorElement>) => void;
   readonly onSelect?: (gate: Gate, trigger: HTMLButtonElement) => void;
 }) {
   return (
@@ -60,20 +63,49 @@ export function RoadmapHorizon({
       <legend className="sr-only">{label}</legend>
       {gates.map((gate, index) => (
         <div className="gate-segment" key={gate.id}>
-          <button
-            className={`gate-node gate-${gate.state}`}
-            type="button"
-            aria-label={`${gate.label}, ${gate.title}, ${gateNote(gate.state)}`}
-            onClick={(event) => onSelect?.(gate, event.currentTarget)}
-          >
-            <GateMarker state={gate.state} />
-            <span className="gate-copy">
-              <strong>
-                {gate.label} · {gate.title}
-              </strong>
-              <small>{gateNote(gate.state)}</small>
-            </span>
-          </button>
+          {gate.href === undefined ? (
+            <button
+              className={`gate-node gate-${gate.state}`}
+              type="button"
+              aria-label={`${gate.label}, ${gate.title}, ${gateNote(gate.state)}`}
+              onClick={(event) => onSelect?.(gate, event.currentTarget)}
+            >
+              <GateMarker state={gate.state} />
+              <span className="gate-copy">
+                <strong>
+                  {gate.label} · {gate.title}
+                </strong>
+                <small>{gateNote(gate.state)}</small>
+              </span>
+            </button>
+          ) : (
+            <>
+              <a
+                className={`gate-node gate-${gate.state}`}
+                href={gate.href}
+                aria-label={`${gate.label}, ${gate.title}, ${gateNote(gate.state)}`}
+                onClick={(event) => onOpen?.(gate, event)}
+              >
+                <GateMarker state={gate.state} />
+                <span className="gate-copy">
+                  <strong>
+                    {gate.label} · {gate.title}
+                  </strong>
+                  <small>{gateNote(gate.state)}</small>
+                </span>
+              </a>
+              {onSelect === undefined ? null : (
+                <button
+                  className="gate-quick-look"
+                  type="button"
+                  aria-label={`Quick Look ${gate.title}`}
+                  onClick={(event) => onSelect(gate, event.currentTarget)}
+                >
+                  Quick Look
+                </button>
+              )}
+            </>
+          )}
           {index < gates.length - 1 ? <span className="horizon-line" aria-hidden="true" /> : null}
         </div>
       ))}
@@ -88,6 +120,7 @@ export function RoadmapIndexRow({
   horizon,
   lifecycle,
   onOpen,
+  onOpenGate,
   onSelectGate,
   title,
 }: {
@@ -97,6 +130,7 @@ export function RoadmapIndexRow({
   readonly intent: string;
   readonly lifecycle?: string;
   readonly onOpen?: ((event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
+  readonly onOpenGate?: ((gate: Gate, event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
   readonly onSelectGate?: ((gate: Gate, trigger: HTMLButtonElement) => void) | undefined;
   readonly title: string;
 }) {
@@ -119,6 +153,7 @@ export function RoadmapIndexRow({
         <RoadmapHorizon
           gates={gates}
           label={`${title} horizon`}
+          {...(onOpenGate === undefined ? {} : { onOpen: onOpenGate })}
           {...(onSelectGate === undefined ? {} : { onSelect: onSelectGate })}
         />
       )}

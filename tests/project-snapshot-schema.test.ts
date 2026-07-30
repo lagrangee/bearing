@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { createProviderScopeObservation } from "../src/native-work-provider";
+import type { AssetProjection } from "../src/project-snapshot/contract";
+import { buildPlanningLineageProjection } from "../src/project-snapshot/planning-lineage";
 import {
   assetProjectionSchema,
   gateSchema,
@@ -80,7 +82,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -92,6 +94,7 @@ const validSnapshot = {
   assets: availableItems,
   checks: availableItems,
   reviews: availableItems,
+  lineage: { subjects: [] },
   audit: { validity: "absent" },
   guidance: { validity: "absent" },
   providerObservations: [],
@@ -192,6 +195,7 @@ test("parses a repository-scoped Snapshot with the complete domain breadth", () 
     "assets",
     "checks",
     "reviews",
+    "lineage",
     "audit",
     "guidance",
     "providerObservations",
@@ -405,6 +409,10 @@ test("keeps execution evidence provenance self-contained in cached Assets", () =
   const withAsset = (value: object) => ({
     ...validSnapshot,
     assets: { validity: "available", items: [value] },
+    lineage: buildPlanningLineageProjection({
+      ...validSnapshot,
+      assets: { validity: "available", items: [value as AssetProjection] },
+    }),
   });
 
   // When / Then: missing work provenance or the wrong Producer kind is rejected from cache.
@@ -525,7 +533,7 @@ test("requires a partial collection to retain at least one trustworthy member", 
   const retainedPartial = {
     ...validSnapshot,
     roadmaps: {
-      validity: "partial",
+      validity: "partial" as const,
       items: [
         {
           id: "roadmap:test",
@@ -533,19 +541,23 @@ test("requires a partial collection to retain at least one trustworthy member", 
           source: roadmapRecord.reference,
           citations: [],
           intent: "Retain the trustworthy horizon.",
-          lifecycle: "active",
+          lifecycle: "active" as const,
           focusedGateId: null,
           gateOrder: [],
-          horizon: "unknown",
+          horizon: "unknown" as const,
           effortIds: [],
         },
       ],
       issues: [issue],
     },
   };
+  const retainedPartialWithLineage = {
+    ...retainedPartial,
+    lineage: buildPlanningLineageProjection(retainedPartial),
+  };
 
   expect(projectSnapshotSchema.safeParse(emptyPartial).success).toBe(false);
-  expect(projectSnapshotSchema.safeParse(retainedPartial).success).toBe(true);
+  expect(projectSnapshotSchema.safeParse(retainedPartialWithLineage).success).toBe(true);
 });
 
 test("preserves the complete accepted Gate Passage decision", () => {

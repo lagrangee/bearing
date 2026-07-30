@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { prepareSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
-const inspect = async (root: string, kind: "roadmap" | "gate" | "effort", id: string) => {
+const inspect = async (
+  root: string,
+  kind: "roadmap" | "gate" | "effort",
+  id: string,
+  portalEntry?: string,
+) => {
   try {
     await access(join(root, ".bearing/cache/provider-observations.json"));
   } catch (error) {
@@ -15,12 +20,24 @@ const inspect = async (root: string, kind: "roadmap" | "gate" | "effort", id: st
     await mkdir(join(root, ".bearing/cache"), { recursive: true });
     await writeFile(baseline.providerObservationStorePath, baseline.providerObservationStoreBytes);
   }
-  const child = Bun.spawn(["bun", "src/cli.ts", "inspect", kind, id, "--repo", root], {
-    cwd: process.cwd(),
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, NO_COLOR: "1" },
-  });
+  const child = Bun.spawn(
+    [
+      "bun",
+      "src/cli.ts",
+      "inspect",
+      kind,
+      id,
+      "--repo",
+      root,
+      ...(portalEntry === undefined ? [] : ["--portal-entry", portalEntry]),
+    ],
+    {
+      cwd: process.cwd(),
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, NO_COLOR: "1" },
+    },
+  );
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -168,7 +185,7 @@ test("real inspect gate command returns one structured captured closure and writ
   const effortPath = join(root, ".bearing/state/efforts/test.md");
   const before = await readFile(effortPath, "utf8");
 
-  const result = await inspect(root, "gate", "gate:test");
+  const result = await inspect(root, "gate", "gate:test", "bearing");
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
@@ -177,6 +194,10 @@ test("real inspect gate command returns one structured captured closure and writ
     state: "complete",
     fingerprint: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
     target: { kind: "gate", id: "gate:test" },
+    handoff: {
+      identity: { kind: "gate", id: "gate:test" },
+      portalRoute: "/projects/bearing/lineage/gate/gate%3Atest",
+    },
     issues: [],
     context: { gate: { value: { id: "gate:test" } } },
   });

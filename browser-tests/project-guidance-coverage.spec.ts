@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "../tests/planning-lineage-fixture";
 
 const serveSnapshot = async (page: Page, snapshot: ProjectSnapshot): Promise<void> => {
   const view = {
@@ -43,29 +44,31 @@ test("Overview presents partial semantic coverage independently from freshness a
   const fixture = createProjectOverviewFixture();
   if (fixture.guidance.validity !== "available") throw new Error("Expected Guidance fixture.");
   if (fixture.audit.validity !== "available") throw new Error("Expected Audit fixture.");
-  const snapshot = projectSnapshotSchema.parse({
-    ...fixture,
-    checks: { validity: "available", items: [] },
-    reviews: { validity: "available", items: [] },
-    diagnostics: [],
-    attention: [],
-    audit: {
-      validity: "available",
-      value: {
-        ...fixture.audit.value,
-        coverage: "incomplete",
-        skippedTargets: ["roadmap:second"],
+  const snapshot = projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...fixture,
+      checks: { validity: "available", items: [] },
+      reviews: { validity: "available", items: [] },
+      diagnostics: [],
+      attention: [],
+      audit: {
+        validity: "available",
+        value: {
+          ...fixture.audit.value,
+          coverage: "incomplete",
+          skippedTargets: ["roadmap:second"],
+        },
       },
-    },
-    guidance: {
-      ...fixture.guidance,
-      value: {
-        ...fixture.guidance.value,
-        semanticCoverage: "partial",
-        semanticFreshness: "stale",
+      guidance: {
+        ...fixture.guidance,
+        value: {
+          ...fixture.guidance.value,
+          semanticCoverage: "partial",
+          semanticFreshness: "stale",
+        },
       },
-    },
-  });
+    }),
+  );
   await serveSnapshot(page, snapshot);
 
   // When: the user opens Overview through the real browser surface.
@@ -86,26 +89,28 @@ test("Overview keeps relation-partial Guidance readable without changing semanti
   // Given: Guidance prose is trustworthy while its declared Audit relation is unavailable.
   const fixture = createProjectOverviewFixture();
   if (fixture.guidance.validity !== "available") throw new Error("Expected Guidance fixture.");
-  const snapshot = projectSnapshotSchema.parse({
-    ...fixture,
-    checks: { validity: "available", items: [] },
-    reviews: { validity: "available", items: [] },
-    diagnostics: [],
-    attention: [],
-    audit: { validity: "absent" },
-    guidance: {
-      validity: "partial",
-      value: fixture.guidance.value,
-      issues: [
-        {
-          code: "unavailable-next-work-guidance-audit-basis",
-          target: ".bearing/state/next-work-guidance.md",
-          message: "Next Work Guidance depends on an unavailable Planning Audit.",
-          source: fixture.guidance.value.source,
-        },
-      ],
-    },
-  });
+  const snapshot = projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...fixture,
+      checks: { validity: "available", items: [] },
+      reviews: { validity: "available", items: [] },
+      diagnostics: [],
+      attention: [],
+      audit: { validity: "absent" },
+      guidance: {
+        validity: "partial",
+        value: fixture.guidance.value,
+        issues: [
+          {
+            code: "unavailable-next-work-guidance-audit-basis",
+            target: ".bearing/state/next-work-guidance.md",
+            message: "Next Work Guidance depends on an unavailable Planning Audit.",
+            source: fixture.guidance.value.source,
+          },
+        ],
+      },
+    }),
+  );
   await serveSnapshot(page, snapshot);
 
   // When: the user opens Overview through the same normalized read path.

@@ -1,4 +1,5 @@
 import type { MouseEvent } from "react";
+import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectInspectorSelection } from "./project-inspector";
 import type { ProjectOverviewModel } from "./project-overview-model";
 import { type Gate, RoadmapHorizon } from "./roadmap-primitives";
@@ -58,13 +59,18 @@ export function OverviewRoadmaps({
         const gateModel = new Map(item.gates.map((entry) => [String(entry.gate.id), entry]));
         const gates: Gate[] = item.gates.map((entry) => ({
           id: entry.gate.id,
+          href: planningLineageSubjectHref(entryId, {
+            kind: "gate",
+            id: entry.gate.id,
+          }),
           label: `G${entry.ordinal}`,
           state: entry.gate.horizonState,
           title: entry.gate.title,
         }));
-        const href = `/projects/${encodeURIComponent(entryId)}/roadmaps/${encodeURIComponent(
-          item.roadmap.id,
-        )}`;
+        const href = planningLineageSubjectHref(entryId, {
+          kind: "roadmap",
+          id: item.roadmap.id,
+        });
         return (
           <article className="roadmap-landscape-item" key={item.roadmap.id}>
             <div className="roadmap-landscape-header">
@@ -95,6 +101,7 @@ export function OverviewRoadmaps({
               <RoadmapHorizon
                 gates={gates}
                 label={`${item.roadmap.title} Roadmap horizon`}
+                onOpen={(gate, event) => onOpenRoadmap(gate.href ?? "", event)}
                 onSelect={(gate, trigger) => {
                   const selected = gateModel.get(gate.id);
                   onInspect(
@@ -103,6 +110,7 @@ export function OverviewRoadmaps({
                       title: gate.title,
                       detail: selected?.gate.intent,
                       handoff: true,
+                      fullDetailHref: gate.href,
                       source: selected?.source,
                     },
                     trigger,

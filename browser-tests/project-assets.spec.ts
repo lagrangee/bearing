@@ -4,6 +4,7 @@ import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createSourceRecord } from "../src/project-snapshot/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "../tests/planning-lineage-fixture";
 import { browserArtifactPath } from "./browser-artifact-output";
 
 const projectView = (snapshot: ProjectSnapshot) => ({
@@ -44,45 +45,47 @@ const assetsFixture = (): ProjectSnapshot => {
     locator: ".bearing/state/authorities/product-design.md",
     binding: { role: "authority", identity: "authority:product-design" },
   });
-  return projectSnapshotSchema.parse({
-    ...snapshot,
-    authorities: {
-      validity: "available",
-      items: [
-        {
-          id: "authority:product-design",
-          title: "Product Design",
-          source: authoritySource.reference,
-          citations: [],
-          scope: "Accepted product-design direction.",
-          baselineAssetIds: ["asset:uncited-context"],
-        },
-      ],
-    },
-    assets: {
-      validity: "available",
-      items: [
-        ...snapshot.assets.items,
-        {
-          id: "asset:uncited-context",
-          title: "Uncited Product Context",
-          source: assetSource.reference,
-          citations: [],
-          kind: "product-design",
-          owner: "effort:portal",
-          producer: { kind: "planning-skill", name: "impeccable" },
-          lifecycleSource: "registry",
-          disposition: "available",
-          displayLocation: "PRODUCT.md",
-          contentAvailability: "available",
-          adoptedByAuthorityIds: ["authority:product-design"],
-          gatePassageEvidenceFor: [],
-          citationCount: 0,
-        },
-      ],
-    },
-    sources: [...snapshot.sources, assetSource, authoritySource],
-  });
+  return projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      authorities: {
+        validity: "available",
+        items: [
+          {
+            id: "authority:product-design",
+            title: "Product Design",
+            source: authoritySource.reference,
+            citations: [],
+            scope: "Accepted product-design direction.",
+            baselineAssetIds: ["asset:uncited-context"],
+          },
+        ],
+      },
+      assets: {
+        validity: "available",
+        items: [
+          ...snapshot.assets.items,
+          {
+            id: "asset:uncited-context",
+            title: "Uncited Product Context",
+            source: assetSource.reference,
+            citations: [],
+            kind: "product-design",
+            owner: "effort:portal",
+            producer: { kind: "planning-skill", name: "impeccable" },
+            lifecycleSource: "registry",
+            disposition: "available",
+            displayLocation: "PRODUCT.md",
+            contentAvailability: "available",
+            adoptedByAuthorityIds: ["authority:product-design"],
+            gatePassageEvidenceFor: [],
+            citationCount: 0,
+          },
+        ],
+      },
+      sources: [...snapshot.sources, assetSource, authoritySource],
+    }),
+  );
 };
 
 const emptyFixture = (): ProjectSnapshot => {
@@ -90,22 +93,24 @@ const emptyFixture = (): ProjectSnapshot => {
   if (snapshot.efforts.validity === "invalid" || snapshot.gates.validity === "invalid") {
     throw new Error("Expected planning fixture.");
   }
-  return projectSnapshotSchema.parse({
-    ...snapshot,
-    efforts: {
-      ...snapshot.efforts,
-      items: snapshot.efforts.items.map((effort) => ({ ...effort, citations: [] })),
-    },
-    gates: {
-      ...snapshot.gates,
-      items: snapshot.gates.items.map((gate) =>
-        gate.passage === undefined
-          ? gate
-          : { ...gate, passage: { ...gate.passage, evidenceAssetIds: [] } },
-      ),
-    },
-    assets: { validity: "available", items: [] },
-  });
+  return projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      efforts: {
+        ...snapshot.efforts,
+        items: snapshot.efforts.items.map((effort) => ({ ...effort, citations: [] })),
+      },
+      gates: {
+        ...snapshot.gates,
+        items: snapshot.gates.items.map((gate) =>
+          gate.passage === undefined
+            ? gate
+            : { ...gate, passage: { ...gate.passage, evidenceAssetIds: [] } },
+        ),
+      },
+      assets: { validity: "available", items: [] },
+    }),
+  );
 };
 
 const serveSnapshot = async (page: Page, current: () => ProjectSnapshot): Promise<void> => {
@@ -179,7 +184,7 @@ test("Assets keeps stable rows searchable, filterable, inspectable, and read-onl
   ]);
   expect(
     await page
-      .locator(".asset-row")
+      .locator(".asset-row-primary")
       .first()
       .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length),
   ).toBe(5);
@@ -202,7 +207,7 @@ test("Assets keeps stable rows searchable, filterable, inspectable, and read-onl
   ]);
   await filter.selectOption("all");
 
-  const row = page.getByRole("button", { name: /Planning Model Evidence/u });
+  const row = page.getByRole("button", { name: "Quick Look Planning Model Evidence" });
   await focusByTab(page, row);
   await page.keyboard.press("Enter");
   const inspector = page.getByRole("complementary", { name: "Selected context" });
@@ -217,9 +222,11 @@ test("Assets keeps stable rows searchable, filterable, inspectable, and read-onl
       .locator("..")
       .locator("li", { hasText: "gate:one" }),
   ).toBeVisible();
-  await expect(inspector.getByRole("button", { name: /Resume in Agent Surface/u })).toBeDisabled();
-  await expect(inspector.getByRole("button", { name: "Open native source" })).toBeDisabled();
-  await expect(inspector.locator("a[href]")).toHaveCount(0);
+  await expect(inspector.getByRole("link", { name: "Open full detail" })).toHaveAttribute(
+    "href",
+    "/projects/assets/lineage/asset/asset%3Aplanning-model-evidence",
+  );
+  await expect(inspector.getByRole("button", { name: /Resume in Agent Surface/u })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(row).toBeFocused();
   expect(posts).toEqual([]);
@@ -250,7 +257,7 @@ test("Assets preserves zero citations, keyboard return, and modal focus at revie
     await expectClosedNarrowNavigation(page);
     await expect(page.getByText("Read-only normalized snapshot", { exact: true })).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /Uncited Product Context.+0 citations/u }),
+      page.getByRole("link", { name: /Uncited Product Context.+0 citations/u }),
     ).toBeVisible();
     expect(
       await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
@@ -261,7 +268,7 @@ test("Assets preserves zero citations, keyboard return, and modal focus at revie
     });
   }
 
-  const row = page.getByRole("button", { name: /Uncited Product Context.+0 citations/u });
+  const row = page.getByRole("button", { name: "Quick Look Uncited Product Context" });
   await row.focus();
   await page.keyboard.press("Space");
   const dialog = page.getByRole("dialog", { name: "Selected context" });
@@ -270,13 +277,16 @@ test("Assets preserves zero citations, keyboard return, and modal focus at revie
   await expect(close).toBeFocused();
   await expect(page.locator("main")).toHaveAttribute("inert", "");
   await page.keyboard.press("Tab");
+  const fullDetail = dialog.getByRole("link", { name: "Open full detail" });
+  await expect(fullDetail).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(close).toBeFocused();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.keyboard.press("Escape");
   await expect(row).toBeFocused();
   await minimumTarget(row, 44);
 
-  const citedRow = page.getByRole("button", { name: /Planning Model Evidence.+1 citation/u });
+  const citedRow = page.getByRole("button", { name: "Quick Look Planning Model Evidence" });
   await citedRow.click();
   const relationDialog = page.getByRole("dialog", { name: "Selected context" });
   await relationDialog
@@ -302,18 +312,22 @@ test("Assets distinguishes empty, partial, invalid, and filtered-empty states", 
   const available = assetsFixture();
   if (available.assets.validity !== "available") throw new Error("Expected Assets fixture.");
   const issue = { code: "invalid-asset", target: "assets", message: "One entry is invalid." };
-  snapshot = projectSnapshotSchema.parse({
-    ...available,
-    assets: { validity: "partial", items: available.assets.items, issues: [issue] },
-  });
+  snapshot = projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...available,
+      assets: { validity: "partial", items: available.assets.items, issues: [issue] },
+    }),
+  );
   await page.reload();
   await expect(page.getByText(/Asset orientation is partial/u)).toBeVisible();
   await expect(page.locator(".asset-row")).toHaveCount(2);
 
-  snapshot = projectSnapshotSchema.parse({
-    ...available,
-    assets: { validity: "invalid", issues: [issue] },
-  });
+  snapshot = projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...available,
+      assets: { validity: "invalid", issues: [issue] },
+    }),
+  );
   await page.reload();
   await expect(page.getByRole("heading", { name: "Assets unavailable" })).toBeVisible();
   await expect(page.getByPlaceholder("Find an Asset")).toHaveCount(0);

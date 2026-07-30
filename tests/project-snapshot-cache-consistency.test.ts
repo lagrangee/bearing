@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { buildPlanningLineageProjection } from "../src/project-snapshot/planning-lineage";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import {
   createSourceReference,
@@ -110,7 +111,7 @@ const secondGuidanceRecord = guidanceItemRecord("alternative-2");
 const issue = { code: "relation-mismatch", target: "snapshot", message: "Relation mismatch." };
 const emptyItems = { validity: "available", items: [] } as const;
 const emptySnapshot = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -122,6 +123,7 @@ const emptySnapshot = {
   assets: emptyItems,
   checks: emptyItems,
   reviews: emptyItems,
+  lineage: { subjects: [] },
   audit: { validity: "absent" },
   guidance: { validity: "absent" },
   providerObservations: [],
@@ -164,28 +166,28 @@ const openCheck = {
   title: "Open alignment check",
   source: openCheckRecord.reference,
   citations: [],
-  status: "open",
+  status: "open" as const,
   target: "roadmap:active",
 };
 const resolvedCheck = {
   ...openCheck,
   id: "alignment-check:resolved-check",
   source: resolvedCheckRecord.reference,
-  status: "resolved",
+  status: "resolved" as const,
 };
 const pendingReview = {
   id: "planning-review:pending-review",
   title: "Pending planning review",
   source: pendingReviewRecord.reference,
   citations: [],
-  status: "pending",
+  status: "pending" as const,
   scope: "Review the whole project.",
 };
 const completedReview = {
   ...pendingReview,
   id: "planning-review:completed-review",
   source: completedReviewRecord.reference,
-  status: "completed",
+  status: "completed" as const,
 };
 const exactAttention = [
   { kind: "structural-diagnostic", diagnosticReference: blockingReference },
@@ -202,10 +204,10 @@ const exactAttention = [
     source: pendingReview.source,
   },
 ];
-const attentionSnapshot = {
+const attentionSnapshotCandidate = {
   ...emptySnapshot,
-  checks: { validity: "available", items: [openCheck, resolvedCheck] },
-  reviews: { validity: "available", items: [pendingReview, completedReview] },
+  checks: { validity: "available" as const, items: [openCheck, resolvedCheck] },
+  reviews: { validity: "available" as const, items: [pendingReview, completedReview] },
   diagnostics: [
     {
       reference: blockingReference,
@@ -225,6 +227,10 @@ const attentionSnapshot = {
     },
   ],
   attention: exactAttention,
+};
+const attentionSnapshot = {
+  ...attentionSnapshotCandidate,
+  lineage: buildPlanningLineageProjection(attentionSnapshotCandidate),
 };
 
 test("accepts Attention derived exactly from trustworthy unresolved inputs", () => {
@@ -303,10 +309,10 @@ const activeRoadmap = {
   source: activeRoadmapRecord.reference,
   citations: [],
   intent: "Continue the active horizon.",
-  lifecycle: "active",
+  lifecycle: "active" as const,
   focusedGateId: null,
   gateOrder: [],
-  horizon: "unknown",
+  horizon: "unknown" as const,
   effortIds: [],
 };
 const completedRoadmap = {
@@ -314,21 +320,21 @@ const completedRoadmap = {
   id: "roadmap:completed",
   title: "Completed Roadmap",
   source: completedRoadmapRecord.reference,
-  lifecycle: "completed",
-  horizon: "exhausted",
+  lifecycle: "completed" as const,
+  horizon: "exhausted" as const,
 };
 const supersededRoadmap = {
   ...activeRoadmap,
   id: "roadmap:superseded",
   title: "Superseded Roadmap",
   source: supersededRoadmapRecord.reference,
-  lifecycle: "superseded",
-  horizon: "exhausted",
+  lifecycle: "superseded" as const,
+  horizon: "exhausted" as const,
 };
-const roadmapSnapshot = {
+const roadmapSnapshotCandidate = {
   ...emptySnapshot,
   roadmaps: {
-    validity: "available",
+    validity: "available" as const,
     items: [activeRoadmap, completedRoadmap, supersededRoadmap],
   },
   roadmapIndex: {
@@ -340,6 +346,10 @@ const roadmapSnapshot = {
       supersededRoadmapIds: [supersededRoadmap.id],
     },
   },
+};
+const roadmapSnapshot = {
+  ...roadmapSnapshotCandidate,
+  lineage: buildPlanningLineageProjection(roadmapSnapshotCandidate),
 };
 
 test("accepts an exact Roadmap Index lifecycle projection", () => {

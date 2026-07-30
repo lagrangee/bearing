@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { buildProjectOverviewModel } from "../src/portal-ui/project-overview-model";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
 const snapshotFixture = createProjectOverviewFixture;
 
@@ -61,15 +62,17 @@ test("renders retained members from a trustworthy partial Roadmap projection", (
     target: "roadmap:second",
     message: "One Roadmap is unavailable.",
   };
-  const partial = projectSnapshotSchema.parse({
-    ...snapshot,
-    roadmapIndex: {
-      validity: "partial",
-      value: { ...snapshot.roadmapIndex.value, activeRoadmapIds: ["roadmap:portal"] },
-      issues: [issue],
-    },
-    roadmaps: { validity: "partial", items: [portalRoadmap], issues: [issue] },
-  });
+  const partial = projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      roadmapIndex: {
+        validity: "partial",
+        value: { ...snapshot.roadmapIndex.value, activeRoadmapIds: ["roadmap:portal"] },
+        issues: [issue],
+      },
+      roadmaps: { validity: "partial", items: [portalRoadmap], issues: [issue] },
+    }),
+  );
   const model = buildProjectOverviewModel(partial);
 
   expect(model.roadmaps).toMatchObject({ state: "partial", activeCount: 1 });

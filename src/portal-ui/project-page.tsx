@@ -1,10 +1,20 @@
 import type { MouseEvent, ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  RequestedPlanningLineageFilteredView,
+  RequestedPlanningLineageSubject,
+} from "../planning-lineage-route";
 import { AssetsPage } from "./assets-page";
 import { AuditPage } from "./audit-page";
 import { Icons } from "./icons";
 import { OverviewPage } from "./overview-page";
+import { PlanningLineagePage } from "./planning-lineage-page";
 import { Action, EmptyState, LoadingState } from "./primitives";
+import {
+  captureProjectCanvasReturn,
+  projectCanvasFocusKey,
+  restoreProjectCanvas,
+} from "./project-canvas-history";
 import { ProjectContextInspector, type ProjectInspectorSelection } from "./project-inspector";
 import {
   type CapturedProjectInspectorSelection,
@@ -20,14 +30,18 @@ import { useProjectActivation } from "./use-project-activation";
 
 export function ProjectPage({
   entryId,
+  filteredView,
   onNavigate,
-  roadmapId,
+  semanticAnchor,
   section,
+  subject,
 }: {
   readonly entryId: string;
+  readonly filteredView?: RequestedPlanningLineageFilteredView | undefined;
   readonly onNavigate: (href: string) => void;
-  readonly roadmapId?: string | undefined;
+  readonly semanticAnchor?: string | undefined;
   readonly section: ProjectSection;
+  readonly subject?: RequestedPlanningLineageSubject | undefined;
 }) {
   const activation = useProjectActivation(entryId);
   const narrow = useNarrowViewport();
@@ -36,11 +50,15 @@ export function ProjectPage({
     useState<CapturedProjectInspectorSelection | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   const inspectorTriggerRef = useRef<HTMLElement | null>(null);
+  const inspectorHistoryTokenRef = useRef<string | null>(null);
+  const inspectorScrollRef = useRef(0);
   const view = activation.view;
   const snapshot = snapshotFor(view);
+  const routeIdentity =
+    section === "lineage" ? JSON.stringify({ subject, filteredView, semanticAnchor }) : section;
   const inspectorContext = {
     entryId,
-    roadmapId,
+    routeIdentity: section === "lineage" ? routeIdentity : undefined,
     section,
     snapshotFingerprint: snapshot?.basis.sitemapFingerprint,
   };
@@ -52,16 +70,76 @@ export function ProjectPage({
       : "Loading project");
   const projectTitle = snapshotTitle(snapshot) ?? projectLabel;
   const overlayOpen = narrow && (navOpen || selection !== null);
+  const currentFocusKey = (): string | undefined =>
+    document.activeElement instanceof HTMLElement
+      ? projectCanvasFocusKey(document.activeElement)
+      : undefined;
+  const navigateFromProject = (href: string, focusKey = currentFocusKey()) => {
+    captureProjectCanvasReturn(entryId, section, focusKey);
+    onNavigate(href);
+  };
   const inspect = (next: ProjectInspectorSelection, trigger: HTMLButtonElement) => {
+    const token = `inspector:${Date.now()}:${Math.random().toString(36).slice(2)}`;
     inspectorTriggerRef.current = trigger;
+    inspectorHistoryTokenRef.current = token;
+    inspectorScrollRef.current = window.scrollY;
+    window.history.pushState(
+      {
+        ...(typeof window.history.state === "object" && window.history.state !== null
+          ? window.history.state
+          : {}),
+        bearingInspector: { entryId, token },
+      },
+      "",
+      window.location.href,
+    );
     setCapturedSelection(captureProjectInspectorSelection(next, inspectorContext));
+  };
+  const dismissInspector = useCallback(() => {
+    const trigger = inspectorTriggerRef.current;
+    setCapturedSelection(null);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: inspectorScrollRef.current });
+      if (trigger?.isConnected) trigger.focus();
+      if (inspectorTriggerRef.current === trigger) inspectorTriggerRef.current = null;
+    });
+  }, []);
+  const closeInspector = () => {
+    const marker =
+      typeof window.history.state === "object" && window.history.state !== null
+        ? (window.history.state as { bearingInspector?: { token?: string } }).bearingInspector
+        : undefined;
+    if (
+      inspectorHistoryTokenRef.current !== null &&
+      marker?.token === inspectorHistoryTokenRef.current
+    ) {
+      window.history.back();
+      return;
+    }
+    dismissInspector();
+  };
+  const openInspectorDetail = (href: string) => {
+    captureProjectCanvasReturn(
+      entryId,
+      section,
+      projectCanvasFocusKey(inspectorTriggerRef.current),
+    );
+    const state =
+      typeof window.history.state === "object" && window.history.state !== null
+        ? { ...(window.history.state as Record<string, unknown>) }
+        : {};
+    delete state["bearingInspector"];
+    window.history.replaceState(state, "", window.location.href);
+    inspectorHistoryTokenRef.current = null;
+    setCapturedSelection(null);
+    onNavigate(href);
   };
   const openRoadmap = (href: string, event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
     }
     event.preventDefault();
-    onNavigate(href);
+    navigateFromProject(href);
   };
   const runSync = () => {
     if (activation.state.kind === "failed") activation.retry();
@@ -70,14 +148,26 @@ export function ProjectPage({
 
   useEffect(() => {
     if (capturedSelection !== null && selection === null) {
-      const trigger = inspectorTriggerRef.current;
-      setCapturedSelection(null);
-      window.requestAnimationFrame(() => {
-        if (trigger?.isConnected) trigger.focus();
-        if (inspectorTriggerRef.current === trigger) inspectorTriggerRef.current = null;
-      });
+      dismissInspector();
     }
-  }, [capturedSelection, selection]);
+  }, [capturedSelection, dismissInspector, selection]);
+
+  useEffect(() => {
+    const closeFromHistory = () => {
+      if (capturedSelection !== null) {
+        inspectorHistoryTokenRef.current = null;
+        dismissInspector();
+      }
+    };
+    window.addEventListener("popstate", closeFromHistory);
+    return () => window.removeEventListener("popstate", closeFromHistory);
+  }, [capturedSelection, dismissInspector]);
+
+  useEffect(() => {
+    if (snapshot === undefined) return undefined;
+    void routeIdentity;
+    return restoreProjectCanvas(entryId, section);
+  }, [entryId, routeIdentity, section, snapshot]);
 
   let content: ReactNode;
   if (snapshot !== undefined) {
@@ -86,6 +176,7 @@ export function ProjectPage({
         <OverviewPage
           entryId={entryId}
           onInspect={inspect}
+          onNavigate={navigateFromProject}
           onOpenRoadmap={openRoadmap}
           snapshot={snapshot}
         />
@@ -93,14 +184,35 @@ export function ProjectPage({
         <RoadmapsPage
           entryId={entryId}
           onInspect={inspect}
-          onNavigate={onNavigate}
-          roadmapId={roadmapId}
+          onNavigate={navigateFromProject}
           snapshot={snapshot}
         />
       ) : section === "assets" ? (
-        <AssetsPage onInspect={inspect} snapshot={snapshot} />
+        <AssetsPage
+          entryId={entryId}
+          onInspect={inspect}
+          onNavigate={navigateFromProject}
+          snapshot={snapshot}
+        />
+      ) : section === "audit" ? (
+        <AuditPage entryId={entryId} onInspect={inspect} snapshot={snapshot} />
+      ) : subject === undefined ? (
+        <div className="page project-state-page">
+          <EmptyState
+            title="Planning Lineage route unavailable"
+            detail="The requested subject identity is missing from this route."
+          />
+        </div>
       ) : (
-        <AuditPage onInspect={inspect} snapshot={snapshot} />
+        <PlanningLineagePage
+          entryId={entryId}
+          filteredView={filteredView}
+          onInspect={inspect}
+          onNavigate={navigateFromProject}
+          requested={subject}
+          semanticAnchor={semanticAnchor}
+          snapshot={snapshot}
+        />
       );
   } else if (activation.state.kind === "unavailable") {
     content = (
@@ -174,7 +286,7 @@ export function ProjectPage({
         basePath={`/projects/${encodeURIComponent(entryId)}`}
         open={navOpen}
         onClose={() => setNavOpen(false)}
-        onNavigate={(_next, href) => onNavigate(href)}
+        onNavigate={(_next, href) => navigateFromProject(href)}
         projectTitle={projectLabel}
         returnFocusRef={menuRef}
         suspended={narrow && selection !== null}
@@ -201,7 +313,8 @@ export function ProjectPage({
       </main>
       {selection === null ? null : (
         <ProjectContextInspector
-          onClose={() => setCapturedSelection(null)}
+          onClose={closeInspector}
+          onOpenFullDetail={openInspectorDetail}
           returnFocusRef={inspectorTriggerRef}
           selection={selection}
         />

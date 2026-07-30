@@ -1,3 +1,4 @@
+import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot, SourceRecord } from "../project-snapshot/contract";
 import { EffortRow } from "./effort-row";
 import { Icons } from "./icons";
@@ -37,12 +38,16 @@ const sourceIndex = (snapshot: ProjectSnapshot): ReadonlyMap<string, SourceRecor
   new Map(snapshot.sources.map((source) => [source.reference, source]));
 
 export function RoadmapDetailWork({
+  entryId,
   model,
   onInspect,
+  onNavigate,
   snapshot,
 }: {
+  readonly entryId: string;
   readonly model: Detail;
   readonly onInspect: Inspect;
+  readonly onNavigate: (href: string) => void;
   readonly snapshot: ProjectSnapshot;
 }) {
   const sources = sourceIndex(snapshot);
@@ -63,17 +68,38 @@ export function RoadmapDetailWork({
           <p className="scoped-copy">No trustworthy contributing Efforts are available.</p>
         ) : (
           <div className="effort-table">
-            {model.efforts.map((effort) => (
-              <EffortRow
-                key={effort.effort.id}
-                fog={effort.fogCount}
-                frontier={frontierSummary(effort)}
-                gate={gateLabels.get(effort.effort.targetGateId) ?? "Unavailable"}
-                lifecycle={effort.effort.lifecycle}
-                onSelect={(trigger) => onInspect(effortInspection(effort), trigger)}
-                title={effort.effort.title}
-              />
-            ))}
+            {model.efforts.map((effort) => {
+              const href = planningLineageSubjectHref(entryId, {
+                kind: "effort",
+                id: effort.effort.id,
+              });
+              return (
+                <EffortRow
+                  key={effort.effort.id}
+                  fog={effort.fogCount}
+                  frontier={frontierSummary(effort)}
+                  gate={gateLabels.get(effort.effort.targetGateId) ?? "Unavailable"}
+                  href={href}
+                  lifecycle={effort.effort.lifecycle}
+                  onOpen={(event) => {
+                    if (
+                      event.button !== 0 ||
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey
+                    )
+                      return;
+                    event.preventDefault();
+                    onNavigate(href);
+                  }}
+                  onSelect={(trigger) =>
+                    onInspect({ ...effortInspection(effort), fullDetailHref: href }, trigger)
+                  }
+                  title={effort.effort.title}
+                />
+              );
+            })}
           </div>
         )}
         {model.missingEffortIds.length === 0 ? null : (

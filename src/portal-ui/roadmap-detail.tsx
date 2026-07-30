@@ -69,7 +69,13 @@ export function RoadmapDetail({
         </p>
       ) : null}
       <RoadmapDetailGate model={model} onInspect={onInspect} />
-      <RoadmapDetailWork model={model} onInspect={onInspect} snapshot={snapshot} />
+      <RoadmapDetailWork
+        entryId={entryId}
+        model={model}
+        onInspect={onInspect}
+        onNavigate={onNavigate}
+        snapshot={snapshot}
+      />
       <section className="roadmap-notes">
         <p className="eyebrow">Roadmap note</p>
         <p>

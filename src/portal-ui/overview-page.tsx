@@ -11,11 +11,13 @@ import { buildProjectOverviewModel } from "./project-overview-model";
 export function OverviewPage({
   entryId,
   onInspect,
+  onNavigate,
   onOpenRoadmap,
   snapshot,
 }: {
   readonly entryId: string;
   readonly onInspect: (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
+  readonly onNavigate: (href: string) => void;
   readonly onOpenRoadmap: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
   readonly snapshot: ProjectSnapshot;
 }) {
@@ -23,7 +25,12 @@ export function OverviewPage({
   return (
     <div className="page overview-page">
       <OverviewBrief onInspect={onInspect} summary={model.summary} />
-      <OverviewAttention attention={model.attention} onInspect={onInspect} />
+      <OverviewAttention
+        attention={model.attention}
+        entryId={entryId}
+        onInspect={onInspect}
+        onNavigate={onNavigate}
+      />
       <OverviewGuidance guidance={model.guidance} onInspect={onInspect} sources={model.sources} />
       <OverviewRoadmaps
         entryId={entryId}

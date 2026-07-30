@@ -16,6 +16,10 @@ import {
   type PlanningDerivationConsistencySnapshot,
   validatePlanningDerivationConsistency,
 } from "./schema-planning-derivation-consistency";
+import {
+  type PlanningLineageConsistencySnapshot,
+  validatePlanningLineageConsistency,
+} from "./schema-planning-lineage-consistency";
 import { validateRoadmapConsistency } from "./schema-roadmap-consistency";
 import {
   type SourceBindingConsistencySnapshot,
@@ -81,43 +85,47 @@ type GuidanceBasis = Readonly<{
 
 type PrimarySource = Readonly<{ id: string; source: string }>;
 
-type GovernanceSnapshot = Readonly<{
-  basis: AuditConsistencySnapshot["basis"];
-  summary: Singleton<PrimarySource>;
-  roadmaps: Collection<
-    CollectionItem<PlanningDerivationConsistencySnapshot["roadmaps"]> &
-      CollectionItem<AssetConsistencySnapshot["roadmaps"]> &
-      PrimarySource
-  >;
-  gates: Collection<
-    CollectionItem<PlanningDerivationConsistencySnapshot["gates"]> &
-      CollectionItem<AssetConsistencySnapshot["gates"]> &
-      PrimarySource
-  >;
-  efforts: Collection<
-    CollectionItem<PlanningDerivationConsistencySnapshot["efforts"]> &
-      CollectionItem<AssetConsistencySnapshot["efforts"]> &
-      PrimarySource
-  >;
-  authorities: Collection<CollectionItem<AssetConsistencySnapshot["authorities"]> & PrimarySource>;
-  assets: Collection<CollectionItem<AssetConsistencySnapshot["assets"]> & PrimarySource>;
-  providerObservations: PlanningDerivationConsistencySnapshot["providerObservations"];
-  providerObservationSelections: PlanningDerivationConsistencySnapshot["providerObservationSelections"];
-  roadmapIndex: Singleton<RoadmapIndex>;
-  diagnostics: PlanningDerivationConsistencySnapshot["diagnostics"];
-  checks: Collection<
-    CollectionItem<AttentionConsistencySnapshot["checks"]> &
-      CollectionItem<AssetConsistencySnapshot["checks"]>
-  >;
-  reviews: Collection<
-    CollectionItem<AttentionConsistencySnapshot["reviews"]> &
-      CollectionItem<AssetConsistencySnapshot["reviews"]>
-  >;
-  attention: AttentionConsistencySnapshot["attention"];
-  audit: Singleton<AuditBasis>;
-  guidance: Singleton<GuidanceBasis>;
-  sources: SourceBindingConsistencySnapshot["sources"];
-}>;
+type GovernanceSnapshot = PlanningLineageConsistencySnapshot &
+  Readonly<{
+    basis: AuditConsistencySnapshot["basis"];
+    summary: Singleton<PrimarySource>;
+    roadmaps: Collection<
+      CollectionItem<PlanningDerivationConsistencySnapshot["roadmaps"]> &
+        CollectionItem<AssetConsistencySnapshot["roadmaps"]> &
+        PrimarySource
+    >;
+    gates: Collection<
+      CollectionItem<PlanningDerivationConsistencySnapshot["gates"]> &
+        CollectionItem<AssetConsistencySnapshot["gates"]> &
+        PrimarySource
+    >;
+    efforts: Collection<
+      CollectionItem<PlanningDerivationConsistencySnapshot["efforts"]> &
+        CollectionItem<AssetConsistencySnapshot["efforts"]> &
+        PrimarySource
+    >;
+    authorities: Collection<
+      CollectionItem<AssetConsistencySnapshot["authorities"]> & PrimarySource
+    >;
+    assets: Collection<CollectionItem<AssetConsistencySnapshot["assets"]> & PrimarySource>;
+    providerObservations: PlanningDerivationConsistencySnapshot["providerObservations"];
+    providerObservationSelections: PlanningDerivationConsistencySnapshot["providerObservationSelections"];
+    roadmapIndex: Singleton<RoadmapIndex>;
+    diagnostics: PlanningDerivationConsistencySnapshot["diagnostics"];
+    checks: Collection<
+      CollectionItem<AttentionConsistencySnapshot["checks"]> &
+        CollectionItem<AssetConsistencySnapshot["checks"]>
+    >;
+    reviews: Collection<
+      CollectionItem<AttentionConsistencySnapshot["reviews"]> &
+        CollectionItem<AssetConsistencySnapshot["reviews"]>
+    >;
+    attention: AttentionConsistencySnapshot["attention"];
+    audit: Singleton<AuditBasis>;
+    guidance: Singleton<GuidanceBasis>;
+    sources: SourceBindingConsistencySnapshot["sources"];
+    lineage: PlanningLineageConsistencySnapshot["lineage"];
+  }>;
 
 const trustedItems = <T>(collection: Collection<T>): readonly T[] =>
   collection.validity === "invalid" ? [] : collection.items;
@@ -185,6 +193,7 @@ export const validateProjectSnapshotConsistency = (
   validateRoadmapIndex(snapshot, context);
   validateRoadmapConsistency(snapshot, context);
   validatePlanningDerivationConsistency(snapshot, context);
+  validatePlanningLineageConsistency(snapshot, context);
   validateAssetConsistency(snapshot, context);
   validateAdvisoryConsistency(snapshot, context);
   validateAuditConsistency(snapshot, context);

@@ -1,13 +1,13 @@
 import type { RefObject } from "react";
 import type { SourceRecord } from "../project-snapshot/contract";
 import { Icons } from "./icons";
-import { Action } from "./primitives";
 import { Inspector } from "./shell";
 
 export type ProjectInspectorSelection = Readonly<{
   detail?: string | undefined;
   eyebrow: string;
   facts?: readonly Readonly<{ label: string; value: string; code?: boolean | undefined }>[];
+  fullDetailHref?: string | undefined;
   handoff?: boolean | undefined;
   nativeSourceHandoff?: boolean | undefined;
   sections?: readonly Readonly<{
@@ -40,10 +40,12 @@ function InspectorItems({
 
 export function ProjectContextInspector({
   onClose,
+  onOpenFullDetail,
   returnFocusRef,
   selection,
 }: {
   readonly onClose: () => void;
+  readonly onOpenFullDetail: (href: string) => void;
   readonly returnFocusRef: RefObject<HTMLElement | null>;
   readonly selection: ProjectInspectorSelection;
 }) {
@@ -100,27 +102,32 @@ export function ProjectContextInspector({
           )}
         </section>
       ))}
-      {selection.handoff ? (
-        <>
-          <Action className="inspector-enter" tone="primary" disabled>
-            Resume in Agent Surface <Icons.arrow />
-          </Action>
-          {selection.nativeSourceHandoff ? (
-            <Action className="inspector-enter" disabled>
-              Open native source
-            </Action>
-          ) : null}
-          <p className="inspector-note">
-            Placeholder only · Agent Surface handoff
-            {selection.nativeSourceHandoff ? " and native source opening are" : " is"} intentionally
-            deferred
-          </p>
-        </>
-      ) : (
-        <p className="inspector-note">
-          Provenance is display-only and grants no filesystem authority.
-        </p>
+      {selection.fullDetailHref === undefined ? null : (
+        <a
+          className="action action-primary inspector-enter"
+          href={selection.fullDetailHref}
+          onClick={(event) => {
+            if (
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey
+            ) {
+              return;
+            }
+            event.preventDefault();
+            onOpenFullDetail(selection.fullDetailHref ?? "");
+          }}
+        >
+          Open full detail <Icons.arrow />
+        </a>
       )}
+      <p className="inspector-note">
+        {selection.handoff
+          ? "Agent Surface handoff remains outside this read-only preview."
+          : "Provenance is display-only and grants no filesystem authority."}
+      </p>
     </Inspector>
   );
 }

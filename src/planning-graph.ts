@@ -2,6 +2,7 @@ import type { AssetContentObservation } from "./asset-inputs";
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
 import { deepFreeze } from "./immutable";
 import type { PlanningGraphInstrumentation } from "./planning-graph-instrumentation";
+import { rebuildAssetReverseRelations } from "./project-snapshot/asset-reverse-relations";
 import { buildAssetProjection } from "./project-snapshot/assets";
 import type {
   AlignmentCheck,
@@ -10,6 +11,8 @@ import type {
   CollectionProjection,
   Effort,
   MilestoneGate,
+  PlanningLineageProjection,
+  PlanningReview,
   ProjectionIssue,
   ProviderScopeObservation,
   Roadmap,
@@ -20,6 +23,7 @@ import { buildDecisionProjection } from "./project-snapshot/decisions";
 import { buildSnapshotDiagnostics } from "./project-snapshot/diagnostic-projection";
 import { buildGovernanceProjection } from "./project-snapshot/governance";
 import { normalizePlanningDerivations } from "./project-snapshot/normalized-planning-derivation";
+import { buildPlanningLineageProjection } from "./project-snapshot/planning-lineage";
 import { createSourceRecord, mergeSourceRecords } from "./project-snapshot/source-records";
 import {
   assessSelectedProviderObservationEvidence,
@@ -125,6 +129,7 @@ export type PlanningGraphProjection = Readonly<{
 export interface PlanningGraph {
   readonly fingerprint: string;
   planningProjection(): PlanningGraphProjection;
+  lineageProjection(): PlanningLineageProjection;
   contextFor(target: Extract<PlanningTarget, { kind: "roadmap" }>): RoadmapContextResult;
   contextFor(target: Readonly<{ kind: "gate"; id: string }>): GateContextResult;
   contextFor(target: Extract<PlanningTarget, { kind: "effort" }>): EffortContextResult;
@@ -138,6 +143,7 @@ type GraphCollections = Readonly<{
   authorities: CollectionProjection<Authority>;
   assets: CollectionProjection<AssetProjection>;
   checks: CollectionProjection<AlignmentCheck>;
+  reviews: CollectionProjection<PlanningReview>;
   providerObservations: readonly ProviderScopeObservation[];
   providerObservationSelections: readonly ProviderObservationSelection[];
 }>;
@@ -363,6 +369,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
   readonly fingerprint: string;
   readonly #collections: GraphCollections;
   readonly #planningProjection: PlanningGraphProjection;
+  readonly #lineageProjection: PlanningLineageProjection;
   readonly #sources: readonly SourceRecord[];
   readonly #sourceByReference: ReadonlyMap<string, SourceRecord>;
   readonly #knownKinds: ReadonlyMap<string, ReadonlySet<string>>;
@@ -376,6 +383,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
     fingerprint: string,
     collections: GraphCollections,
     planningProjection: PlanningGraphProjection,
+    lineageProjection: PlanningLineageProjection,
     sources: readonly SourceRecord[],
     knownKinds: ReadonlyMap<string, ReadonlySet<string>>,
     knownSources: ReadonlyMap<string, ReadonlySet<string>>,
@@ -387,6 +395,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
     this.fingerprint = fingerprint;
     this.#collections = deepFreeze(collections);
     this.#planningProjection = deepFreeze(planningProjection);
+    this.#lineageProjection = deepFreeze(lineageProjection);
     this.#sources = deepFreeze([...sources]);
     this.#sourceByReference = new Map(sources.map((source) => [source.reference, source]));
     this.#knownKinds = knownKinds;
@@ -400,6 +409,10 @@ class ImmutablePlanningGraph implements PlanningGraph {
 
   planningProjection(): PlanningGraphProjection {
     return this.#planningProjection;
+  }
+
+  lineageProjection(): PlanningLineageProjection {
+    return this.#lineageProjection;
   }
 
   #scopedIssues<T>(id: string, collection: CollectionProjection<T>): readonly ProjectionIssue[] {
@@ -975,6 +988,36 @@ export const buildPlanningGraph = async (
     diagnostics: diagnosticProjection.diagnostics,
     sources,
   });
+  const rebuiltAssets = rebuildAssetReverseRelations(assets.assets, {
+    roadmaps: planningProjection.roadmaps,
+    gates: planningProjection.gates,
+    efforts: planningProjection.efforts,
+    authorities: governance.authorities,
+    checks: decisions.checks,
+    reviews: decisions.reviews,
+  });
+  const graphCollections: GraphCollections = {
+    roadmaps: overlayNormalizedItems(governance.roadmaps, planningProjection.roadmaps),
+    gates: overlayNormalizedItems(governance.gates, planningProjection.gates),
+    efforts: overlayNormalizedItems(governance.efforts, planningProjection.efforts),
+    authorities: governance.authorities,
+    assets: rebuiltAssets,
+    checks: decisions.checks,
+    reviews: decisions.reviews,
+    providerObservations: input.providerObservations,
+    providerObservationSelections,
+  };
+  const lineageProjection = buildPlanningLineageProjection({
+    roadmaps: planningProjection.roadmaps,
+    gates: planningProjection.gates,
+    efforts: planningProjection.efforts,
+    authorities: governance.authorities,
+    assets: rebuiltAssets,
+    checks: decisions.checks,
+    reviews: decisions.reviews,
+    providerObservations: input.providerObservations,
+    providerObservationSelections,
+  });
   const knownKinds = new Map<string, Set<string>>();
   const knownSources = new Map<string, Set<string>>();
   const checkTargetBySource = new Map<string, string>();
@@ -994,17 +1037,9 @@ export const buildPlanningGraph = async (
   }
   return new ImmutablePlanningGraph(
     input.fingerprint,
-    {
-      roadmaps: overlayNormalizedItems(governance.roadmaps, planningProjection.roadmaps),
-      gates: overlayNormalizedItems(governance.gates, planningProjection.gates),
-      efforts: overlayNormalizedItems(governance.efforts, planningProjection.efforts),
-      authorities: governance.authorities,
-      assets: assets.assets,
-      checks: decisions.checks,
-      providerObservations: input.providerObservations,
-      providerObservationSelections,
-    },
+    graphCollections,
     planningProjection,
+    lineageProjection,
     sources,
     knownKinds,
     knownSources,

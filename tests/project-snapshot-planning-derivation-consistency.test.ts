@@ -3,6 +3,7 @@ import { createProviderScopeObservation } from "../src/native-work-provider";
 import { normalizedGateReadiness } from "../src/project-snapshot/normalized-planning-derivation";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
 const rejects = (snapshot: unknown): void => {
   expect(projectSnapshotSchema.safeParse(snapshot).success).toBe(false);
@@ -65,15 +66,17 @@ test("keeps explicit Effort lifecycle and Gate readiness independent from provid
   if (completedPortal === undefined) throw new Error("Expected the completed Portal observation.");
 
   expect(
-    projectSnapshotSchema.safeParse({
-      ...snapshot,
-      providerObservations: completedCaptures,
-      providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
-        selection.nativeScope === ".scratch/portal"
-          ? { ...selection, observationId: completedPortal.id }
-          : selection,
-      ),
-    }).success,
+    projectSnapshotSchema.safeParse(
+      withRebuiltPlanningLineage({
+        ...snapshot,
+        providerObservations: completedCaptures,
+        providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+          selection.nativeScope === ".scratch/portal"
+            ? { ...selection, observationId: completedPortal.id }
+            : selection,
+        ),
+      }),
+    ).success,
   ).toBe(true);
   expect(snapshot.efforts).toMatchObject({
     validity: "available",
@@ -121,12 +124,14 @@ test("withholds Gate readiness when contributor binding evidence is missing or u
   );
 
   expect(
-    projectSnapshotSchema.safeParse({
-      ...snapshot,
-      ...unknownPlanning,
-      providerObservations: capturesWithoutPortal,
-      providerObservationSelections: selectionsWithoutPortal,
-    }).success,
+    projectSnapshotSchema.safeParse(
+      withRebuiltPlanningLineage({
+        ...snapshot,
+        ...unknownPlanning,
+        providerObservations: capturesWithoutPortal,
+        providerObservationSelections: selectionsWithoutPortal,
+      }),
+    ).success,
   ).toBe(true);
   rejects({ ...snapshot, providerObservations: capturesWithoutPortal });
 
@@ -163,20 +168,22 @@ test("withholds Gate readiness when contributor binding evidence is missing or u
   );
   if (invalidPortal === undefined) throw new Error("Expected the invalid Portal observation.");
   expect(
-    projectSnapshotSchema.safeParse({
-      ...snapshot,
-      ...unknownPlanning,
-      providerObservations: invalidCaptures,
-      providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
-        selection.nativeScope === ".scratch/portal"
-          ? {
-              ...selection,
-              observationId: invalidPortal.id,
-              effectiveFreshness: "undetermined" as const,
-            }
-          : selection,
-      ),
-    }).success,
+    projectSnapshotSchema.safeParse(
+      withRebuiltPlanningLineage({
+        ...snapshot,
+        ...unknownPlanning,
+        providerObservations: invalidCaptures,
+        providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+          selection.nativeScope === ".scratch/portal"
+            ? {
+                ...selection,
+                observationId: invalidPortal.id,
+                effectiveFreshness: "undetermined" as const,
+              }
+            : selection,
+        ),
+      }),
+    ).success,
   ).toBe(true);
 });
 
@@ -207,7 +214,7 @@ test("classifies Gate readiness per contributor when the Effort projection is pa
     },
   };
 
-  expect(projectSnapshotSchema.safeParse(scoped).success).toBe(true);
+  expect(projectSnapshotSchema.safeParse(withRebuiltPlanningLineage(scoped)).success).toBe(true);
   rejects({
     ...scoped,
     gates: {

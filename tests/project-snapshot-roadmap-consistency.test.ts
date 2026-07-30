@@ -3,6 +3,7 @@ import type { RefinementCtx } from "zod";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { validateRoadmapConsistency } from "../src/project-snapshot/schema-roadmap-consistency";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
 const rejects = (snapshot: unknown): void => {
   expect(projectSnapshotSchema.safeParse(snapshot).success).toBe(false);
@@ -100,7 +101,7 @@ test("allows unresolved relation IDs only when their owning collection is partia
       ],
     },
   };
-  expect(projectSnapshotSchema.safeParse(partial).success).toBe(true);
+  expect(projectSnapshotSchema.safeParse(withRebuiltPlanningLineage(partial)).success).toBe(true);
 });
 
 const replacementCycleIssues = (size: number): string[] => {

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import packageMetadata from "../package.json";
+import { createPlanningLineageAgentHandoff } from "./agent-planning-lineage-handoff";
 import { registerAsset } from "./asset-registration";
 import { runCatalogCommand } from "./catalog/cli";
 import {
@@ -39,7 +40,7 @@ Usage:
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [options]
   bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
   bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
-  bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>]
+  bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]
   bearing portal [--port <1-65535>]
   bearing --help
   bearing --version
@@ -489,6 +490,7 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
     options: {
       repo: { type: "string" },
       "benchmark-metrics-file": { type: "string" },
+      "portal-entry": { type: "string" },
     },
     allowPositionals: true,
     strict: true,
@@ -499,7 +501,9 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
     id === undefined ||
     extra.length > 0
   ) {
-    throw new Error("Usage: bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>]");
+    throw new Error(
+      "Usage: bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]",
+    );
   }
   const repoRoot = resolve(parsed.values.repo ?? process.cwd());
   const metricsFile = parsed.values["benchmark-metrics-file"];
@@ -514,7 +518,15 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
   const closureCompleted = performance.now();
   await commitSyncPlan(plan);
   const outputStarted = performance.now();
-  const output = `${JSON.stringify(result, null, 2)}\n`;
+  const portalEntry = parsed.values["portal-entry"];
+  const outputValue =
+    portalEntry === undefined
+      ? result
+      : {
+          ...result,
+          handoff: createPlanningLineageAgentHandoff(portalEntry, { kind, id }),
+        };
+  const output = `${JSON.stringify(outputValue, null, 2)}\n`;
   const outputCompleted = performance.now();
   process.stdout.write(output);
   if (metricsFile !== undefined && instrumentation !== undefined) {

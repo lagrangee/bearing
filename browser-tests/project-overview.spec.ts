@@ -152,7 +152,7 @@ test("Overview keeps cache visible, preserves reading order, and uses contextual
   await primary.click();
   let inspector = page.getByRole("complementary", { name: "Selected context" });
   await expect(inspector.getByRole("heading", { name: "Finish Overview" })).toBeVisible();
-  await expect(inspector.getByRole("button", { name: /Resume in Agent Surface/u })).toBeDisabled();
+  await expect(inspector.getByRole("button", { name: /Resume in Agent Surface/u })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(primary).toBeFocused();
 

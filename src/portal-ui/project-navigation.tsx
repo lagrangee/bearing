@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { Icons } from "./icons";
 import { useNarrowViewport } from "./use-narrow";
 
-export type ProjectSection = "overview" | "roadmaps" | "assets" | "audit";
+export type ProjectSection = "overview" | "roadmaps" | "assets" | "audit" | "lineage";
 
 const navigation = [
   ["overview", "Overview", Icons.overview],

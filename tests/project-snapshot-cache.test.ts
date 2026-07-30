@@ -15,7 +15,7 @@ const source = createSourceReference({
   displayLocator: ".bearing/state/project-summary.md",
 });
 const snapshot = projectSnapshotSchema.parse({
-  schemaVersion: 5,
+  schemaVersion: 6,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: basisFingerprint },
   summary: { validity: "absent" },
@@ -27,6 +27,7 @@ const snapshot = projectSnapshotSchema.parse({
   assets: availableItems,
   checks: availableItems,
   reviews: availableItems,
+  lineage: { subjects: [] },
   audit: { validity: "absent" },
   guidance: { validity: "absent" },
   providerObservations: [],
