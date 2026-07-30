@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import { buildPlanningGraph } from "../src/planning-graph";
-import { prepareSync } from "../src/sync-plan";
+import { prepareSync as prepareBearingSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
+
+const prepareSync = (root: string) =>
+  prepareBearingSync(root, { providerObservationIntent: "initial-baseline" });
 
 const addRoadmapEffortContext = async (root: string): Promise<void> => {
   await writeFixture(
@@ -168,14 +171,14 @@ Assets:
   await writeFixture(root, "evidence/test.md", "verified\n");
 };
 
-test("Roadmap closure preserves canonical Gate order, focus, and all nested contributors", async () => {
+test("Roadmap closure preserves canonical order while exposing an unresolved bound contributor", async () => {
   const root = await createValidBearingRepo();
   await addRoadmapEffortContext(root);
   const plan = await prepareSync(root);
 
   const result = plan.planningGraph.contextFor({ kind: "roadmap", id: "roadmap:test" });
 
-  expect(result.state).toBe("complete");
+  expect(result.state).toBe("partial");
   if (result.state === "invalid") throw new Error("Expected Roadmap context.");
   expect(result.fingerprint).toBe(plan.fingerprint);
   expect(result.context.gates.map(({ value }) => String(value.id))).toEqual([
@@ -194,7 +197,7 @@ test("Roadmap closure preserves canonical Gate order, focus, and all nested cont
 
   const reversed = await buildPlanningGraph({
     decoded: { ...plan.decoded, records: [...plan.decoded.records].reverse() },
-    providerCaptures: [...plan.providerCaptures].reverse(),
+    providerObservations: [...plan.providerObservations].reverse(),
     diagnostics: [...plan.diagnostics].reverse(),
     fingerprint: plan.fingerprint,
     assetContentObservations: [...plan.assetContentObservations].reverse(),
@@ -202,7 +205,7 @@ test("Roadmap closure preserves canonical Gate order, focus, and all nested cont
   expect(reversed.contextFor({ kind: "roadmap", id: "roadmap:test" })).toEqual(result);
 });
 
-test("Effort closure returns full nested context and treats optional absences as complete", async () => {
+test("Effort closure returns full nested context and fails a bound absent scope closed", async () => {
   const root = await createValidBearingRepo();
   await addRoadmapEffortContext(root);
   const graph = (await prepareSync(root)).planningGraph;
@@ -232,7 +235,7 @@ test("Effort closure returns full nested context and treats optional absences as
   expect(complete.context.sources.length).toBeGreaterThan(0);
 
   const optional = graph.contextFor({ kind: "effort", id: "effort:optional" });
-  expect(optional.state).toBe("complete");
+  expect(optional.state).toBe("partial");
   if (optional.state === "invalid") throw new Error("Expected optional Effort context.");
   expect(optional.context.providerCapture).toMatchObject({
     state: "absent",
@@ -240,6 +243,12 @@ test("Effort closure returns full nested context and treats optional absences as
     binding: { nativeScope: ".scratch/optional" },
   });
   expect(optional.context.evidence).toEqual([]);
+  expect(optional.issues).toContainEqual(
+    expect.objectContaining({
+      code: "untrusted-provider-observation-selection",
+      target: ".scratch/optional",
+    }),
+  );
 });
 
 test("Effort closure retains the Effort when its required Target Gate is broken", async () => {

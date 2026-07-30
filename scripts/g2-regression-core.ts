@@ -11,7 +11,7 @@ export const G2_REGRESSION_CORE = [
     key: "single-generation-product",
     seam: "packaged-product",
     files: [
-      "tests/provider-capture-generation.test.ts",
+      "tests/provider-observation-deduplication.test.ts",
       "tests/local-packaged-product-journey.test.ts",
       "tests/github-packaged-product-journey.test.ts",
       "tests/provider-degradation-product-seam.test.ts",
@@ -22,7 +22,7 @@ export const G2_REGRESSION_CORE = [
     seam: "architecture-guard",
     files: [
       "tests/native-work-provider-architecture.test.ts",
-      "tests/provider-capture-cutover-architecture.test.ts",
+      "tests/provider-observation-cutover-architecture.test.ts",
       "tests/markdown-architecture.test.ts",
       "tests/local-markdown-provider-architecture.test.ts",
       "tests/github-provider-architecture.test.ts",

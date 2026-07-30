@@ -12,7 +12,10 @@ const catalogFor =
   async (): Promise<CatalogReadResult> => ({ state: "ready", entries });
 
 const materialize = async (repoRoot: string) => {
-  await runSync(repoRoot, { completedAt: "2026-07-14T12:00:00.000Z" });
+  await runSync(repoRoot, {
+    completedAt: "2026-07-14T12:00:00.000Z",
+    providerObservationIntent: "initial-baseline",
+  });
   return createProjectMaterializer({ packageVersion: "0.0.0-test" }).run(
     repoRoot,
     "ensure-current",
@@ -52,7 +55,7 @@ test("resolves an opaque Source Reference only to display-safe metadata in its C
   expect(JSON.stringify(result)).not.toContain(repoRoot);
 });
 
-test("does not let a shared opaque reference cross an Entry's symlink boundary", async () => {
+test("keeps each opaque reference Entry-scoped and rejects an unsafe source boundary", async () => {
   const firstRoot = await realpath(await createValidBearingRepo());
   const secondRoot = await realpath(await createValidBearingRepo());
   const [first, second] = await Promise.all([materialize(firstRoot), materialize(secondRoot)]);
@@ -63,7 +66,8 @@ test("does not let a shared opaque reference cross an Entry's symlink boundary",
     throw new Error("Expected identical Project Summary source fixtures.");
   }
   const reference = first.snapshot.summary.value.source;
-  expect(second.snapshot.summary.value.source).toBe(reference);
+  const secondReference = second.snapshot.summary.value.source;
+  expect(secondReference).not.toBe(reference);
 
   const outside = await createValidBearingRepo();
   await rm(join(secondRoot, ".bearing/state"), { recursive: true });
@@ -96,6 +100,13 @@ test("does not let a shared opaque reference cross an Entry's symlink boundary",
     await resolveProjectSourceReference({
       entryId: "second",
       reference,
+      readCatalog: catalogFor(entries),
+    }),
+  ).toEqual({ kind: "rejected", code: "source-reference-not-found" });
+  expect(
+    await resolveProjectSourceReference({
+      entryId: "second",
+      reference: secondReference,
       readCatalog: catalogFor(entries),
     }),
   ).toEqual({ kind: "rejected", code: "unsafe-source-target" });

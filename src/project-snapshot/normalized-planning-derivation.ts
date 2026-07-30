@@ -8,9 +8,9 @@ import type {
 } from "./contract";
 
 export type ContributorCapture = Readonly<{
+  id: string;
   provider: "matt-skills/v1";
   binding: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>;
-  generation: Readonly<{ fingerprint: string }>;
   state: "available" | "partial" | "absent" | "invalid";
   freshness: Readonly<{ assessment: "current" | "stale" | "undetermined" }>;
   coverage: Readonly<{
@@ -21,6 +21,12 @@ export type ContributorCapture = Readonly<{
   }>;
   completion: "incomplete" | "complete" | "undetermined";
   diagnostics: readonly Readonly<{ impact: "blocking" | "non-blocking" }>[];
+}>;
+export type ContributorObservationSelection = Readonly<{
+  provider: "matt-skills/v1";
+  nativeScope: string;
+  observationId: string | null;
+  effectiveFreshness: "current" | "stale" | "undetermined";
 }>;
 
 export type DerivedCollection<T> =
@@ -83,10 +89,21 @@ const captureFor = (
 const hasTrustworthyBindingEvidence = (
   effort: DerivedEffort,
   captures: readonly ContributorCapture[],
+  selections: readonly ContributorObservationSelection[],
 ): boolean => {
   const capture = captureFor(effort, captures);
+  const selection =
+    capture === undefined
+      ? undefined
+      : selections.find(
+          (candidate) =>
+            candidate.provider === capture.provider &&
+            candidate.nativeScope === capture.binding.nativeScope &&
+            candidate.observationId === capture.id,
+        );
   return (
     capture !== undefined &&
+    selection?.effectiveFreshness === "current" &&
     capture.state === "available" &&
     capture.freshness.assessment === "current" &&
     capture.coverage.assessment === "complete" &&
@@ -101,6 +118,7 @@ export const normalizedGateReadiness = (
   gate: DerivedGate,
   efforts: DerivedCollection<DerivedEffort>,
   captures: readonly ContributorCapture[],
+  selections: readonly ContributorObservationSelection[],
   hasUntrustedContributor = false,
 ): DerivedGate["readiness"] => {
   if (hasUntrustedContributor) return "unknown";
@@ -112,7 +130,7 @@ export const normalizedGateReadiness = (
       effort === undefined ||
       effort.targetGateId !== gate.id ||
       effort.roadmapId !== gate.roadmapId ||
-      !hasTrustworthyBindingEvidence(effort, captures)
+      !hasTrustworthyBindingEvidence(effort, captures, selections)
     ) {
       return "unknown" as const;
     }
@@ -198,7 +216,8 @@ type ProjectionInput = Readonly<{
   roadmaps: CollectionProjection<Roadmap>;
   gates: CollectionProjection<MilestoneGate>;
   efforts: CollectionProjection<Effort>;
-  providerCaptures: readonly ContributorCapture[];
+  providerObservations: readonly ContributorCapture[];
+  providerObservationSelections: readonly ContributorObservationSelection[];
   diagnostics: readonly SnapshotDiagnostic[];
   sources: readonly SourceRecord[];
 }>;
@@ -237,7 +256,8 @@ export const normalizePlanningDerivations = (
     readiness: normalizedGateReadiness(
       gate,
       efforts,
-      input.providerCaptures,
+      input.providerObservations,
+      input.providerObservationSelections,
       hasUntrustedEffortContributor(gatesWithRelations, gate.id),
     ),
   }));

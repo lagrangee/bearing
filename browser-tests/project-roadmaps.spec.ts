@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { createProviderScopeObservation } from "../src/native-work-provider";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createSourceRecord } from "../src/project-snapshot/source-records";
@@ -111,23 +112,33 @@ const plannedGateFixture = (): ProjectSnapshot => {
 
 const oneFogFixture = (): ProjectSnapshot => {
   const snapshot = createProjectOverviewFixture();
+  const providerObservations = snapshot.providerObservations.map((capture) =>
+    capture.binding.nativeScope === ".scratch/portal" &&
+    (capture.state === "available" || capture.state === "partial") &&
+    capture.projection.map !== undefined
+      ? (createProviderScopeObservation({
+          ...capture,
+          projection: {
+            ...capture.projection,
+            map: {
+              ...capture.projection.map,
+              fog: ["One unresolved question."],
+            },
+          },
+        } as never) as typeof capture)
+      : capture,
+  );
+  const portalObservation = providerObservations.find(
+    (observation) => observation.binding.nativeScope === ".scratch/portal",
+  );
+  if (portalObservation === undefined) throw new Error("Expected the Portal observation.");
   return projectSnapshotSchema.parse({
     ...snapshot,
-    providerCaptures: snapshot.providerCaptures.map((capture) =>
-      capture.binding.nativeScope === ".scratch/portal" &&
-      (capture.state === "available" || capture.state === "partial") &&
-      capture.projection.map !== undefined
-        ? {
-            ...capture,
-            projection: {
-              ...capture.projection,
-              map: {
-                ...capture.projection.map,
-                fog: ["One unresolved question."],
-              },
-            },
-          }
-        : capture,
+    providerObservations,
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.nativeScope === ".scratch/portal"
+        ? { ...selection, observationId: portalObservation.id }
+        : selection,
     ),
   });
 };
@@ -346,8 +357,17 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
               gate.id === "gate:two" ? { ...gate, readiness: "unknown" as const } : gate,
             ),
           },
-    providerCaptures: snapshot.providerCaptures.filter(
+    providerObservations: snapshot.providerObservations.filter(
       (capture) => capture.binding.nativeScope !== ".scratch/portal",
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.nativeScope === ".scratch/portal"
+        ? {
+            ...selection,
+            observationId: null,
+            effectiveFreshness: "undetermined" as const,
+          }
+        : selection,
     ),
   });
   await page.unroute("**/api/v1/projects/roadmaps/snapshot");

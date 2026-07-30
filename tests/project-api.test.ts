@@ -22,7 +22,7 @@ const assets: PortalAssets = {
     schemaVersion: 1,
     packageVersion: "0.0.0-test",
     interfaceVersion: 1,
-    projectSnapshotVersion: 4,
+    projectSnapshotVersion: 5,
     entry: "index.html",
     buildId: "0".repeat(64),
     assets: [
@@ -77,7 +77,10 @@ const establish = async (app: ReturnType<typeof createPortalApp>) => {
 test("direct project GET establishes a session and remains strictly cache-only", async () => {
   const root = await realpath(await createValidBearingRepo());
   try {
-    await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+    await runSync(root, {
+      completedAt: "2026-07-13T12:00:00.000Z",
+      providerObservationIntent: "initial-baseline",
+    });
     const app = appFor(catalogFor(root));
 
     const { response } = await establish(app);
@@ -274,7 +277,10 @@ test("unexpected project request exceptions stay typed and do not disclose inter
 test("POST rejects missing CSRF and malformed input before project work", async () => {
   const root = await realpath(await createValidBearingRepo());
   try {
-    await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+    await runSync(root, {
+      completedAt: "2026-07-13T12:00:00.000Z",
+      providerObservationIntent: "initial-baseline",
+    });
     const app = appFor(catalogFor(root));
 
     const missingCsrf = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/sync`, {
@@ -362,7 +368,10 @@ test("POST rejects cross-session, forged-cookie, and cross-site browser authorit
 test("ensure-current, cooldown, and force return complete typed project views", async () => {
   const root = await realpath(await createValidBearingRepo());
   try {
-    await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+    await runSync(root, {
+      completedAt: "2026-07-13T12:00:00.000Z",
+      providerObservationIntent: "initial-baseline",
+    });
     const app = appFor(catalogFor(root));
     const { cookie, csrfToken } = await establish(app);
     const headers = {
@@ -426,7 +435,7 @@ test("ensure-current, cooldown, and force return complete typed project views", 
           },
         ],
       },
-      providerCaptures: [
+      providerObservations: [
         {
           provider: "matt-skills/v1",
           binding: { nativeScope: ".scratch/work" },

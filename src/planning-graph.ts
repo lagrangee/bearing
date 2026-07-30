@@ -11,7 +11,7 @@ import type {
   Effort,
   MilestoneGate,
   ProjectionIssue,
-  ProviderScopeCapture,
+  ProviderScopeObservation,
   Roadmap,
   SnapshotDiagnostic,
   SourceRecord,
@@ -21,7 +21,11 @@ import { buildSnapshotDiagnostics } from "./project-snapshot/diagnostic-projecti
 import { buildGovernanceProjection } from "./project-snapshot/governance";
 import { normalizePlanningDerivations } from "./project-snapshot/normalized-planning-derivation";
 import { createSourceRecord, mergeSourceRecords } from "./project-snapshot/source-records";
-import type { MattSkillsV1ScopeCapture } from "./providers/matt-skills-v1/capture";
+import {
+  assessSelectedProviderObservationEvidence,
+  type ProviderObservationSelection,
+} from "./provider-observation-contract";
+import type { MattSkillsV1ProviderObservation } from "./providers/matt-skills-v1/capture";
 import { mattObjectLocator, mattObjects } from "./providers/matt-skills-v1/projection";
 import type { StructuralDiagnostic } from "./types";
 
@@ -40,7 +44,7 @@ export type PlanningGraphEffortContext = Readonly<{
   roadmap?: PlanningGraphValue<Roadmap>;
   targetGate?: PlanningGraphValue<MilestoneGate>;
   authorities: readonly PlanningGraphValue<Authority>[];
-  providerCapture?: ProviderScopeCapture;
+  providerCapture?: ProviderScopeObservation;
   alignmentChecks: readonly PlanningGraphValue<AlignmentCheck>[];
   evidence: readonly PlanningGraphValue<AssetProjection>[];
 }>;
@@ -102,7 +106,8 @@ export type PlanningContextResult = RoadmapContextResult | GateContextResult | E
 
 export type PlanningGraphBuildInput = Readonly<{
   decoded: DecodedBearingRecordGeneration;
-  providerCaptures: readonly MattSkillsV1ScopeCapture[];
+  providerObservations: readonly MattSkillsV1ProviderObservation[];
+  providerObservationSelections?: readonly ProviderObservationSelection[];
   diagnostics: readonly StructuralDiagnostic[];
   fingerprint: string;
   assetContentObservations: readonly AssetContentObservation[];
@@ -113,7 +118,8 @@ export type PlanningGraphProjection = Readonly<{
   roadmaps: CollectionProjection<Roadmap>;
   gates: CollectionProjection<MilestoneGate>;
   efforts: CollectionProjection<Effort>;
-  providerCaptures: readonly ProviderScopeCapture[];
+  providerObservations: readonly ProviderScopeObservation[];
+  providerObservationSelections: readonly ProviderObservationSelection[];
 }>;
 
 export interface PlanningGraph {
@@ -132,7 +138,8 @@ type GraphCollections = Readonly<{
   authorities: CollectionProjection<Authority>;
   assets: CollectionProjection<AssetProjection>;
   checks: CollectionProjection<AlignmentCheck>;
-  providerCaptures: readonly ProviderScopeCapture[];
+  providerObservations: readonly ProviderScopeObservation[];
+  providerObservationSelections: readonly ProviderObservationSelection[];
 }>;
 
 type PlanningProjectionInput = PlanningGraphProjection &
@@ -165,7 +172,7 @@ const issues = <T>(collection: CollectionProjection<T>): readonly ProjectionIssu
   collection.validity === "available" ? [] : collection.issues;
 
 const trackerSources = (
-  captures: readonly MattSkillsV1ScopeCapture[],
+  captures: readonly MattSkillsV1ProviderObservation[],
   fingerprint: string,
 ): readonly SourceRecord[] =>
   captures.flatMap((capture) =>
@@ -328,11 +335,16 @@ const buildPlanningProjection = (input: PlanningProjectionInput): PlanningGraphP
     roadmaps: isolatedRoadmaps,
     gates: isolatedGates,
     efforts: isolatedEfforts,
-    providerCaptures: input.providerCaptures,
+    providerObservations: input.providerObservations,
+    providerObservationSelections: input.providerObservationSelections,
     diagnostics: input.diagnostics,
     sources: input.sources,
   });
-  return { ...normalized, providerCaptures: input.providerCaptures };
+  return {
+    ...normalized,
+    providerObservations: input.providerObservations,
+    providerObservationSelections: input.providerObservationSelections,
+  };
 };
 
 const overlayNormalizedItems = <T extends { id: string }>(
@@ -537,10 +549,18 @@ class ImmutablePlanningGraph implements PlanningGraph {
     const providerCapture =
       effort.workBinding === undefined
         ? undefined
-        : this.#collections.providerCaptures.find(
+        : this.#collections.providerObservations.find(
             (capture) =>
               capture.provider === effort.workBinding?.provider &&
               capture.binding.nativeScope === effort.workBinding.nativeScope,
+          );
+    const providerSelection =
+      effort.workBinding === undefined
+        ? undefined
+        : this.#collections.providerObservationSelections.find(
+            (selection) =>
+              selection.provider === effort.workBinding?.provider &&
+              selection.nativeScope === effort.workBinding.nativeScope,
           );
     if (effort.workBinding !== undefined && providerCapture === undefined) {
       closureIssues.push(
@@ -556,6 +576,21 @@ class ImmutablePlanningGraph implements PlanningGraph {
       closureIssues.push(
         ...providerCapture.diagnostics.map((item) =>
           relationIssue(item.code, item.target, item.message),
+        ),
+      );
+    }
+    if (
+      effort.workBinding !== undefined &&
+      (providerCapture === undefined ||
+        assessSelectedProviderObservationEvidence(providerCapture, providerSelection)
+          .frontierEvidence !== "trustworthy")
+    ) {
+      closureIssues.push(
+        relationIssue(
+          "untrusted-provider-observation-selection",
+          effort.workBinding.nativeScope,
+          "The Effort's selected provider observation is unavailable, conflicted, or not currently trustworthy.",
+          effort.source,
         ),
       );
     }
@@ -859,6 +894,15 @@ export const buildPlanningGraph = async (
   input: PlanningGraphBuildInput,
 ): Promise<PlanningGraph> => {
   input.instrumentation?.recordBuild();
+  const providerObservationSelections =
+    input.providerObservationSelections ??
+    input.providerObservations.map((observation) => ({
+      provider: observation.provider,
+      nativeScope: observation.binding.nativeScope,
+      observationId: observation.id,
+      effectiveFreshness: observation.freshness.assessment,
+      latestAttempt: null,
+    }));
   const effortLocators = new Set(
     input.decoded.records
       .filter((record) => record.type === "effort")
@@ -889,7 +933,7 @@ export const buildPlanningGraph = async (
     governance.sources,
     assets.sources,
     decisions.sources,
-    trackerSources(input.providerCaptures, input.fingerprint),
+    trackerSources(input.providerObservations, input.fingerprint),
   ]);
   const assetSourceByIdentity = new Map(
     sources.flatMap((source) =>
@@ -926,7 +970,8 @@ export const buildPlanningGraph = async (
     roadmaps: governance.roadmaps,
     gates: governance.gates,
     efforts: governance.efforts,
-    providerCaptures: input.providerCaptures,
+    providerObservations: input.providerObservations,
+    providerObservationSelections,
     diagnostics: diagnosticProjection.diagnostics,
     sources,
   });
@@ -956,7 +1001,8 @@ export const buildPlanningGraph = async (
       authorities: governance.authorities,
       assets: assets.assets,
       checks: decisions.checks,
-      providerCaptures: input.providerCaptures,
+      providerObservations: input.providerObservations,
+      providerObservationSelections,
     },
     planningProjection,
     sources,

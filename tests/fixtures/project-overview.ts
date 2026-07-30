@@ -1,3 +1,4 @@
+import { createProviderScopeObservation } from "../../src/native-work-provider";
 import { projectSnapshotSchema } from "../../src/project-snapshot/schema";
 import {
   createSourceReference,
@@ -219,42 +220,43 @@ const capture = (
     blockedBy: readonly Readonly<{ blocked: string; blocker: string }>[];
   },
   completion: "complete" | "incomplete",
-) => ({
-  provider: "matt-skills/v1" as const,
-  binding: { provider: "matt-skills/v1" as const, nativeScope },
-  generation: { fingerprint: BASIS },
-  state: "available" as const,
-  freshness: {
-    assessment: "current" as const,
-    capturedAt: "2026-07-28T00:00:00.000Z",
+) =>
+  createProviderScopeObservation({
+    provider: "matt-skills/v1" as const,
+    binding: { provider: "matt-skills/v1" as const, nativeScope },
+    observedAt: "2026-07-28T00:00:00.000Z",
     sourceRevision: BASIS,
     sourceObservedAt: "2026-07-28T00:00:00.000Z",
-    evidence: [{ kind: "local-scope", value: nativeScope }],
-  },
-  coverage: {
-    assessment: "complete" as const,
-    dimensions: [{ key: "scope", state: "covered" as const }],
-  },
-  completion,
-  diagnostics: [],
-  projection: {
-    map: projection.map,
-    wayfinderTickets: projection.wayfinderTickets,
-    deliveryTickets: projection.deliveryTickets,
-    incomingIssues: [],
-    graph: {
-      parentChild: [],
-      blockedBy: projection.blockedBy.map((relation) => ({
-        ...relation,
-        evidence: "matt-contract" as const,
-      })),
+    validators: [],
+    state: "available" as const,
+    freshness: {
+      assessment: "current" as const,
+      evidence: [{ kind: "local-scope", value: nativeScope }],
     },
-  },
-});
+    coverage: {
+      assessment: "complete" as const,
+      dimensions: [{ key: "scope", state: "covered" as const }],
+    },
+    completion,
+    diagnostics: [],
+    projection: {
+      map: projection.map,
+      wayfinderTickets: projection.wayfinderTickets,
+      deliveryTickets: projection.deliveryTickets,
+      incomingIssues: [],
+      graph: {
+        parentChild: [],
+        blockedBy: projection.blockedBy.map((relation) => ({
+          ...relation,
+          evidence: "matt-contract" as const,
+        })),
+      },
+    },
+  });
 
-export const createProjectOverviewFixture = () =>
-  projectSnapshotSchema.parse({
-    schemaVersion: 4,
+export const createProjectOverviewFixture = () => {
+  const candidate = {
+    schemaVersion: 5,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -484,7 +486,7 @@ export const createProjectOverviewFixture = () =>
         source: guidanceSource,
       },
     },
-    providerCaptures: [
+    providerObservations: [
       capture(
         ".scratch/model",
         {
@@ -574,4 +576,15 @@ export const createProjectOverviewFixture = () =>
       checkRecord,
       reviewRecord,
     ],
+  } as const;
+  return projectSnapshotSchema.parse({
+    ...candidate,
+    providerObservationSelections: candidate.providerObservations.map((observation) => ({
+      provider: observation.provider,
+      nativeScope: observation.binding.nativeScope,
+      observationId: observation.id,
+      effectiveFreshness: observation.freshness.assessment,
+      latestAttempt: null,
+    })),
   });
+};

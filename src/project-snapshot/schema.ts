@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { mattSkillsV1ScopeCaptureSchema } from "../providers/matt-skills-v1/schema";
+import { providerObservationSelectionSchema } from "../provider-observation-contract";
+import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import { uniqueIdentityArraySchema } from "./projection-identity";
 import { assetProjectionSchema } from "./schema-asset";
 import { planningAuditSchema } from "./schema-audit";
@@ -30,7 +31,7 @@ export { auditFindingSchema, planningAuditSchema } from "./schema-audit";
 export { diagnosticReferenceSchema } from "./schema-primitives";
 export { projectionIssueSchema } from "./schema-projection";
 export { projectSummarySchema } from "./schema-summary";
-export const PROJECT_SNAPSHOT_VERSION = 4 as const;
+export const PROJECT_SNAPSHOT_VERSION = 5 as const;
 const resolutionSchema = z.strictObject({
   acceptedDecision: semanticPlainTextSchema,
   rationale: semanticPlainTextSchema,
@@ -271,9 +272,13 @@ export const projectSnapshotSchema = z
     reviews: collectionProjectionSchema(planningReviewSchema, (review) => review.id),
     audit: singletonProjectionSchema(planningAuditSchema),
     guidance: singletonProjectionSchema(nextWorkGuidanceSchema),
-    providerCaptures: uniqueIdentityArraySchema(
-      mattSkillsV1ScopeCaptureSchema,
+    providerObservations: uniqueIdentityArraySchema(
+      mattSkillsV1ProviderObservationSchema,
       (capture) => `${capture.provider}:${capture.binding.nativeScope}`,
+    ),
+    providerObservationSelections: uniqueIdentityArraySchema(
+      providerObservationSelectionSchema,
+      (selection) => `${selection.provider}:${selection.nativeScope}`,
     ),
     diagnostics: uniqueIdentityArraySchema(
       structuralDiagnosticSchema,

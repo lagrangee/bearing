@@ -3,11 +3,14 @@ import { readFile } from "node:fs/promises";
 import { runSync } from "../src/sync";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
+const runInitialSync = (root: string) =>
+  runSync(root, { providerObservationIntent: "initial-baseline" });
+
 describe("bearing sync", () => {
   test("writes byte-stable report and sitemap projections and ignores cache changes", async () => {
     const root = await createValidBearingRepo();
 
-    const first = await runSync(root);
+    const first = await runInitialSync(root);
     const firstBytes = await readFile(first.reportPath);
     const firstSitemap = await readFile(first.sitemapPath);
     await writeFixture(root, ".bearing/cache/noise.txt", "disposable\n");
@@ -27,7 +30,7 @@ describe("bearing sync", () => {
   test("projects each addressable planning and native work object into the sitemap", async () => {
     const root = await createValidBearingRepo();
 
-    const result = await runSync(root);
+    const result = await runInitialSync(root);
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(sitemap).toContain("# Bearing Project Sitemap");
@@ -46,7 +49,7 @@ describe("bearing sync", () => {
 
   test("reconciles a direct canonical edit into the sitemap", async () => {
     const root = await createValidBearingRepo();
-    const first = await runSync(root);
+    const first = await runInitialSync(root);
     const firstSitemap = await readFile(first.sitemapPath, "utf8");
     await writeFixture(
       root,
@@ -80,7 +83,7 @@ Prove reconciliation.
   test("uses the manifest and Project Summary without repository-local Bearing package inputs", async () => {
     const root = await createValidBearingRepo();
 
-    const result = await runSync(root);
+    const result = await runInitialSync(root);
 
     expect(result.inputs).toContain(".bearing/manifest.json");
     expect(result.inputs).toContain(".bearing/state/project-summary.md");
@@ -113,7 +116,7 @@ Citations: []
 `,
     );
 
-    const result = await runSync(root);
+    const result = await runInitialSync(root);
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(result.inputs).not.toContain(".scratch/legacy/effort.md");
@@ -146,7 +149,7 @@ Preserve historical context.
 `,
     );
 
-    const result = await runSync(root);
+    const result = await runInitialSync(root);
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(sitemap).toContain("`gate:terminal` | Terminal Gate | superseded");

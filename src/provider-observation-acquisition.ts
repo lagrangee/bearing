@@ -1,10 +1,5 @@
-import stableStringify from "safe-stable-stringify";
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
-import { type FingerprintObservation, fingerprintInputRecords } from "./fingerprint";
-import {
-  type CapturedProviderDocuments,
-  rebaseProviderScopeCaptureGeneration,
-} from "./native-work-provider";
+import type { CapturedProviderDocuments } from "./native-work-provider";
 import {
   decodeMattProviderConfiguration,
   type MattProviderConfiguration,
@@ -13,7 +8,7 @@ import {
 import { validateMattSkillsV1Contract } from "./providers/matt-skills-v1";
 import type {
   MattSkillsV1Provider,
-  MattSkillsV1ScopeCapture,
+  MattSkillsV1ProviderObservation,
   MattSkillsV1WorkBinding,
 } from "./providers/matt-skills-v1/capture";
 import { createGitHubMattProvider } from "./providers/matt-skills-v1/github";
@@ -21,12 +16,10 @@ import { createLocalMarkdownMattProvider } from "./providers/matt-skills-v1/loca
 import type { SyncInputGeneration } from "./sync-input-generation";
 import type { StructuralDiagnostic } from "./types";
 
-export type ProviderCaptureGeneration = Readonly<{
-  fingerprint: string;
-  inputs: readonly string[];
-  captures: readonly MattSkillsV1ScopeCapture[];
+export type ProviderObservationAcquisition = Readonly<{
+  observations: readonly MattSkillsV1ProviderObservation[];
   diagnostics: readonly StructuralDiagnostic[];
-  captureCount: number;
+  acquisitionCount: number;
 }>;
 
 export type MattProviderFactoryInput = Readonly<{
@@ -37,6 +30,11 @@ export type MattProviderFactoryInput = Readonly<{
 }>;
 
 export type MattProviderFactory = (input: MattProviderFactoryInput) => MattSkillsV1Provider;
+export type ProviderBindingConflict = Readonly<{
+  binding: MattSkillsV1WorkBinding;
+  effortIds: readonly string[];
+  diagnostic: StructuralDiagnostic;
+}>;
 
 const defaultProviderFactory: MattProviderFactory = (input) =>
   input.driver === "local-markdown"
@@ -81,10 +79,7 @@ const parseConfiguration = (
   try {
     const parsed = decodeMattProviderConfiguration(record.source);
     if (parsed === undefined) throw new TypeError("Invalid Provider Configuration.");
-    return {
-      configuration: providerConfigurationFor(parsed),
-      diagnostics: [],
-    };
+    return { configuration: providerConfigurationFor(parsed), diagnostics: [] };
   } catch {
     return {
       diagnostics: [
@@ -98,10 +93,13 @@ const parseConfiguration = (
   }
 };
 
-const boundScopes = (
+const providerBindingEntries = (
   decoded: DecodedBearingRecordGeneration,
-): readonly MattSkillsV1WorkBinding[] => {
-  const bindings = new Map<string, MattSkillsV1WorkBinding>();
+): ReadonlyMap<
+  string,
+  Readonly<{ binding: MattSkillsV1WorkBinding; effortIds: readonly string[] }>
+> => {
+  const bindings = new Map<string, { binding: MattSkillsV1WorkBinding; effortIds: string[] }>();
   for (const record of decoded.records) {
     const data = record.data;
     if (data?.Type !== "effort" || data["Work binding"] === undefined) continue;
@@ -109,46 +107,65 @@ const boundScopes = (
       provider: data["Work binding"].Provider,
       nativeScope: data["Work binding"]["Native scope"],
     };
-    bindings.set(`${binding.provider}\0${binding.nativeScope}`, binding);
+    const key = `${binding.provider}\0${binding.nativeScope}`;
+    const entry = bindings.get(key) ?? { binding, effortIds: [] };
+    entry.effortIds.push(data.ID);
+    bindings.set(key, entry);
   }
-  return [...bindings.values()].sort((left, right) =>
-    Buffer.compare(Buffer.from(left.nativeScope), Buffer.from(right.nativeScope)),
+  return new Map(
+    [...bindings.entries()].map(([key, entry]) => [
+      key,
+      {
+        binding: entry.binding,
+        effortIds: [...entry.effortIds].sort((left, right) =>
+          Buffer.compare(Buffer.from(left), Buffer.from(right)),
+        ),
+      },
+    ]),
   );
 };
 
-const fingerprintCapture = (capture: MattSkillsV1ScopeCapture): string =>
-  stableStringify(
-    {
-      provider: capture.provider,
-      binding: capture.binding,
-      state: capture.state,
-      freshness: {
-        assessment: capture.freshness.assessment,
-        sourceRevision: capture.freshness.sourceRevision,
-        evidence: capture.freshness.evidence,
-      },
-      coverage: capture.coverage,
-      completion: capture.completion,
-      diagnostics: capture.diagnostics,
-      ...("projection" in capture ? { projection: capture.projection } : {}),
-    },
-    (key, value) => (key === "observedAt" ? undefined : value),
-  ) ?? "";
+export const boundProviderScopes = (
+  decoded: DecodedBearingRecordGeneration,
+): readonly MattSkillsV1WorkBinding[] =>
+  [...providerBindingEntries(decoded).values()]
+    .map((entry) => entry.binding)
+    .sort((left, right) =>
+      Buffer.compare(Buffer.from(left.nativeScope), Buffer.from(right.nativeScope)),
+    );
 
-export const captureProviderGeneration = async (
+export const providerBindingConflicts = (
+  decoded: DecodedBearingRecordGeneration,
+): readonly ProviderBindingConflict[] =>
+  [...providerBindingEntries(decoded).values()]
+    .filter((entry) => entry.effortIds.length > 1)
+    .map((entry) => ({
+      binding: entry.binding,
+      effortIds: entry.effortIds,
+      diagnostic: diagnostic(
+        "provider-binding-conflict",
+        entry.binding.nativeScope,
+        `Provider-native scope is bound to multiple Efforts (${entry.effortIds.join(
+          ", ",
+        )}); completion and readiness are unavailable until an explicit rebind resolves the conflict.`,
+      ),
+    }))
+    .sort((left, right) =>
+      Buffer.compare(Buffer.from(left.binding.nativeScope), Buffer.from(right.binding.nativeScope)),
+    );
+
+export const acquireProviderObservations = async (
   generation: SyncInputGeneration,
   decoded: DecodedBearingRecordGeneration,
   providerFactory: MattProviderFactory = defaultProviderFactory,
-): Promise<ProviderCaptureGeneration> => {
+): Promise<ProviderObservationAcquisition> => {
+  const bindings = boundProviderScopes(decoded);
+  if (bindings.length === 0) {
+    return { observations: [], diagnostics: [], acquisitionCount: 0 };
+  }
   const parsed = parseConfiguration(generation);
   if (parsed.configuration === undefined) {
-    return {
-      fingerprint: generation.fingerprint,
-      inputs: generation.inputs,
-      captures: [],
-      diagnostics: parsed.diagnostics,
-      captureCount: 0,
-    };
+    return { observations: [], diagnostics: parsed.diagnostics, acquisitionCount: 0 };
   }
   const contract = generation.records.find(
     (record) => record.locator === parsed.configuration.contractLocator,
@@ -159,9 +176,7 @@ export const captureProviderGeneration = async (
       : validateMattSkillsV1Contract(contract.source);
   if (validation.state !== "supported") {
     return {
-      fingerprint: generation.fingerprint,
-      inputs: generation.inputs,
-      captures: [],
+      observations: [],
       diagnostics: [
         diagnostic(
           "unsupported-provider-contract",
@@ -169,7 +184,7 @@ export const captureProviderGeneration = async (
           "Confirmed Matt provider contract is unavailable or unsupported.",
         ),
       ],
-      captureCount: 0,
+      acquisitionCount: 0,
     };
   }
   const capturedDocuments = new Map(
@@ -181,33 +196,20 @@ export const captureProviderGeneration = async (
     repoRoot: generation.root,
     capturedDocuments,
   });
-  const observedCaptures: MattSkillsV1ScopeCapture[] = [];
-  for (const binding of boundScopes(decoded)) {
-    observedCaptures.push(await provider.capture(binding, { fingerprint: generation.fingerprint }));
+  const observations: MattSkillsV1ProviderObservation[] = [];
+  for (const binding of bindings) {
+    observations.push(await provider.capture(binding));
   }
-  const observations: FingerprintObservation[] = observedCaptures.map((capture) => ({
-    key: `provider-capture:${capture.provider}:${capture.binding.nativeScope}`,
-    value: fingerprintCapture(capture),
-  }));
-  const final = fingerprintInputRecords(generation.records, [
-    ...generation.observations,
-    ...observations,
-  ]);
-  const captures = observedCaptures.map((capture) =>
-    rebaseProviderScopeCaptureGeneration(capture, final.fingerprint),
-  );
   return {
-    fingerprint: final.fingerprint,
-    inputs: final.inputs,
-    captures,
-    diagnostics: captures.flatMap((capture) =>
-      capture.diagnostics.map((item) => ({
+    observations,
+    diagnostics: observations.flatMap((observation) =>
+      observation.diagnostics.map((item) => ({
         code: item.code,
         impact: item.impact,
         target: item.target,
         message: item.message,
       })),
     ),
-    captureCount: observedCaptures.length,
+    acquisitionCount: observations.length,
   };
 };

@@ -1,6 +1,7 @@
 import type { RefinementCtx } from "zod";
 import {
   type ContributorCapture,
+  type ContributorObservationSelection,
   type DerivedCollection,
   hasUntrustedEffortContributor,
   normalizedGateHorizon,
@@ -45,7 +46,8 @@ export type PlanningDerivationConsistencySnapshot = Readonly<{
   roadmaps: DerivedCollection<Roadmap>;
   gates: DerivedCollection<Gate>;
   efforts: DerivedCollection<Effort>;
-  providerCaptures: readonly ContributorCapture[];
+  providerObservations: readonly ContributorCapture[];
+  providerObservationSelections: readonly ContributorObservationSelection[];
   diagnostics: readonly Readonly<{
     reference: string;
     code: string;
@@ -66,15 +68,34 @@ export const validatePlanningDerivationConsistency = (
   snapshot: PlanningDerivationConsistencySnapshot,
   context: RefinementCtx,
 ): void => {
-  for (const [position, capture] of snapshot.providerCaptures.entries()) {
+  for (const [position, observation] of snapshot.providerObservations.entries()) {
+    const selection = snapshot.providerObservationSelections.find(
+      (candidate) =>
+        candidate.provider === observation.provider &&
+        candidate.nativeScope === observation.binding.nativeScope,
+    );
+    if (selection?.observationId !== observation.id) {
+      addIssue(
+        context,
+        ["providerObservations", position, "id"],
+        "Every Project Snapshot provider observation must be its scope's exact selected observation.",
+      );
+    }
+  }
+  for (const [position, selection] of snapshot.providerObservationSelections.entries()) {
     if (
-      "generation" in capture &&
-      capture.generation.fingerprint !== snapshot.basis.sitemapFingerprint
+      selection.observationId !== null &&
+      !snapshot.providerObservations.some(
+        (observation) =>
+          observation.id === selection.observationId &&
+          observation.provider === selection.provider &&
+          observation.binding.nativeScope === selection.nativeScope,
+      )
     ) {
       addIssue(
         context,
-        ["providerCaptures", position, "generation", "fingerprint"],
-        "Provider capture generation must match the Project Snapshot basis.",
+        ["providerObservationSelections", position, "observationId"],
+        "Every non-empty provider observation selection must resolve inside the Project Snapshot.",
       );
     }
   }
@@ -100,7 +121,8 @@ export const validatePlanningDerivationConsistency = (
       normalizedGateReadiness(
         gate,
         snapshot.efforts,
-        snapshot.providerCaptures,
+        snapshot.providerObservations,
+        snapshot.providerObservationSelections,
         hasUntrustedEffortContributor(snapshot.gates, gate.id),
       )
     ) {

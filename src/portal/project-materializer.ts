@@ -3,6 +3,7 @@ import packageMetadata from "../../package.json";
 import { readProjectSnapshotCache } from "../project-snapshot/cache";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import { buildProjectSnapshot } from "../project-snapshot/projection";
+import type { ProviderObservationIntent } from "../provider-observation-store";
 import { commitSyncPlan, prepareSync, type SyncPlan } from "../sync-plan";
 import { createSyncReceipt, readSyncReceipt, type SyncReceipt } from "../sync-receipt";
 import { commitProjectCache } from "./project-cache-transaction";
@@ -123,7 +124,8 @@ export const createProjectMaterializer = (options: {
           diagnostics: plan.diagnostics,
           advisoryFreshness: plan.advisoryFreshness,
           decoded: plan.decoded,
-          providerCaptures: plan.providerCaptures,
+          providerObservations: plan.providerObservations,
+          providerObservationSelections: plan.providerObservationSelections,
           assetContentObservations: plan.assetContentObservations,
           planningGraph: plan.planningGraph,
         }),
@@ -150,6 +152,23 @@ export const createProjectMaterializer = (options: {
         : executor(writePhase, () => phase(errorCode, errorMessage, operation)),
     );
   };
+  const executeCoherentWrite = async (
+    executor: ProjectWriteAuthorizer | undefined,
+    operation: () => Promise<void>,
+  ): Promise<void> =>
+    phase("input-validation-failed", "Project write authorization failed.", async () => {
+      const authorizedCache = () =>
+        executor === undefined
+          ? operation()
+          : executor("cache", () =>
+              phase("snapshot-write-failed", "Project cache commit failed.", operation),
+            );
+      if (executor === undefined) {
+        await phase("snapshot-write-failed", "Project cache commit failed.", operation);
+        return;
+      }
+      await executor("sync", authorizedCache);
+    });
 
   return Object.freeze({
     async run(
@@ -157,6 +176,7 @@ export const createProjectMaterializer = (options: {
       mode: ProjectOperationMode,
       writeExecutor?: ProjectWriteAuthorizer,
       generationGraph?: ProjectGenerationGraphAccess,
+      providerObservationIntent: ProviderObservationIntent = "ordinary-sync",
     ): Promise<ProjectMaterializationResult> {
       const currentGraph = generationGraph?.current();
       const initial = await phase(
@@ -165,6 +185,7 @@ export const createProjectMaterializer = (options: {
         async () =>
           dependencies.prepare(repoRoot, {
             ...(currentGraph === undefined ? {} : { planningGraph: currentGraph }),
+            providerObservationIntent,
           }),
       );
       const complete = (result: ProjectMaterializationResult): ProjectMaterializationResult => {
@@ -202,6 +223,13 @@ export const createProjectMaterializer = (options: {
             await dependencies.commitCache({
               repoRoot,
               snapshot,
+              ...(initial.providerObservationStoreChanged
+                ? {
+                    providerObservationStore: {
+                      bytes: initial.providerObservationStoreBytes,
+                    },
+                  }
+                : {}),
               ...(receipt === undefined ? {} : { receipt }),
             });
           },
@@ -215,30 +243,30 @@ export const createProjectMaterializer = (options: {
         });
       }
 
-      await executeWrite(
-        writeExecutor,
-        "sync",
-        "sync-failed",
-        "Project reconciliation failed.",
-        async () => {
-          await dependencies.commit(plan);
-        },
-      );
       const receipt = createReceiptFor(plan);
       const snapshotDisposition = snapshot === reusable ? "reused" : "materialized";
-      await executeWrite(
-        writeExecutor,
-        "cache",
-        "snapshot-write-failed",
-        "Project cache commit failed.",
-        async () => {
-          await dependencies.commitCache({
-            repoRoot,
-            ...(snapshotDisposition === "materialized" ? { snapshot } : {}),
-            receipt,
-          });
-        },
-      );
+      await executeCoherentWrite(writeExecutor, async () => {
+        await dependencies.commitCache({
+          repoRoot,
+          sync: {
+            reportPath: plan.reportPath,
+            sitemapPath: plan.sitemapPath,
+            commit: () =>
+              phase("sync-failed", "Project reconciliation failed.", async () =>
+                dependencies.commit(plan, { publishProviderObservations: false }),
+              ),
+          },
+          ...(plan.providerObservationStoreChanged
+            ? {
+                providerObservationStore: {
+                  bytes: plan.providerObservationStoreBytes,
+                },
+              }
+            : {}),
+          ...(snapshotDisposition === "materialized" ? { snapshot } : {}),
+          receipt,
+        });
+      });
       const common: ProjectMaterializationBase = {
         reconciliation: receipt.reconciliation,
         snapshotDisposition,

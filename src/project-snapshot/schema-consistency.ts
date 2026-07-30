@@ -101,7 +101,8 @@ type GovernanceSnapshot = Readonly<{
   >;
   authorities: Collection<CollectionItem<AssetConsistencySnapshot["authorities"]> & PrimarySource>;
   assets: Collection<CollectionItem<AssetConsistencySnapshot["assets"]> & PrimarySource>;
-  providerCaptures: PlanningDerivationConsistencySnapshot["providerCaptures"];
+  providerObservations: PlanningDerivationConsistencySnapshot["providerObservations"];
+  providerObservationSelections: PlanningDerivationConsistencySnapshot["providerObservationSelections"];
   roadmapIndex: Singleton<RoadmapIndex>;
   diagnostics: PlanningDerivationConsistencySnapshot["diagnostics"];
   checks: Collection<

@@ -6,6 +6,9 @@ import { runSync } from "../src/sync";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 import { buildProjectSnapshotForTest as buildProjectSnapshot } from "./project-snapshot-fixture";
 
+const runInitialSync = (root: string) =>
+  runSync(root, { providerObservationIntent: "initial-baseline" });
+
 const writeCurrentGuidance = async (root: string): Promise<void> => {
   const inputs = [".bearing/state/project-summary.md"];
   const fingerprint = await fingerprintFiles(root, inputs);
@@ -59,7 +62,7 @@ Use a whole-project semantic review after the projection is trustworthy.
 test("builds one repository-scoped semantic Snapshot without Catalog identity", async () => {
   const root = await createValidBearingRepo();
   await writeCurrentGuidance(root);
-  const sync = await runSync(root);
+  const sync = await runInitialSync(root);
 
   const snapshot = await buildProjectSnapshot({
     repoRoot: root,
@@ -71,7 +74,7 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   });
 
   expect(snapshot).toMatchObject({
-    schemaVersion: 4,
+    schemaVersion: 5,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapFingerprint: sync.fingerprint },
     summary: {
@@ -105,7 +108,7 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   expect(snapshot).toHaveProperty("assets");
   expect(snapshot).toHaveProperty("checks");
   expect(snapshot).toHaveProperty("reviews");
-  expect(snapshot).toHaveProperty("providerCaptures");
+  expect(snapshot).toHaveProperty("providerObservations");
   expect(snapshot).not.toHaveProperty("maps");
   expect(snapshot).not.toHaveProperty("tickets");
   expect(snapshot.sources.length).toBeGreaterThan(0);
@@ -124,7 +127,7 @@ test("isolates an invalid Summary while preserving trustworthy Roadmaps", async 
     ".bearing/state/project-summary.md",
     summary.replace("## Purpose", "## Goal"),
   );
-  const sync = await runSync(root);
+  const sync = await runInitialSync(root);
 
   const snapshot = await buildProjectSnapshot({
     repoRoot: root,
@@ -144,7 +147,7 @@ test("consumes Guidance freshness computed by Sync", async () => {
   const root = await createValidBearingRepo();
   await writeCurrentGuidance(root);
   await writeFixture(root, "CONTEXT.md", "# Changed context\n");
-  const sync = await runSync(root);
+  const sync = await runInitialSync(root);
 
   const snapshot = await buildProjectSnapshot({
     repoRoot: root,
@@ -262,7 +265,7 @@ Input fingerprint: sha256:${"a".repeat(64)}
   );
 
   // When: Sync diagnostics cross the normalized Snapshot boundary.
-  const sync = await runSync(root);
+  const sync = await runInitialSync(root);
   const snapshot = await buildProjectSnapshot({
     repoRoot: root,
     packageVersion: "0.0.0-test",

@@ -60,7 +60,9 @@ describe("bearing sync", () => {
     await rm(join(root, ".scratch"), { recursive: true });
     await symlink(outside, join(root, ".scratch"));
 
-    const result = await runSync(root);
+    const result = await runSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
 
     expect(
       result.diagnostics.filter(
@@ -83,7 +85,9 @@ describe("bearing sync", () => {
     await rm(target);
     await link(foreign, target);
 
-    const result = await runSync(root);
+    const result = await runSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(result.inputs).not.toContain(locator);
@@ -276,7 +280,9 @@ Assets:
     await rm(join(root, ".scratch"), { recursive: true });
     await writeFile(join(root, ".scratch"), "not a directory\n");
 
-    const result = await runSync(root);
+    const result = await runSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(result.diagnostics).toContainEqual({

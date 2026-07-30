@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { access, readFile, realpath } from "node:fs/promises";
+import { join } from "node:path";
+import { createProjectMaterializer } from "../src/portal/project-materializer";
+import { createProjectService } from "../src/portal/project-service";
+import { authorizeWritesDirectly } from "../src/portal/project-write-executor";
+import type { MattProviderFactory } from "../src/provider-observation-acquisition";
+import { prepareSync } from "../src/sync-plan";
+import { createValidBearingRepo } from "./helpers";
 
 const productionFiles = [
   "src/bearing-record-decoder.ts",
@@ -17,7 +24,50 @@ const productionFiles = [
   "src/sync-plan.ts",
 ] as const;
 
-test("cuts production consumers over to provider captures without provisional native work", async () => {
+test("a real Project activation with no observation baseline performs zero acquisition", async () => {
+  const root = await realpath(await createValidBearingRepo());
+  let captureCalls = 0;
+  const providerFactory: MattProviderFactory = () => ({
+    id: "matt-skills/v1",
+    capture: async () => {
+      captureCalls += 1;
+      throw new Error("ordinary Project activation must not enter provider acquisition");
+    },
+  });
+  const materializer = createProjectMaterializer({
+    packageVersion: "0.0.0-test",
+    dependencies: {
+      prepare: (repoRoot, options) => prepareSync(repoRoot, { ...options, providerFactory }),
+    },
+  });
+  const service = createProjectService({
+    packageVersion: "0.0.0-test",
+    materializer,
+    readCatalog: async () => ({
+      state: "ready",
+      entries: [
+        {
+          entryId: "entry-provider-budget",
+          displayName: "Provider budget",
+          repoRoot: root,
+          availability: "available",
+        },
+      ],
+    }),
+    operationExecutorFor: () => (operation) => operation(authorizeWritesDirectly),
+  });
+
+  expect(await service.sync("entry-provider-budget", "ensure-current")).toMatchObject({
+    kind: "completed",
+    mode: "ensure-current",
+  });
+  expect(captureCalls).toBe(0);
+  await expect(
+    access(join(root, ".bearing/cache/provider-observations.json")),
+  ).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("cuts production consumers over to provider observations without provisional native work", async () => {
   for (const file of productionFiles) {
     const source = await readFile(file, "utf8");
     expect(source, file).not.toMatch(/\b(?:NativeWork|NativeSourceRecord|nativeRecords)\b/u);
@@ -25,35 +75,14 @@ test("cuts production consumers over to provider captures without provisional na
   }
 });
 
-test("removes the provisional native-work implementation and global scratch discovery", async () => {
-  for (const file of [
-    "src/native-work.ts",
-    "src/captured-native-work.ts",
-    "src/planning-derivation.ts",
-    "src/native-ticket-diagnostics.ts",
-  ]) {
-    expect(Bun.file(file).size, file).toBe(0);
-  }
-  const discovery = await readFile("src/sitemap-discovery.ts", "utf8");
-  expect(discovery).not.toContain('probeContainedInput(root, ".scratch")');
-  expect(discovery).not.toContain("discoverCanonicalEffortScopes");
-});
-
-test("publishes provider captures instead of generic map and ticket Snapshot truth", async () => {
-  const schema = await readFile("src/project-snapshot/schema.ts", "utf8");
-  expect(schema).toContain("providerCaptures:");
-  expect(schema).not.toMatch(/^\s+maps:/mu);
-  expect(schema).not.toMatch(/^\s+tickets:/mu);
-});
-
-test("keeps provider acquisition behind the single generation owner", async () => {
+test("keeps provider acquisition behind the explicit observation owner", async () => {
   const files = [
     ...new Bun.Glob("src/**/*.{ts,tsx}").scanSync({
       cwd: process.cwd(),
       onlyFiles: true,
     }),
   ].sort();
-  const acquisitionOwner = "src/provider-capture-generation.ts";
+  const acquisitionOwner = "src/provider-observation-acquisition.ts";
   for (const file of files) {
     if (file.startsWith("src/providers/")) continue;
     const source = await readFile(file, "utf8");

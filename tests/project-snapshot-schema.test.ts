@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createProviderScopeObservation } from "../src/native-work-provider";
 import {
   assetProjectionSchema,
   gateSchema,
@@ -79,7 +80,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -93,7 +94,8 @@ const validSnapshot = {
   reviews: availableItems,
   audit: { validity: "absent" },
   guidance: { validity: "absent" },
-  providerCaptures: [],
+  providerObservations: [],
+  providerObservationSelections: [],
   diagnostics: [],
   attention: [],
   sources: [
@@ -107,15 +109,15 @@ const validSnapshot = {
     assetRecord,
   ],
 };
-const providerCapture = {
+const providerCapture = createProviderScopeObservation({
   provider: "matt-skills/v1",
   binding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
-  generation: { fingerprint: BASIS },
+  observedAt: "2026-07-28T12:00:00.000Z",
+  sourceRevision: `sha256:${"b".repeat(64)}`,
+  validators: [],
   state: "available",
   freshness: {
     assessment: "current",
-    capturedAt: "2026-07-28T12:00:00.000Z",
-    sourceRevision: `sha256:${"b".repeat(64)}`,
     evidence: [{ kind: "local-scope", value: ".scratch/work" }],
   },
   coverage: {
@@ -130,6 +132,13 @@ const providerCapture = {
     incomingIssues: [],
     graph: { parentChild: [], blockedBy: [] },
   },
+});
+const providerSelection = {
+  provider: providerCapture.provider,
+  nativeScope: providerCapture.binding.nativeScope,
+  observationId: providerCapture.id,
+  effectiveFreshness: providerCapture.freshness.assessment,
+  latestAttempt: null,
 } as const;
 const guidanceItem = {
   title: "Complete Snapshot",
@@ -185,7 +194,8 @@ test("parses a repository-scoped Snapshot with the complete domain breadth", () 
     "reviews",
     "audit",
     "guidance",
-    "providerCaptures",
+    "providerObservations",
+    "providerObservationSelections",
     "diagnostics",
     "attention",
     "sources",
@@ -216,7 +226,7 @@ test("rejects extras and impossible projection variants at nested boundaries", (
   expect(projectSnapshotSchema.safeParse(emptyPartial).success).toBe(false);
 });
 
-test("rejects false-complete or generation-mismatched provider captures", () => {
+test("rejects false-complete, content-tampered, or unresolved provider observations", () => {
   const falseCompleteCaptures = [
     { ...providerCapture, state: "partial", completion: "complete" },
     {
@@ -250,25 +260,37 @@ test("rejects false-complete or generation-mismatched provider captures", () => 
     expect(
       projectSnapshotSchema.safeParse({
         ...validSnapshot,
-        providerCaptures: [capture],
+        providerObservations: [capture],
+        providerObservationSelections: [providerSelection],
       }).success,
     ).toBe(false);
   }
   expect(
     projectSnapshotSchema.safeParse({
       ...validSnapshot,
-      providerCaptures: [
+      providerObservations: [
         {
           ...providerCapture,
-          generation: { fingerprint: `sha256:${"c".repeat(64)}` },
+          sourceRevision: `sha256:${"c".repeat(64)}`,
         },
+      ],
+      providerObservationSelections: [providerSelection],
+    }).success,
+  ).toBe(false);
+  expect(
+    projectSnapshotSchema.safeParse({
+      ...validSnapshot,
+      providerObservations: [providerCapture],
+      providerObservationSelections: [
+        { ...providerSelection, observationId: `provider-observation:sha256:${"c".repeat(64)}` },
       ],
     }).success,
   ).toBe(false);
   expect(
     projectSnapshotSchema.safeParse({
       ...validSnapshot,
-      providerCaptures: [providerCapture],
+      providerObservations: [providerCapture],
+      providerObservationSelections: [providerSelection],
     }).success,
   ).toBe(true);
 });

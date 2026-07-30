@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { commitProjectCache } from "../src/portal/project-cache-transaction";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
 import { readProjectSnapshotCache } from "../src/project-snapshot/cache";
 import { runSync } from "../src/sync";
@@ -11,6 +12,7 @@ const snapshotPath = (root: string) => join(root, ".bearing/cache/project-snapsh
 const receiptPath = (root: string) => join(root, ".bearing/cache/sync-receipt.json");
 const reportPath = (root: string) => join(root, ".bearing/cache/sync-report.md");
 const sitemapPath = (root: string) => join(root, ".bearing/cache/project-sitemap.md");
+const observationPath = (root: string) => join(root, ".bearing/cache/provider-observations.json");
 const deferred = <Value>() => {
   let resolvePromise: ((value: Value) => void) | undefined;
   const promise = new Promise<Value>((resolve) => {
@@ -105,6 +107,40 @@ test("projection failure preserves prior Snapshot and Receipt", async () => {
   expect(await readFile(receiptPath(root))).toEqual(priorReceipt);
 });
 
+test("cache publication failure restores report, Sitemap, observation, Snapshot, and Receipt", async () => {
+  const root = await createValidBearingRepo();
+  await runSync(root, {
+    completedAt: "2026-07-13T12:00:00.000Z",
+    providerObservationIntent: "initial-baseline",
+  });
+  await createProjectMaterializer({ packageVersion: "0.0.0-test" }).run(root, "ensure-current");
+  const targets = [
+    reportPath(root),
+    sitemapPath(root),
+    observationPath(root),
+    snapshotPath(root),
+    receiptPath(root),
+  ];
+  const prior = await Promise.all(targets.map((target) => readFile(target)));
+  await writeFixture(root, "CONTEXT.md", "# Transactional change\n");
+  const failing = createProjectMaterializer({
+    packageVersion: "0.0.0-test",
+    dependencies: {
+      commitCache: (input) =>
+        commitProjectCache(input, {
+          writeSnapshot: async () => {
+            throw new Error("injected Snapshot publication failure");
+          },
+        }),
+    },
+  });
+
+  await expect(failing.run(root, "ensure-current")).rejects.toMatchObject({
+    code: "snapshot-write-failed",
+  });
+  expect(await Promise.all(targets.map((target) => readFile(target)))).toEqual(prior);
+});
+
 test("write authorization denial prevents Snapshot-only cache materialization", async () => {
   const root = await createValidBearingRepo();
   await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
@@ -145,7 +181,7 @@ test("write authorization denial prevents dirty Sync outputs from changing", asy
   expect(await Promise.all(targets.map((target) => readFile(target)))).toEqual(prior);
 });
 
-test("reauthorizes before cache commit and preserves prior Snapshot and Receipt on denial", async () => {
+test("authorizes both write phases before publishing and preserves the complete prior view on denial", async () => {
   const root = await createValidBearingRepo();
   await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
   const materializer = createProjectMaterializer({ packageVersion: "0.0.0-test" });
@@ -165,12 +201,12 @@ test("reauthorizes before cache commit and preserves prior Snapshot and Receipt 
   ).rejects.toMatchObject({ code: "input-validation-failed" });
 
   expect(phases).toEqual(["sync", "cache"]);
-  expect(await readFile(sitemapPath(root))).not.toEqual(priorSitemap);
+  expect(await readFile(sitemapPath(root))).toEqual(priorSitemap);
   expect(await readFile(snapshotPath(root))).toEqual(priorSnapshot);
   expect(await readFile(receiptPath(root))).toEqual(priorReceipt);
 });
 
-test("isolates a stale Receipt on the first successful cache-materialization retry", async () => {
+test("retries the complete coherent generation after cache authorization denial", async () => {
   const root = await createValidBearingRepo();
   await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
   const materializer = createProjectMaterializer({ packageVersion: "0.0.0-test" });
@@ -186,9 +222,12 @@ test("isolates a stale Receipt on the first successful cache-materialization ret
   ).rejects.toMatchObject({ code: "input-validation-failed" });
 
   const retry = await materializer.run(root, "ensure-current");
-  expect(retry).toMatchObject({ outcome: "materialized", snapshotDisposition: "materialized" });
-  expect(retry.receipt).toBeUndefined();
-  expect(await readFile(receiptPath(root))).toEqual(priorReceipt);
+  expect(retry).toMatchObject({
+    outcome: "synced",
+    snapshotDisposition: "materialized",
+    receipt: { reconciliation: "applied" },
+  });
+  expect(await readFile(receiptPath(root))).not.toEqual(priorReceipt);
 });
 
 test("write executor wraps the physical Sync and cache commits", async () => {
@@ -206,7 +245,7 @@ test("write executor wraps the physical Sync and cache commits", async () => {
     return result;
   });
 
-  expect(events).toEqual(["before-sync", "after-sync", "before-cache", "after-cache"]);
+  expect(events).toEqual(["before-sync", "before-cache", "after-cache", "after-sync"]);
 });
 
 test("write executor preserves commit and cache exception taxonomy", async () => {

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { runSync } from "../src/sync";
+import { runSync as runBearingSync } from "../src/sync";
 import { createValidBearingRepo, writeFixture } from "./helpers";
+
+const runSync = (root: string) =>
+  runBearingSync(root, { providerObservationIntent: "initial-baseline" });
 
 describe("sync governance review regressions", () => {
   test("does not globally discover native work from an unbound scope", async () => {

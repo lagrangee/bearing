@@ -38,7 +38,7 @@ Usage:
   bearing purge --repo <path> [--plan] [--confirm-purge --purge-plan-token <sha256> (--recovery-export <path> | --accept-no-recovery-export)]
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [options]
   bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
-  bearing sync [--repo <path>]
+  bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
   bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>]
   bearing portal [--port <1-65535>]
   bearing --help
@@ -445,13 +445,38 @@ const runRepositoryLifecycle = async (
 const runSyncCommand = async (args: readonly string[]): Promise<void> => {
   const parsed = parseArgs({
     args: [...args],
-    options: { repo: { type: "string" } },
+    options: {
+      repo: { type: "string" },
+      "initialize-provider-observations": { type: "boolean" },
+      "recover-provider-observations": { type: "boolean" },
+      "full-provider-verification": { type: "boolean" },
+    },
     allowPositionals: false,
     strict: true,
   });
-  const result = await runSync(resolve(parsed.values.repo ?? process.cwd()));
+  const providerIntentCount = [
+    parsed.values["initialize-provider-observations"],
+    parsed.values["recover-provider-observations"],
+    parsed.values["full-provider-verification"],
+  ].filter((value) => value === true).length;
+  if (providerIntentCount > 1) {
+    throw new Error(
+      "Choose exactly one provider observation baseline, recovery, or full verification intent.",
+    );
+  }
+  const providerObservationIntent =
+    parsed.values["initialize-provider-observations"] === true
+      ? ("initial-baseline" as const)
+      : parsed.values["recover-provider-observations"] === true
+        ? ("recovery" as const)
+        : parsed.values["full-provider-verification"] === true
+          ? ("full-verification" as const)
+          : ("ordinary-sync" as const);
+  const result = await runSync(resolve(parsed.values.repo ?? process.cwd()), {
+    providerObservationIntent,
+  });
   process.stdout.write(
-    `Report: ${result.reportPath}\nSitemap: ${result.sitemapPath}\nInput fingerprint: ${result.fingerprint}\nDiagnostics: ${result.diagnostics.length}\nOutcome: ${result.changed ? "applied" : "no-op"}\n`,
+    `Report: ${result.reportPath}\nSitemap: ${result.sitemapPath}\nInput fingerprint: ${result.fingerprint}\nDiagnostics: ${result.diagnostics.length}\nProvider observations: ${result.providerObservationOperation.intent}/${result.providerObservationOperation.outcome} (${result.providerObservationOperation.acquisitionCount} acquisitions)\nOutcome: ${result.changed ? "applied" : "no-op"}\n`,
   );
   if (result.diagnostics.some((diagnostic) => diagnostic.impact === "blocking")) {
     process.exitCode = 1;
@@ -516,7 +541,7 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
         capturedInputs: plan.metrics.capturedInputCount,
         bearingRecords: plan.metrics.bearingRecordCount,
         recordDecodes: plan.metrics.recordDecodeCount,
-        providerCaptures: plan.metrics.providerCaptureCount,
+        providerObservations: plan.metrics.providerAcquisitionCount,
         planningGraphBuilds: observed.planningGraphBuilds,
         rootClosures: observed.rootClosures,
         repositoryRevalidations: plan.metrics.repositoryRevalidationCount,

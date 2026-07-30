@@ -197,7 +197,9 @@ What follows the completed fixture?
 `,
     );
 
-    const result = await runSync(root);
+    const result = await runSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(sitemap).toContain("`authority:product-design` | Product Design | current");

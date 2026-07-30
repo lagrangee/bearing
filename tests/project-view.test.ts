@@ -25,10 +25,15 @@ const sitemapGeneration = (fingerprint: string) => ({
     advisoryFreshness: {},
   },
 });
+const runInitialSync = (root: string, completedAt: string) =>
+  runSync(root, {
+    completedAt,
+    providerObservationIntent: "initial-baseline",
+  });
 
 test("composes Catalog identity, Snapshot cache, and Receipt without exposing repo root", async () => {
   const root = await createValidBearingRepo();
-  await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+  await runInitialSync(root, "2026-07-13T12:00:00.000Z");
   const missing = await readProjectView(entry(root));
   expect(missing.cache.snapshot).toEqual({ state: "missing" });
   expect(missing.cache.receipt?.completedAt).toBe("2026-07-13T12:00:00.000Z");
@@ -44,7 +49,7 @@ test("composes Catalog identity, Snapshot cache, and Receipt without exposing re
 
 test("keeps a trustworthy behind Snapshot and isolates a malformed Receipt", async () => {
   const root = await createValidBearingRepo();
-  await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+  await runInitialSync(root, "2026-07-13T12:00:00.000Z");
   const materializer = createProjectMaterializer({ packageVersion: "0.0.0-test" });
   await materializer.run(root, "ensure-current");
   await writeFixture(root, "CONTEXT.md", "# Changed\n");
@@ -58,7 +63,7 @@ test("keeps a trustworthy behind Snapshot and isolates a malformed Receipt", asy
 
 test("reports a producer package mismatch without trusting cached Snapshot content", async () => {
   const root = await createValidBearingRepo();
-  await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+  await runInitialSync(root, "2026-07-13T12:00:00.000Z");
   await createProjectMaterializer({ packageVersion: "0.0.0-old" }).run(root, "ensure-current");
 
   const view = await readProjectView(entry(root), true, "0.0.0-current");
@@ -79,7 +84,7 @@ test("marks failure cache as retained only when it contains a trustworthy Snapsh
   const missing = await readProjectView(entry(root), true, "0.0.0-current");
   expect(missing.cache).toMatchObject({ snapshot: { state: "missing" }, retained: false });
 
-  await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+  await runInitialSync(root, "2026-07-13T12:00:00.000Z");
   await writeFile(join(root, ".bearing/cache/project-snapshot.json"), "{broken\n", "utf8");
   const malformed = await readProjectView(entry(root), true, "0.0.0-current");
 
@@ -92,7 +97,7 @@ test("marks failure cache as retained only when it contains a trustworthy Snapsh
 test("keeps a trustworthy behind Snapshot while isolating a newer Sync Receipt", async () => {
   const root = await createValidBearingRepo();
   try {
-    const first = await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+    const first = await runInitialSync(root, "2026-07-13T12:00:00.000Z");
     await createProjectMaterializer({ packageVersion: "0.0.0-test" }).run(root, "ensure-current");
     await writeFixture(root, "CONTEXT.md", "# New generation\n");
     await runSync(root, { completedAt: "2026-07-13T12:01:00.000Z" });

@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { MattSkillsV1ScopeCapture } from "../providers/matt-skills-v1/capture";
+import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
 import {
   type alignmentCheckSchema,
   type assetProjectionSchema,
@@ -65,7 +65,7 @@ export type AuditFinding = DeepReadonly<z.infer<typeof auditFindingSchema>>;
 export type PlanningAudit = DeepReadonly<z.infer<typeof planningAuditSchema>>;
 export type GuidanceItem = DeepReadonly<z.infer<typeof guidanceItemSchema>>;
 export type NextWorkGuidance = DeepReadonly<z.infer<typeof nextWorkGuidanceSchema>>;
-export type ProviderScopeCapture = DeepReadonly<MattSkillsV1ScopeCapture>;
+export type ProviderScopeObservation = DeepReadonly<MattSkillsV1ProviderObservation>;
 export type SnapshotDiagnostic = DeepReadonly<z.infer<typeof structuralDiagnosticSchema>>;
 export type AttentionItem = DeepReadonly<z.infer<typeof attentionItemSchema>>;
 export type SourceRecord = DeepReadonly<z.infer<typeof sourceRecordSchema>>;

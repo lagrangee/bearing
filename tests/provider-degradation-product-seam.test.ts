@@ -2,15 +2,15 @@ import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  createProviderScopeCapture,
+  createProviderScopeObservation,
   type ProviderDiagnostic,
-  type ProviderScopeCapture,
+  type ProviderScopeObservation,
 } from "../src/native-work-provider";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
 import { buildRoadmapDetailModel } from "../src/portal-ui/project-roadmap-model";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
-import type { MattProviderFactory } from "../src/provider-capture-generation";
-import type { MattSkillsV1ScopeCapture } from "../src/providers/matt-skills-v1/capture";
+import type { MattProviderFactory } from "../src/provider-observation-acquisition";
+import type { MattSkillsV1ProviderObservation } from "../src/providers/matt-skills-v1/capture";
 import type { MattScopeProjection } from "../src/providers/matt-skills-v1/model";
 import { prepareSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
@@ -314,12 +314,10 @@ const providerDiagnostic = (
 const degradedCapture = (
   scenario: (typeof failureScenarios)[number],
   binding: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
-  generation: Readonly<{ fingerprint: string }>,
-): MattSkillsV1ScopeCapture => {
+): MattSkillsV1ProviderObservation => {
   const base = {
     provider: "matt-skills/v1" as const,
     binding,
-    generation,
     freshness: {
       assessment: scenario.freshness,
       capturedAt: "2026-07-28T00:00:00.000Z",
@@ -338,13 +336,13 @@ const degradedCapture = (
     diagnostics: [providerDiagnostic(scenario, binding.nativeScope)],
   };
   if (scenario.state === "available" || scenario.state === "partial") {
-    return createProviderScopeCapture({
+    return createProviderScopeObservation({
       ...base,
       state: scenario.state,
       projection: emptyProjection,
     });
   }
-  return createProviderScopeCapture({
+  return createProviderScopeObservation({
     ...base,
     state: scenario.state,
   });
@@ -352,12 +350,10 @@ const degradedCapture = (
 
 const healthyCapture = (
   binding: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
-  generation: Readonly<{ fingerprint: string }>,
-): MattSkillsV1ScopeCapture =>
-  createProviderScopeCapture({
+): MattSkillsV1ProviderObservation =>
+  createProviderScopeObservation({
     provider: "matt-skills/v1",
     binding,
-    generation,
     state: "available",
     freshness: {
       assessment: "current",
@@ -379,22 +375,29 @@ test("propagates every expected degradation class through one generation without
   let captureCalls = 0;
   const providerFactory: MattProviderFactory = () => ({
     id: "matt-skills/v1",
-    capture: async (binding, generation) => {
+    capture: async (binding) => {
       captureCalls += 1;
-      if (binding.nativeScope === ".scratch/work") return healthyCapture(binding, generation);
+      if (binding.nativeScope === ".scratch/work") return healthyCapture(binding);
       const scenario = failureScenarios.find(
         (candidate) => binding.nativeScope === `.scratch/degraded/${candidate.slug}`,
       );
       if (scenario === undefined) throw new Error(`Unexpected scope: ${binding.nativeScope}`);
-      return degradedCapture(scenario, binding, generation);
+      return degradedCapture(scenario, binding);
     },
   });
 
-  const plan = await prepareSync(root, { providerFactory });
+  const plan = await prepareSync(root, {
+    providerObservationIntent: "initial-baseline",
+    providerFactory,
+  });
   expect(captureCalls).toBe(failureScenarios.length + 1);
-  expect(plan.metrics.providerCaptureCount).toBe(failureScenarios.length + 1);
+  expect(plan.metrics.providerAcquisitionCount).toBe(failureScenarios.length + 1);
   expect(
-    plan.providerCaptures.every((capture) => capture.generation.fingerprint === plan.fingerprint),
+    plan.providerObservations.every((capture) =>
+      plan.providerObservationSelections.some(
+        (selection) => selection.observationId === capture.id,
+      ),
+    ),
   ).toBe(true);
   expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
     expect.arrayContaining(failureScenarios.map((scenario) => scenario.code)),
@@ -421,7 +424,7 @@ test("propagates every expected degradation class through one generation without
     });
     expect(result.state).toBe("partial");
     if (result.state === "invalid") throw new Error("Expected scoped degraded Effort context.");
-    const captured = plan.providerCaptures.find(
+    const captured = plan.providerObservations.find(
       (capture) => capture.binding.nativeScope === `.scratch/degraded/${scenario.slug}`,
     );
     expect(result.fingerprint).toBe(plan.fingerprint);
@@ -447,7 +450,7 @@ test("propagates every expected degradation class through one generation without
   expect(sitemap).toContain(`Input fingerprint: ${plan.fingerprint}`);
   for (const scenario of failureScenarios) {
     expect(sitemap).toContain(`provider-state=${scenario.state}`);
-    expect(sitemap).toContain(`provider-freshness=${scenario.freshness}`);
+    expect(sitemap).toContain("provider-freshness=undetermined");
     expect(sitemap).toContain(`provider-coverage=${scenario.coverage}`);
     expect(sitemap).toContain(`provider-completion=${scenario.completion}`);
   }
@@ -463,7 +466,7 @@ test("propagates every expected degradation class through one generation without
       buildSnapshot: async (input) => {
         portalReceivedGeneration =
           input.sitemapFingerprint === plan.fingerprint &&
-          input.providerCaptures === plan.providerCaptures &&
+          input.providerObservations === plan.providerObservations &&
           input.planningGraph === plan.planningGraph;
         return buildProjectSnapshot(input);
       },
@@ -472,7 +475,7 @@ test("propagates every expected degradation class through one generation without
   expect(portalReceivedGeneration).toBe(true);
   const snapshot = materialized.snapshot;
   expect(String(snapshot.basis.sitemapFingerprint)).toBe(plan.fingerprint);
-  expect(snapshot.providerCaptures).toEqual(plan.providerCaptures);
+  expect(snapshot.providerObservations).toEqual(plan.providerObservations);
   const healthyPortal = buildRoadmapDetailModel(snapshot, "roadmap:test");
   expect(healthyPortal.state).toBe("available");
   const degradedPortal = buildRoadmapDetailModel(snapshot, "roadmap:degraded");
@@ -489,20 +492,20 @@ test("propagates every expected degradation class through one generation without
   const stable = await prepareSync(root, { providerFactory });
   expect(stable.diagnostics).toEqual(plan.diagnostics);
   expect(stable.fingerprint).toBe(plan.fingerprint);
-  expect(captureCalls).toBe((failureScenarios.length + 1) * 2);
+  expect(captureCalls).toBe(failureScenarios.length + 1);
 });
 
-test("captures continuing mutation once per Sync and observes the next generation later", async () => {
+test("captures continuing mutation only during explicit baseline and verification operations", async () => {
   const root = await createValidBearingRepo();
   let captureCalls = 0;
   const providerFactory: MattProviderFactory = () => ({
     id: "matt-skills/v1",
-    capture: async (binding, generation) => {
+    capture: async (binding) => {
       captureCalls += 1;
       if (captureCalls === 1) {
-        const healthy = healthyCapture(binding, generation);
+        const healthy = healthyCapture(binding);
         if (healthy.state !== "available") throw new Error("Expected healthy fixture capture.");
-        return createProviderScopeCapture({
+        return createProviderScopeObservation({
           ...healthy,
           freshness: {
             assessment: "stale",
@@ -513,20 +516,26 @@ test("captures continuing mutation once per Sync and observes the next generatio
           projection: emptyProjection,
         });
       }
-      return healthyCapture(binding, generation);
+      return healthyCapture(binding);
     },
   });
 
-  const first = await prepareSync(root, { providerFactory });
+  const first = await prepareSync(root, {
+    providerObservationIntent: "initial-baseline",
+    providerFactory,
+  });
   expect(captureCalls).toBe(1);
-  expect(first.providerCaptures[0]).toMatchObject({
+  expect(first.providerObservations[0]).toMatchObject({
     freshness: { assessment: "stale" },
     completion: "incomplete",
   });
 
-  const second = await prepareSync(root, { providerFactory });
+  const second = await prepareSync(root, {
+    providerObservationIntent: "full-verification",
+    providerFactory,
+  });
   expect(captureCalls).toBe(2);
-  expect(second.providerCaptures[0]).toMatchObject({
+  expect(second.providerObservations[0]).toMatchObject({
     freshness: { assessment: "current" },
     completion: "complete",
   });
@@ -539,9 +548,9 @@ test("real Local mixed scopes keep CLI Inspect, Snapshot, Sitemap, and Portal on
 
   const materialized = await createProjectMaterializer({
     packageVersion: "0.0.0-ticket-13",
-  }).run(root, "force");
+  }).run(root, "force", undefined, undefined, "initial-baseline");
   const snapshot = materialized.snapshot;
-  const degradedCapture = snapshot.providerCaptures.find(
+  const degradedCapture = snapshot.providerObservations.find(
     (capture) => capture.binding.nativeScope === ".scratch/degraded-cli",
   );
   expect(degradedCapture).toMatchObject({
@@ -569,7 +578,7 @@ test("real Local mixed scopes keep CLI Inspect, Snapshot, Sitemap, and Portal on
       },
     },
   });
-  expect(cliCapture.generation.fingerprint).toBe(String(snapshot.basis.sitemapFingerprint));
+  expect(cliCapture.id).toBe(degradedCapture?.id);
   expect(cliCapture.diagnostics.map((diagnostic: ProviderDiagnostic) => diagnostic.code)).toEqual(
     degradedCapture?.diagnostics.map((diagnostic) => diagnostic.code),
   );
@@ -604,6 +613,7 @@ test("throws programming defects, cancellation, and wrapper invariant violations
     const root = await createValidBearingRepo();
     await expect(
       prepareSync(root, {
+        providerObservationIntent: "initial-baseline",
         providerFactory: () => ({
           id: "matt-skills/v1",
           capture: async () => {
@@ -617,17 +627,18 @@ test("throws programming defects, cancellation, and wrapper invariant violations
   const root = await createValidBearingRepo();
   await expect(
     prepareSync(root, {
+      providerObservationIntent: "initial-baseline",
       providerFactory: () => ({
         id: "matt-skills/v1",
-        capture: async (binding, generation) =>
+        capture: async (binding) =>
           ({
-            ...healthyCapture(binding, generation),
+            ...healthyCapture(binding),
             state: "partial",
             completion: "complete",
-          }) as ProviderScopeCapture<"matt-skills/v1", MattScopeProjection>,
+          }) as ProviderScopeObservation<"matt-skills/v1", MattScopeProjection>,
       }),
     }),
-  ).rejects.toThrow("complete only");
+  ).rejects.toThrow("Provider completion requires");
 });
 
 test("treats an unsupported confirmed contract as a diagnostic capture boundary", async () => {
@@ -635,6 +646,7 @@ test("treats an unsupported confirmed contract as a diagnostic capture boundary"
   await writeFixture(root, "docs/agents/issue-tracker.md", "# Unsupported tracker contract\n");
   let factoryCalls = 0;
   const plan = await prepareSync(root, {
+    providerObservationIntent: "initial-baseline",
     providerFactory: () => {
       factoryCalls += 1;
       throw new Error("Provider factory must not run for an unsupported contract.");
@@ -642,7 +654,7 @@ test("treats an unsupported confirmed contract as a diagnostic capture boundary"
   });
 
   expect(factoryCalls).toBe(0);
-  expect(plan.providerCaptures).toEqual([]);
+  expect(plan.providerObservations).toEqual([]);
   expect(plan.diagnostics).toContainEqual(
     expect.objectContaining({ code: "unsupported-provider-contract" }),
   );

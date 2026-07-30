@@ -15,6 +15,7 @@ import {
   writeInspectBenchmarkMetrics,
 } from "../src/inspect-benchmark";
 import { createPlanningGraphInstrumentation } from "../src/planning-graph-instrumentation";
+import { runSyncMeasured } from "../src/sync";
 import { prepareSync } from "../src/sync-plan";
 import { createValidBearingRepo } from "./helpers";
 
@@ -109,7 +110,7 @@ test("worker invokes the packaged-equivalent CLI in one independent process per 
       capturedInputs: 36,
       bearingRecords: 30,
       recordDecodes: 30,
-      providerCaptures: 9,
+      providerObservations: 0,
       planningGraphBuilds: 1,
       rootClosures: 1,
       repositoryRevalidations: 0,
@@ -160,7 +161,7 @@ test("counts actual Planning Graph builds and root closures and rejects duplicat
       capturedInputs: 36,
       bearingRecords: 30,
       recordDecodes: 30,
-      providerCaptures: 9,
+      providerObservations: 0,
       planningGraphBuilds: 1,
       rootClosures: 1,
       repositoryRevalidations: 0,
@@ -198,7 +199,7 @@ const metrics = (): InspectBenchmarkMetrics => ({
     capturedInputs: 1,
     bearingRecords: 1,
     recordDecodes: 1,
-    providerCaptures: 1,
+    providerObservations: 0,
     planningGraphBuilds: 1,
     rootClosures: 1,
     repositoryRevalidations: 0,
@@ -240,6 +241,10 @@ test("metrics writer stays inside disposable cache, refuses overwrite and symlin
 test("successful packaged sample deletes its disposable metrics file", async () => {
   const fixture = await createBenchmarkFixture("representative");
   try {
+    await runSyncMeasured(fixture.root, {
+      packageVersion: "0.0.0-benchmark",
+      completedAt: "2026-07-18T00:00:00.000Z",
+    });
     await runPackagedInspectSample({
       scale: "representative",
       cliPath,
@@ -283,7 +288,7 @@ test("report records metadata, medians, p95s, and the explainable scale rule wit
       capturedInputs: scale === "representative" ? 36 : 126,
       bearingRecords: scale === "representative" ? 30 : 120,
       recordDecodes: scale === "representative" ? 30 : 120,
-      providerCaptures: scale === "representative" ? 9 : 39,
+      providerObservations: 0,
       planningGraphBuilds: 1,
       rootClosures: 1,
       repositoryRevalidations: 0,

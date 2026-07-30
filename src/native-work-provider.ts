@@ -1,5 +1,7 @@
+import stableStringify from "safe-stable-stringify";
 import { z } from "zod";
 import { deepFreeze } from "./immutable";
+import { sha256Hex } from "./sha256";
 
 export type ProviderStructuralValue =
   | string
@@ -36,10 +38,6 @@ export type WorkBinding<ProviderId extends string> = Readonly<{
   nativeScope: string;
 }>;
 
-export type CaptureGeneration = Readonly<{
-  fingerprint: string;
-}>;
-
 export type CapturedProviderDocument = Readonly<{
   locator: string;
   source: string;
@@ -54,9 +52,6 @@ export type ProviderCompletionAssessment = "incomplete" | "complete" | "undeterm
 
 export type ProviderFreshnessEvidence = Readonly<{
   assessment: ProviderFreshnessAssessment;
-  capturedAt: string;
-  sourceRevision?: string;
-  sourceObservedAt?: string;
   evidence: readonly Readonly<{
     kind: string;
     value: string;
@@ -103,7 +98,7 @@ export type ProviderCompletionInvariantInput = Readonly<{
   diagnostics: readonly Readonly<{ impact: "blocking" | "non-blocking" }>[];
 }>;
 
-export type ProviderCaptureEvidenceAssessment = Readonly<{
+export type ProviderObservationEvidenceAssessment = Readonly<{
   projectionState: ProviderProjectionState | "missing";
   freshness: ProviderFreshnessAssessment;
   coverage: ProjectionCoverage["assessment"] | "undetermined";
@@ -125,9 +120,9 @@ export const hasConsistentProviderCompletion = (
   capture: ProviderCompletionInvariantInput,
 ): boolean => capture.completion !== "complete" || hasTrustworthyProviderEvidence(capture);
 
-export const assessProviderCaptureEvidence = (
+export const assessProviderObservationEvidence = (
   capture: ProviderCompletionInvariantInput | undefined,
-): ProviderCaptureEvidenceAssessment => {
+): ProviderObservationEvidenceAssessment => {
   if (capture === undefined) {
     return deepFreeze({
       projectionState: "missing",
@@ -153,20 +148,29 @@ export const assessProviderCaptureEvidence = (
   });
 };
 
-type ProviderScopeCaptureBase<ProviderId extends string> = Readonly<{
+export type ProviderObservationValidator = Readonly<{
+  kind: string;
+  value: string;
+}>;
+
+type ProviderScopeObservationBase<ProviderId extends string> = Readonly<{
+  id: string;
   provider: ProviderId;
   binding: WorkBinding<ProviderId>;
-  generation: CaptureGeneration;
+  observedAt: string;
+  sourceRevision?: string;
+  sourceObservedAt?: string;
+  validators: readonly ProviderObservationValidator[];
   freshness: ProviderFreshnessEvidence;
   coverage: ProjectionCoverage;
   completion: ProviderCompletionAssessment;
   diagnostics: readonly ProviderDiagnostic[];
 }>;
 
-export type ProviderScopeCapture<
+export type ProviderScopeObservation<
   ProviderId extends string,
   Projection extends ProviderProjection,
-> = ProviderScopeCaptureBase<ProviderId> &
+> = ProviderScopeObservationBase<ProviderId> &
   (
     | Readonly<{
         state: "available" | "partial";
@@ -185,57 +189,108 @@ export interface NativeWorkProvider<
   readonly id: ProviderId;
   capture(
     binding: WorkBinding<ProviderId>,
-    generation: CaptureGeneration,
-  ): Promise<ProviderScopeCapture<ProviderId, Projection>>;
+  ): Promise<ProviderScopeObservation<ProviderId, Projection>>;
 }
 
-export const createProviderScopeCapture = <
+type ProviderScopeObservationInputBase<ProviderId extends string> = Omit<
+  ProviderScopeObservationBase<ProviderId>,
+  "id" | "observedAt" | "sourceRevision" | "sourceObservedAt" | "validators" | "freshness"
+> &
+  Readonly<{
+    observedAt?: string;
+    sourceRevision?: string;
+    sourceObservedAt?: string;
+    validators?: readonly ProviderObservationValidator[];
+    freshness: ProviderFreshnessEvidence &
+      Readonly<{
+        capturedAt?: string;
+        sourceRevision?: string;
+        sourceObservedAt?: string;
+      }>;
+  }>;
+
+type ProviderScopeObservationInput<
   ProviderId extends string,
   Projection extends ProviderProjection,
->(
-  capture: ProviderScopeCapture<ProviderId, Projection>,
-): ProviderScopeCapture<ProviderId, Projection> => {
-  if (capture.provider !== capture.binding.provider) {
-    throw new TypeError("Provider capture identity must match its Work Binding.");
-  }
-  const hasProjection = Object.hasOwn(capture, "projection");
-  if (
-    ((capture.state === "available" || capture.state === "partial") &&
-      (!hasProjection || capture.projection === undefined)) ||
-    ((capture.state === "absent" || capture.state === "invalid") && hasProjection)
-  ) {
-    throw new TypeError(
-      "Available and partial captures require one projection; absent and invalid captures forbid it.",
-    );
-  }
-  if (!hasConsistentProviderCompletion(capture)) {
-    throw new TypeError(
-      "Provider completion can be complete only for an available, current, fully covered capture without gaps, conflicts or blocking diagnostics.",
-    );
-  }
-  const structuralCapture = providerStructuralValueSchema.safeParse(capture);
-  if (!structuralCapture.success) {
-    throw new TypeError(
-      "Provider captures must contain only string-keyed structural objects, arrays and scalar values.",
-    );
-  }
-  return deepFreeze(structuralCapture.data) as ProviderScopeCapture<ProviderId, Projection>;
+> = ProviderScopeObservationInputBase<ProviderId> &
+  (
+    | Readonly<{
+        state: "available" | "partial";
+        projection: Projection;
+      }>
+    | Readonly<{
+        state: "absent" | "invalid";
+        projection?: never;
+      }>
+  );
+
+export const providerObservationIdentityFor = (observation: ProviderStructuralValue): string => {
+  const source = stableStringify(observation);
+  if (source === undefined) throw new TypeError("Provider observation could not be serialized.");
+  return `provider-observation:sha256:${sha256Hex(source)}`;
 };
 
-export const rebaseProviderScopeCaptureGeneration = <
+export const createProviderScopeObservation = <
   ProviderId extends string,
   Projection extends ProviderProjection,
 >(
-  capture: ProviderScopeCapture<ProviderId, Projection>,
-  fingerprint: string,
-): ProviderScopeCapture<ProviderId, Projection> =>
-  capture.state === "available" || capture.state === "partial"
-    ? createProviderScopeCapture({
-        ...capture,
-        generation: { fingerprint },
-        projection: capture.projection,
-      })
-    : createProviderScopeCapture({
-        ...capture,
-        generation: { fingerprint },
-      });
+  observation: ProviderScopeObservationInput<ProviderId, Projection>,
+): ProviderScopeObservation<ProviderId, Projection> => {
+  if (observation.provider !== observation.binding.provider) {
+    throw new TypeError("Provider observation identity must match its Work Binding.");
+  }
+  const hasProjection = Object.hasOwn(observation, "projection");
+  if (
+    ((observation.state === "available" || observation.state === "partial") &&
+      (!hasProjection || observation.projection === undefined)) ||
+    ((observation.state === "absent" || observation.state === "invalid") && hasProjection)
+  ) {
+    throw new TypeError(
+      "Available and partial observations require one projection; absent and invalid observations forbid it.",
+    );
+  }
+  if (!hasConsistentProviderCompletion(observation)) {
+    throw new TypeError(
+      "Provider completion can be complete only for an available, current, fully covered observation without gaps, conflicts or blocking diagnostics.",
+    );
+  }
+  const {
+    capturedAt,
+    sourceRevision: freshnessSourceRevision,
+    sourceObservedAt: freshnessSourceObservedAt,
+    ...freshness
+  } = observation.freshness;
+  const observedAt = observation.observedAt ?? capturedAt;
+  if (observedAt === undefined || observedAt.length === 0) {
+    throw new TypeError("Provider observations require one original observation time.");
+  }
+  const sourceRevision = observation.sourceRevision ?? freshnessSourceRevision;
+  const sourceObservedAt = observation.sourceObservedAt ?? freshnessSourceObservedAt;
+  const validators =
+    observation.validators ?? freshness.evidence.filter((item) => item.kind.includes("validator"));
+  const content = {
+    provider: observation.provider,
+    binding: observation.binding,
+    observedAt,
+    ...(sourceRevision === undefined ? {} : { sourceRevision }),
+    ...(sourceObservedAt === undefined ? {} : { sourceObservedAt }),
+    validators,
+    freshness,
+    coverage: observation.coverage,
+    completion: observation.completion,
+    diagnostics: observation.diagnostics,
+    state: observation.state,
+    ...("projection" in observation ? { projection: observation.projection } : {}),
+  };
+  const candidate = {
+    id: providerObservationIdentityFor(content),
+    ...content,
+  };
+  const structuralObservation = providerStructuralValueSchema.safeParse(candidate);
+  if (!structuralObservation.success) {
+    throw new TypeError(
+      "Provider observations must contain only string-keyed structural objects, arrays and scalar values.",
+    );
+  }
+  return deepFreeze(structuralObservation.data) as ProviderScopeObservation<ProviderId, Projection>;
+};

@@ -17,7 +17,7 @@ import {
 } from "../../markdown-document";
 import {
   type CapturedProviderDocuments,
-  createProviderScopeCapture,
+  createProviderScopeObservation,
   type ProviderDiagnostic,
   type ProviderFreshnessEvidence,
 } from "../../native-work-provider";
@@ -30,7 +30,7 @@ import { validateMattSkillsV1Contract } from "../matt-skills-v1";
 import {
   MATT_SKILLS_V1_PROVIDER_ID,
   type MattSkillsV1Provider,
-  type MattSkillsV1ScopeCapture,
+  type MattSkillsV1ProviderObservation,
 } from "./capture";
 import { parseGitHubCliIncludedResponse } from "./github-cli-response";
 import type {
@@ -415,6 +415,12 @@ type ObservedResponse = Readonly<{
   validator?: string;
   body: unknown;
 }>;
+type AcquiredProviderFreshnessEvidence = ProviderFreshnessEvidence &
+  Readonly<{
+    capturedAt: string;
+    sourceRevision?: string;
+    sourceObservedAt?: string;
+  }>;
 
 const diagnostic = (
   code: string,
@@ -432,18 +438,16 @@ const diagnostic = (
 const captureWithoutProjection = (
   input: Readonly<{
     binding: Parameters<MattSkillsV1Provider["capture"]>[0];
-    generation: Parameters<MattSkillsV1Provider["capture"]>[1];
     capturedAt: string;
     state: "absent" | "invalid";
     freshness: "current" | "undetermined";
-    freshnessEvidence?: ProviderFreshnessEvidence;
+    freshnessEvidence?: AcquiredProviderFreshnessEvidence;
     diagnostics: readonly ProviderDiagnostic[];
   }>,
-): MattSkillsV1ScopeCapture =>
-  createProviderScopeCapture({
+): MattSkillsV1ProviderObservation =>
+  createProviderScopeObservation({
     provider: MATT_SKILLS_V1_PROVIDER_ID,
     binding: input.binding,
-    generation: input.generation,
     state: input.state,
     freshness:
       input.freshnessEvidence ??
@@ -451,7 +455,7 @@ const captureWithoutProjection = (
         assessment: input.freshness,
         capturedAt: input.capturedAt,
         evidence: [{ kind: "github-scope", value: input.binding.nativeScope }],
-      } satisfies ProviderFreshnessEvidence),
+      } satisfies AcquiredProviderFreshnessEvidence),
     coverage: {
       assessment:
         input.state === "absent" && input.freshness === "current" ? "complete" : "incomplete",
@@ -818,7 +822,7 @@ const freshnessForObservedGeneration = (input: {
   acquisitionComplete: boolean;
   blocking: boolean;
   extraEvidence?: ProviderFreshnessEvidence["evidence"];
-}): ProviderFreshnessEvidence => ({
+}): AcquiredProviderFreshnessEvidence => ({
   assessment: input.assessment,
   capturedAt: input.capturedAt,
   sourceRevision: sourceRevision({
@@ -1707,9 +1711,8 @@ const collectBlockedByRelations = (
 const captureGitHubScope = async (
   options: ResolvedGitHubMattProviderOptions,
   binding: Parameters<MattSkillsV1Provider["capture"]>[0],
-  generation: Parameters<MattSkillsV1Provider["capture"]>[1],
   fullRetryCount = 0,
-): Promise<MattSkillsV1ScopeCapture> => {
+): Promise<MattSkillsV1ProviderObservation> => {
   const capturedAt = (options.clock ?? (() => new Date()))().toISOString();
   const diagnostics: ProviderDiagnostic[] = [];
   let root: string;
@@ -1718,7 +1721,6 @@ const captureGitHubScope = async (
   } catch {
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: "invalid",
       freshness: "undetermined",
@@ -1746,7 +1748,6 @@ const captureGitHubScope = async (
   ) {
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: "invalid",
       freshness: "undetermined",
@@ -1780,7 +1781,6 @@ const captureGitHubScope = async (
   if (scope === undefined) {
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: "invalid",
       freshness: "undetermined",
@@ -1801,7 +1801,7 @@ const captureGitHubScope = async (
     state: "absent" | "invalid";
     target: string;
     diagnostics: readonly ProviderDiagnostic[];
-  }): Promise<MattSkillsV1ScopeCapture> => {
+  }): Promise<MattSkillsV1ProviderObservation> => {
     const finalization = await finalizeObservedGeneration({
       transport: options.transport,
       observed,
@@ -1810,14 +1810,13 @@ const captureGitHubScope = async (
       clock: options.clock ?? (() => new Date()),
     });
     if (finalization.retryRequired) {
-      return captureGitHubScope(options, binding, generation, 1);
+      return captureGitHubScope(options, binding, 1);
     }
     const finalDiagnostics = [...input.diagnostics, ...finalization.diagnostics];
     const freshness = finalization.revalidation.state === "stable" ? "current" : "undetermined";
     const blocking = input.state === "invalid" || finalization.revalidation.state !== "stable";
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: input.state,
       freshness,
@@ -1852,7 +1851,6 @@ const captureGitHubScope = async (
     if (repositoryResponse.status !== 200 && repositoryResponse.status !== 404) {
       return captureWithoutProjection({
         binding,
-        generation,
         capturedAt,
         state: "invalid",
         freshness: "undetermined",
@@ -1907,7 +1905,6 @@ const captureGitHubScope = async (
     if (issueResponse.status !== 200 && issueResponse.status !== 404) {
       return captureWithoutProjection({
         binding,
-        generation,
         capturedAt,
         state: "invalid",
         freshness: "undetermined",
@@ -2626,17 +2623,16 @@ const captureGitHubScope = async (
     clock: options.clock ?? (() => new Date()),
   });
   if (finalization.retryRequired) {
-    return captureGitHubScope(options, binding, generation, 1);
+    return captureGitHubScope(options, binding, 1);
   }
   diagnostics.push(...finalization.diagnostics);
   if (finalization.revalidation.state === "failed") acquisitionComplete = false;
   const current = finalization.revalidation.state === "stable";
   const freshnessCurrent = current && acquisitionComplete;
   const blocking = diagnostics.some((item) => item.impact === "blocking");
-  return createProviderScopeCapture({
+  return createProviderScopeObservation({
     provider: MATT_SKILLS_V1_PROVIDER_ID,
     binding,
-    generation,
     state: blocking ? "partial" : "available",
     freshness: freshnessForObservedGeneration({
       finalization,
@@ -2685,13 +2681,12 @@ export const createGitHubMattProvider = (
   options: GitHubMattProviderOptions,
 ): MattSkillsV1Provider => ({
   id: MATT_SKILLS_V1_PROVIDER_ID,
-  capture: (binding, generation) =>
+  capture: (binding) =>
     captureGitHubScope(
       {
         ...options,
         transport: options.transport ?? createGhCliGitHubReadTransport(),
       },
       binding,
-      generation,
     ),
 });

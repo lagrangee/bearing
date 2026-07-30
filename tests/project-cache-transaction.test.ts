@@ -8,7 +8,10 @@ import { createValidBearingRepo } from "./helpers";
 import { buildProjectSnapshotForTest as buildProjectSnapshot } from "./project-snapshot-fixture";
 
 const snapshotFor = async (root: string, packageVersion: string) => {
-  const sync = await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+  const sync = await runSync(root, {
+    completedAt: "2026-07-13T12:00:00.000Z",
+    providerObservationIntent: "initial-baseline",
+  });
   const snapshot = await buildProjectSnapshot({
     repoRoot: root,
     packageVersion,
@@ -51,4 +54,30 @@ test("removes a newly created Snapshot if the paired Receipt write fails", async
     ),
   ).rejects.toThrow("injected receipt failure");
   await expect(readFile(snapshotPath)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("restores the prior observation selection when Snapshot publication fails", async () => {
+  const root = await createValidBearingRepo();
+  const prior = await snapshotFor(root, "prior");
+  await writeProjectSnapshotCache(root, prior.snapshot);
+  const observationPath = join(root, ".bearing/cache/provider-observations.json");
+  const priorObservation = await readFile(observationPath);
+  const candidateObservation = Buffer.from(
+    `${JSON.stringify({ schemaVersion: 1, observations: [], selections: [] })}\n`,
+  );
+
+  await expect(
+    commitProjectCache(
+      {
+        repoRoot: root,
+        providerObservationStore: { bytes: candidateObservation },
+        snapshot: prior.snapshot,
+      },
+      {
+        writeSnapshot: async () => Promise.reject(new Error("injected Snapshot failure")),
+      },
+    ),
+  ).rejects.toThrow("injected Snapshot failure");
+
+  expect(await readFile(observationPath)).toEqual(priorObservation);
 });

@@ -14,7 +14,6 @@ import {
   expectedMattEquivalenceSemantics,
   githubRequestBudget,
   mattEquivalenceAliases,
-  mattEquivalenceGeneration,
   mattEquivalenceGitHubObjectCount,
   mattEquivalenceGitHubScope,
   mattEquivalenceLocalContractLocator,
@@ -77,10 +76,7 @@ describe("Matt Local/GitHub semantic equivalence", () => {
         onCaptureEvent: (event) => {
           if (event.kind === "content-read") localEvents.push(event.locator);
         },
-      }).capture(
-        { provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope },
-        mattEquivalenceGeneration,
-      );
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope });
 
       const githubBefore = await Promise.all(
         [githubContractLocator, githubTriageLocator].map((locator) =>
@@ -94,10 +90,7 @@ describe("Matt Local/GitHub semantic equivalence", () => {
         triageLocator: githubTriageLocator,
         transport,
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture(
-        { provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope },
-        mattEquivalenceGeneration,
-      );
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope });
 
       expect(local).not.toEqual(github);
       const localAliases = mattEquivalenceAliases("local");
@@ -183,10 +176,7 @@ describe("Matt Local/GitHub semantic equivalence", () => {
         contractLocator: mattEquivalenceLocalContractLocator,
         triageLocator: mattEquivalenceTriageLocator,
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture(
-        { provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope },
-        mattEquivalenceGeneration,
-      );
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope });
       const transport = createMattEquivalenceGitHubTransport();
       const github = await createGitHubMattProvider({
         repoRoot: githubRoot,
@@ -194,10 +184,7 @@ describe("Matt Local/GitHub semantic equivalence", () => {
         triageLocator: githubTriageLocator,
         transport,
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture(
-        { provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope },
-        mattEquivalenceGeneration,
-      );
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope });
 
       const localObjects = projectionObjects(local.projection);
       const githubObjects = projectionObjects(github.projection);

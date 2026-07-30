@@ -3,9 +3,9 @@ import type {
   DecodedBearingRecord,
   DecodedBearingRecordGeneration,
 } from "./bearing-record-decoder";
-import { assessProviderCaptureEvidence } from "./native-work-provider";
 import type { PlanningGraphProjection } from "./planning-graph";
-import type { MattSkillsV1ScopeCapture } from "./providers/matt-skills-v1/capture";
+import { assessSelectedProviderObservationEvidence } from "./provider-observation-contract";
+import type { MattSkillsV1ProviderObservation } from "./providers/matt-skills-v1/capture";
 import {
   mattObjectLocator,
   mattObjectState,
@@ -177,7 +177,7 @@ const bearingNodes = (
 
 export const buildProjectSitemapModelFromGeneration = (
   decoded: DecodedBearingRecordGeneration,
-  providerCaptures: readonly MattSkillsV1ScopeCapture[],
+  providerObservations: readonly MattSkillsV1ProviderObservation[],
   diagnostics: readonly StructuralDiagnostic[],
   advisoryFreshness: AdvisoryFreshness,
   planning: PlanningGraphProjection,
@@ -201,12 +201,16 @@ export const buildProjectSitemapModelFromGeneration = (
   for (const effort of planning.efforts.validity === "invalid" ? [] : planning.efforts.items) {
     const binding = effort.workBinding;
     if (binding === undefined) continue;
-    const capture = providerCaptures.find(
+    const capture = providerObservations.find(
       (candidate) =>
         candidate.provider === binding.provider &&
         candidate.binding.nativeScope === binding.nativeScope,
     );
-    const assessment = assessProviderCaptureEvidence(capture);
+    const selection = planning.providerObservationSelections.find(
+      (candidate) =>
+        candidate.provider === binding.provider && candidate.nativeScope === binding.nativeScope,
+    );
+    const assessment = assessSelectedProviderObservationEvidence(capture, selection);
     effortNodes
       .get(effort.id)
       ?.annotations.push(
@@ -218,7 +222,7 @@ export const buildProjectSitemapModelFromGeneration = (
         `provider-frontier-evidence=${assessment.frontierEvidence}`,
       );
   }
-  for (const capture of providerCaptures) {
+  for (const capture of providerObservations) {
     const effortId = effortByBinding.get(`${capture.provider}\0${capture.binding.nativeScope}`);
     for (const object of mattObjects(capture)) {
       const links: SitemapLink[] =

@@ -18,7 +18,8 @@ export const buildSnapshotForSyncPlan = (root: string, packageVersion: string, p
     diagnostics: plan.diagnostics,
     advisoryFreshness: plan.advisoryFreshness,
     decoded: plan.decoded,
-    providerCaptures: plan.providerCaptures,
+    providerObservations: plan.providerObservations,
+    providerObservationSelections: plan.providerObservationSelections,
     assetContentObservations: plan.assetContentObservations,
     planningGraph: plan.planningGraph,
   });

@@ -1,5 +1,6 @@
 import packageMetadata from "../package.json";
 import { applyInstallPlans } from "./installer";
+import type { ProviderObservationIntent } from "./provider-observation-store";
 import {
   prepareSync,
   type SyncPerformanceMetrics,
@@ -8,11 +9,21 @@ import {
 import { buildSyncTransactionTargets } from "./sync-transaction";
 import type { SyncResult } from "./types";
 
+type RunSyncOptions = Readonly<{
+  packageVersion?: string;
+  completedAt?: string;
+  providerObservationIntent?: ProviderObservationIntent;
+}>;
+
 export const runSyncMeasured = async (
   repoRoot: string,
-  options: Readonly<{ packageVersion?: string; completedAt?: string }> = {},
+  options: RunSyncOptions = {},
 ): Promise<Readonly<{ result: SyncResult; metrics: SyncPerformanceMetrics }>> => {
-  const plan = await prepareSync(repoRoot);
+  const plan = await prepareSync(repoRoot, {
+    ...(options.providerObservationIntent === undefined
+      ? {}
+      : { providerObservationIntent: options.providerObservationIntent }),
+  });
   const transaction = buildSyncTransactionTargets(plan, {
     packageName: packageMetadata.name,
     packageVersion: options.packageVersion ?? packageMetadata.version,
@@ -22,6 +33,7 @@ export const runSyncMeasured = async (
   return {
     result: {
       ...syncProjectionResultFromPlan(plan),
+      providerObservationOperation: plan.providerObservationOperation,
       receipt: transaction.receipt,
       receiptPath: transaction.receiptPath,
     },
@@ -31,5 +43,5 @@ export const runSyncMeasured = async (
 
 export const runSync = async (
   repoRoot: string,
-  options: Readonly<{ packageVersion?: string; completedAt?: string }> = {},
+  options: RunSyncOptions = {},
 ): Promise<SyncResult> => (await runSyncMeasured(repoRoot, options)).result;

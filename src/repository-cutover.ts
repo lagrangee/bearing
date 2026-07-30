@@ -107,7 +107,10 @@ const assertLegacySourceSyncClean = async (
   root: string,
   effortLocators: readonly string[],
 ): Promise<void> => {
-  const sourceSync = await prepareSync(root, { explicitInputs: effortLocators });
+  const sourceSync = await prepareSync(root, {
+    explicitInputs: effortLocators,
+    providerObservationIntent: "initial-baseline",
+  });
   const diagnostics = sourceSync.diagnostics.filter(
     (diagnostic) =>
       !(
@@ -848,7 +851,9 @@ export const cutOverLegacyRepository = async (
       await verifyRecoveryBundle(root, bundleRoot);
     },
     async () => {
-      const sync = await prepareSync(root);
+      const sync = await prepareSync(root, {
+        providerObservationIntent: "recovery",
+      });
       if (sync.diagnostics.length > 0) {
         throw new Error(
           `Cutover target validation requires zero Sync diagnostics; found ${sync.diagnostics

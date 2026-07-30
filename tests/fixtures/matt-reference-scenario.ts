@@ -1,4 +1,4 @@
-import { createProviderScopeCapture } from "../../src/native-work-provider";
+import { createProviderScopeObservation } from "../../src/native-work-provider";
 import type { MattSkillsV1Provider } from "../../src/providers/matt-skills-v1/capture";
 import type {
   MattNativeEvidence,
@@ -331,11 +331,10 @@ export const createMattReferenceAliases = (
 
 export const createMattReferenceProvider = (nativeKind: NativeKind): MattSkillsV1Provider => ({
   id: "matt-skills/v1",
-  capture: async (binding, generation) =>
-    createProviderScopeCapture({
+  capture: async (binding) =>
+    createProviderScopeObservation({
       provider: "matt-skills/v1",
       binding,
-      generation,
       state: "partial",
       freshness: {
         assessment: "current",

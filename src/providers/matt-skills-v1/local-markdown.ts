@@ -16,7 +16,7 @@ import {
 } from "../../markdown-document";
 import {
   type CapturedProviderDocuments,
-  createProviderScopeCapture,
+  createProviderScopeObservation,
   type ProviderDiagnostic,
 } from "../../native-work-provider";
 import {
@@ -28,7 +28,7 @@ import {
 import {
   MATT_SKILLS_V1_PROVIDER_ID,
   type MattSkillsV1Provider,
-  type MattSkillsV1ScopeCapture,
+  type MattSkillsV1ProviderObservation,
 } from "./capture";
 import { retainTrustedLocalProjection } from "./local-markdown-trust";
 import type {
@@ -177,18 +177,16 @@ const diagnostic = (
 const captureWithoutProjection = (
   input: Readonly<{
     binding: Parameters<MattSkillsV1Provider["capture"]>[0];
-    generation: Parameters<MattSkillsV1Provider["capture"]>[1];
     capturedAt: string;
     state: "absent" | "invalid";
     freshness: "current" | "undetermined";
     completion: "incomplete" | "undetermined";
     diagnostics: readonly CaptureDiagnostic[];
   }>,
-): MattSkillsV1ScopeCapture =>
-  createProviderScopeCapture({
+): MattSkillsV1ProviderObservation =>
+  createProviderScopeObservation({
     provider: MATT_SKILLS_V1_PROVIDER_ID,
     binding: input.binding,
-    generation: input.generation,
     state: input.state,
     freshness: {
       assessment: input.freshness,
@@ -1112,8 +1110,7 @@ const scopeCompletion = (projection: MattScopeProjection): "complete" | "incompl
 const captureLocalScope = async (
   options: LocalMarkdownMattProviderOptions,
   binding: Parameters<MattSkillsV1Provider["capture"]>[0],
-  generation: Parameters<MattSkillsV1Provider["capture"]>[1],
-): Promise<MattSkillsV1ScopeCapture> => {
+): Promise<MattSkillsV1ProviderObservation> => {
   const capturedAt = (options.clock ?? (() => new Date()))().toISOString();
   const diagnostics: CaptureDiagnostic[] = [];
   const maximumFileBytes = options.maximumFileBytes ?? DEFAULT_MAXIMUM_FILE_BYTES;
@@ -1123,7 +1120,6 @@ const captureLocalScope = async (
   } catch {
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: "invalid",
       freshness: "undetermined",
@@ -1150,7 +1146,6 @@ const captureLocalScope = async (
   } catch {
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: "invalid",
       freshness: "undetermined",
@@ -1302,7 +1297,6 @@ const captureLocalScope = async (
   if (contractLayout === undefined) {
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: "invalid",
       freshness: "undetermined",
@@ -1321,7 +1315,6 @@ const captureLocalScope = async (
     if (!metadata.isDirectory()) {
       return captureWithoutProjection({
         binding,
-        generation,
         capturedAt,
         state: "invalid",
         freshness: "undetermined",
@@ -1350,7 +1343,6 @@ const captureLocalScope = async (
         );
       return captureWithoutProjection({
         binding,
-        generation,
         capturedAt,
         state: configurationInvalid ? "invalid" : "absent",
         freshness: configurationInvalid ? "undetermined" : "current",
@@ -1361,7 +1353,6 @@ const captureLocalScope = async (
     if (!isSystemError(error) && !isRepositoryPathBoundaryError(error)) throw error;
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: "invalid",
       freshness: "undetermined",
@@ -1732,10 +1723,9 @@ const captureLocalScope = async (
   const completion =
     state === "available" && freshness === "current" ? scopeCompletion(projection) : "undetermined";
 
-  return createProviderScopeCapture({
+  return createProviderScopeObservation({
     provider: MATT_SKILLS_V1_PROVIDER_ID,
     binding,
-    generation,
     state,
     freshness: {
       assessment: freshness,
@@ -1776,5 +1766,5 @@ export const createLocalMarkdownMattProvider = (
   options: LocalMarkdownMattProviderOptions,
 ): MattSkillsV1Provider => ({
   id: MATT_SKILLS_V1_PROVIDER_ID,
-  capture: (binding, generation) => captureLocalScope(options, binding, generation),
+  capture: (binding) => captureLocalScope(options, binding),
 });

@@ -11,8 +11,6 @@ const contractLocator = "docs/agents/issue-tracker.md";
 const triageLocator = "docs/agents/triage-labels.md";
 const nativeScope = ".scratch/reference";
 const binding = { provider: "matt-skills/v1" as const, nativeScope };
-const generation = { fingerprint: "sha256:test-generation" };
-
 const contract = `# Issue tracker: Local Markdown
 
 Issues and PRDs for this repo live as markdown files in \`.scratch/\`.
@@ -234,7 +232,7 @@ const capture = async (
     triageLocator,
     clock: () => new Date("2026-07-28T00:00:00Z"),
     ...options,
-  }).capture(binding, generation);
+  }).capture(binding);
 
 const snapshotNativeBytes = async (root: string): Promise<Readonly<Record<string, string>>> => {
   const result: Record<string, string> = {};
@@ -269,7 +267,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     expect(result.coverage.assessment).toBe("complete");
     expect(result.completion).toBe("incomplete");
     expect(result.diagnostics).toEqual([]);
-    expect(result.freshness.sourceRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(result.sourceRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(result.projection?.map).toMatchObject({
       title: "Wayfinder Map: Reference",
       destination: "Prove one complete Matt-native semantic scope.",
@@ -673,7 +671,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       contractLocator,
       triageLocator,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ ...binding, nativeScope: "../outside" }, generation);
+    }).capture({ ...binding, nativeScope: "../outside" });
     expect(outsideResult).toMatchObject({
       state: "invalid",
       freshness: { assessment: "undetermined" },
@@ -687,7 +685,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       contractLocator,
       triageLocator,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture(binding, generation);
+    }).capture(binding);
     expect(unavailableResult.state).toBe("invalid");
     expect(unavailableResult.diagnostics[0]?.code).toBe("matt.local.repository.unavailable");
 

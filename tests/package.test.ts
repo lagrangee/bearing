@@ -226,10 +226,13 @@ test("the packed CLI runs through offline local npm exec", async () => {
     await writeValidBearingState(syncRoot);
 
     const syncCommand = [join(homeDirectory, ".bearing/bin/bearing"), "sync", "--repo", syncRoot];
-    const firstSync = await run(syncCommand, { HOME: homeDirectory });
+    const firstSync = await run([...syncCommand, "--initialize-provider-observations"], {
+      HOME: homeDirectory,
+    });
     const secondSync = await run(syncCommand, { HOME: homeDirectory });
-    expect(firstSync.exitCode).toBe(0);
+    expect(firstSync.exitCode, firstSync.stderr || firstSync.stdout).toBe(0);
     expect(firstSync.stdout).toContain("Diagnostics: 0");
+    expect(firstSync.stdout).toContain("Provider observations: initial-baseline/acquired");
     expect(firstSync.stdout).toContain("Outcome: applied");
     expect(secondSync.exitCode).toBe(0);
     expect(secondSync.stdout).toContain("Outcome: no-op");
@@ -296,8 +299,11 @@ test("the packed CLI runs through offline local npm exec", async () => {
             state: string;
             snapshot?: Readonly<{
               basis: Readonly<{ sitemapFingerprint: string }>;
-              providerCaptures: readonly Readonly<{
-                generation: Readonly<{ fingerprint: string }>;
+              providerObservations: readonly Readonly<{
+                id: string;
+              }>[];
+              providerObservationSelections: readonly Readonly<{
+                observationId: string | null;
               }>[];
               maps?: unknown;
               tickets?: unknown;
@@ -313,9 +319,9 @@ test("the packed CLI runs through offline local npm exec", async () => {
     });
     const packagedSnapshot = portalSyncBody.view?.cache.snapshot.snapshot;
     if (packagedSnapshot === undefined) throw new Error("Packaged Portal returned no Snapshot.");
-    expect(packagedSnapshot.providerCaptures).toHaveLength(1);
-    expect(packagedSnapshot.providerCaptures[0]?.generation.fingerprint).toBe(
-      packagedSnapshot.basis.sitemapFingerprint,
+    expect(packagedSnapshot.providerObservations).toHaveLength(1);
+    expect(packagedSnapshot.providerObservationSelections[0]?.observationId).toBe(
+      packagedSnapshot.providerObservations[0]?.id,
     );
     expect(packagedSnapshot).not.toHaveProperty("maps");
     expect(packagedSnapshot).not.toHaveProperty("tickets");

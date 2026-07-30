@@ -32,9 +32,15 @@ const readCacheBytes = async (root: string): Promise<Readonly<Record<string, str
 test("the fixed fixture remains valid through the production Local provider seam", async () => {
   const root = await copyPortalProjectFixture("current-local-provider-project");
 
-  const result = await materializer("0.0.0-current").run(root, "force");
+  const result = await materializer("0.0.0-current").run(
+    root,
+    "force",
+    undefined,
+    undefined,
+    "initial-baseline",
+  );
 
-  expect(result.snapshot.providerCaptures).toMatchObject([
+  expect(result.snapshot.providerObservations).toMatchObject([
     {
       state: "available",
       freshness: { assessment: "current" },

@@ -185,9 +185,9 @@ const assertCompleteProductRead = async (root: string, plan: SyncPlan): Promise<
   const effort = plan.planningGraph.contextFor({ kind: "effort", id: "effort:test" });
   expect(effort.state).toBe("complete");
   if (effort.state === "invalid") throw new TypeError("Expected typed Effort inspection.");
-  expect(effort.context.providerCapture).toBe(plan.providerCaptures[0]);
+  expect(effort.context.providerCapture).toBe(plan.providerObservations[0]);
   const snapshot = await buildSnapshotForSyncPlan(root, PACKAGE_VERSION, plan);
-  expect(snapshot.providerCaptures).toEqual(plan.providerCaptures);
+  expect(snapshot.providerObservations).toEqual(plan.providerObservations);
   const portal = await createProjectMaterializer({
     packageVersion: PACKAGE_VERSION,
     dependencies: {
@@ -195,7 +195,7 @@ const assertCompleteProductRead = async (root: string, plan: SyncPlan): Promise<
       buildSnapshot: buildProjectSnapshot,
     },
   }).run(root, "ensure-current");
-  expect(portal.snapshot.providerCaptures).toEqual(plan.providerCaptures);
+  expect(portal.snapshot.providerObservations).toEqual(plan.providerObservations);
 };
 
 test("Local Setup through Portal changes only Bearing state and the exact managed block", async () => {
@@ -219,7 +219,9 @@ test("Local Setup through Portal changes only Bearing state and the exact manage
     expect(setup.outcome).toBe("applied");
     await writeValidBearingState(root);
 
-    const plan = await prepareSync(root);
+    const plan = await prepareSync(root, {
+      providerObservationIntent: "full-verification",
+    });
     await commitSyncPlan(plan);
     await assertCompleteProductRead(root, plan);
 
@@ -369,6 +371,7 @@ test("deterministic GitHub before and after proof preserves every native facet",
 
     const execution = await captureConsoleLogs(async () => {
       const plan = await prepareSync(root, {
+        providerObservationIntent: "full-verification",
         providerFactory: githubMattProviderFactoryFor(harness.transport),
       });
       await commitSyncPlan(plan);
@@ -389,7 +392,7 @@ test("deterministic GitHub before and after proof preserves every native facet",
     ).toBe(true);
     expect(harness.transport.requests).toHaveLength(requestCountAfterSync);
     expect(harness.snapshot()).toEqual(before);
-    expect(plan.providerCaptures[0]).toMatchObject({
+    expect(plan.providerObservations[0]).toMatchObject({
       state: "available",
       freshness: { assessment: "current" },
       coverage: { assessment: "complete" },
@@ -406,7 +409,7 @@ test("deterministic GitHub before and after proof preserves every native facet",
       { name: "input fingerprint", value: plan.fingerprint },
       { name: "Sync report", value: plan.report },
       { name: "Sitemap", value: plan.sitemap },
-      { name: "provider capture and evidence", value: JSON.stringify(plan.providerCaptures) },
+      { name: "provider capture and evidence", value: JSON.stringify(plan.providerObservations) },
       { name: "diagnostics", value: JSON.stringify(plan.diagnostics) },
       { name: "Snapshot", value: JSON.stringify(snapshot) },
       { name: "captured console logs", value: execution.logs.join("\n") },
@@ -466,6 +469,7 @@ test("credential residue stays absent after one successful full retry", async ()
     const transport = new CredentialBearingTransport(new SettlingRetryTransport());
     const execution = await captureConsoleLogs(async () => {
       const plan = await prepareSync(root, {
+        providerObservationIntent: "full-verification",
         providerFactory: githubMattProviderFactoryFor(transport),
       });
       await commitSyncPlan(plan);
@@ -475,7 +479,7 @@ test("credential residue stays absent after one successful full retry", async ()
       };
     });
     const { plan, snapshot } = execution.result;
-    const capture = plan.providerCaptures[0];
+    const capture = plan.providerObservations[0];
     expect(capture?.state).toBe("available");
     expect(capture?.freshness.assessment).toBe("current");
     expect(capture?.freshness.evidence).toContainEqual({

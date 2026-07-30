@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { hasConsistentProviderCompletion } from "../../native-work-provider";
+import {
+  hasConsistentProviderCompletion,
+  providerObservationIdentityFor,
+} from "../../native-work-provider";
 
 const nonEmpty = z.string().min(1);
 const reference = nonEmpty;
@@ -251,17 +254,18 @@ const diagnosticSchema = z.strictObject({
 });
 
 const captureBase = {
+  id: z.string().regex(/^provider-observation:sha256:[a-f0-9]{64}$/u),
   provider: z.literal("matt-skills/v1"),
   binding: z.strictObject({
     provider: z.literal("matt-skills/v1"),
     nativeScope: nonEmpty,
   }),
-  generation: z.strictObject({ fingerprint: nonEmpty }),
+  observedAt: nonEmpty,
+  sourceRevision: nonEmpty.optional(),
+  sourceObservedAt: nonEmpty.optional(),
+  validators: z.array(z.strictObject({ kind: nonEmpty, value: z.string() })),
   freshness: z.strictObject({
     assessment: z.enum(["current", "stale", "undetermined"]),
-    capturedAt: nonEmpty,
-    sourceRevision: nonEmpty.optional(),
-    sourceObservedAt: nonEmpty.optional(),
     evidence: z.array(z.strictObject({ kind: nonEmpty, value: z.string() })),
   }),
   coverage: z.strictObject({
@@ -278,7 +282,7 @@ const captureBase = {
   diagnostics: z.array(diagnosticSchema),
 };
 
-export const mattSkillsV1ScopeCaptureSchema = z
+export const mattSkillsV1ProviderObservationSchema = z
   .discriminatedUnion("state", [
     z.strictObject({
       ...captureBase,
@@ -291,6 +295,14 @@ export const mattSkillsV1ScopeCaptureSchema = z
     }),
   ])
   .superRefine((capture, context) => {
+    const { id, ...content } = capture;
+    if (id !== providerObservationIdentityFor(content)) {
+      context.addIssue({
+        code: "custom",
+        path: ["id"],
+        message: "Provider observation identity must match its immutable semantic content.",
+      });
+    }
     if (!hasConsistentProviderCompletion(capture)) {
       context.addIssue({
         code: "custom",

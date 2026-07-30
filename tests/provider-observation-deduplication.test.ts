@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { createProviderScopeCapture } from "../src/native-work-provider";
-import type { MattProviderFactory } from "../src/provider-capture-generation";
+import { createProviderScopeObservation } from "../src/native-work-provider";
+import type { MattProviderFactory } from "../src/provider-observation-acquisition";
 import { prepareSync } from "../src/sync-plan";
 import { createMattReferenceProjection } from "./fixtures/matt-reference-scenario";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
-test("captures one provider observation for duplicate Effort bindings in one generation", async () => {
+test("acquires one observation for a duplicate binding but fails both contributors closed", async () => {
   const root = await createValidBearingRepo();
   await writeFixture(
     root,
@@ -30,7 +30,7 @@ Work binding:
 
 ## Intent
 
-Prove that duplicate bindings share one capture observation.
+Prove that duplicate bindings do not share completion or readiness.
 
 ## Work
 
@@ -41,13 +41,12 @@ Prove that duplicate bindings share one capture observation.
   const requestedScopes: string[] = [];
   const providerFactory: MattProviderFactory = () => ({
     id: "matt-skills/v1",
-    capture: async (binding, generation) => {
+    capture: async (binding) => {
       captureCalls += 1;
       requestedScopes.push(binding.nativeScope);
-      return createProviderScopeCapture({
+      return createProviderScopeObservation({
         provider: "matt-skills/v1",
         binding,
-        generation,
         state: "available",
         freshness: {
           assessment: "current",
@@ -65,17 +64,29 @@ Prove that duplicate bindings share one capture observation.
     },
   });
 
-  const plan = await prepareSync(root, { providerFactory });
+  const plan = await prepareSync(root, {
+    providerObservationIntent: "initial-baseline",
+    providerFactory,
+  });
 
   expect(captureCalls).toBe(1);
   expect(requestedScopes).toEqual([".scratch/work"]);
-  expect(plan.metrics.providerCaptureCount).toBe(1);
-  expect(plan.providerCaptures).toHaveLength(1);
-  expect(plan.providerCaptures[0]?.generation.fingerprint).toBe(plan.fingerprint);
+  expect(plan.metrics.providerAcquisitionCount).toBe(1);
+  expect(plan.providerObservations).toHaveLength(1);
+  expect(plan.providerObservationSelections[0]?.observationId).toBe(
+    plan.providerObservations[0]?.id,
+  );
+  expect(plan.providerObservationSelections[0]?.effectiveFreshness).toBe("undetermined");
+  expect(plan.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "provider-binding-conflict",
+      target: ".scratch/work",
+    }),
+  );
   expect(plan.planningGraph.contextFor({ kind: "effort", id: "effort:test" }).state).toBe(
-    "complete",
+    "partial",
   );
   expect(plan.planningGraph.contextFor({ kind: "effort", id: "effort:same-scope" }).state).toBe(
-    "complete",
+    "partial",
   );
 });

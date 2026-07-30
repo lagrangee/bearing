@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
-import type { MattProviderFactory } from "../src/provider-capture-generation";
+import type { MattProviderFactory } from "../src/provider-observation-acquisition";
 import {
   createLocalMarkdownMattProvider,
   type LocalMarkdownCaptureEvent,
@@ -39,18 +39,21 @@ test("injected Local acquisition latency remains one capture with no consumer re
     });
     return {
       id: provider.id,
-      capture: async (binding, generation) => {
+      capture: async (binding) => {
         captureCalls += 1;
-        return provider.capture(binding, generation);
+        return provider.capture(binding);
       },
     };
   };
 
   try {
-    const plan = await prepareSync(root, { providerFactory });
+    const plan = await prepareSync(root, {
+      providerObservationIntent: "initial-baseline",
+      providerFactory,
+    });
     expect(plan.diagnostics).toEqual([]);
     expect(captureCalls).toBe(1);
-    expect(plan.metrics.providerCaptureCount).toBe(1);
+    expect(plan.metrics.providerAcquisitionCount).toBe(1);
 
     const contentReads = events
       .filter((event) => event.kind === "content-read")
@@ -64,11 +67,11 @@ test("injected Local acquisition latency remains one capture with no consumer re
     expect(events.filter((event) => event.kind === "scope-enumerated")).toEqual([
       { kind: "scope-enumerated", locator: ".scratch/work" },
     ]);
-    expect(plan.providerCaptures[0]?.freshness.evidence).toContainEqual({
+    expect(plan.providerObservations[0]?.freshness.evidence).toContainEqual({
       kind: "content-read-count",
       value: String(contentReads.length),
     });
-    expect(plan.providerCaptures[0]?.freshness.evidence).toContainEqual({
+    expect(plan.providerObservations[0]?.freshness.evidence).toContainEqual({
       kind: "metadata-verification",
       value: "stable",
     });
@@ -78,7 +81,7 @@ test("injected Local acquisition latency remains one capture with no consumer re
     expect(effort.state).toBe("complete");
     expect(plan.sitemap.length).toBeGreaterThan(0);
     const snapshot = await buildSnapshotForSyncPlan(root, PACKAGE_VERSION, plan);
-    expect(snapshot.providerCaptures).toEqual(plan.providerCaptures);
+    expect(snapshot.providerObservations).toEqual(plan.providerObservations);
     const portal = await createProjectMaterializer({
       packageVersion: PACKAGE_VERSION,
       dependencies: {
@@ -86,7 +89,7 @@ test("injected Local acquisition latency remains one capture with no consumer re
         buildSnapshot: buildProjectSnapshot,
       },
     }).run(root, "ensure-current");
-    expect(portal.snapshot.providerCaptures).toEqual(plan.providerCaptures);
+    expect(portal.snapshot.providerObservations).toEqual(plan.providerObservations);
     expect(captureCalls).toBe(1);
     expect(events).toHaveLength(eventCountAfterCapture);
   } finally {

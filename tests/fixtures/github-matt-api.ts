@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { MattProviderFactory } from "../../src/provider-capture-generation";
+import type { MattProviderFactory } from "../../src/provider-observation-acquisition";
 import {
   createGitHubMattProvider,
   encodeGitHubMattNativeScope,

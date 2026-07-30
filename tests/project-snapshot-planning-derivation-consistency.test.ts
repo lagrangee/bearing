@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createProviderScopeObservation } from "../src/native-work-provider";
 import { normalizedGateReadiness } from "../src/project-snapshot/normalized-planning-derivation";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
@@ -50,16 +51,28 @@ test("rejects tampered Roadmap and Gate horizon caches", () => {
 
 test("keeps explicit Effort lifecycle and Gate readiness independent from provider completion", () => {
   const snapshot = createProjectOverviewFixture();
-  const completedCaptures = snapshot.providerCaptures.map((capture) =>
+  const completedCaptures = snapshot.providerObservations.map((capture) =>
     capture.binding.nativeScope === ".scratch/portal"
-      ? { ...capture, completion: "complete" as const }
+      ? (createProviderScopeObservation({
+          ...capture,
+          completion: "complete" as const,
+        } as never) as typeof capture)
       : capture,
   );
+  const completedPortal = completedCaptures.find(
+    (capture) => capture.binding.nativeScope === ".scratch/portal",
+  );
+  if (completedPortal === undefined) throw new Error("Expected the completed Portal observation.");
 
   expect(
     projectSnapshotSchema.safeParse({
       ...snapshot,
-      providerCaptures: completedCaptures,
+      providerObservations: completedCaptures,
+      providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+        selection.nativeScope === ".scratch/portal"
+          ? { ...selection, observationId: completedPortal.id }
+          : selection,
+      ),
     }).success,
   ).toBe(true);
   expect(snapshot.efforts).toMatchObject({
@@ -94,20 +107,30 @@ test("keeps explicit Effort lifecycle and Gate readiness independent from provid
 test("withholds Gate readiness when contributor binding evidence is missing or unusable", () => {
   const snapshot = createProjectOverviewFixture();
   const unknownPlanning = mapPlanning(snapshot, "unknown");
-  const capturesWithoutPortal = snapshot.providerCaptures.filter(
+  const capturesWithoutPortal = snapshot.providerObservations.filter(
     (capture) => capture.binding.nativeScope !== ".scratch/portal",
+  );
+  const selectionsWithoutPortal = snapshot.providerObservationSelections.map((selection) =>
+    selection.nativeScope === ".scratch/portal"
+      ? {
+          ...selection,
+          observationId: null,
+          effectiveFreshness: "undetermined" as const,
+        }
+      : selection,
   );
 
   expect(
     projectSnapshotSchema.safeParse({
       ...snapshot,
       ...unknownPlanning,
-      providerCaptures: capturesWithoutPortal,
+      providerObservations: capturesWithoutPortal,
+      providerObservationSelections: selectionsWithoutPortal,
     }).success,
   ).toBe(true);
-  rejects({ ...snapshot, providerCaptures: capturesWithoutPortal });
+  rejects({ ...snapshot, providerObservations: capturesWithoutPortal });
 
-  const invalidCaptures = snapshot.providerCaptures.map((capture) => {
+  const invalidCaptures = snapshot.providerObservations.map((capture) => {
     if (
       capture.binding.nativeScope !== ".scratch/portal" ||
       (capture.state !== "available" && capture.state !== "partial")
@@ -115,7 +138,7 @@ test("withholds Gate readiness when contributor binding evidence is missing or u
       return capture;
     }
     const { projection: _projection, ...base } = capture;
-    return {
+    return createProviderScopeObservation({
       ...base,
       state: "invalid" as const,
       completion: "undetermined" as const,
@@ -133,13 +156,26 @@ test("withholds Gate readiness when contributor binding evidence is missing or u
           message: "Provider capture failed.",
         },
       ],
-    };
+    } as never) as typeof capture;
   });
+  const invalidPortal = invalidCaptures.find(
+    (capture) => capture.binding.nativeScope === ".scratch/portal",
+  );
+  if (invalidPortal === undefined) throw new Error("Expected the invalid Portal observation.");
   expect(
     projectSnapshotSchema.safeParse({
       ...snapshot,
       ...unknownPlanning,
-      providerCaptures: invalidCaptures,
+      providerObservations: invalidCaptures,
+      providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+        selection.nativeScope === ".scratch/portal"
+          ? {
+              ...selection,
+              observationId: invalidPortal.id,
+              effectiveFreshness: "undetermined" as const,
+            }
+          : selection,
+      ),
     }).success,
   ).toBe(true);
 });
@@ -189,9 +225,9 @@ test("derives the direct planned, completed, withdrawn, and superseded readiness
     nativeScope: ".scratch/work",
   };
   const capture = {
+    id: `provider-observation:sha256:${"a".repeat(64)}`,
     provider: "matt-skills/v1" as const,
     binding,
-    generation: { fingerprint: "sha256:test" },
     state: "available" as const,
     freshness: { assessment: "current" as const },
     coverage: {
@@ -234,6 +270,14 @@ test("derives the direct planned, completed, withdrawn, and superseded readiness
         ],
       },
       [capture],
+      [
+        {
+          provider: capture.provider,
+          nativeScope: capture.binding.nativeScope,
+          observationId: capture.id,
+          effectiveFreshness: capture.freshness.assessment,
+        },
+      ],
     );
 
   expect(readiness("planned")).toBe("not-ready");
@@ -279,6 +323,6 @@ test("rejects duplicate provider captures for the same bound scope", () => {
   const snapshot = createProjectOverviewFixture();
   rejects({
     ...snapshot,
-    providerCaptures: [...snapshot.providerCaptures, snapshot.providerCaptures[0]],
+    providerObservations: [...snapshot.providerObservations, snapshot.providerObservations[0]],
   });
 });

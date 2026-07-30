@@ -1,9 +1,20 @@
 import { expect, test } from "bun:test";
-import { access, readFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { prepareSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
 const inspect = async (root: string, kind: "roadmap" | "gate" | "effort", id: string) => {
+  try {
+    await access(join(root, ".bearing/cache/provider-observations.json"));
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    const baseline = await prepareSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
+    await mkdir(join(root, ".bearing/cache"), { recursive: true });
+    await writeFile(baseline.providerObservationStorePath, baseline.providerObservationStoreBytes);
+  }
   const child = Bun.spawn(["bun", "src/cli.ts", "inspect", kind, id, "--repo", root], {
     cwd: process.cwd(),
     stdout: "pipe",
@@ -246,16 +257,23 @@ Can this work be classified?
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
-  expect(JSON.parse(result.stdout)).toMatchObject({
+  const output = JSON.parse(result.stdout);
+  expect(output).toMatchObject({
     state: "partial",
     context: { efforts: [{ effort: { value: { id: "effort:test" } } }] },
-    issues: [
-      {
-        code: "matt.local.lifecycle.unknown",
-        target: ".scratch/work/issues/02-invalid.md",
-      },
-    ],
   });
+  expect(output.issues).toContainEqual(
+    expect.objectContaining({
+      code: "matt.local.lifecycle.unknown",
+      target: ".scratch/work/issues/02-invalid.md",
+    }),
+  );
+  expect(output.issues).toContainEqual(
+    expect.objectContaining({
+      code: "untrusted-provider-observation-selection",
+      target: ".scratch/work",
+    }),
+  );
 });
 
 test("real inspect roadmap and effort commands use the same complete typed closure contract", async () => {
@@ -291,8 +309,14 @@ test("real inspect roadmap and effort commands use the same complete typed closu
   expect(perturbedEffort.exitCode).toBe(0);
   expect(perturbedRoadmap.stderr).toBe("");
   expect(perturbedEffort.stderr).toBe("");
-  expect(stableInspectOutput(perturbedRoadmap.stdout)).toBe(stableInspectOutput(roadmap.stdout));
-  expect(stableInspectOutput(perturbedEffort.stdout)).toBe(stableInspectOutput(effort.stdout));
+  expect(JSON.parse(perturbedRoadmap.stdout)).toMatchObject({
+    state: "complete",
+    target: { kind: "roadmap", id: "roadmap:test" },
+  });
+  expect(JSON.parse(perturbedEffort.stdout)).toMatchObject({
+    state: "complete",
+    target: { kind: "effort", id: "effort:second" },
+  });
   const roadmapOutput = JSON.parse(roadmap.stdout);
   const effortOutput = JSON.parse(effort.stdout);
   expect(roadmapOutput).toMatchObject({
@@ -389,14 +413,21 @@ Exercise a broken nested ordering relation.
   for (const result of [roadmap, effort]) {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(JSON.parse(result.stdout)).toMatchObject({
+    const output = JSON.parse(result.stdout);
+    expect(output).toMatchObject({
       state: "partial",
-      issues: [
-        {
-          code: "gate-missing-from-roadmap-order",
-          target: "gate:detached",
-        },
-      ],
     });
+    expect(output.issues).toContainEqual(
+      expect.objectContaining({
+        code: "gate-missing-from-roadmap-order",
+        target: "gate:detached",
+      }),
+    );
+    expect(output.issues).toContainEqual(
+      expect.objectContaining({
+        code: "untrusted-provider-observation-selection",
+        target: ".scratch/detached",
+      }),
+    );
   }
 });

@@ -5,18 +5,21 @@ import type {
   CollectionProjection,
   Effort,
   MilestoneGate,
-  ProviderScopeCapture,
+  ProviderScopeObservation,
   Roadmap,
 } from "../src/project-snapshot/contract";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
-import { prepareSync } from "../src/sync-plan";
+import { prepareSync as prepareBearingSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
+
+const prepareSync = (root: string) =>
+  prepareBearingSync(root, { providerObservationIntent: "initial-baseline" });
 
 type SharedPlanningProjection = Readonly<{
   roadmaps: CollectionProjection<Roadmap>;
   gates: CollectionProjection<MilestoneGate>;
   efforts: CollectionProjection<Effort>;
-  providerCaptures: readonly ProviderScopeCapture[];
+  providerObservations: readonly ProviderScopeObservation[];
 }>;
 
 const sharedProjection = (graph: unknown): SharedPlanningProjection => {
@@ -36,7 +39,7 @@ const snapshotFor = async (root: string) => {
     diagnostics: plan.diagnostics,
     advisoryFreshness: plan.advisoryFreshness,
     decoded: plan.decoded,
-    providerCaptures: plan.providerCaptures,
+    providerObservations: plan.providerObservations,
     assetContentObservations: plan.assetContentObservations,
     planningGraph: plan.planningGraph,
   });
@@ -57,7 +60,7 @@ test("one generation Planning Graph owns Snapshot relations and inspect agreemen
   expect(snapshot.roadmaps).toEqual(projection.roadmaps);
   expect(snapshot.gates).toEqual(projection.gates);
   expect(snapshot.efforts).toEqual(projection.efforts);
-  expect(snapshot.providerCaptures).toEqual(projection.providerCaptures);
+  expect(snapshot.providerObservations).toEqual(projection.providerObservations);
 
   const roadmap = plan.planningGraph.contextFor({ kind: "roadmap", id: "roadmap:test" });
   const gate = plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" });
@@ -102,7 +105,7 @@ test("shared graph projection isolates an invalid contributor consistently", asy
   expect(gate.issues.filter((issue) => issue.code === "untrusted-effort-contributor")).toHaveLength(
     2,
   );
-  expect(projection.providerCaptures).toEqual(plan.providerCaptures);
+  expect(projection.providerObservations).toEqual(plan.providerObservations);
   const sitemap = plan.sitemap.toString("utf8");
   const mapLine = sitemap.split("\n").find((line) => line.startsWith("- `.scratch/work/map.md`"));
   const ticketLine = sitemap

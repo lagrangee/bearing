@@ -114,8 +114,8 @@ test("holds one operation executor from input preparation through cache commit",
   expect(events.at(-1)).toBe("operation:end");
   expect(events.indexOf("prepare")).toBeGreaterThan(events.indexOf("operation:start"));
   expect(events.indexOf("build")).toBeGreaterThan(events.indexOf("prepare"));
-  expect(events.indexOf("sync")).toBeGreaterThan(events.indexOf("build"));
-  expect(events.indexOf("cache")).toBeGreaterThan(events.indexOf("sync"));
+  expect(events.indexOf("cache")).toBeGreaterThan(events.indexOf("build"));
+  expect(events.indexOf("sync")).toBeGreaterThan(events.indexOf("cache"));
 });
 
 test("serializes independent services so each commits its captured generation in lease order", async () => {

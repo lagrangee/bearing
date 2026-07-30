@@ -1,5 +1,5 @@
-import { assessProviderCaptureEvidence } from "../native-work-provider";
 import type { Effort, MilestoneGate, ProjectSnapshot, Roadmap } from "../project-snapshot/contract";
+import { assessSelectedProviderObservationEvidence } from "../provider-observation-contract";
 
 export const collectRoadmapEvidenceIds = (
   roadmap: Roadmap,
@@ -23,7 +23,8 @@ type MapIssueAssessment = Readonly<{
 }>;
 
 export const assessScopedMapIssues = (
-  captures: ProjectSnapshot["providerCaptures"],
+  captures: ProjectSnapshot["providerObservations"],
+  selections: ProjectSnapshot["providerObservationSelections"],
   efforts: readonly Effort[],
   _sources: ProjectSnapshot["sources"],
 ): MapIssueAssessment => {
@@ -36,7 +37,13 @@ export const assessScopedMapIssues = (
         capture.provider === binding.provider &&
         capture.binding.nativeScope === binding.nativeScope,
     );
-    if (assessProviderCaptureEvidence(capture).frontierEvidence === "withheld") {
+    const selection = selections.find(
+      (candidate) =>
+        candidate.provider === binding.provider && candidate.nativeScope === binding.nativeScope,
+    );
+    if (
+      assessSelectedProviderObservationEvidence(capture, selection).frontierEvidence === "withheld"
+    ) {
       uncertain = true;
     }
     return capture === undefined;

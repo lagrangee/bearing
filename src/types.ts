@@ -16,6 +16,7 @@ export type SemanticFreshness = "current" | "stale" | "unknown";
 export type AdvisoryId = "planning-audit:current" | "next-work-guidance:current";
 export type AdvisoryFreshness = Readonly<Partial<Record<AdvisoryId, SemanticFreshness>>>;
 
+import type { ProviderObservationOperation } from "./provider-observation-store";
 import type { SyncReceipt } from "./sync-receipt";
 
 export type SyncProjectionResult = FingerprintResult &
@@ -29,6 +30,7 @@ export type SyncProjectionResult = FingerprintResult &
 
 export type SyncResult = SyncProjectionResult &
   Readonly<{
+    providerObservationOperation: ProviderObservationOperation;
     receipt: SyncReceipt;
     receiptPath: string;
   }>;

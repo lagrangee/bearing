@@ -3,6 +3,9 @@ import { buildPlanningGraph } from "../src/planning-graph";
 import { prepareSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
+const prepareBaseline = (root: string) =>
+  prepareSync(root, { providerObservationIntent: "initial-baseline" });
+
 const addSecondEffort = async (
   root: string,
   authorities: readonly string[] = [],
@@ -141,7 +144,7 @@ test("Gate closure returns every inbound Effort with native, governance, evidenc
   await addSecondEffort(root, ["authority:architecture"]);
   await addGovernanceContext(root);
 
-  const plan = await prepareSync(root);
+  const plan = await prepareBaseline(root);
   const result = plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" });
 
   expect(result.state).toBe("complete");
@@ -183,7 +186,7 @@ test("Gate closure returns every inbound Effort with native, governance, evidenc
 
   const reversed = await buildPlanningGraph({
     decoded: { ...plan.decoded, records: [...plan.decoded.records].reverse() },
-    providerCaptures: [...plan.providerCaptures].reverse(),
+    providerObservations: [...plan.providerObservations].reverse(),
     diagnostics: [...plan.diagnostics].reverse(),
     fingerprint: plan.fingerprint,
     assetContentObservations: [...plan.assetContentObservations].reverse(),
@@ -195,7 +198,7 @@ test("Gate closure retains trustworthy siblings and reports a missing required r
   const root = await createValidBearingRepo();
   await addSecondEffort(root, ["authority:missing"]);
 
-  const result = (await prepareSync(root)).planningGraph.contextFor({
+  const result = (await prepareBaseline(root)).planningGraph.contextFor({
     kind: "gate",
     id: "gate:test",
   });
@@ -214,7 +217,7 @@ test("Gate closure retains trustworthy siblings and reports a missing required r
 });
 
 test("Gate closure rejects unknown and wrong-kind Stable IDs without fallback", async () => {
-  const plan = await prepareSync(await createValidBearingRepo());
+  const plan = await prepareBaseline(await createValidBearingRepo());
 
   expect(plan.planningGraph.contextFor({ kind: "gate", id: "gate:missing" })).toMatchObject({
     state: "invalid",
@@ -260,7 +263,7 @@ Remain ambiguous.
 `,
   );
 
-  const result = (await prepareSync(root)).planningGraph.contextFor({
+  const result = (await prepareBaseline(root)).planningGraph.contextFor({
     kind: "gate",
     id: "gate:test",
   });
@@ -277,10 +280,10 @@ Remain ambiguous.
 });
 
 test("Gate closure exposes the same immutable provider capture used by Sync", async () => {
-  const plan = await prepareSync(await createValidBearingRepo());
+  const plan = await prepareBaseline(await createValidBearingRepo());
   const graph = await buildPlanningGraph({
     decoded: plan.decoded,
-    providerCaptures: plan.providerCaptures,
+    providerObservations: plan.providerObservations,
     diagnostics: plan.diagnostics,
     fingerprint: plan.fingerprint,
     assetContentObservations: plan.assetContentObservations,
@@ -290,7 +293,7 @@ test("Gate closure exposes the same immutable provider capture used by Sync", as
 
   expect(result.state).toBe("complete");
   if (result.state === "invalid") throw new Error("Expected complete Gate context.");
-  expect(result.context.efforts[0]?.providerCapture).toBe(plan.providerCaptures[0]);
+  expect(result.context.efforts[0]?.providerCapture).toBe(plan.providerObservations[0]);
 });
 
 test("invalid Gate closure includes only issues belonging to the requested Gate", async () => {
@@ -329,7 +332,7 @@ Exercise issue isolation.
     duplicateGate("gate:other", "Other Gate Two"),
   );
 
-  const result = (await prepareSync(root)).planningGraph.contextFor({
+  const result = (await prepareBaseline(root)).planningGraph.contextFor({
     kind: "gate",
     id: "gate:test",
   });
@@ -388,7 +391,7 @@ Status: unsupported
 `,
   );
 
-  const result = (await prepareSync(root)).planningGraph.contextFor({
+  const result = (await prepareBaseline(root)).planningGraph.contextFor({
     kind: "gate",
     id: "gate:test",
   });
@@ -417,14 +420,14 @@ Status: unsupported
 });
 
 test("Gate closure exposes diagnostics from its bound provider capture", async () => {
-  const plan = await prepareSync(await createValidBearingRepo());
-  const capture = plan.providerCaptures[0];
+  const plan = await prepareBaseline(await createValidBearingRepo());
+  const capture = plan.providerObservations[0];
   if (capture === undefined || capture.state !== "available") {
     throw new Error("Expected an available provider capture.");
   }
   const graph = await buildPlanningGraph({
     decoded: plan.decoded,
-    providerCaptures: [
+    providerObservations: [
       {
         ...capture,
         state: "partial",

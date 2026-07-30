@@ -48,15 +48,15 @@ test("rejects cached Roadmap, Gate, and Effort ownership drift", () => {
 
 test("rejects provider capture identity drift and unknown bound-provider fields", () => {
   const snapshot = createProjectOverviewFixture();
-  const portalCapture = snapshot.providerCaptures.find(
+  const portalCapture = snapshot.providerObservations.find(
     (capture) => capture.binding.nativeScope === ".scratch/portal",
   );
   if (portalCapture === undefined) throw new Error("Expected Portal provider capture.");
 
   rejects({
     ...snapshot,
-    providerCaptures: [
-      ...snapshot.providerCaptures,
+    providerObservations: [
+      ...snapshot.providerObservations,
       { ...portalCapture, binding: { ...portalCapture.binding, nativeScope: ".scratch/model" } },
     ],
   });

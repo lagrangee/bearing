@@ -1,7 +1,4 @@
-import {
-  assessProviderCaptureEvidence,
-  type ProviderCaptureEvidenceAssessment,
-} from "../native-work-provider";
+import type { ProviderObservationEvidenceAssessment } from "../native-work-provider";
 import type {
   AssetProjection,
   Effort,
@@ -10,6 +7,7 @@ import type {
   Roadmap,
   SourceRecord,
 } from "../project-snapshot/contract";
+import { assessSelectedProviderObservationEvidence } from "../provider-observation-contract";
 import { mattPlanningPresentation } from "../providers/matt-skills-v1/projection";
 import {
   assessScopedMapIssues,
@@ -71,7 +69,7 @@ export type RoadmapEffortModel = Readonly<{
   maps: readonly MattMapView[];
   fogCount: number;
   frontier: Frontier;
-  providerAssessment: ProviderCaptureEvidenceAssessment | undefined;
+  providerAssessment: ProviderObservationEvidenceAssessment | undefined;
   missingFrontierReferences: readonly string[];
 }>;
 
@@ -182,19 +180,29 @@ const frontierFor = (
   frontier: Frontier;
   maps: readonly MattMapView[];
   missing: readonly string[];
-  providerAssessment: ProviderCaptureEvidenceAssessment | undefined;
+  providerAssessment: ProviderObservationEvidenceAssessment | undefined;
 }> => {
   const binding = effort.workBinding;
   const capture =
     binding === undefined
       ? undefined
-      : snapshot.providerCaptures.find(
+      : snapshot.providerObservations.find(
           (candidate) =>
             candidate.provider === binding.provider &&
             candidate.binding.nativeScope === binding.nativeScope,
         );
+  const selection =
+    binding === undefined
+      ? undefined
+      : snapshot.providerObservationSelections.find(
+          (candidate) =>
+            candidate.provider === binding.provider &&
+            candidate.nativeScope === binding.nativeScope,
+        );
   const providerAssessment =
-    binding === undefined ? undefined : assessProviderCaptureEvidence(capture);
+    binding === undefined
+      ? undefined
+      : assessSelectedProviderObservationEvidence(capture, selection);
   if (capture === undefined || (capture.state !== "available" && capture.state !== "partial")) {
     return {
       frontier: { claimed: [], ready: [], uncertain: [], blocked: [], resolved: [] },
@@ -280,7 +288,8 @@ export const buildRoadmapDetailModel = (
   }
   const focusedGate = summary.gates.find((entry) => entry.gate.id === roadmap.focusedGateId);
   const mapIssues = assessScopedMapIssues(
-    snapshot.providerCaptures,
+    snapshot.providerObservations,
+    snapshot.providerObservationSelections,
     efforts.map(({ effort }) => effort),
     snapshot.sources,
   );

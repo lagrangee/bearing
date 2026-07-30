@@ -27,24 +27,32 @@ export const buildSyncTransactionTargets = (
     reconciliation: plan.changed ? "applied" : "no-op",
   });
   const receiptPath = join(dirname(plan.sitemapPath), "sync-receipt.json");
+  const targets: TargetPlan[] = [
+    {
+      target: plan.reportPath,
+      bytes: plan.report,
+      executable: false,
+    },
+    {
+      target: plan.sitemapPath,
+      bytes: plan.sitemap,
+      executable: false,
+    },
+    {
+      target: receiptPath,
+      bytes: Buffer.from(`${JSON.stringify(receipt, null, 2)}\n`, "utf8"),
+      executable: false,
+    },
+  ];
+  if (plan.providerObservationStoreChanged) {
+    targets.splice(2, 0, {
+      target: plan.providerObservationStorePath,
+      bytes: plan.providerObservationStoreBytes,
+      executable: false,
+    });
+  }
   return {
-    targets: [
-      {
-        target: plan.reportPath,
-        bytes: plan.report,
-        executable: false,
-      },
-      {
-        target: plan.sitemapPath,
-        bytes: plan.sitemap,
-        executable: false,
-      },
-      {
-        target: receiptPath,
-        bytes: Buffer.from(`${JSON.stringify(receipt, null, 2)}\n`, "utf8"),
-        executable: false,
-      },
-    ],
+    targets,
     receipt,
     receiptPath,
   };

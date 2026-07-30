@@ -12,7 +12,7 @@ import { PROJECT_SNAPSHOT_VERSION, projectSnapshotSchema } from "./schema";
 import { createSourceRecord, mergeSourceRecords } from "./source-records";
 
 const trackerSources = (
-  captures: ProjectSnapshotBuildInput["providerCaptures"],
+  captures: ProjectSnapshotBuildInput["providerObservations"],
   sitemapFingerprint: string,
 ): readonly SourceRecord[] =>
   captures.flatMap((capture) =>
@@ -28,6 +28,15 @@ const trackerSources = (
 export const buildProjectSnapshot = async (
   input: ProjectSnapshotBuildInput,
 ): Promise<ProjectSnapshot> => {
+  const providerObservationSelections =
+    input.providerObservationSelections ??
+    input.providerObservations.map((observation) => ({
+      provider: observation.provider,
+      nativeScope: observation.binding.nativeScope,
+      observationId: observation.id,
+      effectiveFreshness: observation.freshness.assessment,
+      latestAttempt: null,
+    }));
   const records = input.decoded.records;
   if (input.planningGraph.fingerprint !== input.sitemapFingerprint) {
     throw new Error("Project Snapshot Planning Graph fingerprint does not match its basis.");
@@ -67,7 +76,7 @@ export const buildProjectSnapshot = async (
     assetProjection.sources,
     decisions.sources,
     advisory.sources,
-    trackerSources(input.providerCaptures, input.sitemapFingerprint),
+    trackerSources(input.providerObservations, input.sitemapFingerprint),
   ]);
   const diagnosticProjection = buildSnapshotDiagnostics({
     sitemapFingerprint: input.sitemapFingerprint,
@@ -102,7 +111,8 @@ export const buildProjectSnapshot = async (
     reviews: decisions.reviews,
     audit: advisory.audit,
     guidance: advisory.guidance,
-    providerCaptures: input.providerCaptures,
+    providerObservations: input.providerObservations,
+    providerObservationSelections,
     diagnostics: diagnosticProjection.diagnostics,
     attention: [...diagnosticProjection.attention, ...decisions.attention],
     sources,

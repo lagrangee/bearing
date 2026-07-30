@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createProviderScopeObservation } from "../src/native-work-provider";
 import { effortInspection, frontierSummary } from "../src/portal-ui/project-roadmap-inspection";
 import {
   buildRoadmapDetailModel,
@@ -107,7 +108,7 @@ test("keeps scoped Index and Detail failures readable without inventing relation
   const mapPartial = buildRoadmapDetailModel(
     {
       ...snapshot,
-      providerCaptures: snapshot.providerCaptures.filter(
+      providerObservations: snapshot.providerObservations.filter(
         (capture) => capture.binding.nativeScope !== ".scratch/portal",
       ),
     } as ProjectSnapshot,
@@ -131,10 +132,32 @@ test("propagates scoped partial Ticket issues without publishing a false-ready f
   if (
     snapshot.efforts.validity !== "available" ||
     snapshot.gates.validity !== "available" ||
-    snapshot.providerCaptures.length !== 2
+    snapshot.providerObservations.length !== 2
   ) {
     throw new Error("Expected Efforts, Gates, and Tickets fixture.");
   }
+  const providerObservations = snapshot.providerObservations.map((capture) =>
+    capture.binding.nativeScope === ".scratch/portal"
+      ? (createProviderScopeObservation({
+          ...capture,
+          state: "partial",
+          coverage: { ...capture.coverage, assessment: "incomplete" },
+          diagnostics: [
+            {
+              code: "matt.local.ticket.invalid",
+              class: "format",
+              impact: "blocking",
+              target: ".scratch/portal/issues/04-corrupt.md",
+              message: "One native Ticket is structurally uncertain.",
+            },
+          ],
+        } as never) as typeof capture)
+      : capture,
+  );
+  const portalObservation = providerObservations.find(
+    (observation) => observation.binding.nativeScope === ".scratch/portal",
+  );
+  if (portalObservation === undefined) throw new Error("Expected the Portal observation.");
   const parsed = projectSnapshotSchema.safeParse({
     ...snapshot,
     gates: {
@@ -143,23 +166,14 @@ test("propagates scoped partial Ticket issues without publishing a false-ready f
         gate.id === "gate:two" ? { ...gate, readiness: "unknown" as const } : gate,
       ),
     },
-    providerCaptures: snapshot.providerCaptures.map((capture) =>
-      capture.binding.nativeScope === ".scratch/portal"
+    providerObservations,
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.nativeScope === ".scratch/portal"
         ? {
-            ...capture,
-            state: "partial",
-            coverage: { ...capture.coverage, assessment: "incomplete" },
-            diagnostics: [
-              {
-                code: "matt.local.ticket.invalid",
-                class: "format",
-                impact: "blocking",
-                target: ".scratch/portal/issues/04-corrupt.md",
-                message: "One native Ticket is structurally uncertain.",
-              },
-            ],
+            ...selection,
+            observationId: portalObservation.id,
           }
-        : capture,
+        : selection,
     ),
   });
   expect(parsed.success).toBe(true);
@@ -198,4 +212,55 @@ test("propagates scoped partial Ticket issues without publishing a false-ready f
     ]),
   );
   expect(buildRoadmapDetailModel(parsed.data, "roadmap:second").state).toBe("available");
+});
+
+test("withholds a current-looking prior frontier after the selected latest attempt fails", () => {
+  const snapshot = fixture();
+  const degraded = {
+    ...snapshot,
+    gates:
+      snapshot.gates.validity === "invalid"
+        ? snapshot.gates
+        : {
+            ...snapshot.gates,
+            items: snapshot.gates.items.map((gate) =>
+              gate.id === "gate:two" ? { ...gate, readiness: "unknown" as const } : gate,
+            ),
+          },
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.nativeScope === ".scratch/portal"
+        ? {
+            ...selection,
+            effectiveFreshness: "undetermined" as const,
+            latestAttempt: {
+              intent: "full-verification" as const,
+              attemptedAt: "2026-07-31T11:00:00.000Z",
+              outcome: "failed" as const,
+              diagnostics: [
+                {
+                  code: "provider-observation-acquisition-failed",
+                  impact: "blocking" as const,
+                  target: ".scratch/portal",
+                  message: "The latest verification attempt failed.",
+                },
+              ],
+            },
+          }
+        : selection,
+    ),
+  } as ProjectSnapshot;
+
+  const detail = buildRoadmapDetailModel(degraded, "roadmap:portal");
+  expect(detail.state).toBe("partial");
+  if (detail.state !== "partial") throw new Error("Expected a partial Roadmap Detail.");
+  expect(detail.efforts[1]?.frontier).toMatchObject({
+    claimed: [],
+    ready: [],
+    uncertain: [{ title: "Build the Roadmap journey" }, { title: "Review the Roadmap journey" }],
+  });
+  expect(detail.efforts[1]?.providerAssessment).toMatchObject({
+    freshness: "undetermined",
+    blockingDiagnosticCount: 1,
+    frontierEvidence: "withheld",
+  });
 });

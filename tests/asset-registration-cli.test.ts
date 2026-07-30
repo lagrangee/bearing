@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { registerAsset } from "../src/asset-registration";
 import { renderExecutionProfile } from "../src/executor-registration";
 import { parseFrontmatter } from "../src/frontmatter";
+import { runSync } from "../src/sync";
 import { createValidBearingRepo, makeTemporaryDirectory } from "./helpers";
+
+const initializeProviderObservations = (root: string) =>
+  runSync(root, { providerObservationIntent: "initial-baseline" });
 
 const runAssetRegistration = async (
   repoRoot: string,
@@ -109,6 +113,7 @@ describe("typed Asset Registration Route CLI", () => {
 
   test("registers one factual Asset and returns an idempotent no-op on exact replay", async () => {
     const root = await createValidBearingRepo();
+    await initializeProviderObservations(root);
     await writeFile(join(root, ".scratch/work/evidence.md"), "# Durable evidence\n");
 
     const first = await runAssetRegistration(root);
@@ -152,6 +157,7 @@ describe("typed Asset Registration Route CLI", () => {
 
   test("matches the actual unregistered capability to Generic provenance and discloses fallback", async () => {
     const root = await createValidBearingRepo();
+    await initializeProviderObservations(root);
     const manifestPath = join(root, ".bearing/manifest.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
     await writeFile(
@@ -208,6 +214,7 @@ describe("typed Asset Registration Route CLI", () => {
 
   test("matches an actual executor capability to its configured specialized provenance", async () => {
     const root = await createValidBearingRepo();
+    await initializeProviderObservations(root);
     const manifestPath = join(root, ".bearing/manifest.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
     await writeFile(
@@ -350,6 +357,7 @@ describe("typed Asset Registration Route CLI", () => {
 
   test("fails closed on a conflicting ID or invalid producer provenance", async () => {
     const root = await createValidBearingRepo();
+    await initializeProviderObservations(root);
     await writeFile(join(root, ".scratch/work/evidence.md"), "# Durable evidence\n");
     expect((await runAssetRegistration(root)).exitCode).toBe(0);
     const accepted = await readFile(join(root, ".bearing/state/assets.md"));
@@ -463,6 +471,7 @@ describe("typed Asset Registration Route CLI", () => {
 
   test("accepts direct and symlink-installed Agent Surface capabilities plus a user source", async () => {
     const root = await createValidBearingRepo();
+    await initializeProviderObservations(root);
 
     const result = await runAssetRegistration(root, [
       "--kind",

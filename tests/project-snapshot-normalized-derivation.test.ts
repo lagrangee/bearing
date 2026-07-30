@@ -31,7 +31,7 @@ test("keeps Effort lifecycle explicit when provider completion is undetermined",
 
   const snapshot = await materialize(root);
 
-  const capture = snapshot.providerCaptures.find(
+  const capture = snapshot.providerObservations.find(
     (candidate) => candidate.binding.nativeScope === ".scratch/work",
   );
   expect(capture).toBeDefined();
