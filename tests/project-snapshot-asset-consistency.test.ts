@@ -29,11 +29,18 @@ const replaceOnlyAsset = (
 
 const authorityFixture = (): ProjectSnapshot => {
   const snapshot = createProjectOverviewFixture();
+  if (snapshot.reviews.validity === "invalid") throw new Error("Expected Reviews.");
   const authoritySource = createSourceReference({
     basisFingerprint: BASIS,
     kind: "canonical",
     displayLocator: ".bearing/state/authorities/design.md",
     binding: { role: "authority", identity: "authority:design" },
+  });
+  const reviewSource = createSourceReference({
+    basisFingerprint: BASIS,
+    kind: "canonical",
+    displayLocator: ".bearing/state/planning-reviews/adopt-design.md",
+    binding: { role: "planning-review", identity: "planning-review:adopt-design" },
   });
   return projectSnapshotSchema.parse(
     withRebuiltPlanningLineage({
@@ -48,6 +55,32 @@ const authorityFixture = (): ProjectSnapshot => {
             citations: [],
             scope: "Govern the accepted Portal direction.",
             baselineAssetIds: ["asset:planning-model-evidence"],
+            adoptions: [
+              {
+                assetId: "asset:planning-model-evidence",
+                decisionReference: "planning-review:adopt-design",
+              },
+            ],
+          },
+        ],
+      },
+      reviews: {
+        ...snapshot.reviews,
+        items: [
+          ...snapshot.reviews.items,
+          {
+            id: "planning-review:adopt-design",
+            title: "Adopt design",
+            source: reviewSource,
+            citations: [],
+            status: "completed",
+            scope: "Adopt the design baseline.",
+            resolution: {
+              acceptedDecision: "Adopt the design.",
+              acceptedAt: { availability: "unavailable" },
+              rationale: "The design governs the baseline.",
+              changedReferences: ["authority:design"],
+            },
           },
         ],
       },
@@ -62,6 +95,15 @@ const authorityFixture = (): ProjectSnapshot => {
           kind: "canonical",
           displayLocator: ".bearing/state/authorities/design.md",
           binding: { role: "authority", identity: "authority:design" },
+        },
+        {
+          reference: reviewSource,
+          kind: "canonical",
+          displayLocator: ".bearing/state/planning-reviews/adopt-design.md",
+          binding: {
+            role: "planning-review",
+            identity: "planning-review:adopt-design",
+          },
         },
       ],
     }),
@@ -217,6 +259,7 @@ test("requires superseded Assets to resolve their replacement in a complete Asse
     lifecycleSource: "registry" as const,
     disposition: "superseded" as const,
     supersededBy: "asset:replacement",
+    supersededAt: { availability: "unavailable" as const },
   };
   const replacement = {
     ...onlyAsset(snapshot),
@@ -266,6 +309,7 @@ test("requires superseded Assets to resolve their replacement in a complete Asse
             lifecycleSource: "registry",
             disposition: "superseded",
             supersededBy: historical.id,
+            supersededAt: { availability: "unavailable" },
           },
         ],
       },
@@ -297,6 +341,7 @@ test("rejects missing, forged, or unresolved Authority adoption relations", () =
           {
             ...authority,
             baselineAssetIds: ["asset:missing"],
+            adoptions: [],
           },
         ],
       },

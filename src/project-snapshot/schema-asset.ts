@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bearingSourceEventTimeSchema, sourceEventTimeSchema } from "../source-event-time";
 import { uniqueIdentityArraySchema } from "./projection-identity";
 import { titledSourceShape } from "./schema-node";
 import {
@@ -46,8 +47,12 @@ export const assetProjectionSchema = z
     owner: planningReferenceSchema,
     producer: producerSchema,
     lifecycleSource: z.enum(["native", "registry"]),
+    registeredAt: bearingSourceEventTimeSchema,
+    producedAt: sourceEventTimeSchema.optional(),
     disposition: z.enum(["available", "superseded", "archived"]).optional(),
     supersededBy: assetIdSchema.optional(),
+    supersededAt: bearingSourceEventTimeSchema.optional(),
+    archivedAt: bearingSourceEventTimeSchema.optional(),
     producedFor: planningReferenceSchema.optional(),
     displayLocation: displayAssetLocatorSchema,
     contentAvailability: z.enum(["available", "missing", "unreadable"]),
@@ -106,6 +111,26 @@ export const assetProjectionSchema = z
         code: "custom",
         path: ["supersededBy"],
         message: "An Asset cannot supersede itself.",
+      });
+    }
+    if (
+      (asset.lifecycleSource === "registry" && asset.disposition === "superseded") !==
+      (asset.supersededAt !== undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["supersededAt"],
+        message: "Asset supersession time applicability must match registry disposition.",
+      });
+    }
+    if (
+      (asset.lifecycleSource === "registry" && asset.disposition === "archived") !==
+      (asset.archivedAt !== undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["archivedAt"],
+        message: "Asset archive time applicability must match registry disposition.",
       });
     }
   });

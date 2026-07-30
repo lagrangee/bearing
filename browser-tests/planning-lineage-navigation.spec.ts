@@ -73,10 +73,71 @@ const fixture = (): ProjectSnapshot => {
           citations: [],
           scope: "Accepted architecture direction.",
           baselineAssetIds: [],
+          adoptions: [],
         },
       ],
     },
     sources: [...snapshot.sources, authoritySource],
+  };
+  return projectSnapshotSchema.parse({
+    ...candidate,
+    lineage: buildPlanningLineageProjection(candidate),
+  });
+};
+
+const timedFixture = (): ProjectSnapshot => {
+  const snapshot = fixture();
+  if (snapshot.gates.validity === "invalid" || snapshot.assets.validity === "invalid") {
+    throw new Error("Expected readable Gates and Assets.");
+  }
+  const passage = snapshot.gates.items.find((gate) => gate.id === "gate:one")?.passage;
+  if (passage === undefined) throw new Error("Expected Gate Passage.");
+  const candidate = {
+    ...snapshot,
+    gates: {
+      ...snapshot.gates,
+      items: snapshot.gates.items.map((gate) =>
+        gate.id === "gate:one"
+          ? {
+              ...gate,
+              plannedAt: {
+                availability: "available" as const,
+                value: "2026-07-31T08:00:00Z",
+                precision: "second" as const,
+              },
+              activatedAt: {
+                availability: "available" as const,
+                value: "2026-07-31T09:00:00Z",
+                precision: "second" as const,
+              },
+              passage: {
+                ...passage,
+                acceptedAt: {
+                  availability: "available" as const,
+                  value: "2026-07-31T10:00:00.123Z",
+                  precision: "fractional-second" as const,
+                },
+              },
+            }
+          : gate,
+      ),
+    },
+    assets: {
+      ...snapshot.assets,
+      items: snapshot.assets.items.map((asset) => ({
+        ...asset,
+        registeredAt: {
+          availability: "available" as const,
+          value: "2026-07-31T09:30:00Z",
+          precision: "second" as const,
+        },
+        producedAt: {
+          availability: "available" as const,
+          value: "2026-07-30",
+          precision: "date" as const,
+        },
+      })),
+    },
   };
   return projectSnapshotSchema.parse({
     ...candidate,
@@ -166,6 +227,89 @@ test("stable durable-subject routes survive direct entry and keep failures scope
   await expect(page.getByText("Requested section unavailable", { exact: false })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Model ready", level: 1 })).toBeVisible();
   expect(posts).toEqual([]);
+});
+
+test("Source Event Time stays source-precise while browser-relative updates remain display-only", async ({
+  page,
+}) => {
+  const snapshot = timedFixture();
+  const posts: string[] = [];
+  let snapshotReads = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(request.url());
+  });
+  await page.clock.install({ time: new Date("2026-07-31T10:05:00Z") });
+  await page.route("**/api/v1/projects/lineage/snapshot", (route) => {
+    snapshotReads += 1;
+    return route.fulfill({ json: readyEnvelope(snapshot) });
+  });
+
+  await page.goto(
+    planningLineageSubjectHref("lineage", {
+      kind: "gate",
+      id: "gate:one",
+    }),
+  );
+  const history = page.locator("#gate\\.event-history");
+  const accepted = history.locator('time[datetime="2026-07-31T10:00:00.123Z"]');
+  await expect(accepted).toBeVisible();
+  await expect(accepted).not.toContainText(/10:00:00/u);
+  await expect(accepted.locator("xpath=following-sibling::small")).toHaveText("5 minutes ago");
+  await expect(history.getByText("2026-07-31T10:00:00.123Z", { exact: true })).toBeAttached();
+  await expect(history.getByText("fractional-second precision", { exact: true })).toBeAttached();
+
+  await page.goto(
+    planningLineageSubjectHref("lineage", {
+      kind: "roadmap",
+      id: "roadmap:portal",
+    }),
+  );
+  const compact = page.locator(
+    '.lineage-relation-event .source-event-time.compact:has(time[datetime="2026-07-31T10:00:00.123Z"])',
+  );
+  await expect(compact.locator("time")).toHaveText("5 minutes ago");
+  await expect(compact).toHaveAttribute("title", /2026/u);
+  await page.getByRole("link", { name: "Model ready", exact: true }).focus();
+  expect(
+    await compact.evaluate((element) => getComputedStyle(element, "::after").content),
+  ).toContain("2026");
+
+  await page.goto("/projects/lineage/roadmaps");
+  await expect(page.locator('.gate-node time[datetime="2026-07-31T10:00:00.123Z"]')).toHaveText(
+    "5 minutes ago",
+  );
+
+  await page.goto("/projects/lineage/assets");
+  await expect(page.locator('.asset-row-primary time[datetime="2026-07-31T09:30:00Z"]')).toHaveText(
+    "35 minutes ago",
+  );
+
+  await page.goto(
+    planningLineageSubjectHref("lineage", {
+      kind: "asset",
+      id: "asset:planning-model-evidence",
+    }),
+  );
+  const produced = page.locator('#asset\\.event-history time[datetime="2026-07-30"]');
+  await expect(produced).toHaveText("2026-07-30");
+  await expect(page.locator("#asset\\.event-history")).not.toContainText("2026-07-30T00:00:00");
+
+  await page.goto(
+    planningLineageSubjectHref("lineage", {
+      kind: "gate",
+      id: "gate:one",
+    }),
+  );
+  const samePageRelative = page
+    .locator("#gate\\.event-history")
+    .locator('time[datetime="2026-07-31T10:00:00.123Z"]')
+    .locator("xpath=following-sibling::small");
+  await expect(samePageRelative).toHaveText("5 minutes ago");
+  const readsBeforeTick = snapshotReads;
+  await page.clock.fastForward(60_000);
+  await expect(samePageRelative).toHaveText("6 minutes ago");
+  expect(posts).toEqual([]);
+  expect(snapshotReads).toBe(readsBeforeTick);
 });
 
 test("a same-route Snapshot transition sends an unavailable semantic anchor back to subject top", async ({

@@ -17,6 +17,11 @@ import type {
   SourceRecord,
 } from "../project-snapshot/contract";
 import { findPlanningLineageSubjectProjection } from "../project-snapshot/planning-lineage";
+import {
+  type PlanningLineageEvent,
+  planningLineageEventsFor,
+  planningLineageRelationEvent,
+} from "./planning-lineage-events";
 
 const RELATION_PREVIEW_LIMIT = 3;
 
@@ -33,6 +38,7 @@ export type PlanningLineageRelationItem = Readonly<{
   reference: string;
   label: string;
   availability: "available" | "unavailable";
+  event?: PlanningLineageEvent | undefined;
   href?: string | undefined;
   note?: string | undefined;
 }>;
@@ -80,6 +86,7 @@ type ReadablePlanningLineageSubjectModel = Readonly<{
   }>;
   parentPath: readonly PlanningLineageParentCrumb[];
   parentNotice?: string | undefined;
+  events: readonly PlanningLineageEvent[];
   sections: readonly PlanningLineageSection[];
   semanticAvailability: ReadonlyMap<string, "available" | "confirmed-empty" | "unavailable">;
   relations: readonly PlanningLineageRelation[];
@@ -152,19 +159,38 @@ const titleFor = (snapshot: ProjectSnapshot, subject: PlanningLineageSubject): s
   recordFor(snapshot, subject)?.title ?? subject.id;
 
 const relationItem = (
+  snapshot: ProjectSnapshot,
   entryId: string,
+  owner: PlanningLineageSubject,
+  relationKey: PlanningLineageRelationKey,
   target: Extract<SnapshotLineageRelation, { state: "present" }>["targets"][number],
-): PlanningLineageRelationItem => ({
-  reference: target.reference,
-  label: target.label,
-  availability: target.availability,
-  ...(target.subject === undefined
-    ? {}
-    : { href: planningLineageSubjectHref(entryId, target.subject) }),
-  ...(target.note === undefined ? {} : { note: target.note }),
-});
+): PlanningLineageRelationItem => {
+  const ownerRecord = recordFor(snapshot, owner);
+  const relationEvent =
+    ownerRecord === undefined
+      ? undefined
+      : planningLineageRelationEvent(
+          snapshot,
+          owner,
+          ownerRecord,
+          relationKey,
+          target.subject,
+          target.reference,
+        );
+  return {
+    reference: target.reference,
+    label: target.label,
+    availability: target.availability,
+    ...(relationEvent === undefined ? {} : { event: relationEvent }),
+    ...(target.subject === undefined
+      ? {}
+      : { href: planningLineageSubjectHref(entryId, target.subject) }),
+    ...(target.note === undefined ? {} : { note: target.note }),
+  };
+};
 
 const relationForDisplay = (
+  snapshot: ProjectSnapshot,
   entryId: string,
   owner: PlanningLineageSubject,
   relation: SnapshotLineageRelation,
@@ -177,7 +203,9 @@ const relationForDisplay = (
   };
   if (relation.state !== "present")
     return { ...base, state: relation.state, reason: relation.reason };
-  const allItems = relation.targets.map((target) => relationItem(entryId, target));
+  const allItems = relation.targets.map((target) =>
+    relationItem(snapshot, entryId, owner, relation.key, target),
+  );
   return {
     ...base,
     state: "present",
@@ -284,7 +312,17 @@ const authoritySections = (authority: Authority): readonly PlanningLineageSectio
   {
     anchor: "authority.adoption-decisions",
     title: "Adoption Decisions",
-    body: "Accepted Decision references, rationale, and Source Event Time are unavailable in the current typed Authority contract. Current baseline membership is not substituted for that missing decision provenance.",
+    body:
+      authority.adoptions.length === 0
+        ? "No explicit Authority Adoption is recorded. Current baseline membership is not substituted for decision provenance."
+        : "Each adoption cites the Accepted Decision that owns its Source Event Time.",
+    ...(authority.adoptions.length === 0
+      ? {}
+      : {
+          items: authority.adoptions.map(
+            (adoption) => `${adoption.assetId} · ${adoption.decisionReference}`,
+          ),
+        }),
   },
   {
     anchor: "authority.superseded-context",
@@ -318,11 +356,6 @@ const resolutionSections = (
       anchor: `${prefix}.rationale`,
       title: "Rationale",
       body: resolution?.rationale ?? "No accepted rationale is recorded.",
-    },
-    {
-      anchor: `${prefix}.event-time`,
-      title: "Source Event Time",
-      body: "Time unavailable in the current typed decision contract.",
     },
     {
       anchor: `${prefix}.changed-references`,
@@ -501,7 +534,7 @@ export const buildPlanningLineageSubjectModel = (
   }
   const collection = collectionFor(snapshot, subject.kind);
   const relations = lineage.relations.map((relation) =>
-    relationForDisplay(entryId, subject, relation),
+    relationForDisplay(snapshot, entryId, subject, relation),
   );
   const semanticAvailability = new Map(
     lineage.semanticSections.map((section) => [section.role, section.availability]),
@@ -527,6 +560,7 @@ export const buildPlanningLineageSubjectModel = (
       : {
           parentNotice: `${lineage.parentPath.reason ?? "Canonical parentage is unavailable."} The path stops at the last trustworthy ancestor.`,
         }),
+    events: planningLineageEventsFor(snapshot, subject, record),
     sections: sectionsFor(snapshot, lineage, record),
     semanticAvailability,
     relations,

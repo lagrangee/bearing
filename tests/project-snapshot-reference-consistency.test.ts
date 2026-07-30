@@ -37,6 +37,12 @@ const withSecondRoadmapLifecycle = (
               ...roadmap,
               lifecycle,
               horizon: lifecycle === "active" ? "unknown" : "exhausted",
+              ...(lifecycle === "completed"
+                ? { completedAt: { availability: "unavailable" as const } }
+                : {}),
+              ...(lifecycle === "superseded"
+                ? { supersededAt: { availability: "unavailable" as const } }
+                : {}),
             }
           : roadmap,
       ),

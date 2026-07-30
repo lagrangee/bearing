@@ -1,4 +1,5 @@
 import type { SourceRecord } from "../project-snapshot/contract";
+import type { SourceEventTime } from "../source-event-time";
 import type { ProjectInspectorSelection } from "./project-inspector";
 import type {
   MattMapView,
@@ -6,6 +7,13 @@ import type {
   RoadmapEffortModel,
   RoadmapGateModel,
 } from "./project-roadmap-model";
+import { formatSourceEventAbsolute, formatSourceEventRelative } from "./source-event-time";
+
+const sourceEventTimeValue = (time: SourceEventTime): string => {
+  const absolute = formatSourceEventAbsolute(time);
+  const relative = formatSourceEventRelative(time, Date.now());
+  return absolute === relative ? absolute : `${absolute} · ${relative}`;
+};
 
 const gateState = (entry: RoadmapGateModel): string => {
   const state = entry.gate.horizonState;
@@ -37,6 +45,16 @@ export const gateInspection = (
       { label: "Readiness", value: readinessLabel(entry.gate.readiness) },
       { label: "Roadmap", value: roadmapTitle },
       { label: "Position", value: `${entry.ordinal} of ${gateCount}` },
+      { label: "Planned at", value: sourceEventTimeValue(entry.gate.plannedAt) },
+      ...(entry.gate.activatedAt === undefined
+        ? []
+        : [{ label: "Activated at", value: sourceEventTimeValue(entry.gate.activatedAt) }]),
+      ...(passage === undefined
+        ? []
+        : [{ label: "Passage accepted at", value: sourceEventTimeValue(passage.acceptedAt) }]),
+      ...(entry.gate.supersededAt === undefined
+        ? []
+        : [{ label: "Superseded at", value: sourceEventTimeValue(entry.gate.supersededAt) }]),
     ],
     sections: [
       { title: "Exit criteria", items: entry.gate.exitCriteria },
@@ -64,6 +82,13 @@ export const roadmapInspection = (
   source: model.source,
   facts: [
     { label: "Lifecycle", value: model.roadmap.lifecycle },
+    { label: "Started at", value: sourceEventTimeValue(model.roadmap.startedAt) },
+    ...(model.roadmap.completedAt === undefined
+      ? []
+      : [{ label: "Completed at", value: sourceEventTimeValue(model.roadmap.completedAt) }]),
+    ...(model.roadmap.supersededAt === undefined
+      ? []
+      : [{ label: "Superseded at", value: sourceEventTimeValue(model.roadmap.supersededAt) }]),
     { label: "Horizon", value: model.roadmap.horizon },
     {
       label: "Focused Gate",
@@ -102,9 +127,6 @@ export const frontierSummary = (model: RoadmapEffortModel): string => {
   ] as const;
   return counts.map(([label, count]) => `${label} ${count}`).join(" · ");
 };
-
-const sourceEventTimeValue = (time: RoadmapEffortModel["effort"]["plannedAt"]): string =>
-  time.availability === "available" ? time.value : "Time unavailable";
 
 export const effortInspection = (model: RoadmapEffortModel): ProjectInspectorSelection => ({
   eyebrow: "Effort",

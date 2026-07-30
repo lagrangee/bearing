@@ -35,6 +35,7 @@ const terminalRoadmapSnapshot = () => {
           ? {
               ...roadmap,
               lifecycle: "completed" as const,
+              completedAt: { availability: "unavailable" as const },
               focusedGateId: null,
               horizon: "exhausted" as const,
             }

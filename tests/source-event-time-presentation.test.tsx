@@ -1,0 +1,70 @@
+import { expect, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import {
+  formatSourceEventAbsolute,
+  formatSourceEventRelative,
+  SourceEventTimeValue,
+} from "../src/portal-ui/source-event-time";
+
+const instant = {
+  availability: "available",
+  value: "2026-07-31T08:09:10.123+08:00",
+  precision: "fractional-second",
+} as const;
+
+test("formats ordinary absolute time to local minutes while preserving technical source bytes", () => {
+  expect(formatSourceEventAbsolute(instant, "en-US", "UTC")).toBe(
+    "Jul 31, 2026 at 12:09 AM",
+  );
+  const markup = renderToStaticMarkup(
+    <SourceEventTimeValue
+      label="Accepted"
+      locale="en-US"
+      mode="detail"
+      now={Date.parse("2026-07-31T00:10:00Z")}
+      time={instant}
+      timeZone="UTC"
+    />,
+  );
+  expect(markup).toContain(">Jul 31, 2026 at 12:09 AM<");
+  expect(markup).toContain(">1 minute ago<");
+  expect(markup).not.toContain(">Jul 31, 2026, 12:09:10");
+  expect(markup).toContain("<summary>Technical time provenance</summary>");
+  expect(markup).toContain("<code>2026-07-31T08:09:10.123+08:00</code>");
+  expect(markup).toContain("fractional-second precision");
+});
+
+test("keeps date-only source time date-only and never gives it a relative instant", () => {
+  const dateOnly = {
+    availability: "available",
+    value: "2026-07-31",
+    precision: "date",
+  } as const;
+  expect(formatSourceEventAbsolute(dateOnly, "en-US", "America/Los_Angeles")).toBe("2026-07-31");
+  expect(formatSourceEventRelative(dateOnly, Date.parse("2026-08-01T00:00:00Z"), "en-US")).toBe(
+    "2026-07-31",
+  );
+});
+
+test("keeps unavailable distinct from an omitted inapplicable event", () => {
+  const unavailable = { availability: "unavailable" } as const;
+  expect(formatSourceEventAbsolute(unavailable, "en-US", "UTC")).toBe("Time unavailable");
+  expect(
+    renderToStaticMarkup(
+      <SourceEventTimeValue
+        label="Planned"
+        locale="en-US"
+        mode="compact"
+        now={0}
+        time={unavailable}
+        timeZone="UTC"
+      />,
+    ),
+  ).toContain("Time unavailable");
+});
+
+test("uses now rather than exposing source seconds in ordinary relative display", () => {
+  expect(
+    formatSourceEventRelative(instant, Date.parse("2026-07-31T00:09:30Z"), "en-US"),
+  ).toBe("now");
+});

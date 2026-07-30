@@ -136,6 +136,7 @@ describe("typed Asset Registration Route CLI", () => {
           Name: "generic-agent",
         },
         "Lifecycle source": "native",
+        "Registered at": expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u),
         "Produced for": ".scratch/work/issues/09.md",
       },
     ]);
@@ -153,6 +154,54 @@ describe("typed Asset Registration Route CLI", () => {
       },
     });
     expect(await readFile(join(root, ".bearing/state/assets.md"))).toEqual(bytesAfterFirst);
+  });
+
+  test("preserves an explicit producer time without turning date-only into an instant", async () => {
+    const root = await createValidBearingRepo();
+    await initializeProviderObservations(root);
+    await writeFile(join(root, ".scratch/work/evidence.md"), "# Durable evidence\n");
+
+    const result = await runAssetRegistration(root, ["--produced-at", "2026-07-31"]);
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(await registryAssets(root)).toContainEqual(
+      expect.objectContaining({
+        ID: "asset:test-execution",
+        "Produced at": "2026-07-31",
+        "Registered at": expect.stringMatching(/Z$/u),
+      }),
+    );
+  });
+
+  test("commits registration time with the first mutation and never retimes an exact replay", async () => {
+    const root = await createValidBearingRepo();
+    await initializeProviderObservations(root);
+    await writeFile(join(root, "evidence.md"), "# Evidence\n");
+    const input = {
+      repoRoot: root,
+      id: "asset:timed-registration",
+      title: "Timed registration",
+      kind: "verification-report",
+      location: "evidence.md",
+      owner: "effort:test",
+      producer: { kind: "external-source" as const, name: "user" },
+    };
+
+    await expect(
+      registerAsset(input, { now: () => new Date("2026-07-31T10:11:12.345Z") }),
+    ).resolves.toMatchObject({ outcome: "applied" });
+    expect(await registryAssets(root)).toContainEqual(
+      expect.objectContaining({
+        ID: "asset:timed-registration",
+        "Registered at": "2026-07-31T10:11:12.345Z",
+      }),
+    );
+    const accepted = await readFile(join(root, ".bearing/state/assets.md"));
+
+    await expect(
+      registerAsset(input, { now: () => new Date("2030-01-01T00:00:00.000Z") }),
+    ).resolves.toMatchObject({ outcome: "no-op" });
+    expect(await readFile(join(root, ".bearing/state/assets.md"))).toEqual(accepted);
   });
 
   test("matches the actual unregistered capability to Generic provenance and discloses fallback", async () => {

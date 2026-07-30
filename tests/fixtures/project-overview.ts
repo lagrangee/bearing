@@ -257,7 +257,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 6,
+    schemaVersion: 7,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -292,6 +292,7 @@ export const createProjectOverviewFixture = () => {
           citations: [],
           intent: "Prove whole-project orientation.",
           lifecycle: "active",
+          startedAt: { availability: "unavailable" },
           focusedGateId: "gate:two",
           gateOrder: ["gate:one", "gate:two"],
           horizon: "active-horizon",
@@ -304,6 +305,7 @@ export const createProjectOverviewFixture = () => {
           citations: [],
           intent: "Keep peer outcomes visible.",
           lifecycle: "active",
+          startedAt: { availability: "unavailable" },
           focusedGateId: null,
           gateOrder: [],
           horizon: "unknown",
@@ -323,6 +325,8 @@ export const createProjectOverviewFixture = () => {
           exitCriteria: ["Overview is usable.", "Evidence remains inspectable."],
           roadmapId: "roadmap:portal",
           lifecycle: "active",
+          plannedAt: { availability: "unavailable" },
+          activatedAt: { availability: "unavailable" },
           readiness: "not-ready",
           horizonState: "focused",
           effortIds: ["effort:portal"],
@@ -336,11 +340,14 @@ export const createProjectOverviewFixture = () => {
           exitCriteria: ["The planning model is accepted."],
           roadmapId: "roadmap:portal",
           lifecycle: "passed",
+          plannedAt: { availability: "unavailable" },
+          activatedAt: { availability: "unavailable" },
           readiness: "ready-for-review",
           horizonState: "passed",
           effortIds: ["effort:model"],
           passage: {
             acceptedDecision: "Accept the planning model as ready.",
+            acceptedAt: { availability: "unavailable" },
             rationale: "The model satisfies its accepted Gate criteria.",
             evidenceAssetIds: ["asset:planning-model-evidence"],
             exceptions: [],
@@ -417,6 +424,7 @@ export const createProjectOverviewFixture = () => {
           owner: "gate:one",
           producer: { kind: "executor-profile", name: "generic-agent" },
           lifecycleSource: "native",
+          registeredAt: { availability: "unavailable" },
           displayLocation: ".scratch/evidence/planning-model",
           contentAvailability: "available",
           adoptedByAuthorityIds: [],

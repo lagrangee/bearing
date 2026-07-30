@@ -1,8 +1,14 @@
 import type { MouseEvent } from "react";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
+import {
+  gateLifecycleEvents,
+  latestPlanningLineageEvent,
+  roadmapLifecycleEvents,
+} from "./planning-lineage-events";
 import type { ProjectInspectorSelection } from "./project-inspector";
 import type { ProjectOverviewModel } from "./project-overview-model";
 import { type Gate, RoadmapHorizon } from "./roadmap-primitives";
+import { SourceEventTimeValue } from "./source-event-time";
 
 type Inspect = (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
 
@@ -66,11 +72,13 @@ export function OverviewRoadmaps({
           label: `G${entry.ordinal}`,
           state: entry.gate.horizonState,
           title: entry.gate.title,
+          event: latestPlanningLineageEvent(gateLifecycleEvents(entry.gate)),
         }));
         const href = planningLineageSubjectHref(entryId, {
           kind: "roadmap",
           id: item.roadmap.id,
         });
+        const roadmapEvent = latestPlanningLineageEvent(roadmapLifecycleEvents(item.roadmap));
         return (
           <article className="roadmap-landscape-item" key={item.roadmap.id}>
             <div className="roadmap-landscape-header">
@@ -83,6 +91,16 @@ export function OverviewRoadmaps({
                   {item.roadmap.title}
                 </a>
               </h3>
+              {roadmapEvent === undefined ? null : (
+                <small className="roadmap-event">
+                  {roadmapEvent.label}{" "}
+                  <SourceEventTimeValue
+                    label={`${item.roadmap.title} ${roadmapEvent.label}`}
+                    mode="compact"
+                    time={roadmapEvent.time}
+                  />
+                </small>
+              )}
               <p>{item.roadmap.intent}</p>
             </div>
             {item.missingGateIds.length === 0 ? null : (

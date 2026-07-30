@@ -1,9 +1,12 @@
 import type { MouseEvent } from "react";
 import { Icons } from "./icons";
+import type { PlanningLineageEvent } from "./planning-lineage-events";
+import { formatSourceEventAbsolute, SourceEventTimeValue } from "./source-event-time";
 
 export function AssetRow({
   citations,
   contentAvailability,
+  event,
   href,
   kind,
   lifecycleSource,
@@ -17,6 +20,7 @@ export function AssetRow({
 }: {
   readonly citations: number;
   readonly contentAvailability?: "available" | "missing" | "unreadable";
+  readonly event?: PlanningLineageEvent | undefined;
   readonly href?: string;
   readonly kind: string;
   readonly lifecycleSource?: "native" | "registry";
@@ -32,11 +36,13 @@ export function AssetRow({
   const lifecycleLabel = lifecycleSource === undefined ? "lifecycle unavailable" : lifecycleSource;
   const availabilityLabel =
     contentAvailability === undefined ? "content availability unavailable" : contentAvailability;
+  const eventLabel =
+    event === undefined ? "" : `, ${event.label} ${formatSourceEventAbsolute(event.time)}`;
   return (
     <div className="asset-row">
       {href === undefined ? (
         <button
-          aria-label={`${title}, ${kind}, ${lifecycleLabel}, ${availabilityLabel}, ${owner ?? "owner unavailable"}, ${citationLabel}, ${location}`}
+          aria-label={`${title}, ${kind}, ${lifecycleLabel}${eventLabel}, ${availabilityLabel}, ${owner ?? "owner unavailable"}, ${citationLabel}, ${location}`}
           className="asset-row-primary"
           data-bearing-focus-key={primaryFocusKey}
           onClick={(event) => onSelect?.(event.currentTarget)}
@@ -46,6 +52,7 @@ export function AssetRow({
             citations={citations}
             {...(contentAvailability === undefined ? {} : { contentAvailability })}
             kind={kind}
+            {...(event === undefined ? {} : { event })}
             {...(lifecycleSource === undefined ? {} : { lifecycleSource })}
             location={location}
             {...(owner === undefined ? {} : { owner })}
@@ -54,7 +61,7 @@ export function AssetRow({
         </button>
       ) : (
         <a
-          aria-label={`${title}, ${kind}, ${lifecycleLabel}, ${availabilityLabel}, ${owner ?? "owner unavailable"}, ${citationLabel}, ${location}`}
+          aria-label={`${title}, ${kind}, ${lifecycleLabel}${eventLabel}, ${availabilityLabel}, ${owner ?? "owner unavailable"}, ${citationLabel}, ${location}`}
           className="asset-row-primary"
           data-bearing-focus-key={primaryFocusKey}
           href={href}
@@ -64,6 +71,7 @@ export function AssetRow({
             citations={citations}
             {...(contentAvailability === undefined ? {} : { contentAvailability })}
             kind={kind}
+            {...(event === undefined ? {} : { event })}
             {...(lifecycleSource === undefined ? {} : { lifecycleSource })}
             location={location}
             {...(owner === undefined ? {} : { owner })}
@@ -89,6 +97,7 @@ export function AssetRow({
 function AssetRowContent({
   citations,
   contentAvailability,
+  event,
   kind,
   lifecycleSource,
   location,
@@ -97,6 +106,7 @@ function AssetRowContent({
 }: {
   readonly citations: number;
   readonly contentAvailability?: "available" | "missing" | "unreadable";
+  readonly event?: PlanningLineageEvent | undefined;
   readonly kind: string;
   readonly lifecycleSource?: "native" | "registry";
   readonly location: string;
@@ -114,6 +124,16 @@ function AssetRowContent({
             {lifecycleSource === undefined ? null : <> · {lifecycleSource}</>}
             {contentAvailability === undefined ? null : <> · {contentAvailability}</>}
           </small>
+          {event === undefined ? null : (
+            <small>
+              {event.label}{" "}
+              <SourceEventTimeValue
+                label={`${title} ${event.label}`}
+                mode="compact"
+                time={event.time}
+              />
+            </small>
+          )}
           <code className="asset-mobile-location">{location}</code>
         </span>
       </span>

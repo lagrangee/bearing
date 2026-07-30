@@ -33,7 +33,9 @@ const envelope = (snapshot: ProjectSnapshot) => ({
 
 const assetsFixture = (): ProjectSnapshot => {
   const snapshot = createProjectOverviewFixture();
-  if (snapshot.assets.validity !== "available") throw new Error("Expected Assets fixture.");
+  if (snapshot.assets.validity !== "available" || snapshot.reviews.validity === "invalid") {
+    throw new Error("Expected Assets and Planning Reviews fixture.");
+  }
   const assetSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
     kind: "asset",
     locator: ".bearing/state/assets.md",
@@ -44,6 +46,14 @@ const assetsFixture = (): ProjectSnapshot => {
     kind: "canonical",
     locator: ".bearing/state/authorities/product-design.md",
     binding: { role: "authority", identity: "authority:product-design" },
+  });
+  const adoptionReviewSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    kind: "canonical",
+    locator: ".bearing/state/planning-reviews/adopt-product-design.md",
+    binding: {
+      role: "planning-review",
+      identity: "planning-review:adopt-product-design",
+    },
   });
   return projectSnapshotSchema.parse(
     withRebuiltPlanningLineage({
@@ -58,6 +68,32 @@ const assetsFixture = (): ProjectSnapshot => {
             citations: [],
             scope: "Accepted product-design direction.",
             baselineAssetIds: ["asset:uncited-context"],
+            adoptions: [
+              {
+                assetId: "asset:uncited-context",
+                decisionReference: "planning-review:adopt-product-design",
+              },
+            ],
+          },
+        ],
+      },
+      reviews: {
+        ...snapshot.reviews,
+        items: [
+          ...snapshot.reviews.items,
+          {
+            id: "planning-review:adopt-product-design",
+            title: "Adopt product design",
+            source: adoptionReviewSource.reference,
+            citations: [],
+            status: "completed",
+            scope: "Adopt the product-design baseline.",
+            resolution: {
+              acceptedDecision: "Adopt the product-design Asset.",
+              acceptedAt: { availability: "unavailable" },
+              rationale: "The Asset governs the accepted product-design direction.",
+              changedReferences: ["authority:product-design"],
+            },
           },
         ],
       },
@@ -74,6 +110,7 @@ const assetsFixture = (): ProjectSnapshot => {
             owner: "effort:portal",
             producer: { kind: "planning-skill", name: "impeccable" },
             lifecycleSource: "registry",
+            registeredAt: { availability: "unavailable" },
             disposition: "available",
             displayLocation: "PRODUCT.md",
             contentAvailability: "available",
@@ -83,7 +120,7 @@ const assetsFixture = (): ProjectSnapshot => {
           },
         ],
       },
-      sources: [...snapshot.sources, assetSource, authoritySource],
+      sources: [...snapshot.sources, assetSource, authoritySource, adoptionReviewSource],
     }),
   );
 };

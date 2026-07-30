@@ -16,6 +16,7 @@ import {
 } from "./planning-lineage-model";
 import { projectCanvasFocusKey } from "./project-canvas-history";
 import type { ProjectInspectorSelection } from "./project-inspector";
+import { SourceEventTimeValue } from "./source-event-time";
 
 type Inspect = (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
 type Navigate = (href: string, focusKey?: string) => void;
@@ -76,6 +77,16 @@ function RelationItem({
           </a>
         )}
         <code>{item.reference}</code>
+        {item.event === undefined ? null : (
+          <small className="lineage-relation-event">
+            {item.event.label}{" "}
+            <SourceEventTimeValue
+              label={`${item.label} ${item.event.label}`}
+              mode="compact"
+              time={item.event.time}
+            />
+          </small>
+        )}
         {item.note === undefined ? null : <small>{item.note}</small>}
       </span>
       {item.href === undefined ? null : (
@@ -425,6 +436,39 @@ export function PlanningLineagePage({
           </div>
         </dl>
       </header>
+      {model.events.length === 0 ? null : (
+        <section
+          className="lineage-event-history"
+          data-semantic-availability={
+            model.semanticAvailability.get(
+              model.subject.kind === "alignment-check" || model.subject.kind === "planning-review"
+                ? `${model.subject.kind}.event-time`
+                : `${model.subject.kind}.event-history`,
+            ) ?? "available"
+          }
+          id={
+            model.subject.kind === "alignment-check" || model.subject.kind === "planning-review"
+              ? `${model.subject.kind}.event-time`
+              : `${model.subject.kind}.event-history`
+          }
+        >
+          <p className="eyebrow">Source-owned chronology</p>
+          <h2>Event History</h2>
+          <dl>
+            {model.events.map((event, index) => (
+              <div key={`${event.role}:${event.decisionReference ?? index}`}>
+                <dt>{event.label}</dt>
+                <dd>
+                  <SourceEventTimeValue label={event.label} mode="detail" time={event.time} />
+                  {event.decisionReference === undefined ? null : (
+                    <code>{event.decisionReference}</code>
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
       <div className="lineage-sections">
         {model.sections.map((section) => (
           <section

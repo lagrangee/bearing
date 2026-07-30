@@ -111,7 +111,7 @@ const secondGuidanceRecord = guidanceItemRecord("alternative-2");
 const issue = { code: "relation-mismatch", target: "snapshot", message: "Relation mismatch." };
 const emptyItems = { validity: "available", items: [] } as const;
 const emptySnapshot = {
-  schemaVersion: 6,
+  schemaVersion: 7,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -310,6 +310,7 @@ const activeRoadmap = {
   citations: [],
   intent: "Continue the active horizon.",
   lifecycle: "active" as const,
+  startedAt: { availability: "unavailable" as const },
   focusedGateId: null,
   gateOrder: [],
   horizon: "unknown" as const,
@@ -321,6 +322,7 @@ const completedRoadmap = {
   title: "Completed Roadmap",
   source: completedRoadmapRecord.reference,
   lifecycle: "completed" as const,
+  completedAt: { availability: "unavailable" as const },
   horizon: "exhausted" as const,
 };
 const supersededRoadmap = {
@@ -329,6 +331,7 @@ const supersededRoadmap = {
   title: "Superseded Roadmap",
   source: supersededRoadmapRecord.reference,
   lifecycle: "superseded" as const,
+  supersededAt: { availability: "unavailable" as const },
   horizon: "exhausted" as const,
 };
 const roadmapSnapshotCandidate = {

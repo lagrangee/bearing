@@ -8,7 +8,13 @@ import {
   buildPlanningLineageProjection,
   findPlanningLineageSubjectProjection,
 } from "../src/project-snapshot/planning-lineage";
-import { effortSchema, projectSnapshotSchema } from "../src/project-snapshot/schema";
+import {
+  authoritySchema,
+  effortSchema,
+  planningReviewSchema,
+  projectSnapshotSchema,
+} from "../src/project-snapshot/schema";
+import { assetProjectionSchema } from "../src/project-snapshot/schema-asset";
 import { createSourceRecord } from "../src/project-snapshot/source-records";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import { parseRebuiltPlanningLineageFixture } from "./planning-lineage-fixture";
@@ -96,7 +102,6 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
         "alignment-check.lifecycle",
         "alignment-check.resolution",
         "alignment-check.rationale",
-        "alignment-check.event-time",
         "alignment-check.changed-references",
         "alignment-check.evidence",
       ],
@@ -109,7 +114,6 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
         "planning-review.lifecycle",
         "planning-review.resolution",
         "planning-review.rationale",
-        "planning-review.event-time",
         "planning-review.changed-references",
         "planning-review.evidence",
       ],
@@ -137,6 +141,11 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
   );
   const lifecycle = effort.sections.find((section) => section.anchor === "effort.lifecycle");
   expect(JSON.stringify(lifecycle)).not.toMatch(/planned at|activated at|concluded at|T\d\d:/iu);
+  expect(effort.events.map((event) => event.role)).toEqual([
+    "effort.planned",
+    "effort.activated",
+    "effort.concluded",
+  ]);
   const asset = readable(
     buildPlanningLineageSubjectModel(
       snapshot,
@@ -161,9 +170,148 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
       "bearing",
     ),
   );
+  expect(check.events).toEqual([]);
+});
+
+test("binds Adoption relation time to the exact Asset decision instead of Authority recency", () => {
+  const snapshot = fixture();
+  if (snapshot.assets.validity === "invalid" || snapshot.reviews.validity === "invalid") {
+    throw new Error("Expected Assets and Planning Reviews.");
+  }
+  const firstAsset = snapshot.assets.items.find(
+    (asset) => asset.id === "asset:planning-model-evidence",
+  );
+  if (firstAsset === undefined) throw new Error("Expected first Asset.");
+  const secondAssetSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    kind: "asset",
+    locator: ".bearing/state/assets.md",
+    binding: { role: "asset", identity: "asset:second-evidence" },
+    fragment: "asset:second-evidence",
+  });
+  const authoritySource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    kind: "canonical",
+    locator: ".bearing/state/authorities/design.md",
+    binding: { role: "authority", identity: "authority:design" },
+  });
+  const firstReviewSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    kind: "canonical",
+    locator: ".bearing/state/planning-reviews/adopt-first.md",
+    binding: { role: "planning-review", identity: "planning-review:adopt-first" },
+  });
+  const secondReviewSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    kind: "canonical",
+    locator: ".bearing/state/planning-reviews/adopt-second.md",
+    binding: { role: "planning-review", identity: "planning-review:adopt-second" },
+  });
+  const accepted = (value: string) =>
+    ({ availability: "available", value, precision: "second" }) as const;
+  const firstReview = planningReviewSchema.parse({
+    id: "planning-review:adopt-first",
+    title: "Adopt first",
+    source: firstReviewSource.reference,
+    citations: [],
+    status: "completed",
+    scope: "Adopt first evidence.",
+    resolution: {
+      acceptedDecision: "Adopt first evidence.",
+      acceptedAt: accepted("2026-07-31T09:00:00Z"),
+      rationale: "First evidence governs its use.",
+      changedReferences: ["authority:design"],
+    },
+  });
+  const secondReview = planningReviewSchema.parse({
+    id: "planning-review:adopt-second",
+    title: "Adopt second",
+    source: secondReviewSource.reference,
+    citations: [],
+    status: "completed",
+    scope: "Adopt second evidence.",
+    resolution: {
+      acceptedDecision: "Adopt second evidence.",
+      acceptedAt: accepted("2026-07-31T10:00:00Z"),
+      rationale: "Second evidence governs its use.",
+      changedReferences: ["authority:design"],
+    },
+  });
+  const secondAsset = assetProjectionSchema.parse({
+    ...firstAsset,
+    id: "asset:second-evidence",
+    title: "Second Evidence",
+    source: secondAssetSource.reference,
+    citations: [],
+    registeredAt: accepted("2026-07-31T11:00:00Z"),
+    displayLocation: "docs/second-evidence.md",
+    adoptedByAuthorityIds: [],
+    gatePassageEvidenceFor: [],
+    citationCount: 0,
+  });
+  const authority = authoritySchema.parse({
+    id: "authority:design",
+    title: "Design",
+    source: authoritySource.reference,
+    citations: [],
+    scope: "Govern the evidence baseline.",
+    baselineAssetIds: [firstAsset.id, secondAsset.id],
+    adoptions: [
+      { assetId: firstAsset.id, decisionReference: firstReview.id },
+      { assetId: secondAsset.id, decisionReference: secondReview.id },
+    ],
+  });
+  const withAdoptions = withLineage({
+    ...snapshot,
+    assets: { validity: "available", items: [...snapshot.assets.items, secondAsset] },
+    authorities: { validity: "available", items: [authority] },
+    reviews: {
+      ...snapshot.reviews,
+      items: [...snapshot.reviews.items, firstReview, secondReview],
+    },
+    sources: [
+      ...snapshot.sources,
+      secondAssetSource,
+      authoritySource,
+      firstReviewSource,
+      secondReviewSource,
+    ],
+  });
+
+  const authorityModel = readable(
+    buildPlanningLineageSubjectModel(
+      withAdoptions,
+      { kind: "authority", id: authority.id },
+      "bearing",
+    ),
+  );
+  const forward = authorityModel.relations.find((relation) => relation.key === "adoption.used-by");
+  expect(forward?.state).toBe("present");
+  if (forward?.state !== "present") throw new Error("Expected forward Adoption relation.");
   expect(
-    check.sections.find((section) => section.anchor === "alignment-check.event-time")?.body,
-  ).toBe("Time unavailable in the current typed decision contract.");
+    forward.items.map((item) => [
+      item.reference,
+      item.event?.role,
+      item.event?.time,
+      item.event?.decisionReference,
+    ]),
+  ).toEqual([
+    [firstAsset.id, "authority.adoption", accepted("2026-07-31T09:00:00Z"), firstReview.id],
+    [secondAsset.id, "authority.adoption", accepted("2026-07-31T10:00:00Z"), secondReview.id],
+  ]);
+
+  const assetModel = readable(
+    buildPlanningLineageSubjectModel(
+      withAdoptions,
+      { kind: "asset", id: firstAsset.id },
+      "bearing",
+    ),
+  );
+  const reverse = assetModel.relations.find((relation) => relation.key === "adoption.used-by");
+  expect(reverse?.state).toBe("present");
+  if (reverse?.state !== "present") throw new Error("Expected reverse Adoption relation.");
+  expect(reverse.items[0]?.event).toEqual({
+    role: "authority.adoption",
+    label: "Adopted",
+    time: accepted("2026-07-31T09:00:00Z"),
+    decisionReference: firstReview.id,
+  });
 });
 
 test("retains the requested identity for missing and invalid subject projections", () => {

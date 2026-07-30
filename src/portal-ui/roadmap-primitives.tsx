@@ -1,6 +1,8 @@
 import type { MouseEvent } from "react";
 import { assertNever } from "./assert-never";
 import { Icons } from "./icons";
+import type { PlanningLineageEvent } from "./planning-lineage-events";
+import { formatSourceEventAbsolute, SourceEventTimeValue } from "./source-event-time";
 
 export type GateState = "passed" | "focused" | "planned" | "superseded" | "unknown";
 
@@ -10,6 +12,7 @@ export type Gate = {
   readonly label: string;
   readonly state: GateState;
   readonly title: string;
+  readonly event?: PlanningLineageEvent | undefined;
 };
 
 function gateNote(state: GateState): string {
@@ -28,6 +31,9 @@ function gateNote(state: GateState): string {
       return assertNever(state);
   }
 }
+
+const eventNote = (event: PlanningLineageEvent | undefined): string =>
+  event === undefined ? "" : `, ${event.label} ${formatSourceEventAbsolute(event.time)}`;
 
 function GateMarker({ state }: { readonly state: GateState }) {
   switch (state) {
@@ -67,7 +73,7 @@ export function RoadmapHorizon({
             <button
               className={`gate-node gate-${gate.state}`}
               type="button"
-              aria-label={`${gate.label}, ${gate.title}, ${gateNote(gate.state)}`}
+              aria-label={`${gate.label}, ${gate.title}, ${gateNote(gate.state)}${eventNote(gate.event)}`}
               onClick={(event) => onSelect?.(gate, event.currentTarget)}
             >
               <GateMarker state={gate.state} />
@@ -76,6 +82,16 @@ export function RoadmapHorizon({
                   {gate.label} · {gate.title}
                 </strong>
                 <small>{gateNote(gate.state)}</small>
+                {gate.event === undefined ? null : (
+                  <small>
+                    {gate.event.label}{" "}
+                    <SourceEventTimeValue
+                      label={`${gate.title} ${gate.event.label}`}
+                      mode="compact"
+                      time={gate.event.time}
+                    />
+                  </small>
+                )}
               </span>
             </button>
           ) : (
@@ -83,7 +99,7 @@ export function RoadmapHorizon({
               <a
                 className={`gate-node gate-${gate.state}`}
                 href={gate.href}
-                aria-label={`${gate.label}, ${gate.title}, ${gateNote(gate.state)}`}
+                aria-label={`${gate.label}, ${gate.title}, ${gateNote(gate.state)}${eventNote(gate.event)}`}
                 onClick={(event) => onOpen?.(gate, event)}
               >
                 <GateMarker state={gate.state} />
@@ -92,6 +108,16 @@ export function RoadmapHorizon({
                     {gate.label} · {gate.title}
                   </strong>
                   <small>{gateNote(gate.state)}</small>
+                  {gate.event === undefined ? null : (
+                    <small>
+                      {gate.event.label}{" "}
+                      <SourceEventTimeValue
+                        label={`${gate.title} ${gate.event.label}`}
+                        mode="compact"
+                        time={gate.event.time}
+                      />
+                    </small>
+                  )}
                 </span>
               </a>
               {onSelect === undefined ? null : (
@@ -119,6 +145,7 @@ export function RoadmapIndexRow({
   intent,
   horizon,
   lifecycle,
+  event,
   onOpen,
   onOpenGate,
   onSelectGate,
@@ -129,6 +156,7 @@ export function RoadmapIndexRow({
   readonly horizon: "active-horizon" | "exhausted" | "unknown";
   readonly intent: string;
   readonly lifecycle?: string;
+  readonly event?: PlanningLineageEvent | undefined;
   readonly onOpen?: ((event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
   readonly onOpenGate?: ((gate: Gate, event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
   readonly onSelectGate?: ((gate: Gate, trigger: HTMLButtonElement) => void) | undefined;
@@ -140,6 +168,16 @@ export function RoadmapIndexRow({
       <a href={href} onClick={onOpen}>
         {title}
       </a>
+      {event === undefined ? null : (
+        <small className="roadmap-event">
+          {event.label}{" "}
+          <SourceEventTimeValue
+            label={`${title} ${event.label}`}
+            mode="compact"
+            time={event.time}
+          />
+        </small>
+      )}
       <p>{intent}</p>
       {gates.length === 0 ? (
         <p className="horizon-empty" role="status">

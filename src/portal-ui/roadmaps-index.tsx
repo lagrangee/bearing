@@ -1,6 +1,11 @@
 import type { MouseEvent } from "react";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
+import {
+  gateLifecycleEvents,
+  latestPlanningLineageEvent,
+  roadmapLifecycleEvents,
+} from "./planning-lineage-events";
 import type { ProjectInspectorSelection } from "./project-inspector";
 import { gateInspection } from "./project-roadmap-inspection";
 import { buildRoadmapIndexModel } from "./project-roadmap-model";
@@ -105,6 +110,7 @@ export function RoadmapsIndex({
               label: `G${entry.ordinal}`,
               state: entry.gate.horizonState,
               title: entry.gate.title,
+              event: latestPlanningLineageEvent(gateLifecycleEvents(entry.gate)),
             }));
             return (
               <div key={item.roadmap.id}>
@@ -113,6 +119,7 @@ export function RoadmapsIndex({
                   href={href}
                   horizon={item.roadmap.horizon}
                   intent={item.roadmap.intent}
+                  event={latestPlanningLineageEvent(roadmapLifecycleEvents(item.roadmap))}
                   onOpen={(event) => openLink(href, event, onNavigate)}
                   onOpenGate={(gate, event) => openLink(gate.href ?? "", event, onNavigate)}
                   onSelectGate={(gate, trigger) => {

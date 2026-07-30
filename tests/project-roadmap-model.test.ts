@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { createProviderScopeObservation } from "../src/native-work-provider";
-import { effortInspection, frontierSummary } from "../src/portal-ui/project-roadmap-inspection";
+import {
+  effortInspection,
+  frontierSummary,
+  gateInspection,
+  roadmapInspection,
+} from "../src/portal-ui/project-roadmap-inspection";
 import {
   buildRoadmapDetailModel,
   buildRoadmapIndexModel,
@@ -83,6 +88,24 @@ test("presents explicit Effort lifecycle and conclusion independently from provi
   );
   expect(effortInspection(active).facts).not.toEqual(
     expect.arrayContaining([{ label: "Conclusion", value: expect.any(String) }]),
+  );
+});
+
+test("Portal inspectors expose the same applicable event roles without raw source seconds", () => {
+  const model = buildRoadmapDetailModel(fixture(), "roadmap:portal");
+  if (model.state !== "available") throw new Error("Expected available Roadmap Detail.");
+  const gate = model.gates[0];
+  if (gate === undefined) throw new Error("Expected a Gate.");
+
+  expect(roadmapInspection(model).facts).toEqual(
+    expect.arrayContaining([{ label: "Started at", value: "Time unavailable" }]),
+  );
+  expect(gateInspection(gate, model.roadmap.title, model.gates.length).facts).toEqual(
+    expect.arrayContaining([
+      { label: "Planned at", value: "Time unavailable" },
+      { label: "Activated at", value: "Time unavailable" },
+      { label: "Passage accepted at", value: "Time unavailable" },
+    ]),
   );
 });
 

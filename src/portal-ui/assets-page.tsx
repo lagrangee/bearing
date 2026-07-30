@@ -2,6 +2,7 @@ import { useState } from "react";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import { AssetRow } from "./asset-row";
+import { assetLifecycleEvents, latestPlanningLineageEvent } from "./planning-lineage-events";
 import { Action } from "./primitives";
 import {
   type AssetCitationFilter,
@@ -139,6 +140,7 @@ export function AssetsPage({
               <AssetRow
                 citations={row.asset.citationCount}
                 contentAvailability={row.asset.contentAvailability}
+                event={latestPlanningLineageEvent(assetLifecycleEvents(row.asset))}
                 href={href}
                 key={row.asset.id}
                 kind={row.asset.kind}

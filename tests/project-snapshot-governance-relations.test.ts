@@ -17,6 +17,7 @@ const gateSource = createSourceReference({
 });
 const validPassage = {
   acceptedDecision: "Pass the Gate.",
+  acceptedAt: { availability: "unavailable" as const },
   rationale: "The accepted outcome is complete.",
   evidenceAssetIds: [],
   exceptions: [],
@@ -30,6 +31,8 @@ const gate = {
   exitCriteria: ["Complete the fixture."],
   roadmapId: "roadmap:test",
   lifecycle: "passed",
+  plannedAt: { availability: "unavailable" as const },
+  activatedAt: { availability: "unavailable" as const },
   readiness: "unknown",
   horizonState: "passed",
   effortIds: [],
@@ -84,7 +87,12 @@ test("rejects cached Gate lifecycle and Passage combinations that cannot be trus
   // Given: the accepted Passage record and one otherwise valid normalized Gate.
   const passedWithoutPassage = gate;
   const activeWithPassage = { ...gate, lifecycle: "active", passage: validPassage };
-  const supersededWithHistory = { ...gate, lifecycle: "superseded", passage: validPassage };
+  const supersededWithHistory = {
+    ...gate,
+    lifecycle: "superseded",
+    supersededAt: { availability: "unavailable" },
+    passage: validPassage,
+  };
 
   // When: each combination crosses the Project Snapshot cache schema.
   const missing = gateSchema.safeParse(passedWithoutPassage);

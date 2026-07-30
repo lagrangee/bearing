@@ -15,7 +15,12 @@ type Gate = CitedNode &
     id: string;
     passage?: Readonly<{ evidenceAssetIds: readonly string[] }> | undefined;
   }>;
-type Authority = CitedNode & Readonly<{ id: string; baselineAssetIds: readonly string[] }>;
+type Authority = CitedNode &
+  Readonly<{
+    id: string;
+    baselineAssetIds: readonly string[];
+    adoptions: readonly Readonly<{ assetId: string }>[];
+  }>;
 type Asset = Readonly<{
   id: string;
   citations: readonly ReverseCitation[];
@@ -214,7 +219,7 @@ const validateReverseRelations = (
   for (const [position, asset] of trusted(snapshot.assets).entries()) {
     validateAssetCitations(snapshot, asset, position, context);
     const adoptedBy = authorities
-      .filter((authority) => authority.baselineAssetIds.includes(asset.id))
+      .filter((authority) => authority.adoptions.some((adoption) => adoption.assetId === asset.id))
       .map((authority) => authority.id);
     const passageFor = gates
       .filter((gate) => gate.passage?.evidenceAssetIds.includes(asset.id) === true)

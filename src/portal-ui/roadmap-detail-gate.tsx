@@ -1,4 +1,5 @@
 import { Icons } from "./icons";
+import { gateLifecycleEvents, latestPlanningLineageEvent } from "./planning-lineage-events";
 import type { ProjectInspectorSelection } from "./project-inspector";
 import { gateInspection, readinessLabel, sourceInspection } from "./project-roadmap-inspection";
 import type { RoadmapDetailModel } from "./project-roadmap-model";
@@ -24,6 +25,7 @@ export function RoadmapDetailGate({
     label: `G${entry.ordinal}`,
     state: entry.gate.horizonState,
     title: entry.gate.title,
+    event: latestPlanningLineageEvent(gateLifecycleEvents(entry.gate)),
   }));
   const inspectGate = (gateId: string, trigger: HTMLButtonElement) => {
     const selected = gateIndex.get(gateId);

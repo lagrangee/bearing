@@ -197,6 +197,7 @@ test("keeps provider-native Produced For opaque and Authority adoption provenanc
           citations: [],
           scope: "Accepted architecture direction.",
           baselineAssetIds: ["asset:planning-model-evidence"],
+          adoptions: [],
         },
       ],
     },
@@ -204,7 +205,7 @@ test("keeps provider-native Produced For opaque and Authority adoption provenanc
       ...snapshot.assets,
       items: snapshot.assets.items.map((asset) => ({
         ...asset,
-        adoptedByAuthorityIds: ["authority:architecture"],
+        adoptedByAuthorityIds: [],
       })),
     },
     sources: [...snapshot.sources, authoritySource],
@@ -216,11 +217,14 @@ test("keeps provider-native Produced For opaque and Authority adoption provenanc
   });
   expect(authority?.semanticSections).toContainEqual({
     role: "authority.adoption-decisions",
-    availability: "unavailable",
+    availability: "confirmed-empty",
   });
   expect(
     relationFor(withAuthority, "authority", "authority:architecture", "adoption.current-baseline"),
   ).toMatchObject({ state: "present" });
+  expect(
+    relationFor(withAuthority, "authority", "authority:architecture", "adoption.used-by"),
+  ).toMatchObject({ state: "confirmed-none" });
 });
 
 test("keeps unresolved planning references scoped unavailable", () => {
@@ -349,6 +353,7 @@ test("keeps Asset reverse-relation coverage partial until every source is comple
           citations: [],
           scope: "One trustworthy Authority remains readable.",
           baselineAssetIds: [],
+          adoptions: [],
         },
       ],
       issues: [

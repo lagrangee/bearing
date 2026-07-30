@@ -47,6 +47,9 @@ test("renders one route-owned Gate dossier and non-duplicated Lineage Context", 
   expect(html).toContain('id="gate.exit-criteria"');
   expect(html).toContain("The planning model is accepted.");
   expect(html).toContain("Accept the planning model as ready.");
+  expect(html).toContain('id="gate.event-history"');
+  expect(html).toContain("Event History");
+  expect(html).toContain("Time unavailable");
   expect(html).toContain("receives contribution from");
   expect(html).toContain("accepted with evidence");
   expect(html).toContain("Confirmed none");

@@ -11,6 +11,7 @@ const branchEntries = [
   "roadmap",
   "milestone-gate",
   "effort-lifecycle",
+  "asset-lifecycle",
   "alignment-check",
   "planning-audit",
   "planning-review",
@@ -176,6 +177,37 @@ describe("package-owned planning skills", () => {
       /Provider Completion[\s\S]*Map lifecycle[\s\S]*Gate Readiness[\s\S]*Gate Passage[\s\S]*never transition/iu,
     );
     expect(branch).toMatch(/explicit user acceptance/iu);
+  });
+
+  test("keeps every Bearing-owned Source Event Time with its mutation owner", async () => {
+    const transaction = await readSharedContract("planning-transaction");
+    const roadmap = await readBranch("roadmap");
+    const gate = await readBranch("milestone-gate");
+    const assetLifecycle = await readBranch("asset-lifecycle");
+    const check = await readBranch("alignment-check");
+    const review = await readBranch("planning-review");
+    const registration = await readSharedContract("artifact-registration");
+
+    expect(transaction).toMatch(
+      /current UTC Source Event Time[\s\S]*same successful canonical mutation/iu,
+    );
+    expect(transaction).toMatch(
+      /file metadata[\s\S]*Provider Observation Time[\s\S]*Sync completion[\s\S]*no event time/iu,
+    );
+    expect(roadmap).toMatch(/Started at[\s\S]*Completed at[\s\S]*Superseded at/iu);
+    expect(gate).toMatch(/Planned at[\s\S]*Activated at[\s\S]*Accepted at[\s\S]*Superseded at/iu);
+    expect(check).toMatch(/Accepted at[\s\S]*Authority Adoption[\s\S]*never copies or invents/iu);
+    expect(review).toMatch(/Accepted at[\s\S]*Authority Adoption[\s\S]*never copies or invents/iu);
+    expect(registration).toMatch(/Produced At[\s\S]*Date-only[\s\S]*Registered at/iu);
+    expect(registration).toMatch(/asset-lifecycle[\s\S]*Superseded at[\s\S]*Archived at/iu);
+    expect(assetLifecycle).toMatch(/available[\s\S]*superseded[\s\S]*replacement[\s\S]*archived/iu);
+    expect(assetLifecycle).toMatch(
+      /explicit user acceptance[\s\S]*current UTC Source Event Time[\s\S]*same atomic canonical mutation/iu,
+    );
+    expect(assetLifecycle).toMatch(/\.bearing\/state\/assets\.md/iu);
+    expect(assetLifecycle).toMatch(/Filesystem absence[\s\S]*never authorizes/iu);
+    expect(assetLifecycle).toMatch(/provider state never authorizes/iu);
+    expect(assetLifecycle).toMatch(/Sync completion[\s\S]*never backfills/iu);
   });
 
   test("direct executor continuation preserves owner and terminal truth", async () => {

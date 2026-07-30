@@ -13,6 +13,10 @@ import {
   validateAuditConsistency,
 } from "./schema-audit-consistency";
 import {
+  type EventTimeConsistencySnapshot,
+  validateEventTimeConsistency,
+} from "./schema-event-time-consistency";
+import {
   type PlanningDerivationConsistencySnapshot,
   validatePlanningDerivationConsistency,
 } from "./schema-planning-derivation-consistency";
@@ -85,7 +89,8 @@ type GuidanceBasis = Readonly<{
 
 type PrimarySource = Readonly<{ id: string; source: string }>;
 
-type GovernanceSnapshot = PlanningLineageConsistencySnapshot &
+type GovernanceSnapshot = EventTimeConsistencySnapshot &
+  PlanningLineageConsistencySnapshot &
   Readonly<{
     basis: AuditConsistencySnapshot["basis"];
     summary: Singleton<PrimarySource>;
@@ -192,6 +197,7 @@ export const validateProjectSnapshotConsistency = (
   validateAttentionConsistency(snapshot, context);
   validateRoadmapIndex(snapshot, context);
   validateRoadmapConsistency(snapshot, context);
+  validateEventTimeConsistency(snapshot, context);
   validatePlanningDerivationConsistency(snapshot, context);
   validatePlanningLineageConsistency(snapshot, context);
   validateAssetConsistency(snapshot, context);

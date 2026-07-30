@@ -2,6 +2,7 @@ import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot, SourceRecord } from "../project-snapshot/contract";
 import { EffortRow } from "./effort-row";
 import { Icons } from "./icons";
+import { effortLifecycleEvents, latestPlanningLineageEvent } from "./planning-lineage-events";
 import type { ProjectInspectorSelection } from "./project-inspector";
 import {
   effortInspection,
@@ -76,6 +77,7 @@ export function RoadmapDetailWork({
               return (
                 <EffortRow
                   key={effort.effort.id}
+                  event={latestPlanningLineageEvent(effortLifecycleEvents(effort.effort))}
                   fog={effort.fogCount}
                   frontier={frontierSummary(effort)}
                   gate={gateLabels.get(effort.effort.targetGateId) ?? "Unavailable"}

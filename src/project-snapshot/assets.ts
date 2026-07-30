@@ -1,4 +1,8 @@
 import type { AssetContentObservation } from "../asset-inputs";
+import {
+  projectExpectedSourceEventTime,
+  projectOptionalSourceEventTime,
+} from "../source-event-time";
 import type {
   AssetProjection,
   CollectionProjection,
@@ -81,8 +85,19 @@ export const buildAssetProjection = async (
         ...(asset.Producer.Reference === undefined ? {} : { reference: asset.Producer.Reference }),
       },
       lifecycleSource: asset["Lifecycle source"],
+      registeredAt: projectExpectedSourceEventTime(asset["Registered at"]),
+      ...(() => {
+        const producedAt = projectOptionalSourceEventTime(asset["Produced at"]);
+        return producedAt === undefined ? {} : { producedAt };
+      })(),
       ...(asset.Disposition === undefined ? {} : { disposition: asset.Disposition }),
       ...(asset["Superseded by"] === undefined ? {} : { supersededBy: asset["Superseded by"] }),
+      ...(asset["Lifecycle source"] === "registry" && asset.Disposition === "superseded"
+        ? { supersededAt: projectExpectedSourceEventTime(asset["Superseded at"]) }
+        : {}),
+      ...(asset["Lifecycle source"] === "registry" && asset.Disposition === "archived"
+        ? { archivedAt: projectExpectedSourceEventTime(asset["Archived at"]) }
+        : {}),
       ...(asset["Produced for"] === undefined ? {} : { producedFor: asset["Produced for"] }),
       displayLocation: asset.Location,
       contentAvailability: contentAvailability(input.contentObservations, asset.ID, asset.Location),

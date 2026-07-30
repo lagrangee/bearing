@@ -1,8 +1,11 @@
 import type { MouseEvent } from "react";
 import { Icons } from "./icons";
+import type { PlanningLineageEvent } from "./planning-lineage-events";
+import { formatSourceEventAbsolute, SourceEventTimeValue } from "./source-event-time";
 
 export function EffortRow({
   fog,
+  event,
   frontier,
   gate,
   href,
@@ -12,6 +15,7 @@ export function EffortRow({
   title,
 }: {
   readonly fog?: number;
+  readonly event?: PlanningLineageEvent | undefined;
   readonly frontier: string;
   readonly gate: string;
   readonly href?: string;
@@ -20,16 +24,19 @@ export function EffortRow({
   readonly onSelect?: ((trigger: HTMLButtonElement) => void) | undefined;
   readonly title: string;
 }) {
+  const eventLabel =
+    event === undefined ? "" : `, ${event.label} ${formatSourceEventAbsolute(event.time)}`;
   return (
     <div className={`effort-row effort-${lifecycle}`}>
       {href === undefined ? (
         <button
           className="effort-row-primary"
           type="button"
-          aria-label={`${title}, ${lifecycle}, Target Gate ${gate}, ${frontier}${fog === undefined ? "" : `, Fog ${fog}`}`}
+          aria-label={`${title}, ${lifecycle}${eventLabel}, Target Gate ${gate}, ${frontier}${fog === undefined ? "" : `, Fog ${fog}`}`}
           onClick={(event) => onSelect?.(event.currentTarget)}
         >
           <EffortRowContent
+            {...(event === undefined ? {} : { event })}
             {...(fog === undefined ? {} : { fog })}
             frontier={frontier}
             gate={gate}
@@ -41,10 +48,11 @@ export function EffortRow({
         <a
           className="effort-row-primary"
           href={href}
-          aria-label={`${title}, ${lifecycle}, Target Gate ${gate}, ${frontier}${fog === undefined ? "" : `, Fog ${fog}`}`}
+          aria-label={`${title}, ${lifecycle}${eventLabel}, Target Gate ${gate}, ${frontier}${fog === undefined ? "" : `, Fog ${fog}`}`}
           onClick={onOpen}
         >
           <EffortRowContent
+            {...(event === undefined ? {} : { event })}
             {...(fog === undefined ? {} : { fog })}
             frontier={frontier}
             gate={gate}
@@ -68,6 +76,7 @@ export function EffortRow({
 }
 
 function EffortRowContent({
+  event,
   fog,
   frontier,
   gate,
@@ -75,6 +84,7 @@ function EffortRowContent({
   title,
 }: {
   readonly fog?: number;
+  readonly event?: PlanningLineageEvent | undefined;
   readonly frontier: string;
   readonly gate: string;
   readonly lifecycle: string;
@@ -87,6 +97,16 @@ function EffortRowContent({
         <span>
           <strong>{title}</strong>
           <small>{lifecycle}</small>
+          {event === undefined ? null : (
+            <small>
+              {event.label}{" "}
+              <SourceEventTimeValue
+                label={`${title} ${event.label}`}
+                mode="compact"
+                time={event.time}
+              />
+            </small>
+          )}
         </span>
       </span>
       <span>

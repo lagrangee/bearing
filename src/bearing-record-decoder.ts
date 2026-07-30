@@ -105,6 +105,7 @@ const normalizeResolution = (
   resolution:
     | Readonly<{
         "Accepted decision": string;
+        "Accepted at"?: string | null | undefined;
         Rationale: string;
         "Changed references": readonly string[];
       }>
@@ -114,6 +115,9 @@ const normalizeResolution = (
     ? undefined
     : {
         "Accepted decision": resolution["Accepted decision"],
+        ...(resolution["Accepted at"] === undefined
+          ? {}
+          : { "Accepted at": resolution["Accepted at"] }),
         Rationale: resolution.Rationale,
         "Changed references": [...resolution["Changed references"]],
       };
@@ -133,6 +137,10 @@ const normalizeAsset = (asset: ParsedAsset): ParsedAsset => ({
   ...(asset.Disposition === undefined ? {} : { Disposition: asset.Disposition }),
   ...(asset["Superseded by"] === undefined ? {} : { "Superseded by": asset["Superseded by"] }),
   ...(asset["Produced for"] === undefined ? {} : { "Produced for": asset["Produced for"] }),
+  ...(asset["Registered at"] === undefined ? {} : { "Registered at": asset["Registered at"] }),
+  ...(asset["Produced at"] === undefined ? {} : { "Produced at": asset["Produced at"] }),
+  ...(asset["Superseded at"] === undefined ? {} : { "Superseded at": asset["Superseded at"] }),
+  ...(asset["Archived at"] === undefined ? {} : { "Archived at": asset["Archived at"] }),
 });
 
 const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
@@ -165,6 +173,9 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         Status: data.Status,
         "Focused gate": data["Focused gate"],
         "Gate order": [...data["Gate order"]],
+        ...(data["Started at"] === undefined ? {} : { "Started at": data["Started at"] }),
+        ...(data["Completed at"] === undefined ? {} : { "Completed at": data["Completed at"] }),
+        ...(data["Superseded at"] === undefined ? {} : { "Superseded at": data["Superseded at"] }),
         ...(data.Citations === undefined ? {} : { Citations: normalizeCitations(data.Citations) }),
       };
     case "milestone-gate":
@@ -174,11 +185,17 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         Title: data.Title,
         Roadmap: data.Roadmap,
         Status: data.Status,
+        ...(data["Planned at"] === undefined ? {} : { "Planned at": data["Planned at"] }),
+        ...(data["Activated at"] === undefined ? {} : { "Activated at": data["Activated at"] }),
+        ...(data["Superseded at"] === undefined ? {} : { "Superseded at": data["Superseded at"] }),
         ...(data.Passage === undefined
           ? {}
           : {
               Passage: {
                 "Accepted decision": data.Passage["Accepted decision"],
+                ...(data.Passage["Accepted at"] === undefined
+                  ? {}
+                  : { "Accepted at": data.Passage["Accepted at"] }),
                 Rationale: data.Passage.Rationale,
                 Evidence: [...data.Passage.Evidence],
                 Exceptions: [...data.Passage.Exceptions],
@@ -225,6 +242,14 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         ID: data.ID,
         Title: data.Title,
         Baseline: [...data.Baseline],
+        ...(data.Adoptions === undefined
+          ? {}
+          : {
+              Adoptions: data.Adoptions.map((adoption) => ({
+                Asset: adoption.Asset,
+                Decision: adoption.Decision,
+              })),
+            }),
         ...(data.Citations === undefined ? {} : { Citations: normalizeCitations(data.Citations) }),
       };
     case "asset-registry":

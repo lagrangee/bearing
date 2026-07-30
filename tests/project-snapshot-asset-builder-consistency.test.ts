@@ -31,7 +31,7 @@ Citations:
 ${body}
 `;
 
-test("builds Asset reverse relations from only trustworthy projected members", async () => {
+test("builds Asset reverse relations without substituting baseline membership for Adoption", async () => {
   const root = await createValidBearingRepo();
   await writeFixture(root, "evidence/design.md", "accepted design\n");
   await writeFixture(
@@ -107,7 +107,7 @@ This body omits the required Scope section.`,
           },
         ],
         citationCount: 1,
-        adoptedByAuthorityIds: ["authority:trusted"],
+        adoptedByAuthorityIds: [],
         gatePassageEvidenceFor: [],
       },
     ],

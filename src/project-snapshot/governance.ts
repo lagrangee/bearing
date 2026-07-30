@@ -1,3 +1,7 @@
+import {
+  projectExpectedSourceEventTime,
+  projectOptionalSourceEventTime,
+} from "../source-event-time";
 import type {
   Authority,
   CollectionProjection,
@@ -37,10 +41,6 @@ type Governance = Pick<ProjectSnapshotInput, "summary" | "roadmapIndex"> &
     authorities: CollectionProjection<Authority>;
     sources: readonly SourceRecord[];
   }>;
-const sourceEventTime = (value: string | null) =>
-  value === null
-    ? ({ availability: "unavailable" } as const)
-    : ({ availability: "available", value } as const);
 const roadmapProjection = (input: Input): BuildResult<Roadmap>[] =>
   parsedFor(input, "roadmap").map((result): BuildResult<Roadmap> => {
     const record = result.item;
@@ -58,6 +58,13 @@ const roadmapProjection = (input: Input): BuildResult<Roadmap>[] =>
         citations: citations(data),
         intent,
         lifecycle: data.Status,
+        startedAt: projectExpectedSourceEventTime(data["Started at"]),
+        ...(data.Status === "completed"
+          ? { completedAt: projectExpectedSourceEventTime(data["Completed at"]) }
+          : {}),
+        ...(data.Status === "superseded"
+          ? { supersededAt: projectExpectedSourceEventTime(data["Superseded at"]) }
+          : {}),
         focusedGateId: data["Focused gate"],
         gateOrder: data["Gate order"],
         horizon: "unknown",
@@ -86,6 +93,18 @@ const gateProjection = (input: Input): BuildResult<MilestoneGate>[] =>
         exitCriteria,
         roadmapId: data.Roadmap,
         lifecycle: data.Status,
+        plannedAt: projectExpectedSourceEventTime(data["Planned at"]),
+        ...(data.Status === "active" || data.Status === "passed"
+          ? { activatedAt: projectExpectedSourceEventTime(data["Activated at"]) }
+          : data.Status === "superseded"
+            ? (() => {
+                const activatedAt = projectOptionalSourceEventTime(data["Activated at"]);
+                return activatedAt === undefined ? {} : { activatedAt };
+              })()
+            : {}),
+        ...(data.Status === "superseded"
+          ? { supersededAt: projectExpectedSourceEventTime(data["Superseded at"]) }
+          : {}),
         readiness: "unknown",
         horizonState: "unknown",
         effortIds: [],
@@ -94,6 +113,7 @@ const gateProjection = (input: Input): BuildResult<MilestoneGate>[] =>
           : {
               passage: {
                 acceptedDecision: data.Passage["Accepted decision"],
+                acceptedAt: projectExpectedSourceEventTime(data.Passage["Accepted at"]),
                 rationale: data.Passage.Rationale,
                 evidenceAssetIds: data.Passage.Evidence,
                 exceptions: data.Passage.Exceptions,
@@ -123,17 +143,17 @@ const effortProjection = (input: Input): BuildResult<Effort>[] =>
         targetGateId: data["Target gate"],
         authorityIds: data.Authorities,
         lifecycle: data.Lifecycle,
-        plannedAt: sourceEventTime(data["Planned at"]),
+        plannedAt: projectExpectedSourceEventTime(data["Planned at"]),
         ...(data["Activated at"] === undefined
           ? {}
-          : { activatedAt: sourceEventTime(data["Activated at"]) }),
+          : { activatedAt: projectExpectedSourceEventTime(data["Activated at"]) }),
         ...(data.Conclusion === undefined
           ? {}
           : {
               conclusion: {
                 disposition: data.Conclusion.Disposition,
                 rationale: data.Conclusion.Rationale,
-                concludedAt: sourceEventTime(data.Conclusion["Concluded at"]),
+                concludedAt: projectExpectedSourceEventTime(data.Conclusion["Concluded at"]),
                 ...(data.Conclusion["Replacement effort"] === undefined
                   ? {}
                   : { replacementEffortId: data.Conclusion["Replacement effort"] }),
@@ -168,6 +188,10 @@ const authorityProjection = (input: Input): BuildResult<Authority>[] =>
         citations: citations(data),
         scope,
         baselineAssetIds: data.Baseline,
+        adoptions: (data.Adoptions ?? []).map((adoption) => ({
+          assetId: adoption.Asset,
+          decisionReference: adoption.Decision,
+        })),
       }),
     };
   });

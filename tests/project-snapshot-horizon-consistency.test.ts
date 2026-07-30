@@ -34,6 +34,7 @@ test("derives an exhausted active Roadmap from a terminal ordered Gate horizon",
               horizonState: "passed" as const,
               passage: {
                 acceptedDecision: "Pass the final declared Gate.",
+                acceptedAt: { availability: "unavailable" as const },
                 rationale: "The declared outcome horizon is exhausted.",
                 evidenceAssetIds: [],
                 exceptions: [],

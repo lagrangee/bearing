@@ -37,7 +37,7 @@ Usage:
   bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>] [--confirm-repair] [--confirm-reactivate] [--accept-upgrade-direction --confirm-cutover --cutover-at <ISO-8601> --cutover-plan-token <sha256>] [--plan]
   bearing deactivate --repo <path>
   bearing purge --repo <path> [--plan] [--confirm-purge --purge-plan-token <sha256> (--recovery-export <path> | --accept-no-recovery-export)]
-  bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [options]
+  bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [--producer-reference <reference>] [--produced-for <reference>] [--produced-at <date-or-ISO-instant>]
   bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
   bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
   bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]
@@ -308,6 +308,7 @@ const runAssetCommand = async (args: readonly string[]): Promise<void> => {
       "producer-reference": { type: "string" },
       "executor-capability": { type: "string" },
       "produced-for": { type: "string" },
+      "produced-at": { type: "string" },
     },
     allowPositionals: true,
     strict: true,
@@ -370,6 +371,9 @@ const runAssetCommand = async (args: readonly string[]): Promise<void> => {
     ...(parsed.values["produced-for"] === undefined
       ? {}
       : { producedFor: parsed.values["produced-for"] }),
+    ...(parsed.values["produced-at"] === undefined
+      ? {}
+      : { producedAt: parsed.values["produced-at"] }),
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 };

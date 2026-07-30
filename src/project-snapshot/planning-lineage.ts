@@ -420,6 +420,7 @@ const semanticSectionsFor = (
     case "roadmap": {
       const roadmap = record as RoadmapRecord;
       return [
+        section("roadmap.event-history"),
         section("roadmap.intent"),
         section("roadmap.gates", roadmap.gateOrder.length === 0 ? "confirmed-empty" : "available"),
         section("roadmap.focus", roadmap.focusedGateId === null ? "confirmed-empty" : "available"),
@@ -428,6 +429,7 @@ const semanticSectionsFor = (
     case "gate": {
       const gate = record as GateRecord;
       return [
+        section("gate.event-history"),
         section("gate.intent"),
         section("gate.exit-criteria"),
         section("gate.readiness"),
@@ -435,7 +437,12 @@ const semanticSectionsFor = (
       ];
     }
     case "effort":
-      return [section("effort.intent"), section("effort.lifecycle"), section("effort.native-work")];
+      return [
+        section("effort.event-history"),
+        section("effort.intent"),
+        section("effort.lifecycle"),
+        section("effort.native-work"),
+      ];
     case "authority": {
       const authority = record as AuthorityRecord;
       return [
@@ -444,7 +451,14 @@ const semanticSectionsFor = (
           "authority.baseline",
           authority.baselineAssetIds.length === 0 ? "confirmed-empty" : "available",
         ),
-        section("authority.adoption-decisions", "unavailable"),
+        section(
+          "authority.adoption-decisions",
+          authority.adoptions.length === 0 ? "confirmed-empty" : "available",
+        ),
+        section(
+          "authority.event-history",
+          authority.adoptions.length === 0 ? "confirmed-empty" : "available",
+        ),
         section("authority.superseded-context", "unavailable"),
       ];
     }
@@ -458,7 +472,10 @@ const semanticSectionsFor = (
           "alignment-check.rationale",
           check.resolution === undefined ? "confirmed-empty" : "available",
         ),
-        section("alignment-check.event-time", "unavailable"),
+        section(
+          "alignment-check.event-time",
+          check.resolution === undefined ? "confirmed-empty" : "available",
+        ),
         section(
           "alignment-check.changed-references",
           (check.resolution?.changedReferences.length ?? 0) === 0 ? "confirmed-empty" : "available",
@@ -479,7 +496,10 @@ const semanticSectionsFor = (
           "planning-review.rationale",
           review.resolution === undefined ? "confirmed-empty" : "available",
         ),
-        section("planning-review.event-time", "unavailable"),
+        section(
+          "planning-review.event-time",
+          review.resolution === undefined ? "confirmed-empty" : "available",
+        ),
         section(
           "planning-review.changed-references",
           (review.resolution?.changedReferences.length ?? 0) === 0
@@ -494,6 +514,7 @@ const semanticSectionsFor = (
     }
     case "asset":
       return [
+        section("asset.event-history"),
         section("asset.identity"),
         section("asset.lifecycle"),
         section("asset.provenance"),
@@ -603,52 +624,25 @@ const relationsForAuthority = (
     input,
     "adoption.current-baseline",
     "Current Baseline",
-    "adopts",
+    "includes",
     "many",
     authority.baselineAssetIds,
   ),
-  input.assets.validity === "invalid"
-    ? unavailableRelation(
+  authority.adoptions.length === 0
+    ? confirmedNone("adoption.used-by", "Authority Adoption", "adopts", "many")
+    : presentRelation(
         "adoption.used-by",
         "Authority Adoption",
         "adopts",
         "many",
-        "The Asset projection is unavailable.",
-      )
-    : input.assets.items.some((asset) =>
-          asset.adoptedByAuthorityIds.some(
-            (authorityId) => String(authorityId) === String(authority.id),
+        authority.adoptions.map((adoption) =>
+          targetForReference(
+            input,
+            adoption.assetId,
+            `Accepted Decision: ${adoption.decisionReference}`,
           ),
-        )
-      ? presentRelation(
-          "adoption.used-by",
-          "Authority Adoption",
-          "adopts",
-          "many",
-          input.assets.items
-            .filter((asset) =>
-              asset.adoptedByAuthorityIds.some(
-                (authorityId) => String(authorityId) === String(authority.id),
-              ),
-            )
-            .map((asset) =>
-              targetForReference(
-                input,
-                asset.id,
-                "Accepted Decision reference and Source Event Time are unavailable in the current typed Authority contract.",
-              ),
-            ),
-          input.assets.validity === "partial" ? "at-least" : "complete",
-        )
-      : input.assets.validity === "partial"
-        ? unknownRelation(
-            "adoption.used-by",
-            "Authority Adoption",
-            "adopts",
-            "many",
-            "Partial Asset coverage cannot confirm no adoption.",
-          )
-        : confirmedNone("adoption.used-by", "Authority Adoption", "adopts", "many"),
+        ),
+      ),
   citationRelation(input, authority.citations),
 ];
 

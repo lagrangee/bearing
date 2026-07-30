@@ -199,7 +199,15 @@ test("real inspect gate command returns one structured captured closure and writ
       portalRoute: "/projects/bearing/lineage/gate/gate%3Atest",
     },
     issues: [],
-    context: { gate: { value: { id: "gate:test" } } },
+    context: {
+      gate: {
+        value: {
+          id: "gate:test",
+          plannedAt: { availability: "unavailable" },
+          activatedAt: { availability: "unavailable" },
+        },
+      },
+    },
   });
   expect(
     output.context.efforts.map(
@@ -208,7 +216,13 @@ test("real inspect gate command returns one structured captured closure and writ
   ).toEqual(["effort:second", "effort:test"]);
   const second = output.context.efforts[0];
   expect(second).toMatchObject({
-    effort: { value: { id: "effort:second" } },
+    effort: {
+      value: {
+        id: "effort:second",
+        plannedAt: { availability: "unavailable" },
+        activatedAt: { availability: "unavailable" },
+      },
+    },
     roadmap: { value: { id: "roadmap:test" } },
     targetGate: { value: { id: "gate:test" } },
     authorities: [{ value: { id: "authority:architecture" } }],

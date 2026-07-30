@@ -106,6 +106,7 @@ const plannedGateFixture = (): ProjectSnapshot => {
             source: plannedSource.reference,
             title: "Evidence decision",
             lifecycle: "planned",
+            activatedAt: undefined,
             readiness: "unknown",
             horizonState: "planned",
             effortIds: [],

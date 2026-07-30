@@ -15,7 +15,11 @@ type Gate = CitedNode &
     id: string;
     passage?: Readonly<{ evidenceAssetIds: readonly string[] }> | undefined;
   }>;
-type Authority = CitedNode & Readonly<{ id: string; baselineAssetIds: readonly string[] }>;
+type Authority = CitedNode &
+  Readonly<{
+    id: string;
+    adoptions: readonly Readonly<{ assetId: string }>[];
+  }>;
 type ForwardRelations = Readonly<{
   roadmaps: Collection<CitedNode>;
   gates: Collection<Gate>;
@@ -60,7 +64,7 @@ const rebuildAsset = (asset: AssetProjection, input: ForwardRelations): AssetPro
     citations,
     citationCount: citations.length,
     adoptedByAuthorityIds: trustworthy(input.authorities)
-      .filter((authority) => authority.baselineAssetIds.includes(asset.id))
+      .filter((authority) => authority.adoptions.some((adoption) => adoption.assetId === asset.id))
       .map((authority) => authority.id)
       .sort(compareUtf8),
     gatePassageEvidenceFor: trustworthy(input.gates)
