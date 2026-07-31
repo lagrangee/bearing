@@ -81,3 +81,29 @@ test("restores the prior observation selection when Snapshot publication fails",
 
   expect(await readFile(observationPath)).toEqual(priorObservation);
 });
+
+test("restores the prior discovery observation when coherent Snapshot publication fails", async () => {
+  const root = await createValidBearingRepo();
+  const prior = await snapshotFor(root, "prior");
+  const discoveryPath = join(root, ".bearing/cache/native-scope-discovery.json");
+  const priorDiscovery = Buffer.from("prior immutable discovery\n");
+  await commitProjectCache({
+    repoRoot: root,
+    nativeScopeDiscoveryStore: { bytes: priorDiscovery },
+  });
+
+  await expect(
+    commitProjectCache(
+      {
+        repoRoot: root,
+        nativeScopeDiscoveryStore: { bytes: Buffer.from("candidate discovery\n") },
+        snapshot: prior.snapshot,
+      },
+      {
+        writeSnapshot: async () => Promise.reject(new Error("injected Snapshot failure")),
+      },
+    ),
+  ).rejects.toThrow("injected Snapshot failure");
+
+  expect(await readFile(discoveryPath)).toEqual(priorDiscovery);
+});

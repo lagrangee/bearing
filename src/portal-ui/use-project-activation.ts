@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   createDeferredActivation,
   interactionNeedsActivation,
@@ -13,6 +13,7 @@ import {
   visibleProjectView,
 } from "./project-activation-state";
 import {
+  discoverNativeScopes,
   type ProjectOperationError,
   type ProjectView,
   readProjectSnapshot,
@@ -32,10 +33,15 @@ export type ProjectActivation = Readonly<{
   view?: ProjectView;
   forceSync: () => void;
   retry: () => void;
+  discovery: Readonly<{ state: "idle" | "running" | "failed" }>;
+  refreshDiscovery: () => void;
 }>;
 
 export const useProjectActivation = (entryId: string): ProjectActivation => {
   const [state, dispatch] = useReducer(projectActivationReducer, { kind: "loading-cache" });
+  const [discovery, setDiscovery] = useState<Readonly<{ state: "idle" | "running" | "failed" }>>({
+    state: "idle",
+  });
   const stateRef = useRef(state);
   const stateEntryIdRef = useRef(entryId);
   const csrfTokenRef = useRef<string | undefined>(undefined);
@@ -174,8 +180,37 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       });
   }, [applySyncResult, dispatchCurrent, entryId, withController]);
 
+  const refreshDiscovery = useCallback(() => {
+    const csrfToken = csrfTokenRef.current;
+    if (csrfToken === undefined || discovery.state === "running") return;
+    const requestId = ++requestIdRef.current;
+    const candidate = visibleProjectView(stateRef.current);
+    const cached = candidate?.project.entryId === entryId ? candidate : undefined;
+    setDiscovery({ state: "running" });
+    void withController((signal) => discoverNativeScopes(entryId, csrfToken, signal))
+      .then((result) => {
+        applySyncResult(requestId, result);
+        setDiscovery(result.state === "failed" ? { state: "failed" } : { state: "idle" });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          setDiscovery({ state: "idle" });
+          return;
+        }
+        setDiscovery({ state: "failed" });
+        if (cached !== undefined) {
+          dispatchCurrent(requestId, {
+            type: "settled",
+            confirmation: "checked-recently",
+            view: cached,
+          });
+        }
+      });
+  }, [applySyncResult, discovery.state, dispatchCurrent, entryId, withController]);
+
   useEffect(() => {
     csrfTokenRef.current = undefined;
+    setDiscovery({ state: "idle" });
     void activate();
     return () => {
       requestIdRef.current += 1;
@@ -236,6 +271,13 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
   const candidate = visibleProjectView(scopedState);
   const view = candidate?.project.entryId === entryId ? candidate : undefined;
   return view === undefined
-    ? { state: scopedState, forceSync, retry }
-    : { state: scopedState, view, forceSync, retry };
+    ? { state: scopedState, forceSync, retry, discovery, refreshDiscovery }
+    : {
+        state: scopedState,
+        view,
+        forceSync,
+        retry,
+        discovery,
+        refreshDiscovery,
+      };
 };

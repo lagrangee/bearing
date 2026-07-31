@@ -1,5 +1,6 @@
 import packageMetadata from "../package.json";
 import { applyInstallPlans } from "./installer";
+import type { NativeScopeDiscoveryIntent } from "./native-scope-discovery";
 import type { ProviderObservationIntent } from "./provider-observation-store";
 import {
   prepareSync,
@@ -13,6 +14,7 @@ type RunSyncOptions = Readonly<{
   packageVersion?: string;
   completedAt?: string;
   providerObservationIntent?: ProviderObservationIntent;
+  nativeScopeDiscoveryIntent?: NativeScopeDiscoveryIntent;
 }>;
 
 export const runSyncMeasured = async (
@@ -23,6 +25,9 @@ export const runSyncMeasured = async (
     ...(options.providerObservationIntent === undefined
       ? {}
       : { providerObservationIntent: options.providerObservationIntent }),
+    ...(options.nativeScopeDiscoveryIntent === undefined
+      ? {}
+      : { nativeScopeDiscoveryIntent: options.nativeScopeDiscoveryIntent }),
   });
   const transaction = buildSyncTransactionTargets(plan, {
     packageName: packageMetadata.name,
@@ -34,6 +39,7 @@ export const runSyncMeasured = async (
     result: {
       ...syncProjectionResultFromPlan(plan),
       providerObservationOperation: plan.providerObservationOperation,
+      nativeScopeDiscoveryOperation: plan.nativeScopeDiscoveryOperation,
       receipt: transaction.receipt,
       receiptPath: transaction.receiptPath,
     },

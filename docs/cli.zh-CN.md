@@ -129,9 +129,13 @@ special type 都会 fail closed。
 
 ```bash
 bearing sync --repo .
+bearing sync --repo . --discover-native-scopes
 ```
 
-Sync 会在 cache 下重建 deterministic diagnostics 与 Project Sitemap projection。
+普通 Sync 会在 cache 下重建 deterministic diagnostics 与 Project Sitemap projection，并复用
+最新 immutable provider／discovery observations。`--discover-native-scopes` 是显式、只读的
+Native Scope Discovery 请求；它原子发布轻量 summaries，不会创建 planning／Work Binding，
+不会改变 native lifecycle，也不产生 completion 或 readiness。
 
 ## Inspect
 

@@ -84,7 +84,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 10,
+  schemaVersion: 11,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -101,6 +101,7 @@ const validSnapshot = {
   guidance: { validity: "absent" },
   providerObservations: [],
   providerObservationSelections: [],
+  nativeScopeDiscovery: { state: "never-run" },
   diagnostics: [],
   attention: [],
   sources: [
@@ -203,6 +204,7 @@ test("parses a repository-scoped Snapshot with the complete domain breadth", () 
     "guidance",
     "providerObservations",
     "providerObservationSelections",
+    "nativeScopeDiscovery",
     "diagnostics",
     "attention",
     "sources",

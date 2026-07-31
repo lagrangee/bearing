@@ -79,7 +79,7 @@ const REQUIRED_TRIAGE_ROLES = [
 const WAYFINDER_SUBTYPES = ["research", "prototype", "grilling", "task"] as const;
 type TriageSemanticRole = (typeof REQUIRED_TRIAGE_ROLES)[number] | "bug" | "enhancement";
 
-type TriageVocabulary = Readonly<{
+export type TriageVocabulary = Readonly<{
   semanticToNative: ReadonlyMap<TriageSemanticRole, string>;
   nativeToSemantic: ReadonlyMap<string, TriageSemanticRole>;
   complete: boolean;
@@ -278,7 +278,7 @@ export const createGhCliGitHubReadTransport = (
   };
 };
 
-const repositorySchema = z.object({
+export const githubRepositorySchema = z.object({
   id: z.union([z.number(), z.string()]).transform(String),
   node_id: z.string().min(1),
   name: z.string().min(1),
@@ -312,7 +312,7 @@ const accountSchema = z.object({
   node_id: z.string().min(1),
 });
 
-const issueSchema = z.object({
+export const githubIssueSchema = z.object({
   id: z.union([z.number(), z.string()]).transform(String),
   node_id: z.string().min(1),
   number: z.number().int().positive(),
@@ -356,8 +356,8 @@ const commentSchema = z.object({
   author_association: z.string(),
 });
 
-type GitHubIssue = z.infer<typeof issueSchema>;
-type GitHubRepository = z.infer<typeof repositorySchema>;
+export type GitHubIssue = z.infer<typeof githubIssueSchema>;
+export type GitHubRepository = z.infer<typeof githubRepositorySchema>;
 type GitHubComment = z.infer<typeof commentSchema>;
 
 type AcquiredIssue = Readonly<{
@@ -457,16 +457,17 @@ const readInterpretationDocument = async (
     ? readRepositoryDocument(root, locator)
     : options.capturedDocuments.get(locator)?.source;
 
-const parseTriageVocabulary = (
+export const parseTriageVocabulary = (
   source: string,
   locator: string,
   diagnostics: ProviderDiagnostic[],
+  diagnosticOwner: "matt.github" | "matt.local" = "matt.github",
 ): TriageVocabulary | undefined => {
   const table = queryMarkdownTable(parseMarkdownDocument(source));
   if (table.state !== "found") {
     diagnostics.push(
       diagnostic(
-        "matt.github.mapping.ambiguous",
+        `${diagnosticOwner}.mapping.ambiguous`,
         "mapping",
         locator,
         `Triage vocabulary table is ${table.state}.`,
@@ -481,7 +482,7 @@ const parseTriageVocabulary = (
   if (semanticColumn === -1 || nativeColumn === -1) {
     diagnostics.push(
       diagnostic(
-        "matt.github.mapping.ambiguous",
+        `${diagnosticOwner}.mapping.ambiguous`,
         "mapping",
         locator,
         "Triage vocabulary is missing a semantic or tracker-value column.",
@@ -531,7 +532,7 @@ const parseTriageVocabulary = (
   if (ambiguous) {
     diagnostics.push(
       diagnostic(
-        "matt.github.mapping.ambiguous",
+        `${diagnosticOwner}.mapping.ambiguous`,
         "mapping",
         locator,
         "Triage vocabulary contains missing, duplicate or conflicting mappings.",
@@ -541,7 +542,7 @@ const parseTriageVocabulary = (
   return { semanticToNative, nativeToSemantic, complete: !ambiguous };
 };
 
-const externalPullRequestsEnabled = (contractSource: string): boolean => {
+export const externalPullRequestsEnabled = (contractSource: string): boolean => {
   const document = parseMarkdownDocument(contractSource);
   const pullRequests = queryMarkdownSection(document, {
     title: "Pull requests as a triage surface",
@@ -587,7 +588,11 @@ const acquire = async (
 type PageAcquisition =
   | Readonly<{ state: "available"; values: readonly unknown[] }>
   | Readonly<{ state: "unsupported" }>
-  | Readonly<{ state: "failed"; response: GitHubReadResponse }>;
+  | Readonly<{
+      state: "failed";
+      values: readonly unknown[];
+      response: GitHubReadResponse;
+    }>;
 
 const acquirePages = async (
   transport: GitHubReadTransport,
@@ -596,21 +601,55 @@ const acquirePages = async (
 ): Promise<PageAcquisition> => {
   const values: unknown[] = [];
   for (let page = 1; page <= 10_000; page += 1) {
-    const pageEndpoint = `${endpoint}?per_page=${PAGE_SIZE}&page=${page}`;
+    const pageEndpoint = `${endpoint}${endpoint.includes("?") ? "&" : "?"}per_page=${PAGE_SIZE}&page=${page}`;
     const response = await acquire(transport, pageEndpoint, observed);
     if (page === 1 && response.status === 410) return { state: "unsupported" };
     if (response.status !== 200 || !Array.isArray(response.body)) {
-      return { state: "failed", response };
+      return { state: "failed", values, response };
     }
     values.push(...response.body);
     if (response.body.length < PAGE_SIZE) return { state: "available", values };
   }
   return {
     state: "failed",
+    values,
     response: {
       status: 0,
       headers: { "x-bearing-failure-kind": "acquisition" },
     },
+  };
+};
+
+export type GitHubPageRead =
+  | Readonly<{ state: "available"; values: readonly unknown[]; validators: readonly string[] }>
+  | Readonly<{
+      state: "failed";
+      values: readonly unknown[];
+      validators: readonly string[];
+      response: GitHubReadResponse;
+      endpoint: string;
+    }>;
+
+export const acquireGitHubPages = async (
+  transport: GitHubReadTransport,
+  endpoint: string,
+): Promise<GitHubPageRead> => {
+  const observed: ObservedResponse[] = [];
+  const acquisition = await acquirePages(transport, endpoint, observed);
+  const validators = observed.flatMap((response) =>
+    response.validator === undefined ? [] : [response.validator],
+  );
+  if (acquisition.state === "available") {
+    return { state: "available", values: acquisition.values, validators };
+  }
+  const last = observed.at(-1);
+  return {
+    state: "failed",
+    values: acquisition.state === "unsupported" ? [] : acquisition.values,
+    validators,
+    response:
+      acquisition.state === "unsupported" ? { status: 410, headers: {} } : acquisition.response,
+    endpoint: last?.endpoint ?? endpoint,
   };
 };
 
@@ -1999,7 +2038,7 @@ const captureGitHubScope = async (
   };
   const repositoryEndpoint = `repos/${scope.repository.owner}/${scope.repository.name}`;
   const repositoryResponse = await acquire(options.transport, repositoryEndpoint, observed);
-  const repositoryResult = repositorySchema.safeParse(repositoryResponse.body);
+  const repositoryResult = githubRepositorySchema.safeParse(repositoryResponse.body);
   if (repositoryResponse.status !== 200 || !repositoryResult.success) {
     const failureDiagnostics = [
       ...diagnostics,
@@ -2053,7 +2092,7 @@ const captureGitHubScope = async (
 
   const issueEndpoint = `${repositoryEndpoint}/issues/${scope.root.number}`;
   const issueResponse = await acquire(options.transport, issueEndpoint, observed);
-  const issueResult = issueSchema.safeParse(issueResponse.body);
+  const issueResult = githubIssueSchema.safeParse(issueResponse.body);
   if (issueResponse.status !== 200 || !issueResult.success) {
     const failureDiagnostics = [
       ...diagnostics,
@@ -2181,7 +2220,7 @@ const captureGitHubScope = async (
     const currentEndpoint = `${repositoryEndpoint}/issues/${currentIssue.number}`;
     const parentResponse = await acquire(options.transport, `${currentEndpoint}/parent`, observed);
     const parent =
-      parentResponse.status === 200 ? issueSchema.safeParse(parentResponse.body) : undefined;
+      parentResponse.status === 200 ? githubIssueSchema.safeParse(parentResponse.body) : undefined;
     const parentIdentityValid =
       parent?.success === true &&
       parent.data.pull_request === undefined &&
@@ -2204,7 +2243,7 @@ const captureGitHubScope = async (
     const dependencies =
       dependencyPages.state !== "available"
         ? undefined
-        : z.array(issueSchema).safeParse(dependencyPages.values);
+        : z.array(githubIssueSchema).safeParse(dependencyPages.values);
     if (
       (parentResponse.status !== 200 &&
         parentResponse.status !== 404 &&
@@ -2294,7 +2333,7 @@ const captureGitHubScope = async (
     const children =
       childPages.state !== "available"
         ? undefined
-        : z.array(issueSchema).safeParse(childPages.values);
+        : z.array(githubIssueSchema).safeParse(childPages.values);
     if (childPages.state === "unsupported") {
       if (
         scope.rootKind === "parent-issue" &&
@@ -2326,7 +2365,7 @@ const captureGitHubScope = async (
         }
         const childEndpoint = `${repositoryEndpoint}/issues/${childNumber}`;
         const childResponse = await acquire(options.transport, childEndpoint, observed);
-        const child = issueSchema.safeParse(childResponse.body);
+        const child = githubIssueSchema.safeParse(childResponse.body);
         if (
           childResponse.status !== 200 ||
           !child.success ||
@@ -2502,7 +2541,7 @@ const captureGitHubScope = async (
       if (discoveredByNode.has(childSummary.node_id)) continue;
       const childEndpoint = `${repositoryEndpoint}/issues/${childSummary.number}`;
       const childResponse = await acquire(options.transport, childEndpoint, observed);
-      const child = issueSchema.safeParse(childResponse.body);
+      const child = githubIssueSchema.safeParse(childResponse.body);
       if (
         childResponse.status !== 200 ||
         !child.success ||

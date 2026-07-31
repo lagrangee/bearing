@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import packageMetadata from "../../package.json";
+import type { NativeScopeDiscoveryIntent } from "../native-scope-discovery";
 import { readProjectSnapshotCache } from "../project-snapshot/cache";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import { buildProjectSnapshot } from "../project-snapshot/projection";
@@ -126,6 +127,9 @@ export const createProjectMaterializer = (options: {
           decoded: plan.decoded,
           providerObservations: plan.providerObservations,
           providerObservationSelections: plan.providerObservationSelections,
+          ...(plan.nativeScopeDiscovery === undefined
+            ? {}
+            : { nativeScopeDiscovery: plan.nativeScopeDiscovery }),
           assetContentObservations: plan.assetContentObservations,
           planningGraph: plan.planningGraph,
         }),
@@ -177,6 +181,7 @@ export const createProjectMaterializer = (options: {
       writeExecutor?: ProjectWriteAuthorizer,
       generationGraph?: ProjectGenerationGraphAccess,
       providerObservationIntent: ProviderObservationIntent = "ordinary-sync",
+      nativeScopeDiscoveryIntent: NativeScopeDiscoveryIntent = "ordinary-sync",
     ): Promise<ProjectMaterializationResult> {
       const currentGraph = generationGraph?.current();
       const initial = await phase(
@@ -186,6 +191,7 @@ export const createProjectMaterializer = (options: {
           dependencies.prepare(repoRoot, {
             ...(currentGraph === undefined ? {} : { planningGraph: currentGraph }),
             providerObservationIntent,
+            nativeScopeDiscoveryIntent,
           }),
       );
       const complete = (result: ProjectMaterializationResult): ProjectMaterializationResult => {
@@ -230,6 +236,13 @@ export const createProjectMaterializer = (options: {
                     },
                   }
                 : {}),
+              ...(initial.nativeScopeDiscoveryStoreChanged
+                ? {
+                    nativeScopeDiscoveryStore: {
+                      bytes: initial.nativeScopeDiscoveryStoreBytes,
+                    },
+                  }
+                : {}),
               ...(receipt === undefined ? {} : { receipt }),
             });
           },
@@ -253,13 +266,23 @@ export const createProjectMaterializer = (options: {
             sitemapPath: plan.sitemapPath,
             commit: () =>
               phase("sync-failed", "Project reconciliation failed.", async () =>
-                dependencies.commit(plan, { publishProviderObservations: false }),
+                dependencies.commit(plan, {
+                  publishProviderObservations: false,
+                  publishNativeScopeDiscovery: false,
+                }),
               ),
           },
           ...(plan.providerObservationStoreChanged
             ? {
                 providerObservationStore: {
                   bytes: plan.providerObservationStoreBytes,
+                },
+              }
+            : {}),
+          ...(plan.nativeScopeDiscoveryStoreChanged
+            ? {
+                nativeScopeDiscoveryStore: {
+                  bytes: plan.nativeScopeDiscoveryStoreBytes,
                 },
               }
             : {}),

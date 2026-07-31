@@ -156,3 +156,19 @@ test("owns locator observation and relink cooldown invalidation", () => {
   expect(recovery.rootRequiringRecovery("project-1", "ensure-current", "/repo/b")).toBe("/repo/b");
   expect(recovery.rootRequiringRecovery("project-1", "force", "/repo/b")).toBeUndefined();
 });
+
+test("preserves explicit discovery intent through location recovery", async () => {
+  const executions: string[] = [];
+  let recovery: ReturnType<typeof createProjectLocationRecovery>;
+  recovery = createProjectLocationRecovery({
+    execute: async (_entryId, mode, intent) => {
+      executions.push(`${mode}:${intent}`);
+      return coordinated(recovery.record("project-1", completedCapture("/repo/new", "force")));
+    },
+  });
+  recovery.record("project-1", completedCapture("/repo/new", "force"));
+
+  await recovery.recover("project-1", "/repo/new", 0, "explicit-discovery");
+
+  expect(executions).toEqual(["ensure-current:explicit-discovery"]);
+});

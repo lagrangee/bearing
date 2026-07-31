@@ -68,6 +68,10 @@ export const projectSyncRequestSchema = z.strictObject({
   mode: z.enum(["ensure-current", "force"]),
 });
 
+export const projectDiscoveryRequestSchema = z.strictObject({
+  version: z.literal(1),
+});
+
 export const projectSnapshotEnvelopeSchema = z.discriminatedUnion("state", [
   z.strictObject({
     version: z.literal(1),
@@ -173,6 +177,7 @@ type DeepReadonly<Value> = Value extends
         : Value;
 
 export type ProjectSyncRequest = DeepReadonly<z.infer<typeof projectSyncRequestSchema>>;
+export type ProjectDiscoveryRequest = DeepReadonly<z.infer<typeof projectDiscoveryRequestSchema>>;
 export type ProjectValidation = DeepReadonly<z.infer<typeof projectValidationSchema>>;
 export type SnapshotCacheView = DeepReadonly<z.infer<typeof snapshotCacheSchema>>;
 export type ProjectView = DeepReadonly<z.infer<typeof projectViewSchema>>;

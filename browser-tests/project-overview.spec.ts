@@ -1,5 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { createNativeScopeDiscoveryObservation } from "../src/native-scope-discovery";
+import { buildNativeScopeDiscoveryProjection } from "../src/project-snapshot/native-scope-discovery";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { browserArtifactPath } from "./browser-artifact-output";
 
@@ -70,6 +72,75 @@ const completedEnvelope = () => ({
   validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
 });
 
+const discoveredProjectView = () => {
+  const view = projectView();
+  if (view.cache.snapshot.state !== "available") throw new Error("Expected Snapshot fixture.");
+  const snapshot = view.cache.snapshot.snapshot;
+  const observation = createNativeScopeDiscoveryObservation({
+    provider: "matt-skills/v1",
+    state: "available",
+    observedAt: "2026-07-31T08:30:00.000Z",
+    freshness: "current",
+    coverage: "complete",
+    scopes: [
+      {
+        identity: "local-scope:.scratch/discovered",
+        binding: { provider: "matt-skills/v1", nativeScope: ".scratch/discovered" },
+        locator: ".scratch/discovered",
+        driver: "local",
+        rootRole: "wayfinder-map",
+        title: "Discovered delivery",
+        lifecycle: "open",
+        classification: "map",
+        admission: ["contract-map"],
+        subjects: [
+          {
+            identity: "local:.scratch/discovered/map.md",
+            locator: ".scratch/discovered/map.md",
+            title: "Discovered delivery",
+            classification: "map",
+            lifecycle: "open",
+            parentIdentity: null,
+            admission: ["contract-map"],
+          },
+        ],
+      },
+    ],
+    diagnostics: [],
+  });
+  const nativeScopeDiscovery = buildNativeScopeDiscoveryProjection(
+    {
+      observationId: observation.id,
+      provider: observation.provider,
+      state: observation.state,
+      observedAt: observation.observedAt,
+      validators: observation.validators,
+      freshness: observation.freshness.assessment,
+      coverage: observation.coverage.assessment,
+      scopes: observation.scopes,
+      diagnostics: observation.diagnostics,
+      confirmedEmpty: observation.confirmedEmpty,
+      latestAttempt: null,
+    },
+    snapshot.efforts,
+  );
+  return {
+    ...view,
+    cache: {
+      ...view.cache,
+      snapshot: {
+        ...view.cache.snapshot,
+        snapshot: { ...snapshot, nativeScopeDiscovery },
+      },
+    },
+  };
+};
+
+const discoveredEnvelope = () => ({
+  ...completedEnvelope(),
+  view: discoveredProjectView(),
+});
+
 const failedEnvelope = () => ({
   version: 1,
   state: "failed",
@@ -127,7 +198,13 @@ test("Overview keeps cache visible, preserves reading order, and uses contextual
     await page
       .locator(".overview-page > *")
       .evaluateAll((elements) => elements.map((element) => element.className)),
-  ).toEqual(["project-intro", "attention-queue", "guidance-section", "roadmap-landscape"]);
+  ).toEqual([
+    "project-intro",
+    "attention-queue",
+    "overview-section discovered-work",
+    "guidance-section",
+    "roadmap-landscape",
+  ]);
   await expect(page.locator("main").getByText("Planning Audit", { exact: true })).toHaveCount(0);
   await expect(page.locator("main").getByText("Assets", { exact: true })).toHaveCount(0);
   await expect(page.locator(".roadmap-landscape-item h3")).toHaveText([
@@ -325,6 +402,58 @@ test("ordinary in-project navigation does not reactivate validation", async ({ p
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
   expect(snapshotReads).toBe(1);
   expect(syncCalls).toBe(0);
+});
+
+test("explicit discovered-work refresh is keyboard operable and retains evidence after failure", async ({
+  page,
+}) => {
+  let discoveryCalls = 0;
+  let discoveryPublished = false;
+  let releaseDiscovery = () => {};
+  const discoveryGate = new Promise<void>((resolve) => {
+    releaseDiscovery = resolve;
+  });
+  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
+    route.fulfill({
+      json: discoveryPublished
+        ? { ...readyEnvelope(false), view: discoveredProjectView() }
+        : readyEnvelope(false),
+    }),
+  );
+  await page.route("**/api/v1/projects/overview/discover-native-scopes", async (route) => {
+    discoveryCalls += 1;
+    if (discoveryCalls === 1) {
+      await discoveryGate;
+      discoveryPublished = true;
+      return route.fulfill({ json: discoveredEnvelope() });
+    }
+    return route.fulfill({
+      status: 500,
+      json: { code: "request-failed", message: "Portal request failed." },
+    });
+  });
+  await page.goto("/projects/overview");
+
+  const discover = page.getByRole("button", { name: "Discover native work" });
+  await focusByTab(page, discover);
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Refreshing" })).toBeDisabled();
+  expect(discoveryCalls).toBe(1);
+  releaseDiscovery();
+
+  const refresh = page.getByRole("button", { name: "Refresh discovered work" });
+  await expect(refresh).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Discovered delivery" })).toBeVisible();
+  await expect(page.getByText("map", { exact: true })).toBeVisible();
+  await expect(page.getByText("open", { exact: true })).toBeVisible();
+  await focusByTab(page, refresh);
+  await page.keyboard.press("Space");
+
+  await expect(page.getByText(/refresh request failed/u)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Discovered delivery" })).toBeVisible();
+  expect(discoveryCalls).toBe(2);
+  await expectMinimumTarget(refresh, 40);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
 test("retained cache stays readable and Retry performs a forced reconciliation", async ({

@@ -1,6 +1,7 @@
 import type {
   AlignmentCheck,
   AttentionItem,
+  NativeScopeDiscoveryProjection,
   NextWorkGuidance,
   PlanningReview,
   ProjectionIssue,
@@ -37,6 +38,7 @@ export type ProjectOverviewModel = Readonly<{
   attention: readonly OverviewAttentionItem[];
   guidance: ScopedValue<NextWorkGuidance>;
   roadmaps: OverviewRoadmaps;
+  discoveredWork: NativeScopeDiscoveryProjection;
   sources: ReadonlyMap<string, SourceRecord>;
 }>;
 
@@ -146,6 +148,7 @@ export const buildProjectOverviewModel = (snapshot: ProjectSnapshot): ProjectOve
     ),
     guidance: scopedValue(snapshot.guidance, sources),
     roadmaps: buildOverviewRoadmaps(snapshot, sources),
+    discoveredWork: snapshot.nativeScopeDiscovery,
     sources,
   };
 };

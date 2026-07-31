@@ -99,6 +99,7 @@ test("contains scratch discovery inside provider and explicit cutover boundaries
   const allowedScratchOwners = new Set([
     "src/artifact-model.ts",
     "src/executor-registration.ts",
+    "src/providers/matt-skills-v1/discovery.ts",
     "src/providers/matt-skills-v1/local-markdown.ts",
     "src/repository-cutover.ts",
   ]);

@@ -6,6 +6,10 @@ import { buildDecisionProjection } from "./decisions";
 import { buildSnapshotDiagnostics } from "./diagnostic-projection";
 import { buildGovernanceProjection } from "./governance";
 import { buildRoadmapIndexProjection } from "./governance-index";
+import {
+  buildNativeScopeDiscoveryProjection,
+  nativeScopeDiscoveryBindingDiagnostics,
+} from "./native-scope-discovery";
 import { buildMattNativeSourceRecords } from "./native-work-sources";
 import type { ProjectSnapshotBuildInput } from "./projection-input";
 import { PROJECT_SNAPSHOT_VERSION, projectSnapshotSchema } from "./schema";
@@ -64,9 +68,16 @@ export const buildProjectSnapshot = async (
     advisory.sources,
     buildMattNativeSourceRecords(input.providerObservations, input.sitemapFingerprint),
   ]);
+  const nativeScopeDiscovery = buildNativeScopeDiscoveryProjection(
+    input.nativeScopeDiscovery,
+    planning.efforts,
+  );
   const diagnosticProjection = buildSnapshotDiagnostics({
     sitemapFingerprint: input.sitemapFingerprint,
-    diagnostics: input.diagnostics,
+    diagnostics: [
+      ...input.diagnostics,
+      ...nativeScopeDiscoveryBindingDiagnostics(nativeScopeDiscovery),
+    ],
     sourceLocators: sources.map((source) => ({
       kind: source.kind,
       locator: source.displayLocator,
@@ -100,6 +111,7 @@ export const buildProjectSnapshot = async (
     guidance: advisory.guidance,
     providerObservations: input.providerObservations,
     providerObservationSelections,
+    nativeScopeDiscovery,
     diagnostics: diagnosticProjection.diagnostics,
     attention: [...diagnosticProjection.attention, ...decisions.attention],
     sources,

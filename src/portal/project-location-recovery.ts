@@ -23,6 +23,7 @@ export type CapturedProjectOperation =
 type Execute = (
   entryId: string,
   mode: ProjectOperationMode,
+  nativeScopeDiscoveryIntent: "ordinary-sync" | "explicit-discovery",
 ) => Promise<CoordinatedResult<CapturedProjectOperation>>;
 
 type Validation = Readonly<{
@@ -91,9 +92,11 @@ export const createProjectLocationRecovery = (options: {
     entryId: string,
     repoRoot: string,
     afterSequence: number,
+    nativeScopeDiscoveryIntent: "ordinary-sync" | "explicit-discovery" = "ordinary-sync",
   ): Promise<CoordinatedResult<CapturedProjectOperation>> => {
     const recent = recentForces.get(entryId);
     if (
+      nativeScopeDiscoveryIntent === "ordinary-sync" &&
       recent !== undefined &&
       recent.sequence > afterSequence &&
       recent.sequence === checkpoint(entryId) &&
@@ -106,21 +109,23 @@ export const createProjectLocationRecovery = (options: {
         joined: true,
       });
     }
-    const key = `${entryId}\0${repoRoot}`;
+    const key = `${entryId}\0${repoRoot}\0${nativeScopeDiscoveryIntent}`;
     const existing = recoveries.get(key);
     if (existing !== undefined && existing.generation > afterSequence) return existing.promise;
     const generation = advance(entryId);
-    const running = options.execute(entryId, "ensure-current").then((settled) => {
-      if (
-        settled.kind === "completed" &&
-        settled.value.kind === "completed" &&
-        settled.value.entry.repoRoot === repoRoot &&
-        settled.value.result.mode === "force"
-      ) {
-        return settled;
-      }
-      return options.execute(entryId, "force");
-    });
+    const running = options
+      .execute(entryId, "ensure-current", nativeScopeDiscoveryIntent)
+      .then((settled) => {
+        if (
+          settled.kind === "completed" &&
+          settled.value.kind === "completed" &&
+          settled.value.entry.repoRoot === repoRoot &&
+          settled.value.result.mode === "force"
+        ) {
+          return settled;
+        }
+        return options.execute(entryId, "force", nativeScopeDiscoveryIntent);
+      });
     let promise: Promise<CoordinatedResult<CapturedProjectOperation>>;
     const settle = <Value>(continuation: () => Value): Value => {
       if (recoveries.get(key)?.promise === promise) recoveries.delete(key);

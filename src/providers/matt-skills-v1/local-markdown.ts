@@ -344,14 +344,14 @@ const supplementaryContent = (file: CapturedFile): readonly MattContent[] => {
   return content;
 };
 
-type LocalContractLayout = Readonly<{
+export type LocalMattContractLayout = Readonly<{
   specFilename: "spec.md" | "PRD.md";
 }>;
 
-const parseContract = (
+export const parseLocalMattContract = (
   file: MarkdownInput,
   diagnostics: CaptureDiagnostic[],
-): LocalContractLayout | undefined => {
+): LocalMattContractLayout | undefined => {
   const title = queryMarkdownDocumentTitle(file.document);
   const conventions = queryMarkdownSection(file.document, { title: "Conventions" });
   const wayfinding = queryMarkdownSection(file.document, { title: "Wayfinding operations" });
@@ -1439,7 +1439,7 @@ const captureLocalScope = async (
 
   const contractFile = await interpretationTarget(contractLocator);
   const contractLayout =
-    contractFile === undefined ? undefined : parseContract(contractFile, diagnostics);
+    contractFile === undefined ? undefined : parseLocalMattContract(contractFile, diagnostics);
   if (contractLayout === undefined) {
     return captureWithoutProjection({
       binding,

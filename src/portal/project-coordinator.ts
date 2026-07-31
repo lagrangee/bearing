@@ -3,6 +3,7 @@ export type ProjectOperationMode = "ensure-current" | "force";
 export type ProjectOperation = Readonly<{
   entryId: string;
   mode: ProjectOperationMode;
+  nativeScopeDiscoveryIntent?: "ordinary-sync" | "explicit-discovery";
 }>;
 
 export type CoordinatedResult<T> =
@@ -14,11 +15,16 @@ export type CoordinatedResult<T> =
       joined: boolean;
     }>;
 
-type Active<T> = Readonly<{ mode: ProjectOperationMode; promise: Promise<T> }>;
+type Active<T> = Readonly<{
+  mode: ProjectOperationMode;
+  nativeScopeDiscoveryIntent: "ordinary-sync" | "explicit-discovery";
+  promise: Promise<T>;
+}>;
 type ProjectState<T> = {
   lastAttemptAt?: number;
   active?: Active<T>;
-  queuedForce?: Promise<T>;
+  queuedForces?: Map<string, Promise<T>>;
+  queueTail?: Promise<unknown>;
 };
 
 export type ProjectCoordinator<T> = Readonly<{
@@ -51,7 +57,7 @@ export const createProjectCoordinator = <T>(options: {
   };
   const begin = (state: ProjectState<T>, operation: ProjectOperation): Promise<T> => {
     state.lastAttemptAt = clock();
-    const running = options.run({ entryId: operation.entryId, mode: operation.mode });
+    const running = options.run(operation);
     let promise: Promise<T>;
     const clear = <Value>(continuation: () => Value): Value => {
       if (state.active?.promise === promise) delete state.active;
@@ -64,7 +70,11 @@ export const createProjectCoordinator = <T>(options: {
           throw error;
         }),
     );
-    state.active = { mode: operation.mode, promise };
+    state.active = {
+      mode: operation.mode,
+      nativeScopeDiscoveryIntent: operation.nativeScopeDiscoveryIntent ?? "ordinary-sync",
+      promise,
+    };
     return promise;
   };
   const completed = async (
@@ -82,19 +92,38 @@ export const createProjectCoordinator = <T>(options: {
     execute(operation): Promise<CoordinatedResult<T>> {
       const state = stateFor(operation.entryId);
       const active = state.active;
-      if (active !== undefined) {
-        if (operation.mode === "ensure-current" || active.mode === "force") {
-          return completed(active.promise, active.mode, true);
-        }
-        const existingQueue = state.queuedForce;
-        if (existingQueue !== undefined) return completed(existingQueue, "force", true);
-        const pending = active.promise.then(
-          () => begin(state, { ...operation, mode: "force" }),
-          () => begin(state, { ...operation, mode: "force" }),
+      const intent = operation.nativeScopeDiscoveryIntent ?? "ordinary-sync";
+      if (
+        active !== undefined &&
+        active.nativeScopeDiscoveryIntent === intent &&
+        (operation.mode === "ensure-current" || active.mode === "force")
+      ) {
+        return completed(active.promise, active.mode, true);
+      }
+      const queueKey = `force:${intent}`;
+      const existingQueue = state.queuedForces?.get(queueKey);
+      if (existingQueue !== undefined) return completed(existingQueue, "force", true);
+      const predecessor = state.queueTail ?? active?.promise;
+      if (predecessor !== undefined) {
+        const queues = state.queuedForces ?? new Map<string, Promise<T>>();
+        state.queuedForces = queues;
+        const pending = predecessor.then(
+          () =>
+            begin(state, {
+              ...operation,
+              mode: "force",
+              nativeScopeDiscoveryIntent: intent,
+            }),
+          () =>
+            begin(state, {
+              ...operation,
+              mode: "force",
+              nativeScopeDiscoveryIntent: intent,
+            }),
         );
         let queued: Promise<T>;
         const clearQueue = <Value>(continuation: () => Value): Value => {
-          if (state.queuedForce === queued) delete state.queuedForce;
+          if (queues.get(queueKey) === queued) queues.delete(queueKey);
           return continuation();
         };
         queued = pending.then(
@@ -104,10 +133,17 @@ export const createProjectCoordinator = <T>(options: {
               throw error;
             }),
         );
-        state.queuedForce = queued;
+        queues.set(queueKey, queued);
+        const tail = queued.then(
+          () => undefined,
+          () => undefined,
+        );
+        state.queueTail = tail;
+        void tail.then(() => {
+          if (state.queueTail === tail) delete state.queueTail;
+        });
         return completed(queued, "force", false);
       }
-      if (state.queuedForce !== undefined) return completed(state.queuedForce, "force", true);
       const cooldownRemainingMs = remainingFor(state);
       if (operation.mode === "ensure-current" && cooldownRemainingMs > 0) {
         return Promise.resolve({ kind: "cooldown", cooldownRemainingMs });
@@ -120,7 +156,7 @@ export const createProjectCoordinator = <T>(options: {
       return {
         due: cooldownRemainingMs === 0,
         cooldownRemainingMs,
-        inFlight: state.active !== undefined || state.queuedForce !== undefined,
+        inFlight: state.active !== undefined || (state.queuedForces?.size ?? 0) > 0,
       };
     },
   };

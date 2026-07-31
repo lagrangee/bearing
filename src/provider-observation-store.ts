@@ -1,5 +1,3 @@
-import type { Stats } from "node:fs";
-import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import stableStringify from "safe-stable-stringify";
 import { z } from "zod";
@@ -29,6 +27,7 @@ import {
 import { mattSkillsV1ProviderObservationSchema } from "./providers/matt-skills-v1/schema";
 import type { SyncInputGeneration } from "./sync-input-generation";
 import type { StructuralDiagnostic } from "./types";
+import { readValidatedJsonCache, serializeValidatedJson } from "./validated-json-cache";
 
 export const PROVIDER_OBSERVATION_STORE_FILENAME = "provider-observations.json";
 const STORE_VERSION = 1;
@@ -113,36 +112,20 @@ type StoreRead =
   | Readonly<{ kind: "available"; store: ProviderObservationStore; bytes: Buffer }>
   | Readonly<{ kind: "malformed"; bytes?: undefined }>;
 
-const missing = (error: unknown): boolean =>
-  error instanceof Error &&
-  "code" in error &&
-  (error.code === "ENOENT" || error.code === "ENOTDIR");
-const safeFile = (metadata: Stats): boolean =>
-  metadata.isFile() && !metadata.isSymbolicLink() && metadata.nlink === 1;
-const safeDirectory = (metadata: Stats): boolean =>
-  metadata.isDirectory() && !metadata.isSymbolicLink();
-
 export const providerObservationStorePath = (repoRoot: string): string =>
   join(repoRoot, ".bearing/cache", PROVIDER_OBSERVATION_STORE_FILENAME);
 
 export const readProviderObservationStore = async (repoRoot: string): Promise<StoreRead> => {
   const cache = join(repoRoot, ".bearing/cache");
-  try {
-    if (!safeDirectory(await lstat(join(repoRoot, ".bearing")))) return { kind: "malformed" };
-    if (!safeDirectory(await lstat(cache))) return { kind: "malformed" };
-    const target = providerObservationStorePath(repoRoot);
-    const metadata = await lstat(target);
-    if (!safeFile(metadata)) return { kind: "malformed" };
-    const bytes = await readFile(target);
-    const parsed = storeSchema.safeParse(JSON.parse(bytes.toString("utf8")));
-    return parsed.success
-      ? { kind: "available", store: parsed.data as ProviderObservationStore, bytes }
-      : { kind: "malformed" };
-  } catch (error) {
-    if (missing(error)) return { kind: "missing" };
-    if (error instanceof SyntaxError) return { kind: "malformed" };
-    return { kind: "malformed" };
-  }
+  const read = await readValidatedJsonCache({
+    namespacePath: join(repoRoot, ".bearing"),
+    cachePath: cache,
+    targetPath: providerObservationStorePath(repoRoot),
+    schema: storeSchema,
+  });
+  return read.kind === "available"
+    ? { kind: "available", store: read.value as ProviderObservationStore, bytes: read.bytes }
+    : read;
 };
 
 const observationFor = (
@@ -160,7 +143,7 @@ const selectionFor = (
   store.selections.find((selection) => sameMattNativeBindingDefinition(selection, binding));
 
 const storeBytes = (store: ProviderObservationStore): Buffer =>
-  Buffer.from(`${JSON.stringify(storeSchema.parse(store), null, 2)}\n`, "utf8");
+  serializeValidatedJson(storeSchema, store);
 
 const unavailableDiagnostic = (
   code: string,

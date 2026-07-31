@@ -6,6 +6,7 @@ import {
   type ProjectSnapshotApiResponse,
   type ProjectSyncApiResponse,
   type ProjectSyncRequest,
+  projectDiscoveryRequestSchema,
   projectSyncRequestSchema,
 } from "./project-contract";
 import type { ProjectService } from "./project-service";
@@ -245,6 +246,42 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
       context,
       await options.projects.sync(context.req.param("entryId"), parsed.data.mode),
       parsed.data.mode,
+    );
+  });
+
+  app.post("/api/v1/projects/:entryId/discover-native-scopes", async (context) => {
+    noStore(context);
+    if (
+      !options.sessions.verify(
+        context.req.header("cookie"),
+        context.req.header("x-bearing-csrf-token"),
+      )
+    ) {
+      return context.json({ code: "invalid-csrf-token", message: "CSRF check failed." }, 403);
+    }
+    const mediaType = context.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    if (mediaType !== "application/json") {
+      return context.json(
+        { code: "unsupported-media-type", message: "Expected application/json." },
+        415,
+      );
+    }
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ code: "invalid-request", message: "Request body is not JSON." }, 400);
+    }
+    if (!projectDiscoveryRequestSchema.safeParse(input).success) {
+      return context.json(
+        { code: "invalid-request", message: "Native Scope Discovery request is invalid." },
+        400,
+      );
+    }
+    return syncResponse(
+      context,
+      await options.projects.sync(context.req.param("entryId"), "force", "explicit-discovery"),
+      "force",
     );
   });
 };

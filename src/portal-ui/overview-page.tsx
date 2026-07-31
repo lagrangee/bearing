@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import { OverviewAttention } from "./overview-attention";
 import { OverviewBrief } from "./overview-brief";
+import { OverviewDiscoveredWork } from "./overview-discovered-work";
 import { OverviewGuidance } from "./overview-guidance";
 import { OverviewRoadmaps } from "./overview-roadmaps";
 import type { ProjectInspectorSelection } from "./project-inspector";
@@ -14,12 +15,16 @@ export function OverviewPage({
   onNavigate,
   onOpenRoadmap,
   snapshot,
+  discoveryOperation,
+  onRefreshDiscovery,
 }: {
   readonly entryId: string;
   readonly onInspect: (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
   readonly onNavigate: (href: string) => void;
   readonly onOpenRoadmap: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
   readonly snapshot: ProjectSnapshot;
+  readonly discoveryOperation: Readonly<{ state: "idle" | "running" | "failed" }>;
+  readonly onRefreshDiscovery: () => void;
 }) {
   const model = useMemo(() => buildProjectOverviewModel(snapshot), [snapshot]);
   return (
@@ -30,6 +35,11 @@ export function OverviewPage({
         entryId={entryId}
         onInspect={onInspect}
         onNavigate={onNavigate}
+      />
+      <OverviewDiscoveredWork
+        discovery={model.discoveredWork}
+        onRefresh={onRefreshDiscovery}
+        operation={discoveryOperation}
       />
       <OverviewGuidance guidance={model.guidance} onInspect={onInspect} sources={model.sources} />
       <OverviewRoadmaps

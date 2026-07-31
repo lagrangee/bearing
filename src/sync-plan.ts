@@ -16,6 +16,16 @@ import { deriveStructuralDiagnosticsFromGeneration } from "./diagnostics";
 import { listFiles } from "./discovery";
 import { fingerprintInputRecords } from "./fingerprint";
 import { retainContainedInputs } from "./input-boundary";
+import {
+  fingerprintNativeScopeDiscoveryView,
+  type NativeScopeDiscoveryIntent,
+  type NativeScopeDiscoveryView,
+  selectNativeScopeDiscovery,
+} from "./native-scope-discovery";
+import {
+  defaultNativeScopeDiscoveryProvider,
+  type NativeScopeDiscoveryProviderFactory,
+} from "./native-scope-discovery-acquisition";
 import { resolveRepositoryRoot } from "./path-boundary";
 import { buildPlanningGraph, type PlanningGraph } from "./planning-graph";
 import type { PlanningGraphInstrumentation } from "./planning-graph-instrumentation";
@@ -53,6 +63,13 @@ export type SyncPlan = Readonly<{
   providerObservationStorePath: string;
   providerObservationStoreBytes: Buffer;
   providerObservationStoreChanged: boolean;
+  nativeScopeDiscovery: NativeScopeDiscoveryView | undefined;
+  nativeScopeDiscoveryOperation: Awaited<
+    ReturnType<typeof selectNativeScopeDiscovery>
+  >["operation"];
+  nativeScopeDiscoveryStorePath: string;
+  nativeScopeDiscoveryStoreBytes: Buffer;
+  nativeScopeDiscoveryStoreChanged: boolean;
   assetContentObservations: readonly AssetContentObservation[];
   planningGraph: PlanningGraph;
   planningPhaseMs: Readonly<{
@@ -70,6 +87,7 @@ export type SyncPerformanceMetrics = Readonly<{
   recordDecodeCount: number;
   repositoryRevalidationCount: number;
   providerAcquisitionCount: number;
+  nativeScopeDiscoveryAcquisitionCount: number;
   phaseMs: Readonly<{
     discovery: number;
     capture: number;
@@ -87,6 +105,8 @@ export type PrepareSyncOptions = Readonly<{
   providerFactory?: MattProviderFactory;
   providerObservationIntent?: ProviderObservationIntent;
   providerObservationNow?: () => string;
+  nativeScopeDiscoveryIntent?: NativeScopeDiscoveryIntent;
+  nativeScopeDiscoveryProviderFactory?: NativeScopeDiscoveryProviderFactory;
 }>;
 
 const readExisting = async (target: string): Promise<Buffer | undefined> => {
@@ -104,6 +124,7 @@ const ensureCacheBoundary = async (repoRoot: string): Promise<void> => {
     join(repoRoot, ".bearing/cache/sync-report.md"),
     join(repoRoot, ".bearing/cache/project-sitemap.md"),
     join(repoRoot, ".bearing/cache/provider-observations.json"),
+    join(repoRoot, ".bearing/cache/native-scope-discovery.json"),
   ];
   const inspect = async (
     target: string,
@@ -210,6 +231,13 @@ export const prepareSync = async (
       ? {}
       : { now: options.providerObservationNow }),
   });
+  const nativeScopeDiscovery = await selectNativeScopeDiscovery({
+    repoRoot: generation.root,
+    intent: options.nativeScopeDiscoveryIntent ?? "ordinary-sync",
+    provider: (options.nativeScopeDiscoveryProviderFactory ?? defaultNativeScopeDiscoveryProvider)(
+      generation,
+    ),
+  });
   const finalGeneration = fingerprintInputRecords(generation.records, [
     ...generation.observations,
     {
@@ -218,6 +246,10 @@ export const prepareSync = async (
         providerSelection.observations,
         providerSelection.selections,
       ),
+    },
+    {
+      key: "native-scope-discovery-selection",
+      value: fingerprintNativeScopeDiscoveryView(nativeScopeDiscovery.view),
     },
   ]);
   const decoded = rebaseDecodedBearingRecordGeneration(
@@ -285,6 +317,11 @@ export const prepareSync = async (
     providerObservationStorePath: providerSelection.storePath,
     providerObservationStoreBytes: providerSelection.storeBytes,
     providerObservationStoreChanged: providerSelection.storeChanged,
+    nativeScopeDiscovery: nativeScopeDiscovery.view,
+    nativeScopeDiscoveryOperation: nativeScopeDiscovery.operation,
+    nativeScopeDiscoveryStorePath: nativeScopeDiscovery.storePath,
+    nativeScopeDiscoveryStoreBytes: nativeScopeDiscovery.storeBytes,
+    nativeScopeDiscoveryStoreChanged: nativeScopeDiscovery.storeChanged,
     assetContentObservations: assetResolution.observations,
     planningGraph,
     planningPhaseMs: {
@@ -299,6 +336,7 @@ export const prepareSync = async (
       recordDecodeCount: decoded.metrics.decodeCount,
       repositoryRevalidationCount: operationMetrics.repositoryRevalidationCount,
       providerAcquisitionCount: providerSelection.operation.acquisitionCount,
+      nativeScopeDiscoveryAcquisitionCount: nativeScopeDiscovery.operation.acquisitionCount,
       phaseMs: {
         discovery: discovered - started,
         capture: baseCaptured - discovered + (extended - assetsResolved),
@@ -323,14 +361,28 @@ export const syncProjectionResultFromPlan = (plan: SyncPlan): SyncProjectionResu
 
 export const commitSyncPlan = async (
   plan: SyncPlan,
-  options: Readonly<{ publishProviderObservations?: boolean }> = {},
+  options: Readonly<{
+    publishProviderObservations?: boolean;
+    publishNativeScopeDiscovery?: boolean;
+  }> = {},
 ): Promise<SyncProjectionResult> => {
-  if (plan.changed || plan.providerObservationStoreChanged) {
+  if (
+    plan.changed ||
+    plan.providerObservationStoreChanged ||
+    plan.nativeScopeDiscoveryStoreChanged
+  ) {
     await mkdir(dirname(plan.reportPath), { recursive: true });
     if (plan.providerObservationStoreChanged && options.publishProviderObservations !== false) {
       await writeFileAtomically(
         plan.providerObservationStorePath,
         plan.providerObservationStoreBytes,
+        0o644,
+      );
+    }
+    if (plan.nativeScopeDiscoveryStoreChanged && options.publishNativeScopeDiscovery !== false) {
+      await writeFileAtomically(
+        plan.nativeScopeDiscoveryStorePath,
+        plan.nativeScopeDiscoveryStoreBytes,
         0o644,
       );
     }
