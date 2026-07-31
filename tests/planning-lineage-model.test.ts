@@ -550,6 +550,38 @@ test("renders complete provider-native dossiers on stable Local identities witho
   );
 });
 
+test("persists one generation-bound Native Work Reading State for Snapshot and Portal", () => {
+  const snapshot = fixture();
+  const effort = snapshot.lineage.subjects.find(
+    (subject) => subject.identity.kind === "effort" && subject.identity.id === "effort:portal",
+  );
+  const scope = snapshot.lineage.subjects.find(
+    (subject) =>
+      subject.identity.kind === "native-scope" && subject.identity.id === ".scratch/portal",
+  );
+  expect(effort?.nativeWorkReadingState).toMatchObject({
+    conclusion: "Open work remains",
+    binding: { state: "bound", effortIds: ["effort:portal"] },
+    why: {
+      projectionState: "available",
+      freshness: "current",
+      coverage: "complete",
+      completion: "incomplete",
+      blockingDiagnosticCount: 0,
+    },
+  });
+  expect(scope?.nativeWorkReadingState).toEqual(effort?.nativeWorkReadingState);
+
+  const model = buildPlanningLineageSubjectModel(
+    snapshot,
+    { kind: "native-scope", id: ".scratch/portal" },
+    "bearing",
+  );
+  expect(model.state).toBe("available");
+  if (model.state !== "available") throw new Error("Expected native scope model.");
+  expect(model.workRegion?.readingState).toEqual(scope?.nativeWorkReadingState);
+});
+
 test("keeps Spec, Delivery, Incoming, and native scope semantics independent", () => {
   const snapshot = fixture();
   const spec = readable(

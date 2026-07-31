@@ -720,6 +720,15 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   await expect(
     workRegion.getByRole("heading", { name: "Contributing Work", level: 2 }),
   ).toBeVisible();
+  await expect(
+    workRegion.getByRole("heading", { name: "Open work remains", level: 3 }),
+  ).toBeVisible();
+  await workRegion.getByText("Why this state?", { exact: true }).click();
+  await expect(workRegion.getByText("Provider Completion", { exact: true })).toBeVisible();
+  await expect(workRegion.getByText("incomplete", { exact: true }).first()).toBeVisible();
+  await workRegion.getByText("Observation details", { exact: true }).click();
+  await expect(workRegion.getByText("Source revision", { exact: true })).toBeVisible();
+  await expect(workRegion).not.toContainText("Needs refresh");
   const currentView = workRegion.getByRole("link", { name: /^Current/u });
   await currentView.focus();
   await expect(currentView).toBeFocused();

@@ -272,6 +272,7 @@ test("Roadmap closure preserves canonical order while exposing an unresolved bou
   const reversed = await buildPlanningGraph({
     decoded: { ...plan.decoded, records: [...plan.decoded.records].reverse() },
     providerObservations: [...plan.providerObservations].reverse(),
+    providerObservationSelections: [...plan.providerObservationSelections].reverse(),
     diagnostics: [...plan.diagnostics].reverse(),
     fingerprint: plan.fingerprint,
     assetContentObservations: [...plan.assetContentObservations].reverse(),
@@ -300,6 +301,17 @@ test("Effort closure returns full nested context and fails a bound absent scope 
   expect(capture.projection.wayfinderTickets.map((ticket) => String(ticket.ref))).toEqual([
     ".scratch/work/issues/01-finish.md",
   ]);
+  expect(complete.context.nativeWorkReadingState).toMatchObject({
+    conclusion: "Complete",
+    binding: { state: "bound", effortIds: ["effort:test"] },
+    why: {
+      projectionState: "available",
+      freshness: "current",
+      coverage: "complete",
+      completion: "complete",
+      blockingDiagnosticCount: 0,
+    },
+  });
   expect(complete.context.alignmentChecks.map(({ value }) => String(value.id))).toEqual([
     "alignment-check:test-effort",
   ]);
@@ -316,6 +328,13 @@ test("Effort closure returns full nested context and fails a bound absent scope 
     completion: "incomplete",
     binding: { nativeScope: ".scratch/optional" },
   });
+  expect(optional.context.nativeWorkReadingState).toMatchObject({
+    conclusion: "Can't verify",
+    why: {
+      projectionState: "absent",
+      completion: "incomplete",
+    },
+  });
   expect(optional.context.evidence).toEqual([]);
   expect(optional.issues).toContainEqual(
     expect.objectContaining({
@@ -323,6 +342,68 @@ test("Effort closure returns full nested context and fails a bound absent scope 
       target: ".scratch/optional",
     }),
   );
+});
+
+test("Effort closure keeps a first provider acquisition failure as bound Can't verify evidence", async () => {
+  const root = await createValidBearingRepo();
+  await addRoadmapEffortContext(root);
+  const plan = await prepareSync(root);
+  const nativeScope = ".scratch/work";
+  const graph = await buildPlanningGraph({
+    decoded: plan.decoded,
+    providerObservations: plan.providerObservations.filter(
+      (observation) => observation.binding.nativeScope !== nativeScope,
+    ),
+    providerObservationSelections: plan.providerObservationSelections.map((selection) =>
+      selection.nativeScope === nativeScope
+        ? {
+            ...selection,
+            observationId: null,
+            effectiveFreshness: "undetermined" as const,
+            latestAttempt: {
+              intent: "initial-baseline" as const,
+              attemptedAt: "2026-07-31T07:00:00Z",
+              outcome: "failed" as const,
+              diagnostics: [
+                {
+                  code: "provider.contract.unsupported",
+                  impact: "blocking" as const,
+                  target: nativeScope,
+                  message: "The provider contract is unsupported.",
+                },
+              ],
+            },
+          }
+        : selection,
+    ),
+    diagnostics: plan.diagnostics,
+    fingerprint: plan.fingerprint,
+    assetContentObservations: plan.assetContentObservations,
+  });
+
+  const result = graph.contextFor({ kind: "effort", id: "effort:test" });
+  expect(result.state).toBe("partial");
+  if (result.state === "invalid") throw new Error("Expected partial Effort context.");
+  expect(result.context.nativeWorkReadingState).toMatchObject({
+    conclusion: "Can't verify",
+    binding: { state: "bound", effortIds: ["effort:test"] },
+    why: {
+      projectionState: "missing",
+      blockingDiagnosticCount: 1,
+      causes: expect.arrayContaining(["The provider contract is unsupported."]),
+    },
+    observation: {
+      diagnostics: [
+        {
+          origin: "latest-attempt",
+          code: "provider.contract.unsupported",
+          impact: "blocking",
+          target: nativeScope,
+          message: "The provider contract is unsupported.",
+        },
+      ],
+    },
+  });
 });
 
 test("Effort closure retains the Effort when its required Target Gate is broken", async () => {

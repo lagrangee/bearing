@@ -14,6 +14,7 @@ import {
   type SourceKind,
 } from "../src/project-snapshot/source-reference";
 import { displayAssetLocatorSchema } from "../src/reference-schema";
+import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
 const BASIS = `sha256:${"a".repeat(64)}`;
 const boundRecord = (
@@ -83,7 +84,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 9,
+  schemaVersion: 10,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -206,6 +207,59 @@ test("parses a repository-scoped Snapshot with the complete domain breadth", () 
     "attention",
     "sources",
   ]);
+});
+
+test("requires generation-bound native scope reading state and rejects obsolete vocabulary", () => {
+  const snapshot = createProjectOverviewFixture();
+  const missing = {
+    ...snapshot,
+    lineage: {
+      subjects: snapshot.lineage.subjects.map((subject) => {
+        if (subject.identity.kind !== "native-scope") return subject;
+        const { nativeWorkReadingState: _readingState, ...withoutReadingState } = subject;
+        return withoutReadingState;
+      }),
+    },
+  };
+  expect(projectSnapshotSchema.safeParse(missing).success).toBe(false);
+
+  const obsolete = {
+    ...snapshot,
+    lineage: {
+      subjects: snapshot.lineage.subjects.map((subject) =>
+        subject.identity.kind === "native-scope" && subject.nativeWorkReadingState !== undefined
+          ? {
+              ...subject,
+              nativeWorkReadingState: {
+                ...subject.nativeWorkReadingState,
+                conclusion: "Needs refresh",
+              },
+            }
+          : subject,
+      ),
+    },
+  };
+  expect(projectSnapshotSchema.safeParse(obsolete).success).toBe(false);
+
+  const forged = {
+    ...snapshot,
+    lineage: {
+      subjects: snapshot.lineage.subjects.map((subject) =>
+        subject.identity.kind === "native-scope" &&
+        subject.identity.id === ".scratch/portal" &&
+        subject.nativeWorkReadingState !== undefined
+          ? {
+              ...subject,
+              nativeWorkReadingState: {
+                ...subject.nativeWorkReadingState,
+                conclusion: "Complete" as const,
+              },
+            }
+          : subject,
+      ),
+    },
+  };
+  expect(projectSnapshotSchema.safeParse(forged).success).toBe(false);
 });
 
 test("rejects unsupported versions and Catalog or repository identity", () => {

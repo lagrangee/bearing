@@ -495,6 +495,40 @@ test("covers closure and decision anomalies without promoting native lifecycle",
   );
 });
 
+test("places provider subject diagnostics beside the affected native item in plain language", () => {
+  const { observation, selections } = fixture();
+  if (observation.state !== "available" && observation.state !== "partial") {
+    throw new Error("Expected readable provider semantics.");
+  }
+  const ticket = observation.projection.deliveryTickets[0];
+  if (ticket === undefined) throw new Error("Expected a Delivery ticket.");
+  const diagnostic = {
+    code: "matt.delivery.answer-conflict",
+    class: "mapping" as const,
+    impact: "blocking" as const,
+    target: `${ticket.ref}#answer`,
+    message: "The Delivery Answer sources conflict.",
+  };
+  const degraded = {
+    ...observation,
+    completion: "undetermined" as const,
+    diagnostics: [...observation.diagnostics, diagnostic],
+  };
+  const region = buildMattNativeWorkRegion(degraded, selections, {
+    state: "bound",
+    effortIds: ["effort:portal"],
+  });
+  const item = region.roles
+    .find((role) => role.role === "delivery")
+    ?.items.find((candidate) => candidate.reference === ticket.ref);
+
+  expect(item).toMatchObject({
+    diagnosticCodes: ["matt.delivery.answer-conflict"],
+    diagnosticMessages: ["The Delivery Answer sources conflict."],
+  });
+  expect(region.readingState.why.causes).toContain("The Delivery Answer sources conflict.");
+});
+
 test("keeps binding failures in a separate attention context", () => {
   const conflict = build({
     state: "attention",

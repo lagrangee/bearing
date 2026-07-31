@@ -105,6 +105,73 @@ export const planningLineageSemanticSectionSchema = z.strictObject({
   availability: z.enum(["available", "confirmed-empty", "unavailable", "unsupported"]),
 });
 
+const readingAvailabilitySchema = z.union([
+  z.strictObject({ availability: z.literal("available"), value: nonEmptyStringSchema }),
+  z.strictObject({ availability: z.literal("unavailable") }),
+]);
+
+export const nativeWorkReadingStateSchema = z.strictObject({
+  conclusion: z.enum(["Complete", "Open work remains", "Can't verify", "Binding needs attention"]),
+  impact: semanticPlainTextSchema,
+  action: semanticPlainTextSchema,
+  binding: z.union([
+    z.strictObject({
+      state: z.literal("bound"),
+      effortIds: uniqueIdentityArraySchema(nonEmptyStringSchema, (id) => id),
+    }),
+    z.strictObject({
+      state: z.literal("unbound"),
+      label: z.literal("Not linked to an Effort"),
+    }),
+    z.strictObject({
+      state: z.literal("attention"),
+      reason: z.enum([
+        "binding-conflict",
+        "bound-unresolved",
+        "identity-mismatch",
+        "root-kind-conflict",
+      ]),
+      effortIds: uniqueIdentityArraySchema(nonEmptyStringSchema, (id) => id),
+    }),
+  ]),
+  why: z.strictObject({
+    projectionState: z.enum(["available", "partial", "absent", "invalid", "missing"]),
+    freshness: z.enum(["current", "stale", "undetermined"]),
+    coverage: z.enum(["complete", "incomplete", "undetermined"]),
+    completion: z.enum(["complete", "incomplete", "undetermined"]),
+    blockingDiagnosticCount: z.number().int().nonnegative(),
+    causes: z.array(semanticPlainTextSchema),
+  }),
+  observation: z.strictObject({
+    sourceRevision: readingAvailabilitySchema,
+    observedAt: readingAvailabilitySchema,
+    sourceObservedAt: readingAvailabilitySchema,
+    coverageDimensions: uniqueIdentityArraySchema(
+      z.strictObject({
+        key: nonEmptyStringSchema,
+        state: z.enum(["covered", "excluded", "gap", "conflict"]),
+        detail: nonEmptyStringSchema.optional(),
+      }),
+      (dimension) => dimension.key,
+    ),
+    validators: z.array(
+      z.strictObject({ kind: nonEmptyStringSchema, value: nonEmptyStringSchema }),
+    ),
+    provenance: z.array(
+      z.strictObject({ kind: nonEmptyStringSchema, value: nonEmptyStringSchema }),
+    ),
+    diagnostics: z.array(
+      z.strictObject({
+        origin: z.enum(["observation", "latest-attempt"]),
+        code: nonEmptyStringSchema,
+        impact: z.enum(["blocking", "non-blocking"]),
+        target: nonEmptyStringSchema,
+        message: nonEmptyStringSchema,
+      }),
+    ),
+  }),
+});
+
 export const planningLineageSubjectProjectionSchema = z
   .strictObject({
     identity: planningLineageSubjectSchema,
@@ -114,6 +181,7 @@ export const planningLineageSubjectProjectionSchema = z
       planningLineageSemanticSectionSchema,
       (section) => section.role,
     ),
+    nativeWorkReadingState: nativeWorkReadingStateSchema.optional(),
     relations: uniqueIdentityArraySchema(planningLineageRelationSchema, (relation) => relation.key),
   })
   .superRefine((subject, context) => {
@@ -127,6 +195,24 @@ export const planningLineageSubjectProjectionSchema = z
         code: "custom",
         path: ["parentPath", "ancestors"],
         message: "A Canonical Parent Path cannot contain its current subject.",
+      });
+    }
+    if (subject.identity.kind === "native-scope" && subject.nativeWorkReadingState === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["nativeWorkReadingState"],
+        message: "A native scope requires its generation-bound Native Work Reading State.",
+      });
+    }
+    if (
+      subject.identity.kind !== "native-scope" &&
+      subject.identity.kind !== "effort" &&
+      subject.nativeWorkReadingState !== undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["nativeWorkReadingState"],
+        message: "Only an Effort or native scope may carry a Native Work Reading State.",
       });
     }
   });

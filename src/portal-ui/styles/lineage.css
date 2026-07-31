@@ -105,6 +105,58 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-panel);
 }
+.matt-reading-state {
+  max-width: 760px;
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid currentColor;
+  border-radius: var(--radius-panel);
+}
+.matt-reading-state h3 {
+  margin-bottom: var(--space-2);
+}
+.matt-reading-state > p:not(.eyebrow),
+.matt-reading-state details p,
+.matt-reading-state li,
+.matt-reading-state dd {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.matt-reading-state details {
+  margin-top: var(--space-3);
+}
+.matt-reading-state summary {
+  min-height: var(--control-size);
+  padding: var(--space-2) 0;
+  font-weight: 650;
+  cursor: pointer;
+}
+.matt-reading-state dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.matt-reading-state dt {
+  color: var(--muted);
+  font-size: var(--type-micro);
+}
+.matt-reading-state dd {
+  margin: var(--space-1) 0 0;
+}
+.matt-reading-state h4 {
+  margin-top: var(--space-4);
+  font-size: var(--type-ui);
+}
+.matt-reading-state ul {
+  padding-left: var(--space-5);
+}
+.matt-reading-state.state-cant-verify,
+.matt-reading-state.state-binding-needs-attention {
+  background: var(--surface-strong);
+}
 .matt-work-region > nav {
   display: flex;
   min-width: 0;
@@ -232,6 +284,15 @@
 .matt-work-diagnostic {
   padding-left: var(--space-3);
   border-left: 3px solid currentColor;
+}
+.matt-work-diagnostic p {
+  margin: 0;
+}
+.matt-work-diagnostic details {
+  margin-top: var(--space-2);
+}
+.matt-work-diagnostic summary {
+  cursor: pointer;
 }
 .matt-work-role-groups {
   display: grid;
@@ -511,7 +572,8 @@
     min-height: var(--control-touch);
   }
   .matt-work-region > nav,
-  .matt-work-items {
+  .matt-work-items,
+  .matt-reading-state dl {
     display: grid;
     grid-template-columns: 1fr;
   }

@@ -31,8 +31,16 @@ import {
   type ProviderObservationSelection,
 } from "./provider-observation-contract";
 import type { MattSkillsV1ProviderObservation } from "./providers/matt-skills-v1/capture";
-import { sameMattNativeScope } from "./providers/matt-skills-v1/native-subject";
+import {
+  sameMattNativeLocator,
+  sameMattNativeScope,
+} from "./providers/matt-skills-v1/native-subject";
 import { mattObjects } from "./providers/matt-skills-v1/projection";
+import {
+  buildMattNativeWorkReadingState,
+  type MattNativeWorkReadingState,
+  mattNativeWorkReadingContextForEffort,
+} from "./providers/matt-skills-v1/reading-state";
 import type { StructuralDiagnostic } from "./types";
 
 export type PlanningGraphIssue = Readonly<{
@@ -51,6 +59,7 @@ export type PlanningGraphEffortContext = Readonly<{
   targetGate?: PlanningGraphValue<MilestoneGate>;
   authorities: readonly PlanningGraphValue<Authority>[];
   providerCapture?: ProviderScopeObservation;
+  nativeWorkReadingState?: MattNativeWorkReadingState;
   alignmentChecks: readonly PlanningGraphValue<AlignmentCheck>[];
   evidence: readonly PlanningGraphValue<AssetProjection>[];
 }>;
@@ -548,14 +557,31 @@ class ImmutablePlanningGraph implements PlanningGraph {
     const providerCapture =
       workBinding === undefined
         ? undefined
-        : this.#collections.providerObservations.find((capture) =>
+        : (this.#collections.providerObservations.find((capture) =>
             sameMattNativeScope(capture.binding, workBinding),
-          );
+          ) ??
+          this.#collections.providerObservations.find((capture) =>
+            sameMattNativeLocator(capture.binding, workBinding),
+          ));
     const providerSelection =
       workBinding === undefined
         ? undefined
         : this.#collections.providerObservationSelections.find((selection) =>
             sameMattNativeScope(selection, workBinding),
+          );
+    const readingContext = mattNativeWorkReadingContextForEffort(
+      trusted(this.#collections.efforts),
+      effort,
+      providerCapture,
+      this.#collections.providerObservationSelections,
+    );
+    const nativeWorkReadingState =
+      readingContext === undefined
+        ? undefined
+        : buildMattNativeWorkReadingState(
+            providerCapture,
+            this.#collections.providerObservationSelections,
+            readingContext,
           );
     if (effort.workBinding !== undefined && providerCapture === undefined) {
       closureIssues.push(
@@ -660,6 +686,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       ...(gate === undefined ? {} : { targetGate: valueWithSource(gate, sourceByReference) }),
       authorities: authorityValues,
       ...(providerCapture === undefined ? {} : { providerCapture }),
+      ...(nativeWorkReadingState === undefined ? {} : { nativeWorkReadingState }),
       alignmentChecks: checks.map((check) => valueWithSource(check, sourceByReference)),
       evidence: evidence.map((asset) => valueWithSource(asset, sourceByReference)),
     };

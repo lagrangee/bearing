@@ -36,6 +36,25 @@ export const sameMattNativeScope = (
   right: MattNativeScopeBinding,
 ): boolean => mattNativeScopeKey(left) === mattNativeScopeKey(right);
 
+export const sameMattNativeLocator = (
+  left: MattNativeScopeBinding,
+  right: MattNativeScopeBinding,
+): boolean => {
+  if (left.provider !== right.provider) return false;
+  const leftGitHub = decodeGitHubMattNativeScope(left.nativeScope);
+  const rightGitHub = decodeGitHubMattNativeScope(right.nativeScope);
+  if (leftGitHub === undefined || rightGitHub === undefined) {
+    return left.nativeScope === right.nativeScope;
+  }
+  return (
+    leftGitHub.host === rightGitHub.host &&
+    leftGitHub.repository.owner === rightGitHub.repository.owner &&
+    leftGitHub.repository.name === rightGitHub.repository.name &&
+    leftGitHub.root.objectKind === rightGitHub.root.objectKind &&
+    leftGitHub.root.number === rightGitHub.root.number
+  );
+};
+
 export const sameMattNativeBindingDefinition = (
   left: MattNativeScopeBinding,
   right: MattNativeScopeBinding,

@@ -36,10 +36,15 @@ import {
 import {
   type MattNativeSubject,
   mattNativeSubjectForObject,
-  sameMattNativeBindingDefinition,
+  sameMattNativeLocator,
   sameMattNativeScope,
 } from "../providers/matt-skills-v1/native-subject";
 import type { MattProjectedObject } from "../providers/matt-skills-v1/projection";
+import {
+  type MattNativeWorkReadingState,
+  mattNativeWorkReadingContextForEffort,
+  mattNativeWorkReadingContextForScope,
+} from "../providers/matt-skills-v1/reading-state";
 import {
   buildMattNativeWorkRegion,
   type MattNativeWorkRegionContext,
@@ -1136,74 +1141,53 @@ const readableEfforts = (snapshot: ProjectSnapshot): readonly Effort[] =>
 const scopeContextFor = (
   snapshot: ProjectSnapshot,
   observation: ProjectSnapshot["providerObservations"][number],
-): MattNativeWorkRegionContext => {
-  const effortCandidates = readableEfforts(snapshot).filter(
-    (effort) =>
-      effort.workBinding !== undefined &&
-      sameMattNativeScope(effort.workBinding, observation.binding),
-  );
-  if (effortCandidates.length === 0) return { state: "unbound" };
-  if (effortCandidates.length > 1) {
-    return {
-      state: "attention",
-      reason: "binding-conflict",
-      effortIds: effortCandidates.map((effort) => effort.id),
-    };
-  }
-  const effort = effortCandidates[0];
-  if (
-    effort?.workBinding === undefined ||
-    !sameMattNativeBindingDefinition(effort.workBinding, observation.binding)
-  ) {
-    return {
-      state: "attention",
-      reason: "root-kind-conflict",
-      effortIds: effort === undefined ? [] : [effort.id],
-    };
-  }
-  return { state: "bound", effortIds: [effort.id] };
-};
+): MattNativeWorkRegionContext =>
+  mattNativeWorkReadingContextForScope(readableEfforts(snapshot), observation);
 
 const effortWorkRegion = (
   snapshot: ProjectSnapshot,
   effort: Effort,
+  readingState?: MattNativeWorkReadingState | undefined,
 ): MattNativeWorkRegionModel | undefined => {
   const binding = effort.workBinding;
   if (binding === undefined) return undefined;
-  const effortCandidates = readableEfforts(snapshot).filter(
-    (candidate) =>
-      candidate.workBinding !== undefined && sameMattNativeScope(candidate.workBinding, binding),
+  const observation =
+    snapshot.providerObservations.find((candidate) =>
+      sameMattNativeScope(candidate.binding, binding),
+    ) ??
+    snapshot.providerObservations.find((candidate) =>
+      sameMattNativeLocator(candidate.binding, binding),
+    );
+  const context = mattNativeWorkReadingContextForEffort(
+    readableEfforts(snapshot),
+    effort,
+    observation,
+    snapshot.providerObservationSelections,
   );
-  const observation = snapshot.providerObservations.find((candidate) =>
-    sameMattNativeScope(candidate.binding, binding),
-  );
-  const context: MattNativeWorkRegionContext =
-    effortCandidates.length > 1
-      ? {
-          state: "attention",
-          reason: "binding-conflict",
-          effortIds: effortCandidates.map((candidate) => candidate.id),
-        }
-      : observation === undefined
-        ? { state: "attention", reason: "bound-unresolved", effortIds: [effort.id] }
-        : !sameMattNativeBindingDefinition(binding, observation.binding)
-          ? { state: "attention", reason: "root-kind-conflict", effortIds: [effort.id] }
-          : { state: "bound", effortIds: [effort.id] };
-  return buildMattNativeWorkRegion(observation, snapshot.providerObservationSelections, context);
+  return context === undefined
+    ? undefined
+    : buildMattNativeWorkRegion(
+        observation,
+        snapshot.providerObservationSelections,
+        context,
+        readingState,
+      );
 };
 
 const workRegionFor = (
   snapshot: ProjectSnapshot,
   subject: PlanningLineageSubject,
   record: SubjectRecord,
+  readingState?: MattNativeWorkReadingState | undefined,
 ): MattNativeWorkRegionModel | undefined => {
-  if (subject.kind === "effort") return effortWorkRegion(snapshot, record as Effort);
+  if (subject.kind === "effort") return effortWorkRegion(snapshot, record as Effort, readingState);
   if (subject.kind !== "native-scope") return undefined;
   const scopeRecord = record as NativeScopeRecord;
   return buildMattNativeWorkRegion(
     scopeRecord.observation,
     snapshot.providerObservationSelections,
     scopeContextFor(snapshot, scopeRecord.observation),
+    readingState,
   );
 };
 
@@ -1263,7 +1247,7 @@ export const buildPlanningLineageSubjectModel = (
   const sourceHref = isNativeSubject(subject)
     ? nativeSourceHref(record as NativeRecord)
     : undefined;
-  const workRegion = workRegionFor(snapshot, subject, record);
+  const workRegion = workRegionFor(snapshot, subject, record, lineage.nativeWorkReadingState);
   return {
     state: degraded ? "partial" : "available",
     subject: {

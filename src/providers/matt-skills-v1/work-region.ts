@@ -9,17 +9,15 @@ import type {
 } from "./model";
 import type { MattObservationView, MattProjectedObject } from "./projection";
 import { mattObjects } from "./projection";
+import {
+  buildMattNativeWorkReadingState,
+  type MattNativeWorkReadingContext,
+  type MattNativeWorkReadingState,
+} from "./reading-state";
 
 const PREVIEW_LIMIT = 3;
 
-export type MattNativeWorkRegionContext =
-  | Readonly<{ state: "bound"; effortIds: readonly string[] }>
-  | Readonly<{ state: "unbound" }>
-  | Readonly<{
-      state: "attention";
-      reason: "binding-conflict" | "bound-unresolved" | "identity-mismatch" | "root-kind-conflict";
-      effortIds: readonly string[];
-    }>;
+export type MattNativeWorkRegionContext = MattNativeWorkReadingContext;
 
 export type MattNativeWorkRegionCount =
   | Readonly<{ mode: "exact" | "at-least"; value: number }>
@@ -35,12 +33,7 @@ export type MattNativeWorkRegionFrontier =
   | "uncertain";
 
 export type MattNativeWorkRegionDiagnostic = Readonly<{
-  code:
-    | "matt.work-region.answer-present-while-open"
-    | "matt.work-region.closure-without-resolution"
-    | "matt.work-region.decision-without-answer"
-    | "matt.work-region.closure-without-completion"
-    | "matt.work-region.wontfix-lifecycle-disagreement";
+  code: string;
   target: string;
   message: string;
 }>;
@@ -66,6 +59,7 @@ export type MattNativeWorkRegionItem = Readonly<{
     | Extract<MattIncomingIssue["lifecycle"], { state: "closed" }>["disposition"]
     | undefined;
   diagnosticCodes?: readonly MattNativeWorkRegionDiagnostic["code"][] | undefined;
+  diagnosticMessages?: readonly string[] | undefined;
 }>;
 
 export type MattNativeWorkRegionRoleGroup = Readonly<{
@@ -118,6 +112,7 @@ export type MattNativeWorkRegionModel = Readonly<{
         effortIds: readonly string[];
         detail: string;
       }>;
+  readingState: MattNativeWorkReadingState;
   total: MattNativeWorkRegionCount;
   roles: readonly MattNativeWorkRegionRoleGroup[];
   views: readonly [
@@ -318,6 +313,11 @@ const anomaliesFor = (object: MattProjectedObject): readonly MattNativeWorkRegio
   return [];
 };
 
+const diagnosticTargetsObject = (
+  diagnostic: Pick<MattNativeWorkRegionDiagnostic, "target">,
+  object: MattProjectedObject,
+): boolean => diagnostic.target === object.ref || diagnostic.target.startsWith(`${object.ref}#`);
+
 const blockersByReference = (
   observation: Extract<MattObservationView, { state: "available" | "partial" }>,
 ): ReadonlyMap<string, readonly string[]> => {
@@ -369,7 +369,10 @@ const itemFor = (
     nativeLifecycle: object.lifecycle.state,
     ...(diagnostics.length === 0
       ? {}
-      : { diagnosticCodes: diagnostics.map((diagnostic) => diagnostic.code) }),
+      : {
+          diagnosticCodes: diagnostics.map((diagnostic) => diagnostic.code),
+          diagnosticMessages: diagnostics.map((diagnostic) => diagnostic.message),
+        }),
   };
   switch (object.kind) {
     case "map":
@@ -490,6 +493,11 @@ export const buildMattNativeWorkRegion = (
   observation: MattObservationView | undefined,
   selections: readonly ProviderObservationSelection[],
   context: MattNativeWorkRegionContext,
+  readingState: MattNativeWorkReadingState = buildMattNativeWorkReadingState(
+    observation,
+    selections,
+    context,
+  ),
 ): MattNativeWorkRegionModel => {
   const objects = mattObjects(observation);
   const evidence = assessSelectedProviderObservationEvidence(
@@ -503,12 +511,30 @@ export const buildMattNativeWorkRegion = (
     objects.filter(isTerminal).map((object) => String(object.ref)),
   );
   const blockers = readable(observation) ? blockersByReference(observation) : new Map();
-  const diagnostics = objects.flatMap(anomaliesFor);
+  const diagnostics = [
+    ...objects.flatMap(anomaliesFor),
+    ...readingState.observation.diagnostics
+      .filter((diagnostic) => objects.some((object) => diagnosticTargetsObject(diagnostic, object)))
+      .map((diagnostic) => ({
+        code: diagnostic.code,
+        target: diagnostic.target,
+        message: diagnostic.message,
+      })),
+  ].filter(
+    (diagnostic, index, values) =>
+      values.findIndex(
+        (candidate) =>
+          candidate.code === diagnostic.code &&
+          candidate.target === diagnostic.target &&
+          candidate.message === diagnostic.message,
+      ) === index,
+  );
   const diagnosticsByTarget = new Map<string, MattNativeWorkRegionDiagnostic[]>();
-  for (const diagnostic of diagnostics) {
-    const existing = diagnosticsByTarget.get(diagnostic.target) ?? [];
-    existing.push(diagnostic);
-    diagnosticsByTarget.set(diagnostic.target, existing);
+  for (const object of objects) {
+    diagnosticsByTarget.set(
+      object.ref,
+      diagnostics.filter((diagnostic) => diagnosticTargetsObject(diagnostic, object)),
+    );
   }
   const regionItems = objects.map((object) =>
     itemFor(
@@ -534,6 +560,7 @@ export const buildMattNativeWorkRegion = (
   const mapChapter = mapChapterFor(observation);
   return {
     context: normalizedContext(context),
+    readingState,
     total: countFor(observation, regionItems.length),
     roles,
     views: [

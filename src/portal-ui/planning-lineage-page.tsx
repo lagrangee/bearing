@@ -6,6 +6,7 @@ import type {
 import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import type { MattNativeEventTime } from "../providers/matt-skills-v1/model";
+import type { MattNativeWorkReadingState } from "../providers/matt-skills-v1/reading-state";
 import type {
   MattNativeWorkRegionCount,
   MattNativeWorkRegionItem,
@@ -336,10 +337,14 @@ function WorkRegionItem({
           ))}
         </ul>
       )}
-      {item.diagnosticCodes === undefined ? null : (
-        <p className="matt-work-diagnostic" role="status">
-          Needs attention: {item.diagnosticCodes.join(", ")}
-        </p>
+      {item.diagnosticMessages === undefined ? null : (
+        <div className="matt-work-diagnostic" role="status">
+          <p>Needs attention: {item.diagnosticMessages.join(" ")}</p>
+          <details>
+            <summary>Protocol detail</summary>
+            <code>{item.diagnosticCodes?.join(", ")}</code>
+          </details>
+        </div>
       )}
     </li>
   );
@@ -489,6 +494,119 @@ function WorkRegionRole({
   );
 }
 
+function NativeWorkReadingState({ reading }: { readonly reading: MattNativeWorkReadingState }) {
+  const whyFacts = [
+    ["Freshness", reading.why.freshness],
+    ["Coverage", reading.why.coverage],
+    ["Projection State", reading.why.projectionState],
+    ["Provider Completion", reading.why.completion],
+    ["Blocking diagnostics", String(reading.why.blockingDiagnosticCount)],
+  ] as const;
+  return (
+    <section
+      className={`matt-reading-state state-${reading.conclusion.toLowerCase().replaceAll(" ", "-").replaceAll("'", "")}`}
+      aria-labelledby="matt-reading-state-title"
+    >
+      <p className="eyebrow">Native Work Reading State</p>
+      <h3 id="matt-reading-state-title">{reading.conclusion}</h3>
+      <p>{reading.impact}</p>
+      <p>
+        <strong>Available action:</strong> {reading.action}
+      </p>
+      <details>
+        <summary>Why this state?</summary>
+        <dl>
+          {whyFacts.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+        {reading.why.causes.length === 0 ? (
+          <p>All current trust requirements for this conclusion are satisfied.</p>
+        ) : (
+          <ul>
+            {reading.why.causes.map((cause) => (
+              <li key={cause}>{cause}</li>
+            ))}
+          </ul>
+        )}
+      </details>
+      <details>
+        <summary>Observation details</summary>
+        <dl>
+          <div>
+            <dt>Source revision</dt>
+            <dd>
+              {reading.observation.sourceRevision.availability === "available"
+                ? reading.observation.sourceRevision.value
+                : "Unavailable"}
+            </dd>
+          </div>
+          <div>
+            <dt>Provider Observation Time</dt>
+            <dd>
+              {reading.observation.observedAt.availability === "available"
+                ? reading.observation.observedAt.value
+                : "Unavailable"}
+            </dd>
+          </div>
+          <div>
+            <dt>Source observed at</dt>
+            <dd>
+              {reading.observation.sourceObservedAt.availability === "available"
+                ? reading.observation.sourceObservedAt.value
+                : "Unavailable"}
+            </dd>
+          </div>
+        </dl>
+        <h4>Coverage dimensions</h4>
+        {reading.observation.coverageDimensions.length === 0 ? (
+          <p>No coverage dimensions are available.</p>
+        ) : (
+          <ul>
+            {reading.observation.coverageDimensions.map((dimension) => (
+              <li key={dimension.key}>
+                <strong>{dimension.key}</strong>: {dimension.state}
+                {dimension.detail === undefined ? "" : ` · ${dimension.detail}`}
+              </li>
+            ))}
+          </ul>
+        )}
+        <h4>Validators and provenance</h4>
+        <ul>
+          {reading.observation.validators.map((validator) => (
+            <li key={`validator:${validator.kind}:${validator.value}`}>
+              Validator {validator.kind}: {validator.value}
+            </li>
+          ))}
+          {reading.observation.provenance.map((item) => (
+            <li key={`provenance:${item.kind}:${item.value}`}>
+              {item.kind}: {item.value}
+            </li>
+          ))}
+        </ul>
+        <h4>Diagnostics</h4>
+        {reading.observation.diagnostics.length === 0 ? (
+          <p>No diagnostics are recorded for this observation.</p>
+        ) : (
+          <ul>
+            {reading.observation.diagnostics.map((diagnostic) => (
+              <li key={`${diagnostic.origin}:${diagnostic.code}:${diagnostic.target}`}>
+                <strong>{diagnostic.message}</strong>
+                <span>
+                  {diagnostic.origin} · {diagnostic.code} · {diagnostic.impact}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
+    </section>
+  );
+}
+
 function MattNativeWorkRegion({
   entryId,
   onNavigate,
@@ -510,6 +628,7 @@ function MattNativeWorkRegion({
         <p className="eyebrow">Matt-native work region</p>
         <h2 id="matt-work-region-title">{region.context.label}</h2>
         {"detail" in region.context ? <p>{region.context.detail}</p> : null}
+        <NativeWorkReadingState reading={region.readingState} />
         <p>{workRegionCountLabel(region.total)} observed native subjects.</p>
       </header>
       <nav aria-label="Native Work Frontier views">

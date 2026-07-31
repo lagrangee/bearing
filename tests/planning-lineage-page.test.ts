@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createProviderScopeObservation } from "../src/native-work-provider";
 import type {
   RequestedPlanningLineageFilteredView,
   RequestedPlanningLineageSubject,
@@ -121,6 +122,13 @@ test("renders one accessible role-first Matt-Native Work Region from Effort and 
     expect(html).toContain("Route a new Portal request");
     expect(html).toContain("ready-for-agent");
     expect(html).toContain("/lineage/native-subject/");
+    expect(html).toContain("<h3");
+    expect(html).toContain(">Open work remains</h3>");
+    expect(html).toContain("<summary>Why this state?</summary>");
+    expect(html).toContain("<summary>Observation details</summary>");
+    expect(html).toContain("<dt>Projection State</dt><dd>available</dd>");
+    expect(html).toContain("<dt>Provider Completion</dt><dd>incomplete</dd>");
+    expect(html).not.toContain("Needs refresh");
   }
 
   const anchored = render(
@@ -131,6 +139,97 @@ test("renders one accessible role-first Matt-Native Work Region from Effort and 
     { semanticAnchor: "native-work-current" },
   );
   expect(anchored).not.toContain("Requested section unavailable");
+});
+
+test("renders first acquisition failure as bound Can't verify with its concrete cause", () => {
+  const snapshot = createProjectOverviewFixture();
+  const failed = withLineage({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.filter(
+      (observation) => observation.binding.nativeScope !== ".scratch/portal",
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.nativeScope === ".scratch/portal"
+        ? {
+            ...selection,
+            observationId: null,
+            effectiveFreshness: "undetermined" as const,
+            latestAttempt: {
+              intent: "initial-baseline" as const,
+              attemptedAt: "2026-07-31T07:00:00Z",
+              outcome: "failed" as const,
+              diagnostics: [
+                {
+                  code: "provider.contract.unsupported",
+                  impact: "blocking" as const,
+                  target: ".scratch/portal",
+                  message: "The provider contract is unsupported.",
+                },
+              ],
+            },
+          }
+        : selection,
+    ),
+  });
+  const html = render(
+    { validity: "valid", value: { kind: "effort", id: "effort:portal" } },
+    { snapshot: failed },
+  );
+
+  expect(html).toContain('class="matt-work-region context-bound"');
+  expect(html).toContain(">Can&#x27;t verify</h3>");
+  expect(html).toContain("The provider contract is unsupported.");
+  expect(html).not.toContain("Binding needs attention");
+});
+
+test("renders provider subject diagnostics beside the affected native content", () => {
+  const snapshot = createProjectOverviewFixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) =>
+      observation.binding.nativeScope === ".scratch/portal" &&
+      (observation.state === "available" || observation.state === "partial"),
+  );
+  const ticket =
+    portal?.state === "available" || portal?.state === "partial"
+      ? portal.projection.deliveryTickets[0]
+      : undefined;
+  if (portal === undefined || ticket === undefined) {
+    throw new Error("Expected a Portal Delivery ticket.");
+  }
+  const degraded = createProviderScopeObservation({
+    ...portal,
+    completion: "undetermined",
+    diagnostics: [
+      ...portal.diagnostics,
+      {
+        code: "matt.delivery.answer-conflict",
+        class: "mapping",
+        impact: "blocking",
+        target: `${ticket.ref}#answer`,
+        message: "The Delivery Answer sources conflict.",
+      },
+    ],
+  } as never) as typeof portal;
+  const candidate = withLineage({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portal.id ? degraded : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === portal.id
+        ? { ...selection, observationId: degraded.id }
+        : selection,
+    ),
+  });
+  const html = render(
+    { validity: "valid", value: { kind: "effort", id: "effort:portal" } },
+    { snapshot: candidate },
+  );
+
+  expect(html).toContain("Needs attention: The Delivery Answer sources conflict.");
+  expect(html).toContain(
+    "<summary>Protocol detail</summary><code>matt.delivery.answer-conflict</code>",
+  );
 });
 
 test("renders scoped Map Destination uncertainty instead of a blank available chapter", () => {
@@ -206,7 +305,13 @@ test("renders the same native scope as Discovered Work when no Effort binds it",
   expect(html).toContain('class="matt-work-region context-unbound"');
   expect(html).toContain('id="matt-work-region-title">Discovered Work</h2>');
   expect(html).toContain("Not linked to an Effort");
+  expect(html).toContain(">Can&#x27;t verify</h3>");
+  expect(html).toContain(
+    "This scope is not linked to an Effort, so completion cannot establish contribution or readiness.",
+  );
   expect(html).not.toContain('id="matt-work-region-title">Contributing Work</h2>');
+  expect(html).not.toContain(">Complete</h3>");
+  expect(html).not.toContain(">Open work remains</h3>");
 });
 
 test("omits confirmed-empty role shells while preserving their native history", () => {

@@ -11,10 +11,17 @@ import {
   mattNativeScopeSubject,
   mattNativeSubjectForObject,
   sameMattNativeBindingDefinition,
+  sameMattNativeLocator,
   sameMattNativeScope,
 } from "../providers/matt-skills-v1/native-subject";
 import type { MattProjectedObject } from "../providers/matt-skills-v1/projection";
 import { mattObjects } from "../providers/matt-skills-v1/projection";
+import {
+  buildMattNativeWorkReadingState,
+  type MattNativeWorkReadingState,
+  mattNativeWorkReadingContextForEffort,
+  mattNativeWorkReadingContextForScope,
+} from "../providers/matt-skills-v1/reading-state";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import type {
   PlanningLineageProjection,
@@ -1238,6 +1245,42 @@ const relationsFor = (
   }
 };
 
+const nativeWorkReadingStateFor = (
+  input: Input,
+  subject: PlanningLineageSubject,
+  record: SubjectRecord,
+): MattNativeWorkReadingState | undefined => {
+  const efforts = trusted(input.efforts);
+  if (subject.kind === "effort") {
+    const effort = record as EffortRecord;
+    if (effort.workBinding === undefined) return undefined;
+    const binding = effort.workBinding;
+    const observation =
+      input.providerObservations.find((candidate) =>
+        sameMattNativeScope(candidate.binding, binding),
+      ) ??
+      input.providerObservations.find((candidate) =>
+        sameMattNativeLocator(candidate.binding, binding),
+      );
+    const context = mattNativeWorkReadingContextForEffort(
+      efforts,
+      effort,
+      observation,
+      input.providerObservationSelections,
+    );
+    return context === undefined
+      ? undefined
+      : buildMattNativeWorkReadingState(observation, input.providerObservationSelections, context);
+  }
+  if (subject.kind !== "native-scope") return undefined;
+  const observation = (record as NativeRecord).observation;
+  return buildMattNativeWorkReadingState(
+    observation,
+    input.providerObservationSelections,
+    mattNativeWorkReadingContextForScope(efforts, observation),
+  );
+};
+
 const subjectProjection = (
   input: Input,
   identity: PlanningLineageSubject,
@@ -1257,11 +1300,13 @@ const subjectProjection = (
           ancestors.has(`${target.subject.kind}:${target.subject.id}`),
       ),
   }));
+  const nativeWorkReadingState = nativeWorkReadingStateFor(input, identity, record);
   return {
     identity,
     source: record.source,
     parentPath,
     semanticSections: semanticSectionsFor(input, identity, record),
+    ...(nativeWorkReadingState === undefined ? {} : { nativeWorkReadingState }),
     relations,
   };
 };

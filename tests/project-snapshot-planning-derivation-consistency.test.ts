@@ -119,20 +119,50 @@ test("withholds Gate readiness when contributor binding evidence is missing or u
           ...selection,
           observationId: null,
           effectiveFreshness: "undetermined" as const,
+          latestAttempt: {
+            intent: "initial-baseline" as const,
+            attemptedAt: "2026-07-31T07:00:00Z",
+            outcome: "failed" as const,
+            diagnostics: [
+              {
+                code: "provider.contract.unsupported",
+                impact: "blocking" as const,
+                target: ".scratch/portal",
+                message: "The provider contract is unsupported.",
+              },
+            ],
+          },
         }
       : selection,
   );
 
+  const firstFailure = withRebuiltPlanningLineage({
+    ...snapshot,
+    ...unknownPlanning,
+    providerObservations: capturesWithoutPortal,
+    providerObservationSelections: selectionsWithoutPortal,
+  });
+  expect(projectSnapshotSchema.safeParse(firstFailure).success).toBe(true);
   expect(
-    projectSnapshotSchema.safeParse(
-      withRebuiltPlanningLineage({
-        ...snapshot,
-        ...unknownPlanning,
-        providerObservations: capturesWithoutPortal,
-        providerObservationSelections: selectionsWithoutPortal,
-      }),
-    ).success,
-  ).toBe(true);
+    firstFailure.lineage.subjects.find(
+      (subject) => subject.identity.kind === "effort" && subject.identity.id === "effort:portal",
+    )?.nativeWorkReadingState,
+  ).toMatchObject({
+    conclusion: "Can't verify",
+    binding: { state: "bound", effortIds: ["effort:portal"] },
+    why: { blockingDiagnosticCount: 1 },
+    observation: {
+      diagnostics: [
+        {
+          origin: "latest-attempt",
+          code: "provider.contract.unsupported",
+          impact: "blocking",
+          target: ".scratch/portal",
+          message: "The provider contract is unsupported.",
+        },
+      ],
+    },
+  });
   rejects({ ...snapshot, providerObservations: capturesWithoutPortal });
 
   const invalidCaptures = snapshot.providerObservations.map((capture) => {

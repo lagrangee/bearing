@@ -244,6 +244,16 @@ test("real inspect gate command returns one structured captured closure and writ
         wayfinderTickets: [{ ref: ".scratch/second/issues/01-finish.md" }],
       },
     },
+    nativeWorkReadingState: {
+      conclusion: "Complete",
+      why: {
+        projectionState: "available",
+        freshness: "current",
+        coverage: "complete",
+        completion: "complete",
+        blockingDiagnosticCount: 0,
+      },
+    },
     alignmentChecks: [{ value: { id: "alignment-check:second" } }],
     evidence: [{ value: { id: "asset:second-evidence" } }],
     source: { displayLocator: ".bearing/state/efforts/second.md" },
@@ -390,6 +400,10 @@ test("real inspect roadmap and effort commands use the same complete typed closu
           map: { ref: ".scratch/second/map.md" },
           wayfinderTickets: [{ ref: ".scratch/second/issues/01-finish.md" }],
         },
+      },
+      nativeWorkReadingState: {
+        conclusion: "Complete",
+        binding: { state: "bound", effortIds: ["effort:second"] },
       },
       alignmentChecks: [{ value: { id: "alignment-check:second" } }],
       evidence: [{ value: { id: "asset:second-evidence" } }],
