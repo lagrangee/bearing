@@ -195,29 +195,76 @@ const syncResponse = (
 };
 
 export const registerProjectRoutes = (app: Hono, options: RouteOptions): void => {
-  app.get("/preview/projects/:entryId/assets/:assetId", async (context) => {
-    const result = await options.assetPreview.resolve(
-      context.req.param("entryId"),
-      context.req.param("assetId"),
-    );
+  const previewHeaders = (
+    context: Context,
+    result: Awaited<ReturnType<AssetPreviewService["resolve"]>>,
+  ): void => {
     context.header("Cache-Control", "no-store");
-    context.header("Content-Security-Policy", ASSET_PREVIEW_CONTENT_SECURITY_POLICY);
+    context.header(
+      "Content-Security-Policy",
+      result.kind === "available"
+        ? result.contentSecurityPolicy
+        : ASSET_PREVIEW_CONTENT_SECURITY_POLICY,
+    );
     context.header("Cross-Origin-Opener-Policy", "same-origin");
     context.header("Cross-Origin-Resource-Policy", "same-origin");
     context.header("Referrer-Policy", "no-referrer");
     context.header("X-Content-Type-Options", "nosniff");
     context.header("X-Frame-Options", "DENY");
     if (result.kind === "available") {
-      context.header("Content-Type", result.contentType);
       context.header("X-Bearing-Preview-Policy", String(result.policyVersion));
       context.header("X-Bearing-Preview-Source", result.source);
+      context.header("X-Bearing-Preview-Surface", result.surface);
+      if (result.bundlePolicyVersion !== undefined) {
+        context.header("X-Bearing-Preview-Bundle-Policy", String(result.bundlePolicyVersion));
+      }
+      if (result.resourcePath !== undefined) {
+        context.header("X-Bearing-Preview-Resource", result.resourcePath);
+      }
+    } else {
+      context.header("X-Bearing-Preview-Availability", result.availability);
+    }
+  };
+
+  const previewResponse = (
+    context: Context,
+    result: Awaited<ReturnType<AssetPreviewService["resolve"]>>,
+  ): Response => {
+    previewHeaders(context, result);
+    if (result.kind === "available") {
+      context.header("Content-Type", result.contentType);
       return context.body(new Uint8Array(result.body));
     }
     context.header("Content-Type", "text/plain; charset=utf-8");
-    context.header("X-Bearing-Preview-Availability", result.availability);
     const status =
       result.code === "asset-not-registered" || result.code === "project-unavailable" ? 404 : 409;
     return context.text(`Preview unavailable: ${result.message}`, status);
+  };
+
+  app.get("/preview/projects/:entryId/assets/:assetId/resource/*", async (context) => {
+    const marker = "/resource/";
+    const pathname = new URL(context.req.url).pathname;
+    const encodedResourcePath = pathname.slice(pathname.indexOf(marker) + marker.length);
+    let resourcePath = "";
+    try {
+      resourcePath = decodeURIComponent(encodedResourcePath);
+    } catch {
+      resourcePath = "";
+    }
+    const result = await options.assetPreview.resolveResource(
+      context.req.param("entryId"),
+      context.req.param("assetId"),
+      resourcePath,
+    );
+    return previewResponse(context, result);
+  });
+
+  app.get("/preview/projects/:entryId/assets/:assetId", async (context) => {
+    const result = await options.assetPreview.resolve(
+      context.req.param("entryId"),
+      context.req.param("assetId"),
+    );
+    return previewResponse(context, result);
   });
 
   app.get("/api/v1/projects/:entryId/snapshot", async (context) => {
