@@ -174,7 +174,8 @@ test("partial relation collections allow unresolved extras while remaining exact
             ...snapshot.assets,
             items: snapshot.assets.items.map((asset) => ({
               ...asset,
-              gatePassageEvidenceFor: [],
+              evidenceRoles: asset.evidenceRoles.filter((role) => role !== "passage-evidence"),
+              passageEvidence: [],
             })),
           }
         : snapshot.assets,

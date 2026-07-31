@@ -255,6 +255,40 @@ const targetForReference = (input: Input, reference: string, note?: string): Rel
   };
 };
 
+const targetForPlanningOrNativeReference = (
+  input: Input,
+  reference: string,
+  note?: string,
+): RelationTarget => {
+  const canonical = planningLineageSubjectForReference(reference);
+  if (canonical !== undefined) return targetForReference(input, reference, note);
+  const candidates = providerSubjectRecords(input).filter(
+    (record) => record.recordKind === "native-object" && String(record.object.ref) === reference,
+  );
+  if (candidates.length !== 1) {
+    return {
+      reference,
+      label: reference,
+      availability: "unavailable",
+      note:
+        candidates.length > 1
+          ? "Provider-native identity is ambiguous in the selected observations."
+          : (note ?? "Provider-native route unavailable in the current Snapshot."),
+    };
+  }
+  const record = candidates[0];
+  if (record === undefined || record.recordKind !== "native-object") {
+    throw new Error("A unique provider-native subject was not retained.");
+  }
+  return {
+    reference,
+    label: record.title,
+    availability: "available",
+    subject: mattNativeSubjectForObject(record.object),
+    ...(note === undefined ? {} : { note }),
+  };
+};
+
 const relationBase = (
   key: PlanningLineageRelationKey,
   label: string,
@@ -338,18 +372,25 @@ const reverseReferenceRelation = (
   key: PlanningLineageRelationKey,
   label: string,
   direction: string,
-  references: readonly string[],
+  evidence: readonly Readonly<{ reference: string; note?: string | undefined }>[],
   sources: readonly ReverseRelationSource[],
-  notes?: ReadonlyMap<string, string>,
 ): PlanningLineageRelation => {
   const incomplete = sources.some((source) => source.validity !== "available");
-  if (references.length > 0) {
+  if (evidence.length > 0) {
+    const grouped = new Map<string, string[]>();
+    for (const item of evidence) {
+      const notes = grouped.get(item.reference) ?? [];
+      if (item.note !== undefined && !notes.includes(item.note)) notes.push(item.note);
+      grouped.set(item.reference, notes);
+    }
     return presentRelation(
       key,
       label,
       direction,
       "many",
-      references.map((reference) => targetForReference(input, reference, notes?.get(reference))),
+      [...grouped].map(([reference, notes]) =>
+        targetForReference(input, reference, notes.length === 0 ? undefined : notes.join("; ")),
+      ),
       incomplete ? "at-least" : "complete",
     );
   }
@@ -660,6 +701,77 @@ const parentPathFor = (
     state: "complete",
     ancestors: [roadmapAncestor, { kind: "gate", id: gate.id }],
   };
+};
+
+const subjectForPlanningOrNativeReference = (
+  input: Input,
+  reference: string,
+): PlanningLineageSubject | undefined => {
+  const canonical = planningLineageSubjectForReference(reference);
+  if (canonical !== undefined && recordFor(input, canonical) !== undefined) return canonical;
+  const candidates = providerSubjectRecords(input).filter(
+    (record) => record.recordKind === "native-object" && String(record.object.ref) === reference,
+  );
+  const record = candidates.length === 1 ? candidates[0] : undefined;
+  return record?.recordKind === "native-object"
+    ? mattNativeSubjectForObject(record.object)
+    : undefined;
+};
+
+const assetAncestorContextRelation = (
+  input: Input,
+  asset: AssetRecord,
+): PlanningLineageRelation => {
+  const directReferences = [
+    asset.owner,
+    ...(asset.producedFor === undefined ? [] : [asset.producedFor]),
+    ...asset.citations.map((citation) => citation.citingReference),
+    ...asset.authorityAdoptions.map((adoption) => adoption.authorityId),
+    ...asset.passageEvidence.map((evidence) => evidence.gateId),
+  ];
+  const targets = new Map<string, RelationTarget>();
+  let incomplete = false;
+  for (const directReference of directReferences) {
+    const subject = subjectForPlanningOrNativeReference(input, directReference);
+    const record = subject === undefined ? undefined : recordFor(input, subject);
+    if (subject === undefined || record === undefined) {
+      incomplete = true;
+      continue;
+    }
+    const path = parentPathFor(input, subject, record);
+    if (path.state !== "complete") incomplete = true;
+    for (const ancestor of path.ancestors) {
+      const key = `${ancestor.kind}:${ancestor.id}`;
+      if (targets.has(key)) continue;
+      targets.set(
+        key,
+        targetForPlanningOrNativeReference(
+          input,
+          ancestor.id,
+          `Ancestor context for direct target ${directReference}; this does not create an Evidence role.`,
+        ),
+      );
+    }
+  }
+  if (targets.size > 0) {
+    return presentRelation(
+      "context.ancestors",
+      "Ancestor Context",
+      "provides context through",
+      "many",
+      [...targets.values()],
+      incomplete ? "at-least" : "complete",
+    );
+  }
+  return incomplete
+    ? unknownRelation(
+        "context.ancestors",
+        "Ancestor Context",
+        "provides context through",
+        "many",
+        "One or more direct targets cannot provide trustworthy ancestor context.",
+      )
+    : confirmedNone("context.ancestors", "Ancestor Context", "provides context through", "many");
 };
 
 const section = (
@@ -1037,28 +1149,28 @@ const relationsForAsset = (input: Input, asset: AssetRecord): PlanningLineageRel
   asset.producedFor === undefined
     ? confirmedNone("production.produced-for", "Produced For", "was produced for", "one")
     : presentRelation("production.produced-for", "Produced For", "was produced for", "one", [
-        {
-          reference: asset.producedFor,
-          label: asset.producedFor,
-          availability: "unavailable",
-          note: "Provider-native route unavailable in the current Snapshot.",
-        },
+        targetForPlanningOrNativeReference(input, asset.producedFor),
       ]),
   reverseReferenceRelation(
     input,
     "planning-use.cited-by",
     "Planning Citations",
     "is cited by",
-    asset.citations.map((citation) => citation.citingReference),
+    asset.citations.map((citation) => ({
+      reference: citation.citingReference,
+      note: citation.note,
+    })),
     [input.roadmaps, input.gates, input.efforts, input.authorities, input.checks, input.reviews],
-    new Map(asset.citations.map((citation) => [citation.citingReference, citation.note])),
   ),
   reverseReferenceRelation(
     input,
     "adoption.used-by",
     "Authority Adoption",
     "is adopted by",
-    asset.adoptedByAuthorityIds,
+    asset.authorityAdoptions.map((adoption) => ({
+      reference: adoption.authorityId,
+      note: `Accepted Decision: ${adoption.decisionReference}; Source ${adoption.source}.`,
+    })),
     [input.authorities],
   ),
   reverseReferenceRelation(
@@ -1066,9 +1178,13 @@ const relationsForAsset = (input: Input, asset: AssetRecord): PlanningLineageRel
     "passage.used-by",
     "Gate Passage Evidence",
     "is used by",
-    asset.gatePassageEvidenceFor,
+    asset.passageEvidence.map((evidence) => ({
+      reference: evidence.gateId,
+      note: `Historical Gate Passage; Source ${evidence.source}.`,
+    })),
     [input.gates],
   ),
+  assetAncestorContextRelation(input, asset),
   directRelation(
     input,
     "asset.replacement",

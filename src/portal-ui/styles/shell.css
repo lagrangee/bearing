@@ -345,6 +345,18 @@
 .inspector-enter {
   width: 100%;
 }
+.asset-location-copy {
+  display: grid;
+  gap: var(--space-1);
+}
+.asset-location-copy span {
+  min-height: 1.25rem;
+  color: var(--muted);
+  font-size: var(--type-micro);
+}
+.inspector-asset-location-copy .action {
+  width: 100%;
+}
 .inspector-note {
   color: var(--muted);
   font-size: var(--type-micro);

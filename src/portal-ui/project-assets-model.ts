@@ -1,23 +1,49 @@
 import type { AssetProjection, ProjectSnapshot, SourceRecord } from "../project-snapshot/contract";
+import {
+  ASSET_EVIDENCE_FILTERS,
+  type AssetEvidenceFilter,
+  type AssetEvidenceFilterCoverageBasis,
+  assetEvidenceFilterContract,
+} from "./asset-evidence-filter";
+import { assetEvidenceRoleLabel } from "./asset-evidence-role-label";
 import type { ProjectInspectorSelection } from "./project-inspector";
 
-export type AssetCitationFilter = "all" | "cited" | "uncited";
+export type AssetEvidenceFilterCoverage = "complete" | "incomplete";
 
 export type ProjectAssetRow = Readonly<{
   asset: AssetProjection;
-  authorityAdoptions: readonly Readonly<{ id: string; available: boolean }>[];
+  authorityAdoptions: readonly Readonly<{
+    id: string;
+    decisionReference: string;
+    source: SourceRecord | undefined;
+    available: boolean;
+  }>[];
+  authorityBaselines: readonly Readonly<{ id: string; available: boolean }>[];
   citationRelations: readonly Readonly<{
     citation: AssetProjection["citations"][number];
     source: SourceRecord | undefined;
   }>[];
-  gatePassages: readonly Readonly<{ id: string; available: boolean }>[];
+  gatePassages: readonly Readonly<{
+    id: string;
+    source: SourceRecord | undefined;
+    available: boolean;
+  }>[];
   searchValue: string;
   source: SourceRecord | undefined;
 }>;
 
 export type ProjectAssetsModel =
-  | Readonly<{ state: "available"; rows: readonly ProjectAssetRow[] }>
-  | Readonly<{ state: "partial"; issueCount: number; rows: readonly ProjectAssetRow[] }>
+  | Readonly<{
+      state: "available";
+      evidenceFilterCoverage: Readonly<Record<AssetEvidenceFilter, AssetEvidenceFilterCoverage>>;
+      rows: readonly ProjectAssetRow[];
+    }>
+  | Readonly<{
+      state: "partial";
+      evidenceFilterCoverage: Readonly<Record<AssetEvidenceFilter, AssetEvidenceFilterCoverage>>;
+      issueCount: number;
+      rows: readonly ProjectAssetRow[];
+    }>
   | Readonly<{ state: "invalid"; issueCount: number; rows: readonly [] }>;
 
 const wordsFor = (
@@ -38,8 +64,13 @@ const wordsFor = (
     asset.producedFor,
     asset.displayLocation,
     asset.contentAvailability,
-    ...asset.adoptedByAuthorityIds,
-    ...asset.gatePassageEvidenceFor,
+    ...asset.evidenceRoles,
+    ...asset.authorityAdoptions.flatMap((adoption) => [
+      adoption.authorityId,
+      adoption.decisionReference,
+      adoption.source,
+    ]),
+    ...asset.passageEvidence.flatMap((evidence) => [evidence.gateId, evidence.source]),
     ...asset.citations.flatMap((citation) => [
       citation.citingReference,
       citation.source,
@@ -68,45 +99,93 @@ export const buildProjectAssetsModel = (snapshot: ProjectSnapshot): ProjectAsset
   );
   const rows = snapshot.assets.items.map((asset) => {
     const citationSources = asset.citations.map((citation) => sources.get(citation.source));
+    const authorityBaselines =
+      snapshot.authorities.validity === "invalid"
+        ? []
+        : snapshot.authorities.items
+            .filter((authority) => authority.baselineAssetIds.includes(asset.id))
+            .map((authority) => ({
+              id: String(authority.id),
+              available: true,
+            }));
     return {
       asset,
-      authorityAdoptions: asset.adoptedByAuthorityIds.map((id) => ({
-        id: String(id),
-        available: authorityIds.has(id),
+      authorityAdoptions: asset.authorityAdoptions.map((adoption) => ({
+        id: String(adoption.authorityId),
+        decisionReference: adoption.decisionReference,
+        source: sources.get(adoption.source),
+        available: authorityIds.has(adoption.authorityId),
       })),
+      authorityBaselines,
       citationRelations: asset.citations.map((citation, index) => ({
         citation,
         source: citationSources[index],
       })),
-      gatePassages: asset.gatePassageEvidenceFor.map((id) => ({
-        id: String(id),
-        available: gateIds.has(id),
+      gatePassages: asset.passageEvidence.map((evidence) => ({
+        id: String(evidence.gateId),
+        source: sources.get(evidence.source),
+        available: gateIds.has(evidence.gateId),
       })),
       searchValue: wordsFor(asset, citationSources),
       source: sources.get(asset.source),
     };
   });
+  const citationCoverage = [
+    snapshot.roadmaps,
+    snapshot.gates,
+    snapshot.efforts,
+    snapshot.authorities,
+    snapshot.checks,
+    snapshot.reviews,
+  ].every((collection) => collection.validity === "available")
+    ? "complete"
+    : "incomplete";
+  const coverageByBasis: Readonly<
+    Record<AssetEvidenceFilterCoverageBasis, AssetEvidenceFilterCoverage>
+  > = {
+    "asset-record": snapshot.assets.validity === "available" ? "complete" : "incomplete",
+    "citation-owners": citationCoverage,
+    authorities: snapshot.authorities.validity === "available" ? "complete" : "incomplete",
+    gates: snapshot.gates.validity === "available" ? "complete" : "incomplete",
+  };
+  const evidenceFilterCoverage = Object.fromEntries(
+    ASSET_EVIDENCE_FILTERS.map((filter) => [filter.value, coverageByBasis[filter.coverageBasis]]),
+  ) as Readonly<Record<AssetEvidenceFilter, AssetEvidenceFilterCoverage>>;
   return snapshot.assets.validity === "partial"
-    ? { state: "partial", issueCount: snapshot.assets.issues.length, rows }
-    : { state: "available", rows };
+    ? {
+        state: "partial",
+        evidenceFilterCoverage,
+        issueCount: snapshot.assets.issues.length,
+        rows,
+      }
+    : { state: "available", evidenceFilterCoverage, rows };
 };
 
 export const filterAssetRows = (
   rows: readonly ProjectAssetRow[],
   query: string,
-  citationFilter: AssetCitationFilter,
+  evidenceFilter: AssetEvidenceFilter,
+  filterCoverage: AssetEvidenceFilterCoverage,
 ): readonly ProjectAssetRow[] => {
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const match = assetEvidenceFilterContract(evidenceFilter).match;
   return rows.filter((row) => {
-    const citationMatch =
-      citationFilter === "all" ||
-      (citationFilter === "cited" ? row.asset.citationCount > 0 : row.asset.citationCount === 0);
-    return citationMatch && (normalizedQuery === "" || row.searchValue.includes(normalizedQuery));
+    const evidenceMatch =
+      match === "all" ||
+      (match === "execution-evidence"
+        ? row.asset.evidenceRoles.includes("execution-evidence")
+        : match === "planning-citation"
+          ? row.asset.evidenceRoles.includes("planning-citation")
+          : match === "authority-baseline"
+            ? row.authorityBaselines.length > 0
+            : match === "passage-evidence"
+              ? row.asset.evidenceRoles.includes("passage-evidence")
+              : filterCoverage === "complete" && row.asset.citations.length === 0);
+    return evidenceMatch && (normalizedQuery === "" || row.searchValue.includes(normalizedQuery));
   });
 };
 
 const titleCase = (value: string): string => `${value[0]?.toUpperCase()}${value.slice(1)}`;
-
 const relationSection = (
   title: string,
   items: readonly string[],
@@ -130,8 +209,7 @@ export const assetInspection = (row: ProjectAssetRow): ProjectInspectorSelection
     eyebrow: "Asset",
     title: asset.title,
     detail: "A registered project artifact whose content remains at its native source location.",
-    handoff: true,
-    nativeSourceHandoff: true,
+    copy: { label: "Copy Asset Location", value: asset.displayLocation },
     source: row.source,
     facts: [
       { label: "Kind", value: asset.kind },
@@ -147,11 +225,17 @@ export const assetInspection = (row: ProjectAssetRow): ProjectInspectorSelection
         : [{ label: "Superseded by", value: asset.supersededBy, code: true }]),
       { label: "Produced for", value: asset.producedFor ?? "Not declared", code: true },
       { label: "Content", value: titleCase(asset.contentAvailability) },
-      { label: "Citations", value: String(asset.citationCount) },
+      { label: "Citations", value: String(asset.citations.length) },
       { label: "Stable ID", value: asset.id, code: true },
       { label: "Location", value: asset.displayLocation, code: true },
     ],
     sections: [
+      relationSection(
+        "Evidence Roles",
+        asset.evidenceRoles.map(assetEvidenceRoleLabel),
+        "No explicit Evidence role is recorded.",
+        "Only explicit direct evidence facts create these independent, coexisting roles.",
+      ),
       relationSection(
         "Planning Citations",
         citations,
@@ -160,15 +244,45 @@ export const assetInspection = (row: ProjectAssetRow): ProjectInspectorSelection
       ),
       relationSection(
         "Authority adoption",
-        row.authorityAdoptions.map(relationLabel),
-        "Not adopted by a current Authority baseline.",
-        "Explicit current-baseline adoption relations; unavailable targets remain visible.",
+        row.authorityAdoptions.map(
+          (relation) =>
+            `${relationLabel(relation)} · Decision ${relation.decisionReference} · Source ${
+              relation.source?.displayLocator ?? "unavailable"
+            }`,
+        ),
+        "No explicit Authority Adoption is recorded.",
+        "Explicit Adoption relations preserve their direct Authority, accepted decision, and native source provenance.",
       ),
       relationSection(
         "Gate Passage evidence",
-        row.gatePassages.map(relationLabel),
+        row.gatePassages.map(
+          (relation) =>
+            `${relationLabel(relation)} · Source ${
+              relation.source?.displayLocator ?? "unavailable"
+            }`,
+        ),
         "Not used as evidence by a recorded Gate Passage.",
-        "Explicit historical Passage evidence relations; unavailable targets remain visible.",
+        "Explicit historical Passage evidence relations preserve their direct Gate and native source provenance.",
+      ),
+      relationSection(
+        "Authority baselines",
+        row.authorityBaselines.map(relationLabel),
+        "Not present in a current Authority baseline.",
+        "Baseline membership is collection context and does not create an Authority Adoption Evidence role.",
+      ),
+      relationSection(
+        "Execution Evidence provenance",
+        asset.evidenceRoles.includes("execution-evidence")
+          ? [
+              `Produced for ${asset.producedFor ?? "unavailable"} · Producer ${asset.producer.kind} / ${asset.producer.name}${
+                asset.producer.reference === undefined
+                  ? ""
+                  : ` · Reference ${asset.producer.reference}`
+              }`,
+            ]
+          : [],
+        "This Asset is not explicit Execution Evidence.",
+        "Execution Evidence preserves its direct Produced For target and producer provenance.",
       ),
     ],
   };

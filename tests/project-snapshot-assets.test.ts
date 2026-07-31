@@ -129,9 +129,9 @@ Reach the boundary.
         disposition: "available",
         contentAvailability: "available",
         citations: [],
-        adoptedByAuthorityIds: [],
-        gatePassageEvidenceFor: [],
-        citationCount: 0,
+        evidenceRoles: [],
+        authorityAdoptions: [],
+        passageEvidence: [],
       },
     ],
   });
@@ -281,7 +281,7 @@ Assets:
   });
 });
 
-test("keeps an external Asset locator display-only and reports its content as unreadable", async () => {
+test("rejects an external Asset locator before it can become local provenance", async () => {
   const root = await createValidBearingRepo();
   await writeFixture(
     root,
@@ -312,12 +312,11 @@ Assets:
   });
 
   expect(projected.assets).toMatchObject({
-    validity: "available",
-    items: [
+    validity: "invalid",
+    issues: [
       {
-        id: "asset:external",
-        displayLocation: "https://example.test/evidence/report",
-        contentAvailability: "unreadable",
+        code: "invalid-asset-schema",
+        target: ".bearing/state/assets.md",
       },
     ],
   });

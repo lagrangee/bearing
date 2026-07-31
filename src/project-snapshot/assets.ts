@@ -3,6 +3,7 @@ import {
   projectExpectedSourceEventTime,
   projectOptionalSourceEventTime,
 } from "../source-event-time";
+import { deriveAssetEvidenceRoles } from "./asset-evidence-roles";
 import type {
   AssetProjection,
   CollectionProjection,
@@ -76,7 +77,15 @@ export const buildAssetProjection = async (
       id: asset.ID,
       title: asset.Title,
       source: source.reference,
+      evidenceRoles: deriveAssetEvidenceRoles({
+        kind: asset.Kind,
+        citations: [],
+        authorityAdoptions: [],
+        passageEvidence: [],
+      }),
       citations: [],
+      authorityAdoptions: [],
+      passageEvidence: [],
       kind: asset.Kind,
       owner: asset.Owner,
       producer: {
@@ -101,9 +110,6 @@ export const buildAssetProjection = async (
       ...(asset["Produced for"] === undefined ? {} : { producedFor: asset["Produced for"] }),
       displayLocation: asset.Location,
       contentAvailability: contentAvailability(input.contentObservations, asset.ID, asset.Location),
-      adoptedByAuthorityIds: [],
-      gatePassageEvidenceFor: [],
-      citationCount: 0,
     });
     results.push(
       projected.success

@@ -37,7 +37,7 @@ export { planningLineageProjectionSchema } from "./schema-planning-lineage";
 export { diagnosticReferenceSchema } from "./schema-primitives";
 export { projectionIssueSchema } from "./schema-projection";
 export { projectSummarySchema } from "./schema-summary";
-export const PROJECT_SNAPSHOT_VERSION = 12 as const;
+export const PROJECT_SNAPSHOT_VERSION = 13 as const;
 const resolutionSchema = z.strictObject({
   acceptedDecision: semanticPlainTextSchema,
   acceptedAt: bearingSourceEventTimeSchema,

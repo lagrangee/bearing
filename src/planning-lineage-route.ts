@@ -78,6 +78,7 @@ export const planningLineageRelationKeySchema = z.enum([
   "adoption.used-by",
   "passage.evidence",
   "passage.used-by",
+  "context.ancestors",
   "asset.replacement",
 ]);
 export type PlanningLineageRelationKey = z.infer<typeof planningLineageRelationKeySchema>;

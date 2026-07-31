@@ -110,6 +110,95 @@ test("materializes canonical parents and relations once in the Snapshot contract
   }
 });
 
+test("keeps Asset ancestor context separate from direct Evidence relations", () => {
+  const snapshot = createProjectOverviewFixture();
+  const context = relationFor(
+    snapshot,
+    "asset",
+    "asset:planning-model-evidence",
+    "context.ancestors",
+  );
+  expect(context).toMatchObject({
+    state: "present",
+    targets: [
+      {
+        reference: "roadmap:portal",
+        availability: "available",
+      },
+      {
+        reference: "gate:one",
+        availability: "available",
+      },
+    ],
+  });
+  if (context.state !== "present") throw new Error("Expected Asset ancestor context.");
+  expect(
+    context.targets.every((target) => target.note?.includes("does not create an Evidence role")),
+  ).toBe(true);
+  if (snapshot.assets.validity === "invalid") throw new Error("Expected readable Assets.");
+  expect(snapshot.assets.items[0]?.evidenceRoles).toEqual([
+    "planning-citation",
+    "passage-evidence",
+  ]);
+});
+
+test("preserves every Planning Citation Note when one subject cites an Asset twice", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.efforts.validity === "invalid" || snapshot.assets.validity === "invalid") {
+    throw new Error("Expected readable Efforts and Assets.");
+  }
+  const secondNote = "A second explicit use of the same Asset.";
+  const candidate: ProjectSnapshotInput = {
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === "effort:model"
+          ? {
+              ...effort,
+              citations: [
+                ...effort.citations,
+                { assetId: "asset:planning-model-evidence", note: secondNote },
+              ],
+            }
+          : effort,
+      ),
+    },
+    assets: {
+      ...snapshot.assets,
+      items: snapshot.assets.items.map((asset) => ({
+        ...asset,
+        citations: [
+          ...asset.citations,
+          {
+            assetId: "asset:planning-model-evidence",
+            note: secondNote,
+            citingReference: "effort:model",
+            source:
+              snapshot.efforts.validity === "invalid"
+                ? asset.source
+                : (snapshot.efforts.items.find((effort) => effort.id === "effort:model")?.source ??
+                  asset.source),
+          },
+        ],
+      })),
+    },
+  };
+  const projected = rebuild(candidate);
+  expect(
+    relationFor(projected, "asset", "asset:planning-model-evidence", "planning-use.cited-by"),
+  ).toMatchObject({
+    state: "present",
+    total: { count: 1 },
+    targets: [
+      {
+        reference: "effort:model",
+        note: `Accepted planning-model evidence.; ${secondNote}`,
+      },
+    ],
+  });
+});
+
 test("treats an identity absent from partial coverage as unavailable rather than missing", () => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.gates.validity === "invalid") throw new Error("Expected readable Gates.");
@@ -133,7 +222,8 @@ test("treats an identity absent from partial coverage as unavailable rather than
             ...snapshot.assets,
             items: snapshot.assets.items.map((asset) => ({
               ...asset,
-              gatePassageEvidenceFor: [],
+              evidenceRoles: asset.evidenceRoles.filter((role) => role !== "passage-evidence"),
+              passageEvidence: [],
             })),
           },
   };
@@ -156,6 +246,10 @@ test("keeps provider-native Produced For opaque and Authority adoption provenanc
       items: snapshot.assets.items.map((asset) => ({
         ...asset,
         kind: "execution-evidence",
+        evidenceRoles: [
+          "execution-evidence",
+          ...asset.evidenceRoles.filter((role) => role !== "execution-evidence"),
+        ],
         producer: { kind: "executor-profile", name: "generic-agent" },
         producedFor: ".scratch/portal/issues/11-lineage-navigation.md",
       })),
@@ -205,7 +299,8 @@ test("keeps provider-native Produced For opaque and Authority adoption provenanc
       ...snapshot.assets,
       items: snapshot.assets.items.map((asset) => ({
         ...asset,
-        adoptedByAuthorityIds: [],
+        evidenceRoles: asset.evidenceRoles.filter((role) => role !== "authority-adoption"),
+        authorityAdoptions: [],
       })),
     },
     sources: [...snapshot.sources, authoritySource],

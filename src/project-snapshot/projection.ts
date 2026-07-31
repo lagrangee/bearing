@@ -1,5 +1,6 @@
 import { mattNativeScopeKey } from "../providers/matt-skills-v1/native-subject";
 import { buildAdvisoryProjection } from "./advisory";
+import { collectAssetDirectEvidence } from "./asset-direct-evidence";
 import { rebuildAssetReverseRelations } from "./asset-reverse-relations";
 import { buildAssetProjection } from "./assets";
 import type { ProjectSnapshot } from "./contract";
@@ -103,6 +104,7 @@ export const buildProjectSnapshot = async (
     authorities: governance.authorities,
     checks: decisions.checks,
     reviews: decisions.reviews,
+    directEvidence: collectAssetDirectEvidence(records),
   });
   return projectSnapshotSchema.parse({
     schemaVersion: PROJECT_SNAPSHOT_VERSION,

@@ -42,9 +42,9 @@ const twoAssetFixture = (): ProjectSnapshot => {
             producedFor: ".scratch/portal/issues/13-assets.md",
             displayLocation: "PRODUCT.md",
             contentAvailability: "available",
-            adoptedByAuthorityIds: [],
-            gatePassageEvidenceFor: [],
-            citationCount: 0,
+            evidenceRoles: [],
+            authorityAdoptions: [],
+            passageEvidence: [],
           },
         ],
       },
@@ -53,7 +53,7 @@ const twoAssetFixture = (): ProjectSnapshot => {
   );
 };
 
-test("keeps projected Asset order while search and citation filters expose zero-reference Assets", () => {
+test("keeps projected Asset order while all six Evidence filters preserve identity", () => {
   const model = buildProjectAssetsModel(twoAssetFixture());
   expect(model.state).toBe("available");
   if (model.state !== "available") throw new Error("Expected available Assets.");
@@ -62,14 +62,70 @@ test("keeps projected Asset order while search and citation filters expose zero-
     "asset:planning-model-evidence",
     "asset:uncited-context",
   ]);
-  expect(filterAssetRows(model.rows, "generic-agent", "all").map((row) => row.asset.title)).toEqual(
-    ["Planning Model Evidence"],
-  );
-  expect(filterAssetRows(model.rows, "asset:uncited-context", "all")).toHaveLength(1);
-  expect(filterAssetRows(model.rows, "", "uncited").map((row) => row.asset.title)).toEqual([
-    "Uncited Product Context",
-  ]);
-  expect(filterAssetRows(model.rows, "product", "cited")).toEqual([]);
+  expect(
+    filterAssetRows(model.rows, "generic-agent", "all", model.evidenceFilterCoverage.all).map(
+      (row) => row.asset.title,
+    ),
+  ).toEqual(["Planning Model Evidence"]);
+  expect(
+    filterAssetRows(model.rows, "asset:uncited-context", "all", model.evidenceFilterCoverage.all),
+  ).toHaveLength(1);
+  expect(
+    filterAssetRows(model.rows, "", "uncited", model.evidenceFilterCoverage.uncited).map(
+      (row) => row.asset.title,
+    ),
+  ).toEqual(["Uncited Product Context"]);
+  expect(
+    filterAssetRows(model.rows, "product", "cited", model.evidenceFilterCoverage.cited),
+  ).toEqual([]);
+  expect(filterAssetRows(model.rows, "", "all", model.evidenceFilterCoverage.all)).toHaveLength(2);
+  expect(
+    filterAssetRows(model.rows, "", "cited", model.evidenceFilterCoverage.cited).map((row) =>
+      String(row.asset.id),
+    ),
+  ).toEqual(["asset:planning-model-evidence"]);
+  expect(
+    filterAssetRows(
+      model.rows,
+      "",
+      "passage-evidence",
+      model.evidenceFilterCoverage["passage-evidence"],
+    ).map((row) => String(row.asset.id)),
+  ).toEqual(["asset:planning-model-evidence"]);
+  const cited = model.rows[0];
+  const uncited = model.rows[1];
+  if (cited === undefined || uncited === undefined) throw new Error("Expected two Asset rows.");
+  expect(
+    filterAssetRows(
+      [
+        {
+          ...cited,
+          asset: {
+            ...cited.asset,
+            evidenceRoles: ["execution-evidence", ...cited.asset.evidenceRoles],
+          },
+        },
+        uncited,
+      ],
+      "",
+      "execution-evidence",
+      model.evidenceFilterCoverage["execution-evidence"],
+    ).map((row) => String(row.asset.id)),
+  ).toEqual(["asset:planning-model-evidence"]);
+  expect(
+    filterAssetRows(
+      [
+        cited,
+        {
+          ...uncited,
+          authorityBaselines: [{ id: "authority:design", available: true }],
+        },
+      ],
+      "",
+      "authority-baselines",
+      model.evidenceFilterCoverage["authority-baselines"],
+    ).map((row) => String(row.asset.id)),
+  ).toEqual(["asset:uncited-context"]);
 });
 
 test("keeps trustworthy partial Assets readable and scopes an invalid collection", () => {
@@ -88,6 +144,17 @@ test("keeps trustworthy partial Assets readable and scopes an invalid collection
   expect(partial.state).toBe("partial");
   expect(partial.state === "partial" && partial.rows).toHaveLength(2);
   expect(partial.state === "partial" && partial.issueCount).toBe(1);
+  if (partial.state !== "partial") throw new Error("Expected partial Assets.");
+  expect(partial.evidenceFilterCoverage.all).toBe("incomplete");
+  expect(partial.evidenceFilterCoverage["execution-evidence"]).toBe("incomplete");
+  expect(
+    filterAssetRows(
+      partial.rows,
+      "",
+      "execution-evidence",
+      partial.evidenceFilterCoverage["execution-evidence"],
+    ),
+  ).toEqual([]);
 
   expect(
     buildProjectAssetsModel({
@@ -95,6 +162,100 @@ test("keeps trustworthy partial Assets readable and scopes an invalid collection
       assets: { validity: "invalid", issues: [issue] },
     } as ProjectSnapshot),
   ).toEqual({ state: "invalid", issueCount: 1, rows: [] });
+});
+
+test("keeps Authority baseline filter coverage explicit under degraded projections", () => {
+  const snapshot = twoAssetFixture();
+  const issue = {
+    code: "invalid-authority",
+    target: "authority:unavailable",
+    message: "One Authority is unavailable.",
+  };
+  const partial = buildProjectAssetsModel({
+    ...snapshot,
+    authorities:
+      snapshot.authorities.validity === "invalid"
+        ? snapshot.authorities
+        : {
+            validity: "partial",
+            items: snapshot.authorities.items,
+            issues: [issue],
+          },
+  } as ProjectSnapshot);
+  expect(partial.state).toBe("available");
+  if (partial.state !== "available") throw new Error("Expected readable Assets.");
+  expect(partial.evidenceFilterCoverage["authority-baselines"]).toBe("incomplete");
+
+  const unavailable = buildProjectAssetsModel({
+    ...snapshot,
+    authorities: { validity: "invalid", issues: [issue] },
+  } as ProjectSnapshot);
+  expect(unavailable.state).toBe("available");
+  if (unavailable.state !== "available") throw new Error("Expected readable Assets.");
+  expect(unavailable.evidenceFilterCoverage["authority-baselines"]).toBe("incomplete");
+  expect(
+    filterAssetRows(
+      unavailable.rows,
+      "",
+      "authority-baselines",
+      unavailable.evidenceFilterCoverage["authority-baselines"],
+    ),
+  ).toEqual([]);
+});
+
+test("keeps Citation and Passage filters honest under degraded source coverage", () => {
+  const snapshot = twoAssetFixture();
+  const issue = {
+    code: "unavailable-evidence-owner",
+    target: "planning:evidence-owner",
+    message: "One evidence-owning projection is unavailable.",
+  };
+  const partialCitations = buildProjectAssetsModel({
+    ...snapshot,
+    efforts:
+      snapshot.efforts.validity === "invalid"
+        ? snapshot.efforts
+        : {
+            validity: "partial",
+            items: snapshot.efforts.items,
+            issues: [issue],
+          },
+  } as ProjectSnapshot);
+  if (partialCitations.state !== "available") throw new Error("Expected readable Assets.");
+  expect(partialCitations.evidenceFilterCoverage.cited).toBe("incomplete");
+  expect(partialCitations.evidenceFilterCoverage.uncited).toBe("incomplete");
+  expect(partialCitations.evidenceFilterCoverage["passage-evidence"]).toBe("complete");
+  expect(
+    filterAssetRows(
+      partialCitations.rows,
+      "",
+      "cited",
+      partialCitations.evidenceFilterCoverage.cited,
+    ).map((row) => String(row.asset.id)),
+  ).toEqual(["asset:planning-model-evidence"]);
+  expect(
+    filterAssetRows(
+      partialCitations.rows,
+      "",
+      "uncited",
+      partialCitations.evidenceFilterCoverage.uncited,
+    ),
+  ).toEqual([]);
+
+  const unavailablePassage = buildProjectAssetsModel({
+    ...snapshot,
+    gates: { validity: "invalid", issues: [issue] },
+  } as ProjectSnapshot);
+  if (unavailablePassage.state !== "available") throw new Error("Expected readable Assets.");
+  expect(unavailablePassage.evidenceFilterCoverage["passage-evidence"]).toBe("incomplete");
+  expect(
+    filterAssetRows(
+      unavailablePassage.rows,
+      "",
+      "passage-evidence",
+      unavailablePassage.evidenceFilterCoverage["passage-evidence"],
+    ).map((row) => String(row.asset.id)),
+  ).toEqual(["asset:planning-model-evidence"]);
 });
 
 test("builds one read-only Asset inspection from explicit projection semantics", () => {
@@ -107,10 +268,14 @@ test("builds one read-only Asset inspection from explicit projection semantics",
   expect(selection).toMatchObject({
     eyebrow: "Asset",
     title: "Planning Model Evidence",
-    handoff: true,
-    nativeSourceHandoff: true,
+    copy: {
+      label: "Copy Asset Location",
+      value: ".scratch/evidence/planning-model",
+    },
     source: { displayLocator: ".bearing/state/assets.md" },
   });
+  expect(selection).not.toHaveProperty("handoff");
+  expect(selection).not.toHaveProperty("nativeSourceHandoff");
   expect(selection.facts).toContainEqual({
     label: "Stable ID",
     value: "asset:planning-model-evidence",
@@ -123,7 +288,10 @@ test("builds one read-only Asset inspection from explicit projection semantics",
   expect(selection.facts).toContainEqual({ label: "Content", value: "Available" });
   expect(
     selection.sections?.find((section) => section.title === "Gate Passage evidence"),
-  ).toMatchObject({ title: "Gate Passage evidence", items: ["gate:one"] });
+  ).toMatchObject({
+    title: "Gate Passage evidence",
+    items: ["gate:one · Source .bearing/state/milestone-gates/one.md"],
+  });
   expect(
     selection.sections?.find((section) => section.title === "Planning Citations")?.items,
   ).toEqual([expect.stringContaining("effort:model · .bearing/state/efforts/model.md")]);
@@ -160,8 +328,21 @@ test("keeps explicit missing relation targets visible in Asset inspection", () =
       items: [
         {
           ...first,
-          adoptedByAuthorityIds: ["authority:missing"],
-          gatePassageEvidenceFor: ["gate:missing"],
+          evidenceRoles: [
+            ...first.evidenceRoles.filter(
+              (role) => role !== "authority-adoption" && role !== "passage-evidence",
+            ),
+            "authority-adoption",
+            "passage-evidence",
+          ],
+          authorityAdoptions: [
+            {
+              authorityId: "authority:missing",
+              decisionReference: "planning-review:missing",
+              source: first.source,
+            },
+          ],
+          passageEvidence: [{ gateId: "gate:missing", source: first.source }],
         },
       ],
       issues: [],
@@ -174,8 +355,12 @@ test("keeps explicit missing relation targets visible in Asset inspection", () =
 
   expect(
     selection.sections?.find((section) => section.title === "Authority adoption")?.items,
-  ).toEqual(["authority:missing · unavailable in the current Snapshot"]);
+  ).toEqual([
+    "authority:missing · unavailable in the current Snapshot · Decision planning-review:missing · Source .bearing/state/assets.md",
+  ]);
   expect(
     selection.sections?.find((section) => section.title === "Gate Passage evidence")?.items,
-  ).toEqual(["gate:missing · unavailable in the current Snapshot"]);
+  ).toEqual([
+    "gate:missing · unavailable in the current Snapshot · Source .bearing/state/assets.md",
+  ]);
 });

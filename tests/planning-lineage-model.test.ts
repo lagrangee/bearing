@@ -254,9 +254,9 @@ test("binds Adoption relation time to the exact Asset decision instead of Author
     citations: [],
     registeredAt: accepted("2026-07-31T11:00:00Z"),
     displayLocation: "docs/second-evidence.md",
-    adoptedByAuthorityIds: [],
-    gatePassageEvidenceFor: [],
-    citationCount: 0,
+    evidenceRoles: [],
+    authorityAdoptions: [],
+    passageEvidence: [],
   });
   const authority = authoritySchema.parse({
     id: "authority:design",

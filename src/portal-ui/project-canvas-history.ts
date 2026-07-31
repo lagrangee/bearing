@@ -1,4 +1,4 @@
-import type { AssetCitationFilter } from "./project-assets-model";
+import { type AssetEvidenceFilter, isAssetEvidenceFilter } from "./asset-evidence-filter";
 import type { ProjectSection } from "./project-navigation";
 
 const HISTORY_KEY = "bearingCanvas";
@@ -13,7 +13,7 @@ export type ProjectCanvasHistory = Readonly<{
   focusKey?: string | undefined;
   assets?: Readonly<{
     query: string;
-    citationFilter: AssetCitationFilter;
+    evidenceFilter: AssetEvidenceFilter;
   }>;
 }>;
 
@@ -44,9 +44,6 @@ const historyRecord = (): Record<string, unknown> =>
     ? { ...(window.history.state as Record<string, unknown>) }
     : {};
 
-const isAssetCitationFilter = (value: unknown): value is AssetCitationFilter =>
-  value === "all" || value === "cited" || value === "uncited";
-
 const isProjectSection = (value: unknown): value is ProjectSection =>
   value === "overview" ||
   value === "roadmaps" ||
@@ -69,12 +66,12 @@ const parseHistory = (value: unknown): ProjectCanvasHistory | undefined => {
     typeof assets === "object" &&
     assets !== null &&
     typeof (assets as Record<string, unknown>)["query"] === "string" &&
-    isAssetCitationFilter((assets as Record<string, unknown>)["citationFilter"])
+    isAssetEvidenceFilter((assets as Record<string, unknown>)["evidenceFilter"])
       ? {
           query: (assets as Record<string, unknown>)["query"] as string,
-          citationFilter: (assets as Record<string, unknown>)[
-            "citationFilter"
-          ] as AssetCitationFilter,
+          evidenceFilter: (assets as Record<string, unknown>)[
+            "evidenceFilter"
+          ] as AssetEvidenceFilter,
         }
       : undefined;
   return {
@@ -110,14 +107,14 @@ const replaceProjectCanvasHistory = (next: ProjectCanvasHistory): void => {
 export const updateAssetCanvasFilters = (
   entryId: string,
   query: string,
-  citationFilter: AssetCitationFilter,
+  evidenceFilter: AssetEvidenceFilter,
 ): void => {
   const current = readProjectCanvasHistory(entryId, "assets");
   replaceProjectCanvasHistory({
     entryId,
     section: "assets",
     location: currentLocation(),
-    assets: { query, citationFilter },
+    assets: { query, evidenceFilter },
     ...(current?.scrollY === undefined ? {} : { scrollY: current.scrollY }),
     ...(current?.focusKey === undefined ? {} : { focusKey: current.focusKey }),
   });

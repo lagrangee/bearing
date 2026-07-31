@@ -252,9 +252,8 @@ const withoutRequestedGate = (snapshot: ProjectSnapshot): ProjectSnapshot => {
       ...snapshot.assets,
       items: snapshot.assets.items.map((asset) => ({
         ...asset,
-        gatePassageEvidenceFor: asset.gatePassageEvidenceFor.filter(
-          (gateId) => gateId !== "gate:one",
-        ),
+        evidenceRoles: asset.evidenceRoles.filter((role) => role !== "passage-evidence"),
+        passageEvidence: asset.passageEvidence.filter((evidence) => evidence.gateId !== "gate:one"),
       })),
     },
   };
@@ -572,7 +571,7 @@ test("Quick Look is transient history and Back restores the filtered canvas", as
   await serveSnapshot(page, fixture());
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/projects/lineage/assets");
-  const filter = page.getByLabel("Planning Citations");
+  const filter = page.getByRole("combobox", { name: "Evidence", exact: true });
   await filter.selectOption("cited");
   const quickLook = page.getByRole("button", { name: "Quick Look Planning Model Evidence" });
   await quickLook.scrollIntoViewIfNeeded();
@@ -735,6 +734,21 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(`${effortHref}#native-work-current`);
   await expect(workRegion.getByRole("heading", { name: "Current", level: 3 })).toBeInViewport();
+  expect(await viewportOverflow(page)).toEqual([]);
+
+  const assetHref = planningLineageSubjectHref("lineage", {
+    kind: "asset",
+    id: "asset:planning-model-evidence",
+  });
+  await page.goto(assetHref);
+  await expect(
+    page.getByRole("heading", { name: "Planning Model Evidence", level: 1 }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Evidence Roles", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ancestor Context", level: 3 })).toBeVisible();
+  const copyLocation = page.getByRole("button", { name: "Copy Asset Location" });
+  await copyLocation.focus();
+  await expect(copyLocation).toBeFocused();
   expect(await viewportOverflow(page)).toEqual([]);
 
   await page.setViewportSize({ width: 375, height: 812 });

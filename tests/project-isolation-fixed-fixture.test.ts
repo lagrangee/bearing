@@ -69,7 +69,7 @@ test("the fixed fixture gives an independently invalid Summary its own validity"
   });
   expect(result.snapshot.assets).toMatchObject({
     validity: "available",
-    items: [{ id: "asset:fixture-uncited", citationCount: 0 }],
+    items: [{ id: "asset:fixture-uncited", citations: [], evidenceRoles: [] }],
   });
   expect(await readRepositorySourceBytes(root)).toEqual(sourceBefore);
 });

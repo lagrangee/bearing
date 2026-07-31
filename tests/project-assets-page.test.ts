@@ -21,7 +21,17 @@ test("renders the accepted Assets reading surface without embedding Asset conten
   expect(html).toContain("Project context and evidence");
   expect(html).toContain("<h1>Assets</h1>");
   expect(html).toContain('placeholder="Find an Asset"');
-  expect(html).toContain("0 citations");
+  for (const option of [
+    "All Assets",
+    "Execution Evidence",
+    "Cited",
+    "Authority baselines",
+    "Passage Evidence",
+    "Uncited",
+  ]) {
+    expect(html).toContain(option);
+  }
+  expect(html).toContain("1 citation");
   expect(html).toContain("Planning Model Evidence");
   expect(html).toContain(".scratch/evidence/planning-model");
   expect(html).not.toContain("Asset body");

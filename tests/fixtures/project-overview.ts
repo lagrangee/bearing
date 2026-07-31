@@ -374,7 +374,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 12,
+    schemaVersion: 13,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -529,6 +529,7 @@ export const createProjectOverviewFixture = () => {
           id: "asset:planning-model-evidence",
           title: "Planning Model Evidence",
           source: assetSource,
+          evidenceRoles: ["planning-citation", "passage-evidence"],
           citations: [
             {
               assetId: "asset:planning-model-evidence",
@@ -544,9 +545,8 @@ export const createProjectOverviewFixture = () => {
           registeredAt: { availability: "unavailable" },
           displayLocation: ".scratch/evidence/planning-model",
           contentAvailability: "available",
-          adoptedByAuthorityIds: [],
-          gatePassageEvidenceFor: ["gate:one"],
-          citationCount: 1,
+          authorityAdoptions: [],
+          passageEvidence: [{ gateId: "gate:one", source: gateOneSource }],
         },
       ],
     },

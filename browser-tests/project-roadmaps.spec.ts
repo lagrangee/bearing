@@ -354,8 +354,9 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
               ...snapshot.assets,
               items: snapshot.assets.items.map((asset) => ({
                 ...asset,
-                gatePassageEvidenceFor: asset.gatePassageEvidenceFor.filter(
-                  (gateId) => gateId !== "gate:one",
+                evidenceRoles: asset.evidenceRoles.filter((role) => role !== "passage-evidence"),
+                passageEvidence: asset.passageEvidence.filter(
+                  (evidence) => evidence.gateId !== "gate:one",
                 ),
               })),
             },

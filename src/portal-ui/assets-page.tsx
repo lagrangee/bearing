@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
+import {
+  ASSET_EVIDENCE_FILTERS,
+  type AssetEvidenceFilter,
+  assetEvidenceFilterContract,
+  isAssetEvidenceFilter,
+} from "./asset-evidence-filter";
 import { AssetRow } from "./asset-row";
 import { assetLifecycleEvents, latestPlanningLineageEvent } from "./planning-lineage-events";
 import { Action } from "./primitives";
-import {
-  type AssetCitationFilter,
-  assetInspection,
-  buildProjectAssetsModel,
-  filterAssetRows,
-} from "./project-assets-model";
+import { assetInspection, buildProjectAssetsModel, filterAssetRows } from "./project-assets-model";
 import { readProjectCanvasHistory, updateAssetCanvasFilters } from "./project-canvas-history";
 import type { ProjectInspectorSelection } from "./project-inspector";
 
@@ -29,8 +30,8 @@ export function AssetsPage({
   const [query, setQuery] = useState(
     () => readProjectCanvasHistory(entryId, "assets")?.assets?.query ?? "",
   );
-  const [citationFilter, setCitationFilter] = useState<AssetCitationFilter>(
-    () => readProjectCanvasHistory(entryId, "assets")?.assets?.citationFilter ?? "all",
+  const [evidenceFilter, setEvidenceFilter] = useState<AssetEvidenceFilter>(
+    () => readProjectCanvasHistory(entryId, "assets")?.assets?.evidenceFilter ?? "all",
   );
   const model = buildProjectAssetsModel(snapshot);
   if (model.state === "invalid") {
@@ -46,8 +47,11 @@ export function AssetsPage({
     );
   }
 
-  const visibleRows = filterAssetRows(model.rows, query, citationFilter);
-  const filtering = query.trim() !== "" || citationFilter !== "all";
+  const filterCoverage = model.evidenceFilterCoverage[evidenceFilter];
+  const visibleRows = filterAssetRows(model.rows, query, evidenceFilter, filterCoverage);
+  const filtering = query.trim() !== "" || evidenceFilter !== "all";
+  const filterCoverageIncomplete = filterCoverage === "incomplete";
+  const filterContract = assetEvidenceFilterContract(evidenceFilter);
   const partialCopy =
     model.state !== "partial"
       ? undefined
@@ -72,7 +76,7 @@ export function AssetsPage({
               onChange={(event) => {
                 const next = event.currentTarget.value;
                 setQuery(next);
-                updateAssetCanvasFilters(entryId, next, citationFilter);
+                updateAssetCanvasFilters(entryId, next, evidenceFilter);
               }}
               placeholder="Find an Asset"
               type="search"
@@ -80,18 +84,21 @@ export function AssetsPage({
             />
           </label>
           <label className="asset-filter-field">
-            <span>Planning Citations</span>
+            <span>Evidence</span>
             <select
               onChange={(event) => {
-                const next = event.currentTarget.value as AssetCitationFilter;
-                setCitationFilter(next);
+                const next = event.currentTarget.value;
+                if (!isAssetEvidenceFilter(next)) return;
+                setEvidenceFilter(next);
                 updateAssetCanvasFilters(entryId, query, next);
               }}
-              value={citationFilter}
+              value={evidenceFilter}
             >
-              <option value="all">All Assets</option>
-              <option value="cited">Cited</option>
-              <option value="uncited">0 citations</option>
+              {ASSET_EVIDENCE_FILTERS.map((filter) => (
+                <option key={filter.value} value={filter.value}>
+                  {filter.label}
+                </option>
+              ))}
             </select>
           </label>
         </div>
@@ -103,7 +110,14 @@ export function AssetsPage({
       ) : null}
       <p className="asset-result-count" aria-live="polite" role="status">
         Showing {visibleRows.length} of {model.rows.length} registered Assets
+        {filterCoverageIncomplete ? " from confirmed evidence facts only" : ""}
       </p>
+      {filterCoverageIncomplete ? (
+        <p className="projection-note" role="status">
+          {filterContract.incompleteSubject} coverage is incomplete.{" "}
+          {filterContract.incompleteStatus}
+        </p>
+      ) : null}
       {model.rows.length === 0 ? (
         <section className="asset-empty">
           <h2>No registered Assets</h2>
@@ -111,12 +125,18 @@ export function AssetsPage({
         </section>
       ) : visibleRows.length === 0 ? (
         <section className="asset-empty">
-          <h2>No matching Assets</h2>
-          <p>Change the search or Planning Citation filter to restore the stable Asset list.</p>
+          <h2>
+            {filterCoverageIncomplete ? "No confirmed matching Assets" : "No matching Assets"}
+          </h2>
+          <p>
+            {filterCoverageIncomplete
+              ? filterContract.incompleteEmpty
+              : "Change the search or Evidence filter to restore the stable Asset list."}
+          </p>
           <Action
             onClick={() => {
               setQuery("");
-              setCitationFilter("all");
+              setEvidenceFilter("all");
               updateAssetCanvasFilters(entryId, "", "all");
             }}
           >
@@ -138,7 +158,7 @@ export function AssetsPage({
             });
             return (
               <AssetRow
-                citations={row.asset.citationCount}
+                citations={row.asset.citations.length}
                 contentAvailability={row.asset.contentAvailability}
                 event={latestPlanningLineageEvent(assetLifecycleEvents(row.asset))}
                 href={href}

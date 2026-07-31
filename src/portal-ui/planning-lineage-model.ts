@@ -52,6 +52,7 @@ import {
   type MattNativeWorkRegionModel,
 } from "../providers/matt-skills-v1/work-region";
 import { projectExpectedSourceEventTime } from "../source-event-time";
+import { assetEvidenceRoleLabel } from "./asset-evidence-role-label";
 import {
   type PlanningLineageEvent,
   type PlanningLineageEventTime,
@@ -106,6 +107,7 @@ export type PlanningLineageSection = Readonly<{
   anchor: string;
   title: string;
   body?: string | undefined;
+  copy?: Readonly<{ label: string; value: string }> | undefined;
   items?: readonly string[] | undefined;
   links?:
     | readonly Readonly<{
@@ -606,12 +608,7 @@ const planningReviewSections = (review: PlanningReview): readonly PlanningLineag
 ];
 
 const assetSections = (asset: AssetProjection): readonly PlanningLineageSection[] => {
-  const evidenceRoles = [
-    ...(asset.kind === "execution-evidence" ? ["Execution Evidence"] : []),
-    ...(asset.citations.length > 0 ? ["Planning Citation"] : []),
-    ...(asset.adoptedByAuthorityIds.length > 0 ? ["Authority Adoption"] : []),
-    ...(asset.gatePassageEvidenceFor.length > 0 ? ["Passage Evidence"] : []),
-  ];
+  const evidenceRoles = asset.evidenceRoles.map(assetEvidenceRoleLabel);
   return [
     {
       anchor: "asset.identity",
@@ -629,8 +626,16 @@ const assetSections = (asset: AssetProjection): readonly PlanningLineageSection[
     {
       anchor: "asset.provenance",
       title: "Provenance",
-      body: `${asset.displayLocation} · Producer ${asset.producer.kind} / ${asset.producer.name}.`,
-      items: [`Owner: ${asset.owner}`, `Produced For: ${asset.producedFor ?? "Not declared"}`],
+      body: `Producer ${asset.producer.kind} / ${asset.producer.name}.`,
+      copy: { label: "Copy Asset Location", value: asset.displayLocation },
+      items: [
+        `Location: ${asset.displayLocation}`,
+        `Owner: ${asset.owner}`,
+        `Produced For: ${asset.producedFor ?? "Not declared"}`,
+        ...(asset.producer.reference === undefined
+          ? []
+          : [`Producer Reference: ${asset.producer.reference}`]),
+      ],
     },
     {
       anchor: "asset.evidence-roles",

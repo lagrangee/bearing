@@ -105,7 +105,16 @@ const assetsFixture = (): ProjectSnapshot => {
             id: "asset:uncited-context",
             title: "Uncited Product Context",
             source: assetSource.reference,
+            evidenceRoles: ["authority-adoption"],
             citations: [],
+            authorityAdoptions: [
+              {
+                authorityId: "authority:product-design",
+                decisionReference: "planning-review:adopt-product-design",
+                source: authoritySource.reference,
+              },
+            ],
+            passageEvidence: [],
             kind: "product-design",
             owner: "effort:portal",
             producer: { kind: "planning-skill", name: "impeccable" },
@@ -114,9 +123,6 @@ const assetsFixture = (): ProjectSnapshot => {
             disposition: "available",
             displayLocation: "PRODUCT.md",
             contentAvailability: "available",
-            adoptedByAuthorityIds: ["authority:product-design"],
-            gatePassageEvidenceFor: [],
-            citationCount: 0,
           },
         ],
       },
@@ -196,7 +202,8 @@ const expectClosedNarrowNavigation = async (page: Page): Promise<void> => {
     .toEqual({ navigationOutsideViewport: true, overlapsMain: false });
 };
 
-test("Assets keeps stable rows searchable, filterable, inspectable, and read-only", async ({
+test("Assets keeps stable rows searchable, filterable, inspectable, copy-only, and read-only", async ({
+  context,
   page,
 }, testInfo) => {
   const snapshot = assetsFixture();
@@ -210,6 +217,9 @@ test("Assets keeps stable rows searchable, filterable, inspectable, and read-onl
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   page.on("pageerror", (error) => pageErrors.push(error.message));
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: "http://127.0.0.1:4180",
+  });
   await serveSnapshot(page, () => snapshot);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/projects/assets/assets");
@@ -227,7 +237,7 @@ test("Assets keeps stable rows searchable, filterable, inspectable, and read-onl
   ).toBe(5);
   expect((await page.locator(".asset-row").first().boundingBox())?.height).toBeLessThan(100);
   const search = page.getByPlaceholder("Find an Asset");
-  const filter = page.getByLabel("Planning Citations");
+  const filter = page.getByRole("combobox", { name: "Evidence", exact: true });
   await focusByTab(page, search);
   await search.fill("generic-agent");
   await expect(page.locator(".asset-row")).toHaveCount(1);
@@ -242,6 +252,16 @@ test("Assets keeps stable rows searchable, filterable, inspectable, and read-onl
   await expect(page.locator(".asset-row .asset-title strong")).toHaveText([
     "Planning Model Evidence",
   ]);
+  await filter.selectOption("authority-baselines");
+  await expect(page.locator(".asset-row .asset-title strong")).toHaveText([
+    "Uncited Product Context",
+  ]);
+  await filter.selectOption("passage-evidence");
+  await expect(page.locator(".asset-row .asset-title strong")).toHaveText([
+    "Planning Model Evidence",
+  ]);
+  await filter.selectOption("execution-evidence");
+  await expect(page.getByRole("heading", { name: "No matching Assets" })).toBeVisible();
   await filter.selectOption("all");
 
   const row = page.getByRole("button", { name: "Quick Look Planning Model Evidence" });
@@ -264,8 +284,22 @@ test("Assets keeps stable rows searchable, filterable, inspectable, and read-onl
     "/projects/assets/lineage/asset/asset%3Aplanning-model-evidence",
   );
   await expect(inspector.getByRole("button", { name: /Resume in Agent Surface/u })).toHaveCount(0);
+  await expect(inspector.getByRole("button", { name: /Open native source/u })).toHaveCount(0);
+  await expect(inspector.getByRole("button", { name: /Open in surface/u })).toHaveCount(0);
+  await inspector.getByRole("button", { name: "Copy Asset Location" }).click();
+  await expect(inspector.getByRole("status")).toHaveText("Asset Location copied.");
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(".scratch/evidence/planning-model");
+  const nextRow = page.getByRole("button", { name: "Quick Look Uncited Product Context" });
+  await nextRow.click();
+  await expect(inspector.getByRole("heading", { name: "Uncited Product Context" })).toBeVisible();
+  await expect(inspector.getByRole("status")).toHaveText("");
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(".scratch/evidence/planning-model");
   await page.keyboard.press("Escape");
-  await expect(row).toBeFocused();
+  await expect(nextRow).toBeFocused();
   expect(posts).toEqual([]);
 
   expect((await page.request.get("/api/v1/projects/assets/assets?path=PRODUCT.md")).status()).toBe(
@@ -314,6 +348,9 @@ test("Assets preserves zero citations, keyboard return, and modal focus at revie
   await expect(close).toBeFocused();
   await expect(page.locator("main")).toHaveAttribute("inert", "");
   await page.keyboard.press("Tab");
+  const copyLocation = dialog.getByRole("button", { name: "Copy Asset Location" });
+  await expect(copyLocation).toBeFocused();
+  await page.keyboard.press("Tab");
   const fullDetail = dialog.getByRole("link", { name: "Open full detail" });
   await expect(fullDetail).toBeFocused();
   await page.keyboard.press("Tab");
@@ -334,6 +371,9 @@ test("Assets preserves zero citations, keyboard return, and modal focus at revie
   expect(
     await relationDialog.evaluate((element) => element.scrollWidth > element.clientWidth),
   ).toBe(false);
+  await expect(relationDialog).not.toContainText("Resume in Agent Surface");
+  await expect(relationDialog).not.toContainText("Open native source");
+  await expect(relationDialog).not.toContainText("Open in surface");
   await page.keyboard.press("Escape");
 });
 
@@ -358,6 +398,53 @@ test("Assets distinguishes empty, partial, invalid, and filtered-empty states", 
   await page.reload();
   await expect(page.getByText(/Asset orientation is partial/u)).toBeVisible();
   await expect(page.locator(".asset-row")).toHaveCount(2);
+  await page
+    .getByRole("combobox", { name: "Evidence", exact: true })
+    .selectOption("execution-evidence");
+  await expect(page.getByText(/Execution Evidence coverage is incomplete/u)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "No confirmed matching Assets" })).toBeVisible();
+
+  snapshot = projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...available,
+      authorities: { validity: "invalid", issues: [issue] },
+    }),
+  );
+  await page.reload();
+  await page
+    .getByRole("combobox", { name: "Evidence", exact: true })
+    .selectOption("authority-baselines");
+  await expect(page.getByText(/Authority baseline coverage is incomplete/u)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "No confirmed matching Assets" })).toBeVisible();
+
+  await page.getByRole("combobox", { name: "Evidence", exact: true }).selectOption("cited");
+  await expect(page.getByText(/Planning Citation coverage is incomplete/u)).toBeVisible();
+  await expect(page.locator(".asset-row .asset-title strong")).toHaveText([
+    "Planning Model Evidence",
+  ]);
+  await page.getByRole("combobox", { name: "Evidence", exact: true }).selectOption("uncited");
+  await expect(
+    page.getByText(/No Asset can be confirmed uncited until every citation-owning collection/u),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "No confirmed matching Assets" })).toBeVisible();
+
+  snapshot = projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...available,
+      gates:
+        available.gates.validity === "invalid"
+          ? available.gates
+          : { validity: "partial", items: available.gates.items, issues: [issue] },
+    }),
+  );
+  await page.reload();
+  await page
+    .getByRole("combobox", { name: "Evidence", exact: true })
+    .selectOption("passage-evidence");
+  await expect(page.getByText(/Gate Passage evidence coverage is incomplete/u)).toBeVisible();
+  await expect(page.locator(".asset-row .asset-title strong")).toHaveText([
+    "Planning Model Evidence",
+  ]);
 
   snapshot = projectSnapshotSchema.parse(
     withRebuiltPlanningLineage({

@@ -3,6 +3,7 @@ import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
 import { deepFreeze } from "./immutable";
 import type { NativeScopeDiscoveryView } from "./native-scope-discovery";
 import type { PlanningGraphInstrumentation } from "./planning-graph-instrumentation";
+import { collectAssetDirectEvidence } from "./project-snapshot/asset-direct-evidence";
 import { rebuildAssetReverseRelations } from "./project-snapshot/asset-reverse-relations";
 import { buildAssetProjection } from "./project-snapshot/assets";
 import type {
@@ -1025,6 +1026,7 @@ export const buildPlanningGraph = async (
     authorities: governance.authorities,
     checks: decisions.checks,
     reviews: decisions.reviews,
+    directEvidence: collectAssetDirectEvidence(input.decoded.records),
   });
   const graphCollections: GraphCollections = {
     roadmaps: overlayNormalizedItems(governance.roadmaps, planningProjection.roadmaps),

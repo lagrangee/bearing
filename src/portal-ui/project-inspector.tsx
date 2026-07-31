@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
 import type { SourceRecord } from "../project-snapshot/contract";
+import { AssetLocationCopy } from "./asset-location-copy";
 import { Icons } from "./icons";
 import { Inspector } from "./shell";
 
@@ -9,7 +10,7 @@ export type ProjectInspectorSelection = Readonly<{
   facts?: readonly Readonly<{ label: string; value: string; code?: boolean | undefined }>[];
   fullDetailHref?: string | undefined;
   handoff?: boolean | undefined;
-  nativeSourceHandoff?: boolean | undefined;
+  copy?: Readonly<{ label: string; value: string }> | undefined;
   sections?: readonly Readonly<{
     title: string;
     body?: string | undefined;
@@ -93,6 +94,13 @@ export function ProjectContextInspector({
           </div>
         )}
       </dl>
+      {selection.copy === undefined ? null : (
+        <AssetLocationCopy
+          className="inspector-asset-location-copy"
+          label={selection.copy.label}
+          value={selection.copy.value}
+        />
+      )}
       {selection.sections?.map((section) => (
         <section className="inspector-section" key={section.title}>
           <h3>{section.title}</h3>

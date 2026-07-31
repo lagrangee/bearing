@@ -14,6 +14,7 @@ import type {
   MattNativeWorkRegionModel,
   MattNativeWorkRegionRoleGroup,
 } from "../providers/matt-skills-v1/work-region";
+import { AssetLocationCopy } from "./asset-location-copy";
 import { Icons } from "./icons";
 import type {
   PlanningLineageRelation,
@@ -1047,6 +1048,9 @@ export function PlanningLineagePage({
           >
             <h2>{section.title}</h2>
             {section.body === undefined ? null : <p>{section.body}</p>}
+            {section.copy === undefined ? null : (
+              <AssetLocationCopy label={section.copy.label} value={section.copy.value} />
+            )}
             {section.items === undefined ? null : (
               <ul>
                 {section.items.map((item) => (
