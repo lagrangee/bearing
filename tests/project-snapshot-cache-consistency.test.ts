@@ -111,7 +111,7 @@ const secondGuidanceRecord = guidanceItemRecord("alternative-2");
 const issue = { code: "relation-mismatch", target: "snapshot", message: "Relation mismatch." };
 const emptyItems = { validity: "available", items: [] } as const;
 const emptySnapshot = {
-  schemaVersion: 7,
+  schemaVersion: 8,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -131,16 +131,24 @@ const emptySnapshot = {
   diagnostics: [],
   attention: [],
   sources: [
-    { reference: source, kind: "canonical", displayLocator: ".bearing/state/project-summary.md" },
-    { reference: otherSource, kind: "canonical", displayLocator: ".bearing/state/other.md" },
+    {
+      reference: source,
+      kind: "canonical" as const,
+      displayLocator: ".bearing/state/project-summary.md",
+    },
+    {
+      reference: otherSource,
+      kind: "canonical" as const,
+      displayLocator: ".bearing/state/other.md",
+    },
     {
       reference: auditSource,
-      kind: "canonical",
+      kind: "canonical" as const,
       displayLocator: ".bearing/state/planning-audit.md",
     },
     {
       reference: guidanceSource,
-      kind: "canonical",
+      kind: "canonical" as const,
       displayLocator: ".bearing/state/next-work-guidance.md",
     },
     openCheckRecord,

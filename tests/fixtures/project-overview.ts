@@ -38,8 +38,9 @@ const canonicalRecord = (
 ) => sourceRecord("canonical", displayLocator, role, identity, fragment);
 const trackerRecord = (
   displayLocator: string,
-  role: "map" | "wayfinder-ticket" | "delivery-ticket",
-) => sourceRecord("tracker", displayLocator, role, displayLocator);
+  role: "native-scope" | "map" | "spec" | "wayfinder-ticket" | "delivery-ticket" | "incoming-issue",
+  identity = displayLocator,
+) => sourceRecord("tracker", displayLocator, role, identity);
 
 const summaryRecord = canonicalRecord(
   ".bearing/state/project-summary.md",
@@ -90,6 +91,8 @@ const assetRecord = sourceRecord(
 );
 const modelMapRecord = trackerRecord(".scratch/model/map.md", "map");
 const portalMapRecord = trackerRecord(".scratch/portal/map.md", "map");
+const modelScopeRecord = trackerRecord(".scratch/model", "native-scope");
+const portalScopeRecord = trackerRecord(".scratch/portal", "native-scope");
 const resolvedTicketRecord = trackerRecord(
   ".scratch/model/issues/01-resolve.md",
   "wayfinder-ticket",
@@ -97,6 +100,11 @@ const resolvedTicketRecord = trackerRecord(
 const claimedTicketRecord = trackerRecord(".scratch/portal/issues/01-build.md", "wayfinder-ticket");
 const readyTicketRecord = trackerRecord(".scratch/portal/issues/02-review.md", "wayfinder-ticket");
 const blockedTicketRecord = trackerRecord(".scratch/portal/issues/03-gate.md", "delivery-ticket");
+const portalSpecRecord = trackerRecord(".scratch/portal/PRD.md", "spec");
+const portalIncomingRecord = trackerRecord(
+  ".scratch/portal/issues/04-incoming.md",
+  "incoming-issue",
+);
 const auditRecord = canonicalRecord(
   ".bearing/state/planning-audit.md",
   "planning-audit",
@@ -158,6 +166,8 @@ const localNative = (locator: string) => ({
   sourceAnchors: [],
   rawFacets: [],
 });
+const availableSections = (...roles: readonly string[]) =>
+  roles.map((role) => ({ role, availability: "available" as const }));
 const map = (locator: string, title: string, state: "active" | "resolved", fog: string[]) => ({
   kind: "map" as const,
   ref: locator,
@@ -171,6 +181,20 @@ const map = (locator: string, title: string, state: "active" | "resolved", fog: 
     state === "active"
       ? ({ state: "active" } as const)
       : ({ state: "resolved", resolutionEvidence: [] } as const),
+  semanticSections: [
+    ...availableSections("map.destination"),
+    { role: "map.notes", availability: "confirmed-empty" as const },
+    { role: "map.decisions", availability: "confirmed-empty" as const },
+    {
+      role: "map.fog",
+      availability: fog.length === 0 ? ("confirmed-empty" as const) : ("available" as const),
+    },
+    { role: "map.out-of-scope", availability: "confirmed-empty" as const },
+    {
+      role: "map.resolution-evidence",
+      availability: state === "active" ? ("confirmed-empty" as const) : ("unavailable" as const),
+    },
+  ],
   native: localNative(locator),
 });
 const wayfinder = (locator: string, title: string, state: "claimed" | "ready" | "resolved") => ({
@@ -199,6 +223,14 @@ const wayfinder = (locator: string, title: string, state: "claimed" | "ready" | 
         } as const)
       : ({ state: "open" } as const),
   trackerClosure: { state: "open" } as const,
+  semanticSections: [
+    ...availableSections("wayfinder.question", "wayfinder.claim"),
+    {
+      role: "wayfinder.answer",
+      availability: state === "resolved" ? ("available" as const) : ("confirmed-empty" as const),
+    },
+    { role: "wayfinder.comments", availability: "confirmed-empty" as const },
+  ],
   native: localNative(locator),
 });
 const delivery = (locator: string, title: string) => ({
@@ -210,14 +242,71 @@ const delivery = (locator: string, title: string) => ({
   lifecycle: { state: "open" } as const,
   trackerClosure: { state: "open" } as const,
   comments: [],
+  semanticSections: [
+    ...availableSections("delivery.what-to-build", "delivery.acceptance-criteria"),
+    { role: "delivery.completion-evidence", availability: "confirmed-empty" as const },
+    { role: "delivery.comments", availability: "confirmed-empty" as const },
+  ],
+  native: localNative(locator),
+});
+const spec = (locator: string, title: string) => {
+  const sections = [
+    ["problem", "Problem Statement", "The current reading path is incomplete."],
+    ["solution", "Solution", "Expose stable native subject routes."],
+    ["user-stories", "User Stories", "Users can refresh and share native details."],
+    ["implementation", "Implementation Decisions", "Use provider semantic roles."],
+    ["testing", "Testing Decisions", "Exercise the shared route contract."],
+    ["out-of-scope", "Out of Scope", "Do not mutate provider-native work."],
+    ["further-notes", "Further Notes", "Keep Gate Passage independent."],
+  ] as const;
+  return {
+    kind: "spec" as const,
+    ref: locator,
+    title,
+    sections: sections.map(([role, sectionTitle, body]) => ({
+      role,
+      title: sectionTitle,
+      body,
+      availability: "available" as const,
+    })),
+    lifecycle: { state: "ready-for-agent" as const },
+    semanticSections: sections.map(([role]) => ({
+      role: `spec.${role}`,
+      availability: "available" as const,
+    })),
+    native: localNative(locator),
+  };
+};
+const incoming = (locator: string, title: string) => ({
+  kind: "incoming-issue" as const,
+  ref: locator,
+  title,
+  classification: {
+    category: "enhancement" as const,
+    state: "ready-for-agent" as const,
+    nativeCategory: "enhancement",
+    nativeState: "ready-for-agent",
+  },
+  content: [
+    {
+      role: "triage-note" as const,
+      body: "Route this request through the accepted Matt workflow.",
+    },
+  ],
+  lifecycle: { state: "open" as const },
+  semanticSections: [
+    ...availableSections("incoming.classification", "incoming.content", "incoming.routing"),
+  ],
   native: localNative(locator),
 });
 const capture = (
   nativeScope: string,
   projection: {
     map: ReturnType<typeof map>;
+    spec?: ReturnType<typeof spec>;
     wayfinderTickets: readonly ReturnType<typeof wayfinder>[];
     deliveryTickets: readonly ReturnType<typeof delivery>[];
+    incomingIssues?: readonly ReturnType<typeof incoming>[];
     blockedBy: readonly Readonly<{ blocked: string; blocker: string }>[];
   },
   completion: "complete" | "incomplete",
@@ -242,11 +331,25 @@ const capture = (
     diagnostics: [],
     projection: {
       map: projection.map,
+      ...(projection.spec === undefined ? {} : { spec: projection.spec }),
       wayfinderTickets: projection.wayfinderTickets,
       deliveryTickets: projection.deliveryTickets,
-      incomingIssues: [],
+      incomingIssues: projection.incomingIssues ?? [],
       graph: {
-        parentChild: [],
+        parentChild: [
+          ...projection.wayfinderTickets.map((ticket) => ({
+            parent: projection.map.ref,
+            child: ticket.ref,
+            evidence: "matt-contract" as const,
+          })),
+          ...(projection.spec === undefined
+            ? []
+            : projection.deliveryTickets.map((ticket) => ({
+                parent: projection.spec?.ref ?? "",
+                child: ticket.ref,
+                evidence: "matt-contract" as const,
+              }))),
+        ],
         blockedBy: projection.blockedBy.map((relation) => ({
           ...relation,
           evidence: "matt-contract" as const,
@@ -257,7 +360,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 7,
+    schemaVersion: 8,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -519,12 +622,16 @@ export const createProjectOverviewFixture = () => {
             "Finish the product journey.",
             "Review the evidence.",
           ]),
+          spec: spec(".scratch/portal/PRD.md", "Portal Validation PRD"),
           wayfinderTickets: [
             wayfinder(".scratch/portal/issues/01-build.md", "Build the Roadmap journey", "claimed"),
             wayfinder(".scratch/portal/issues/02-review.md", "Review the Roadmap journey", "ready"),
           ],
           deliveryTickets: [
             delivery(".scratch/portal/issues/03-gate.md", "Pass the integration gate"),
+          ],
+          incomingIssues: [
+            incoming(".scratch/portal/issues/04-incoming.md", "Route a new Portal request"),
           ],
           blockedBy: [
             {
@@ -571,12 +678,16 @@ export const createProjectOverviewFixture = () => {
       effortModelRecord,
       effortPortalRecord,
       assetRecord,
+      modelScopeRecord,
+      portalScopeRecord,
       modelMapRecord,
       portalMapRecord,
       resolvedTicketRecord,
       claimedTicketRecord,
       readyTicketRecord,
       blockedTicketRecord,
+      portalSpecRecord,
+      portalIncomingRecord,
       auditRecord,
       guidanceRecord,
       primaryGuidanceRecord,
@@ -606,6 +717,7 @@ export const createProjectOverviewFixture = () => {
       reviews: candidate.reviews,
       providerObservations: candidate.providerObservations,
       providerObservationSelections,
+      sources: candidate.sources,
     }),
   });
 };

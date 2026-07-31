@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import type { AssetProjection } from "../src/project-snapshot/contract";
+import { buildMattNativeSourceRecords } from "../src/project-snapshot/native-work-sources";
 import { buildPlanningLineageProjection } from "../src/project-snapshot/planning-lineage";
 import {
   assetProjectionSchema,
@@ -82,7 +83,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 7,
+  schemaVersion: 8,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -291,11 +292,21 @@ test("rejects false-complete, content-tampered, or unresolved provider observati
     }).success,
   ).toBe(false);
   expect(
-    projectSnapshotSchema.safeParse({
-      ...validSnapshot,
-      providerObservations: [providerCapture],
-      providerObservationSelections: [providerSelection],
-    }).success,
+    projectSnapshotSchema.safeParse(
+      (() => {
+        const sources = [
+          ...validSnapshot.sources,
+          ...buildMattNativeSourceRecords([providerCapture], BASIS),
+        ];
+        const candidate = {
+          ...validSnapshot,
+          providerObservations: [providerCapture],
+          providerObservationSelections: [providerSelection],
+          sources,
+        };
+        return { ...candidate, lineage: buildPlanningLineageProjection(candidate) };
+      })(),
+    ).success,
   ).toBe(true);
 });
 

@@ -80,6 +80,7 @@
 .lineage-sections li {
   color: var(--muted);
   line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 .lineage-sections ul {
   padding-left: var(--space-5);

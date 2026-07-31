@@ -17,6 +17,27 @@ import type {
   SourceRecord,
 } from "../project-snapshot/contract";
 import { findPlanningLineageSubjectProjection } from "../project-snapshot/planning-lineage";
+import type {
+  MattDeliveryTicket,
+  MattIncomingIssue,
+  MattMap,
+  MattSemanticSectionAvailability,
+  MattSpec,
+  MattWayfinderTicket,
+} from "../providers/matt-skills-v1/model";
+import {
+  assessMattNativeEvidence,
+  hasCompleteMattNativeEvidence,
+  type MattNativeRecord,
+  type MattNativeScopeRecord,
+  mattNativeRecords,
+} from "../providers/matt-skills-v1/native-read-model";
+import {
+  type MattNativeSubject,
+  mattNativeSubjectForObject,
+} from "../providers/matt-skills-v1/native-subject";
+import type { MattProjectedObject } from "../providers/matt-skills-v1/projection";
+import { mattObjects } from "../providers/matt-skills-v1/projection";
 import {
   type PlanningLineageEvent,
   planningLineageEventsFor,
@@ -25,7 +46,7 @@ import {
 
 const RELATION_PREVIEW_LIMIT = 3;
 
-type SubjectRecord =
+type CanonicalSubjectRecord =
   | Roadmap
   | MilestoneGate
   | Effort
@@ -33,6 +54,9 @@ type SubjectRecord =
   | AlignmentCheck
   | PlanningReview
   | AssetProjection;
+type NativeScopeRecord = MattNativeScopeRecord;
+type NativeRecord = MattNativeRecord;
+type SubjectRecord = CanonicalSubjectRecord | NativeRecord;
 
 export type PlanningLineageRelationItem = Readonly<{
   reference: string;
@@ -83,12 +107,13 @@ type ReadablePlanningLineageSubjectModel = Readonly<{
     id: string;
     title: string;
     source?: SourceRecord | undefined;
+    sourceHref?: string | undefined;
   }>;
   parentPath: readonly PlanningLineageParentCrumb[];
   parentNotice?: string | undefined;
   events: readonly PlanningLineageEvent[];
   sections: readonly PlanningLineageSection[];
-  semanticAvailability: ReadonlyMap<string, "available" | "confirmed-empty" | "unavailable">;
+  semanticAvailability: ReadonlyMap<string, MattSemanticSectionAvailability>;
   relations: readonly PlanningLineageRelation[];
 }>;
 
@@ -115,6 +140,46 @@ type CollectionState =
     }>
   | Readonly<{ validity: "invalid"; issues: readonly unknown[] }>;
 
+const isNativeSubject = (subject: PlanningLineageSubject): subject is MattNativeSubject =>
+  subject.kind.startsWith("native-");
+
+const nativeEvidenceAssessment = (
+  snapshot: ProjectSnapshot,
+  observation: ProjectSnapshot["providerObservations"][number],
+) => assessMattNativeEvidence(observation, snapshot.providerObservationSelections);
+
+const hasCompleteNativeEvidence = (
+  snapshot: ProjectSnapshot,
+  observation: ProjectSnapshot["providerObservations"][number],
+): boolean => hasCompleteMattNativeEvidence(observation, snapshot.providerObservationSelections);
+
+const providerSubjectRecords = (snapshot: ProjectSnapshot): readonly NativeRecord[] =>
+  mattNativeRecords(snapshot.providerObservations, snapshot.sources);
+
+const nativeCollectionFor = (
+  snapshot: ProjectSnapshot,
+  kind: MattNativeSubject["kind"],
+): CollectionState => {
+  const records = providerSubjectRecords(snapshot).filter((record) =>
+    kind === "native-scope"
+      ? record.recordKind === "native-scope"
+      : record.recordKind === "native-object" &&
+        mattNativeSubjectForObject(record.object).kind === kind,
+  );
+  if (snapshot.providerObservations.length === 0) {
+    return {
+      validity: "invalid",
+      issues: ["No provider observation establishes native subject coverage."],
+    };
+  }
+  const issues = snapshot.providerObservations.filter(
+    (observation) => !hasCompleteNativeEvidence(snapshot, observation),
+  );
+  return issues.length === 0
+    ? { validity: "available", items: records }
+    : { validity: "partial", items: records, issues };
+};
+
 const collectionFor = (
   snapshot: ProjectSnapshot,
   kind: PlanningLineageSubject["kind"],
@@ -134,6 +199,9 @@ const collectionFor = (
       return snapshot.reviews;
     case "asset":
       return snapshot.assets;
+    case "native-scope":
+    case "native-subject":
+      return nativeCollectionFor(snapshot, kind);
   }
 };
 
@@ -167,12 +235,12 @@ const relationItem = (
 ): PlanningLineageRelationItem => {
   const ownerRecord = recordFor(snapshot, owner);
   const relationEvent =
-    ownerRecord === undefined
+    ownerRecord === undefined || isNativeSubject(owner)
       ? undefined
       : planningLineageRelationEvent(
           snapshot,
           owner,
-          ownerRecord,
+          ownerRecord as CanonicalSubjectRecord,
           relationKey,
           target.subject,
           target.reference,
@@ -443,6 +511,374 @@ const assetSections = (asset: AssetProjection): readonly PlanningLineageSection[
   ];
 };
 
+const nativeSemanticAvailability = (
+  object: MattProjectedObject,
+  role: string,
+): MattSemanticSectionAvailability =>
+  object.semanticSections.find((section) => section.role === role)?.availability ?? "unavailable";
+
+const nativeSemanticSection = (
+  object: MattProjectedObject,
+  input: Readonly<{
+    role: string;
+    title: string;
+    body?: string | undefined;
+    items?: readonly string[] | undefined;
+    emptyCopy: string;
+    unavailableBody?: string | undefined;
+  }>,
+): PlanningLineageSection => {
+  const availability = nativeSemanticAvailability(object, input.role);
+  if (availability === "confirmed-empty") {
+    return { anchor: input.role, title: input.title, body: input.emptyCopy };
+  }
+  if (availability === "unavailable") {
+    return {
+      anchor: input.role,
+      title: input.title,
+      body:
+        input.unavailableBody ??
+        "This semantic section is unavailable in the selected provider observation.",
+      ...(input.items === undefined ? {} : { items: input.items }),
+    };
+  }
+  if (availability === "unsupported") {
+    return {
+      anchor: input.role,
+      title: input.title,
+      body: "This provider version does not support the requested semantic section.",
+    };
+  }
+  return {
+    anchor: input.role,
+    title: input.title,
+    ...(input.body === undefined ? {} : { body: input.body }),
+    ...(input.items === undefined ? {} : { items: input.items }),
+  };
+};
+
+const sourceAnchorLabel = (anchor: Readonly<{ kind: string; target: string }>): string =>
+  `${anchor.kind}: ${anchor.target}`;
+
+const nativeTrustSections = (
+  snapshot: ProjectSnapshot,
+  record: NativeRecord,
+): readonly PlanningLineageSection[] => {
+  const observation = record.observation;
+  const evidence = nativeEvidenceAssessment(snapshot, observation);
+  const object = record.recordKind === "native-object" ? record.object : undefined;
+  const provenance =
+    object === undefined
+      ? observation.binding.nativeScope
+      : object.native.kind === "local"
+        ? object.native.identity.locator
+        : `${object.native.identity.owner}/${object.native.identity.repository} ${object.native.identity.objectKind} #${object.native.identity.number}`;
+  return [
+    {
+      anchor: "native.observation-trust",
+      title: "Observation Trust",
+      body: `Observation ${observation.id}; projection ${observation.state}; freshness ${observation.freshness.assessment}; coverage ${observation.coverage.assessment}; completion ${observation.completion}; selected evidence ${evidence.frontierEvidence}.`,
+    },
+    {
+      anchor: "native.provenance",
+      title: "Native Provenance",
+      body: provenance,
+    },
+  ];
+};
+
+const nativeScopeSections = (
+  snapshot: ProjectSnapshot,
+  record: NativeScopeRecord,
+): readonly PlanningLineageSection[] => {
+  const objects = mattObjects(record.observation);
+  const evidence = nativeEvidenceAssessment(snapshot, record.observation);
+  const complete = evidence.frontierEvidence === "trustworthy";
+  return [
+    {
+      anchor: "native-scope.trust",
+      title: "Scope Context and Trust",
+      body: `${record.observation.provider} · ${record.title}. Projection ${record.observation.state}; freshness ${record.observation.freshness.assessment}; coverage ${record.observation.coverage.assessment}; completion ${record.observation.completion}; selected evidence ${evidence.frontierEvidence}.`,
+    },
+    {
+      anchor: "native-scope.subjects",
+      title: "Native Subjects",
+      body:
+        objects.length === 0
+          ? complete
+            ? "No native subjects were established by this complete provider observation."
+            : "Native subject membership is unavailable in the selected provider observation."
+          : "Role-first members established by the selected provider observation.",
+      ...(objects.length === 0
+        ? {}
+        : { items: objects.map((object) => `${object.kind}: ${object.title}`) }),
+    },
+  ];
+};
+
+const mapSections = (map: MattMap): readonly PlanningLineageSection[] => [
+  nativeSemanticSection(map, {
+    role: "map.destination",
+    title: "Destination",
+    body: map.destination,
+    emptyCopy: "No Destination is declared.",
+  }),
+  {
+    anchor: "map.lifecycle",
+    title: "Map Lifecycle",
+    body: map.lifecycle.state,
+  },
+  nativeSemanticSection(map, {
+    role: "map.fog",
+    title: "Fog",
+    items: map.fog,
+    emptyCopy: "No fog is recorded.",
+  }),
+  nativeSemanticSection(map, {
+    role: "map.decisions",
+    title: "Decisions",
+    items: map.decisions.map(
+      (decision) =>
+        `${decision.gist}${decision.ticket === undefined ? "" : ` · Ticket ${decision.ticket}`} · ${sourceAnchorLabel(decision.sourceAnchor)}`,
+    ),
+    emptyCopy: "No decisions are recorded.",
+  }),
+  nativeSemanticSection(map, {
+    role: "map.out-of-scope",
+    title: "Out of Scope",
+    items: map.outOfScope.map(
+      (entry) =>
+        `${entry.rationale}${entry.ticket === undefined ? "" : ` · Ticket ${entry.ticket}`} · ${sourceAnchorLabel(entry.sourceAnchor)}`,
+    ),
+    emptyCopy: "No out-of-scope dispositions are recorded.",
+  }),
+  nativeSemanticSection(map, {
+    role: "map.notes",
+    title: "Notes",
+    items: map.notes,
+    emptyCopy: "No notes are recorded.",
+  }),
+  nativeSemanticSection(map, {
+    role: "map.resolution-evidence",
+    title: "Resolution Evidence",
+    items:
+      map.lifecycle.state === "resolved"
+        ? map.lifecycle.resolutionEvidence.map(sourceAnchorLabel)
+        : undefined,
+    emptyCopy: "No Map resolution evidence is recorded.",
+  }),
+];
+
+const specSections = (spec: MattSpec): readonly PlanningLineageSection[] => [
+  {
+    anchor: "spec.lifecycle",
+    title: "Spec Lifecycle",
+    body: spec.lifecycle.state,
+  },
+  ...spec.sections.map((section) =>
+    nativeSemanticSection(spec, {
+      role: `spec.${section.role}`,
+      title: section.title,
+      body: section.body,
+      emptyCopy: `No ${section.title.toLocaleLowerCase()} content is recorded.`,
+    }),
+  ),
+];
+
+const trackerClosureItems = (
+  closure: MattWayfinderTicket["trackerClosure"] | MattDeliveryTicket["trackerClosure"],
+): readonly string[] =>
+  closure.state === "open"
+    ? ["Tracker closure: open"]
+    : [
+        `Tracker closure: closed · ${closure.disposition}`,
+        `Closure observed at: ${closure.observedAt}`,
+        ...(closure.actor === undefined ? [] : [`Closure actor: ${closure.actor}`]),
+      ];
+
+const wayfinderSections = (ticket: MattWayfinderTicket): readonly PlanningLineageSection[] => [
+  nativeSemanticSection(ticket, {
+    role: "wayfinder.question",
+    title: "Question",
+    body: ticket.question,
+    emptyCopy: "No Question is recorded.",
+  }),
+  {
+    anchor: "wayfinder.lifecycle",
+    title: "Lifecycle and Subtype",
+    body: `${ticket.lifecycle.state} · ${ticket.subtype}`,
+    items: trackerClosureItems(ticket.trackerClosure),
+  },
+  nativeSemanticSection(ticket, {
+    role: "wayfinder.claim",
+    title: "Claim",
+    body:
+      ticket.claim.state === "unclaimed"
+        ? "Unclaimed"
+        : `Claimed${ticket.claim.claimant === undefined ? "" : ` by ${ticket.claim.claimant}`}${
+            ticket.claim.claimantAmbiguous === true ? " · claimant ambiguous" : ""
+          }`,
+    emptyCopy: "No claim is recorded.",
+  }),
+  nativeSemanticSection(ticket, {
+    role: "wayfinder.answer",
+    title: "Answer",
+    body:
+      ticket.answer.availability === "available"
+        ? ticket.answer.content.body
+        : `Answer unavailable: ${ticket.answer.reason}.`,
+    items:
+      ticket.answer.availability === "available" && ticket.answer.content.sourceAnchor !== undefined
+        ? [sourceAnchorLabel(ticket.answer.content.sourceAnchor)]
+        : undefined,
+    emptyCopy: "No Answer has been authored.",
+  }),
+  nativeSemanticSection(ticket, {
+    role: "wayfinder.comments",
+    title: "Comments",
+    items: ticket.comments.map(
+      (comment) =>
+        `${comment.role}: ${comment.body}${
+          comment.sourceAnchor === undefined ? "" : ` · ${sourceAnchorLabel(comment.sourceAnchor)}`
+        }`,
+    ),
+    emptyCopy: "No comments are recorded.",
+  }),
+  ...(ticket.lifecycle.state === "resolved-on-route"
+    ? [
+        {
+          anchor: "wayfinder.decision-backlink",
+          title: "Decision Backlink",
+          body: sourceAnchorLabel(ticket.lifecycle.decisionSource),
+        },
+      ]
+    : ticket.lifecycle.state === "ruled-out-of-scope"
+      ? [
+          {
+            anchor: "wayfinder.disposition-backlink",
+            title: "Disposition Backlink",
+            body: sourceAnchorLabel(ticket.lifecycle.dispositionSource),
+          },
+        ]
+      : []),
+];
+
+const deliverySections = (ticket: MattDeliveryTicket): readonly PlanningLineageSection[] => [
+  nativeSemanticSection(ticket, {
+    role: "delivery.what-to-build",
+    title: "What to Build",
+    body: ticket.whatToBuild,
+    emptyCopy: "No delivery brief is recorded.",
+  }),
+  nativeSemanticSection(ticket, {
+    role: "delivery.acceptance-criteria",
+    title: "Acceptance Criteria",
+    items: ticket.acceptanceCriteria,
+    emptyCopy: "No Acceptance Criteria are recorded.",
+  }),
+  {
+    anchor: "delivery.lifecycle",
+    title: "Delivery Lifecycle",
+    body: ticket.lifecycle.state,
+    items: trackerClosureItems(ticket.trackerClosure),
+  },
+  nativeSemanticSection(ticket, {
+    role: "delivery.completion-evidence",
+    title: "Completion Evidence",
+    items:
+      ticket.lifecycle.state === "completed"
+        ? ticket.lifecycle.evidence
+        : ticket.lifecycle.state === "completion-unavailable"
+          ? [`Completion unavailable: ${ticket.lifecycle.reason}`]
+          : undefined,
+    emptyCopy: "No completion evidence is recorded.",
+  }),
+  nativeSemanticSection(ticket, {
+    role: "delivery.comments",
+    title: "Comments",
+    items: ticket.comments.map(
+      (comment) =>
+        `${comment.role}: ${comment.body}${
+          comment.sourceAnchor === undefined ? "" : ` · ${sourceAnchorLabel(comment.sourceAnchor)}`
+        }`,
+    ),
+    emptyCopy: "No comments are recorded.",
+  }),
+];
+
+const incomingSections = (issue: MattIncomingIssue): readonly PlanningLineageSection[] => [
+  nativeSemanticSection(issue, {
+    role: "incoming.classification",
+    title: "Classification",
+    body: `${issue.classification.category} · ${issue.classification.state}`,
+    items: [
+      ...(issue.classification.nativeCategory === undefined
+        ? []
+        : [`Native category: ${issue.classification.nativeCategory}`]),
+      ...(issue.classification.nativeState === undefined
+        ? []
+        : [`Native state: ${issue.classification.nativeState}`]),
+    ],
+    emptyCopy: "No classification is recorded.",
+    unavailableBody: `Classification remains ${issue.classification.category} · ${issue.classification.state}; the provider could not establish one unambiguous mapped classification.`,
+  }),
+  nativeSemanticSection(issue, {
+    role: "incoming.routing",
+    title: "Routing",
+    body: issue.classification.state,
+    emptyCopy: "No routing state is recorded.",
+    unavailableBody: `Routing remains ${issue.classification.state}; it is not coerced to needs-triage.`,
+  }),
+  {
+    anchor: "incoming.lifecycle",
+    title: "Native Lifecycle",
+    body:
+      issue.lifecycle.state === "open"
+        ? "open"
+        : `closed · ${issue.lifecycle.disposition} · observed ${issue.lifecycle.observedAt}`,
+  },
+  nativeSemanticSection(issue, {
+    role: "incoming.content",
+    title: "Issue Content and Triage Notes",
+    items: issue.content.map(
+      (content) =>
+        `${content.role}: ${content.body}${
+          content.sourceAnchor === undefined ? "" : ` · ${sourceAnchorLabel(content.sourceAnchor)}`
+        }`,
+    ),
+    emptyCopy: "No issue content or triage notes are recorded.",
+  }),
+];
+
+const nativeSections = (
+  snapshot: ProjectSnapshot,
+  record: NativeRecord,
+): readonly PlanningLineageSection[] => {
+  if (record.recordKind === "native-scope") return nativeScopeSections(snapshot, record);
+  const objectSections = (() => {
+    switch (record.object.kind) {
+      case "map":
+        return mapSections(record.object);
+      case "spec":
+        return specSections(record.object);
+      case "wayfinder-ticket":
+        return wayfinderSections(record.object);
+      case "delivery-ticket":
+        return deliverySections(record.object);
+      case "incoming-issue":
+        return incomingSections(record.object);
+    }
+  })();
+  return [...objectSections, ...nativeTrustSections(snapshot, record)];
+};
+
+const nativeSourceHref = (record: NativeRecord): string | undefined => {
+  if (record.recordKind !== "native-object" || record.object.native.kind !== "github") {
+    return undefined;
+  }
+  return record.object.native.identity.url;
+};
+
 const sectionsFor = (
   snapshot: ProjectSnapshot,
   lineage: PlanningLineageSubjectProjection,
@@ -463,6 +899,9 @@ const sectionsFor = (
       return planningReviewSections(record as PlanningReview);
     case "asset":
       return assetSections(record as AssetProjection);
+    case "native-scope":
+    case "native-subject":
+      return nativeSections(snapshot, record as NativeRecord);
   }
 };
 
@@ -539,13 +978,21 @@ export const buildPlanningLineageSubjectModel = (
   const semanticAvailability = new Map(
     lineage.semanticSections.map((section) => [section.role, section.availability]),
   );
+  const collectionIsPartial = isNativeSubject(subject)
+    ? !hasCompleteNativeEvidence(snapshot, (record as NativeRecord).observation)
+    : collection.validity === "partial";
   const degraded =
-    collection.validity === "partial" ||
+    collectionIsPartial ||
     lineage.parentPath.state !== "complete" ||
-    lineage.semanticSections.some((section) => section.availability === "unavailable") ||
+    lineage.semanticSections.some(
+      (section) => section.availability === "unavailable" || section.availability === "unsupported",
+    ) ||
     lineage.relations.some(
       (relation) => relation.state === "unknown" || relation.state === "unavailable",
     );
+  const sourceHref = isNativeSubject(subject)
+    ? nativeSourceHref(record as NativeRecord)
+    : undefined;
   return {
     state: degraded ? "partial" : "available",
     subject: {
@@ -553,6 +1000,7 @@ export const buildPlanningLineageSubjectModel = (
       id: subject.id,
       title: record.title,
       source: sourceIndex(snapshot).get(record.source),
+      ...(sourceHref === undefined ? {} : { sourceHref }),
     },
     parentPath: parentPathForDisplay(snapshot, entryId, lineage, record),
     ...(lineage.parentPath.state === "complete"
@@ -560,7 +1008,9 @@ export const buildPlanningLineageSubjectModel = (
       : {
           parentNotice: `${lineage.parentPath.reason ?? "Canonical parentage is unavailable."} The path stops at the last trustworthy ancestor.`,
         }),
-    events: planningLineageEventsFor(snapshot, subject, record),
+    events: isNativeSubject(subject)
+      ? []
+      : planningLineageEventsFor(snapshot, subject, record as CanonicalSubjectRecord),
     sections: sectionsFor(snapshot, lineage, record),
     semanticAvailability,
     relations,

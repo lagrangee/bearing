@@ -4,6 +4,7 @@ import { fingerprintInputRecords, normalizeLocator } from "../../fingerprint";
 import {
   type MarkdownDocument,
   type MarkdownSection,
+  markdownNarrative,
   parseMarkdownDocument,
   queryMarkdownDocumentTitle,
   queryMarkdownField,
@@ -46,6 +47,12 @@ import type {
   MattSpec,
   MattWayfinderTicket,
 } from "./model";
+import {
+  MATT_SPEC_SECTION_DEFINITIONS,
+  semanticAvailabilityForItems,
+  semanticAvailabilityForOptionalContent,
+  semanticSection,
+} from "./semantic-sections";
 
 const DEFAULT_MAXIMUM_FILE_BYTES = 1024 * 1024;
 const REQUIRED_TRIAGE_ROLES = [
@@ -56,16 +63,6 @@ const REQUIRED_TRIAGE_ROLES = [
   "wontfix",
 ] as const;
 const WAYFINDER_SUBTYPES = new Set(["research", "prototype", "grilling", "task"]);
-const SPEC_SECTIONS = [
-  ["problem", "Problem Statement"],
-  ["solution", "Solution"],
-  ["user-stories", "User Stories"],
-  ["implementation", "Implementation Decisions"],
-  ["testing", "Testing Decisions"],
-  ["out-of-scope", "Out of Scope"],
-  ["further-notes", "Further Notes"],
-] as const;
-
 type FileStamp = Readonly<{
   dev: string;
   ino: string;
@@ -223,30 +220,6 @@ const requiredSection = (
     ),
   );
   return undefined;
-};
-
-const sectionListItems = (
-  document: MarkdownDocument,
-  section: MarkdownSection | undefined,
-  target: string,
-  diagnostics: CaptureDiagnostic[],
-  required: boolean,
-): readonly string[] => {
-  if (section === undefined) return [];
-  const result = queryMarkdownList(document, { within: section });
-  if (result.state === "found") return result.value.items.map((item) => item.text);
-  if (result.state === "absent" && !required) {
-    return section.markdown.length === 0 ? [] : [section.markdown];
-  }
-  diagnostics.push(
-    diagnostic(
-      "matt.local.decode.list",
-      "format",
-      target,
-      `Matt list structure is ${result.state}.`,
-    ),
-  );
-  return [];
 };
 
 const fieldValue = (
@@ -642,6 +615,7 @@ const decodeWayfinder = (
       ),
     );
   }
+  const comments = supplementaryContent(file);
   return {
     kind: "wayfinder-ticket",
     ref: objectReference(file.locator),
@@ -662,7 +636,7 @@ const decodeWayfinder = (
             availability: "available",
             content: answer as MattContent & Readonly<{ role: "answer" }>,
           },
-    comments: supplementaryContent(file),
+    comments,
     lifecycle: { state: "open" },
     trackerClosure: resolved
       ? {
@@ -671,6 +645,18 @@ const decodeWayfinder = (
           observedAt: capturedAt,
         }
       : { state: "open" },
+    semanticSections: [
+      semanticSection(
+        "wayfinder.question",
+        question.value.markdown.trim().length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection("wayfinder.claim", "available"),
+      semanticSection("wayfinder.answer", answer === undefined ? "confirmed-empty" : "available"),
+      semanticSection(
+        "wayfinder.comments",
+        comments.length === 0 ? "confirmed-empty" : "available",
+      ),
+    ],
     native: nativeEvidenceFor(file, [
       { key: "type", values: [type] },
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
@@ -744,6 +730,7 @@ const decodeDelivery = (
       ),
     );
   }
+  const comments = supplementaryContent(file);
   return {
     kind: "delivery-ticket",
     ref: objectReference(file.locator),
@@ -752,7 +739,26 @@ const decodeDelivery = (
     acceptanceCriteria: acceptance.value.items.map((item) => item.text),
     lifecycle,
     trackerClosure,
-    comments: supplementaryContent(file),
+    comments,
+    semanticSections: [
+      semanticSection(
+        "delivery.what-to-build",
+        whatToBuild.trim().length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection(
+        "delivery.acceptance-criteria",
+        acceptance.value.items.length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection(
+        "delivery.completion-evidence",
+        lifecycle.state === "completed"
+          ? "available"
+          : lifecycle.state === "open"
+            ? "confirmed-empty"
+            : "unavailable",
+      ),
+      semanticSection("delivery.comments", comments.length === 0 ? "confirmed-empty" : "available"),
+    ],
     native: nativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
     ]),
@@ -812,6 +818,18 @@ const decodeIncoming = (
       );
     }
   }
+  const preamble = queryMarkdownPreamble(file.document);
+  const issueBody =
+    preamble.state === "found"
+      ? markdownNarrative(file.document, {
+          within: preamble.value,
+          excludeFields: ["Category", "Status", "Blocked by"],
+        })
+      : "";
+  const content: readonly MattContent[] = [
+    ...(issueBody.length === 0 ? [] : [{ role: "issue-body" as const, body: issueBody }]),
+    ...supplementaryContent(file),
+  ];
   return {
     kind: "incoming-issue",
     ref: objectReference(file.locator),
@@ -822,7 +840,7 @@ const decodeIncoming = (
       ...(nativeCategory === undefined ? {} : { nativeCategory }),
       ...(nativeState === undefined ? {} : { nativeState }),
     },
-    content: supplementaryContent(file),
+    content,
     lifecycle:
       state === "wontfix"
         ? {
@@ -831,6 +849,17 @@ const decodeIncoming = (
             observedAt: capturedAt,
           }
         : { state: "open" },
+    semanticSections: [
+      semanticSection(
+        "incoming.classification",
+        category === "bug" || category === "enhancement" ? "available" : "unavailable",
+      ),
+      semanticSection("incoming.content", content.length === 0 ? "confirmed-empty" : "available"),
+      semanticSection(
+        "incoming.routing",
+        state === "unknown" || state === "ambiguous" ? "unavailable" : "available",
+      ),
+    ],
     native: nativeEvidenceFor(file, [
       ...(nativeCategory === undefined ? [] : [{ key: "category", values: [nativeCategory] }]),
       ...(nativeState === undefined ? [] : [{ key: "status", values: [nativeState] }]),
@@ -843,15 +872,74 @@ const gistAfterLinkLabel = (text: string, label: string): string => {
   return suffix.startsWith("—") || suffix.startsWith("-") ? suffix.slice(1).trim() : suffix;
 };
 
-const optionalSectionList = (
+type CompatibleSectionResult =
+  | Readonly<{ state: "found"; title: string; section: MarkdownSection }>
+  | Readonly<{ state: "absent" | "ambiguous" }>;
+
+const compatibleSection = (
   file: CapturedFile,
-  title: string,
+  titles: readonly string[],
+  role: string,
   diagnostics: CaptureDiagnostic[],
-): readonly string[] => {
-  const section = queryMarkdownSection(file.document, { title });
-  return section.state === "found"
-    ? sectionListItems(file.document, section.value, file.locator, diagnostics, false)
-    : [];
+): CompatibleSectionResult => {
+  const found: Readonly<{ title: string; section: MarkdownSection }>[] = [];
+  let ambiguous = false;
+  for (const title of titles) {
+    const result = queryMarkdownSection(file.document, { title });
+    if (result.state === "found") found.push({ title, section: result.value });
+    if (result.state === "ambiguous") ambiguous = true;
+  }
+  if (ambiguous || found.length > 1) {
+    diagnostics.push(
+      diagnostic(
+        "matt.local.semantic-section.ambiguous",
+        "format",
+        file.locator,
+        `Provider semantic role ${role} has ambiguous compatible headings.`,
+      ),
+    );
+    return { state: "ambiguous" };
+  }
+  const only = found[0];
+  return only === undefined ? { state: "absent" } : { state: "found", ...only };
+};
+
+const compatibleSectionList = (
+  file: CapturedFile,
+  titles: readonly string[],
+  role: string,
+  diagnostics: CaptureDiagnostic[],
+): Readonly<{
+  values: readonly string[];
+  availability: "available" | "confirmed-empty" | "unavailable";
+}> => {
+  const result = compatibleSection(file, titles, role, diagnostics);
+  if (result.state !== "found") return { values: [], availability: "unavailable" };
+  const list = queryMarkdownList(file.document, { within: result.section });
+  if (list.state === "found") {
+    return {
+      values: list.value.items.map((item) => item.text),
+      availability: list.value.items.length === 0 ? "confirmed-empty" : "available",
+    };
+  }
+  if (list.state === "ambiguous") {
+    diagnostics.push(
+      diagnostic(
+        "matt.local.semantic-section.ambiguous",
+        "format",
+        file.locator,
+        `Provider semantic role ${role} contains ambiguous list content.`,
+      ),
+    );
+  }
+  return {
+    values: [],
+    availability: semanticAvailabilityForItems(
+      "found",
+      0,
+      result.section.markdown.trim().length > 0,
+    ),
+  };
 };
 
 const canonicalMapIssueLocator = (file: CapturedFile, target: string): string | undefined => {
@@ -947,8 +1035,15 @@ const decodeMap = (
   const title = titleFor(file, diagnostics);
   const destination = requiredSection(file.document, "Destination", file.locator, diagnostics);
   if (title === undefined || destination === undefined) return undefined;
-  const notes = optionalSectionList(file, "Notes", diagnostics);
-  const fog = optionalSectionList(file, "Fog", diagnostics);
+  const notesSection = compatibleSectionList(file, ["Notes"], "map.notes", diagnostics);
+  const fogSection = compatibleSectionList(
+    file,
+    ["Not yet specified", "Fog"],
+    "map.fog",
+    diagnostics,
+  );
+  const notes = notesSection.values;
+  const fog = fogSection.values;
   const decisions: MattMap["decisions"][number][] = [];
   for (const entry of mapSectionEntries(file, "Decisions so far", issueByLocator, diagnostics)) {
     decisions.push({
@@ -981,6 +1076,17 @@ const decodeMap = (
       ),
     );
   }
+  const collectionAvailability = (
+    title: string,
+    count: number,
+  ): "available" | "confirmed-empty" | "unavailable" => {
+    const result = queryMarkdownSection(file.document, { title });
+    return semanticAvailabilityForItems(
+      result.state,
+      count,
+      result.state === "found" && result.value.markdown.trim().length > 0 && count === 0,
+    );
+  };
   return {
     kind: "map",
     ref: objectReference(file.locator),
@@ -997,6 +1103,30 @@ const decodeMap = (
             resolutionEvidence: decisions.map((decision) => decision.sourceAnchor),
           }
         : { state: "active" },
+    semanticSections: [
+      semanticSection(
+        "map.destination",
+        destination.markdown.trim().length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection("map.notes", notesSection.availability),
+      semanticSection(
+        "map.decisions",
+        collectionAvailability("Decisions so far", decisions.length),
+      ),
+      semanticSection("map.fog", fogSection.availability),
+      semanticSection(
+        "map.out-of-scope",
+        collectionAvailability("Out of scope", outOfScope.length),
+      ),
+      semanticSection(
+        "map.resolution-evidence",
+        status === "resolved"
+          ? decisions.length === 0
+            ? "unavailable"
+            : "available"
+          : "confirmed-empty",
+      ),
+    ],
     native: nativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
     ]),
@@ -1007,13 +1137,25 @@ const decodeSpec = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): MattS
   const title = titleFor(file, diagnostics);
   const status = fieldValue(file, "Status", diagnostics);
   const sections: MattSpec["sections"][number][] = [];
-  for (const [role, sectionTitle] of SPEC_SECTIONS) {
-    const section = requiredSection(file.document, sectionTitle, file.locator, diagnostics);
-    if (section !== undefined) {
-      sections.push({ role, title: sectionTitle, body: section.markdown });
-    }
+  for (const definition of MATT_SPEC_SECTION_DEFINITIONS) {
+    const result = compatibleSection(
+      file,
+      [definition.title, ...definition.aliases],
+      `spec.${definition.role}`,
+      diagnostics,
+    );
+    const availability =
+      result.state === "found"
+        ? semanticAvailabilityForOptionalContent("found", result.section.markdown.trim().length > 0)
+        : "unavailable";
+    sections.push({
+      role: definition.role,
+      title: result.state === "found" ? result.title : definition.title,
+      body: result.state === "found" ? result.section.markdown : "",
+      availability,
+    });
   }
-  if (title === undefined || sections.length !== SPEC_SECTIONS.length) return undefined;
+  if (title === undefined) return undefined;
   const lifecycle =
     status === "ready-for-agent" || status === "superseded" || status === "draft"
       ? status
@@ -1034,6 +1176,9 @@ const decodeSpec = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): MattS
     title,
     sections,
     lifecycle: { state: lifecycle },
+    semanticSections: sections.map((section) =>
+      semanticSection(`spec.${section.role}`, section.availability),
+    ),
     native: nativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
     ]),

@@ -1,4 +1,5 @@
 import type { RefinementCtx } from "zod";
+import { sameMattNativeBindingDefinition } from "../providers/matt-skills-v1/native-subject";
 import {
   type ContributorCapture,
   type ContributorObservationSelection,
@@ -69,10 +70,8 @@ export const validatePlanningDerivationConsistency = (
   context: RefinementCtx,
 ): void => {
   for (const [position, observation] of snapshot.providerObservations.entries()) {
-    const selection = snapshot.providerObservationSelections.find(
-      (candidate) =>
-        candidate.provider === observation.provider &&
-        candidate.nativeScope === observation.binding.nativeScope,
+    const selection = snapshot.providerObservationSelections.find((candidate) =>
+      sameMattNativeBindingDefinition(candidate, observation.binding),
     );
     if (selection?.observationId !== observation.id) {
       addIssue(
@@ -88,8 +87,7 @@ export const validatePlanningDerivationConsistency = (
       !snapshot.providerObservations.some(
         (observation) =>
           observation.id === selection.observationId &&
-          observation.provider === selection.provider &&
-          observation.binding.nativeScope === selection.nativeScope,
+          sameMattNativeBindingDefinition(observation.binding, selection),
       )
     ) {
       addIssue(

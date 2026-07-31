@@ -102,7 +102,7 @@ export const planningLineageParentPathSchema = z
 
 export const planningLineageSemanticSectionSchema = z.strictObject({
   role: z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u),
-  availability: z.enum(["available", "confirmed-empty", "unavailable"]),
+  availability: z.enum(["available", "confirmed-empty", "unavailable", "unsupported"]),
 });
 
 export const planningLineageSubjectProjectionSchema = z

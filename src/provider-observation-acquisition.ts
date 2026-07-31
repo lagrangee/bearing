@@ -12,6 +12,10 @@ import type {
   MattSkillsV1WorkBinding,
 } from "./providers/matt-skills-v1/capture";
 import { createGitHubMattProvider } from "./providers/matt-skills-v1/github";
+import {
+  decodeGitHubMattNativeScope,
+  githubMattNativeScopeIdentity,
+} from "./providers/matt-skills-v1/github-native-scope";
 import { createLocalMarkdownMattProvider } from "./providers/matt-skills-v1/local-markdown";
 import type { SyncInputGeneration } from "./sync-input-generation";
 import type { StructuralDiagnostic } from "./types";
@@ -107,8 +111,19 @@ const providerBindingEntries = (
       provider: data["Work binding"].Provider,
       nativeScope: data["Work binding"]["Native scope"],
     };
-    const key = `${binding.provider}\0${binding.nativeScope}`;
+    const githubScope = decodeGitHubMattNativeScope(binding.nativeScope);
+    const nativeIdentity =
+      githubScope === undefined ? binding.nativeScope : githubMattNativeScopeIdentity(githubScope);
+    const key = `${binding.provider}\0${nativeIdentity}`;
     const entry = bindings.get(key) ?? { binding, effortIds: [] };
+    if (
+      Buffer.compare(
+        Buffer.from(binding.nativeScope, "utf8"),
+        Buffer.from(entry.binding.nativeScope, "utf8"),
+      ) < 0
+    ) {
+      entry.binding = binding;
+    }
     entry.effortIds.push(data.ID);
     bindings.set(key, entry);
   }

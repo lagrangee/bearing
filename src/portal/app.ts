@@ -42,7 +42,7 @@ const assetPath = (pathname: string): string => (pathname === "/" ? "/index.html
 const isSpaRoute = (pathname: string): boolean =>
   !pathname.startsWith("/api/") &&
   pathname !== "/healthz" &&
-  !pathname.split("/").at(-1)?.includes(".");
+  (pathname.startsWith("/projects/") || !pathname.split("/").at(-1)?.includes("."));
 
 const encodingQuality = (parameters: readonly string[]): number => {
   const quality = parameters

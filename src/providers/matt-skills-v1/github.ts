@@ -7,6 +7,7 @@ import { normalizeLocator } from "../../fingerprint";
 import {
   type MarkdownDocument,
   type MarkdownSection,
+  markdownNarrative,
   parseMarkdownDocument,
   queryMarkdownField,
   queryMarkdownLinks,
@@ -33,6 +34,14 @@ import {
   type MattSkillsV1ProviderObservation,
 } from "./capture";
 import { parseGitHubCliIncludedResponse } from "./github-cli-response";
+import { decodeGitHubMattNativeScope } from "./github-native-scope";
+
+export {
+  decodeGitHubMattNativeScope,
+  encodeGitHubMattNativeScope,
+  type GitHubMattNativeScope,
+} from "./github-native-scope";
+
 import type {
   MattBlockedByRelation,
   MattContent,
@@ -49,6 +58,12 @@ import type {
   MattTrackerClosure,
   MattWayfinderTicket,
 } from "./model";
+import {
+  MATT_SPEC_SECTION_DEFINITIONS,
+  semanticAvailabilityForItems,
+  semanticAvailabilityForOptionalContent,
+  semanticSection,
+} from "./semantic-sections";
 
 export const GITHUB_API_VERSION = "2026-03-10" as const;
 const PAGE_SIZE = 100;
@@ -60,16 +75,6 @@ const REQUIRED_TRIAGE_ROLES = [
   "wontfix",
 ] as const;
 const WAYFINDER_SUBTYPES = ["research", "prototype", "grilling", "task"] as const;
-const SPEC_SECTIONS = [
-  ["problem", "Problem Statement"],
-  ["solution", "Solution"],
-  ["user-stories", "User Stories"],
-  ["implementation", "Implementation Decisions"],
-  ["testing", "Testing Decisions"],
-  ["out-of-scope", "Out of Scope"],
-  ["further-notes", "Further Notes"],
-] as const;
-
 type TriageSemanticRole = (typeof REQUIRED_TRIAGE_ROLES)[number] | "bug" | "enhancement";
 
 type TriageVocabulary = Readonly<{
@@ -77,50 +82,6 @@ type TriageVocabulary = Readonly<{
   nativeToSemantic: ReadonlyMap<string, TriageSemanticRole>;
   complete: boolean;
 }>;
-
-const githubOwnerSchema = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/u);
-const githubRepositoryNameSchema = z
-  .string()
-  .min(1)
-  .max(100)
-  .regex(/^[A-Za-z0-9._-]+$/u)
-  .refine((value) => value !== "." && value !== "..");
-
-const githubNativeScopeSchema = z.object({
-  host: z.literal("github.com"),
-  rootKind: z.enum(["wayfinder-map", "parent-issue", "standalone-request"]),
-  repository: z.object({
-    owner: githubOwnerSchema,
-    name: githubRepositoryNameSchema,
-    databaseId: z.string().min(1),
-    nodeId: z.string().min(1),
-  }),
-  root: z.object({
-    objectKind: z.enum(["issue", "pull-request"]),
-    number: z.number().int().positive(),
-    databaseId: z.string().min(1),
-    nodeId: z.string().min(1),
-  }),
-});
-
-export type GitHubMattNativeScope = Readonly<z.infer<typeof githubNativeScopeSchema>>;
-
-export const encodeGitHubMattNativeScope = (scope: GitHubMattNativeScope): string => {
-  const decoded = githubNativeScopeSchema.parse(scope);
-  return `github-matt-v1:${Buffer.from(JSON.stringify(decoded), "utf8").toString("base64url")}`;
-};
-
-const decodeGitHubMattNativeScope = (value: string): GitHubMattNativeScope | undefined => {
-  const prefix = "github-matt-v1:";
-  if (!value.startsWith(prefix)) return undefined;
-  try {
-    return githubNativeScopeSchema.parse(
-      JSON.parse(Buffer.from(value.slice(prefix.length), "base64url").toString("utf8")),
-    );
-  } catch {
-    return undefined;
-  }
-};
 
 export type GitHubReadRequest = Readonly<{
   endpoint: string;
@@ -401,6 +362,7 @@ type AcquiredIssue = Readonly<{
   issue: GitHubIssue;
   document: MarkdownDocument;
   comments: readonly GitHubComment[];
+  commentsCapability: "available" | "unsupported" | "failed";
   dependencies: readonly GitHubIssue[];
   dependencyCapability: "available" | "unsupported" | "failed";
   parentCapability: "available" | "absent" | "unsupported" | "failed";
@@ -1059,6 +1021,38 @@ const section = (acquired: AcquiredIssue, title: string): MarkdownSection | unde
   return result.state === "found" ? result.value : undefined;
 };
 
+type CompatibleSectionResult =
+  | Readonly<{ state: "found"; title: string; section: MarkdownSection }>
+  | Readonly<{ state: "absent" | "ambiguous" }>;
+
+const compatibleSection = (
+  acquired: AcquiredIssue,
+  titles: readonly string[],
+  role: string,
+  diagnostics: ProviderDiagnostic[],
+): CompatibleSectionResult => {
+  const found: Readonly<{ title: string; section: MarkdownSection }>[] = [];
+  let ambiguous = false;
+  for (const title of titles) {
+    const result = queryMarkdownSection(acquired.document, { title });
+    if (result.state === "found") found.push({ title, section: result.value });
+    if (result.state === "ambiguous") ambiguous = true;
+  }
+  if (ambiguous || found.length > 1) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.semantic-section.ambiguous",
+        "format",
+        acquired.issue.html_url,
+        `Provider semantic role ${role} has ambiguous compatible headings.`,
+      ),
+    );
+    return { state: "ambiguous" };
+  }
+  const only = found[0];
+  return only === undefined ? { state: "absent" } : { state: "found", ...only };
+};
+
 const sectionItems = (
   acquired: AcquiredIssue,
   title: string,
@@ -1106,6 +1100,39 @@ const mapSectionItems = (
     return [];
   }
   return list.state === "found" ? list.value.items : [];
+};
+
+const compatibleMapSectionItems = (
+  acquired: AcquiredIssue,
+  titles: readonly string[],
+  role: string,
+  diagnostics: ProviderDiagnostic[],
+): Readonly<{
+  items: readonly MarkdownSectionItem[];
+  availability: "available" | "confirmed-empty" | "unavailable";
+}> => {
+  const target = compatibleSection(acquired, titles, role, diagnostics);
+  if (target.state !== "found") return { items: [], availability: "unavailable" };
+  const list = queryMarkdownList(acquired.document, { within: target.section });
+  if (list.state === "ambiguous") {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.semantic-section.ambiguous",
+        "format",
+        acquired.issue.html_url,
+        `Provider semantic role ${role} contains ambiguous list content.`,
+      ),
+    );
+  }
+  const items = list.state === "found" ? list.value.items : [];
+  return {
+    items,
+    availability: semanticAvailabilityForItems(
+      "found",
+      items.length,
+      target.section.markdown.trim().length > 0 && items.length === 0,
+    ),
+  };
 };
 
 const commentContent = (comment: GitHubComment): MattContent => {
@@ -1300,6 +1327,13 @@ const decodeMap = (
 ): MattMap | undefined => {
   const destination = section(acquired, "Destination");
   if (destination === undefined) return undefined;
+  const notesSection = compatibleMapSectionItems(acquired, ["Notes"], "map.notes", diagnostics);
+  const fogSection = compatibleMapSectionItems(
+    acquired,
+    ["Not yet specified", "Fog"],
+    "map.fog",
+    diagnostics,
+  );
   const decisions = mapEntries(
     acquired,
     mapSectionItems(acquired, "Decisions so far", diagnostics),
@@ -1316,21 +1350,29 @@ const decodeMap = (
     diagnostics,
     "disposition",
   );
-  const fogItems = mapSectionItems(acquired, "Not yet specified", diagnostics);
-  const fallbackFogItems =
-    fogItems.length === 0 ? mapSectionItems(acquired, "Fog", diagnostics) : [];
+  const collectionAvailability = (
+    title: string,
+    count: number,
+  ): "available" | "confirmed-empty" | "unavailable" => {
+    const result = queryMarkdownSection(acquired.document, { title });
+    return semanticAvailabilityForItems(
+      result.state,
+      count,
+      result.state === "found" && result.value.markdown.trim().length > 0 && count === 0,
+    );
+  };
   return {
     kind: "map",
     ref: issueReference(repository, acquired.issue),
     title: acquired.issue.title,
     destination: destination.markdown,
-    notes: mapSectionItems(acquired, "Notes", diagnostics).map((item) => item.text),
+    notes: notesSection.items.map((item) => item.text),
     decisions: decisions.map((entry) => ({
       ...(entry.ticket === undefined ? {} : { ticket: entry.ticket }),
       gist: entry.text,
       sourceAnchor: entry.anchor,
     })),
-    fog: [...fogItems, ...fallbackFogItems].map((item) => item.text),
+    fog: fogSection.items.map((item) => item.text),
     outOfScope: outOfScope.map((entry) => ({
       ...(entry.ticket === undefined ? {} : { ticket: entry.ticket }),
       rationale: entry.text,
@@ -1343,6 +1385,30 @@ const decodeMap = (
             resolutionEvidence: decisions.map((entry) => entry.anchor),
           }
         : { state: "active" },
+    semanticSections: [
+      semanticSection(
+        "map.destination",
+        destination.markdown.trim().length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection("map.notes", notesSection.availability),
+      semanticSection(
+        "map.decisions",
+        collectionAvailability("Decisions so far", decisions.length),
+      ),
+      semanticSection("map.fog", fogSection.availability),
+      semanticSection(
+        "map.out-of-scope",
+        collectionAvailability("Out of scope", outOfScope.length),
+      ),
+      semanticSection(
+        "map.resolution-evidence",
+        acquired.issue.state === "closed"
+          ? decisions.length === 0
+            ? "unavailable"
+            : "available"
+          : "confirmed-empty",
+      ),
+    ],
     native: nativeEvidenceForAcquired(repository, acquired),
   };
 };
@@ -1351,13 +1417,28 @@ const decodeSpec = (
   acquired: AcquiredIssue,
   repository: GitHubRepository,
   vocabulary: TriageVocabulary | undefined,
+  diagnostics: ProviderDiagnostic[],
 ): MattSpec | undefined => {
   const sections: MattSpec["sections"][number][] = [];
-  for (const [role, title] of SPEC_SECTIONS) {
-    const value = section(acquired, title);
-    if (value !== undefined) sections.push({ role, title, body: value.markdown });
+  for (const definition of MATT_SPEC_SECTION_DEFINITIONS) {
+    const result = compatibleSection(
+      acquired,
+      [definition.title, ...definition.aliases],
+      `spec.${definition.role}`,
+      diagnostics,
+    );
+    const availability =
+      result.state === "found"
+        ? semanticAvailabilityForOptionalContent("found", result.section.markdown.trim().length > 0)
+        : "unavailable";
+    sections.push({
+      role: definition.role,
+      title: result.state === "found" ? result.title : definition.title,
+      body: result.state === "found" ? result.section.markdown : "",
+      availability,
+    });
   }
-  if (sections.length !== SPEC_SECTIONS.length) return undefined;
+  if (sections.every((candidate) => candidate.availability === "unavailable")) return undefined;
   const labels = acquired.issue.labels.map((label) => label.name);
   const readyLabel = vocabulary?.semanticToNative.get("ready-for-agent");
   const lifecycle =
@@ -1372,6 +1453,9 @@ const decodeSpec = (
     title: acquired.issue.title,
     sections,
     lifecycle: { state: lifecycle },
+    semanticSections: sections.map((candidate) =>
+      semanticSection(`spec.${candidate.role}`, candidate.availability),
+    ),
     native: nativeEvidenceForAcquired(repository, acquired),
   };
 };
@@ -1402,6 +1486,30 @@ const decodeDelivery = (
         : { state: "completion-unavailable", reason: "source-contract-gap" },
     trackerClosure: trackerClosureFor(acquired.issue, capturedAt),
     comments: acquired.comments.map(commentContent),
+    semanticSections: [
+      semanticSection(
+        "delivery.what-to-build",
+        whatToBuild.markdown.trim().length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection(
+        "delivery.acceptance-criteria",
+        acceptance.length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection(
+        "delivery.completion-evidence",
+        acquired.issue.state === "open" ? "confirmed-empty" : "unavailable",
+      ),
+      semanticSection(
+        "delivery.comments",
+        acquired.comments.length > 0
+          ? "available"
+          : acquired.commentsCapability === "unsupported"
+            ? "unsupported"
+            : acquired.commentsCapability === "failed"
+              ? "unavailable"
+              : "confirmed-empty",
+      ),
+    ],
     native: nativeEvidenceForAcquired(repository, acquired),
   };
 };
@@ -1507,9 +1615,11 @@ const decodeWayfinder = (
         ? {
             availability: "unavailable",
             reason:
-              decision !== undefined || acquired.comments.length > 0
-                ? "no-unique-native-reference"
-                : "not-authored",
+              acquired.commentsCapability !== "available"
+                ? "source-contract-gap"
+                : decision !== undefined || acquired.comments.length > 0
+                  ? "no-unique-native-reference"
+                  : "not-authored",
           }
         : {
             availability: "available",
@@ -1533,6 +1643,35 @@ const decodeWayfinder = (
       trackerClosure.state === "closed" && disposition !== undefined
         ? { ...trackerClosure, disposition: "wontfix" }
         : trackerClosure,
+    semanticSections: [
+      semanticSection(
+        "wayfinder.question",
+        question.markdown.trim().length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection("wayfinder.claim", "available"),
+      semanticSection(
+        "wayfinder.answer",
+        uniqueAnswer !== undefined
+          ? "available"
+          : acquired.commentsCapability === "unsupported"
+            ? "unsupported"
+            : acquired.commentsCapability === "failed"
+              ? "unavailable"
+              : decision === undefined && acquired.comments.length === 0
+                ? "confirmed-empty"
+                : "unavailable",
+      ),
+      semanticSection(
+        "wayfinder.comments",
+        acquired.comments.filter((comment) => comment !== uniqueAnswer).length > 0
+          ? "available"
+          : acquired.commentsCapability === "unsupported"
+            ? "unsupported"
+            : acquired.commentsCapability === "failed"
+              ? "unavailable"
+              : "confirmed-empty",
+      ),
+    ],
     native: nativeEvidenceForAcquired(repository, acquired),
   };
 };
@@ -1594,6 +1733,9 @@ const incomingIssueFor = (
       ? labels.find((label) => vocabulary?.nativeToSemantic.get(label) === states[0])
       : undefined;
   const content: MattContent[] = [
+    ...(issue.body.trim().length === 0
+      ? []
+      : [{ role: "issue-body" as const, body: markdownNarrative(acquired.document) }]),
     ...nativeEvidenceForAcquired(repository, acquired).sourceAnchors.flatMap((anchor) =>
       anchor.kind === "external"
         ? [
@@ -1633,6 +1775,26 @@ const incomingIssueFor = (
                     : "unknown",
             observedAt: issue.closed_at ?? capturedAt,
           },
+    semanticSections: [
+      semanticSection(
+        "incoming.classification",
+        category === "ambiguous" || category === "unknown" ? "unavailable" : "available",
+      ),
+      semanticSection(
+        "incoming.content",
+        content.length > 0
+          ? "available"
+          : acquired.commentsCapability === "unsupported"
+            ? "unsupported"
+            : acquired.commentsCapability === "failed"
+              ? "unavailable"
+              : "confirmed-empty",
+      ),
+      semanticSection(
+        "incoming.routing",
+        state === "ambiguous" || state === "unknown" ? "unavailable" : "available",
+      ),
+    ],
     native: nativeEvidenceForAcquired(repository, acquired),
   };
 };
@@ -2094,6 +2256,12 @@ const captureGitHubScope = async (
       issue: currentIssue,
       document: parseMarkdownDocument(currentIssue.body),
       comments: comments?.success === true ? comments.data : [],
+      commentsCapability:
+        commentPages.state === "available" && comments?.success === true
+          ? "available"
+          : commentPages.state === "unsupported"
+            ? "unsupported"
+            : "failed",
       dependencies: dependencies?.success === true ? dependencies.data : [],
       dependencyCapability:
         dependencyPages.state === "available" && dependencies?.success === true
@@ -2177,6 +2345,7 @@ const captureGitHubScope = async (
           issue: child.data,
           document: parseMarkdownDocument(child.data.body),
           comments: [],
+          commentsCapability: "unsupported",
           dependencies: [],
           dependencyCapability: "failed",
           parentCapability: "unsupported",
@@ -2549,10 +2718,12 @@ const captureGitHubScope = async (
       }
       continue;
     }
-    const spec = decodeSpec(entry, repository, vocabulary);
+    const spec = decodeSpec(entry, repository, vocabulary, diagnostics);
     const delivery = decodeDelivery(entry, repository, capturedAt);
-    const specStructure = SPEC_SECTIONS.map(([, title]) =>
-      queryMarkdownSection(entry.document, { title }),
+    const specStructure = MATT_SPEC_SECTION_DEFINITIONS.flatMap((definition) =>
+      [definition.title, ...definition.aliases].map((title) =>
+        queryMarkdownSection(entry.document, { title }),
+      ),
     );
     const deliveryStructure = [
       queryMarkdownSection(entry.document, { title: "What to build" }),

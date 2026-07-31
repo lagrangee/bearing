@@ -1,5 +1,12 @@
 import type { RefinementCtx } from "zod";
 import { expectedBearingType } from "../artifact-model";
+import {
+  mattNativeScopeLocator,
+  mattNativeScopeSubject,
+  mattNativeSubjectForObject,
+} from "../providers/matt-skills-v1/native-subject";
+import { mattObjectLocator, mattObjects } from "../providers/matt-skills-v1/projection";
+import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import type { SourceBindingRole, SourceKind } from "./source-schema";
 
 type Collection<T> =
@@ -36,6 +43,7 @@ export type SourceBindingConsistencySnapshot = Readonly<{
   reviews: Collection<IdentifiedSource>;
   audit: Singleton<IdentifiedSource>;
   guidance: Singleton<Guidance>;
+  providerObservations: readonly unknown[];
   sources: readonly SourceRecord[];
 }>;
 
@@ -103,6 +111,67 @@ const validateCanonicalCollection = (
       [name, "items", position],
       context,
     );
+  }
+};
+
+const validateNativeSources = (
+  snapshot: SourceBindingConsistencySnapshot,
+  index: ReadonlyMap<string, SourceRecord>,
+  context: RefinementCtx,
+): void => {
+  const sourcesByBinding = new Map<string, SourceRecord[]>();
+  for (const source of snapshot.sources) {
+    if (source.binding === undefined) continue;
+    const key = `${source.binding.role}\0${source.binding.identity}`;
+    const candidates = sourcesByBinding.get(key) ?? [];
+    candidates.push(source);
+    sourcesByBinding.set(key, candidates);
+  }
+  const validateNativeSource = (
+    role: SourceBindingRole,
+    identity: string,
+    locator: string,
+    path: readonly (string | number)[],
+  ): void => {
+    const candidates = sourcesByBinding.get(`${role}\0${identity}`) ?? [];
+    if (candidates.length !== 1) {
+      addIssue(context, path);
+      return;
+    }
+    const source = candidates[0];
+    if (source === undefined) {
+      addIssue(context, path);
+      return;
+    }
+    validateBinding(
+      index,
+      source.reference,
+      { kind: "tracker", role, identity, locator },
+      path,
+      context,
+    );
+  };
+
+  for (const [observationPosition, input] of snapshot.providerObservations.entries()) {
+    const parsed = mattSkillsV1ProviderObservationSchema.safeParse(input);
+    if (!parsed.success) continue;
+    const observation = parsed.data;
+    const scope = mattNativeScopeSubject(observation);
+    validateNativeSource("native-scope", scope.id, mattNativeScopeLocator(observation), [
+      "providerObservations",
+      observationPosition,
+      "binding",
+    ]);
+    for (const [objectPosition, object] of mattObjects(observation).entries()) {
+      const subject = mattNativeSubjectForObject(object);
+      validateNativeSource(object.kind, subject.id, mattObjectLocator(object), [
+        "providerObservations",
+        observationPosition,
+        "projection",
+        object.kind,
+        objectPosition,
+      ]);
+    }
   }
 };
 
@@ -181,6 +250,7 @@ export const validateSourceBindingConsistency = (
       context,
     );
   }
+  validateNativeSources(snapshot, index, context);
   const guidance = trustedValue(snapshot.guidance);
   if (guidance === undefined) return;
   validateBinding(

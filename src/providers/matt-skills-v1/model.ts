@@ -10,6 +10,17 @@ export type MattRawFacet = Readonly<{
   values: readonly string[];
 }>;
 
+export type MattSemanticSectionAvailability =
+  | "available"
+  | "confirmed-empty"
+  | "unavailable"
+  | "unsupported";
+
+export type MattSemanticSection = Readonly<{
+  role: string;
+  availability: MattSemanticSectionAvailability;
+}>;
+
 export type MattNativeEvidence =
   | Readonly<{
       kind: "local";
@@ -37,12 +48,18 @@ export type MattNativeEvidence =
     }>;
 
 export type MattContent = Readonly<{
-  role: "answer" | "ordinary-comment" | "agent-brief" | "triage-note" | "source-anchor";
+  role:
+    | "answer"
+    | "issue-body"
+    | "ordinary-comment"
+    | "agent-brief"
+    | "triage-note"
+    | "source-anchor";
   body: string;
-  sourceAnchor?: MattSourceAnchor;
-  nativeIdentity?: string;
-  author?: string;
-  authoredAt?: string;
+  sourceAnchor?: MattSourceAnchor | undefined;
+  nativeIdentity?: string | undefined;
+  author?: string | undefined;
+  authoredAt?: string | undefined;
 }>;
 
 export type MattAnswer =
@@ -61,7 +78,7 @@ export type MattTrackerClosure =
       state: "closed";
       disposition: "completed" | "wontfix" | "not-planned" | "unknown";
       observedAt: string;
-      actor?: string;
+      actor?: string | undefined;
     }>;
 
 export type MattMap = Readonly<{
@@ -71,13 +88,13 @@ export type MattMap = Readonly<{
   destination: string;
   notes: readonly string[];
   decisions: readonly Readonly<{
-    ticket?: MattObjectReference;
+    ticket?: MattObjectReference | undefined;
     gist: string;
     sourceAnchor: MattSourceAnchor;
   }>[];
   fog: readonly string[];
   outOfScope: readonly Readonly<{
-    ticket?: MattObjectReference;
+    ticket?: MattObjectReference | undefined;
     rationale: string;
     sourceAnchor: MattSourceAnchor;
   }>[];
@@ -87,6 +104,7 @@ export type MattMap = Readonly<{
         state: "resolved";
         resolutionEvidence: readonly MattSourceAnchor[];
       }>;
+  semanticSections: readonly MattSemanticSection[];
   native: MattNativeEvidence;
 }>;
 
@@ -105,10 +123,12 @@ export type MattSpec = Readonly<{
       | "further-notes";
     title: string;
     body: string;
+    availability: MattSemanticSectionAvailability;
   }>[];
   lifecycle: Readonly<{
     state: "draft" | "ready-for-agent" | "superseded";
   }>;
+  semanticSections: readonly MattSemanticSection[];
   native: MattNativeEvidence;
 }>;
 
@@ -122,8 +142,8 @@ export type MattWayfinderTicket = Readonly<{
     | Readonly<{ state: "unclaimed" }>
     | Readonly<{
         state: "claimed";
-        claimant?: string;
-        claimantAmbiguous?: boolean;
+        claimant?: string | undefined;
+        claimantAmbiguous?: boolean | undefined;
       }>;
   answer: MattAnswer;
   comments: readonly MattContent[];
@@ -138,6 +158,7 @@ export type MattWayfinderTicket = Readonly<{
         dispositionSource: MattSourceAnchor;
       }>;
   trackerClosure: MattTrackerClosure;
+  semanticSections: readonly MattSemanticSection[];
   native: MattNativeEvidence;
 }>;
 
@@ -159,6 +180,7 @@ export type MattDeliveryTicket = Readonly<{
       }>;
   trackerClosure: MattTrackerClosure;
   comments: readonly MattContent[];
+  semanticSections: readonly MattSemanticSection[];
   native: MattNativeEvidence;
 }>;
 
@@ -176,8 +198,8 @@ export type MattIncomingIssue = Readonly<{
       | "wontfix"
       | "unknown"
       | "ambiguous";
-    nativeCategory?: string;
-    nativeState?: string;
+    nativeCategory?: string | undefined;
+    nativeState?: string | undefined;
   }>;
   content: readonly MattContent[];
   lifecycle:
@@ -187,6 +209,7 @@ export type MattIncomingIssue = Readonly<{
         disposition: "completed" | "wontfix" | "not-planned" | "unknown";
         observedAt: string;
       }>;
+  semanticSections: readonly MattSemanticSection[];
   native: MattNativeEvidence;
 }>;
 
@@ -203,8 +226,8 @@ export type MattBlockedByRelation = Readonly<{
 }>;
 
 export type MattScopeProjection = Readonly<{
-  map?: MattMap;
-  spec?: MattSpec;
+  map?: MattMap | undefined;
+  spec?: MattSpec | undefined;
   wayfinderTickets: readonly MattWayfinderTicket[];
   deliveryTickets: readonly MattDeliveryTicket[];
   incomingIssues: readonly MattIncomingIssue[];

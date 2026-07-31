@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createProviderScopeObservation } from "../src/native-work-provider";
 import {
   buildPlanningLineageSubjectModel,
   type PlanningLineageSubjectModel,
@@ -440,4 +441,542 @@ test("large relation collections expose truthful coverage and a stable filtered 
   expect(relation.filteredViewHref).toBe(
     "/projects/bearing/lineage/gate/gate%3Aone/relations/outcome_contributing-efforts?filter=all&order=canonical",
   );
+});
+
+test("renders complete provider-native dossiers on stable Local identities without file actions", () => {
+  const snapshot = fixture();
+  const map = readable(
+    buildPlanningLineageSubjectModel(
+      snapshot,
+      { kind: "native-subject", id: ".scratch/portal/map.md" },
+      "bearing",
+    ),
+  );
+  expect(map.parentPath.map((crumb) => crumb.label)).toEqual([
+    "Portal Project",
+    "Portal Evolution",
+    "Overview proven",
+    "Web Portal Validation",
+    "Portal Validation",
+  ]);
+  expect(map.subject.sourceHref).toBeUndefined();
+  expect(map.sections.map((section) => section.anchor)).toEqual(
+    expect.arrayContaining([
+      "map.destination",
+      "map.lifecycle",
+      "map.fog",
+      "map.decisions",
+      "map.out-of-scope",
+      "map.notes",
+      "map.resolution-evidence",
+      "native.provenance",
+      "native.observation-trust",
+    ]),
+  );
+  expect(map.sections.find((section) => section.anchor === "map.decisions")?.body).toBe(
+    "No decisions are recorded.",
+  );
+  expect(map.sections.find((section) => section.anchor === "map.fog")?.items).toEqual([
+    "Finish the product journey.",
+    "Review the evidence.",
+  ]);
+  expect(
+    map.sections.find((section) => section.anchor === "native.provenance")?.items,
+  ).toBeUndefined();
+  expect(map.semanticAvailability.get("map.lifecycle")).toBe("available");
+  expect(map.semanticAvailability.get("native.provenance")).toBe("available");
+  expect(map.semanticAvailability.get("native.observation-trust")).toBe("available");
+
+  const wayfinder = readable(
+    buildPlanningLineageSubjectModel(
+      snapshot,
+      { kind: "native-subject", id: ".scratch/portal/issues/01-build.md" },
+      "bearing",
+    ),
+  );
+  expect(wayfinder.parentPath.map((crumb) => crumb.label)).toEqual([
+    "Portal Project",
+    "Portal Evolution",
+    "Overview proven",
+    "Web Portal Validation",
+    "Portal Validation",
+    "Build the Roadmap journey",
+  ]);
+  expect(wayfinder.sections.map((section) => section.anchor)).toEqual(
+    expect.arrayContaining([
+      "wayfinder.question",
+      "wayfinder.claim",
+      "wayfinder.answer",
+      "wayfinder.lifecycle",
+      "native.provenance",
+      "native.observation-trust",
+    ]),
+  );
+});
+
+test("keeps Spec, Delivery, Incoming, and native scope semantics independent", () => {
+  const snapshot = fixture();
+  const spec = readable(
+    buildPlanningLineageSubjectModel(
+      snapshot,
+      { kind: "native-subject", id: ".scratch/portal/PRD.md" },
+      "bearing",
+    ),
+  );
+  expect(spec.sections.find((section) => section.anchor === "spec.lifecycle")?.body).toBe(
+    "ready-for-agent",
+  );
+  expect(spec.sections.find((section) => section.anchor === "spec.testing")?.body).toBe(
+    "Exercise the shared route contract.",
+  );
+
+  const delivery = readable(
+    buildPlanningLineageSubjectModel(
+      snapshot,
+      { kind: "native-subject", id: ".scratch/portal/issues/03-gate.md" },
+      "bearing",
+    ),
+  );
+  expect(delivery.parentPath.map((crumb) => crumb.label)).toEqual([
+    "Portal Project",
+    "Portal Evolution",
+    "Overview proven",
+    "Web Portal Validation",
+    "Portal Validation PRD",
+    "Pass the integration gate",
+  ]);
+  expect(
+    delivery.relations.find((relation) => relation.key === "native-work.blocked-by"),
+  ).toMatchObject({
+    state: "present",
+    total: { count: 1, coverage: "complete" },
+  });
+
+  const incoming = readable(
+    buildPlanningLineageSubjectModel(
+      snapshot,
+      { kind: "native-subject", id: ".scratch/portal/issues/04-incoming.md" },
+      "bearing",
+    ),
+  );
+  expect(
+    incoming.sections.find((section) => section.anchor === "incoming.classification")?.body,
+  ).toBe("enhancement · ready-for-agent");
+
+  const scope = readable(
+    buildPlanningLineageSubjectModel(
+      snapshot,
+      { kind: "native-scope", id: ".scratch/portal" },
+      "bearing",
+    ),
+  );
+  expect(
+    scope.sections.find((section) => section.anchor === "native-scope.subjects")?.items,
+  ).toHaveLength(6);
+
+  expect(
+    buildPlanningLineageSubjectModel(
+      snapshot,
+      { kind: "native-subject", id: ".scratch/model/PRD.md" },
+      "bearing",
+    ),
+  ).toMatchObject({
+    state: "missing",
+  });
+});
+
+test("keeps unknown and ambiguous Incoming classifications distinct from needs-triage", () => {
+  const snapshot = fixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) =>
+      observation.binding.nativeScope === ".scratch/portal" &&
+      (observation.state === "available" || observation.state === "partial"),
+  );
+  if (portal === undefined || (portal.state !== "available" && portal.state !== "partial")) {
+    throw new Error("Expected the Portal provider observation.");
+  }
+  const incomingIndex = portal.projection.incomingIssues.findIndex(
+    (issue) => issue.ref === ".scratch/portal/issues/04-incoming.md",
+  );
+  if (incomingIndex < 0) throw new Error("Expected the Portal Incoming fixture.");
+
+  const bodies: string[] = [];
+  for (const classification of ["unknown", "ambiguous"] as const) {
+    const incomingIssues = portal.projection.incomingIssues.map((issue, position) =>
+      position === incomingIndex
+        ? {
+            ...issue,
+            classification: {
+              category: classification,
+              state: classification,
+            },
+            semanticSections: issue.semanticSections.map((section) =>
+              section.role === "incoming.classification" || section.role === "incoming.routing"
+                ? { ...section, availability: "unavailable" as const }
+                : section,
+            ),
+          }
+        : issue,
+    );
+    const observation = createProviderScopeObservation({
+      provider: portal.provider,
+      binding: portal.binding,
+      observedAt: portal.observedAt,
+      ...(portal.sourceRevision === undefined ? {} : { sourceRevision: portal.sourceRevision }),
+      ...(portal.sourceObservedAt === undefined
+        ? {}
+        : { sourceObservedAt: portal.sourceObservedAt }),
+      validators: portal.validators,
+      state: portal.state,
+      freshness: portal.freshness,
+      coverage: {
+        assessment: portal.coverage.assessment,
+        dimensions: portal.coverage.dimensions.map((dimension) => ({
+          key: dimension.key,
+          state: dimension.state,
+          ...(dimension.detail === undefined ? {} : { detail: dimension.detail }),
+        })),
+      },
+      completion: portal.completion,
+      diagnostics: portal.diagnostics,
+      projection: {
+        ...portal.projection,
+        incomingIssues,
+      },
+    });
+    const providerObservations = snapshot.providerObservations.map((candidate) =>
+      candidate.id === portal.id ? observation : candidate,
+    );
+    const providerObservationSelections = snapshot.providerObservationSelections.map((selection) =>
+      selection.nativeScope === ".scratch/portal"
+        ? { ...selection, observationId: observation.id }
+        : selection,
+    );
+    const candidate = {
+      ...snapshot,
+      providerObservations,
+      providerObservationSelections,
+    };
+    const projected = projectSnapshotSchema.parse({
+      ...candidate,
+      lineage: buildPlanningLineageProjection(candidate),
+    });
+    const model = readable(
+      buildPlanningLineageSubjectModel(
+        projected,
+        { kind: "native-subject", id: ".scratch/portal/issues/04-incoming.md" },
+        "bearing",
+      ),
+    );
+    const body = model.sections.find(
+      (section) => section.anchor === "incoming.classification",
+    )?.body;
+    expect(body).toContain(`Classification remains ${classification} · ${classification}`);
+    expect(body).not.toContain("needs-triage");
+    bodies.push(body ?? "");
+  }
+  expect(new Set(bodies).size).toBe(2);
+});
+
+test("withholds native hierarchy certainty when the selected observation is not trustworthy", () => {
+  const snapshot = fixture();
+  const providerObservationSelections = snapshot.providerObservationSelections.map((selection) =>
+    selection.nativeScope === ".scratch/portal"
+      ? { ...selection, effectiveFreshness: "undetermined" as const }
+      : selection,
+  );
+  const candidate = {
+    ...snapshot,
+    providerObservationSelections,
+  };
+  const lineage = buildPlanningLineageProjection(candidate);
+  const degraded = {
+    ...candidate,
+    lineage,
+  } as ProjectSnapshot;
+
+  const mapProjection = findPlanningLineageSubjectProjection(lineage, {
+    kind: "native-subject",
+    id: ".scratch/portal/map.md",
+  });
+  expect(mapProjection?.parentPath).toMatchObject({
+    state: "truncated-unavailable",
+    reason: expect.stringContaining("not trustworthy"),
+  });
+  expect(
+    mapProjection?.relations.find((relation) => relation.key === "native-work.parent"),
+  ).toMatchObject({
+    state: "unknown",
+  });
+  expect(
+    mapProjection?.relations.find((relation) => relation.key === "native-work.children"),
+  ).toMatchObject({
+    state: "present",
+    total: { count: 2, coverage: "at-least" },
+  });
+  expect(mapProjection?.semanticSections).toContainEqual({
+    role: "map.decisions",
+    availability: "confirmed-empty",
+  });
+
+  const scopeProjection = findPlanningLineageSubjectProjection(lineage, {
+    kind: "native-scope",
+    id: ".scratch/portal",
+  });
+  expect(scopeProjection?.semanticSections).toEqual([
+    { role: "native-scope.trust", availability: "unavailable" },
+    { role: "native-scope.subjects", availability: "available" },
+  ]);
+  expect(
+    scopeProjection?.relations.find((relation) => relation.key === "native-work.members"),
+  ).toMatchObject({
+    state: "present",
+    total: { count: 6, coverage: "at-least" },
+  });
+
+  const model = readable(
+    buildPlanningLineageSubjectModel(
+      degraded,
+      { kind: "native-subject", id: ".scratch/portal/map.md" },
+      "bearing",
+    ),
+  );
+  expect(model.state).toBe("partial");
+  expect(
+    model.sections.find((section) => section.anchor === "native.observation-trust")?.body,
+  ).toContain("selected evidence withheld");
+});
+
+test("keeps a trustworthy native route available when an unrelated scope is stale", () => {
+  const snapshot = fixture();
+  const providerObservationSelections = snapshot.providerObservationSelections.map((selection) =>
+    selection.nativeScope === ".scratch/model"
+      ? { ...selection, effectiveFreshness: "undetermined" as const }
+      : selection,
+  );
+  const candidate = { ...snapshot, providerObservationSelections };
+  const scoped = {
+    ...candidate,
+    lineage: buildPlanningLineageProjection(candidate),
+  } as ProjectSnapshot;
+
+  expect(
+    buildPlanningLineageSubjectModel(
+      scoped,
+      { kind: "native-subject", id: ".scratch/portal/map.md" },
+      "bearing",
+    ),
+  ).toMatchObject({
+    state: "available",
+    subject: { title: "Portal Validation" },
+  });
+  expect(
+    buildPlanningLineageSubjectModel(
+      scoped,
+      { kind: "native-subject", id: ".scratch/model/map.md" },
+      "bearing",
+    ),
+  ).toMatchObject({
+    state: "partial",
+    subject: { title: "Planning Model" },
+  });
+});
+
+test("carries provider unsupported availability through validated Snapshot and Portal rendering", () => {
+  const snapshot = fixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) =>
+      observation.binding.nativeScope === ".scratch/portal" &&
+      (observation.state === "available" || observation.state === "partial"),
+  );
+  if (
+    portal === undefined ||
+    (portal.state !== "available" && portal.state !== "partial") ||
+    portal.projection.map === undefined
+  ) {
+    throw new Error("Expected the Portal Map observation.");
+  }
+  const unsupported = createProviderScopeObservation({
+    provider: portal.provider,
+    binding: portal.binding,
+    observedAt: portal.observedAt,
+    ...(portal.sourceRevision === undefined ? {} : { sourceRevision: portal.sourceRevision }),
+    ...(portal.sourceObservedAt === undefined ? {} : { sourceObservedAt: portal.sourceObservedAt }),
+    validators: portal.validators,
+    state: portal.state,
+    freshness: portal.freshness,
+    coverage: {
+      ...portal.coverage,
+      dimensions: portal.coverage.dimensions.map((dimension) => ({
+        key: dimension.key,
+        state: dimension.state,
+        ...(dimension.detail === undefined ? {} : { detail: dimension.detail }),
+      })),
+    },
+    completion: portal.completion,
+    diagnostics: portal.diagnostics,
+    projection: {
+      ...portal.projection,
+      map: {
+        ...portal.projection.map,
+        fog: [],
+        semanticSections: portal.projection.map.semanticSections.map((section) =>
+          section.role === "map.fog"
+            ? { ...section, availability: "unsupported" as const }
+            : section,
+        ),
+      },
+    },
+  });
+  const providerObservations = snapshot.providerObservations.map((observation) =>
+    observation.id === portal.id ? unsupported : observation,
+  );
+  const providerObservationSelections = snapshot.providerObservationSelections.map((selection) =>
+    selection.nativeScope === ".scratch/portal"
+      ? { ...selection, observationId: unsupported.id }
+      : selection,
+  );
+  const candidate = {
+    ...snapshot,
+    providerObservations,
+    providerObservationSelections,
+  };
+  const projected = projectSnapshotSchema.parse({
+    ...candidate,
+    lineage: buildPlanningLineageProjection(candidate),
+  });
+  const model = readable(
+    buildPlanningLineageSubjectModel(
+      projected,
+      { kind: "native-subject", id: ".scratch/portal/map.md" },
+      "bearing",
+    ),
+  );
+
+  expect(model.state).toBe("partial");
+  expect(model.semanticAvailability.get("map.fog")).toBe("unsupported");
+  expect(model.sections.find((section) => section.anchor === "map.fog")?.body).toBe(
+    "This provider version does not support the requested semantic section.",
+  );
+});
+
+test("rejects missing or forged provider-native Source provenance", () => {
+  const snapshot = fixture();
+  const mapSource = snapshot.sources.find(
+    (source) =>
+      source.binding?.role === "map" && source.binding.identity === ".scratch/portal/map.md",
+  );
+  const scopeSource = snapshot.sources.find(
+    (source) =>
+      source.binding?.role === "native-scope" && source.binding.identity === ".scratch/portal",
+  );
+  if (mapSource?.binding === undefined || scopeSource === undefined) {
+    throw new Error("Expected provider-native Source fixtures.");
+  }
+  const forged = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    kind: "tracker",
+    locator: ".scratch/forged/map.md",
+    binding: mapSource.binding,
+  });
+  const forgedCandidate = {
+    ...snapshot,
+    sources: snapshot.sources.map((source) =>
+      source.reference === mapSource.reference ? forged : source,
+    ),
+  };
+  expect(
+    projectSnapshotSchema.safeParse({
+      ...forgedCandidate,
+      lineage: buildPlanningLineageProjection(forgedCandidate),
+    }).success,
+  ).toBe(false);
+
+  const missingCandidate = {
+    ...snapshot,
+    sources: snapshot.sources.filter((source) => source.reference !== scopeSource.reference),
+  };
+  expect(
+    projectSnapshotSchema.safeParse({
+      ...missingCandidate,
+      lineage: buildPlanningLineageProjection(missingCandidate),
+    }).success,
+  ).toBe(false);
+});
+
+test("retains unresolved native graph references as unavailable relation targets", () => {
+  const snapshot = fixture();
+  const providerObservations = snapshot.providerObservations.map((observation) => {
+    if (
+      observation.binding.nativeScope !== ".scratch/portal" ||
+      (observation.state !== "available" && observation.state !== "partial")
+    ) {
+      return observation;
+    }
+    return createProviderScopeObservation({
+      provider: observation.provider,
+      binding: observation.binding,
+      observedAt: observation.observedAt,
+      ...(observation.sourceRevision === undefined
+        ? {}
+        : { sourceRevision: observation.sourceRevision }),
+      ...(observation.sourceObservedAt === undefined
+        ? {}
+        : { sourceObservedAt: observation.sourceObservedAt }),
+      validators: observation.validators,
+      state: observation.state,
+      freshness: observation.freshness,
+      coverage: {
+        ...observation.coverage,
+        dimensions: observation.coverage.dimensions.map((dimension) => ({
+          key: dimension.key,
+          state: dimension.state,
+          ...(dimension.detail === undefined ? {} : { detail: dimension.detail }),
+        })),
+      },
+      completion: observation.completion,
+      diagnostics: observation.diagnostics,
+      projection: {
+        ...observation.projection,
+        graph: {
+          ...observation.projection.graph,
+          blockedBy: [
+            ...observation.projection.graph.blockedBy,
+            {
+              blocked: ".scratch/portal/issues/03-gate.md",
+              blocker: ".scratch/portal/issues/unavailable.md",
+              evidence: "matt-contract" as const,
+            },
+          ],
+        },
+      },
+    });
+  });
+  const providerObservationSelections = snapshot.providerObservationSelections.map((selection) =>
+    selection.nativeScope === ".scratch/portal"
+      ? { ...selection, effectiveFreshness: "undetermined" as const }
+      : selection,
+  );
+  const lineage = buildPlanningLineageProjection({
+    ...snapshot,
+    providerObservations,
+    providerObservationSelections,
+  });
+  const delivery = findPlanningLineageSubjectProjection(lineage, {
+    kind: "native-subject",
+    id: ".scratch/portal/issues/03-gate.md",
+  });
+  const blockedBy = delivery?.relations.find(
+    (relation) => relation.key === "native-work.blocked-by",
+  );
+  expect(blockedBy).toMatchObject({
+    state: "present",
+    total: { count: 2, coverage: "at-least" },
+  });
+  if (blockedBy?.state !== "present") throw new Error("Expected native blocked-by relation.");
+  expect(blockedBy.targets).toContainEqual({
+    reference: ".scratch/portal/issues/unavailable.md",
+    label: ".scratch/portal/issues/unavailable.md",
+    availability: "unavailable",
+    note: "Referenced native subject is outside the selected observation or unavailable.",
+  });
 });

@@ -22,6 +22,10 @@ import type {
   MattSkillsV1ProviderObservation,
   MattSkillsV1WorkBinding,
 } from "./providers/matt-skills-v1/capture";
+import {
+  mattNativeScopeKey,
+  sameMattNativeBindingDefinition,
+} from "./providers/matt-skills-v1/native-subject";
 import { mattSkillsV1ProviderObservationSchema } from "./providers/matt-skills-v1/schema";
 import type { SyncInputGeneration } from "./sync-input-generation";
 import type { StructuralDiagnostic } from "./types";
@@ -63,13 +67,7 @@ const storeSchema = z
     selections: z.array(providerObservationSelectionSchema),
   })
   .superRefine((store, context) => {
-    const observations = new Map<
-      string,
-      Readonly<{
-        provider: string;
-        binding: Readonly<{ nativeScope: string }>;
-      }>
-    >();
+    const observations = new Map<string, (typeof store.observations)[number]>();
     for (const [position, observation] of store.observations.entries()) {
       if (observations.has(observation.id)) {
         context.addIssue({
@@ -82,7 +80,7 @@ const storeSchema = z
     }
     const scopes = new Set<string>();
     for (const [position, selection] of store.selections.entries()) {
-      const key = `${selection.provider}\0${selection.nativeScope}`;
+      const key = mattNativeScopeKey(selection);
       if (scopes.has(key)) {
         context.addIssue({
           code: "custom",
@@ -99,10 +97,7 @@ const storeSchema = z
             path: ["selections", position, "observationId"],
             message: "Every provider observation selection must resolve.",
           });
-        } else if (
-          observation.provider !== selection.provider ||
-          observation.binding.nativeScope !== selection.nativeScope
-        ) {
+        } else if (!sameMattNativeBindingDefinition(observation.binding, selection)) {
           context.addIssue({
             code: "custom",
             path: ["selections", position, "observationId"],
@@ -162,10 +157,7 @@ const selectionFor = (
   store: ProviderObservationStore,
   binding: MattSkillsV1WorkBinding,
 ): ProviderObservationSelection | undefined =>
-  store.selections.find(
-    (selection) =>
-      selection.provider === binding.provider && selection.nativeScope === binding.nativeScope,
-  );
+  store.selections.find((selection) => sameMattNativeBindingDefinition(selection, binding));
 
 const storeBytes = (store: ProviderObservationStore): Buffer =>
   Buffer.from(`${JSON.stringify(storeSchema.parse(store), null, 2)}\n`, "utf8");
@@ -188,8 +180,17 @@ const selectedFrom = (
   const selections: ProviderObservationSelection[] = [];
   const diagnostics: StructuralDiagnostic[] = [];
   for (const binding of bindings) {
-    const selection = selectionFor(store, binding);
-    const observation = selection === undefined ? undefined : observationFor(store, selection);
+    const storedSelection = selectionFor(store, binding);
+    const observation =
+      storedSelection === undefined ? undefined : observationFor(store, storedSelection);
+    const selection =
+      storedSelection === undefined
+        ? undefined
+        : {
+            ...storedSelection,
+            provider: binding.provider,
+            nativeScope: binding.nativeScope,
+          };
     if (selection === undefined || observation === undefined) {
       diagnostics.push(
         unavailableDiagnostic(
@@ -245,13 +246,11 @@ const withBindingConflicts = (
   conflicts: ReturnType<typeof providerBindingConflicts>,
 ): typeof selected => {
   if (conflicts.length === 0) return selected;
-  const conflictKeys = new Set(
-    conflicts.map((conflict) => `${conflict.binding.provider}\0${conflict.binding.nativeScope}`),
-  );
+  const conflictKeys = new Set(conflicts.map((conflict) => mattNativeScopeKey(conflict.binding)));
   return {
     observations: selected.observations,
     selections: selected.selections.map((selection) =>
-      conflictKeys.has(`${selection.provider}\0${selection.nativeScope}`)
+      conflictKeys.has(mattNativeScopeKey(selection))
         ? { ...selection, effectiveFreshness: "undetermined" as const }
         : selection,
     ),
@@ -379,10 +378,8 @@ export const selectProviderObservations = async (
     let retainedPrior = false;
     let unavailable = false;
     const selections: ProviderObservationSelection[] = bindings.map((binding) => {
-      const observation = acquired.observations.find(
-        (candidate) =>
-          candidate.provider === binding.provider &&
-          candidate.binding.nativeScope === binding.nativeScope,
+      const observation = acquired.observations.find((candidate) =>
+        sameMattNativeBindingDefinition(candidate.binding, binding),
       );
       const priorSelection = prior === undefined ? undefined : selectionFor(prior, binding);
       const priorObservation =

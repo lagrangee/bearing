@@ -1,3 +1,4 @@
+import { sameMattNativeScope } from "../providers/matt-skills-v1/native-subject";
 import type {
   CollectionProjection,
   Effort,
@@ -80,10 +81,7 @@ const captureFor = (
 ): ContributorCapture | undefined => {
   const binding = effort.workBinding;
   if (binding === undefined) return undefined;
-  return captures.find(
-    (capture) =>
-      capture.provider === binding.provider && capture.binding.nativeScope === binding.nativeScope,
-  );
+  return captures.find((capture) => sameMattNativeScope(capture.binding, binding));
 };
 
 const hasTrustworthyBindingEvidence = (
@@ -97,8 +95,7 @@ const hasTrustworthyBindingEvidence = (
       ? undefined
       : selections.find(
           (candidate) =>
-            candidate.provider === capture.provider &&
-            candidate.nativeScope === capture.binding.nativeScope &&
+            sameMattNativeScope(candidate, capture.binding) &&
             candidate.observationId === capture.id,
         );
   return (

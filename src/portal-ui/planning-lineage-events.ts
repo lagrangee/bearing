@@ -98,6 +98,9 @@ const targetRecord = (
       return trustedItems(snapshot.reviews).find((candidate) => candidate.id === subject.id);
     case "asset":
       return trustedItems(snapshot.assets).find((candidate) => candidate.id === subject.id);
+    case "native-scope":
+    case "native-subject":
+      return undefined;
   }
 };
 
@@ -188,6 +191,9 @@ export const planningLineageEventsFor = (
     case "asset": {
       return assetLifecycleEvents(record as AssetProjection);
     }
+    case "native-scope":
+    case "native-subject":
+      return [];
   }
 };
 

@@ -3,9 +3,13 @@ import {
   hasConsistentProviderCompletion,
   providerObservationIdentityFor,
 } from "../../native-work-provider";
+import type { MattObjectReference } from "./model";
 
 const nonEmpty = z.string().min(1);
-const reference = nonEmpty;
+const semanticItem = z.string().refine((value) => value.trim().length > 0, {
+  message: "Semantic collection items must contain non-whitespace text.",
+});
+const reference = nonEmpty.transform((value): MattObjectReference => value as MattObjectReference);
 
 const sourceAnchorSchema = z.strictObject({
   kind: z.enum(["source", "external", "decision", "answer", "disposition"]),
@@ -16,6 +20,59 @@ const rawFacetSchema = z.strictObject({
   key: nonEmpty,
   values: z.array(z.string()),
 });
+
+const semanticSectionSchema = z.strictObject({
+  role: z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u),
+  availability: z.enum(["available", "confirmed-empty", "unavailable", "unsupported"]),
+});
+
+const exactSemanticSections = (roles: readonly string[]) =>
+  z.array(semanticSectionSchema).superRefine((sections, context) => {
+    const actual = sections.map((section) => section.role);
+    for (const role of roles) {
+      if (!actual.includes(role)) {
+        context.addIssue({
+          code: "custom",
+          message: `Required semantic role ${role} is missing.`,
+        });
+      }
+    }
+    for (const [index, role] of actual.entries()) {
+      if (!roles.includes(role) || actual.indexOf(role) !== index) {
+        context.addIssue({
+          code: "custom",
+          path: [index, "role"],
+          message: `Semantic role ${role} is unexpected or duplicated.`,
+        });
+      }
+    }
+  });
+
+type SemanticSection = z.infer<typeof semanticSectionSchema>;
+
+const validateSemanticContent = (
+  sections: readonly SemanticSection[],
+  role: string,
+  hasContent: boolean,
+  context: z.RefinementCtx,
+): void => {
+  const position = sections.findIndex((section) => section.role === role);
+  if (position < 0) return;
+  const availability = sections[position]?.availability;
+  if (
+    (hasContent && availability === "available") ||
+    (!hasContent && availability !== "available")
+  ) {
+    return;
+  }
+  context.addIssue({
+    code: "custom",
+    path: ["semanticSections", position, "availability"],
+    message: hasContent
+      ? `${role} must be available when its semantic content is present.`
+      : `${role} cannot be available when its semantic content is empty.`,
+  });
+};
 
 const localEvidenceSchema = z.strictObject({
   kind: z.literal("local"),
@@ -33,7 +90,13 @@ const githubEvidenceSchema = z.strictObject({
     objectDatabaseId: nonEmpty,
     objectNodeId: nonEmpty,
     number: z.number().int().positive(),
-    url: nonEmpty,
+    url: z
+      .string()
+      .url()
+      .refine((value) => {
+        const protocol = new URL(value).protocol;
+        return protocol === "https:" || protocol === "http:";
+      }),
     owner: nonEmpty,
     repository: nonEmpty,
   }),
@@ -47,7 +110,14 @@ const nativeEvidenceSchema = z.discriminatedUnion("kind", [
 ]);
 
 const contentSchema = z.strictObject({
-  role: z.enum(["answer", "ordinary-comment", "agent-brief", "triage-note", "source-anchor"]),
+  role: z.enum([
+    "answer",
+    "issue-body",
+    "ordinary-comment",
+    "agent-brief",
+    "triage-note",
+    "source-anchor",
+  ]),
   body: z.string(),
   sourceAnchor: sourceAnchorSchema.optional(),
   nativeIdentity: nonEmpty.optional(),
@@ -76,139 +146,318 @@ const trackerClosureSchema = z.discriminatedUnion("state", [
   }),
 ]);
 
-const mapSchema = z.strictObject({
-  kind: z.literal("map"),
-  ref: reference,
-  title: nonEmpty,
-  destination: z.string(),
-  notes: z.array(z.string()),
-  decisions: z.array(
-    z.strictObject({
-      ticket: reference.optional(),
-      gist: z.string(),
-      sourceAnchor: sourceAnchorSchema,
-    }),
-  ),
-  fog: z.array(z.string()),
-  outOfScope: z.array(
-    z.strictObject({
-      ticket: reference.optional(),
-      rationale: z.string(),
-      sourceAnchor: sourceAnchorSchema,
-    }),
-  ),
-  lifecycle: z.discriminatedUnion("state", [
-    z.strictObject({ state: z.literal("active") }),
-    z.strictObject({
-      state: z.literal("resolved"),
-      resolutionEvidence: z.array(sourceAnchorSchema),
-    }),
-  ]),
-  native: nativeEvidenceSchema,
-});
-
-const specSchema = z.strictObject({
-  kind: z.literal("spec"),
-  ref: reference,
-  title: nonEmpty,
-  sections: z.array(
-    z.strictObject({
-      role: z.enum([
-        "problem",
-        "solution",
-        "user-stories",
-        "implementation",
-        "testing",
-        "out-of-scope",
-        "further-notes",
-      ]),
-      title: nonEmpty,
-      body: z.string(),
-    }),
-  ),
-  lifecycle: z.strictObject({ state: z.enum(["draft", "ready-for-agent", "superseded"]) }),
-  native: nativeEvidenceSchema,
-});
-
-const wayfinderTicketSchema = z.strictObject({
-  kind: z.literal("wayfinder-ticket"),
-  ref: reference,
-  title: nonEmpty,
-  subtype: z.enum(["research", "prototype", "grilling", "task"]),
-  question: z.string(),
-  claim: z.discriminatedUnion("state", [
-    z.strictObject({ state: z.literal("unclaimed") }),
-    z.strictObject({
-      state: z.literal("claimed"),
-      claimant: nonEmpty.optional(),
-      claimantAmbiguous: z.boolean().optional(),
-    }),
-  ]),
-  answer: answerSchema,
-  comments: z.array(contentSchema),
-  lifecycle: z.discriminatedUnion("state", [
-    z.strictObject({ state: z.literal("open") }),
-    z.strictObject({
-      state: z.literal("resolved-on-route"),
-      decisionSource: sourceAnchorSchema,
-    }),
-    z.strictObject({
-      state: z.literal("ruled-out-of-scope"),
-      dispositionSource: sourceAnchorSchema,
-    }),
-  ]),
-  trackerClosure: trackerClosureSchema,
-  native: nativeEvidenceSchema,
-});
-
-const deliveryTicketSchema = z.strictObject({
-  kind: z.literal("delivery-ticket"),
-  ref: reference,
-  title: nonEmpty,
-  whatToBuild: z.string(),
-  acceptanceCriteria: z.array(z.string()),
-  lifecycle: z.discriminatedUnion("state", [
-    z.strictObject({ state: z.literal("open") }),
-    z.strictObject({ state: z.literal("completed"), evidence: z.array(z.string()) }),
-    z.strictObject({
-      state: z.literal("completion-unavailable"),
-      reason: z.enum(["source-contract-gap", "incomplete-writeback", "ambiguous-evidence"]),
-    }),
-  ]),
-  trackerClosure: trackerClosureSchema,
-  comments: z.array(contentSchema),
-  native: nativeEvidenceSchema,
-});
-
-const incomingIssueSchema = z.strictObject({
-  kind: z.literal("incoming-issue"),
-  ref: reference,
-  title: nonEmpty,
-  classification: z.strictObject({
-    category: z.enum(["bug", "enhancement", "unknown", "ambiguous"]),
-    state: z.enum([
-      "needs-triage",
-      "needs-info",
-      "ready-for-agent",
-      "ready-for-human",
-      "wontfix",
-      "unknown",
-      "ambiguous",
+const mapSchema = z
+  .strictObject({
+    kind: z.literal("map"),
+    ref: reference,
+    title: nonEmpty,
+    destination: z.string(),
+    notes: z.array(semanticItem),
+    decisions: z.array(
+      z.strictObject({
+        ticket: reference.optional(),
+        gist: semanticItem,
+        sourceAnchor: sourceAnchorSchema,
+      }),
+    ),
+    fog: z.array(semanticItem),
+    outOfScope: z.array(
+      z.strictObject({
+        ticket: reference.optional(),
+        rationale: semanticItem,
+        sourceAnchor: sourceAnchorSchema,
+      }),
+    ),
+    lifecycle: z.discriminatedUnion("state", [
+      z.strictObject({ state: z.literal("active") }),
+      z.strictObject({
+        state: z.literal("resolved"),
+        resolutionEvidence: z.array(sourceAnchorSchema),
+      }),
     ]),
-    nativeCategory: z.string().optional(),
-    nativeState: z.string().optional(),
-  }),
-  content: z.array(contentSchema),
-  lifecycle: z.discriminatedUnion("state", [
-    z.strictObject({ state: z.literal("open") }),
-    z.strictObject({
-      state: z.literal("closed"),
-      disposition: z.enum(["completed", "wontfix", "not-planned", "unknown"]),
-      observedAt: nonEmpty,
+    semanticSections: exactSemanticSections([
+      "map.destination",
+      "map.notes",
+      "map.decisions",
+      "map.fog",
+      "map.out-of-scope",
+      "map.resolution-evidence",
+    ]),
+    native: nativeEvidenceSchema,
+  })
+  .superRefine((map, context) => {
+    validateSemanticContent(
+      map.semanticSections,
+      "map.destination",
+      map.destination.trim().length > 0,
+      context,
+    );
+    validateSemanticContent(map.semanticSections, "map.notes", map.notes.length > 0, context);
+    validateSemanticContent(
+      map.semanticSections,
+      "map.decisions",
+      map.decisions.length > 0,
+      context,
+    );
+    validateSemanticContent(map.semanticSections, "map.fog", map.fog.length > 0, context);
+    validateSemanticContent(
+      map.semanticSections,
+      "map.out-of-scope",
+      map.outOfScope.length > 0,
+      context,
+    );
+    validateSemanticContent(
+      map.semanticSections,
+      "map.resolution-evidence",
+      map.lifecycle.state === "resolved" && map.lifecycle.resolutionEvidence.length > 0,
+      context,
+    );
+  });
+
+const specSchema = z
+  .strictObject({
+    kind: z.literal("spec"),
+    ref: reference,
+    title: nonEmpty,
+    sections: z
+      .array(
+        z.strictObject({
+          role: z.enum([
+            "problem",
+            "solution",
+            "user-stories",
+            "implementation",
+            "testing",
+            "out-of-scope",
+            "further-notes",
+          ]),
+          title: nonEmpty,
+          body: z.string(),
+          availability: z.enum(["available", "confirmed-empty", "unavailable", "unsupported"]),
+        }),
+      )
+      .superRefine((sections, context) => {
+        const required = [
+          "problem",
+          "solution",
+          "user-stories",
+          "implementation",
+          "testing",
+          "out-of-scope",
+          "further-notes",
+        ] as const;
+        const actual = sections.map((section) => section.role);
+        for (const role of required) {
+          if (!actual.includes(role)) {
+            context.addIssue({
+              code: "custom",
+              message: `Required Spec semantic role ${role} is missing.`,
+            });
+          }
+        }
+        for (const [index, role] of actual.entries()) {
+          if (actual.indexOf(role) !== index) {
+            context.addIssue({
+              code: "custom",
+              path: [index, "role"],
+              message: `Spec semantic role ${role} is duplicated.`,
+            });
+          }
+        }
+      }),
+    lifecycle: z.strictObject({ state: z.enum(["draft", "ready-for-agent", "superseded"]) }),
+    semanticSections: exactSemanticSections([
+      "spec.problem",
+      "spec.solution",
+      "spec.user-stories",
+      "spec.implementation",
+      "spec.testing",
+      "spec.out-of-scope",
+      "spec.further-notes",
+    ]),
+    native: nativeEvidenceSchema,
+  })
+  .superRefine((spec, context) => {
+    for (const [position, section] of spec.sections.entries()) {
+      const role = `spec.${section.role}`;
+      validateSemanticContent(spec.semanticSections, role, section.body.trim().length > 0, context);
+      const semantic = spec.semanticSections.find((candidate) => candidate.role === role);
+      if (semantic !== undefined && semantic.availability !== section.availability) {
+        context.addIssue({
+          code: "custom",
+          path: ["sections", position, "availability"],
+          message: `${role} content and semantic availability must agree.`,
+        });
+      }
+    }
+  });
+
+const wayfinderTicketSchema = z
+  .strictObject({
+    kind: z.literal("wayfinder-ticket"),
+    ref: reference,
+    title: nonEmpty,
+    subtype: z.enum(["research", "prototype", "grilling", "task"]),
+    question: z.string(),
+    claim: z.discriminatedUnion("state", [
+      z.strictObject({ state: z.literal("unclaimed") }),
+      z.strictObject({
+        state: z.literal("claimed"),
+        claimant: nonEmpty.optional(),
+        claimantAmbiguous: z.boolean().optional(),
+      }),
+    ]),
+    answer: answerSchema,
+    comments: z.array(contentSchema),
+    lifecycle: z.discriminatedUnion("state", [
+      z.strictObject({ state: z.literal("open") }),
+      z.strictObject({
+        state: z.literal("resolved-on-route"),
+        decisionSource: sourceAnchorSchema,
+      }),
+      z.strictObject({
+        state: z.literal("ruled-out-of-scope"),
+        dispositionSource: sourceAnchorSchema,
+      }),
+    ]),
+    trackerClosure: trackerClosureSchema,
+    semanticSections: exactSemanticSections([
+      "wayfinder.question",
+      "wayfinder.claim",
+      "wayfinder.answer",
+      "wayfinder.comments",
+    ]),
+    native: nativeEvidenceSchema,
+  })
+  .superRefine((ticket, context) => {
+    validateSemanticContent(
+      ticket.semanticSections,
+      "wayfinder.question",
+      ticket.question.trim().length > 0,
+      context,
+    );
+    validateSemanticContent(ticket.semanticSections, "wayfinder.claim", true, context);
+    validateSemanticContent(
+      ticket.semanticSections,
+      "wayfinder.answer",
+      ticket.answer.availability === "available" && ticket.answer.content.body.trim().length > 0,
+      context,
+    );
+    validateSemanticContent(
+      ticket.semanticSections,
+      "wayfinder.comments",
+      ticket.comments.length > 0,
+      context,
+    );
+  });
+
+const deliveryTicketSchema = z
+  .strictObject({
+    kind: z.literal("delivery-ticket"),
+    ref: reference,
+    title: nonEmpty,
+    whatToBuild: z.string(),
+    acceptanceCriteria: z.array(semanticItem),
+    lifecycle: z.discriminatedUnion("state", [
+      z.strictObject({ state: z.literal("open") }),
+      z.strictObject({ state: z.literal("completed"), evidence: z.array(semanticItem) }),
+      z.strictObject({
+        state: z.literal("completion-unavailable"),
+        reason: z.enum(["source-contract-gap", "incomplete-writeback", "ambiguous-evidence"]),
+      }),
+    ]),
+    trackerClosure: trackerClosureSchema,
+    comments: z.array(contentSchema),
+    semanticSections: exactSemanticSections([
+      "delivery.what-to-build",
+      "delivery.acceptance-criteria",
+      "delivery.completion-evidence",
+      "delivery.comments",
+    ]),
+    native: nativeEvidenceSchema,
+  })
+  .superRefine((ticket, context) => {
+    validateSemanticContent(
+      ticket.semanticSections,
+      "delivery.what-to-build",
+      ticket.whatToBuild.trim().length > 0,
+      context,
+    );
+    validateSemanticContent(
+      ticket.semanticSections,
+      "delivery.acceptance-criteria",
+      ticket.acceptanceCriteria.length > 0,
+      context,
+    );
+    validateSemanticContent(
+      ticket.semanticSections,
+      "delivery.completion-evidence",
+      ticket.lifecycle.state === "completed" && ticket.lifecycle.evidence.length > 0,
+      context,
+    );
+    validateSemanticContent(
+      ticket.semanticSections,
+      "delivery.comments",
+      ticket.comments.length > 0,
+      context,
+    );
+  });
+
+const incomingIssueSchema = z
+  .strictObject({
+    kind: z.literal("incoming-issue"),
+    ref: reference,
+    title: nonEmpty,
+    classification: z.strictObject({
+      category: z.enum(["bug", "enhancement", "unknown", "ambiguous"]),
+      state: z.enum([
+        "needs-triage",
+        "needs-info",
+        "ready-for-agent",
+        "ready-for-human",
+        "wontfix",
+        "unknown",
+        "ambiguous",
+      ]),
+      nativeCategory: z.string().optional(),
+      nativeState: z.string().optional(),
     }),
-  ]),
-  native: nativeEvidenceSchema,
-});
+    content: z.array(contentSchema),
+    lifecycle: z.discriminatedUnion("state", [
+      z.strictObject({ state: z.literal("open") }),
+      z.strictObject({
+        state: z.literal("closed"),
+        disposition: z.enum(["completed", "wontfix", "not-planned", "unknown"]),
+        observedAt: nonEmpty,
+      }),
+    ]),
+    semanticSections: exactSemanticSections([
+      "incoming.classification",
+      "incoming.content",
+      "incoming.routing",
+    ]),
+    native: nativeEvidenceSchema,
+  })
+  .superRefine((issue, context) => {
+    validateSemanticContent(
+      issue.semanticSections,
+      "incoming.classification",
+      issue.classification.category === "bug" || issue.classification.category === "enhancement",
+      context,
+    );
+    validateSemanticContent(
+      issue.semanticSections,
+      "incoming.content",
+      issue.content.length > 0,
+      context,
+    );
+    validateSemanticContent(
+      issue.semanticSections,
+      "incoming.routing",
+      issue.classification.state !== "unknown" && issue.classification.state !== "ambiguous",
+      context,
+    );
+  });
 
 export const mattScopeProjectionSchema = z.strictObject({
   map: mapSchema.optional(),

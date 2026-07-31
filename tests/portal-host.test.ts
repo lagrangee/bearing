@@ -307,9 +307,15 @@ test("serves only the frozen manifest assets and uses index.html for SPA navigat
     // When a client requests an asset and a client-side route
     const assetResponse = await app.request("http://127.0.0.1:4178/app.js");
     const routeResponse = await app.request("http://127.0.0.1:4178/projects/entry-bearing");
+    const nativeRouteResponse = await app.request(
+      "http://127.0.0.1:4178/projects/entry-bearing/lineage/native-subject/.scratch%2Fscope%2Fmap.md",
+    );
+    const missingAssetResponse = await app.request("http://127.0.0.1:4178/missing.js");
     // Then only startup bytes are served and navigation falls back to the fixed entrypoint
     expect(await assetResponse.text()).toBe(APP_JAVASCRIPT);
     expect(await routeResponse.text()).toBe(INDEX_HTML);
+    expect(await nativeRouteResponse.text()).toBe(INDEX_HTML);
+    expect(missingAssetResponse.status).toBe(404);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

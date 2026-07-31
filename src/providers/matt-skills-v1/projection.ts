@@ -36,18 +36,24 @@ export type MattPlanningPresentation = Readonly<{
   tickets: readonly MattPlanningTicket[];
 }>;
 
-type DeepReadonly<T> = T extends readonly (infer Item)[]
-  ? readonly DeepReadonly<Item>[]
-  : T extends object
-    ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
-    : T;
-type SchemaCapture = DeepReadonly<z.output<typeof mattSkillsV1ProviderObservationSchema>>;
+type Primitive = string | number | boolean | bigint | symbol | null | undefined;
+type DeepReadonly<T> = T extends Primitive
+  ? T
+  : T extends readonly (infer Item)[]
+    ? readonly DeepReadonly<Item>[]
+    : T extends object
+      ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
+      : T;
+export type MattObservationView = DeepReadonly<
+  z.output<typeof mattSkillsV1ProviderObservationSchema>
+>;
+type SchemaCapture = MattObservationView;
 type MattPlanningCapture =
   | Pick<Extract<SchemaCapture, { state: "available" | "partial" }>, "state" | "projection">
   | Pick<Extract<SchemaCapture, { state: "absent" | "invalid" }>, "state">;
 
 export const mattObjects = (
-  capture: MattSkillsV1ProviderObservation | undefined,
+  capture: MattSkillsV1ProviderObservation | MattObservationView | undefined,
 ): readonly MattProjectedObject[] => {
   if (capture === undefined || (capture.state !== "available" && capture.state !== "partial")) {
     return [];

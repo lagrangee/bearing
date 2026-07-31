@@ -8,6 +8,7 @@ import type {
   SourceRecord,
 } from "../project-snapshot/contract";
 import { assessSelectedProviderObservationEvidence } from "../provider-observation-contract";
+import { sameMattNativeScope } from "../providers/matt-skills-v1/native-subject";
 import { mattPlanningPresentation } from "../providers/matt-skills-v1/projection";
 import {
   assessScopedMapIssues,
@@ -186,23 +187,33 @@ const frontierFor = (
   const capture =
     binding === undefined
       ? undefined
-      : snapshot.providerObservations.find(
-          (candidate) =>
-            candidate.provider === binding.provider &&
-            candidate.binding.nativeScope === binding.nativeScope,
+      : snapshot.providerObservations.find((candidate) =>
+          sameMattNativeScope(candidate.binding, binding),
         );
   const selection =
     binding === undefined
       ? undefined
-      : snapshot.providerObservationSelections.find(
-          (candidate) =>
-            candidate.provider === binding.provider &&
-            candidate.nativeScope === binding.nativeScope,
+      : snapshot.providerObservationSelections.find((candidate) =>
+          sameMattNativeScope(candidate, binding),
         );
   const providerAssessment =
     binding === undefined
       ? undefined
       : assessSelectedProviderObservationEvidence(capture, selection);
+  const bindingConflict =
+    binding !== undefined &&
+    items(snapshot.efforts).filter(
+      (candidate) =>
+        candidate.workBinding !== undefined && sameMattNativeScope(candidate.workBinding, binding),
+    ).length > 1;
+  if (bindingConflict) {
+    return {
+      frontier: { claimed: [], ready: [], uncertain: [], blocked: [], resolved: [] },
+      maps: [],
+      missing: [],
+      providerAssessment,
+    };
+  }
   if (capture === undefined || (capture.state !== "available" && capture.state !== "partial")) {
     return {
       frontier: { claimed: [], ready: [], uncertain: [], blocked: [], resolved: [] },

@@ -75,14 +75,14 @@ export const providerObservationSelectionSchema = z
     if (
       selection.latestAttempt?.outcome === "succeeded" &&
       (selection.observationId === null ||
-        selection.effectiveFreshness !== "current" ||
+        selection.effectiveFreshness === "stale" ||
         selection.latestAttempt.diagnostics.some((diagnostic) => diagnostic.impact === "blocking"))
     ) {
       context.addIssue({
         code: "custom",
         path: ["latestAttempt"],
         message:
-          "A successful latest attempt requires a selected current observation without blocking diagnostics.",
+          "A successful latest attempt requires a selected non-stale observation without blocking attempt diagnostics; an independent binding conflict may still withhold effective freshness.",
       });
     }
   });

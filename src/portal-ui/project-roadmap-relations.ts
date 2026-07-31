@@ -1,5 +1,6 @@
 import type { Effort, MilestoneGate, ProjectSnapshot, Roadmap } from "../project-snapshot/contract";
 import { assessSelectedProviderObservationEvidence } from "../provider-observation-contract";
+import { sameMattNativeScope } from "../providers/matt-skills-v1/native-subject";
 
 export const collectRoadmapEvidenceIds = (
   roadmap: Roadmap,
@@ -32,15 +33,8 @@ export const assessScopedMapIssues = (
   const missingRelationCount = efforts.filter((effort) => {
     const binding = effort.workBinding;
     if (binding === undefined) return false;
-    const capture = captures.find(
-      (capture) =>
-        capture.provider === binding.provider &&
-        capture.binding.nativeScope === binding.nativeScope,
-    );
-    const selection = selections.find(
-      (candidate) =>
-        candidate.provider === binding.provider && candidate.nativeScope === binding.nativeScope,
-    );
+    const capture = captures.find((capture) => sameMattNativeScope(capture.binding, binding));
+    const selection = selections.find((candidate) => sameMattNativeScope(candidate, binding));
     if (
       assessSelectedProviderObservationEvidence(capture, selection).frontierEvidence === "withheld"
     ) {

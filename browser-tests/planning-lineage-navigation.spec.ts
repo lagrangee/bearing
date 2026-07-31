@@ -1,14 +1,20 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
+import { createProviderScopeObservation } from "../src/native-work-provider";
 import {
   planningLineageFilteredViewHref,
   planningLineageSubjectHref,
 } from "../src/planning-lineage-route";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import { buildMattNativeSourceRecords } from "../src/project-snapshot/native-work-sources";
 import { buildPlanningLineageProjection } from "../src/project-snapshot/planning-lineage";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createSourceRecord } from "../src/project-snapshot/source-records";
+import { encodeGitHubMattNativeScope } from "../src/providers/matt-skills-v1/github";
+import { mattNativeScopeSubject } from "../src/providers/matt-skills-v1/native-subject";
+import { createMattReferenceProjection } from "../tests/fixtures/matt-reference-scenario";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
+import { parseRebuiltPlanningLineageFixture } from "../tests/planning-lineage-fixture";
 
 const projectView = (snapshot: ProjectSnapshot) => ({
   project: { entryId: "lineage", displayName: "Bearing fixture", availability: "available" },
@@ -82,6 +88,86 @@ const fixture = (): ProjectSnapshot => {
   return projectSnapshotSchema.parse({
     ...candidate,
     lineage: buildPlanningLineageProjection(candidate),
+  });
+};
+
+const githubFixture = (): ProjectSnapshot => {
+  const snapshot = fixture();
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
+  const nativeScope = encodeGitHubMattNativeScope({
+    host: "github.com",
+    rootKind: "wayfinder-map",
+    repository: {
+      owner: "example",
+      name: "reference",
+      databaseId: "9001",
+      nodeId: "R_reference",
+    },
+    root: {
+      objectKind: "issue",
+      number: 101,
+      databaseId: "9101",
+      nodeId: "I_reference_1",
+    },
+  });
+  const observation = createProviderScopeObservation({
+    provider: "matt-skills/v1",
+    binding: { provider: "matt-skills/v1", nativeScope },
+    observedAt: "2026-07-31T10:00:00.000Z",
+    sourceRevision: "github:reference-revision",
+    sourceObservedAt: "2026-07-31T10:00:00.000Z",
+    validators: [],
+    state: "available",
+    freshness: {
+      assessment: "current",
+      evidence: [{ kind: "github-scope", value: nativeScope }],
+    },
+    coverage: {
+      assessment: "complete",
+      dimensions: [{ key: "scope", state: "covered" }],
+    },
+    completion: "incomplete",
+    diagnostics: [],
+    projection: createMattReferenceProjection("github"),
+  });
+  const providerObservations = [
+    ...snapshot.providerObservations.filter(
+      (candidate) => candidate.binding.nativeScope !== ".scratch/portal",
+    ),
+    observation,
+  ];
+  const providerObservationSelections = [
+    ...snapshot.providerObservationSelections.filter(
+      (candidate) => candidate.nativeScope !== ".scratch/portal",
+    ),
+    {
+      provider: "matt-skills/v1" as const,
+      nativeScope,
+      observationId: observation.id,
+      effectiveFreshness: "current" as const,
+      latestAttempt: null,
+    },
+  ];
+  const sources = [
+    ...snapshot.sources.filter((source) => !source.displayLocator.startsWith(".scratch/portal")),
+    ...buildMattNativeSourceRecords([observation], snapshot.basis.sitemapFingerprint),
+  ];
+  return parseRebuiltPlanningLineageFixture({
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === "effort:portal"
+          ? {
+              ...effort,
+              workBinding: { provider: "matt-skills/v1" as const, nativeScope },
+            }
+          : effort,
+      ),
+    },
+    providerObservations,
+    providerObservationSelections,
+    sources,
   });
 };
 
@@ -184,6 +270,25 @@ const serveSnapshot = async (page: Page, snapshot: ProjectSnapshot): Promise<voi
   );
 };
 
+const viewportOverflow = async (page: Page) =>
+  page.locator("body *").evaluateAll((elements) =>
+    elements.flatMap((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.right > window.innerWidth + 0.5
+        ? [
+            {
+              tag: element.tagName,
+              className: element.className,
+              text: element.textContent?.trim().slice(0, 80),
+              left: bounds.left,
+              right: bounds.right,
+              viewport: window.innerWidth,
+            },
+          ]
+        : [];
+    }),
+  );
+
 test("stable durable-subject routes survive direct entry and keep failures scoped", async ({
   page,
 }) => {
@@ -201,6 +306,21 @@ test("stable durable-subject routes survive direct entry and keep failures scope
     [{ kind: "alignment-check", id: "alignment-check:portal" }, "Confirm the Portal revision"],
     [{ kind: "planning-review", id: "planning-review:sequence" }, "Review the current sequence"],
     [{ kind: "asset", id: "asset:planning-model-evidence" }, "Planning Model Evidence"],
+    [{ kind: "native-scope", id: ".scratch/portal" }, ".scratch/portal"],
+    [{ kind: "native-subject", id: ".scratch/portal/map.md" }, "Portal Validation"],
+    [{ kind: "native-subject", id: ".scratch/portal/PRD.md" }, "Portal Validation PRD"],
+    [
+      { kind: "native-subject", id: ".scratch/portal/issues/01-build.md" },
+      "Build the Roadmap journey",
+    ],
+    [
+      { kind: "native-subject", id: ".scratch/portal/issues/03-gate.md" },
+      "Pass the integration gate",
+    ],
+    [
+      { kind: "native-subject", id: ".scratch/portal/issues/04-incoming.md" },
+      "Route a new Portal request",
+    ],
   ] as const;
 
   for (const [subject, title] of cases) {
@@ -211,6 +331,78 @@ test("stable durable-subject routes survive direct entry and keep failures scope
     await expect(page.getByRole("navigation", { name: "Canonical Parent Path" })).toBeVisible();
   }
 
+  const githubSnapshot = githubFixture();
+  const githubObservation = githubSnapshot.providerObservations.find((observation) =>
+    observation.binding.nativeScope.startsWith("github-matt-v1:"),
+  );
+  if (
+    githubObservation === undefined ||
+    (githubObservation.state !== "available" && githubObservation.state !== "partial") ||
+    githubObservation.projection.map === undefined
+  ) {
+    throw new Error("Expected the GitHub browser fixture.");
+  }
+  const nativeCases = [
+    {
+      snapshot,
+      scope: { kind: "native-scope" as const, id: ".scratch/portal" },
+      scopeTitle: ".scratch/portal",
+      subject: { kind: "native-subject" as const, id: ".scratch/portal/map.md" },
+      title: "Portal Validation",
+      source: ".scratch/portal/map.md",
+      sourceHref: undefined,
+    },
+    {
+      snapshot: githubSnapshot,
+      scope: mattNativeScopeSubject(githubObservation),
+      scopeTitle: "example/reference issue #101",
+      subject: {
+        kind: "native-subject" as const,
+        id: githubObservation.projection.map.ref,
+      },
+      title: "Reference Map",
+      source: "github/example/reference/issues/101",
+      sourceHref: "https://github.com/example/reference/issues/101",
+    },
+  ] as const;
+
+  for (const nativeCase of nativeCases) {
+    await page.unroute("**/api/v1/projects/lineage/snapshot");
+    await serveSnapshot(page, nativeCase.snapshot);
+    const scopeHref = planningLineageSubjectHref("lineage", nativeCase.scope);
+    await page.goto(scopeHref);
+    await expect(page).toHaveURL(scopeHref);
+    await expect(
+      page.getByRole("heading", { name: nativeCase.scopeTitle, level: 1 }),
+    ).toBeVisible();
+
+    const mapHref = planningLineageSubjectHref("lineage", nativeCase.subject);
+    for (const anchor of ["map.lifecycle", "native.provenance"] as const) {
+      await page.goto(`${mapHref}#${anchor}`);
+      await page.reload();
+      await expect(page).toHaveURL(`${mapHref}#${anchor}`);
+      await expect(page.locator(`#${anchor.replace(".", "\\.")}`)).toBeInViewport();
+      await expect(page.getByRole("heading", { name: nativeCase.title, level: 1 })).toBeVisible();
+    }
+    if (nativeCase.sourceHref === undefined) {
+      await expect(page.getByRole("link", { name: nativeCase.source })).toHaveCount(0);
+      await expect(page.getByText(nativeCase.source, { exact: true }).first()).toBeVisible();
+    } else {
+      await expect(page.getByRole("link", { name: nativeCase.source })).toHaveAttribute(
+        "href",
+        nativeCase.sourceHref,
+      );
+    }
+  }
+
+  const unavailableNativeAnchor = `${planningLineageSubjectHref("lineage", {
+    kind: "native-subject",
+    id: ".scratch/model/map.md",
+  })}#map.resolution-evidence`;
+  await page.goto(unavailableNativeAnchor);
+  await expect(page).toHaveURL(unavailableNativeAnchor);
+  await expect(page.getByText("Requested section unavailable", { exact: false })).toBeVisible();
+
   const missing = planningLineageSubjectHref("lineage", {
     kind: "gate",
     id: "gate:missing",
@@ -218,6 +410,14 @@ test("stable durable-subject routes survive direct entry and keep failures scope
   await page.goto(missing);
   await expect(page).toHaveURL(missing);
   await expect(page.getByRole("heading", { name: "Gate not found" })).toBeVisible();
+
+  const missingNative = planningLineageSubjectHref("lineage", {
+    kind: "native-subject",
+    id: ".scratch/missing/PRD.md",
+  });
+  await page.goto(missingNative);
+  await expect(page).toHaveURL(missingNative);
+  await expect(page.getByRole("heading", { name: "Native Subject not found" })).toBeVisible();
 
   await page.goto("/projects/lineage/lineage/gate/not-a-gate");
   await expect(page).toHaveURL(/\/lineage\/gate\/not-a-gate$/u);
@@ -504,8 +704,28 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   expect(
     await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
   ).toBe(false);
+  expect(await viewportOverflow(page)).toEqual([]);
 
   await page.setViewportSize({ width: 375, height: 812 });
+  const nativeHref = planningLineageSubjectHref("lineage", {
+    kind: "native-subject",
+    id: ".scratch/portal/issues/03-gate.md",
+  });
+  await page.goto(nativeHref);
+  await expect(
+    page.getByRole("heading", { name: "Pass the integration gate", level: 1 }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Review the Roadmap journey", exact: true }).focus();
+  await expect(
+    page.getByRole("link", { name: "Review the Roadmap journey", exact: true }),
+  ).toBeFocused();
+  await expect
+    .poll(() =>
+      page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
+    )
+    .toBe(false);
+  expect(await viewportOverflow(page)).toEqual([]);
+
   await page.goto(
     planningLineageFilteredViewHref(
       "lineage",

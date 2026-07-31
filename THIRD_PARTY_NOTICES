@@ -18,7 +18,9 @@ The distributed CLI and Portal bundle code from the following packages. The buil
 - fault@2.0.1 — MIT
 - format@0.2.2 — MIT
 - hono@4.12.30 — MIT
+- longest-streak@3.1.0 — MIT
 - lucide-react@1.24.0 — ISC
+- markdown-table@3.0.4 — MIT
 - mdast-util-find-and-replace@3.0.2 — MIT
 - mdast-util-from-markdown@2.0.3 — MIT
 - mdast-util-frontmatter@2.0.1 — MIT
@@ -28,6 +30,8 @@ The distributed CLI and Portal bundle code from the following packages. The buil
 - mdast-util-gfm-strikethrough@2.0.0 — MIT
 - mdast-util-gfm-table@2.0.0 — MIT
 - mdast-util-gfm-task-list-item@2.0.0 — MIT
+- mdast-util-phrasing@4.1.0 — MIT
+- mdast-util-to-markdown@2.1.2 — MIT
 - mdast-util-to-string@4.0.0 — MIT
 - micromark@4.0.2 — MIT
 - micromark-core-commonmark@2.0.3 — MIT
@@ -67,6 +71,7 @@ The distributed CLI and Portal bundle code from the following packages. The buil
 - unist-util-visit-parents@6.0.2 — MIT
 - yaml@2.9.0 — ISC
 - zod@4.4.3 — MIT
+- zwitch@2.0.4 — MIT
 
 Development and test dependencies are not shipped in the npm tarball; the license check still rejects restricted packages, missing license evidence, and licenses outside the accepted permissive or file-level-copyleft set.
 

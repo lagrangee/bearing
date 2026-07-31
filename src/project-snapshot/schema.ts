@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { providerObservationSelectionSchema } from "../provider-observation-contract";
+import { mattNativeScopeKey } from "../providers/matt-skills-v1/native-subject";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import { bearingSourceEventTimeSchema } from "../source-event-time";
 import { uniqueIdentityArraySchema } from "./projection-identity";
@@ -34,7 +35,7 @@ export { planningLineageProjectionSchema } from "./schema-planning-lineage";
 export { diagnosticReferenceSchema } from "./schema-primitives";
 export { projectionIssueSchema } from "./schema-projection";
 export { projectSummarySchema } from "./schema-summary";
-export const PROJECT_SNAPSHOT_VERSION = 7 as const;
+export const PROJECT_SNAPSHOT_VERSION = 8 as const;
 const resolutionSchema = z.strictObject({
   acceptedDecision: semanticPlainTextSchema,
   acceptedAt: bearingSourceEventTimeSchema,
@@ -322,11 +323,11 @@ export const projectSnapshotSchema = z
     guidance: singletonProjectionSchema(nextWorkGuidanceSchema),
     providerObservations: uniqueIdentityArraySchema(
       mattSkillsV1ProviderObservationSchema,
-      (capture) => `${capture.provider}:${capture.binding.nativeScope}`,
+      (capture) => mattNativeScopeKey(capture.binding),
     ),
     providerObservationSelections: uniqueIdentityArraySchema(
       providerObservationSelectionSchema,
-      (selection) => `${selection.provider}:${selection.nativeScope}`,
+      mattNativeScopeKey,
     ),
     diagnostics: uniqueIdentityArraySchema(
       structuralDiagnosticSchema,

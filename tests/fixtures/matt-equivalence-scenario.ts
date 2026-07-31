@@ -368,22 +368,43 @@ const githubCommentsFor = (number: number) =>
       ]
     : [];
 
-const createGitHubFixtures = (): Record<string, GitHubFixtureResponse> => {
+type GitHubSemanticContentOverrides = Readonly<{
+  researchBody?: string;
+  deliveryBody?: string;
+  incomingBody?: string;
+  unsupportedCommentsFor?: readonly number[];
+}>;
+
+const createGitHubFixtures = (
+  overrides: GitHubSemanticContentOverrides = {},
+): Record<string, GitHubFixtureResponse> => {
   const fixtures: Record<string, GitHubFixtureResponse> = {
     "repos/example/reference": {
       first: githubFixtureResponse(githubRepository, '"repo-equivalence-v1"'),
     },
   };
   for (const issue of githubObjects) {
+    const effectiveIssue =
+      issue.number === mattEquivalenceGitHubResearch.number && overrides.researchBody !== undefined
+        ? { ...issue, body: overrides.researchBody }
+        : issue.number === mattEquivalenceGitHubDelivery.number &&
+            overrides.deliveryBody !== undefined
+          ? { ...issue, body: overrides.deliveryBody }
+          : issue.number === mattEquivalenceGitHubIncoming.number &&
+              overrides.incomingBody !== undefined
+            ? { ...issue, body: overrides.incomingBody }
+            : issue;
     const endpoint = `repos/example/reference/issues/${issue.number}`;
     fixtures[endpoint] = {
-      first: githubFixtureResponse(issue, `"issue-${issue.number}-equivalence-v1"`),
+      first: githubFixtureResponse(effectiveIssue, `"issue-${issue.number}-equivalence-v1"`),
     };
     fixtures[`${endpoint}/comments?per_page=100&page=1`] = {
-      first: githubFixtureResponse(
-        githubCommentsFor(issue.number),
-        `"comments-${issue.number}-equivalence-v1"`,
-      ),
+      first: overrides.unsupportedCommentsFor?.includes(issue.number)
+        ? { status: 410, headers: {} }
+        : githubFixtureResponse(
+            githubCommentsFor(issue.number),
+            `"comments-${issue.number}-equivalence-v1"`,
+          ),
     };
     fixtures[`${endpoint}/dependencies/blocked_by?per_page=100&page=1`] = {
       first: githubFixtureResponse(
@@ -401,8 +422,9 @@ const createGitHubFixtures = (): Record<string, GitHubFixtureResponse> => {
   return fixtures;
 };
 
-export const createMattEquivalenceGitHubTransport = (): FixtureGitHubTransport =>
-  new FixtureGitHubTransport(createGitHubFixtures());
+export const createMattEquivalenceGitHubTransport = (
+  overrides: GitHubSemanticContentOverrides = {},
+): FixtureGitHubTransport => new FixtureGitHubTransport(createGitHubFixtures(overrides));
 
 export const mattEquivalenceAliases = (
   kind: "local" | "github",
@@ -601,6 +623,11 @@ export const expectedMattEquivalenceSemantics: MattReferenceEquivalenceView = {
       },
       lifecycle: "open",
       content: [
+        {
+          role: "issue-body",
+          body: "<https://example.com/customer-report>",
+          sourceKind: undefined,
+        },
         {
           role: "source-anchor",
           body: "https://example.com/customer-report",

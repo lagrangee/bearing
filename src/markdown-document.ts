@@ -428,6 +428,25 @@ export const queryMarkdownField = (
   return resultFromCardinality(values, "conflict");
 };
 
+export const markdownNarrative = (
+  document: MarkdownDocument,
+  query: Readonly<{
+    within?: MarkdownSection;
+    excludeFields?: readonly string[];
+  }> = {},
+): string => {
+  const excluded = query.excludeFields ?? [];
+  const children = nodesWithin(document, query.within).filter(
+    (node) =>
+      node.type !== "paragraph" ||
+      !excluded.some((label) => fieldFromParagraph(node, label, "colon") !== undefined),
+  );
+  return toMarkdown(
+    { type: "root", children },
+    { extensions: [gfmToMarkdown(), frontmatterToMarkdown(["yaml"])] },
+  ).trim();
+};
+
 const markdownListsWithin = (
   document: MarkdownDocument,
   query: Readonly<{ within?: MarkdownSection; ordered?: boolean }>,

@@ -18,6 +18,7 @@ export const SOURCE_BINDING_ROLES = [
   "next-work-guidance",
   "guidance-item",
   "audit-finding",
+  "native-scope",
   "map",
   "spec",
   "wayfinder-ticket",

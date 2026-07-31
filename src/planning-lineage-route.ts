@@ -18,11 +18,23 @@ export const planningLineageSubjectKindSchema = z.enum([
   "alignment-check",
   "planning-review",
   "asset",
+  "native-scope",
+  "native-subject",
 ]);
 export type PlanningLineageSubjectKind = z.infer<typeof planningLineageSubjectKindSchema>;
 
 const unbrandedId = <Schema extends z.ZodType>(schema: Schema) =>
   schema.transform((value) => String(value));
+const nativeSubjectIdSchema = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine((value) =>
+    Array.from(value).every((character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint !== undefined && codePoint >= 32 && codePoint !== 127;
+    }),
+  );
 
 export const planningLineageSubjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("roadmap"), id: unbrandedId(roadmapIdSchema) }),
@@ -32,6 +44,8 @@ export const planningLineageSubjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("alignment-check"), id: unbrandedId(checkIdSchema) }),
   z.strictObject({ kind: z.literal("planning-review"), id: unbrandedId(reviewIdSchema) }),
   z.strictObject({ kind: z.literal("asset"), id: unbrandedId(assetIdSchema) }),
+  z.strictObject({ kind: z.literal("native-scope"), id: nativeSubjectIdSchema }),
+  z.strictObject({ kind: z.literal("native-subject"), id: nativeSubjectIdSchema }),
 ]);
 export type PlanningLineageSubject = z.infer<typeof planningLineageSubjectSchema>;
 
@@ -44,6 +58,12 @@ export const planningLineageRelationKeySchema = z.enum([
   "governance.target",
   "governance.changed-references",
   "native-work.binding",
+  "native-work.scope",
+  "native-work.members",
+  "native-work.parent",
+  "native-work.children",
+  "native-work.blocked-by",
+  "native-work.blocks",
   "production.owned-assets",
   "production.owner",
   "production.producer",
@@ -85,6 +105,9 @@ const idSchemaFor = (kind: PlanningLineageSubjectKind) => {
       return reviewIdSchema;
     case "asset":
       return assetIdSchema;
+    case "native-scope":
+    case "native-subject":
+      return nativeSubjectIdSchema;
   }
 };
 

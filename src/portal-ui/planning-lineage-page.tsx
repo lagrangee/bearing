@@ -305,7 +305,11 @@ export function PlanningLineagePage({
         return;
       }
       const target = document.getElementById(semanticAnchor);
-      if (target !== null && target.dataset["semanticAvailability"] !== "unavailable") {
+      if (
+        target !== null &&
+        target.dataset["semanticAvailability"] !== "unavailable" &&
+        target.dataset["semanticAvailability"] !== "unsupported"
+      ) {
         target.scrollIntoView({ block: "start" });
         return;
       }
@@ -385,7 +389,8 @@ export function PlanningLineagePage({
   const anchorAvailable =
     semanticAnchor === undefined ||
     (model.semanticAvailability.has(semanticAnchor) &&
-      model.semanticAvailability.get(semanticAnchor) !== "unavailable") ||
+      model.semanticAvailability.get(semanticAnchor) !== "unavailable" &&
+      model.semanticAvailability.get(semanticAnchor) !== "unsupported") ||
     contextRelations.some((relation) => `relation.${relation.key}` === semanticAnchor);
   return (
     <div className="page lineage-page">
@@ -432,7 +437,15 @@ export function PlanningLineagePage({
           </div>
           <div>
             <dt>Source</dt>
-            <dd>{model.subject.source?.displayLocator ?? "Unavailable"}</dd>
+            <dd>
+              {model.subject.sourceHref === undefined ? (
+                <code>{model.subject.source?.displayLocator ?? "Unavailable"}</code>
+              ) : (
+                <a href={model.subject.sourceHref} rel="noreferrer" target="_blank">
+                  {model.subject.source?.displayLocator ?? model.subject.sourceHref}
+                </a>
+              )}
+            </dd>
           </div>
         </dl>
       </header>

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isPlanningAuditCoverageConsistent } from "./audit-coverage";
 import { languageTagSchema } from "./language-tag";
 import { isPlainText } from "./plain-text";
+import { decodeGitHubMattNativeScope } from "./providers/matt-skills-v1/github-native-scope";
 import {
   displayAssetLocatorSchema,
   displaySourceLocatorSchema,
@@ -29,6 +30,16 @@ const requiredPlainTextSchema = z
   .refine((value) => value.trim().length > 0 && isPlainText(value), {
     message: "Semantic text must be non-empty plain UTF-8 text.",
   });
+const mattNativeScopeSchema = z.union([
+  displaySourceLocatorSchema,
+  z
+    .string()
+    .min(1)
+    .refine((value) => decodeGitHubMattNativeScope(value) !== undefined, {
+      message:
+        "A Matt native scope must be a normalized Local repository locator or a valid GitHub Matt scope.",
+    }),
+]);
 
 export const citationSchema = z.strictObject({
   Asset: assetIdSchema,
@@ -296,7 +307,7 @@ export const bearingSchema = z.discriminatedUnion("Type", [
       "Work binding": z
         .strictObject({
           Provider: z.literal("matt-skills/v1"),
-          "Native scope": displaySourceLocatorSchema,
+          "Native scope": mattNativeScopeSchema,
         })
         .optional(),
     })

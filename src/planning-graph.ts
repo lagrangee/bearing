@@ -22,15 +22,17 @@ import type {
 import { buildDecisionProjection } from "./project-snapshot/decisions";
 import { buildSnapshotDiagnostics } from "./project-snapshot/diagnostic-projection";
 import { buildGovernanceProjection } from "./project-snapshot/governance";
+import { buildMattNativeSourceRecords } from "./project-snapshot/native-work-sources";
 import { normalizePlanningDerivations } from "./project-snapshot/normalized-planning-derivation";
 import { buildPlanningLineageProjection } from "./project-snapshot/planning-lineage";
-import { createSourceRecord, mergeSourceRecords } from "./project-snapshot/source-records";
+import { mergeSourceRecords } from "./project-snapshot/source-records";
 import {
   assessSelectedProviderObservationEvidence,
   type ProviderObservationSelection,
 } from "./provider-observation-contract";
 import type { MattSkillsV1ProviderObservation } from "./providers/matt-skills-v1/capture";
-import { mattObjectLocator, mattObjects } from "./providers/matt-skills-v1/projection";
+import { sameMattNativeScope } from "./providers/matt-skills-v1/native-subject";
+import { mattObjects } from "./providers/matt-skills-v1/projection";
 import type { StructuralDiagnostic } from "./types";
 
 export type PlanningGraphIssue = Readonly<{
@@ -176,23 +178,6 @@ const trusted = <T>(collection: CollectionProjection<T>): readonly T[] =>
 
 const issues = <T>(collection: CollectionProjection<T>): readonly ProjectionIssue[] =>
   collection.validity === "available" ? [] : collection.issues;
-
-const trackerSources = (
-  captures: readonly MattSkillsV1ProviderObservation[],
-  fingerprint: string,
-): readonly SourceRecord[] =>
-  captures.flatMap((capture) =>
-    mattObjects(capture).map((object) =>
-      createSourceRecord(fingerprint, {
-        kind: "tracker",
-        locator: mattObjectLocator(object),
-        binding: {
-          role: object.kind,
-          identity: object.ref,
-        },
-      }),
-    ),
-  );
 
 const issueKey = (issue: PlanningGraphIssue): string =>
   `${issue.code}\u0000${issue.target}\u0000${issue.source ?? ""}\u0000${issue.message}`;
@@ -559,21 +544,18 @@ class ImmutablePlanningGraph implements PlanningGraph {
         closureIssues.push(...this.#scopedIssues(authorityId, this.#collections.authorities));
       } else authorityValues.push(valueWithSource(authority, sourceByReference));
     }
+    const workBinding = effort.workBinding;
     const providerCapture =
-      effort.workBinding === undefined
+      workBinding === undefined
         ? undefined
-        : this.#collections.providerObservations.find(
-            (capture) =>
-              capture.provider === effort.workBinding?.provider &&
-              capture.binding.nativeScope === effort.workBinding.nativeScope,
+        : this.#collections.providerObservations.find((capture) =>
+            sameMattNativeScope(capture.binding, workBinding),
           );
     const providerSelection =
-      effort.workBinding === undefined
+      workBinding === undefined
         ? undefined
-        : this.#collections.providerObservationSelections.find(
-            (selection) =>
-              selection.provider === effort.workBinding?.provider &&
-              selection.nativeScope === effort.workBinding.nativeScope,
+        : this.#collections.providerObservationSelections.find((selection) =>
+            sameMattNativeScope(selection, workBinding),
           );
     if (effort.workBinding !== undefined && providerCapture === undefined) {
       closureIssues.push(
@@ -946,7 +928,7 @@ export const buildPlanningGraph = async (
     governance.sources,
     assets.sources,
     decisions.sources,
-    trackerSources(input.providerObservations, input.fingerprint),
+    buildMattNativeSourceRecords(input.providerObservations, input.fingerprint),
   ]);
   const assetSourceByIdentity = new Map(
     sources.flatMap((source) =>
@@ -1017,6 +999,7 @@ export const buildPlanningGraph = async (
     reviews: decisions.reviews,
     providerObservations: input.providerObservations,
     providerObservationSelections,
+    sources,
   });
   const knownKinds = new Map<string, Set<string>>();
   const knownSources = new Map<string, Set<string>>();

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createProviderScopeObservation } from "../src/native-work-provider";
 import { buildPlanningGraph } from "../src/planning-graph";
 import { prepareSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
@@ -425,25 +426,33 @@ test("Gate closure exposes diagnostics from its bound provider capture", async (
   if (capture === undefined || capture.state !== "available") {
     throw new Error("Expected an available provider capture.");
   }
-  const graph = await buildPlanningGraph({
-    decoded: plan.decoded,
-    providerObservations: [
+  const degraded = createProviderScopeObservation({
+    provider: capture.provider,
+    binding: capture.binding,
+    observedAt: capture.observedAt,
+    ...(capture.sourceRevision === undefined ? {} : { sourceRevision: capture.sourceRevision }),
+    ...(capture.sourceObservedAt === undefined
+      ? {}
+      : { sourceObservedAt: capture.sourceObservedAt }),
+    validators: capture.validators,
+    state: "partial",
+    freshness: capture.freshness,
+    coverage: { ...capture.coverage, assessment: "incomplete" },
+    completion: "undetermined",
+    diagnostics: [
       {
-        ...capture,
-        state: "partial",
-        coverage: { ...capture.coverage, assessment: "incomplete" },
-        completion: "undetermined",
-        diagnostics: [
-          {
-            code: "matt.local.scope.invalid",
-            class: "format",
-            impact: "blocking",
-            target: capture.binding.nativeScope,
-            message: "Provider scope is structurally uncertain.",
-          },
-        ],
+        code: "matt.local.scope.invalid",
+        class: "format",
+        impact: "blocking",
+        target: capture.binding.nativeScope,
+        message: "Provider scope is structurally uncertain.",
       },
     ],
+    projection: capture.projection,
+  });
+  const graph = await buildPlanningGraph({
+    decoded: plan.decoded,
+    providerObservations: [degraded],
     diagnostics: plan.diagnostics,
     fingerprint: plan.fingerprint,
     assetContentObservations: plan.assetContentObservations,

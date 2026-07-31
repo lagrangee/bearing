@@ -40,6 +40,7 @@ const snapshotFor = async (root: string) => {
     advisoryFreshness: plan.advisoryFreshness,
     decoded: plan.decoded,
     providerObservations: plan.providerObservations,
+    providerObservationSelections: plan.providerObservationSelections,
     assetContentObservations: plan.assetContentObservations,
     planningGraph: plan.planningGraph,
   });

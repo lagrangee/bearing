@@ -1,10 +1,26 @@
 import type { PlanningLineageRelationKey, PlanningLineageSubject } from "../planning-lineage-route";
 import { planningLineageSubjectForReference } from "../planning-lineage-route";
 import { assessSelectedProviderObservationEvidence } from "../provider-observation-contract";
+import {
+  hasCompleteMattNativeEvidence,
+  type MattNativeRecord,
+  mattNativeRecords,
+} from "../providers/matt-skills-v1/native-read-model";
+import {
+  type MattNativeSubject,
+  mattNativeScopeSubject,
+  mattNativeSubjectForObject,
+  sameMattNativeBindingDefinition,
+  sameMattNativeScope,
+} from "../providers/matt-skills-v1/native-subject";
+import type { MattProjectedObject } from "../providers/matt-skills-v1/projection";
+import { mattObjects } from "../providers/matt-skills-v1/projection";
+import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import type {
   PlanningLineageProjection,
   PlanningLineageRelation,
   PlanningLineageSubjectProjection,
+  ProjectSnapshot,
   ProjectSnapshotInput,
 } from "./contract";
 import { planningLineageProjectionSchema } from "./schema-planning-lineage";
@@ -20,8 +36,19 @@ export type PlanningLineageBuildInput = Pick<
   | "reviews"
   | "providerObservations"
   | "providerObservationSelections"
+  | "sources"
 >;
-type Input = PlanningLineageBuildInput;
+type Input = Omit<PlanningLineageBuildInput, "providerObservations"> &
+  Readonly<{
+    providerObservations: ProjectSnapshot["providerObservations"];
+  }>;
+
+const normalizedInput = (input: PlanningLineageBuildInput): Input => ({
+  ...input,
+  providerObservations: input.providerObservations.map((observation) =>
+    mattSkillsV1ProviderObservationSchema.parse(observation),
+  ),
+});
 
 type CollectionItem<Projection> =
   Projection extends Readonly<{
@@ -36,6 +63,8 @@ type AuthorityRecord = CollectionItem<Input["authorities"]>;
 type AssetRecord = CollectionItem<Input["assets"]>;
 type AlignmentCheckRecord = CollectionItem<Input["checks"]>;
 type PlanningReviewRecord = CollectionItem<Input["reviews"]>;
+type NativeObservation = Input["providerObservations"][number];
+type NativeRecord = MattNativeRecord;
 type SubjectRecord =
   | RoadmapRecord
   | GateRecord
@@ -43,7 +72,8 @@ type SubjectRecord =
   | AuthorityRecord
   | AssetRecord
   | AlignmentCheckRecord
-  | PlanningReviewRecord;
+  | PlanningReviewRecord
+  | NativeRecord;
 type Collection<T> =
   | Readonly<{ validity: "available" | "partial"; items: readonly T[] }>
   | Readonly<{ validity: "invalid" }>;
@@ -56,6 +86,34 @@ const compareStableIdentity = (left: string, right: string): number =>
 
 const trusted = <T>(collection: Collection<T>): readonly T[] =>
   collection.validity === "invalid" ? [] : collection.items;
+
+const isNativeSubjectKind = (
+  kind: PlanningLineageSubject["kind"],
+): kind is MattNativeSubject["kind"] => kind.startsWith("native-");
+
+const hasCompleteNativeEvidence = (input: Input, observation: NativeObservation): boolean =>
+  hasCompleteMattNativeEvidence(observation, input.providerObservationSelections);
+
+const providerSubjectRecords = (input: Input): readonly NativeRecord[] =>
+  mattNativeRecords(input.providerObservations, input.sources);
+
+const nativeCollectionFor = (
+  input: Input,
+  kind: MattNativeSubject["kind"],
+): Collection<NativeRecord> => {
+  const records = providerSubjectRecords(input).filter((record) =>
+    kind === "native-scope"
+      ? record.recordKind === "native-scope"
+      : record.recordKind === "native-object" &&
+        mattNativeSubjectForObject(record.object).kind === kind,
+  );
+  const incomplete = input.providerObservations.some(
+    (observation) => !hasCompleteNativeEvidence(input, observation),
+  );
+  return incomplete
+    ? { validity: "partial", items: records }
+    : { validity: "available", items: records };
+};
 
 const collectionFor = (
   input: Input,
@@ -76,6 +134,9 @@ const collectionFor = (
       return input.reviews;
     case "asset":
       return input.assets;
+    case "native-scope":
+    case "native-subject":
+      return nativeCollectionFor(input, kind);
   }
 };
 
@@ -282,6 +343,113 @@ const parentPathFor = (
   subject: PlanningLineageSubject,
   record: SubjectRecord,
 ): PlanningLineageSubjectProjection["parentPath"] => {
+  if (isNativeSubjectKind(subject.kind)) {
+    const nativeRecord = record as NativeRecord;
+    const observation = nativeRecord.observation;
+    const effortCandidates =
+      input.efforts.validity === "invalid"
+        ? []
+        : input.efforts.items.filter(
+            (effort) =>
+              effort.workBinding !== undefined &&
+              sameMattNativeScope(effort.workBinding, observation.binding),
+          );
+    if (input.efforts.validity === "invalid") {
+      return {
+        state: "truncated-unavailable",
+        ancestors: [],
+        reason: "Bound Effort parentage is unavailable in the current generation.",
+      };
+    }
+    if (input.efforts.validity === "partial" && effortCandidates.length === 0) {
+      return {
+        state: "truncated-unknown",
+        ancestors: [],
+        reason: "Partial Effort coverage cannot prove native Work Binding parentage.",
+      };
+    }
+    if (effortCandidates.length !== 1) {
+      return {
+        state: "truncated-unavailable",
+        ancestors: [],
+        reason:
+          effortCandidates.length > 1
+            ? "Native scope has conflicting canonical Work Bindings."
+            : "Native scope has no trustworthy canonical Work Binding.",
+      };
+    }
+    const effort = effortCandidates[0];
+    if (effort === undefined) throw new Error("Unique native Work Binding was not retained.");
+    const effortSubject = { kind: "effort" as const, id: effort.id };
+    const effortPath = parentPathFor(input, effortSubject, effort);
+    const canonicalAncestors = [...effortPath.ancestors, effortSubject];
+    if (nativeRecord.recordKind === "native-scope") {
+      return {
+        state: effortPath.state,
+        ancestors: canonicalAncestors,
+        ...(effortPath.reason === undefined ? {} : { reason: effortPath.reason }),
+      };
+    }
+
+    const projection =
+      observation.state === "available" || observation.state === "partial"
+        ? observation.projection
+        : undefined;
+    if (projection === undefined || !hasCompleteNativeEvidence(input, observation)) {
+      return {
+        state: "truncated-unavailable",
+        ancestors: canonicalAncestors,
+        reason: "Native hierarchy is not trustworthy in the selected provider observation.",
+      };
+    }
+    const objectByRef = new Map(
+      mattObjects(observation).map((object) => [String(object.ref), object]),
+    );
+    const parentByChild = new Map<string, string[]>();
+    for (const relation of projection.graph.parentChild) {
+      const parents = parentByChild.get(relation.child) ?? [];
+      parents.push(relation.parent);
+      parentByChild.set(relation.child, parents);
+    }
+    const chain: PlanningLineageSubject[] = [];
+    const visited = new Set<string>([String(nativeRecord.object.ref)]);
+    let current = String(nativeRecord.object.ref);
+    while (true) {
+      const parents = parentByChild.get(current) ?? [];
+      if (parents.length === 0) break;
+      if (parents.length !== 1) {
+        return {
+          state: "truncated-unavailable",
+          ancestors: [...canonicalAncestors, ...chain.toReversed()],
+          reason: "Native parentage is ambiguous.",
+        };
+      }
+      const parentRef = parents[0];
+      if (parentRef === undefined || visited.has(parentRef)) {
+        return {
+          state: "truncated-unavailable",
+          ancestors: [...canonicalAncestors, ...chain.toReversed()],
+          reason: "Native parentage contains a cycle.",
+        };
+      }
+      const parent = objectByRef.get(parentRef);
+      if (parent === undefined) {
+        return {
+          state: "truncated-unavailable",
+          ancestors: [...canonicalAncestors, ...chain.toReversed()],
+          reason: "Native parent subject is unavailable.",
+        };
+      }
+      visited.add(parentRef);
+      chain.push(mattNativeSubjectForObject(parent));
+      current = parentRef;
+    }
+    return {
+      state: effortPath.state,
+      ancestors: [...canonicalAncestors, ...chain.toReversed()],
+      ...(effortPath.reason === undefined ? {} : { reason: effortPath.reason }),
+    };
+  }
   if (
     subject.kind === "roadmap" ||
     subject.kind === "authority" ||
@@ -409,13 +577,71 @@ const parentPathFor = (
 
 const section = (
   role: string,
-  availability: "available" | "confirmed-empty" | "unavailable" = "available",
+  availability: "available" | "confirmed-empty" | "unavailable" | "unsupported" = "available",
 ) => ({ role, availability });
 
+const nativeStructuralSections = (
+  object: MattProjectedObject,
+  complete: boolean,
+): PlanningLineageSubjectProjection["semanticSections"] => {
+  const lifecycleRole = (
+    {
+      map: "map.lifecycle",
+      spec: "spec.lifecycle",
+      "wayfinder-ticket": "wayfinder.lifecycle",
+      "delivery-ticket": "delivery.lifecycle",
+      "incoming-issue": "incoming.lifecycle",
+    } as const
+  )[object.kind];
+  const lifecycle = section(lifecycleRole);
+  const conditional =
+    object.kind === "wayfinder-ticket"
+      ? object.lifecycle.state === "resolved-on-route"
+        ? [section("wayfinder.decision-backlink")]
+        : object.lifecycle.state === "ruled-out-of-scope"
+          ? [section("wayfinder.disposition-backlink")]
+          : []
+      : [];
+  return [
+    lifecycle,
+    ...conditional,
+    section("native.provenance"),
+    section("native.observation-trust", complete ? "available" : "unavailable"),
+  ];
+};
+
 const semanticSectionsFor = (
+  input: Input,
   subject: PlanningLineageSubject,
   record: SubjectRecord,
 ): PlanningLineageSubjectProjection["semanticSections"] => {
+  if (isNativeSubjectKind(subject.kind)) {
+    const native = record as NativeRecord;
+    if (native.recordKind === "native-scope") {
+      const observation = native.observation;
+      const complete = hasCompleteNativeEvidence(input, observation);
+      return [
+        section("native-scope.trust", complete ? "available" : "unavailable"),
+        section(
+          "native-scope.subjects",
+          mattObjects(observation).length === 0
+            ? complete
+              ? "confirmed-empty"
+              : "unavailable"
+            : "available",
+        ),
+      ];
+    }
+    return [
+      ...native.object.semanticSections.map((candidate) =>
+        section(candidate.role, candidate.availability),
+      ),
+      ...nativeStructuralSections(
+        native.object,
+        hasCompleteNativeEvidence(input, native.observation),
+      ),
+    ];
+  }
   switch (subject.kind) {
     case "roadmap": {
       const roadmap = record as RoadmapRecord;
@@ -570,24 +796,35 @@ const workBindingRelation = (input: Input, effort: EffortRecord): PlanningLineag
   if (binding === undefined) {
     return confirmedNone("native-work.binding", "Work Binding", "binds to native scope", "one");
   }
-  const observation = input.providerObservations.find(
+  const matchingEfforts = trusted(input.efforts).filter(
     (candidate) =>
-      candidate.provider === binding.provider &&
-      candidate.binding.nativeScope === binding.nativeScope,
+      candidate.workBinding !== undefined && sameMattNativeScope(candidate.workBinding, binding),
   );
-  const selection = input.providerObservationSelections.find(
-    (candidate) =>
-      candidate.provider === binding.provider && candidate.nativeScope === binding.nativeScope,
+  const bindingConflict = matchingEfforts.length > 1;
+  const observation = input.providerObservations.find((candidate) =>
+    sameMattNativeScope(candidate.binding, binding),
+  );
+  const selection = input.providerObservationSelections.find((candidate) =>
+    observation === undefined
+      ? sameMattNativeScope(candidate, binding)
+      : sameMattNativeBindingDefinition(candidate, observation.binding),
   );
   const assessment = assessSelectedProviderObservationEvidence(observation, selection);
   const available =
-    assessment.projectionState === "available" || assessment.projectionState === "partial";
+    !bindingConflict &&
+    (assessment.projectionState === "available" || assessment.projectionState === "partial");
+  const scopeSubject = mattNativeScopeSubject({ binding });
   return presentRelation("native-work.binding", "Work Binding", "binds to native scope", "one", [
     {
       reference: `${binding.provider}:${binding.nativeScope}`,
       label: binding.nativeScope,
       availability: available ? "available" : "unavailable",
-      note: `${binding.provider}. Projection ${assessment.projectionState}; freshness ${assessment.freshness}; coverage ${assessment.coverage}; completion ${assessment.completion}; frontier evidence ${assessment.frontierEvidence}.`,
+      ...((available || bindingConflict) && scopeSubject !== undefined
+        ? { subject: scopeSubject }
+        : {}),
+      note: bindingConflict
+        ? `${binding.provider}. Binding needs attention: multiple Efforts bind the same stable provider-native identity; no binding is selected as its canonical parent.`
+        : `${binding.provider}. Projection ${assessment.projectionState}; freshness ${assessment.freshness}; coverage ${assessment.coverage}; completion ${assessment.completion}; frontier evidence ${assessment.frontierEvidence}.`,
     },
   ]);
 };
@@ -736,11 +973,232 @@ const relationsForAsset = (input: Input, asset: AssetRecord): PlanningLineageRel
   ),
 ];
 
+const nativeTarget = (input: Input, subject: MattNativeSubject, note?: string): RelationTarget => {
+  const record = recordFor(input, subject) as NativeRecord | undefined;
+  return {
+    reference: subject.id,
+    label: record?.title ?? subject.id,
+    availability: record === undefined ? "unavailable" : "available",
+    subject,
+    ...(record === undefined
+      ? { note: note ?? "Provider-native subject unavailable in the selected observation." }
+      : note === undefined
+        ? {}
+        : { note }),
+  };
+};
+
+const nativeRelation = (
+  input: Input,
+  key: PlanningLineageRelationKey,
+  label: string,
+  direction: string,
+  cardinality: "one" | "many",
+  subjects: readonly MattNativeSubject[],
+  complete: boolean,
+): PlanningLineageRelation =>
+  cardinality === "one" && subjects.length > 1
+    ? unavailableRelation(
+        key,
+        label,
+        direction,
+        cardinality,
+        "Provider-native relation has ambiguous cardinality.",
+      )
+    : subjects.length === 0
+      ? complete
+        ? confirmedNone(key, label, direction, cardinality)
+        : unknownRelation(
+            key,
+            label,
+            direction,
+            cardinality,
+            "Selected provider evidence cannot confirm an empty native relation.",
+          )
+      : presentRelation(
+          key,
+          label,
+          direction,
+          cardinality,
+          subjects.map((subject) => nativeTarget(input, subject)),
+          complete ? "complete" : "at-least",
+        );
+
+const nativeReferenceRelation = (
+  input: Input,
+  key: PlanningLineageRelationKey,
+  label: string,
+  direction: string,
+  cardinality: "one" | "many",
+  references: readonly string[],
+  objects: readonly MattProjectedObject[],
+  complete: boolean,
+): PlanningLineageRelation => {
+  if (cardinality === "one" && references.length > 1) {
+    return unavailableRelation(
+      key,
+      label,
+      direction,
+      cardinality,
+      "Provider-native relation has ambiguous cardinality.",
+    );
+  }
+  if (references.length === 0) {
+    return complete
+      ? confirmedNone(key, label, direction, cardinality)
+      : unknownRelation(
+          key,
+          label,
+          direction,
+          cardinality,
+          "Selected provider evidence cannot confirm an empty native relation.",
+        );
+  }
+  const byReference = new Map(objects.map((object) => [String(object.ref), object]));
+  return presentRelation(
+    key,
+    label,
+    direction,
+    cardinality,
+    references.map((reference) => {
+      const object = byReference.get(reference);
+      return object === undefined
+        ? {
+            reference,
+            label: reference,
+            availability: "unavailable",
+            note: "Referenced native subject is outside the selected observation or unavailable.",
+          }
+        : nativeTarget(input, mattNativeSubjectForObject(object));
+    }),
+    complete ? "complete" : "at-least",
+  );
+};
+
+const relationsForNative = (
+  input: Input,
+  record: NativeRecord,
+): readonly PlanningLineageRelation[] => {
+  const observation = record.observation;
+  const objects = mattObjects(observation);
+  const scope = mattNativeScopeSubject(observation);
+  const complete = hasCompleteNativeEvidence(input, observation);
+  if (record.recordKind === "native-scope") {
+    return [
+      nativeRelation(
+        input,
+        "native-work.members",
+        "Native Subjects",
+        "contains",
+        "many",
+        objects.map(mattNativeSubjectForObject),
+        complete,
+      ),
+    ];
+  }
+  const reference = String(record.object.ref);
+  const projection =
+    observation.state === "available" || observation.state === "partial"
+      ? observation.projection
+      : undefined;
+  if (projection === undefined) {
+    return [
+      presentRelation("native-work.scope", "Native Scope", "belongs to", "one", [
+        nativeTarget(input, scope),
+      ]),
+      unavailableRelation(
+        "native-work.parent",
+        "Native Parent",
+        "belongs under",
+        "one",
+        "Native hierarchy is unavailable in the selected provider observation.",
+      ),
+      unavailableRelation(
+        "native-work.children",
+        "Native Children",
+        "contains",
+        "many",
+        "Native hierarchy is unavailable in the selected provider observation.",
+      ),
+      unavailableRelation(
+        "native-work.blocked-by",
+        "Blocked By",
+        "is blocked by",
+        "many",
+        "Native blocker evidence is unavailable in the selected provider observation.",
+      ),
+      unavailableRelation(
+        "native-work.blocks",
+        "Blocks",
+        "blocks",
+        "many",
+        "Native blocker evidence is unavailable in the selected provider observation.",
+      ),
+    ];
+  }
+  return [
+    presentRelation("native-work.scope", "Native Scope", "belongs to", "one", [
+      nativeTarget(input, scope),
+    ]),
+    nativeReferenceRelation(
+      input,
+      "native-work.parent",
+      "Native Parent",
+      "belongs under",
+      "one",
+      projection.graph.parentChild
+        .filter((relation) => relation.child === reference)
+        .map((relation) => relation.parent),
+      objects,
+      complete,
+    ),
+    nativeReferenceRelation(
+      input,
+      "native-work.children",
+      "Native Children",
+      "contains",
+      "many",
+      projection.graph.parentChild
+        .filter((relation) => relation.parent === reference)
+        .map((relation) => relation.child),
+      objects,
+      complete,
+    ),
+    nativeReferenceRelation(
+      input,
+      "native-work.blocked-by",
+      "Blocked By",
+      "is blocked by",
+      "many",
+      projection.graph.blockedBy
+        .filter((relation) => relation.blocked === reference)
+        .map((relation) => relation.blocker),
+      objects,
+      complete,
+    ),
+    nativeReferenceRelation(
+      input,
+      "native-work.blocks",
+      "Blocks",
+      "blocks",
+      "many",
+      projection.graph.blockedBy
+        .filter((relation) => relation.blocker === reference)
+        .map((relation) => relation.blocked),
+      objects,
+      complete,
+    ),
+  ];
+};
+
 const relationsFor = (
   input: Input,
   subject: PlanningLineageSubject,
   record: SubjectRecord,
 ): readonly PlanningLineageRelation[] => {
+  if (isNativeSubjectKind(subject.kind)) {
+    return relationsForNative(input, record as NativeRecord);
+  }
   switch (subject.kind) {
     case "roadmap":
       return relationsForRoadmap(input, record as RoadmapRecord);
@@ -782,7 +1240,7 @@ const subjectProjection = (
     identity,
     source: record.source,
     parentPath,
-    semanticSections: semanticSectionsFor(identity, record),
+    semanticSections: semanticSectionsFor(input, identity, record),
     relations,
   };
 };
@@ -797,20 +1255,30 @@ const projectSubjects = (input: Input) => {
     ["planning-review", input.reviews],
     ["asset", input.assets],
   ] as const;
-  return groups
-    .flatMap(([kind, collection]) =>
-      trusted(collection as Collection<SubjectRecord>).map((record) =>
-        subjectProjection(input, { kind, id: String(record.id) } as PlanningLineageSubject, record),
-      ),
-    )
-    .toSorted((left, right) => {
-      const byKind = compareStableIdentity(left.identity.kind, right.identity.kind);
-      return byKind === 0 ? compareStableIdentity(left.identity.id, right.identity.id) : byKind;
-    });
+  const bearingSubjects = groups.flatMap(([kind, collection]) =>
+    trusted(collection as Collection<SubjectRecord>).map((record) =>
+      subjectProjection(input, { kind, id: String(record.id) } as PlanningLineageSubject, record),
+    ),
+  );
+  const providerSubjects = providerSubjectRecords(input).map((record) => {
+    const identity =
+      record.recordKind === "native-scope"
+        ? mattNativeScopeSubject(record.observation)
+        : mattNativeSubjectForObject(record.object);
+    return subjectProjection(input, identity, record);
+  });
+  return [...bearingSubjects, ...providerSubjects].toSorted((left, right) => {
+    const byKind = compareStableIdentity(left.identity.kind, right.identity.kind);
+    return byKind === 0 ? compareStableIdentity(left.identity.id, right.identity.id) : byKind;
+  });
 };
 
-export const buildPlanningLineageProjection = (input: Input): PlanningLineageProjection =>
-  planningLineageProjectionSchema.parse({ subjects: projectSubjects(input) });
+export const buildPlanningLineageProjection = (
+  input: PlanningLineageBuildInput,
+): PlanningLineageProjection =>
+  planningLineageProjectionSchema.parse({
+    subjects: projectSubjects(normalizedInput(input)),
+  });
 
 export const findPlanningLineageSubjectProjection = (
   projection: PlanningLineageProjection,
@@ -822,9 +1290,9 @@ export const findPlanningLineageSubjectProjection = (
   );
 
 export const planningLineageSubjectCollectionValidity = (
-  input: Input,
+  input: PlanningLineageBuildInput,
   kind: PlanningLineageSubject["kind"],
-): "available" | "partial" | "invalid" => collectionFor(input, kind).validity;
+): "available" | "partial" | "invalid" => collectionFor(normalizedInput(input), kind).validity;
 
 export const readablePlanningLineageCollection = <T>(
   collection: Collection<T>,

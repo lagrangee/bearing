@@ -146,7 +146,7 @@ Assets:
     advisoryFreshness: sync.advisoryFreshness,
   });
 
-  expect(snapshot.schemaVersion).toBe(7);
+  expect(snapshot.schemaVersion).toBe(8);
   expect(snapshot.roadmaps.validity).toBe("available");
   expect(
     snapshot.roadmaps.validity === "invalid" ? undefined : snapshot.roadmaps.items[0],

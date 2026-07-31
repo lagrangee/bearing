@@ -12,6 +12,8 @@ type NativeKind = "local" | "github";
 const ref = (value: string): MattObjectReference => value as MattObjectReference;
 const scenarioRef = (nativeKind: NativeKind, role: string): MattObjectReference =>
   ref(`${nativeKind}:opaque:${role}`);
+const availableSections = (...roles: readonly string[]) =>
+  roles.map((role) => ({ role, availability: "available" as const }));
 
 const nativeEvidence = (
   nativeKind: NativeKind,
@@ -96,6 +98,16 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         },
       ],
       lifecycle: { state: "active" },
+      semanticSections: [
+        ...availableSections(
+          "map.destination",
+          "map.notes",
+          "map.decisions",
+          "map.fog",
+          "map.out-of-scope",
+        ),
+        { role: "map.resolution-evidence", availability: "confirmed-empty" },
+      ],
       native: nativeEvidence(nativeKind, "map", 1),
     },
     spec: {
@@ -107,39 +119,55 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           role: "problem",
           title: "Problem Statement",
           body: "Local and GitHub must preserve the same accepted semantics.",
+          availability: "available",
         },
         {
           role: "solution",
           title: "Solution",
           body: "Capture one concrete Matt scope through a versioned provider seam.",
+          availability: "available",
         },
         {
           role: "user-stories",
           title: "User Stories",
           body: "A consumer can distinguish workflow truth without native identity coupling.",
+          availability: "available",
         },
         {
           role: "implementation",
           title: "Implementation Decisions",
           body: "Keep provider-specific projection behind a provider-neutral wrapper.",
+          availability: "available",
         },
         {
           role: "testing",
           title: "Testing Decisions",
           body: "Compare public provider captures through a test-owned oracle.",
+          availability: "available",
         },
         {
           role: "out-of-scope",
           title: "Out of Scope",
           body: "Do not build a generic tracker ontology.",
+          availability: "available",
         },
         {
           role: "further-notes",
           title: "Further Notes",
           body: "Opaque relation references are capture-local.",
+          availability: "available",
         },
       ],
       lifecycle: { state: "ready-for-agent" },
+      semanticSections: availableSections(
+        "spec.problem",
+        "spec.solution",
+        "spec.user-stories",
+        "spec.implementation",
+        "spec.testing",
+        "spec.out-of-scope",
+        "spec.further-notes",
+      ),
       native: nativeEvidence(nativeKind, "spec", 2),
     },
     wayfinderTickets: [
@@ -180,6 +208,12 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           disposition: "completed",
           observedAt: "2026-07-01T00:00:00Z",
         },
+        semanticSections: availableSections(
+          "wayfinder.question",
+          "wayfinder.claim",
+          "wayfinder.answer",
+          "wayfinder.comments",
+        ),
         native: nativeEvidence(nativeKind, "research", 3),
       },
       {
@@ -193,6 +227,11 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         comments: [],
         lifecycle: { state: "open" },
         trackerClosure: { state: "open" },
+        semanticSections: [
+          ...availableSections("wayfinder.question", "wayfinder.claim"),
+          { role: "wayfinder.answer", availability: "unavailable" },
+          { role: "wayfinder.comments", availability: "confirmed-empty" },
+        ],
         native: nativeEvidence(nativeKind, "prototype", 4),
       },
       {
@@ -216,6 +255,11 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           disposition: "wontfix",
           observedAt: "2026-07-02T00:00:00Z",
         },
+        semanticSections: [
+          ...availableSections("wayfinder.question", "wayfinder.claim"),
+          { role: "wayfinder.answer", availability: "confirmed-empty" },
+          { role: "wayfinder.comments", availability: "confirmed-empty" },
+        ],
         native: nativeEvidence(nativeKind, "grilling", 5),
       },
       {
@@ -234,6 +278,10 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         ],
         lifecycle: { state: "open" },
         trackerClosure: { state: "open" },
+        semanticSections: [
+          ...availableSections("wayfinder.question", "wayfinder.claim", "wayfinder.comments"),
+          { role: "wayfinder.answer", availability: "unavailable" },
+        ],
         native: nativeEvidence(nativeKind, "task", 6),
       },
     ],
@@ -255,6 +303,12 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
             body: "Delivery completion is not tracker closure.",
           },
         ],
+        semanticSections: availableSections(
+          "delivery.what-to-build",
+          "delivery.acceptance-criteria",
+          "delivery.completion-evidence",
+          "delivery.comments",
+        ),
         native: nativeEvidence(nativeKind, "delivery", 7),
       },
       {
@@ -270,6 +324,11 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           observedAt: "2026-07-03T00:00:00Z",
         },
         comments: [],
+        semanticSections: [
+          ...availableSections("delivery.what-to-build", "delivery.acceptance-criteria"),
+          { role: "delivery.completion-evidence", availability: "unavailable" },
+          { role: "delivery.comments", availability: "confirmed-empty" },
+        ],
         native: nativeEvidence(nativeKind, "delivery", 8),
       },
     ],
@@ -295,6 +354,11 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           },
         ],
         lifecycle: { state: "open" },
+        semanticSections: availableSections(
+          "incoming.classification",
+          "incoming.content",
+          "incoming.routing",
+        ),
         native: nativeEvidence(nativeKind, "incoming", 9),
       },
     ],

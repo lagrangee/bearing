@@ -1,29 +1,15 @@
-import { mattObjectLocator, mattObjects } from "../providers/matt-skills-v1/projection";
 import { buildAdvisoryProjection } from "./advisory";
 import { rebuildAssetReverseRelations } from "./asset-reverse-relations";
 import { buildAssetProjection } from "./assets";
-import type { ProjectSnapshot, SourceRecord } from "./contract";
+import type { ProjectSnapshot } from "./contract";
 import { buildDecisionProjection } from "./decisions";
 import { buildSnapshotDiagnostics } from "./diagnostic-projection";
 import { buildGovernanceProjection } from "./governance";
 import { buildRoadmapIndexProjection } from "./governance-index";
+import { buildMattNativeSourceRecords } from "./native-work-sources";
 import type { ProjectSnapshotBuildInput } from "./projection-input";
 import { PROJECT_SNAPSHOT_VERSION, projectSnapshotSchema } from "./schema";
-import { createSourceRecord, mergeSourceRecords } from "./source-records";
-
-const trackerSources = (
-  captures: ProjectSnapshotBuildInput["providerObservations"],
-  sitemapFingerprint: string,
-): readonly SourceRecord[] =>
-  captures.flatMap((capture) =>
-    mattObjects(capture).map((object) =>
-      createSourceRecord(sitemapFingerprint, {
-        kind: "tracker",
-        locator: mattObjectLocator(object),
-        binding: { role: object.kind, identity: object.ref },
-      }),
-    ),
-  );
+import { mergeSourceRecords } from "./source-records";
 
 export const buildProjectSnapshot = async (
   input: ProjectSnapshotBuildInput,
@@ -76,7 +62,7 @@ export const buildProjectSnapshot = async (
     assetProjection.sources,
     decisions.sources,
     advisory.sources,
-    trackerSources(input.providerObservations, input.sitemapFingerprint),
+    buildMattNativeSourceRecords(input.providerObservations, input.sitemapFingerprint),
   ]);
   const diagnosticProjection = buildSnapshotDiagnostics({
     sitemapFingerprint: input.sitemapFingerprint,
