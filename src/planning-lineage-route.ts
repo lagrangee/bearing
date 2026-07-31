@@ -25,7 +25,7 @@ export type PlanningLineageSubjectKind = z.infer<typeof planningLineageSubjectKi
 
 const unbrandedId = <Schema extends z.ZodType>(schema: Schema) =>
   schema.transform((value) => String(value));
-const nativeSubjectIdSchema = z
+export const nativeSubjectIdSchema = z
   .string()
   .min(1)
   .max(4096)
@@ -36,6 +36,11 @@ const nativeSubjectIdSchema = z
     }),
   );
 
+export const nativeScopeInspectionSubjectSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("native-scope"), id: nativeSubjectIdSchema }),
+  z.strictObject({ kind: z.literal("native-subject"), id: nativeSubjectIdSchema }),
+]);
+
 export const planningLineageSubjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("roadmap"), id: unbrandedId(roadmapIdSchema) }),
   z.strictObject({ kind: z.literal("gate"), id: unbrandedId(gateIdSchema) }),
@@ -44,8 +49,7 @@ export const planningLineageSubjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("alignment-check"), id: unbrandedId(checkIdSchema) }),
   z.strictObject({ kind: z.literal("planning-review"), id: unbrandedId(reviewIdSchema) }),
   z.strictObject({ kind: z.literal("asset"), id: unbrandedId(assetIdSchema) }),
-  z.strictObject({ kind: z.literal("native-scope"), id: nativeSubjectIdSchema }),
-  z.strictObject({ kind: z.literal("native-subject"), id: nativeSubjectIdSchema }),
+  ...nativeScopeInspectionSubjectSchema.options,
 ]);
 export type PlanningLineageSubject = z.infer<typeof planningLineageSubjectSchema>;
 

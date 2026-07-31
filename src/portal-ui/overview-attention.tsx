@@ -33,7 +33,7 @@ export function OverviewAttention({
         ? ({ kind: "alignment-check", id: item.key } as const)
         : item.kind === "review"
           ? ({ kind: "planning-review", id: item.key } as const)
-          : undefined;
+          : item.nativeSubject;
     return {
       key: item.key,
       kind: item.kind,

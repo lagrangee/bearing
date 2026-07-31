@@ -58,6 +58,13 @@ export const buildSyncTransactionTargets = (
       executable: false,
     });
   }
+  if (plan.nativeScopeInspectionStoreChanged) {
+    targets.splice(2, 0, {
+      target: plan.nativeScopeInspectionStorePath,
+      bytes: plan.nativeScopeInspectionStoreBytes,
+      executable: false,
+    });
+  }
   return {
     targets,
     receipt,

@@ -1,3 +1,4 @@
+import type { NativeScopeInspectionSubject } from "../native-scope-inspection";
 import type {
   AlignmentCheck,
   AttentionItem,
@@ -11,6 +12,7 @@ import type {
   SourceRecord,
   SourceReference,
 } from "../project-snapshot/contract";
+import { mattNativeScopeSubject } from "../providers/matt-skills-v1/native-subject";
 import { buildOverviewRoadmaps, type OverviewRoadmaps } from "./project-overview-roadmaps";
 
 type ScopedValue<T> =
@@ -31,6 +33,7 @@ export type OverviewAttentionItem = Readonly<{
   title: string;
   detail: string | undefined;
   source: SourceRecord | undefined;
+  nativeSubject?: NativeScopeInspectionSubject | undefined;
 }>;
 
 export type ProjectOverviewModel = Readonly<{
@@ -89,6 +92,8 @@ const attentionModel = (
   checks: ReadonlyMap<string, AlignmentCheck>,
   reviews: ReadonlyMap<string, PlanningReview>,
   sources: ReadonlyMap<string, SourceRecord>,
+  discovery: NativeScopeDiscoveryProjection,
+  efforts: ProjectSnapshot["efforts"],
 ): OverviewAttentionItem => {
   switch (item.kind) {
     case "structural-diagnostic": {
@@ -109,6 +114,33 @@ const attentionModel = (
             title: diagnostic.message,
             detail: diagnostic.target,
             source: diagnostic.source === undefined ? undefined : sources.get(diagnostic.source),
+            ...(() => {
+              const discoveredScope =
+                discovery.state === "never-run"
+                  ? undefined
+                  : discovery.scopes.find(
+                      (candidate) => candidate.summary.locator === diagnostic.target,
+                    );
+              const boundScope =
+                efforts.validity === "invalid"
+                  ? undefined
+                  : efforts.items.find(
+                      (effort) => effort.workBinding?.nativeScope === diagnostic.target,
+                    )?.workBinding;
+              const boundSubject =
+                boundScope === undefined
+                  ? undefined
+                  : mattNativeScopeSubject({ binding: boundScope });
+              const nativeScopeId = discoveredScope?.summary.identity ?? boundSubject?.id;
+              return nativeScopeId === undefined
+                ? {}
+                : {
+                    nativeSubject: {
+                      kind: "native-scope" as const,
+                      id: nativeScopeId,
+                    },
+                  };
+            })(),
           };
     }
     case "alignment-check": {
@@ -144,7 +176,15 @@ export const buildProjectOverviewModel = (snapshot: ProjectSnapshot): ProjectOve
   return {
     summary: scopedValue(snapshot.summary, sources),
     attention: snapshot.attention.map((item) =>
-      attentionModel(item, diagnostics, checks, reviews, sources),
+      attentionModel(
+        item,
+        diagnostics,
+        checks,
+        reviews,
+        sources,
+        snapshot.nativeScopeDiscovery,
+        snapshot.efforts,
+      ),
     ),
     guidance: scopedValue(snapshot.guidance, sources),
     roadmaps: buildOverviewRoadmaps(snapshot, sources),

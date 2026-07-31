@@ -148,8 +148,12 @@ test("withholds Gate readiness when contributor binding evidence is missing or u
       (subject) => subject.identity.kind === "effort" && subject.identity.id === "effort:portal",
     )?.nativeWorkReadingState,
   ).toMatchObject({
-    conclusion: "Can't verify",
-    binding: { state: "bound", effortIds: ["effort:portal"] },
+    conclusion: "Binding needs attention",
+    binding: {
+      state: "attention",
+      reason: "bound-unresolved",
+      effortIds: ["effort:portal"],
+    },
     why: { blockingDiagnosticCount: 1 },
     observation: {
       diagnostics: [

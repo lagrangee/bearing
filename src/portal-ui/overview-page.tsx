@@ -38,6 +38,8 @@ export function OverviewPage({
       />
       <OverviewDiscoveredWork
         discovery={model.discoveredWork}
+        entryId={entryId}
+        onNavigate={onNavigate}
         onRefresh={onRefreshDiscovery}
         operation={discoveryOperation}
       />

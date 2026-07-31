@@ -20,6 +20,7 @@ import {
   type structuralDiagnosticSchema,
 } from "./schema";
 import type { nativeScopeDiscoveryProjectionSchema } from "./schema-native-scope-discovery";
+import type { nativeScopeInspectionProjectionSchema } from "./schema-native-scope-inspection";
 import type {
   planningLineageProjectionSchema,
   planningLineageRelationSchema,
@@ -81,6 +82,9 @@ export type NextWorkGuidance = DeepReadonly<z.infer<typeof nextWorkGuidanceSchem
 export type ProviderScopeObservation = DeepReadonly<MattSkillsV1ProviderObservation>;
 export type NativeScopeDiscoveryProjection = DeepReadonly<
   z.infer<typeof nativeScopeDiscoveryProjectionSchema>
+>;
+export type NativeScopeInspectionProjection = DeepReadonly<
+  z.infer<typeof nativeScopeInspectionProjectionSchema>
 >;
 export type SnapshotDiagnostic = DeepReadonly<z.infer<typeof structuralDiagnosticSchema>>;
 export type AttentionItem = DeepReadonly<z.infer<typeof attentionItemSchema>>;

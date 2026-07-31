@@ -19,6 +19,8 @@ export type ProjectSnapshotBuildInput = Readonly<{
   providerObservations: readonly MattSkillsV1ProviderObservation[];
   providerObservationSelections?: readonly ProviderObservationSelection[];
   nativeScopeDiscovery?: NativeScopeDiscoveryView;
+  nativeScopeInspectionObservations?: readonly MattSkillsV1ProviderObservation[];
+  nativeScopeInspectionSelections?: readonly ProviderObservationSelection[];
   assetContentObservations: readonly AssetContentObservation[];
   planningGraph: PlanningGraph;
 }>;

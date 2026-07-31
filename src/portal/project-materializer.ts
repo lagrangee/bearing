@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import packageMetadata from "../../package.json";
 import type { NativeScopeDiscoveryIntent } from "../native-scope-discovery";
+import type { NativeScopeInspectionIntent } from "../native-scope-inspection";
 import { readProjectSnapshotCache } from "../project-snapshot/cache";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import { buildProjectSnapshot } from "../project-snapshot/projection";
@@ -130,6 +131,8 @@ export const createProjectMaterializer = (options: {
           ...(plan.nativeScopeDiscovery === undefined
             ? {}
             : { nativeScopeDiscovery: plan.nativeScopeDiscovery }),
+          nativeScopeInspectionObservations: plan.nativeScopeInspectionObservations,
+          nativeScopeInspectionSelections: plan.nativeScopeInspectionSelections,
           assetContentObservations: plan.assetContentObservations,
           planningGraph: plan.planningGraph,
         }),
@@ -182,6 +185,7 @@ export const createProjectMaterializer = (options: {
       generationGraph?: ProjectGenerationGraphAccess,
       providerObservationIntent: ProviderObservationIntent = "ordinary-sync",
       nativeScopeDiscoveryIntent: NativeScopeDiscoveryIntent = "ordinary-sync",
+      nativeScopeInspectionIntent: NativeScopeInspectionIntent = { kind: "none" },
     ): Promise<ProjectMaterializationResult> {
       const currentGraph = generationGraph?.current();
       const initial = await phase(
@@ -192,6 +196,7 @@ export const createProjectMaterializer = (options: {
             ...(currentGraph === undefined ? {} : { planningGraph: currentGraph }),
             providerObservationIntent,
             nativeScopeDiscoveryIntent,
+            nativeScopeInspectionIntent,
           }),
       );
       const complete = (result: ProjectMaterializationResult): ProjectMaterializationResult => {
@@ -243,6 +248,13 @@ export const createProjectMaterializer = (options: {
                     },
                   }
                 : {}),
+              ...(initial.nativeScopeInspectionStoreChanged
+                ? {
+                    nativeScopeInspectionStore: {
+                      bytes: initial.nativeScopeInspectionStoreBytes,
+                    },
+                  }
+                : {}),
               ...(receipt === undefined ? {} : { receipt }),
             });
           },
@@ -269,6 +281,7 @@ export const createProjectMaterializer = (options: {
                 dependencies.commit(plan, {
                   publishProviderObservations: false,
                   publishNativeScopeDiscovery: false,
+                  publishNativeScopeInspections: false,
                 }),
               ),
           },
@@ -283,6 +296,13 @@ export const createProjectMaterializer = (options: {
             ? {
                 nativeScopeDiscoveryStore: {
                   bytes: plan.nativeScopeDiscoveryStoreBytes,
+                },
+              }
+            : {}),
+          ...(plan.nativeScopeInspectionStoreChanged
+            ? {
+                nativeScopeInspectionStore: {
+                  bytes: plan.nativeScopeInspectionStoreBytes,
                 },
               }
             : {}),

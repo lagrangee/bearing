@@ -55,21 +55,17 @@ export const sameMattNativeLocator = (
   );
 };
 
+export const mattNativeBindingDefinitionKey = (binding: MattNativeScopeBinding): string => {
+  const github = decodeGitHubMattNativeScope(binding.nativeScope);
+  return github === undefined
+    ? `${binding.provider}\0${binding.nativeScope}`
+    : `${mattNativeScopeKey(binding)}\0${github.rootKind}\0${github.root.objectKind}`;
+};
+
 export const sameMattNativeBindingDefinition = (
   left: MattNativeScopeBinding,
   right: MattNativeScopeBinding,
-): boolean => {
-  if (!sameMattNativeScope(left, right)) return false;
-  const leftGitHub = decodeGitHubMattNativeScope(left.nativeScope);
-  const rightGitHub = decodeGitHubMattNativeScope(right.nativeScope);
-  if (leftGitHub === undefined || rightGitHub === undefined) {
-    return left.nativeScope === right.nativeScope;
-  }
-  return (
-    leftGitHub.rootKind === rightGitHub.rootKind &&
-    leftGitHub.root.objectKind === rightGitHub.root.objectKind
-  );
-};
+): boolean => mattNativeBindingDefinitionKey(left) === mattNativeBindingDefinitionKey(right);
 
 export const mattNativeScopeTitle = (
   observation: Pick<MattSkillsV1ProviderObservation | MattObservationView, "binding">,

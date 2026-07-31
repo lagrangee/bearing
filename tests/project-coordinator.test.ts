@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { createProjectCoordinator } from "../src/portal/project-coordinator";
+import { encodeGitHubMattNativeScope } from "../src/providers/matt-skills-v1/github-native-scope";
 
 const deferred = <T>() => {
   let resolve: ((value: T) => void) | undefined;
@@ -229,4 +230,198 @@ test("serializes different queued refresh intents behind the same active operati
 
   ordinary.resolve("forced");
   expect(await forcing).toMatchObject({ value: "forced", joined: false });
+});
+
+test("deduplicates concurrent inspections for the same native target", async () => {
+  const inspection = deferred<string>();
+  const calls: string[] = [];
+  const coordinator = createProjectCoordinator({
+    run: async (operation) => {
+      calls.push(JSON.stringify(operation.nativeScopeInspectionIntent));
+      return inspection.promise;
+    },
+  });
+  const nativeScopeInspectionIntent = {
+    kind: "inspect",
+    subject: { kind: "native-scope", id: ".scratch/unbound" },
+    target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+    refresh: false,
+  } as const;
+
+  const first = coordinator.execute({
+    entryId: "project",
+    mode: "force",
+    nativeScopeInspectionIntent,
+  });
+  const second = coordinator.execute({
+    entryId: "project",
+    mode: "force",
+    nativeScopeInspectionIntent: {
+      ...nativeScopeInspectionIntent,
+      subject: { kind: "native-subject", id: ".scratch/unbound/issues/01-work.md" },
+    },
+  });
+
+  expect(calls).toEqual([JSON.stringify(nativeScopeInspectionIntent)]);
+  inspection.resolve("inspected");
+  expect(await first).toMatchObject({ value: "inspected", joined: false });
+  expect(await second).toMatchObject({ value: "inspected", joined: true });
+});
+
+test("serializes different inspection targets instead of sharing an observation", async () => {
+  const firstInspection = deferred<string>();
+  const secondInspection = deferred<string>();
+  const calls: string[] = [];
+  const coordinator = createProjectCoordinator({
+    run: async (operation) => {
+      const subject = operation.nativeScopeInspectionIntent;
+      const identity = subject?.kind === "inspect" ? subject.subject.id : "none";
+      calls.push(identity);
+      return calls.length === 1 ? firstInspection.promise : secondInspection.promise;
+    },
+  });
+
+  const first = coordinator.execute({
+    entryId: "project",
+    mode: "force",
+    nativeScopeInspectionIntent: {
+      kind: "inspect",
+      subject: { kind: "native-scope", id: ".scratch/one" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/one" },
+      refresh: false,
+    },
+  });
+  const second = coordinator.execute({
+    entryId: "project",
+    mode: "force",
+    nativeScopeInspectionIntent: {
+      kind: "inspect",
+      subject: { kind: "native-scope", id: ".scratch/two" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/two" },
+      refresh: false,
+    },
+  });
+
+  expect(calls).toEqual([".scratch/one"]);
+  firstInspection.resolve("one");
+  await first;
+  await Promise.resolve();
+  expect(calls).toEqual([".scratch/one", ".scratch/two"]);
+  secondInspection.resolve("two");
+  expect(await second).toMatchObject({ value: "two", joined: false });
+});
+
+test("serializes exact GitHub bindings with the same stable identity but different root kinds", async () => {
+  const firstInspection = deferred<string>();
+  const secondInspection = deferred<string>();
+  const targets: string[] = [];
+  const githubTarget = (rootKind: "wayfinder-map" | "parent-issue") =>
+    encodeGitHubMattNativeScope({
+      host: "github.com",
+      rootKind,
+      repository: {
+        owner: "example",
+        name: "delivery",
+        databaseId: "1",
+        nodeId: "R_same",
+      },
+      root: {
+        objectKind: "issue",
+        number: 18,
+        databaseId: "18",
+        nodeId: "I_same",
+      },
+    });
+  const coordinator = createProjectCoordinator({
+    run: async (operation) => {
+      const intent = operation.nativeScopeInspectionIntent;
+      const target = intent?.kind === "inspect" ? intent.target.nativeScope : "none";
+      targets.push(target);
+      return targets.length === 1 ? firstInspection.promise : secondInspection.promise;
+    },
+  });
+
+  const first = coordinator.execute({
+    entryId: "project",
+    mode: "force",
+    nativeScopeInspectionIntent: {
+      kind: "inspect",
+      subject: { kind: "native-scope", id: "github:R_same:I_same" },
+      target: { provider: "matt-skills/v1", nativeScope: githubTarget("wayfinder-map") },
+      refresh: false,
+    },
+  });
+  const second = coordinator.execute({
+    entryId: "project",
+    mode: "force",
+    nativeScopeInspectionIntent: {
+      kind: "inspect",
+      subject: { kind: "native-scope", id: "github:R_same:I_same" },
+      target: { provider: "matt-skills/v1", nativeScope: githubTarget("parent-issue") },
+      refresh: false,
+    },
+  });
+
+  expect(targets).toEqual([githubTarget("wayfinder-map")]);
+  firstInspection.resolve("map");
+  await first;
+  await Promise.resolve();
+  expect(targets).toEqual([githubTarget("wayfinder-map"), githubTarget("parent-issue")]);
+  secondInspection.resolve("parent");
+  expect(await second).toMatchObject({ value: "parent", joined: false });
+});
+
+test("deduplicates GitHub binding metadata variants with one exact definition", async () => {
+  const inspection = deferred<string>();
+  const targets: string[] = [];
+  const githubTarget = (owner: string, name: string) =>
+    encodeGitHubMattNativeScope({
+      host: "github.com",
+      rootKind: "wayfinder-map",
+      repository: {
+        owner,
+        name,
+        databaseId: "1",
+        nodeId: "R_same",
+      },
+      root: {
+        objectKind: "issue",
+        number: 18,
+        databaseId: "18",
+        nodeId: "I_same",
+      },
+    });
+  const coordinator = createProjectCoordinator({
+    run: async (operation) => {
+      const intent = operation.nativeScopeInspectionIntent;
+      targets.push(intent?.kind === "inspect" ? intent.target.nativeScope : "none");
+      return inspection.promise;
+    },
+  });
+
+  const first = coordinator.execute({
+    entryId: "project",
+    mode: "force",
+    nativeScopeInspectionIntent: {
+      kind: "inspect",
+      subject: { kind: "native-scope", id: "github:R_same:I_same" },
+      target: { provider: "matt-skills/v1", nativeScope: githubTarget("before", "delivery") },
+      refresh: false,
+    },
+  });
+  const second = coordinator.execute({
+    entryId: "project",
+    mode: "force",
+    nativeScopeInspectionIntent: {
+      kind: "inspect",
+      subject: { kind: "native-scope", id: "github:R_same:I_same" },
+      target: { provider: "matt-skills/v1", nativeScope: githubTarget("after", "renamed") },
+      refresh: false,
+    },
+  });
+
+  expect(targets).toEqual([githubTarget("before", "delivery")]);
+  inspection.resolve("inspected");
+  expect(await first).toMatchObject({ value: "inspected", joined: false });
+  expect(await second).toMatchObject({ value: "inspected", joined: true });
 });

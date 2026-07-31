@@ -141,7 +141,7 @@ test("renders one accessible role-first Matt-Native Work Region from Effort and 
   expect(anchored).not.toContain("Requested section unavailable");
 });
 
-test("renders first acquisition failure as bound Can't verify with its concrete cause", () => {
+test("renders first acquisition failure as bound-unresolved with its concrete cause", () => {
   const snapshot = createProjectOverviewFixture();
   const failed = withLineage({
     ...snapshot,
@@ -176,10 +176,10 @@ test("renders first acquisition failure as bound Can't verify with its concrete 
     { snapshot: failed },
   );
 
-  expect(html).toContain('class="matt-work-region context-bound"');
-  expect(html).toContain(">Can&#x27;t verify</h3>");
+  expect(html).toContain('class="matt-work-region context-attention"');
+  expect(html).toContain(">Binding needs attention</h3>");
   expect(html).toContain("The provider contract is unsupported.");
-  expect(html).not.toContain("Binding needs attention");
+  expect(html).toContain("The declared Work Binding does not resolve to a provider observation.");
 });
 
 test("renders provider subject diagnostics beside the affected native content", () => {

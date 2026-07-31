@@ -19,12 +19,14 @@ type CommitInput = Readonly<{
   }>;
   providerObservationStore?: Readonly<{ bytes: Buffer }>;
   nativeScopeDiscoveryStore?: Readonly<{ bytes: Buffer }>;
+  nativeScopeInspectionStore?: Readonly<{ bytes: Buffer }>;
   snapshot?: ProjectSnapshot;
   receipt?: SyncReceipt;
 }>;
 type Dependencies = Readonly<{
   writeProviderObservationStore?: (target: string, bytes: Buffer, mode: number) => Promise<void>;
   writeNativeScopeDiscoveryStore?: (target: string, bytes: Buffer, mode: number) => Promise<void>;
+  writeNativeScopeInspectionStore?: (target: string, bytes: Buffer, mode: number) => Promise<void>;
   writeSnapshot?: typeof writeProjectSnapshotCache;
   writeReceipt?: typeof writeSyncReceipt;
 }>;
@@ -65,6 +67,7 @@ export const commitProjectCache = async (
     input.sync === undefined &&
     input.providerObservationStore === undefined &&
     input.nativeScopeDiscoveryStore === undefined &&
+    input.nativeScopeInspectionStore === undefined &&
     input.snapshot === undefined &&
     input.receipt === undefined
   ) {
@@ -72,10 +75,12 @@ export const commitProjectCache = async (
   }
   const observationPath = join(input.repoRoot, ".bearing/cache/provider-observations.json");
   const discoveryPath = join(input.repoRoot, ".bearing/cache/native-scope-discovery.json");
+  const inspectionPath = join(input.repoRoot, ".bearing/cache/native-scope-inspections.json");
   const snapshotPath = join(input.repoRoot, ".bearing/cache/project-snapshot.json");
   const receiptPath = join(input.repoRoot, ".bearing/cache/sync-receipt.json");
   const writeObservation = dependencies.writeProviderObservationStore ?? writeFileAtomically;
   const writeDiscovery = dependencies.writeNativeScopeDiscoveryStore ?? writeFileAtomically;
+  const writeInspection = dependencies.writeNativeScopeInspectionStore ?? writeFileAtomically;
   const writeSnapshot = dependencies.writeSnapshot ?? writeProjectSnapshotCache;
   const writeReceipt = dependencies.writeReceipt ?? writeSyncReceipt;
   const priorReport = input.sync === undefined ? undefined : await capture(input.sync.reportPath);
@@ -84,6 +89,8 @@ export const commitProjectCache = async (
     input.providerObservationStore === undefined ? undefined : await capture(observationPath);
   const priorDiscovery =
     input.nativeScopeDiscoveryStore === undefined ? undefined : await capture(discoveryPath);
+  const priorInspection =
+    input.nativeScopeInspectionStore === undefined ? undefined : await capture(inspectionPath);
   const priorSnapshot = input.snapshot === undefined ? undefined : await capture(snapshotPath);
   const priorReceipt = input.receipt === undefined ? undefined : await capture(receiptPath);
   try {
@@ -96,6 +103,10 @@ export const commitProjectCache = async (
       const mode = priorDiscovery?.kind === "available" ? priorDiscovery.mode : 0o644;
       await writeDiscovery(discoveryPath, input.nativeScopeDiscoveryStore.bytes, mode);
     }
+    if (input.nativeScopeInspectionStore !== undefined) {
+      const mode = priorInspection?.kind === "available" ? priorInspection.mode : 0o644;
+      await writeInspection(inspectionPath, input.nativeScopeInspectionStore.bytes, mode);
+    }
     if (input.snapshot !== undefined) await writeSnapshot(input.repoRoot, input.snapshot);
     if (input.receipt !== undefined) await writeReceipt(receiptPath, input.receipt);
   } catch (error) {
@@ -105,6 +116,7 @@ export const commitProjectCache = async (
       [snapshotPath, priorSnapshot],
       [observationPath, priorObservation],
       [discoveryPath, priorDiscovery],
+      [inspectionPath, priorInspection],
       [input.sync?.sitemapPath ?? observationPath, priorSitemap],
       [input.sync?.reportPath ?? observationPath, priorReport],
     ] as const) {

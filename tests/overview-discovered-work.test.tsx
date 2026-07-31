@@ -6,9 +6,15 @@ import { OverviewDiscoveredWork } from "../src/portal-ui/overview-discovered-wor
 const render = (
   discovery: NativeScopeDiscoveryProjection,
   operation: Readonly<{ state: "idle" | "running" | "failed" }> = { state: "idle" },
+  entryId?: string,
 ) =>
   renderToStaticMarkup(
-    <OverviewDiscoveredWork discovery={discovery} onRefresh={() => {}} operation={operation} />,
+    <OverviewDiscoveredWork
+      discovery={discovery}
+      onRefresh={() => {}}
+      operation={operation}
+      {...(entryId === undefined ? {} : { entryId })}
+    />,
   );
 
 const observed = {
@@ -71,6 +77,22 @@ test("Overview renders only unbound summary cards with truthful collection label
   expect(html).toContain("open");
   expect(html).toContain("Copy Agent discussion prompt");
   expect(html).toContain("do not establish completion or readiness");
+});
+
+test("an inspected card preserves its stable route while disclosing detail availability", () => {
+  if (observed.state === "never-run") throw new Error("Expected observed fixture.");
+  const inspected = {
+    ...observed,
+    scopes: observed.scopes.map((item) => ({
+      ...item,
+      detailAvailability: "details-inspected" as const,
+    })),
+  };
+  const html = render(inspected, { state: "idle" }, "bearing");
+
+  expect(html).toContain("Details inspected");
+  expect(html).toContain("native-scope");
+  expect(html).toContain(encodeURIComponent("local-scope:.scratch/native"));
 });
 
 test("running refresh retains the prior observation and complete zero becomes confirmation", () => {

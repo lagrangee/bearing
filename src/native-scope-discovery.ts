@@ -462,6 +462,13 @@ const viewFromStore = (store: NativeScopeDiscoveryStore): NativeScopeDiscoveryVi
   });
 };
 
+export const readNativeScopeDiscoveryView = async (
+  repoRoot: string,
+): Promise<NativeScopeDiscoveryView | undefined> => {
+  const result = await readNativeScopeDiscoveryStore(repoRoot);
+  return result.kind === "available" ? viewFromStore(result.store) : undefined;
+};
+
 const boundedHistory = (
   selected: NativeScopeDiscoveryObservation,
   latest: NativeScopeDiscoveryObservation,

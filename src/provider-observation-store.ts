@@ -328,6 +328,13 @@ export const selectProviderObservations = async (
                 ".bearing/cache/provider-observations.json",
                 "Provider observation cache is unreadable; run explicit observation recovery.",
               ),
+              ...bindings.map((binding) =>
+                unavailableDiagnostic(
+                  "provider-observation-unavailable",
+                  binding.nativeScope,
+                  "No reusable provider observation exists for this Work Binding; run explicit observation recovery.",
+                ),
+              ),
             ],
           }
         : selectedFrom(prior, bindings);

@@ -19,6 +19,11 @@ export const NATIVE_WORK_READING_CONCLUSIONS = [
 
 export type MattNativeWorkReadingConclusion = (typeof NATIVE_WORK_READING_CONCLUSIONS)[number];
 
+export type MattNativeWorkDiscoveryReconciliation =
+  | "discovered"
+  | "bound-not-discovered"
+  | "unknown";
+
 export type MattNativeWorkReadingContext =
   | Readonly<{ state: "bound"; effortIds: readonly string[]; nativeScope?: string | undefined }>
   | Readonly<{ state: "unbound" }>
@@ -38,7 +43,7 @@ export const mattNativeWorkReadingContextForEffort = (
   efforts: readonly ReadingEffort[],
   effort: ReadingEffort,
   observation: MattObservationView | undefined,
-  selections: readonly ProviderObservationSelection[],
+  _selections: readonly ProviderObservationSelection[],
 ): MattNativeWorkReadingContext | undefined => {
   const binding = effort.workBinding;
   if (binding === undefined) return undefined;
@@ -54,8 +59,7 @@ export const mattNativeWorkReadingContextForEffort = (
       nativeScope: binding.nativeScope,
     };
   }
-  const selection = selections.find((candidate) => sameMattNativeScope(candidate, binding));
-  if (observation === undefined && selection === undefined) {
+  if (observation === undefined) {
     return {
       state: "attention",
       reason: "bound-unresolved",
@@ -139,7 +143,11 @@ export type MattNativeWorkReadingState = Readonly<{
   impact: string;
   action: string;
   binding:
-    | Readonly<{ state: "bound"; effortIds: readonly string[] }>
+    | Readonly<{
+        state: "bound";
+        effortIds: readonly string[];
+        discovery: MattNativeWorkDiscoveryReconciliation;
+      }>
     | Readonly<{ state: "unbound"; label: "Not linked to an Effort" }>
     | Readonly<{
         state: "attention";
@@ -270,9 +278,10 @@ const evidenceCauses = (
 
 const bindingView = (
   context: MattNativeWorkReadingContext,
+  discovery: MattNativeWorkDiscoveryReconciliation,
 ): MattNativeWorkReadingState["binding"] => {
   if (context.state === "bound") {
-    return { state: "bound", effortIds: context.effortIds };
+    return { state: "bound", effortIds: context.effortIds, discovery };
   }
   if (context.state === "unbound") {
     return { state: "unbound", label: "Not linked to an Effort" };
@@ -288,6 +297,7 @@ export const buildMattNativeWorkReadingState = (
   observation: MattObservationView | undefined,
   selections: readonly ProviderObservationSelection[],
   context: MattNativeWorkReadingContext,
+  discovery: MattNativeWorkDiscoveryReconciliation = "unknown",
 ): MattNativeWorkReadingState => {
   const selection = selectionFor(observation, selections, context);
   const assessment = assessSelectedProviderObservationEvidence(observation, selection);
@@ -329,7 +339,7 @@ export const buildMattNativeWorkReadingState = (
       impact: "No canonical parent or contribution is selected while the binding is unresolved.",
       action:
         "Reconcile the Work Binding in the owning Agent Surface before relying on this scope.",
-      binding: bindingView(context),
+      binding: bindingView(context, discovery),
       why: {
         ...whyBase,
         causes: [reasonByBinding[context.reason], ...evidenceReasons],
@@ -344,7 +354,7 @@ export const buildMattNativeWorkReadingState = (
       impact:
         "This discovered work remains inspectable but cannot establish Effort contribution, completion, or Gate readiness.",
       action: "Inspect this work or establish an explicit Work Binding through its owner.",
-      binding: bindingView(context),
+      binding: bindingView(context, discovery),
       why: {
         ...whyBase,
         causes: [
@@ -362,7 +372,7 @@ export const buildMattNativeWorkReadingState = (
       impact:
         "Current bound provider evidence establishes native completion; it does not conclude the Effort or Gate.",
       action: "Inspect history or subject evidence; no action is required.",
-      binding: bindingView(context),
+      binding: bindingView(context, discovery),
       why: { ...whyBase, causes: [] },
       observation: observationDetails,
     };
@@ -374,7 +384,7 @@ export const buildMattNativeWorkReadingState = (
       impact:
         "Current bound provider evidence establishes open native work; it does not conclude the Effort or Gate.",
       action: "Continue work through the native tracker owner.",
-      binding: bindingView(context),
+      binding: bindingView(context, discovery),
       why: { ...whyBase, causes: [] },
       observation: observationDetails,
     };
@@ -385,7 +395,7 @@ export const buildMattNativeWorkReadingState = (
     impact:
       "Current evidence cannot establish native completion, contribution, or readiness; trustworthy subsets remain inspectable.",
     action: "Use Observation details to identify the evidence owner before relying on this scope.",
-    binding: bindingView(context),
+    binding: bindingView(context, discovery),
     why: {
       ...whyBase,
       causes:

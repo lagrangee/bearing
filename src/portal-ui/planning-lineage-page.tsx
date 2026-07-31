@@ -24,6 +24,7 @@ import {
   buildPlanningLineageSubjectModel,
   planningLineageRelationFor,
 } from "./planning-lineage-model";
+import { Action } from "./primitives";
 import { projectCanvasFocusKey } from "./project-canvas-history";
 import type { ProjectInspectorSelection } from "./project-inspector";
 import { SourceEventTimeValue } from "./source-event-time";
@@ -496,6 +497,9 @@ function WorkRegionRole({
 
 function NativeWorkReadingState({ reading }: { readonly reading: MattNativeWorkReadingState }) {
   const whyFacts = [
+    ...(reading.binding.state === "bound"
+      ? ([["Discovery relationship", reading.binding.discovery]] as const)
+      : []),
     ["Freshness", reading.why.freshness],
     ["Coverage", reading.why.coverage],
     ["Projection State", reading.why.projectionState],
@@ -775,17 +779,26 @@ export function PlanningLineagePage({
   filteredView,
   onInspect,
   onNavigate,
+  onRefreshDetails,
   requested,
   semanticAnchor,
   snapshot,
+  inspectionOperation,
 }: {
   readonly entryId: string;
   readonly filteredView?: RequestedPlanningLineageFilteredView | undefined;
   readonly onInspect: Inspect;
   readonly onNavigate: Navigate;
+  readonly onRefreshDetails?: (
+    subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
+  ) => void;
   readonly requested: RequestedPlanningLineageSubject;
   readonly semanticAnchor?: string | undefined;
   readonly snapshot: ProjectSnapshot;
+  readonly inspectionOperation?: Readonly<{
+    state: "idle" | "running" | "failed";
+    subjectKey?: string | undefined;
+  }>;
 }) {
   const anchorProjectionState =
     semanticAnchor === undefined
@@ -871,6 +884,10 @@ export function PlanningLineagePage({
     );
   }
   const ownerHref = planningLineageSubjectHref(entryId, requested.value);
+  const requestedNativeSubject =
+    requested.value.kind === "native-scope" || requested.value.kind === "native-subject"
+      ? requested.value
+      : undefined;
   if (filteredView !== undefined) {
     if (filteredView.validity === "invalid") {
       return (
@@ -974,6 +991,27 @@ export function PlanningLineagePage({
             </dd>
           </div>
         </dl>
+        {model.nativeInspection === undefined ||
+        onRefreshDetails === undefined ||
+        requestedNativeSubject === undefined ? null : (
+          <div className="native-inspection-actions">
+            <p>
+              Inspected detail · {model.nativeInspection.freshness}
+              {model.nativeInspection.latestAttempt?.outcome === "failed"
+                ? " · latest refresh failed"
+                : ""}
+            </p>
+            <Action
+              disabled={inspectionOperation?.state === "running"}
+              onClick={() => onRefreshDetails(requestedNativeSubject)}
+            >
+              <Icons.refresh
+                className={inspectionOperation?.state === "running" ? "is-spinning" : ""}
+              />
+              {inspectionOperation?.state === "running" ? "Refreshing details" : "Refresh details"}
+            </Action>
+          </div>
+        )}
       </header>
       {model.events.length === 0 ? null : (
         <section

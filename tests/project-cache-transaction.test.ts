@@ -107,3 +107,29 @@ test("restores the prior discovery observation when coherent Snapshot publicatio
 
   expect(await readFile(discoveryPath)).toEqual(priorDiscovery);
 });
+
+test("restores the prior targeted inspection when coherent Snapshot publication fails", async () => {
+  const root = await createValidBearingRepo();
+  const prior = await snapshotFor(root, "prior");
+  const inspectionPath = join(root, ".bearing/cache/native-scope-inspections.json");
+  const priorInspection = Buffer.from("prior targeted inspection\n");
+  await commitProjectCache({
+    repoRoot: root,
+    nativeScopeInspectionStore: { bytes: priorInspection },
+  });
+
+  await expect(
+    commitProjectCache(
+      {
+        repoRoot: root,
+        nativeScopeInspectionStore: { bytes: Buffer.from("candidate inspection\n") },
+        snapshot: prior.snapshot,
+      },
+      {
+        writeSnapshot: async () => Promise.reject(new Error("injected Snapshot failure")),
+      },
+    ),
+  ).rejects.toThrow("injected Snapshot failure");
+
+  expect(await readFile(inspectionPath)).toEqual(priorInspection);
+});

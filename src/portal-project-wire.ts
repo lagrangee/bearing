@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { catalogAvailabilitySchema } from "./catalog/availability";
+import {
+  nativeScopeInspectionSubjectSchema,
+  nativeSubjectIdSchema,
+} from "./planning-lineage-route";
 import { projectSnapshotSchema } from "./project-snapshot/schema";
 import { syncReceiptSchema } from "./sync-receipt-schema";
 
@@ -70,6 +74,16 @@ export const projectSyncRequestSchema = z.strictObject({
 
 export const projectDiscoveryRequestSchema = z.strictObject({
   version: z.literal(1),
+});
+
+export const projectNativeScopeInspectionRequestSchema = z.strictObject({
+  version: z.literal(1),
+  subject: nativeScopeInspectionSubjectSchema,
+  target: z.strictObject({
+    provider: z.literal("matt-skills/v1"),
+    nativeScope: nativeSubjectIdSchema,
+  }),
+  refresh: z.boolean(),
 });
 
 export const projectSnapshotEnvelopeSchema = z.discriminatedUnion("state", [

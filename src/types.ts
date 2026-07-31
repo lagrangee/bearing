@@ -17,6 +17,7 @@ export type AdvisoryId = "planning-audit:current" | "next-work-guidance:current"
 export type AdvisoryFreshness = Readonly<Partial<Record<AdvisoryId, SemanticFreshness>>>;
 
 import type { NativeScopeDiscoverySelectionPlan } from "./native-scope-discovery";
+import type { NativeScopeInspectionPlan } from "./native-scope-inspection";
 import type { ProviderObservationOperation } from "./provider-observation-store";
 import type { SyncReceipt } from "./sync-receipt";
 
@@ -33,6 +34,7 @@ export type SyncResult = SyncProjectionResult &
   Readonly<{
     providerObservationOperation: ProviderObservationOperation;
     nativeScopeDiscoveryOperation: NativeScopeDiscoverySelectionPlan["operation"];
+    nativeScopeInspectionOperation: NativeScopeInspectionPlan["operation"];
     receipt: SyncReceipt;
     receiptPath: string;
   }>;

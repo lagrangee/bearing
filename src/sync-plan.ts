@@ -20,12 +20,19 @@ import {
   fingerprintNativeScopeDiscoveryView,
   type NativeScopeDiscoveryIntent,
   type NativeScopeDiscoveryView,
+  readNativeScopeDiscoveryView,
   selectNativeScopeDiscovery,
 } from "./native-scope-discovery";
 import {
   defaultNativeScopeDiscoveryProvider,
   type NativeScopeDiscoveryProviderFactory,
 } from "./native-scope-discovery-acquisition";
+import {
+  fingerprintNativeScopeInspections,
+  type NativeScopeInspectionIntent,
+  nativeScopeInspectionExplicitInputs,
+  selectNativeScopeInspections,
+} from "./native-scope-inspection";
 import { resolveRepositoryRoot } from "./path-boundary";
 import { buildPlanningGraph, type PlanningGraph } from "./planning-graph";
 import type { PlanningGraphInstrumentation } from "./planning-graph-instrumentation";
@@ -70,6 +77,14 @@ export type SyncPlan = Readonly<{
   nativeScopeDiscoveryStorePath: string;
   nativeScopeDiscoveryStoreBytes: Buffer;
   nativeScopeDiscoveryStoreChanged: boolean;
+  nativeScopeInspectionObservations: readonly MattSkillsV1ProviderObservation[];
+  nativeScopeInspectionSelections: readonly ProviderObservationSelection[];
+  nativeScopeInspectionOperation: Awaited<
+    ReturnType<typeof selectNativeScopeInspections>
+  >["operation"];
+  nativeScopeInspectionStorePath: string;
+  nativeScopeInspectionStoreBytes: Buffer;
+  nativeScopeInspectionStoreChanged: boolean;
   assetContentObservations: readonly AssetContentObservation[];
   planningGraph: PlanningGraph;
   planningPhaseMs: Readonly<{
@@ -88,6 +103,7 @@ export type SyncPerformanceMetrics = Readonly<{
   repositoryRevalidationCount: number;
   providerAcquisitionCount: number;
   nativeScopeDiscoveryAcquisitionCount: number;
+  nativeScopeInspectionAcquisitionCount: number;
   phaseMs: Readonly<{
     discovery: number;
     capture: number;
@@ -107,6 +123,8 @@ export type PrepareSyncOptions = Readonly<{
   providerObservationNow?: () => string;
   nativeScopeDiscoveryIntent?: NativeScopeDiscoveryIntent;
   nativeScopeDiscoveryProviderFactory?: NativeScopeDiscoveryProviderFactory;
+  nativeScopeInspectionIntent?: NativeScopeInspectionIntent;
+  nativeScopeInspectionMaximumStoreBytes?: number;
 }>;
 
 const readExisting = async (target: string): Promise<Buffer | undefined> => {
@@ -125,6 +143,7 @@ const ensureCacheBoundary = async (repoRoot: string): Promise<void> => {
     join(repoRoot, ".bearing/cache/project-sitemap.md"),
     join(repoRoot, ".bearing/cache/provider-observations.json"),
     join(repoRoot, ".bearing/cache/native-scope-discovery.json"),
+    join(repoRoot, ".bearing/cache/native-scope-inspections.json"),
   ];
   const inspect = async (
     target: string,
@@ -188,11 +207,24 @@ export const prepareSync = async (
   const started = performance.now();
   const root = await resolveRepositoryRoot(repoRoot);
   await ensureCacheBoundary(root);
+  const nativeScopeInspectionIntent = options.nativeScopeInspectionIntent ?? { kind: "none" };
+  const inspectionDiscovery =
+    nativeScopeInspectionIntent.kind === "inspect"
+      ? await readNativeScopeDiscoveryView(root)
+      : undefined;
+  const inspectionInputs =
+    nativeScopeInspectionIntent.kind === "inspect"
+      ? nativeScopeInspectionExplicitInputs(
+          inspectionDiscovery,
+          nativeScopeInspectionIntent.subject,
+          nativeScopeInspectionIntent.target,
+        )
+      : [];
   const discovery = await discoverProjectSitemapInputs(root);
   const explicit =
-    options.explicitInputs === undefined
+    options.explicitInputs === undefined && inspectionInputs.length === 0
       ? { inputs: [], diagnostics: [] }
-      : await retainContainedInputs(root, options.explicitInputs);
+      : await retainContainedInputs(root, [...(options.explicitInputs ?? []), ...inspectionInputs]);
   const discoveryInputs = [...new Set([...discovery.inputs, ...explicit.inputs])].sort(
     (left, right) => left.localeCompare(right, "en"),
   );
@@ -238,6 +270,21 @@ export const prepareSync = async (
       generation,
     ),
   });
+  const nativeScopeInspection = await selectNativeScopeInspections({
+    repoRoot: generation.root,
+    generation,
+    discovery: nativeScopeDiscovery.view,
+    intent: nativeScopeInspectionIntent,
+    boundObservations: providerSelection.observations,
+    boundSelections: providerSelection.selections,
+    ...(options.providerFactory === undefined ? {} : { providerFactory: options.providerFactory }),
+    ...(options.providerObservationNow === undefined
+      ? {}
+      : { now: options.providerObservationNow }),
+    ...(options.nativeScopeInspectionMaximumStoreBytes === undefined
+      ? {}
+      : { maximumStoreBytes: options.nativeScopeInspectionMaximumStoreBytes }),
+  });
   const finalGeneration = fingerprintInputRecords(generation.records, [
     ...generation.observations,
     {
@@ -250,6 +297,13 @@ export const prepareSync = async (
     {
       key: "native-scope-discovery-selection",
       value: fingerprintNativeScopeDiscoveryView(nativeScopeDiscovery.view),
+    },
+    {
+      key: "native-scope-inspection-selection",
+      value: fingerprintNativeScopeInspections(
+        nativeScopeInspection.observations,
+        nativeScopeInspection.selections,
+      ),
     },
   ]);
   const decoded = rebaseDecodedBearingRecordGeneration(
@@ -270,6 +324,11 @@ export const prepareSync = async (
         decoded,
         providerObservations: providerSelection.observations,
         providerObservationSelections: providerSelection.selections,
+        ...(nativeScopeDiscovery.view === undefined
+          ? {}
+          : { nativeScopeDiscovery: nativeScopeDiscovery.view }),
+        nativeScopeInspectionObservations: nativeScopeInspection.observations,
+        nativeScopeInspectionSelections: nativeScopeInspection.selections,
         diagnostics,
         fingerprint: finalGeneration.fingerprint,
         assetContentObservations: assetResolution.observations,
@@ -322,6 +381,12 @@ export const prepareSync = async (
     nativeScopeDiscoveryStorePath: nativeScopeDiscovery.storePath,
     nativeScopeDiscoveryStoreBytes: nativeScopeDiscovery.storeBytes,
     nativeScopeDiscoveryStoreChanged: nativeScopeDiscovery.storeChanged,
+    nativeScopeInspectionObservations: nativeScopeInspection.observations,
+    nativeScopeInspectionSelections: nativeScopeInspection.selections,
+    nativeScopeInspectionOperation: nativeScopeInspection.operation,
+    nativeScopeInspectionStorePath: nativeScopeInspection.storePath,
+    nativeScopeInspectionStoreBytes: nativeScopeInspection.storeBytes,
+    nativeScopeInspectionStoreChanged: nativeScopeInspection.storeChanged,
     assetContentObservations: assetResolution.observations,
     planningGraph,
     planningPhaseMs: {
@@ -337,6 +402,7 @@ export const prepareSync = async (
       repositoryRevalidationCount: operationMetrics.repositoryRevalidationCount,
       providerAcquisitionCount: providerSelection.operation.acquisitionCount,
       nativeScopeDiscoveryAcquisitionCount: nativeScopeDiscovery.operation.acquisitionCount,
+      nativeScopeInspectionAcquisitionCount: nativeScopeInspection.operation.acquisitionCount,
       phaseMs: {
         discovery: discovered - started,
         capture: baseCaptured - discovered + (extended - assetsResolved),
@@ -364,12 +430,14 @@ export const commitSyncPlan = async (
   options: Readonly<{
     publishProviderObservations?: boolean;
     publishNativeScopeDiscovery?: boolean;
+    publishNativeScopeInspections?: boolean;
   }> = {},
 ): Promise<SyncProjectionResult> => {
   if (
     plan.changed ||
     plan.providerObservationStoreChanged ||
-    plan.nativeScopeDiscoveryStoreChanged
+    plan.nativeScopeDiscoveryStoreChanged ||
+    plan.nativeScopeInspectionStoreChanged
   ) {
     await mkdir(dirname(plan.reportPath), { recursive: true });
     if (plan.providerObservationStoreChanged && options.publishProviderObservations !== false) {
@@ -383,6 +451,13 @@ export const commitSyncPlan = async (
       await writeFileAtomically(
         plan.nativeScopeDiscoveryStorePath,
         plan.nativeScopeDiscoveryStoreBytes,
+        0o644,
+      );
+    }
+    if (plan.nativeScopeInspectionStoreChanged && options.publishNativeScopeInspections !== false) {
+      await writeFileAtomically(
+        plan.nativeScopeInspectionStorePath,
+        plan.nativeScopeInspectionStoreBytes,
         0o644,
       );
     }

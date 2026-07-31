@@ -16,8 +16,11 @@ export type ProviderObservationAcquisitionIntent = Exclude<
   ProviderObservationIntent,
   "ordinary-sync"
 >;
+export type ProviderObservationAttemptIntent =
+  | ProviderObservationAcquisitionIntent
+  | "native-scope-inspection";
 export type ProviderObservationAttempt = Readonly<{
-  intent: ProviderObservationAcquisitionIntent;
+  intent: ProviderObservationAttemptIntent;
   attemptedAt: string;
   outcome: "succeeded" | "failed";
   diagnostics: readonly StructuralDiagnostic[];
@@ -42,7 +45,7 @@ const structuralDiagnosticSchema = z.strictObject({
   message: z.string().min(1),
 });
 const attemptSchema = z.strictObject({
-  intent: z.enum(["initial-baseline", "recovery", "full-verification"]),
+  intent: z.enum(["initial-baseline", "recovery", "full-verification", "native-scope-inspection"]),
   attemptedAt: z.string().min(1),
   outcome: z.enum(["succeeded", "failed"]),
   diagnostics: z.array(structuralDiagnosticSchema),
@@ -75,17 +78,24 @@ export const providerObservationSelectionSchema = z
     if (
       selection.latestAttempt?.outcome === "succeeded" &&
       (selection.observationId === null ||
-        selection.effectiveFreshness === "stale" ||
         selection.latestAttempt.diagnostics.some((diagnostic) => diagnostic.impact === "blocking"))
     ) {
       context.addIssue({
         code: "custom",
         path: ["latestAttempt"],
         message:
-          "A successful latest attempt requires a selected non-stale observation without blocking attempt diagnostics; an independent binding conflict may still withhold effective freshness.",
+          "A successful latest attempt requires a selected observation without blocking attempt diagnostics; later evidence or an independent binding conflict may still change effective freshness.",
       });
     }
   });
+
+export const providerObservationSelectionFreshnessIsCoherent = (
+  selection: Pick<ProviderObservationSelection, "effectiveFreshness">,
+  observation:
+    | Readonly<{ freshness: Readonly<{ assessment: ProviderFreshnessAssessment }> }>
+    | undefined,
+): boolean =>
+  selection.effectiveFreshness !== "current" || observation?.freshness.assessment === "current";
 
 export const assessSelectedProviderObservationEvidence = (
   observation: (ProviderCompletionInvariantInput & Readonly<{ id: string }>) | undefined,

@@ -484,7 +484,7 @@ const runSyncCommand = async (args: readonly string[]): Promise<void> => {
       parsed.values["discover-native-scopes"] === true ? "explicit-discovery" : "ordinary-sync",
   });
   process.stdout.write(
-    `Report: ${result.reportPath}\nSitemap: ${result.sitemapPath}\nInput fingerprint: ${result.fingerprint}\nDiagnostics: ${result.diagnostics.length}\nProvider observations: ${result.providerObservationOperation.intent}/${result.providerObservationOperation.outcome} (${result.providerObservationOperation.acquisitionCount} acquisitions)\nNative scope discovery: ${result.nativeScopeDiscoveryOperation.intent}/${result.nativeScopeDiscoveryOperation.outcome} (${result.nativeScopeDiscoveryOperation.acquisitionCount} acquisitions)\nOutcome: ${result.changed ? "applied" : "no-op"}\n`,
+    `Report: ${result.reportPath}\nSitemap: ${result.sitemapPath}\nInput fingerprint: ${result.fingerprint}\nDiagnostics: ${result.diagnostics.length}\nProvider observations: ${result.providerObservationOperation.intent}/${result.providerObservationOperation.outcome} (${result.providerObservationOperation.acquisitionCount} acquisitions)\nNative scope discovery: ${result.nativeScopeDiscoveryOperation.intent}/${result.nativeScopeDiscoveryOperation.outcome} (${result.nativeScopeDiscoveryOperation.acquisitionCount} acquisitions)\nNative scope inspection: ${result.nativeScopeInspectionOperation.intent.kind}/${result.nativeScopeInspectionOperation.outcome} (${result.nativeScopeInspectionOperation.acquisitionCount} acquisitions)\nOutcome: ${result.changed ? "applied" : "no-op"}\n`,
   );
   if (result.diagnostics.some((diagnostic) => diagnostic.impact === "blocking")) {
     process.exitCode = 1;

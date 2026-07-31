@@ -3,9 +3,17 @@ import {
   createNativeScopeDiscoveryObservation,
   type NativeScopeDiscoveryView,
 } from "../src/native-scope-discovery";
+import { createProviderScopeObservation } from "../src/native-work-provider";
 import type { Effort } from "../src/project-snapshot/contract";
-import { buildNativeScopeDiscoveryProjection } from "../src/project-snapshot/native-scope-discovery";
+import {
+  buildNativeScopeDiscoveryProjection,
+  nativeScopeDiscoveryBindingContext,
+} from "../src/project-snapshot/native-scope-discovery";
+import { buildPlanningLineageProjection } from "../src/project-snapshot/planning-lineage";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
+import { encodeGitHubMattNativeScope } from "../src/providers/matt-skills-v1/github-native-scope";
+import { mattNativeWorkReadingContextForScope } from "../src/providers/matt-skills-v1/reading-state";
+import { createMattReferenceProjection } from "./fixtures/matt-reference-scenario";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
 const scope = {
@@ -123,6 +131,62 @@ test("Snapshot reconciles discovery summaries with canonical bindings without mu
   expect(JSON.stringify(conflict)).not.toContain("readiness");
 });
 
+test("mixed root-kind duplicates use one stable-scope cardinality and retain every Effort edge", () => {
+  const nativeScope = (rootKind: "wayfinder-map" | "parent-issue") =>
+    encodeGitHubMattNativeScope({
+      host: "github.com",
+      rootKind,
+      repository: {
+        owner: "example",
+        name: "bearing",
+        databaseId: "repository-database",
+        nodeId: "R_bearing",
+      },
+      root: {
+        objectKind: "issue",
+        number: 18,
+        databaseId: "issue-database",
+        nodeId: "I_ticket_18",
+      },
+    });
+  const exact = nativeScope("wayfinder-map");
+  const otherKind = nativeScope("parent-issue");
+  const efforts = [effort("effort:exact", exact), effort("effort:other-kind", otherKind)];
+  const summary = {
+    ...scope,
+    identity: "github:R_bearing:I_ticket_18",
+    binding: { provider: "matt-skills/v1" as const, nativeScope: exact },
+    locator: "github/example/bearing/issues/18",
+  };
+  const observation = createProviderScopeObservation({
+    provider: "matt-skills/v1",
+    binding: summary.binding,
+    observedAt: "2026-07-31T07:10:00.000Z",
+    state: "available",
+    freshness: { assessment: "current", evidence: [] },
+    coverage: {
+      assessment: "complete",
+      dimensions: [{ key: "scope-membership", state: "covered" }],
+    },
+    completion: "incomplete",
+    diagnostics: [],
+    projection: createMattReferenceProjection("github"),
+  });
+
+  const discoveryContext = nativeScopeDiscoveryBindingContext(summary, {
+    validity: "available",
+    items: efforts,
+  });
+  expect(discoveryContext.state).toBe("binding-conflict");
+  expect(discoveryContext.effortIds.map(String)).toEqual(["effort:exact", "effort:other-kind"]);
+  expect(mattNativeWorkReadingContextForScope(efforts, observation)).toEqual({
+    state: "attention",
+    reason: "binding-conflict",
+    effortIds: ["effort:exact", "effort:other-kind"],
+    nativeScope: exact,
+  });
+});
+
 test("incomplete canonical Effort coverage never turns an unknown binding into unbound", () => {
   const invalid = buildNativeScopeDiscoveryProjection(view(), { validity: "invalid" });
   const partial = buildNativeScopeDiscoveryProjection(view(), {
@@ -178,10 +242,11 @@ test("Snapshot cache rejects forged discovery count, empty state, and binding co
   const discovery = buildNativeScopeDiscoveryProjection(view(), snapshot.efforts);
   expect(discovery.state).not.toBe("never-run");
   if (discovery.state === "never-run") return;
-  const valid = {
+  const candidate = {
     ...snapshot,
     nativeScopeDiscovery: discovery,
   };
+  const valid = { ...candidate, lineage: buildPlanningLineageProjection(candidate) };
   expect(projectSnapshotSchema.safeParse(valid).success).toBe(true);
   expect(
     projectSnapshotSchema.safeParse({

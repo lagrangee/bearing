@@ -63,6 +63,22 @@
   font-size: var(--type-tech);
   overflow-wrap: anywhere;
 }
+.native-inspection-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.native-inspection-actions p {
+  margin: 0;
+  color: var(--muted);
+}
 .lineage-sections {
   border-top: 1px solid var(--border);
 }

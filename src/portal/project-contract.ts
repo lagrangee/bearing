@@ -13,6 +13,7 @@ export type {
 } from "../portal-project-wire";
 export {
   projectDiscoveryRequestSchema,
+  projectNativeScopeInspectionRequestSchema,
   projectOperationErrorSchema,
   projectSnapshotEnvelopeSchema,
   projectSyncEnvelopeSchema,

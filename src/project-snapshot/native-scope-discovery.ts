@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type { DiscoveredNativeScope, NativeScopeDiscoveryView } from "../native-scope-discovery";
+import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
 import {
   sameMattNativeBindingDefinition,
   sameMattNativeLocator,
@@ -48,6 +49,9 @@ export const nativeScopeDiscoveryBindingContext = (
     )
     .map((effort) => effort.id)
     .sort((left, right) => left.localeCompare(right, "en"));
+  const stableScopeEffortIds = [...exactEffortIds, ...rootKindConflictEffortIds].sort(
+    (left, right) => left.localeCompare(right, "en"),
+  );
   const identityMismatchEffortIds = bindableEfforts
     .filter(
       (effort) =>
@@ -59,10 +63,10 @@ export const nativeScopeDiscoveryBindingContext = (
     .sort((left, right) => left.localeCompare(right, "en"));
   return identityMismatchEffortIds.length > 0
     ? ({ state: "identity-mismatch", effortIds: identityMismatchEffortIds } as const)
-    : rootKindConflictEffortIds.length > 0
-      ? ({ state: "root-kind-conflict", effortIds: rootKindConflictEffortIds } as const)
-      : exactEffortIds.length >= 2
-        ? ({ state: "binding-conflict", effortIds: exactEffortIds } as const)
+    : stableScopeEffortIds.length >= 2
+      ? ({ state: "binding-conflict", effortIds: stableScopeEffortIds } as const)
+      : rootKindConflictEffortIds.length > 0
+        ? ({ state: "root-kind-conflict", effortIds: rootKindConflictEffortIds } as const)
         : efforts.validity !== "available"
           ? ({ state: "bound-unresolved", effortIds: exactEffortIds } as const)
           : exactEffortIds.length === 0
@@ -73,12 +77,17 @@ export const nativeScopeDiscoveryBindingContext = (
 export const buildNativeScopeDiscoveryProjection = (
   view: NativeScopeDiscoveryView | undefined,
   efforts: NativeScopeDiscoveryEffortCollection,
+  inspectionObservations: readonly MattSkillsV1ProviderObservation[] = [],
 ): NativeScopeDiscoveryProjection => {
   if (view === undefined) return { state: "never-run" };
   const scopes = view.scopes.map((summary) => ({
     summary,
     bindingContext: nativeScopeDiscoveryBindingContext(summary, efforts),
-    detailAvailability: "summary-only" as const,
+    detailAvailability: inspectionObservations.some((observation) =>
+      sameMattNativeScope(observation.binding, summary.binding),
+    )
+      ? ("details-inspected" as const)
+      : ("summary-only" as const),
   }));
   const unboundCount = scopes.filter((scope) => scope.bindingContext.state === "unbound").length;
   const exact =

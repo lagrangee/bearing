@@ -344,7 +344,7 @@ test("Effort closure returns full nested context and fails a bound absent scope 
   );
 });
 
-test("Effort closure keeps a first provider acquisition failure as bound Can't verify evidence", async () => {
+test("Effort closure keeps a first provider acquisition failure as bound-unresolved evidence", async () => {
   const root = await createValidBearingRepo();
   await addRoadmapEffortContext(root);
   const plan = await prepareSync(root);
@@ -385,8 +385,12 @@ test("Effort closure keeps a first provider acquisition failure as bound Can't v
   expect(result.state).toBe("partial");
   if (result.state === "invalid") throw new Error("Expected partial Effort context.");
   expect(result.context.nativeWorkReadingState).toMatchObject({
-    conclusion: "Can't verify",
-    binding: { state: "bound", effortIds: ["effort:test"] },
+    conclusion: "Binding needs attention",
+    binding: {
+      state: "attention",
+      reason: "bound-unresolved",
+      effortIds: ["effort:test"],
+    },
     why: {
       projectionState: "missing",
       blockingDiagnosticCount: 1,

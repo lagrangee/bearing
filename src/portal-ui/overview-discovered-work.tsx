@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { type MouseEvent, useState } from "react";
+import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { NativeScopeDiscoveryProjection } from "../project-snapshot/contract";
 import { Icons } from "./icons";
 import { Action } from "./primitives";
@@ -62,10 +63,14 @@ export function OverviewDiscoveredWork({
   discovery,
   onRefresh,
   operation,
+  entryId,
+  onNavigate,
 }: {
   readonly discovery: NativeScopeDiscoveryProjection;
   readonly onRefresh: () => void;
   readonly operation: DiscoveryOperationState;
+  readonly entryId?: string | undefined;
+  readonly onNavigate?: ((href: string) => void) | undefined;
 }) {
   const [copied, setCopied] = useState(false);
   const unbound =
@@ -91,6 +96,20 @@ export function OverviewDiscoveredWork({
         : `Discuss these discovered native scopes and suggest planning options without creating canonical planning: ${identities}`,
     );
     setCopied(true);
+  };
+  const openDetail = (href: string, event: MouseEvent<HTMLAnchorElement>) => {
+    if (
+      onNavigate === undefined ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    event.preventDefault();
+    onNavigate(href);
   };
   return (
     <section
@@ -155,9 +174,35 @@ export function OverviewDiscoveredWork({
             <article className="discovered-work-card" key={scope.summary.identity}>
               <div className="native-card-heading">
                 <span className="native-kind">{scope.summary.driver}</span>
-                <span className="trust-chip">Summary only</span>
+                <span className="trust-chip">
+                  {scope.detailAvailability === "details-inspected"
+                    ? "Details inspected"
+                    : "Summary only"}
+                </span>
               </div>
-              <h3>{scope.summary.title}</h3>
+              <h3>
+                {entryId === undefined ? (
+                  scope.summary.title
+                ) : (
+                  <a
+                    href={planningLineageSubjectHref(entryId, {
+                      kind: "native-scope",
+                      id: scope.summary.identity,
+                    })}
+                    onClick={(event) =>
+                      openDetail(
+                        planningLineageSubjectHref(entryId, {
+                          kind: "native-scope",
+                          id: scope.summary.identity,
+                        }),
+                        event,
+                      )
+                    }
+                  >
+                    {scope.summary.title}
+                  </a>
+                )}
+              </h3>
               <code>{scope.summary.locator}</code>
               <dl>
                 <div>

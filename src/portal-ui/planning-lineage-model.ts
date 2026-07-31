@@ -35,6 +35,7 @@ import {
 } from "../providers/matt-skills-v1/native-read-model";
 import {
   type MattNativeSubject,
+  mattNativeScopeKey,
   mattNativeSubjectForObject,
   sameMattNativeLocator,
   sameMattNativeScope,
@@ -144,6 +145,12 @@ type ReadablePlanningLineageSubjectModel = Readonly<{
   events: readonly PlanningLineageEvent<PlanningLineageEventTime>[];
   sections: readonly PlanningLineageSection[];
   workRegion?: MattNativeWorkRegionModel | undefined;
+  nativeInspection?:
+    | Readonly<{
+        freshness: "current" | "stale" | "undetermined";
+        latestAttempt: ProjectSnapshot["nativeScopeInspections"]["selections"][number]["latestAttempt"];
+      }>
+    | undefined;
   semanticAvailability: ReadonlyMap<string, MattSemanticSectionAvailability>;
   relations: readonly PlanningLineageRelation[];
 }>;
@@ -174,18 +181,46 @@ type CollectionState =
 const isNativeSubject = (subject: PlanningLineageSubject): subject is MattNativeSubject =>
   subject.kind.startsWith("native-");
 
-const nativeEvidenceAssessment = (
-  snapshot: ProjectSnapshot,
-  observation: ProjectSnapshot["providerObservations"][number],
-) => assessMattNativeEvidence(observation, snapshot.providerObservationSelections);
+type NativeObservation =
+  | ProjectSnapshot["providerObservations"][number]
+  | ProjectSnapshot["nativeScopeInspections"]["observations"][number];
+
+const nativeObservations = (snapshot: ProjectSnapshot): readonly NativeObservation[] => {
+  const byScope = new Map(
+    snapshot.nativeScopeInspections.observations.map((observation) => [
+      mattNativeScopeKey(observation.binding),
+      observation,
+    ]),
+  );
+  for (const observation of snapshot.providerObservations) {
+    byScope.set(mattNativeScopeKey(observation.binding), observation);
+  }
+  return [...byScope.values()];
+};
+
+const nativeSelections = (snapshot: ProjectSnapshot) => {
+  const byScope = new Map(
+    snapshot.nativeScopeInspections.selections.map((selection) => [
+      mattNativeScopeKey(selection),
+      selection,
+    ]),
+  );
+  for (const selection of snapshot.providerObservationSelections) {
+    byScope.set(mattNativeScopeKey(selection), selection);
+  }
+  return [...byScope.values()];
+};
+
+const nativeEvidenceAssessment = (snapshot: ProjectSnapshot, observation: NativeObservation) =>
+  assessMattNativeEvidence(observation, nativeSelections(snapshot));
 
 const hasCompleteNativeEvidence = (
   snapshot: ProjectSnapshot,
-  observation: ProjectSnapshot["providerObservations"][number],
-): boolean => hasCompleteMattNativeEvidence(observation, snapshot.providerObservationSelections);
+  observation: NativeObservation,
+): boolean => hasCompleteMattNativeEvidence(observation, nativeSelections(snapshot));
 
 const providerSubjectRecords = (snapshot: ProjectSnapshot): readonly NativeRecord[] =>
-  mattNativeRecords(snapshot.providerObservations, snapshot.sources);
+  mattNativeRecords(nativeObservations(snapshot), snapshot.sources);
 
 const nativeCollectionFor = (
   snapshot: ProjectSnapshot,
@@ -197,13 +232,14 @@ const nativeCollectionFor = (
       : record.recordKind === "native-object" &&
         mattNativeSubjectForObject(record.object).kind === kind,
   );
-  if (snapshot.providerObservations.length === 0) {
+  const observations = nativeObservations(snapshot);
+  if (observations.length === 0) {
     return {
       validity: "invalid",
       issues: ["No provider observation establishes native subject coverage."],
     };
   }
-  const issues = snapshot.providerObservations.filter(
+  const issues = observations.filter(
     (observation) => !hasCompleteNativeEvidence(snapshot, observation),
   );
   return issues.length === 0
@@ -1140,7 +1176,7 @@ const readableEfforts = (snapshot: ProjectSnapshot): readonly Effort[] =>
 
 const scopeContextFor = (
   snapshot: ProjectSnapshot,
-  observation: ProjectSnapshot["providerObservations"][number],
+  observation: NativeObservation,
 ): MattNativeWorkRegionContext =>
   mattNativeWorkReadingContextForScope(readableEfforts(snapshot), observation);
 
@@ -1185,7 +1221,7 @@ const workRegionFor = (
   const scopeRecord = record as NativeScopeRecord;
   return buildMattNativeWorkRegion(
     scopeRecord.observation,
-    snapshot.providerObservationSelections,
+    nativeSelections(snapshot),
     scopeContextFor(snapshot, scopeRecord.observation),
     readingState,
   );
@@ -1248,6 +1284,15 @@ export const buildPlanningLineageSubjectModel = (
     ? nativeSourceHref(record as NativeRecord)
     : undefined;
   const workRegion = workRegionFor(snapshot, subject, record, lineage.nativeWorkReadingState);
+  const inspectionSelection = isNativeSubject(subject)
+    ? snapshot.nativeScopeInspections.selections.find((selection) => {
+        const observation = (record as NativeRecord).observation;
+        return (
+          sameMattNativeScope(selection, observation.binding) &&
+          selection.observationId === observation.id
+        );
+      })
+    : undefined;
   return {
     state: degraded ? "partial" : "available",
     subject: {
@@ -1268,6 +1313,14 @@ export const buildPlanningLineageSubjectModel = (
       : planningLineageEventsFor(snapshot, subject, record as CanonicalSubjectRecord),
     sections: sectionsFor(snapshot, lineage, record, entryId),
     ...(workRegion === undefined ? {} : { workRegion }),
+    ...(inspectionSelection === undefined
+      ? {}
+      : {
+          nativeInspection: {
+            freshness: inspectionSelection.effectiveFreshness,
+            latestAttempt: inspectionSelection.latestAttempt,
+          },
+        }),
     semanticAvailability,
     relations,
   };

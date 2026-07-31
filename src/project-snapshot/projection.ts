@@ -1,3 +1,4 @@
+import { mattNativeScopeKey } from "../providers/matt-skills-v1/native-subject";
 import { buildAdvisoryProjection } from "./advisory";
 import { rebuildAssetReverseRelations } from "./asset-reverse-relations";
 import { buildAssetProjection } from "./assets";
@@ -61,16 +62,26 @@ export const buildProjectSnapshot = async (
     checks: decisions.checks,
     reviews: decisions.reviews,
   });
+  const lineageObservationByScope = new Map(
+    (input.nativeScopeInspectionObservations ?? []).map((observation) => [
+      mattNativeScopeKey(observation.binding),
+      observation,
+    ]),
+  );
+  for (const observation of input.providerObservations) {
+    lineageObservationByScope.set(mattNativeScopeKey(observation.binding), observation);
+  }
   const sources = mergeSourceRecords([
     governance.sources,
     assetProjection.sources,
     decisions.sources,
     advisory.sources,
-    buildMattNativeSourceRecords(input.providerObservations, input.sitemapFingerprint),
+    buildMattNativeSourceRecords([...lineageObservationByScope.values()], input.sitemapFingerprint),
   ]);
   const nativeScopeDiscovery = buildNativeScopeDiscoveryProjection(
     input.nativeScopeDiscovery,
     planning.efforts,
+    [...input.providerObservations, ...(input.nativeScopeInspectionObservations ?? [])],
   );
   const diagnosticProjection = buildSnapshotDiagnostics({
     sitemapFingerprint: input.sitemapFingerprint,
@@ -112,6 +123,10 @@ export const buildProjectSnapshot = async (
     providerObservations: input.providerObservations,
     providerObservationSelections,
     nativeScopeDiscovery,
+    nativeScopeInspections: {
+      observations: input.nativeScopeInspectionObservations ?? [],
+      selections: input.nativeScopeInspectionSelections ?? [],
+    },
     diagnostics: diagnosticProjection.diagnostics,
     attention: [...diagnosticProjection.attention, ...decisions.attention],
     sources,

@@ -40,6 +40,7 @@ export const runSyncMeasured = async (
       ...syncProjectionResultFromPlan(plan),
       providerObservationOperation: plan.providerObservationOperation,
       nativeScopeDiscoveryOperation: plan.nativeScopeDiscoveryOperation,
+      nativeScopeInspectionOperation: plan.nativeScopeInspectionOperation,
       receipt: transaction.receipt,
       receiptPath: transaction.receiptPath,
     },

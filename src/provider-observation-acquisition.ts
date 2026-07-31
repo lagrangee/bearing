@@ -40,7 +40,7 @@ export type ProviderBindingConflict = Readonly<{
   diagnostic: StructuralDiagnostic;
 }>;
 
-const defaultProviderFactory: MattProviderFactory = (input) =>
+export const defaultMattProviderFactory: MattProviderFactory = (input) =>
   input.driver === "local-markdown"
     ? createLocalMarkdownMattProvider({
         repoRoot: input.repoRoot,
@@ -95,6 +95,59 @@ const parseConfiguration = (
       ],
     };
   }
+};
+
+export type MattProviderResolution =
+  | Readonly<{
+      state: "available";
+      provider: MattSkillsV1Provider;
+      configuration: MattProviderConfiguration;
+    }>
+  | Readonly<{
+      state: "unavailable";
+      diagnostics: readonly StructuralDiagnostic[];
+    }>;
+
+export const resolveMattProvider = (
+  generation: SyncInputGeneration,
+  providerFactory: MattProviderFactory = defaultMattProviderFactory,
+): MattProviderResolution => {
+  const parsed = parseConfiguration(generation);
+  if (parsed.configuration === undefined) {
+    return { state: "unavailable", diagnostics: parsed.diagnostics };
+  }
+  const contract = generation.records.find(
+    (record) => record.locator === parsed.configuration.contractLocator,
+  );
+  const validation =
+    contract === undefined
+      ? { state: "unsupported" as const }
+      : validateMattSkillsV1Contract(contract.source);
+  if (validation.state !== "supported") {
+    return {
+      state: "unavailable",
+      diagnostics: [
+        diagnostic(
+          "unsupported-provider-contract",
+          parsed.configuration.contractLocator,
+          "Confirmed Matt provider contract is unavailable or unsupported.",
+        ),
+      ],
+    };
+  }
+  const capturedDocuments = new Map(
+    generation.records.map((record) => [record.locator, record] as const),
+  );
+  return {
+    state: "available",
+    configuration: parsed.configuration,
+    provider: providerFactory({
+      driver: validation.driver,
+      configuration: parsed.configuration,
+      repoRoot: generation.root,
+      capturedDocuments,
+    }),
+  };
 };
 
 const providerBindingEntries = (
@@ -172,48 +225,23 @@ export const providerBindingConflicts = (
 export const acquireProviderObservations = async (
   generation: SyncInputGeneration,
   decoded: DecodedBearingRecordGeneration,
-  providerFactory: MattProviderFactory = defaultProviderFactory,
+  providerFactory: MattProviderFactory = defaultMattProviderFactory,
 ): Promise<ProviderObservationAcquisition> => {
   const bindings = boundProviderScopes(decoded);
   if (bindings.length === 0) {
     return { observations: [], diagnostics: [], acquisitionCount: 0 };
   }
-  const parsed = parseConfiguration(generation);
-  if (parsed.configuration === undefined) {
-    return { observations: [], diagnostics: parsed.diagnostics, acquisitionCount: 0 };
-  }
-  const contract = generation.records.find(
-    (record) => record.locator === parsed.configuration.contractLocator,
-  );
-  const validation =
-    contract === undefined
-      ? { state: "unsupported" as const }
-      : validateMattSkillsV1Contract(contract.source);
-  if (validation.state !== "supported") {
+  const resolution = resolveMattProvider(generation, providerFactory);
+  if (resolution.state === "unavailable") {
     return {
       observations: [],
-      diagnostics: [
-        diagnostic(
-          "unsupported-provider-contract",
-          parsed.configuration.contractLocator,
-          "Confirmed Matt provider contract is unavailable or unsupported.",
-        ),
-      ],
+      diagnostics: resolution.diagnostics,
       acquisitionCount: 0,
     };
   }
-  const capturedDocuments = new Map(
-    generation.records.map((record) => [record.locator, record] as const),
-  );
-  const provider = providerFactory({
-    driver: validation.driver,
-    configuration: parsed.configuration,
-    repoRoot: generation.root,
-    capturedDocuments,
-  });
   const observations: MattSkillsV1ProviderObservation[] = [];
   for (const binding of bindings) {
-    observations.push(await provider.capture(binding));
+    observations.push(await resolution.provider.capture(binding));
   }
   return {
     observations,

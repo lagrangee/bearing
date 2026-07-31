@@ -1,6 +1,7 @@
 import type { AssetContentObservation } from "./asset-inputs";
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
 import { deepFreeze } from "./immutable";
+import type { NativeScopeDiscoveryView } from "./native-scope-discovery";
 import type { PlanningGraphInstrumentation } from "./planning-graph-instrumentation";
 import { rebuildAssetReverseRelations } from "./project-snapshot/asset-reverse-relations";
 import { buildAssetProjection } from "./project-snapshot/assets";
@@ -22,6 +23,7 @@ import type {
 import { buildDecisionProjection } from "./project-snapshot/decisions";
 import { buildSnapshotDiagnostics } from "./project-snapshot/diagnostic-projection";
 import { buildGovernanceProjection } from "./project-snapshot/governance";
+import { buildNativeScopeDiscoveryProjection } from "./project-snapshot/native-scope-discovery";
 import { buildMattNativeSourceRecords } from "./project-snapshot/native-work-sources";
 import { normalizePlanningDerivations } from "./project-snapshot/normalized-planning-derivation";
 import { buildPlanningLineageProjection } from "./project-snapshot/planning-lineage";
@@ -32,15 +34,12 @@ import {
 } from "./provider-observation-contract";
 import type { MattSkillsV1ProviderObservation } from "./providers/matt-skills-v1/capture";
 import {
+  mattNativeScopeKey,
   sameMattNativeLocator,
   sameMattNativeScope,
 } from "./providers/matt-skills-v1/native-subject";
 import { mattObjects } from "./providers/matt-skills-v1/projection";
-import {
-  buildMattNativeWorkReadingState,
-  type MattNativeWorkReadingState,
-  mattNativeWorkReadingContextForEffort,
-} from "./providers/matt-skills-v1/reading-state";
+import type { MattNativeWorkReadingState } from "./providers/matt-skills-v1/reading-state";
 import type { StructuralDiagnostic } from "./types";
 
 export type PlanningGraphIssue = Readonly<{
@@ -123,6 +122,9 @@ export type PlanningGraphBuildInput = Readonly<{
   decoded: DecodedBearingRecordGeneration;
   providerObservations: readonly MattSkillsV1ProviderObservation[];
   providerObservationSelections?: readonly ProviderObservationSelection[];
+  nativeScopeDiscovery?: NativeScopeDiscoveryView;
+  nativeScopeInspectionObservations?: readonly MattSkillsV1ProviderObservation[];
+  nativeScopeInspectionSelections?: readonly ProviderObservationSelection[];
   diagnostics: readonly StructuralDiagnostic[];
   fingerprint: string;
   assetContentObservations: readonly AssetContentObservation[];
@@ -569,20 +571,9 @@ class ImmutablePlanningGraph implements PlanningGraph {
         : this.#collections.providerObservationSelections.find((selection) =>
             sameMattNativeScope(selection, workBinding),
           );
-    const readingContext = mattNativeWorkReadingContextForEffort(
-      trusted(this.#collections.efforts),
-      effort,
-      providerCapture,
-      this.#collections.providerObservationSelections,
-    );
-    const nativeWorkReadingState =
-      readingContext === undefined
-        ? undefined
-        : buildMattNativeWorkReadingState(
-            providerCapture,
-            this.#collections.providerObservationSelections,
-            readingContext,
-          );
+    const nativeWorkReadingState = this.#lineageProjection.subjects.find(
+      (subject) => subject.identity.kind === "effort" && subject.identity.id === effort.id,
+    )?.nativeWorkReadingState;
     if (effort.workBinding !== undefined && providerCapture === undefined) {
       closureIssues.push(
         relationIssue(
@@ -940,6 +931,16 @@ export const buildPlanningGraph = async (
       effectiveFreshness: observation.freshness.assessment,
       latestAttempt: null,
     }));
+  const lineageObservationByScope = new Map<string, MattSkillsV1ProviderObservation>();
+  for (const observation of input.nativeScopeInspectionObservations ?? []) {
+    lineageObservationByScope.set(mattNativeScopeKey(observation.binding), observation);
+  }
+  for (const observation of input.providerObservations) {
+    lineageObservationByScope.set(mattNativeScopeKey(observation.binding), observation);
+  }
+  const lineageObservations = [...lineageObservationByScope.values()].sort((left, right) =>
+    mattNativeScopeKey(left.binding).localeCompare(mattNativeScopeKey(right.binding), "en"),
+  );
   const effortLocators = new Set(
     input.decoded.records
       .filter((record) => record.type === "effort")
@@ -975,7 +976,7 @@ export const buildPlanningGraph = async (
     governance.sources,
     assets.sources,
     decisions.sources,
-    buildMattNativeSourceRecords(input.providerObservations, input.fingerprint),
+    buildMattNativeSourceRecords(lineageObservations, input.fingerprint),
   ]);
   const assetSourceByIdentity = new Map(
     sources.flatMap((source) =>
@@ -1046,6 +1047,15 @@ export const buildPlanningGraph = async (
     reviews: decisions.reviews,
     providerObservations: input.providerObservations,
     providerObservationSelections,
+    nativeScopeDiscovery: buildNativeScopeDiscoveryProjection(
+      input.nativeScopeDiscovery,
+      planningProjection.efforts,
+      lineageObservations,
+    ),
+    nativeScopeInspections: {
+      observations: input.nativeScopeInspectionObservations ?? [],
+      selections: input.nativeScopeInspectionSelections ?? [],
+    },
     sources,
   });
   const knownKinds = new Map<string, Set<string>>();

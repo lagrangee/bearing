@@ -60,7 +60,7 @@ export const discoveredScopeProjectionSchema = z.strictObject({
       effortIds: uniqueIdentityArraySchema(effortIdSchema, (effortId) => effortId).min(1),
     }),
   ]),
-  detailAvailability: z.literal("summary-only"),
+  detailAvailability: z.enum(["summary-only", "details-inspected"]),
 });
 
 const observedShape = {

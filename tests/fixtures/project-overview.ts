@@ -374,7 +374,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 11,
+    schemaVersion: 12,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -722,6 +722,7 @@ export const createProjectOverviewFixture = () => {
     ...candidate,
     providerObservationSelections,
     nativeScopeDiscovery: { state: "never-run" },
+    nativeScopeInspections: { observations: [], selections: [] },
     lineage: buildPlanningLineageProjection({
       roadmaps: candidate.roadmaps,
       gates: candidate.gates,

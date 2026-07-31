@@ -89,3 +89,26 @@ export const discoverNativeScopes = async (
     }),
     projectSyncEnvelopeSchema,
   );
+
+export const inspectNativeScope = async (
+  entryId: string,
+  subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
+  target: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
+  refresh: boolean,
+  csrfToken: string,
+  signal: AbortSignal,
+): Promise<ProjectSyncEnvelope> =>
+  readJson(
+    await window.fetch(`/api/v1/projects/${encodeURIComponent(entryId)}/inspect-native-scope`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Bearing-CSRF-Token": csrfToken,
+      },
+      body: JSON.stringify({ version: 1, subject, target, refresh }),
+      signal,
+    }),
+    projectSyncEnvelopeSchema,
+  );

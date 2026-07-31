@@ -1,8 +1,13 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { createNativeScopeDiscoveryObservation } from "../src/native-scope-discovery";
+import { createProviderScopeObservation } from "../src/native-work-provider";
+import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { buildNativeScopeDiscoveryProjection } from "../src/project-snapshot/native-scope-discovery";
+import { buildMattNativeSourceRecords } from "../src/project-snapshot/native-work-sources";
+import { mergeSourceRecords } from "../src/project-snapshot/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
+import { parseRebuiltPlanningLineageFixture } from "../tests/planning-lineage-fixture";
 import { browserArtifactPath } from "./browser-artifact-output";
 
 const completedAt = "2026-07-13T20:00:00+08:00";
@@ -84,7 +89,7 @@ const discoveredProjectView = () => {
     coverage: "complete",
     scopes: [
       {
-        identity: "local-scope:.scratch/discovered",
+        identity: ".scratch/discovered",
         binding: { provider: "matt-skills/v1", nativeScope: ".scratch/discovered" },
         locator: ".scratch/discovered",
         driver: "local",
@@ -95,13 +100,35 @@ const discoveredProjectView = () => {
         admission: ["contract-map"],
         subjects: [
           {
-            identity: "local:.scratch/discovered/map.md",
+            identity: ".scratch/discovered/map.md",
             locator: ".scratch/discovered/map.md",
             title: "Discovered delivery",
             classification: "map",
             lifecycle: "open",
             parentIdentity: null,
             admission: ["contract-map"],
+          },
+        ],
+      },
+      {
+        identity: ".scratch/research",
+        binding: { provider: "matt-skills/v1", nativeScope: ".scratch/research" },
+        locator: ".scratch/research",
+        driver: "local",
+        rootRole: "standalone-request",
+        title: "Discovered research",
+        lifecycle: "closed",
+        classification: "request",
+        admission: ["contract-standalone"],
+        subjects: [
+          {
+            identity: ".scratch/research/issue.md",
+            locator: ".scratch/research/issue.md",
+            title: "Discovered research",
+            classification: "request",
+            lifecycle: "closed",
+            parentIdentity: null,
+            admission: ["contract-standalone"],
           },
         ],
       },
@@ -124,13 +151,17 @@ const discoveredProjectView = () => {
     },
     snapshot.efforts,
   );
+  const discoveredSnapshot = parseRebuiltPlanningLineageFixture({
+    ...snapshot,
+    nativeScopeDiscovery,
+  } as ProjectSnapshot);
   return {
     ...view,
     cache: {
       ...view.cache,
       snapshot: {
         ...view.cache.snapshot,
-        snapshot: { ...snapshot, nativeScopeDiscovery },
+        snapshot: discoveredSnapshot,
       },
     },
   };
@@ -140,6 +171,151 @@ const discoveredEnvelope = () => ({
   ...completedEnvelope(),
   view: discoveredProjectView(),
 });
+
+const inspectedProjectView = (latestAttemptFailed = false) => {
+  const view = discoveredProjectView();
+  if (view.cache.snapshot.state !== "available") throw new Error("Expected Snapshot fixture.");
+  const snapshot = view.cache.snapshot.snapshot;
+  const template = snapshot.providerObservations.find(
+    (observation) => observation.binding.nativeScope === ".scratch/portal",
+  );
+  if (template === undefined || (template.state !== "available" && template.state !== "partial")) {
+    throw new Error("Expected Local provider fixture.");
+  }
+  const projection = JSON.parse(
+    JSON.stringify(template.projection).replaceAll(".scratch/portal", ".scratch/discovered"),
+  ) as typeof template.projection;
+  const observation = createProviderScopeObservation({
+    provider: "matt-skills/v1",
+    binding: { provider: "matt-skills/v1", nativeScope: ".scratch/discovered" },
+    observedAt: "2026-07-31T08:35:00.000Z",
+    sourceRevision: "fixture:inspection",
+    validators: [],
+    state: "available",
+    freshness: {
+      assessment: "current",
+      evidence: [{ kind: "fixture", value: "targeted-inspection" }],
+    },
+    coverage: {
+      assessment: "complete",
+      dimensions: [{ key: "scope-membership", state: "covered" }],
+    },
+    completion: "complete",
+    diagnostics: [],
+    projection,
+  });
+  const nativeScopeInspections = {
+    observations: [observation],
+    selections: [
+      {
+        provider: "matt-skills/v1" as const,
+        nativeScope: observation.binding.nativeScope,
+        observationId: observation.id,
+        effectiveFreshness: latestAttemptFailed ? ("undetermined" as const) : ("current" as const),
+        latestAttempt: {
+          intent: "native-scope-inspection" as const,
+          attemptedAt: latestAttemptFailed
+            ? "2026-07-31T08:40:00.000Z"
+            : "2026-07-31T08:35:00.000Z",
+          outcome: latestAttemptFailed ? ("failed" as const) : ("succeeded" as const),
+          diagnostics: latestAttemptFailed
+            ? [
+                {
+                  code: "native-scope-inspection.incomplete",
+                  impact: "blocking" as const,
+                  target: ".scratch/discovered",
+                  message: "The latest detail refresh could not complete.",
+                },
+              ]
+            : [],
+        },
+      },
+    ],
+  };
+  const nativeScopeDiscovery =
+    snapshot.nativeScopeDiscovery.state === "never-run"
+      ? snapshot.nativeScopeDiscovery
+      : {
+          ...snapshot.nativeScopeDiscovery,
+          scopes: snapshot.nativeScopeDiscovery.scopes.map((candidate) => ({
+            ...candidate,
+            detailAvailability:
+              candidate.summary.binding.nativeScope === ".scratch/discovered"
+                ? ("details-inspected" as const)
+                : candidate.detailAvailability,
+          })),
+        };
+  const inspectedSnapshot = parseRebuiltPlanningLineageFixture({
+    ...snapshot,
+    nativeScopeDiscovery,
+    nativeScopeInspections,
+    sources: mergeSourceRecords([
+      snapshot.sources,
+      buildMattNativeSourceRecords([observation], snapshot.basis.sitemapFingerprint),
+    ]),
+  } as ProjectSnapshot);
+  return {
+    ...view,
+    cache: {
+      ...view.cache,
+      snapshot: { state: "available" as const, snapshot: inspectedSnapshot },
+    },
+  };
+};
+
+const inspectedEnvelope = (latestAttemptFailed = false) => ({
+  version: 1,
+  state: "completed",
+  mode: "force",
+  outcome: "applied",
+  reconciliation: "applied",
+  snapshotDisposition: "materialized",
+  view: inspectedProjectView(latestAttemptFailed),
+  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
+});
+
+const unavailableInspectionEnvelope = () => {
+  const view = discoveredProjectView();
+  if (view.cache.snapshot.state !== "available") throw new Error("Expected Snapshot fixture.");
+  const snapshot = view.cache.snapshot.snapshot;
+  const failedSnapshot = parseRebuiltPlanningLineageFixture({
+    ...snapshot,
+    nativeScopeInspections: {
+      observations: [],
+      selections: [
+        {
+          provider: "matt-skills/v1",
+          nativeScope: ".scratch/discovered",
+          observationId: null,
+          effectiveFreshness: "undetermined",
+          latestAttempt: {
+            intent: "native-scope-inspection",
+            attemptedAt: "2026-07-31T08:35:00.000Z",
+            outcome: "failed",
+            diagnostics: [
+              {
+                code: "native-scope-inspection.acquisition-failed",
+                impact: "blocking",
+                target: ".scratch/discovered",
+                message: "Native scope detail acquisition failed.",
+              },
+            ],
+          },
+        },
+      ],
+    },
+  } as ProjectSnapshot);
+  return {
+    ...inspectedEnvelope(),
+    view: {
+      ...view,
+      cache: {
+        ...view.cache,
+        snapshot: { state: "available" as const, snapshot: failedSnapshot },
+      },
+    },
+  };
+};
 
 const failedEnvelope = () => ({
   version: 1,
@@ -408,6 +584,7 @@ test("explicit discovered-work refresh is keyboard operable and retains evidence
   page,
 }) => {
   let discoveryCalls = 0;
+  const inspectionBodies: string[] = [];
   let discoveryPublished = false;
   let releaseDiscovery = () => {};
   const discoveryGate = new Promise<void>((resolve) => {
@@ -432,6 +609,20 @@ test("explicit discovered-work refresh is keyboard operable and retains evidence
       json: { code: "request-failed", message: "Portal request failed." },
     });
   });
+  let releaseInspection = () => {};
+  const inspectionGate = new Promise<void>((resolve) => {
+    releaseInspection = resolve;
+  });
+  await page.route("**/api/v1/projects/overview/inspect-native-scope", async (route) => {
+    inspectionBodies.push(route.request().postData() ?? "");
+    if (inspectionBodies.length === 1) {
+      await inspectionGate;
+      return route.fulfill({ json: unavailableInspectionEnvelope() });
+    }
+    return route.fulfill({
+      json: inspectionBodies.length === 2 ? inspectedEnvelope() : inspectedEnvelope(true),
+    });
+  });
   await page.goto("/projects/overview");
 
   const discover = page.getByRole("button", { name: "Discover native work" });
@@ -453,7 +644,127 @@ test("explicit discovered-work refresh is keyboard operable and retains evidence
   await expect(page.getByRole("heading", { name: "Discovered delivery" })).toBeVisible();
   expect(discoveryCalls).toBe(2);
   await expectMinimumTarget(refresh, 40);
+
+  await page.getByRole("link", { name: "Discovered delivery" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Inspecting native scope" }),
+  ).toBeVisible();
+  expect(inspectionBodies).toEqual([
+    JSON.stringify({
+      version: 1,
+      subject: { kind: "native-scope", id: ".scratch/discovered" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/discovered" },
+      refresh: false,
+    }),
+  ]);
+  releaseInspection();
+  await expect(
+    page.getByRole("heading", { name: "Native scope detail unavailable" }),
+  ).toBeVisible();
+  await expect(page.getByText(/Detail freshness is undetermined/u)).toBeVisible();
+  await page.getByRole("button", { name: "Retry details" }).click();
+  await expect(page.getByRole("heading", { name: ".scratch/discovered", level: 1 })).toBeVisible();
+  const refreshDetails = page.getByRole("button", { name: "Refresh details" });
+  await expect(refreshDetails).toBeVisible();
+  await refreshDetails.click();
+  await expect(page.getByText(/latest refresh failed/u)).toBeVisible();
+  await expect(page.getByText("undetermined", { exact: false }).first()).toBeVisible();
+  expect(inspectionBodies).toEqual([
+    JSON.stringify({
+      version: 1,
+      subject: { kind: "native-scope", id: ".scratch/discovered" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/discovered" },
+      refresh: false,
+    }),
+    JSON.stringify({
+      version: 1,
+      subject: { kind: "native-scope", id: ".scratch/discovered" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/discovered" },
+      refresh: true,
+    }),
+    JSON.stringify({
+      version: 1,
+      subject: { kind: "native-scope", id: ".scratch/discovered" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/discovered" },
+      refresh: true,
+    }),
+  ]);
+  await expectMinimumTarget(refreshDetails, 40);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("a failed inspection stays scoped to its subject and does not block another target", async ({
+  page,
+}) => {
+  const inspectionBodies: string[] = [];
+  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
+    route.fulfill({ json: { ...readyEnvelope(false), view: discoveredProjectView() } }),
+  );
+  await page.route("**/api/v1/projects/overview/inspect-native-scope", async (route) => {
+    inspectionBodies.push(route.request().postData() ?? "");
+    return route.fulfill({ json: unavailableInspectionEnvelope() });
+  });
+  await page.goto("/projects/overview");
+
+  await page.getByRole("link", { name: "Discovered delivery" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Native scope detail unavailable" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Overview", exact: true }).click();
+  await page.getByRole("link", { name: "Discovered research" }).click();
+  await expect.poll(() => inspectionBodies.length).toBe(2);
+  expect(inspectionBodies).toEqual([
+    JSON.stringify({
+      version: 1,
+      subject: { kind: "native-scope", id: ".scratch/discovered" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/discovered" },
+      refresh: false,
+    }),
+    JSON.stringify({
+      version: 1,
+      subject: { kind: "native-scope", id: ".scratch/research" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/research" },
+      refresh: false,
+    }),
+  ]);
+});
+
+test("a persisted first inspection failure does not reacquire until explicit Retry", async ({
+  page,
+}) => {
+  const inspectionBodies: string[] = [];
+  const failed = unavailableInspectionEnvelope();
+  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
+    route.fulfill({ json: { ...readyEnvelope(false), view: failed.view } }),
+  );
+  await page.route("**/api/v1/projects/overview/inspect-native-scope", async (route) => {
+    inspectionBodies.push(route.request().postData() ?? "");
+    return route.fulfill({ json: failed });
+  });
+  await page.goto("/projects/overview");
+
+  await page.getByRole("link", { name: "Discovered delivery" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Native scope detail unavailable" }),
+  ).toBeVisible();
+  expect(inspectionBodies).toEqual([]);
+
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Native scope detail unavailable" }),
+  ).toBeVisible();
+  expect(inspectionBodies).toEqual([]);
+
+  await page.getByRole("button", { name: "Retry details" }).click();
+  await expect.poll(() => inspectionBodies.length).toBe(1);
+  expect(inspectionBodies).toEqual([
+    JSON.stringify({
+      version: 1,
+      subject: { kind: "native-scope", id: ".scratch/discovered" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/discovered" },
+      refresh: true,
+    }),
+  ]);
 });
 
 test("retained cache stays readable and Retry performs a forced reconciliation", async ({

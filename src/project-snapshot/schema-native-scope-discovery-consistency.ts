@@ -1,4 +1,5 @@
 import type { RefinementCtx } from "zod";
+import { sameMattNativeScope } from "../providers/matt-skills-v1/native-subject";
 import {
   type NativeScopeDiscoveryEffortCollection,
   type NativeScopeDiscoveryProjection,
@@ -15,7 +16,15 @@ type SnapshotDiagnostic = Readonly<{
 
 export type NativeScopeDiscoveryConsistencySnapshot = Readonly<{
   efforts: NativeScopeDiscoveryEffortCollection;
+  providerObservations: readonly Readonly<{
+    binding: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>;
+  }>[];
   nativeScopeDiscovery: NativeScopeDiscoveryProjection;
+  nativeScopeInspections: Readonly<{
+    observations: readonly Readonly<{
+      binding: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>;
+    }>[];
+  }>;
   diagnostics: readonly SnapshotDiagnostic[];
 }>;
 
@@ -78,6 +87,20 @@ export const validateNativeScopeDiscoveryConsistency = (
         path: ["nativeScopeDiscovery", "scopes", scopeIndex, "bindingContext"],
         message:
           "Discovered scope binding context must be derived exactly from trustworthy Efforts.",
+      });
+    }
+    const expectedDetailAvailability = [
+      ...snapshot.providerObservations,
+      ...snapshot.nativeScopeInspections.observations,
+    ].some((observation) => sameMattNativeScope(observation.binding, scope.summary.binding))
+      ? "details-inspected"
+      : "summary-only";
+    if (scope.detailAvailability !== expectedDetailAvailability) {
+      context.addIssue({
+        code: "custom",
+        path: ["nativeScopeDiscovery", "scopes", scopeIndex, "detailAvailability"],
+        message:
+          "Discovery detail availability must reflect a matching bound capture or targeted inspection.",
       });
     }
   }

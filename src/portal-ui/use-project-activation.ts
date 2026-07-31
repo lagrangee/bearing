@@ -14,6 +14,7 @@ import {
 } from "./project-activation-state";
 import {
   discoverNativeScopes,
+  inspectNativeScope,
   type ProjectOperationError,
   type ProjectView,
   readProjectSnapshot,
@@ -35,6 +36,15 @@ export type ProjectActivation = Readonly<{
   retry: () => void;
   discovery: Readonly<{ state: "idle" | "running" | "failed" }>;
   refreshDiscovery: () => void;
+  inspection: Readonly<{
+    state: "idle" | "running" | "failed";
+    subjectKey?: string | undefined;
+  }>;
+  inspectNativeScope: (
+    subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
+    target: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
+    refresh: boolean,
+  ) => void;
 }>;
 
 export const useProjectActivation = (entryId: string): ProjectActivation => {
@@ -42,6 +52,12 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
   const [discovery, setDiscovery] = useState<Readonly<{ state: "idle" | "running" | "failed" }>>({
     state: "idle",
   });
+  const [inspection, setInspection] = useState<
+    Readonly<{
+      state: "idle" | "running" | "failed";
+      subjectKey?: string | undefined;
+    }>
+  >({ state: "idle" });
   const stateRef = useRef(state);
   const stateEntryIdRef = useRef(entryId);
   const csrfTokenRef = useRef<string | undefined>(undefined);
@@ -208,9 +224,57 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       });
   }, [applySyncResult, discovery.state, dispatchCurrent, entryId, withController]);
 
+  const inspectScope = useCallback(
+    (
+      subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
+      target: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
+      refresh: boolean,
+    ) => {
+      const csrfToken = csrfTokenRef.current;
+      const subjectKey = `${subject.kind}:${subject.id}`;
+      if (csrfToken === undefined || inspection.state === "running") return;
+      const requestId = ++requestIdRef.current;
+      busyRequestRef.current = requestId;
+      automaticRequestRef.current = undefined;
+      const candidate = visibleProjectView(stateRef.current);
+      const cached = candidate?.project.entryId === entryId ? candidate : undefined;
+      setInspection({ state: "running", subjectKey });
+      void withController((signal) =>
+        inspectNativeScope(entryId, subject, target, refresh, csrfToken, signal),
+      )
+        .then((result) => {
+          applySyncResult(requestId, result);
+          setInspection(
+            result.state === "failed"
+              ? { state: "failed", subjectKey }
+              : { state: "idle", subjectKey },
+          );
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            setInspection({ state: "idle" });
+            return;
+          }
+          setInspection({ state: "failed", subjectKey });
+          if (cached !== undefined) {
+            dispatchCurrent(requestId, {
+              type: "settled",
+              confirmation: "checked-recently",
+              view: cached,
+            });
+          }
+        })
+        .finally(() => {
+          if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
+        });
+    },
+    [applySyncResult, dispatchCurrent, entryId, inspection.state, withController],
+  );
+
   useEffect(() => {
     csrfTokenRef.current = undefined;
     setDiscovery({ state: "idle" });
+    setInspection({ state: "idle" });
     void activate();
     return () => {
       requestIdRef.current += 1;
@@ -271,7 +335,15 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
   const candidate = visibleProjectView(scopedState);
   const view = candidate?.project.entryId === entryId ? candidate : undefined;
   return view === undefined
-    ? { state: scopedState, forceSync, retry, discovery, refreshDiscovery }
+    ? {
+        state: scopedState,
+        forceSync,
+        retry,
+        discovery,
+        refreshDiscovery,
+        inspection,
+        inspectNativeScope: inspectScope,
+      }
     : {
         state: scopedState,
         view,
@@ -279,5 +351,7 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
         retry,
         discovery,
         refreshDiscovery,
+        inspection,
+        inspectNativeScope: inspectScope,
       };
 };
