@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { PortalCatalogEnvelope } from "../portal-catalog-wire";
+import { createAssetPreviewService } from "./asset-preview";
 import { type PortalAssets, PROJECT_SNAPSHOT_VERSION } from "./assets";
 import type { CatalogReadResult } from "./contract";
 import { registerProjectRoutes } from "./project-routes";
@@ -79,6 +80,7 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
         ? {}
         : { operationExecutorFor: options.operationExecutorFor }),
     });
+  const assetPreview = createAssetPreviewService({ readCatalog: options.readCatalog });
 
   app.onError((_error, context) => {
     if (new URL(context.req.url).pathname.startsWith("/api/")) {
@@ -167,7 +169,7 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     return context.json(response);
   });
 
-  registerProjectRoutes(app, { projects, sessions });
+  registerProjectRoutes(app, { assetPreview, projects, sessions });
 
   app.all("/api/*", (context) =>
     context.json({ code: "not-found", message: "No such Portal product action." }, 404),

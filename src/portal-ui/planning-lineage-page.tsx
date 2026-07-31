@@ -1062,9 +1062,15 @@ export function PlanningLineagePage({
               <ul className="lineage-section-links">
                 {section.links.map((item) => (
                   <li key={`${section.anchor}:${item.href}`}>
-                    <a href={item.href} onClick={(event) => follow(item.href, event, onNavigate)}>
-                      {item.label}
-                    </a>
+                    {item.external ? (
+                      <a href={item.href} rel="noopener noreferrer" target="_blank">
+                        {item.label}
+                      </a>
+                    ) : (
+                      <a href={item.href} onClick={(event) => follow(item.href, event, onNavigate)}>
+                        {item.label}
+                      </a>
+                    )}
                     <span> · {item.detail}</span>
                   </li>
                 ))}

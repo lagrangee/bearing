@@ -5,6 +5,7 @@ import { Icons } from "./icons";
 import { Inspector } from "./shell";
 
 export type ProjectInspectorSelection = Readonly<{
+  contentAction?: Readonly<{ href: string; label: string }> | undefined;
   detail?: string | undefined;
   eyebrow: string;
   facts?: readonly Readonly<{ label: string; value: string; code?: boolean | undefined }>[];
@@ -110,6 +111,16 @@ export function ProjectContextInspector({
           )}
         </section>
       ))}
+      {selection.contentAction === undefined ? null : (
+        <a
+          className="action action-primary inspector-preview"
+          href={selection.contentAction.href}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          {selection.contentAction.label} <Icons.arrow />
+        </a>
+      )}
       {selection.fullDetailHref === undefined ? null : (
         <a
           className="action action-primary inspector-enter"

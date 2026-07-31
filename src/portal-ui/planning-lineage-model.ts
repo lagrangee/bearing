@@ -59,6 +59,7 @@ import {
   planningLineageEventsFor,
   planningLineageRelationEvent,
 } from "./planning-lineage-events";
+import { assetPreviewHref } from "./project-route";
 
 const RELATION_PREVIEW_LIMIT = 3;
 
@@ -114,6 +115,7 @@ export type PlanningLineageSection = Readonly<{
         label: string;
         detail: string;
         href: string;
+        external?: boolean | undefined;
       }>[]
     | undefined;
   times?: readonly PlanningLineageTimeFact[] | undefined;
@@ -607,7 +609,10 @@ const planningReviewSections = (review: PlanningReview): readonly PlanningLineag
   ),
 ];
 
-const assetSections = (asset: AssetProjection): readonly PlanningLineageSection[] => {
+const assetSections = (
+  asset: AssetProjection,
+  entryId: string,
+): readonly PlanningLineageSection[] => {
   const evidenceRoles = asset.evidenceRoles.map(assetEvidenceRoleLabel);
   return [
     {
@@ -649,7 +654,22 @@ const assetSections = (asset: AssetProjection): readonly PlanningLineageSection[
     {
       anchor: "asset.preview",
       title: "Preview Availability",
-      body: `Preview capability is unavailable in the current typed contract. Content availability is ${asset.contentAvailability}.`,
+      body:
+        asset.contentAvailability === "available"
+          ? "Open preview reads current-checkout content and does not claim historical Snapshot bytes."
+          : `Preview is unavailable because Content Availability is ${asset.contentAvailability}.`,
+      ...(asset.contentAvailability === "available"
+        ? {
+            links: [
+              {
+                label: "Open preview",
+                detail: "Current-checkout content · isolated window",
+                href: assetPreviewHref(entryId, asset.id),
+                external: true,
+              },
+            ],
+          }
+        : {}),
     },
   ];
 };
@@ -1137,7 +1157,7 @@ const sectionsFor = (
     case "planning-review":
       return planningReviewSections(record as PlanningReview);
     case "asset":
-      return assetSections(record as AssetProjection);
+      return assetSections(record as AssetProjection, entryId);
     case "native-scope":
     case "native-subject":
       return nativeSections(snapshot, record as NativeRecord);

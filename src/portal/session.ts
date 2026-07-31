@@ -60,7 +60,7 @@ export const createPortalSessionManager = (secret: string): PortalSessionManager
       const created = create();
       return {
         csrfToken: created.record.csrfToken,
-        cookie: `${COOKIE_NAME}=${created.id}.${signature(created.id)}; Path=/; HttpOnly; SameSite=Strict`,
+        cookie: `${COOKIE_NAME}=${created.id}.${signature(created.id)}; Path=/api/; HttpOnly; SameSite=Strict`,
       };
     },
     verify(cookieHeader: string | undefined, csrfToken: string | undefined): boolean {

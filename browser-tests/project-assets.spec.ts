@@ -283,6 +283,23 @@ test("Assets keeps stable rows searchable, filterable, inspectable, copy-only, a
     "href",
     "/projects/assets/lineage/asset/asset%3Aplanning-model-evidence",
   );
+  await expect(inspector.getByRole("link", { name: "Open preview" })).toHaveAttribute(
+    "target",
+    "_blank",
+  );
+  await expect(inspector.getByRole("link", { name: "Open preview" })).toHaveAttribute(
+    "rel",
+    "noopener noreferrer",
+  );
+  await expect(inspector.getByRole("link", { name: "Open preview" })).toHaveAttribute(
+    "href",
+    "/preview/projects/assets/assets/asset%3Aplanning-model-evidence",
+  );
+  const previewPagePromise = context.waitForEvent("page");
+  await inspector.getByRole("link", { name: "Open preview" }).click();
+  const previewPage = await previewPagePromise;
+  await expect.poll(() => previewPage.url()).toContain("/preview/projects/assets/assets/");
+  await previewPage.close();
   await expect(inspector.getByRole("button", { name: /Resume in Agent Surface/u })).toHaveCount(0);
   await expect(inspector.getByRole("button", { name: /Open native source/u })).toHaveCount(0);
   await expect(inspector.getByRole("button", { name: /Open in surface/u })).toHaveCount(0);
@@ -350,6 +367,9 @@ test("Assets preserves zero citations, keyboard return, and modal focus at revie
   await page.keyboard.press("Tab");
   const copyLocation = dialog.getByRole("button", { name: "Copy Asset Location" });
   await expect(copyLocation).toBeFocused();
+  await page.keyboard.press("Tab");
+  const openPreview = dialog.getByRole("link", { name: "Open preview" });
+  await expect(openPreview).toBeFocused();
   await page.keyboard.press("Tab");
   const fullDetail = dialog.getByRole("link", { name: "Open full detail" });
   await expect(fullDetail).toBeFocused();

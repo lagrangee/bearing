@@ -13,6 +13,7 @@ import { Action } from "./primitives";
 import { assetInspection, buildProjectAssetsModel, filterAssetRows } from "./project-assets-model";
 import { readProjectCanvasHistory, updateAssetCanvasFilters } from "./project-canvas-history";
 import type { ProjectInspectorSelection } from "./project-inspector";
+import { assetPreviewHref } from "./project-route";
 
 type Inspect = (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
 
@@ -182,6 +183,14 @@ export function AssetsPage({
                   onInspect(
                     {
                       ...assetInspection(row),
+                      ...(row.asset.contentAvailability === "available"
+                        ? {
+                            contentAction: {
+                              href: assetPreviewHref(entryId, row.asset.id),
+                              label: "Open preview",
+                            },
+                          }
+                        : {}),
                       fullDetailHref: href,
                     },
                     trigger,

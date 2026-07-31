@@ -33,3 +33,10 @@ test("reuses an admitted session without rotating its CSRF token or cookie", () 
     csrfToken: created.csrfToken,
   });
 });
+
+test("limits the Portal session cookie to the API authority surface", () => {
+  const sessions = createPortalSessionManager(secret);
+  const created = sessions.establish(undefined);
+  expect(created.cookie).toContain("Path=/api/");
+  expect(created.cookie).not.toContain("Path=/;");
+});

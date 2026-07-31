@@ -20,6 +20,9 @@ export type PortalRoute =
       filteredView?: RequestedPlanningLineageFilteredView | undefined;
     }>;
 
+export const assetPreviewHref = (entryId: string, assetId: string): string =>
+  `/preview/projects/${encodeURIComponent(entryId)}/assets/${encodeURIComponent(assetId)}`;
+
 const sectionFor = (value: string | undefined): ProjectSection | undefined => {
   switch (value) {
     case undefined:

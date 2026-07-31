@@ -21,11 +21,13 @@ const restrictedNames = new Set(["react-doctor", "deslop-js", "oxlint-plugin-rea
 const acceptedLicenses = new Set([
   "0BSD",
   "Apache-2.0",
+  "BSD-2-Clause",
   "BSD-3-Clause",
   "ISC",
   "MIT",
   "MIT OR Apache-2.0",
   "MPL-2.0",
+  "Python-2.0",
 ]);
 const requiredNoticeMarkers = [
   "Copyright (c) 2022 - present, Yusuke Wada and Hono contributors",
