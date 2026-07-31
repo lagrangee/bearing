@@ -11,6 +11,7 @@ import packageMetadata from "../package.json";
 import { createPlanningLineageAgentHandoff } from "./agent-planning-lineage-handoff";
 import { registerAsset } from "./asset-registration";
 import { runCatalogCommand } from "./catalog/cli";
+import { readCatalogDocument, withCatalogEntryLeaseStatus } from "./catalog/store";
 import {
   executorNominationAssessmentSchema,
   resolveExecutorNominations,
@@ -18,16 +19,25 @@ import {
 } from "./executor-registration";
 import { writeInspectBenchmarkMetrics } from "./inspect-benchmark";
 import { installKit } from "./installer";
+import { assessNativeReconciliation } from "./native-reconciliation-assessment";
+import {
+  nativeWorkAffectedRelationSchema,
+  normalizeNativeReconciliationRequest,
+} from "./native-reconciliation-contract";
+import { resolveRepositoryRoot } from "./path-boundary";
 import { createPlanningGraphInstrumentation } from "./planning-graph-instrumentation";
 import { parsePortalPort } from "./portal/port";
+import { createProjectMaterializer } from "./portal/project-materializer";
 import { startPortalServer } from "./portal/server";
+import { readProjectSnapshotCache } from "./project-snapshot/cache";
 import { reconcileRepository } from "./reconcile-repository";
 import { deactivateRepository, inspectPurgePlan, purgeRepository } from "./repo-lifecycle";
 import { inspectLegacyCutoverPlan } from "./repository-cutover";
 import { planRepositoryIntegration } from "./repository-integration-plan";
 import { runSync } from "./sync";
 import { commitSyncPlan, prepareSync } from "./sync-plan";
-import type { AgentSurface } from "./types";
+import { readSyncReceipt } from "./sync-receipt";
+import type { AgentSurface, StructuralDiagnostic } from "./types";
 
 const HELP = `Bearing ${packageMetadata.version}
 
@@ -40,6 +50,7 @@ Usage:
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [--producer-reference <reference>] [--produced-for <reference>] [--produced-at <date-or-ISO-instant>]
   bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
   bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification] [--discover-native-scopes]
+  bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
   bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]
   bearing portal [--port <1-65535>]
   bearing --help
@@ -54,6 +65,7 @@ Commands:
   asset    Register factual durable-output metadata in the repository Asset Registry.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
   sync     Rebuild deterministic diagnostics and the Project Sitemap under .bearing/cache/.
+  reconcile-native  Re-observe only the native subjects and relations affected by one completed Matt transaction.
   inspect  Return one generation-scoped planning context closure.
   portal   Run the foreground loopback Portal Host and compiled browser Module.
 
@@ -491,6 +503,132 @@ const runSyncCommand = async (args: readonly string[]): Promise<void> => {
   }
 };
 
+const runNativeReconciliationCommand = async (args: readonly string[]): Promise<void> => {
+  const parsed = parseArgs({
+    args: [...args],
+    options: {
+      repo: { type: "string" },
+      scope: { type: "string" },
+      ref: { type: "string", multiple: true },
+      relation: { type: "string", multiple: true },
+    },
+    allowPositionals: false,
+    strict: true,
+  });
+  const nativeScope = parsed.values.scope;
+  if (nativeScope === undefined) {
+    throw new Error("Targeted native reconciliation requires --scope <opaque-native-scope>.");
+  }
+  const relations = (parsed.values.relation ?? []).map((encoded) => {
+    let value: unknown;
+    try {
+      value = JSON.parse(encoded);
+    } catch (error) {
+      throw new Error("Every --relation value must be one JSON relation object.", {
+        cause: error,
+      });
+    }
+    return nativeWorkAffectedRelationSchema.parse(value);
+  });
+  const request = normalizeNativeReconciliationRequest({
+    binding: { provider: "matt-skills/v1", nativeScope },
+    subjects: parsed.values.ref ?? [],
+    relations,
+  });
+  const repoRoot = await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd()));
+  const catalog = await readCatalogDocument({ homeDir: homeDirectory() });
+  const entry = catalog.entries.find((candidate) => candidate.repoRoot === repoRoot);
+  if (entry === undefined) {
+    throw new Error(
+      "Targeted native reconciliation requires the repository's current Project Catalog entry.",
+    );
+  }
+  const invocationStartedAt = Date.now();
+  const materializer = createProjectMaterializer({
+    packageName: packageMetadata.name,
+    packageVersion: packageMetadata.version,
+  });
+  const coordinated = await withCatalogEntryLeaseStatus(
+    homeDirectory(),
+    entry.entryId,
+    entry.repoRoot,
+    async ({ contended }) => {
+      if (contended) {
+        const [cached, receipt] = await Promise.all([
+          readProjectSnapshotCache(repoRoot),
+          readSyncReceipt(join(repoRoot, ".bearing/cache/sync-receipt.json")),
+        ]);
+        if (
+          cached.kind === "available" &&
+          receipt.kind === "available" &&
+          receipt.receipt.operation?.kind === "native-reconciliation" &&
+          receipt.receipt.operation.requestFingerprint ===
+            assessNativeReconciliation({
+              request,
+              boundSelections: cached.snapshot.providerObservationSelections,
+              inspectionSelections: cached.snapshot.nativeScopeInspections.selections,
+            }).requestFingerprint &&
+          Date.parse(receipt.receipt.completedAt) >= invocationStartedAt
+        ) {
+          return {
+            snapshot: cached.snapshot,
+            snapshotDisposition: "reused" as const,
+            publication: "coalesced" as const,
+          };
+        }
+      }
+      const result = await materializer.run(
+        repoRoot,
+        "force",
+        undefined,
+        undefined,
+        "ordinary-sync",
+        "ordinary-sync",
+        { kind: "reconcile", request },
+      );
+      return {
+        snapshot: result.snapshot,
+        snapshotDisposition: result.snapshotDisposition,
+        publication: result.outcome,
+      };
+    },
+    30_000,
+  );
+  const reconciliation = assessNativeReconciliation({
+    request,
+    boundSelections: coordinated.snapshot.providerObservationSelections,
+    inspectionSelections: coordinated.snapshot.nativeScopeInspections.selections,
+  });
+  const diagnostics: StructuralDiagnostic[] = [
+    ...coordinated.snapshot.diagnostics,
+    ...reconciliation.diagnostics,
+  ].filter(
+    (diagnostic, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          candidate.code === diagnostic.code &&
+          candidate.impact === diagnostic.impact &&
+          candidate.target === diagnostic.target &&
+          candidate.message === diagnostic.message,
+      ) === index,
+  );
+  const blocked =
+    reconciliation.outcome === "failed" ||
+    diagnostics.some((diagnostic) => diagnostic.impact === "blocking");
+  const outcome = blocked
+    ? "blocked"
+    : coordinated.publication === "coalesced"
+      ? "coalesced"
+      : "succeeded";
+  process.stdout.write(
+    `Input fingerprint: ${coordinated.snapshot.basis.sitemapFingerprint}\nDiagnostics: ${diagnostics.length}\nScoped diagnostics: ${reconciliation.diagnostics.length}\nReconciliation: ${reconciliation.outcome}\nPublication: ${coordinated.publication}\nSnapshot: ${coordinated.snapshotDisposition}\nOutcome: ${outcome}\n`,
+  );
+  for (const diagnostic of reconciliation.diagnostics) {
+    process.stdout.write(`- ${diagnostic.code} [${diagnostic.target}]: ${diagnostic.message}\n`);
+  }
+  if (blocked) process.exitCode = 1;
+};
+
 const runInspectCommand = async (args: readonly string[]): Promise<void> => {
   const parsed = parseArgs({
     args: [...args],
@@ -623,6 +761,10 @@ const main = async (): Promise<void> => {
   }
   if (command === "sync") {
     await runSyncCommand(args);
+    return;
+  }
+  if (command === "reconcile-native") {
+    await runNativeReconciliationCommand(args);
     return;
   }
   if (command === "inspect") {

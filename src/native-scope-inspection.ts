@@ -1,6 +1,11 @@
 import { join } from "node:path";
 import stableStringify from "safe-stable-stringify";
 import { z } from "zod";
+import {
+  affectedSetFor,
+  type NativeReconciliationRequest,
+  nativeReconciliationRequestFingerprint,
+} from "./native-reconciliation-contract";
 import type { DiscoveredNativeScope, NativeScopeDiscoveryView } from "./native-scope-discovery";
 import type { nativeScopeInspectionSubjectSchema } from "./planning-lineage-route";
 import type { MattProviderFactory } from "./provider-observation-acquisition";
@@ -36,6 +41,10 @@ export type NativeScopeInspectionSubject = Readonly<
 
 export type NativeScopeInspectionIntent =
   | Readonly<{ kind: "none" }>
+  | Readonly<{
+      kind: "reconcile";
+      request: NativeReconciliationRequest;
+    }>
   | Readonly<{
       kind: "inspect";
       subject: NativeScopeInspectionSubject;
@@ -266,6 +275,40 @@ const storeWithoutSelection = (
   });
 };
 
+const storeSelectingInspection = (
+  store: NativeScopeInspectionStore,
+  binding: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
+  selection: NativeScopeInspectionSelection,
+  candidateObservation: MattSkillsV1ProviderObservation | undefined,
+): NativeScopeInspectionStore => {
+  const selections = [
+    ...store.selections.filter((entry) => !sameMattNativeScope(entry.selection, binding)),
+    selection,
+  ].sort((left, right) =>
+    mattNativeScopeKey(left.selection).localeCompare(mattNativeScopeKey(right.selection), "en"),
+  );
+  const selectedIds = new Set(
+    selections.flatMap((entry) =>
+      entry.selection.observationId === null ? [] : [entry.selection.observationId],
+    ),
+  );
+  const observations = [
+    ...store.observations,
+    ...(candidateObservation === undefined ? [] : [candidateObservation]),
+  ]
+    .filter((candidate) => selectedIds.has(candidate.id))
+    .filter(
+      (candidate, index, values) =>
+        values.findIndex((other) => other.id === candidate.id) === index,
+    )
+    .sort((left, right) => left.id.localeCompare(right.id, "en"));
+  return storeSchema.parse({
+    schemaVersion: STORE_VERSION,
+    observations,
+    selections,
+  });
+};
+
 const boundedPublishedStore = (
   candidate: NativeScopeInspectionStore,
   maximumBytes: number,
@@ -396,6 +439,192 @@ export const selectNativeScopeInspections = async (input: {
     };
   };
 
+  if (input.intent.kind === "reconcile") {
+    const request = input.intent.request;
+    const requestFingerprint = nativeReconciliationRequestFingerprint(request);
+    const bound = input.boundSelections.some((selection) =>
+      sameMattNativeBindingDefinition(selection, request.binding),
+    );
+    if (bound) return finish(store, "reused-bound", 0, request.binding);
+    const discovery = input.discovery;
+    const scope = discovery?.scopes.find((candidate) =>
+      sameMattNativeBindingDefinition(candidate.binding, request.binding),
+    );
+    if (scope === undefined || discovery === undefined || !discoveryCurrent(discovery)) {
+      const priorEntry = store.selections.find((entry) =>
+        sameMattNativeBindingDefinition(entry.selection, request.binding),
+      );
+      if (priorEntry === undefined) {
+        return finish(store, "target-unavailable", 0, request.binding);
+      }
+      const attemptedAt = (input.now ?? (() => new Date().toISOString()))();
+      const unavailableSelection: NativeScopeInspectionSelection = inspectionSelectionSchema.parse({
+        ...priorEntry,
+        selection: {
+          ...priorEntry.selection,
+          effectiveFreshness: "undetermined",
+          latestAttempt: {
+            intent: "targeted-reconciliation",
+            attemptedAt,
+            outcome: "failed",
+            diagnostics: [
+              operationDiagnostic(
+                "native-targeted-reconciliation.target-unavailable",
+                request.binding.nativeScope,
+                "The current Discovery basis does not expose this unbound native scope; run explicit Discovery before retrying targeted reconciliation.",
+              ),
+            ],
+            requestFingerprint,
+          },
+        },
+      });
+      return finish(
+        storeSelectingInspection(store, request.binding, unavailableSelection, undefined),
+        "target-unavailable",
+        0,
+        request.binding,
+      );
+    }
+    const priorEntry = selectionFor(store, scope);
+    const priorObservation =
+      priorEntry !== undefined &&
+      priorEntry.selection.effectiveFreshness === "current" &&
+      priorEntry.selection.latestAttempt?.outcome !== "failed"
+        ? observationFor(store, priorEntry)
+        : undefined;
+    const attemptedAt = (input.now ?? (() => new Date().toISOString()))();
+    const provider = resolveMattProvider(input.generation, input.providerFactory);
+    let observation: MattSkillsV1ProviderObservation | undefined;
+    let diagnostics: readonly StructuralDiagnostic[] = [];
+    let acquisitionCount = 0;
+    if (provider.state === "unavailable") {
+      diagnostics = provider.diagnostics;
+    } else if (provider.provider.reconcile === undefined) {
+      diagnostics = [
+        operationDiagnostic(
+          "native-targeted-reconciliation.unsupported",
+          scope.locator,
+          "The confirmed native-work provider does not support targeted reconciliation.",
+        ),
+      ];
+    } else {
+      try {
+        acquisitionCount = 1;
+        observation = await provider.provider.reconcile({
+          binding: scope.binding,
+          ...(priorObservation === undefined ? {} : { prior: priorObservation }),
+          affected: affectedSetFor(request),
+        });
+        diagnostics = structuralDiagnostics(observation);
+      } catch (error) {
+        if (!(error instanceof ProviderObservationAcquisitionUnavailableError)) throw error;
+        diagnostics = [
+          operationDiagnostic(
+            "native-targeted-reconciliation.acquisition-failed",
+            scope.locator,
+            "Targeted native reconciliation could not complete its bounded read.",
+          ),
+        ];
+      }
+    }
+    if (observation !== undefined && !serializedObservationFits(observation)) {
+      diagnostics = [
+        ...diagnostics,
+        operationDiagnostic(
+          "native-targeted-reconciliation.resource-budget",
+          scope.locator,
+          "Targeted native reconciliation exceeded the bounded observation budget.",
+        ),
+      ];
+      observation = undefined;
+    }
+    const successfulObservation =
+      observation !== undefined &&
+      observation.freshness.assessment === "current" &&
+      observation.diagnostics.every((diagnostic) => diagnostic.impact !== "blocking")
+        ? observation
+        : undefined;
+    const succeeded = successfulObservation !== undefined;
+    const failureDiagnostics = succeeded
+      ? diagnostics
+      : [
+          ...diagnostics,
+          operationDiagnostic(
+            "native-targeted-reconciliation.incomplete",
+            scope.locator,
+            observation === undefined
+              ? "Affected native work could not be revalidated."
+              : `Affected native work returned ${observation.state}/${observation.freshness.assessment} evidence.`,
+          ),
+        ];
+    const selectedObservation = successfulObservation ?? priorObservation;
+    const nextSelection: NativeScopeInspectionSelection = inspectionSelectionSchema.parse({
+      selection: {
+        provider: scope.binding.provider,
+        nativeScope: scope.binding.nativeScope,
+        observationId: selectedObservation?.id ?? null,
+        effectiveFreshness:
+          successfulObservation?.freshness.assessment ?? ("undetermined" as const),
+        latestAttempt: {
+          intent: "targeted-reconciliation",
+          attemptedAt,
+          outcome: succeeded ? "succeeded" : "failed",
+          diagnostics: succeeded ? diagnostics : failureDiagnostics,
+          requestFingerprint,
+        },
+      },
+      basis: {
+        discoveryObservationId: discovery.observationId,
+        summaryFingerprint: summaryFingerprint(scope),
+      },
+    });
+    let next = storeSelectingInspection(store, scope.binding, nextSelection, observation);
+    let finalSucceeded = succeeded;
+    if (serializeValidatedJson(storeSchema, next).length > maximumStoreBytes) {
+      finalSucceeded = false;
+      const retainedSelection: NativeScopeInspectionSelection = inspectionSelectionSchema.parse({
+        selection: {
+          provider: scope.binding.provider,
+          nativeScope: scope.binding.nativeScope,
+          observationId: priorObservation?.id ?? null,
+          effectiveFreshness: "undetermined",
+          latestAttempt: {
+            intent: "targeted-reconciliation",
+            attemptedAt,
+            outcome: "failed",
+            diagnostics: [
+              operationDiagnostic(
+                "native-targeted-reconciliation.store-resource-budget",
+                scope.locator,
+                "Affected native work could not be published within the inspection cache budget.",
+              ),
+            ],
+            requestFingerprint,
+          },
+        },
+        basis: {
+          discoveryObservationId: discovery.observationId,
+          summaryFingerprint: summaryFingerprint(scope),
+        },
+      });
+      const retained = storeSelectingInspection(store, scope.binding, retainedSelection, undefined);
+      next =
+        serializeValidatedJson(storeSchema, retained).length <= maximumStoreBytes
+          ? retained
+          : store;
+    }
+    return finish(
+      next,
+      finalSucceeded
+        ? "acquired"
+        : priorObservation === undefined
+          ? "unavailable"
+          : "retained-after-failure",
+      acquisitionCount,
+      scope.binding,
+    );
+  }
+
   if (input.intent.kind === "none") return finish(store, "not-requested", 0);
   const scope = resolveNativeScopeInspectionTarget(
     input.discovery,
@@ -513,38 +742,7 @@ export const selectNativeScopeInspections = async (input: {
       summaryFingerprint: summaryFingerprint(scope),
     },
   });
-  const storeSelecting = (
-    selection: NativeScopeInspectionSelection,
-    candidateObservation: MattSkillsV1ProviderObservation | undefined,
-  ): NativeScopeInspectionStore => {
-    const selections = [
-      ...store.selections.filter((entry) => !sameMattNativeScope(entry.selection, scope.binding)),
-      selection,
-    ].sort((left, right) =>
-      mattNativeScopeKey(left.selection).localeCompare(mattNativeScopeKey(right.selection), "en"),
-    );
-    const selectedIds = new Set(
-      selections.flatMap((entry) =>
-        entry.selection.observationId === null ? [] : [entry.selection.observationId],
-      ),
-    );
-    const observations = [
-      ...store.observations,
-      ...(candidateObservation === undefined ? [] : [candidateObservation]),
-    ]
-      .filter((candidate) => selectedIds.has(candidate.id))
-      .filter(
-        (candidate, index, values) =>
-          values.findIndex((other) => other.id === candidate.id) === index,
-      )
-      .sort((left, right) => left.id.localeCompare(right.id, "en"));
-    return storeSchema.parse({
-      schemaVersion: STORE_VERSION,
-      observations,
-      selections,
-    });
-  };
-  let next = storeSelecting(nextSelection, observation);
+  let next = storeSelectingInspection(store, scope.binding, nextSelection, observation);
   let finalSucceeded = succeeded;
   if (serializeValidatedJson(storeSchema, next).length > maximumStoreBytes) {
     finalSucceeded = false;
@@ -571,7 +769,7 @@ export const selectNativeScopeInspections = async (input: {
         summaryFingerprint: summaryFingerprint(scope),
       },
     });
-    const retained = storeSelecting(retainedSelection, undefined);
+    const retained = storeSelectingInspection(store, scope.binding, retainedSelection, undefined);
     next =
       serializeValidatedJson(storeSchema, retained).length <= maximumStoreBytes ? retained : store;
   }

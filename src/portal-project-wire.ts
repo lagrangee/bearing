@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { catalogAvailabilitySchema } from "./catalog/availability";
+import { nativeReconciliationRequestSchema } from "./native-reconciliation-contract";
 import {
   nativeScopeInspectionSubjectSchema,
   nativeSubjectIdSchema,
@@ -85,6 +86,8 @@ export const projectNativeScopeInspectionRequestSchema = z.strictObject({
   }),
   refresh: z.boolean(),
 });
+
+export const projectNativeReconciliationRequestSchema = nativeReconciliationRequestSchema;
 
 export const projectSnapshotEnvelopeSchema = z.discriminatedUnion("state", [
   z.strictObject({

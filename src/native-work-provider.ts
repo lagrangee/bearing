@@ -107,6 +107,26 @@ export type ProviderObservationEvidenceAssessment = Readonly<{
   frontierEvidence: "trustworthy" | "withheld";
 }>;
 
+export type NativeWorkAffectedRelation = Readonly<{
+  kind: "parent-child" | "blocked-by";
+  source: string;
+  target: string;
+}>;
+
+export type NativeWorkAffectedSet = Readonly<{
+  subjects: readonly string[];
+  relations: readonly NativeWorkAffectedRelation[];
+}>;
+
+export type NativeWorkReconciliationInput<
+  ProviderId extends string,
+  Projection extends ProviderProjection,
+> = Readonly<{
+  binding: WorkBinding<ProviderId>;
+  prior?: ProviderScopeObservation<ProviderId, Projection>;
+  affected: NativeWorkAffectedSet;
+}>;
+
 const hasTrustworthyProviderEvidence = (capture: ProviderCompletionInvariantInput): boolean =>
   capture.state === "available" &&
   capture.freshness.assessment === "current" &&
@@ -189,6 +209,9 @@ export interface NativeWorkProvider<
   readonly id: ProviderId;
   capture(
     binding: WorkBinding<ProviderId>,
+  ): Promise<ProviderScopeObservation<ProviderId, Projection>>;
+  reconcile?(
+    input: NativeWorkReconciliationInput<ProviderId, Projection>,
   ): Promise<ProviderScopeObservation<ProviderId, Projection>>;
 }
 

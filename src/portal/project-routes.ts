@@ -1,4 +1,5 @@
 import type { Context, Hono } from "hono";
+import { normalizeNativeReconciliationRequest } from "../native-reconciliation-contract";
 import type { PortalDiagnostic } from "./contract";
 import {
   type ProjectFailureView,
@@ -7,6 +8,7 @@ import {
   type ProjectSyncApiResponse,
   type ProjectSyncRequest,
   projectDiscoveryRequestSchema,
+  projectNativeReconciliationRequestSchema,
   projectNativeScopeInspectionRequestSchema,
   projectSyncRequestSchema,
 } from "./project-contract";
@@ -323,6 +325,46 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
         subject: parsed.data.subject,
         target: parsed.data.target,
         refresh: parsed.data.refresh,
+      }),
+      "force",
+    );
+  });
+
+  app.post("/api/v1/projects/:entryId/reconcile-native", async (context) => {
+    noStore(context);
+    if (
+      !options.sessions.verify(
+        context.req.header("cookie"),
+        context.req.header("x-bearing-csrf-token"),
+      )
+    ) {
+      return context.json({ code: "invalid-csrf-token", message: "CSRF check failed." }, 403);
+    }
+    const mediaType = context.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    if (mediaType !== "application/json") {
+      return context.json(
+        { code: "unsupported-media-type", message: "Expected application/json." },
+        415,
+      );
+    }
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ code: "invalid-request", message: "Request body is not JSON." }, 400);
+    }
+    const parsed = projectNativeReconciliationRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        { code: "invalid-request", message: "Native reconciliation request is invalid." },
+        400,
+      );
+    }
+    return syncResponse(
+      context,
+      await options.projects.sync(context.req.param("entryId"), "force", "ordinary-sync", {
+        kind: "reconcile",
+        request: normalizeNativeReconciliationRequest(parsed.data),
       }),
       "force",
     );

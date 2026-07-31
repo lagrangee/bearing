@@ -1,5 +1,6 @@
 import packageMetadata from "../package.json";
 import { applyInstallPlans } from "./installer";
+import type { NativeReconciliationRequest } from "./native-reconciliation-contract";
 import type { NativeScopeDiscoveryIntent } from "./native-scope-discovery";
 import type { ProviderObservationIntent } from "./provider-observation-store";
 import {
@@ -15,6 +16,7 @@ type RunSyncOptions = Readonly<{
   completedAt?: string;
   providerObservationIntent?: ProviderObservationIntent;
   nativeScopeDiscoveryIntent?: NativeScopeDiscoveryIntent;
+  nativeReconciliationRequest?: NativeReconciliationRequest;
 }>;
 
 export const runSyncMeasured = async (
@@ -28,6 +30,14 @@ export const runSyncMeasured = async (
     ...(options.nativeScopeDiscoveryIntent === undefined
       ? {}
       : { nativeScopeDiscoveryIntent: options.nativeScopeDiscoveryIntent }),
+    ...(options.nativeReconciliationRequest === undefined
+      ? {}
+      : {
+          nativeScopeInspectionIntent: {
+            kind: "reconcile" as const,
+            request: options.nativeReconciliationRequest,
+          },
+        }),
   });
   const transaction = buildSyncTransactionTargets(plan, {
     packageName: packageMetadata.name,

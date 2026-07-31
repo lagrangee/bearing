@@ -21,12 +21,14 @@ export const nativeScopeInspectionProjectionSchema = z
     for (const [index, selection] of projection.selections.entries()) {
       if (
         selection.latestAttempt !== null &&
-        selection.latestAttempt.intent !== "native-scope-inspection"
+        selection.latestAttempt.intent !== "native-scope-inspection" &&
+        selection.latestAttempt.intent !== "targeted-reconciliation"
       ) {
         context.addIssue({
           code: "custom",
           path: ["selections", index, "latestAttempt", "intent"],
-          message: "Native scope inspection attempts must retain their inspection intent.",
+          message:
+            "Native scope detail attempts must retain inspection or targeted-reconciliation intent.",
         });
       }
       if (selection.observationId === null) continue;

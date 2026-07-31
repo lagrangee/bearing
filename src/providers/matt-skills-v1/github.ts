@@ -16,9 +16,11 @@ import {
   queryMarkdownSection,
   queryMarkdownTable,
 } from "../../markdown-document";
+import { affectedReadReferences } from "../../native-reconciliation-contract";
 import {
   type CapturedProviderDocuments,
   createProviderScopeObservation,
+  type NativeWorkReconciliationInput,
   type ProviderDiagnostic,
   type ProviderFreshnessEvidence,
 } from "../../native-work-provider";
@@ -2899,6 +2901,672 @@ const captureGitHubScope = async (
   });
 };
 
+const githubProjectedObjects = (
+  projection: MattScopeProjection,
+): readonly (
+  | MattMap
+  | MattSpec
+  | MattWayfinderTicket
+  | MattDeliveryTicket
+  | MattIncomingIssue
+)[] => [
+  ...(projection.map === undefined ? [] : [projection.map]),
+  ...(projection.spec === undefined ? [] : [projection.spec]),
+  ...projection.wayfinderTickets,
+  ...projection.deliveryTickets,
+  ...projection.incomingIssues,
+];
+
+const githubScopeCompletion = (projection: MattScopeProjection): "complete" | "incomplete" => {
+  if (projection.map !== undefined && projection.map.lifecycle.state !== "resolved") {
+    return "incomplete";
+  }
+  if (projection.map !== undefined && projection.map.fog.length > 0) return "incomplete";
+  if (
+    projection.spec !== undefined &&
+    projection.spec.lifecycle.state !== "ready-for-agent" &&
+    projection.spec.lifecycle.state !== "superseded"
+  ) {
+    return "incomplete";
+  }
+  if (projection.wayfinderTickets.some((ticket) => ticket.lifecycle.state === "open")) {
+    return "incomplete";
+  }
+  if (projection.deliveryTickets.some((ticket) => ticket.lifecycle.state !== "completed")) {
+    return "incomplete";
+  }
+  if (projection.incomingIssues.some((issue) => issue.classification.state !== "wontfix")) {
+    return "incomplete";
+  }
+  return "complete";
+};
+
+const githubIssueNumberFromReference = (
+  reference: string,
+  repository: GitHubRepository,
+  projection: MattScopeProjection,
+): number | undefined => {
+  const existing = githubProjectedObjects(projection).find(
+    (object) =>
+      object.ref === reference ||
+      (object.native.kind === "github" &&
+        (object.native.identity.url === reference ||
+          String(object.native.identity.number) === reference ||
+          `#${object.native.identity.number}` === reference)),
+  );
+  if (existing?.native.kind === "github") return existing.native.identity.number;
+  if (!URL.canParse(reference)) return undefined;
+  const url = new URL(reference);
+  if (
+    url.protocol !== "https:" ||
+    url.hostname !== "github.com" ||
+    url.username.length > 0 ||
+    url.password.length > 0
+  ) {
+    return undefined;
+  }
+  const segments = url.pathname.split("/").filter((segment) => segment.length > 0);
+  if (
+    segments.length !== 4 ||
+    segments[0] !== repository.owner.login ||
+    segments[1] !== repository.name ||
+    (segments[2] !== "issues" && segments[2] !== "pull")
+  ) {
+    return undefined;
+  }
+  const number = Number(segments[3]);
+  return Number.isSafeInteger(number) && number > 0 ? number : undefined;
+};
+
+const reconcileGitHubScope = async (
+  options: ResolvedGitHubMattProviderOptions,
+  input: NativeWorkReconciliationInput<"matt-skills/v1", MattScopeProjection>,
+  retryCount = 0,
+): Promise<MattSkillsV1ProviderObservation> => {
+  const capturedAt = (options.clock ?? (() => new Date()))().toISOString();
+  const diagnostics: ProviderDiagnostic[] = [];
+  const priorProjection: MattScopeProjection = input.prior?.projection ?? {
+    wayfinderTickets: [],
+    deliveryTickets: [],
+    incomingIssues: [],
+    structuralOrder: [],
+    graph: { parentChild: [], blockedBy: [] },
+  };
+  const partialBasis =
+    input.prior === undefined ||
+    !input.prior.coverage.dimensions.some(
+      (dimension) =>
+        (dimension.key === "scope-membership" || dimension.key === "scope-membership-basis") &&
+        dimension.state === "covered",
+    );
+  let root: string;
+  try {
+    root = await resolveRepositoryRoot(options.repoRoot);
+  } catch {
+    return captureWithoutProjection({
+      binding: input.binding,
+      capturedAt,
+      state: "invalid",
+      freshness: "undetermined",
+      diagnostics: [
+        diagnostic(
+          "matt.github.repository.unavailable",
+          "source",
+          options.repoRoot,
+          "Repository root is unavailable while reconciling affected GitHub native work.",
+        ),
+      ],
+    });
+  }
+  const contractLocator = normalizeLocator(options.contractLocator);
+  const triageLocator = normalizeLocator(
+    options.triageLocator ?? posix.join(posix.dirname(contractLocator), "triage-labels.md"),
+  );
+  const contractSource = await readInterpretationDocument(options, root, contractLocator);
+  const contract =
+    contractSource === undefined ? undefined : validateMattSkillsV1Contract(contractSource);
+  if (
+    contractSource === undefined ||
+    contract?.state !== "supported" ||
+    contract.driver !== "github-issues"
+  ) {
+    return captureWithoutProjection({
+      binding: input.binding,
+      capturedAt,
+      state: "invalid",
+      freshness: "undetermined",
+      diagnostics: [
+        diagnostic(
+          "matt.github.contract.unsupported",
+          "contract",
+          contractLocator,
+          "Confirmed repository contract does not select matt-skills/v1 GitHub Issues.",
+        ),
+      ],
+    });
+  }
+  const triageSource = await readInterpretationDocument(options, root, triageLocator);
+  const vocabulary =
+    triageSource === undefined
+      ? undefined
+      : parseTriageVocabulary(triageSource, triageLocator, diagnostics);
+  if (triageSource === undefined) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.mapping.unavailable",
+        "mapping",
+        triageLocator,
+        "Repository triage vocabulary could not be read.",
+      ),
+    );
+  }
+  const scope = decodeGitHubMattNativeScope(input.binding.nativeScope);
+  if (scope === undefined) {
+    return captureWithoutProjection({
+      binding: input.binding,
+      capturedAt,
+      state: "invalid",
+      freshness: "undetermined",
+      diagnostics: [
+        ...diagnostics,
+        diagnostic(
+          "matt.github.scope.invalid",
+          "identity",
+          input.binding.nativeScope,
+          "GitHub native scope identity is malformed or uses an unsupported host.",
+        ),
+      ],
+    });
+  }
+
+  const observed: ObservedResponse[] = [];
+  const repositoryEndpoint = `repos/${scope.repository.owner}/${scope.repository.name}`;
+  const repositoryResponse = await acquire(options.transport, repositoryEndpoint, observed);
+  const repositoryResult = githubRepositorySchema.safeParse(repositoryResponse.body);
+  if (repositoryResponse.status !== 200 || !repositoryResult.success) {
+    return captureWithoutProjection({
+      binding: input.binding,
+      capturedAt,
+      state: "invalid",
+      freshness: "undetermined",
+      diagnostics: [
+        ...diagnostics,
+        acquisitionFailureDiagnostic(repositoryResponse, repositoryEndpoint),
+      ],
+    });
+  }
+  const repository = repositoryResult.data;
+  if (
+    repository.id !== scope.repository.databaseId ||
+    repository.node_id !== scope.repository.nodeId ||
+    repository.owner.login !== scope.repository.owner ||
+    repository.name !== scope.repository.name ||
+    repository.full_name !== `${scope.repository.owner}/${scope.repository.name}`
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "matt.github.identity.rebind-required",
+        "identity",
+        repository.html_url,
+        "GitHub repository locator and native identity differ; explicit rebind is required.",
+      ),
+    );
+  }
+
+  const readReferences = affectedReadReferences(input.affected);
+  const issueNumbers = new Set<number>();
+  for (const reference of readReferences) {
+    const number = githubIssueNumberFromReference(reference, repository, priorProjection);
+    if (number === undefined) {
+      diagnostics.push(
+        diagnostic(
+          "matt.github.reconciliation.reference-invalid",
+          "identity",
+          repository.html_url,
+          "Affected GitHub native reference does not resolve inside the bound repository.",
+        ),
+      );
+    } else {
+      issueNumbers.add(number);
+    }
+  }
+  const priorProjectedNumbers = new Set(
+    githubProjectedObjects(priorProjection).flatMap((object) =>
+      object.native.kind === "github" ? [object.native.identity.number] : [],
+    ),
+  );
+  const relationEndpointIsInScope = (number: number): boolean =>
+    issueNumbers.has(number) || priorProjectedNumbers.has(number);
+
+  const acquired: AcquiredIssue[] = [];
+  const parentChild: MattParentChildRelation[] = [];
+  const blockedBy: MattBlockedByRelation[] = [];
+  let acquisitionComplete = true;
+  for (const number of [...issueNumbers].sort((left, right) => left - right)) {
+    const issueEndpoint = `${repositoryEndpoint}/issues/${number}`;
+    const issueResponse = await acquire(options.transport, issueEndpoint, observed);
+    const issueResult = githubIssueSchema.safeParse(issueResponse.body);
+    if (
+      issueResponse.status !== 200 ||
+      !issueResult.success ||
+      !isCanonicalSameRepositoryIssue(repository, issueResult.data)
+    ) {
+      acquisitionComplete = false;
+      diagnostics.push(
+        issueResponse.status === 200
+          ? diagnostic(
+              "matt.github.reconciliation.subject-invalid",
+              "identity",
+              issueEndpoint,
+              "Affected GitHub subject identity or repository location is invalid.",
+            )
+          : acquisitionFailureDiagnostic(issueResponse, issueEndpoint),
+      );
+      continue;
+    }
+    const issue = issueResult.data;
+    const currentEndpoint = `${repositoryEndpoint}/issues/${issue.number}`;
+    const parentResponse = await acquire(options.transport, `${currentEndpoint}/parent`, observed);
+    const commentPages = await acquirePages(
+      options.transport,
+      `${currentEndpoint}/comments`,
+      observed,
+    );
+    const dependencyPages = await acquirePages(
+      options.transport,
+      `${currentEndpoint}/dependencies/blocked_by`,
+      observed,
+    );
+    const childPages = await acquirePages(
+      options.transport,
+      `${currentEndpoint}/sub_issues`,
+      observed,
+    );
+    const parent =
+      parentResponse.status === 200 ? githubIssueSchema.safeParse(parentResponse.body) : undefined;
+    const comments =
+      commentPages.state === "available"
+        ? z.array(commentSchema).safeParse(commentPages.values)
+        : undefined;
+    const dependencies =
+      dependencyPages.state === "available"
+        ? z.array(githubIssueSchema).safeParse(dependencyPages.values)
+        : undefined;
+    const children =
+      childPages.state === "available"
+        ? z.array(githubIssueSchema).safeParse(childPages.values)
+        : undefined;
+    const parentIdentityValid =
+      parent?.success === true &&
+      parent.data.pull_request === undefined &&
+      (parent.data.repository_url !== repositoryApiUrl(repository) ||
+        hasCanonicalRepositoryLocation(repository, parent.data));
+    const relationReadsComplete =
+      (parentResponse.status === 200
+        ? parentIdentityValid
+        : parentResponse.status === 404 || parentResponse.status === 410) &&
+      (commentPages.state === "unsupported" || comments?.success === true) &&
+      (dependencyPages.state === "unsupported" || dependencies?.success === true) &&
+      (childPages.state === "unsupported" || children?.success === true);
+    if (!relationReadsComplete) {
+      acquisitionComplete = false;
+      diagnostics.push(
+        diagnostic(
+          "matt.github.reconciliation.relations-incomplete",
+          "pagination",
+          issue.html_url,
+          "Affected GitHub subject relations or comments were not acquired completely.",
+        ),
+      );
+    }
+    const entry: AcquiredIssue = {
+      issue,
+      document: parseMarkdownDocument(issue.body),
+      comments: comments?.success === true ? comments.data : [],
+      commentsCapability:
+        comments?.success === true
+          ? "available"
+          : commentPages.state === "unsupported"
+            ? "unsupported"
+            : "failed",
+      dependencies: dependencies?.success === true ? dependencies.data : [],
+      dependencyCapability:
+        dependencies?.success === true
+          ? "available"
+          : dependencyPages.state === "unsupported"
+            ? "unsupported"
+            : "failed",
+      parentCapability:
+        parentResponse.status === 200 && parentIdentityValid
+          ? "available"
+          : parentResponse.status === 404
+            ? "absent"
+            : parentResponse.status === 410
+              ? "unsupported"
+              : "failed",
+      ...(parentIdentityValid && parent?.success === true ? { nativeParent: parent.data } : {}),
+      externalAnchors: [],
+      relationFacets: [],
+    };
+    acquired.push(entry);
+    if (parentIdentityValid && parent?.success === true) {
+      if (
+        parent.data.repository_url === repositoryApiUrl(repository) &&
+        relationEndpointIsInScope(parent.data.number)
+      ) {
+        parentChild.push({
+          parent: issueReference(repository, parent.data),
+          child: issueReference(repository, issue),
+          evidence: "github-native",
+        });
+      } else {
+        appendExternalRelationEvidence(
+          entry,
+          "native-external-parent",
+          parent.data.html_url,
+          nativeRelationIdentity(parent.data),
+        );
+      }
+    }
+    if (children?.success === true) {
+      for (const child of children.data) {
+        if (
+          child.repository_url === repositoryApiUrl(repository) &&
+          relationEndpointIsInScope(child.number)
+        ) {
+          parentChild.push({
+            parent: issueReference(repository, issue),
+            child: issueReference(repository, child),
+            evidence: "github-native",
+          });
+        } else {
+          appendExternalRelationEvidence(
+            entry,
+            "native-external-child",
+            child.html_url,
+            nativeRelationIdentity(child),
+          );
+        }
+      }
+    }
+    if (dependencies?.success === true) {
+      for (const dependency of dependencies.data) {
+        if (
+          dependency.repository_url === repositoryApiUrl(repository) &&
+          relationEndpointIsInScope(dependency.number)
+        ) {
+          blockedBy.push({
+            blocked: issueReference(repository, issue),
+            blocker: issueReference(repository, dependency),
+            evidence: "github-native",
+          });
+        } else {
+          appendExternalRelationEvidence(
+            entry,
+            "native-external-blocked-by",
+            dependency.html_url,
+            nativeRelationIdentity(dependency),
+          );
+        }
+      }
+    }
+  }
+
+  const priorByNumber = new Map(
+    githubProjectedObjects(priorProjection).flatMap((object) =>
+      object.native.kind === "github" ? [[object.native.identity.number, object] as const] : [],
+    ),
+  );
+  const byNumber = new Map<number, AcquiredIssue>(
+    acquired.map((entry) => [entry.issue.number, entry]),
+  );
+  for (const [number, object] of priorByNumber) {
+    if (byNumber.has(number) || object.native.kind !== "github") continue;
+    byNumber.set(number, {
+      issue: {
+        id: object.native.identity.objectDatabaseId,
+        node_id: object.native.identity.objectNodeId,
+        number,
+        title: object.title,
+        body: "",
+        state: object.native.trackerClosure.state === "open" ? "open" : "closed",
+        state_reason: null,
+        created_at:
+          object.native.createdAt.availability === "available"
+            ? object.native.createdAt.value
+            : capturedAt,
+        updated_at:
+          object.native.lastUpdated.availability === "available"
+            ? object.native.lastUpdated.value
+            : capturedAt,
+        closed_at: null,
+        html_url: object.native.identity.url,
+        repository_url: repositoryApiUrl(repository),
+        labels: [],
+        assignees: [],
+        user: {
+          login: "bearing-reconciliation-basis",
+          id: "bearing-reconciliation-basis",
+          node_id: "bearing-reconciliation-basis",
+        },
+        author_association: "NONE",
+      },
+      document: parseMarkdownDocument(""),
+      comments: [],
+      commentsCapability: "unsupported",
+      dependencies: [],
+      dependencyCapability: "unsupported",
+      parentCapability: "unsupported",
+      externalAnchors: [],
+      relationFacets: [],
+    });
+  }
+
+  const targetedRefs = new Set(acquired.map((entry) => issueReference(repository, entry.issue)));
+  const mapEntry = acquired.find((entry) =>
+    entry.issue.labels.some((label) => label.name === "wayfinder:map"),
+  );
+  const mapProjection =
+    mapEntry === undefined
+      ? priorProjection.map
+      : decodeMap(mapEntry, repository, byNumber, diagnostics);
+  const changedWayfinder: MattWayfinderTicket[] = [];
+  const changedDelivery: MattDeliveryTicket[] = [];
+  const changedIncoming: MattIncomingIssue[] = [];
+  let changedSpec: MattSpec | undefined;
+  for (const entry of acquired) {
+    if (entry === mapEntry) continue;
+    if (entry.issue.labels.some((label) => label.name.startsWith("wayfinder:"))) {
+      const ticket = decodeWayfinder(entry, repository, mapProjection, diagnostics);
+      if (ticket === undefined) {
+        diagnostics.push(
+          diagnostic(
+            "matt.github.role.ambiguous-wayfinder",
+            "format",
+            entry.issue.html_url,
+            "Affected GitHub issue has incomplete or conflicting Wayfinder role evidence.",
+          ),
+        );
+      } else {
+        changedWayfinder.push(ticket);
+      }
+      continue;
+    }
+    const spec = decodeSpec(entry, repository, vocabulary, diagnostics);
+    const delivery = decodeDelivery(entry, repository);
+    if (spec !== undefined && delivery !== undefined) {
+      diagnostics.push(
+        diagnostic(
+          "matt.github.role.conflict",
+          "format",
+          entry.issue.html_url,
+          "Affected GitHub issue matches both canonical Spec and Delivery roles.",
+        ),
+      );
+    } else if (spec !== undefined) {
+      changedSpec = spec;
+    } else if (delivery !== undefined) {
+      changedDelivery.push(delivery);
+    } else {
+      changedIncoming.push(incomingIssueFor(repository, entry, vocabulary, diagnostics));
+    }
+  }
+  const mergeChanged = <Value extends { ref: MattObjectReference }>(
+    prior: readonly Value[],
+    changed: readonly Value[],
+  ): Value[] => {
+    const changedByReference = new Map(changed.map((value) => [value.ref, value]));
+    const priorReferences = new Set(prior.map((value) => value.ref));
+    return [
+      ...prior.flatMap((value) => {
+        if (!targetedRefs.has(value.ref)) return [value];
+        const replacement = changedByReference.get(value.ref);
+        return replacement === undefined ? [] : [replacement];
+      }),
+      ...changed.filter((value) => !priorReferences.has(value.ref)),
+    ];
+  };
+  const wayfinderTickets = mergeChanged(priorProjection.wayfinderTickets, changedWayfinder);
+  const deliveryTickets = mergeChanged(priorProjection.deliveryTickets, changedDelivery);
+  const incomingIssues = mergeChanged(priorProjection.incomingIssues, changedIncoming);
+  const specProjection =
+    changedSpec ??
+    (priorProjection.spec !== undefined && targetedRefs.has(priorProjection.spec.ref)
+      ? undefined
+      : priorProjection.spec);
+  const touchedRelationRefs = targetedRefs;
+  const retainedParentChild = priorProjection.graph.parentChild.filter(
+    (relation) =>
+      !touchedRelationRefs.has(relation.parent) && !touchedRelationRefs.has(relation.child),
+  );
+  const retainedBlockedBy = priorProjection.graph.blockedBy.filter(
+    (relation) =>
+      !touchedRelationRefs.has(relation.blocked) && !touchedRelationRefs.has(relation.blocker),
+  );
+  const allObjects = [
+    ...(mapProjection === undefined ? [] : [mapProjection]),
+    ...(specProjection === undefined ? [] : [specProjection]),
+    ...wayfinderTickets,
+    ...deliveryTickets,
+    ...incomingIssues,
+  ];
+  const objectRefs = new Set(allObjects.map((object) => object.ref));
+  const priorStructuralReferences = new Set(priorProjection.structuralOrder);
+  const structuralOrder = [
+    ...priorProjection.structuralOrder.filter((reference) => objectRefs.has(reference)),
+    ...acquired
+      .map((entry) => issueReference(repository, entry.issue))
+      .filter(
+        (reference) => objectRefs.has(reference) && !priorStructuralReferences.has(reference),
+      ),
+  ];
+  const projection: MattScopeProjection = {
+    ...(mapProjection === undefined ? {} : { map: mapProjection }),
+    ...(specProjection === undefined ? {} : { spec: specProjection }),
+    wayfinderTickets,
+    deliveryTickets,
+    incomingIssues,
+    structuralOrder: [...new Set(structuralOrder)],
+    graph: {
+      parentChild: [
+        ...new Map(
+          [...retainedParentChild, ...parentChild].map((relation) => [
+            `${relation.parent}\0${relation.child}`,
+            relation,
+          ]),
+        ).values(),
+      ],
+      blockedBy: [
+        ...new Map(
+          [...retainedBlockedBy, ...blockedBy].map((relation) => [
+            `${relation.blocked}\0${relation.blocker}`,
+            relation,
+          ]),
+        ).values(),
+      ],
+    },
+  };
+
+  const finalization = await finalizeObservedGeneration({
+    transport: options.transport,
+    observed,
+    fullRetryCount: retryCount,
+    target: repository.html_url,
+    clock: options.clock ?? (() => new Date()),
+  });
+  if (finalization.retryRequired) {
+    return reconcileGitHubScope(options, input, 1);
+  }
+  diagnostics.push(...finalization.diagnostics);
+  if (finalization.revalidation.state !== "stable") acquisitionComplete = false;
+  const blocking = diagnostics.some((item) => item.impact === "blocking");
+  const current = acquisitionComplete && !blocking;
+  const state = partialBasis || blocking ? "partial" : "available";
+  const coverageComplete = !partialBasis && current;
+  return createProviderScopeObservation({
+    provider: MATT_SKILLS_V1_PROVIDER_ID,
+    binding: input.binding,
+    state,
+    freshness: freshnessForObservedGeneration({
+      finalization,
+      observed,
+      capturedAt,
+      fullRetryCount: retryCount,
+      assessment: current ? "current" : "undetermined",
+      acquisitionComplete,
+      blocking,
+      extraEvidence: [
+        ...(input.prior === undefined
+          ? []
+          : [{ kind: "reconciliation-basis", value: input.prior.id }]),
+        { kind: "affected-reference-count", value: String(readReferences.length) },
+        ...acquired.map((entry) => ({
+          kind: "object-updated-at",
+          value: `${entry.issue.node_id}|${entry.issue.updated_at}`,
+        })),
+      ],
+    }),
+    coverage: {
+      assessment: coverageComplete ? "complete" : "incomplete",
+      dimensions: [
+        { key: "contract", state: "covered" },
+        { key: "vocabulary", state: vocabulary?.complete === true ? "covered" : "gap" },
+        {
+          key: "affected-subjects-and-relations",
+          state: current ? "covered" : "gap",
+        },
+        {
+          key: "scope-membership-basis",
+          state: partialBasis ? "excluded" : "covered",
+          ...(partialBasis
+            ? { detail: "No prior full-scope observation was available; completion is excluded." }
+            : {}),
+        },
+      ],
+    },
+    completion:
+      coverageComplete && state === "available"
+        ? githubScopeCompletion(projection)
+        : "undetermined",
+    diagnostics: [
+      ...diagnostics,
+      ...(partialBasis
+        ? [
+            {
+              code: "matt.github.reconciliation.partial-basis",
+              class: "acquisition" as const,
+              impact: "non-blocking" as const,
+              target: repository.html_url,
+              message:
+                "Targeted detail was observed without a prior full-scope basis; completion remains unavailable.",
+            },
+          ]
+        : []),
+    ],
+    projection,
+  });
+};
+
 export const createGitHubMattProvider = (
   options: GitHubMattProviderOptions,
 ): MattSkillsV1Provider => ({
@@ -2910,5 +3578,13 @@ export const createGitHubMattProvider = (
         transport: options.transport ?? createGhCliGitHubReadTransport(),
       },
       binding,
+    ),
+  reconcile: (input) =>
+    reconcileGitHubScope(
+      {
+        ...options,
+        transport: options.transport ?? createGhCliGitHubReadTransport(),
+      },
+      input,
     ),
 });

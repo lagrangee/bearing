@@ -15,9 +15,11 @@ import {
   queryMarkdownSection,
   queryMarkdownTable,
 } from "../../markdown-document";
+import { affectedReadReferences } from "../../native-reconciliation-contract";
 import {
   type CapturedProviderDocuments,
   createProviderScopeObservation,
+  type NativeWorkReconciliationInput,
   type ProviderDiagnostic,
 } from "../../native-work-provider";
 import {
@@ -1915,9 +1917,478 @@ const captureLocalScope = async (
   });
 };
 
+const emptyProjection = (): MattScopeProjection => ({
+  wayfinderTickets: [],
+  deliveryTickets: [],
+  incomingIssues: [],
+  structuralOrder: [],
+  graph: { parentChild: [], blockedBy: [] },
+});
+
+const localObjectLocator = (
+  object: MattWayfinderTicket | MattDeliveryTicket | MattIncomingIssue,
+): string => (object.native.kind === "local" ? object.native.identity.locator : String(object.ref));
+
+const localReconciliationProjection = async (
+  options: LocalMarkdownMattProviderOptions,
+  input: NativeWorkReconciliationInput<"matt-skills/v1", MattScopeProjection>,
+): Promise<MattSkillsV1ProviderObservation> => {
+  const capturedAt = (options.clock ?? (() => new Date()))().toISOString();
+  const diagnostics: CaptureDiagnostic[] = [];
+  const priorProjection = input.prior?.projection ?? emptyProjection();
+  const partialBasis =
+    input.prior === undefined ||
+    !input.prior.coverage.dimensions.some(
+      (dimension) =>
+        (dimension.key === "scope-membership" || dimension.key === "scope-membership-basis") &&
+        dimension.state === "covered",
+    );
+  let root: string;
+  let scopeLocator: string;
+  let contractLocator: string;
+  let triageLocator: string;
+  try {
+    root = await resolveRepositoryRoot(options.repoRoot);
+    scopeLocator = normalizeLocator(input.binding.nativeScope);
+    contractLocator = normalizeLocator(options.contractLocator);
+    triageLocator = normalizeLocator(
+      options.triageLocator ?? posix.join(posix.dirname(contractLocator), "triage-labels.md"),
+    );
+  } catch {
+    return captureWithoutProjection({
+      binding: input.binding,
+      capturedAt,
+      state: "invalid",
+      freshness: "undetermined",
+      completion: "undetermined",
+      diagnostics: [
+        diagnostic(
+          "matt.local.reconciliation.scope-invalid",
+          "identity",
+          input.binding.nativeScope,
+          "Targeted Local reconciliation requires one valid repository-contained native scope.",
+        ),
+      ],
+    });
+  }
+
+  const interpretationTarget = (locator: string): MarkdownInput | undefined => {
+    const captured = options.capturedDocuments?.get(locator);
+    if (captured === undefined) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.reconciliation.interpretation-unavailable",
+          "contract",
+          locator,
+          "Generation-captured provider interpretation input is unavailable.",
+        ),
+      );
+      return undefined;
+    }
+    try {
+      const source = new TextDecoder("utf-8", { fatal: true }).decode(captured.bytes);
+      return {
+        locator,
+        bytes: captured.bytes,
+        source,
+        document: parseMarkdownDocument(source),
+      };
+    } catch {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.input.encoding",
+          "format",
+          locator,
+          "Local Markdown interpretation input is not valid UTF-8.",
+        ),
+      );
+      return undefined;
+    }
+  };
+  const contractFile = interpretationTarget(contractLocator);
+  const contractLayout =
+    contractFile === undefined ? undefined : parseLocalMattContract(contractFile, diagnostics);
+  const triageFile = interpretationTarget(triageLocator);
+  const vocabulary =
+    triageFile === undefined ? undefined : parseTriageVocabulary(triageFile, diagnostics);
+  if (contractLayout === undefined) {
+    return captureWithoutProjection({
+      binding: input.binding,
+      capturedAt,
+      state: "invalid",
+      freshness: "undetermined",
+      completion: "undetermined",
+      diagnostics,
+    });
+  }
+
+  const mapLocator = normalizeLocator(posix.join(scopeLocator, "map.md"));
+  const specLocator = normalizeLocator(posix.join(scopeLocator, contractLayout.specFilename));
+  const issuesLocator = normalizeLocator(posix.join(scopeLocator, "issues"));
+  const readReferences = affectedReadReferences(input.affected);
+  const targetLocators: string[] = [];
+  for (const reference of readReferences) {
+    let locator: string;
+    try {
+      locator = normalizeLocator(reference);
+    } catch {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.reconciliation.reference-invalid",
+          "identity",
+          scopeLocator,
+          "Affected Local native reference is not one normalized repository-relative locator.",
+        ),
+      );
+      continue;
+    }
+    if (
+      locator !== mapLocator &&
+      locator !== specLocator &&
+      !(posix.dirname(locator) === issuesLocator && locator.endsWith(".md"))
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.reconciliation.reference-outside-scope",
+          "identity",
+          scopeLocator,
+          "Affected Local native reference is outside the contract-defined scope slots.",
+        ),
+      );
+      continue;
+    }
+    targetLocators.push(locator);
+  }
+
+  const maximumFileBytes = options.maximumFileBytes ?? DEFAULT_MAXIMUM_FILE_BYTES;
+  const capturedFiles = new Map<string, CapturedFile>();
+  const missingLocators = new Set<string>();
+  let concurrentMutation = false;
+  for (const locator of [...new Set(targetLocators)].sort(utf8Compare)) {
+    try {
+      const contained = await resolveContainedPath(root, resolve(root, locator));
+      const before = await stampFor(contained);
+      if (BigInt(before.size) > BigInt(maximumFileBytes)) {
+        diagnostics.push(
+          diagnostic(
+            "matt.local.input.too-large",
+            "source",
+            locator,
+            `Local Markdown input exceeds ${maximumFileBytes} bytes.`,
+          ),
+        );
+        continue;
+      }
+      const bytes = await readContainedFile(root, contained);
+      await options.onCaptureEvent?.({ kind: "content-read", locator });
+      const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      const after = await stampFor(contained);
+      await options.onCaptureEvent?.({ kind: "metadata-verified", locator });
+      if (!sameStamp(before, after)) {
+        concurrentMutation = true;
+        continue;
+      }
+      capturedFiles.set(locator, {
+        locator,
+        bytes,
+        source,
+        document: parseMarkdownDocument(source),
+        stamp: before,
+      });
+    } catch (error) {
+      if (isSystemError(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
+        missingLocators.add(locator);
+        continue;
+      }
+      if (error instanceof TypeError) {
+        diagnostics.push(
+          diagnostic(
+            "matt.local.input.encoding",
+            "format",
+            locator,
+            "Local Markdown input is not valid UTF-8.",
+          ),
+        );
+        continue;
+      }
+      if (!isSystemError(error) && !isRepositoryPathBoundaryError(error)) throw error;
+      diagnostics.push(
+        diagnostic(
+          "matt.local.input.unsafe",
+          "source",
+          locator,
+          "Targeted Local input failed containment, symlink, file-type or identity safety.",
+        ),
+      );
+    }
+  }
+  if (concurrentMutation) {
+    diagnostics.push(
+      diagnostic(
+        "matt.local.concurrent-mutation",
+        "concurrency",
+        scopeLocator,
+        "Affected Local native work changed during targeted reconciliation.",
+      ),
+    );
+  }
+
+  const changedIssues: DecodedIssue[] = [];
+  for (const file of capturedFiles.values()) {
+    if (file.locator === mapLocator || file.locator === specLocator) continue;
+    const shortReference = shortReferenceFor(file.locator);
+    if (shortReference === undefined) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.identity.invalid-reference",
+          "identity",
+          file.locator,
+          "Affected issue filename does not contain one canonical numeric short reference.",
+        ),
+      );
+      continue;
+    }
+    const role = issueRole(file);
+    if (role === "ambiguous") {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.role.ambiguous",
+          "format",
+          file.locator,
+          "Affected issue contains partial or conflicting Wayfinder and Delivery role evidence.",
+        ),
+      );
+    }
+    const wayfinder = role === "wayfinder" ? decodeWayfinder(file, diagnostics) : undefined;
+    const delivery =
+      role === "delivery" ? decodeDelivery(file, vocabulary, diagnostics) : undefined;
+    const incoming =
+      role === "incoming" ? decodeIncoming(file, vocabulary, diagnostics) : undefined;
+    const changed: DecodedIssue = {
+      file,
+      shortReference,
+      role,
+      blockerReferences: splitBlockerReferences(fieldValue(file, "Blocked by", diagnostics)).map(
+        normalizedShortReference,
+      ),
+      ...(wayfinder === undefined ? {} : { wayfinder }),
+      ...(delivery === undefined ? {} : { delivery }),
+      ...(incoming === undefined ? {} : { incoming }),
+    };
+    changedIssues.push(changed);
+  }
+
+  const changedRefs = new Set([
+    ...changedIssues.map((issue) => issue.file.locator),
+    ...missingLocators,
+  ]);
+  const mergedWayfinder = [
+    ...priorProjection.wayfinderTickets.filter(
+      (ticket) => !changedRefs.has(localObjectLocator(ticket)),
+    ),
+    ...changedIssues.flatMap((issue) => (issue.wayfinder === undefined ? [] : [issue.wayfinder])),
+  ].sort((left, right) => utf8Compare(localObjectLocator(left), localObjectLocator(right)));
+  const mergedDelivery = [
+    ...priorProjection.deliveryTickets.filter(
+      (ticket) => !changedRefs.has(localObjectLocator(ticket)),
+    ),
+    ...changedIssues.flatMap((issue) => (issue.delivery === undefined ? [] : [issue.delivery])),
+  ].sort((left, right) => utf8Compare(localObjectLocator(left), localObjectLocator(right)));
+  const mergedIncoming = [
+    ...priorProjection.incomingIssues.filter(
+      (issue) => !changedRefs.has(localObjectLocator(issue)),
+    ),
+    ...changedIssues.flatMap((issue) => (issue.incoming === undefined ? [] : [issue.incoming])),
+  ].sort((left, right) => utf8Compare(localObjectLocator(left), localObjectLocator(right)));
+  const allIssues = [...mergedWayfinder, ...mergedDelivery, ...mergedIncoming];
+  const issueByLocator = new Map<string, DecodedIssue>();
+  for (const object of allIssues) {
+    const locator = localObjectLocator(object);
+    const changed = changedIssues.find((candidate) => candidate.file.locator === locator);
+    issueByLocator.set(
+      locator,
+      changed ?? {
+        file: {
+          locator,
+          bytes: Buffer.alloc(0),
+          source: "",
+          document: parseMarkdownDocument(""),
+          stamp: { dev: "", ino: "", mode: "", size: "", mtimeNs: "", ctimeNs: "" },
+        },
+        shortReference: shortReferenceFor(locator) ?? locator,
+        role:
+          object.kind === "wayfinder-ticket"
+            ? "wayfinder"
+            : object.kind === "delivery-ticket"
+              ? "delivery"
+              : "incoming",
+        blockerReferences: [],
+        ...(object.kind === "wayfinder-ticket" ? { wayfinder: object } : {}),
+        ...(object.kind === "delivery-ticket" ? { delivery: object } : {}),
+        ...(object.kind === "incoming-issue" ? { incoming: object } : {}),
+      },
+    );
+  }
+
+  const mapFile = capturedFiles.get(mapLocator);
+  const specFile = capturedFiles.get(specLocator);
+  const mapProjection = missingLocators.has(mapLocator)
+    ? undefined
+    : mapFile === undefined
+      ? priorProjection.map
+      : decodeMap(mapFile, issueByLocator, diagnostics);
+  const specProjection = missingLocators.has(specLocator)
+    ? undefined
+    : specFile === undefined
+      ? priorProjection.spec
+      : decodeSpec(specFile, diagnostics);
+  const wayfinderTickets = mergedWayfinder.map((ticket) =>
+    lifecycleWithMapEvidence(ticket, mapProjection, diagnostics),
+  );
+  const parentChild: MattParentChildRelation[] = [
+    ...(mapProjection === undefined
+      ? []
+      : wayfinderTickets.map((ticket) => ({
+          parent: mapProjection.ref,
+          child: ticket.ref,
+          evidence: "matt-contract" as const,
+        }))),
+    ...(specProjection === undefined
+      ? []
+      : mergedDelivery.map((ticket) => ({
+          parent: specProjection.ref,
+          child: ticket.ref,
+          evidence: "matt-contract" as const,
+        }))),
+  ];
+
+  const rebuiltBlockedRefs = new Set(changedIssues.map((issue) => issue.file.locator));
+  const currentTicketRefs = new Set([
+    ...wayfinderTickets.map((ticket) => ticket.ref),
+    ...mergedDelivery.map((ticket) => ticket.ref),
+  ]);
+  const byShortReference = new Map(
+    allIssues.flatMap((object) => {
+      const short = shortReferenceFor(localObjectLocator(object));
+      return short === undefined ? [] : [[short, object] as const];
+    }),
+  );
+  const blockedBy: MattBlockedByRelation[] = priorProjection.graph.blockedBy.filter(
+    (relation) =>
+      !rebuiltBlockedRefs.has(String(relation.blocked)) &&
+      currentTicketRefs.has(relation.blocked) &&
+      currentTicketRefs.has(relation.blocker),
+  );
+  for (const issue of changedIssues) {
+    const blocked = issue.wayfinder?.ref ?? issue.delivery?.ref;
+    for (const reference of issue.blockerReferences) {
+      const blocker = byShortReference.get(reference);
+      if (
+        blocked === undefined ||
+        (blocker?.kind !== "wayfinder-ticket" && blocker?.kind !== "delivery-ticket")
+      ) {
+        diagnostics.push(
+          diagnostic(
+            "matt.local.relation.broken",
+            "identity",
+            issue.file.locator,
+            `Affected Blocked by reference does not uniquely resolve to a ticket: ${reference}.`,
+          ),
+        );
+        continue;
+      }
+      blockedBy.push({ blocked, blocker: blocker.ref, evidence: "matt-contract" });
+    }
+  }
+
+  const objectsByLocator = [...wayfinderTickets, ...mergedDelivery, ...mergedIncoming].sort(
+    (left, right) => utf8Compare(localObjectLocator(left), localObjectLocator(right)),
+  );
+  const projection: MattScopeProjection = {
+    ...(mapProjection === undefined ? {} : { map: mapProjection }),
+    ...(specProjection === undefined ? {} : { spec: specProjection }),
+    wayfinderTickets,
+    deliveryTickets: mergedDelivery,
+    incomingIssues: mergedIncoming,
+    structuralOrder: [
+      ...(mapProjection === undefined ? [] : [mapProjection.ref]),
+      ...(specProjection === undefined ? [] : [specProjection.ref]),
+      ...objectsByLocator.map((object) => object.ref),
+    ],
+    graph: {
+      parentChild,
+      blockedBy: [
+        ...new Map(
+          blockedBy.map((relation) => [`${relation.blocked}\0${relation.blocker}`, relation]),
+        ).values(),
+      ],
+    },
+  };
+  const blocking = diagnostics.some((item) => item.impact === "blocking");
+  const current = !blocking && !concurrentMutation;
+  const state = partialBasis || blocking ? "partial" : "available";
+  const coverageComplete = !partialBasis && current;
+  return createProviderScopeObservation({
+    provider: MATT_SKILLS_V1_PROVIDER_ID,
+    binding: input.binding,
+    state,
+    freshness: {
+      assessment: current ? "current" : "undetermined",
+      capturedAt,
+      sourceObservedAt: capturedAt,
+      evidence: [
+        { kind: "local-scope", value: scopeLocator },
+        ...(input.prior === undefined
+          ? []
+          : [{ kind: "reconciliation-basis", value: input.prior.id }]),
+        { kind: "affected-reference-count", value: String(readReferences.length) },
+        { kind: "content-read-count", value: String(capturedFiles.size) },
+        { kind: "absence-read-count", value: String(missingLocators.size) },
+        { kind: "metadata-verification", value: current ? "stable" : "changed-or-invalid" },
+      ],
+    },
+    coverage: {
+      assessment: coverageComplete ? "complete" : "incomplete",
+      dimensions: [
+        { key: "contract", state: contractLayout === undefined ? "gap" : "covered" },
+        { key: "vocabulary", state: vocabulary?.complete === true ? "covered" : "gap" },
+        {
+          key: "affected-subjects-and-relations",
+          state: current ? "covered" : "gap",
+        },
+        {
+          key: "scope-membership-basis",
+          state: partialBasis ? "excluded" : "covered",
+          ...(partialBasis
+            ? { detail: "No prior full-scope observation was available; completion is excluded." }
+            : {}),
+        },
+      ],
+    },
+    completion:
+      coverageComplete && state === "available" ? scopeCompletion(projection) : "undetermined",
+    diagnostics: [
+      ...diagnostics,
+      ...(partialBasis
+        ? [
+            diagnostic(
+              "matt.local.reconciliation.partial-basis",
+              "acquisition",
+              scopeLocator,
+              "Targeted detail was observed without a prior full-scope basis; completion remains unavailable.",
+              "non-blocking",
+            ),
+          ]
+        : []),
+    ],
+    projection,
+  });
+};
+
 export const createLocalMarkdownMattProvider = (
   options: LocalMarkdownMattProviderOptions,
 ): MattSkillsV1Provider => ({
   id: MATT_SKILLS_V1_PROVIDER_ID,
   capture: (binding) => captureLocalScope(options, binding),
+  reconcile: (input) => localReconciliationProjection(options, input),
 });

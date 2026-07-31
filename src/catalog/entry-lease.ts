@@ -56,11 +56,13 @@ const acquireEntryDuringCatalogAdmission = async (
   }
 };
 
-export const withCatalogEntryLease = async <Result>(
+export type CatalogEntryLeaseStatus = Readonly<{ contended: boolean }>;
+
+export const withCatalogEntryLeaseStatus = async <Result>(
   homeDir: string,
   entryId: string,
   repoRoot: string,
-  operation: () => Promise<Result>,
+  operation: (status: CatalogEntryLeaseStatus) => Promise<Result>,
   lockTimeoutMs = 1_000,
 ): Promise<Result> => {
   const catalog = catalogLocationFor(homeDir);
@@ -68,16 +70,27 @@ export const withCatalogEntryLease = async <Result>(
   await prepareCatalogEntryLeaseLocation(homeDir, lease);
   const deadline = Date.now() + Math.max(0, lockTimeoutMs);
   let handle: OwnedLockHandle | undefined;
+  let contended = false;
   while (handle === undefined) {
     const remainingMs = Math.max(0, deadline - Date.now());
     handle = await acquireEntryDuringCatalogAdmission(catalog, lease, repoRoot, remainingMs);
     if (handle !== undefined) break;
+    contended = true;
     if (Date.now() >= deadline) throw new CatalogLockError();
     await wait(Math.min(RETRY_DELAY_MS, Math.max(1, deadline - Date.now())));
   }
   try {
-    return await operation();
+    return await operation({ contended });
   } finally {
     await releaseEntryHandle(handle, lease.entryId);
   }
 };
+
+export const withCatalogEntryLease = async <Result>(
+  homeDir: string,
+  entryId: string,
+  repoRoot: string,
+  operation: () => Promise<Result>,
+  lockTimeoutMs = 1_000,
+): Promise<Result> =>
+  withCatalogEntryLeaseStatus(homeDir, entryId, repoRoot, operation, lockTimeoutMs);

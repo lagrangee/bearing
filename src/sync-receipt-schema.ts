@@ -15,6 +15,16 @@ const sitemapBasisSchema = z
     fingerprint: fingerprintSchema,
   })
   .readonly();
+const operationSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("sync") }).readonly(),
+  z
+    .strictObject({
+      kind: z.literal("native-reconciliation"),
+      requestFingerprint: fingerprintSchema,
+      outcome: z.enum(["succeeded", "failed"]),
+    })
+    .readonly(),
+]);
 
 export const syncReceiptSchema = z
   .strictObject({
@@ -23,6 +33,7 @@ export const syncReceiptSchema = z
     completedAt: z.iso.datetime({ offset: true }),
     sitemap: sitemapBasisSchema,
     reconciliation: z.union([z.literal("applied"), z.literal("no-op")]),
+    operation: operationSchema.optional(),
   })
   .readonly();
 
@@ -32,4 +43,5 @@ export type SyncReceiptCompletion = Readonly<{
   completedAt: string;
   sitemap: SyncReceipt["sitemap"];
   reconciliation: SyncReceipt["reconciliation"];
+  operation?: SyncReceipt["operation"];
 }>;

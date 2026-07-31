@@ -1,4 +1,8 @@
 import { expect, test } from "bun:test";
+import {
+  nativeReconciliationRequestSchema,
+  normalizeNativeReconciliationRequest,
+} from "../src/native-reconciliation-contract";
 import { createProjectCoordinator } from "../src/portal/project-coordinator";
 import { encodeGitHubMattNativeScope } from "../src/providers/matt-skills-v1/github-native-scope";
 
@@ -424,4 +428,52 @@ test("deduplicates GitHub binding metadata variants with one exact definition", 
   inspection.resolve("inspected");
   expect(await first).toMatchObject({ value: "inspected", joined: false });
   expect(await second).toMatchObject({ value: "inspected", joined: true });
+});
+
+test("coalesces equivalent concurrent targeted reconciliations without caller-side normalization", async () => {
+  const reconciliation = deferred<string>();
+  const calls: string[] = [];
+  const coordinator = createProjectCoordinator({
+    run: async (operation) => {
+      calls.push(JSON.stringify(operation.nativeScopeInspectionIntent));
+      return reconciliation.promise;
+    },
+  });
+  const request = normalizeNativeReconciliationRequest({
+    binding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
+    subjects: [".scratch/work/issues/02.md", ".scratch/work/issues/01.md"],
+    relations: [
+      {
+        kind: "blocked-by",
+        source: ".scratch/work/issues/02.md",
+        target: ".scratch/work/issues/01.md",
+      },
+    ],
+  });
+  const equivalent = nativeReconciliationRequestSchema.parse({
+    schemaVersion: 1,
+    binding: request.binding,
+    subjects: [
+      ".scratch/work/issues/01.md",
+      ".scratch/work/issues/02.md",
+      ".scratch/work/issues/01.md",
+    ],
+    relations: [request.relations[0] as (typeof request.relations)[number]],
+  });
+
+  const first = coordinator.execute({
+    entryId: "project",
+    mode: "force",
+    nativeScopeInspectionIntent: { kind: "reconcile", request },
+  });
+  const second = coordinator.execute({
+    entryId: "project",
+    mode: "force",
+    nativeScopeInspectionIntent: { kind: "reconcile", request: equivalent },
+  });
+
+  expect(calls).toHaveLength(1);
+  reconciliation.resolve("reconciled");
+  expect(await first).toMatchObject({ value: "reconciled", joined: false });
+  expect(await second).toMatchObject({ value: "reconciled", joined: true });
 });

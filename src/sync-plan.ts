@@ -208,6 +208,20 @@ export const prepareSync = async (
   const root = await resolveRepositoryRoot(repoRoot);
   await ensureCacheBoundary(root);
   const nativeScopeInspectionIntent = options.nativeScopeInspectionIntent ?? { kind: "none" };
+  const nativeReconciliationRequest =
+    nativeScopeInspectionIntent.kind === "reconcile"
+      ? nativeScopeInspectionIntent.request
+      : undefined;
+  if (
+    nativeReconciliationRequest !== undefined &&
+    options.providerObservationIntent !== undefined &&
+    options.providerObservationIntent !== "ordinary-sync" &&
+    options.providerObservationIntent !== "targeted-reconciliation"
+  ) {
+    throw new TypeError(
+      "Targeted native reconciliation cannot be combined with baseline, recovery or full verification.",
+    );
+  }
   const inspectionDiscovery =
     nativeScopeInspectionIntent.kind === "inspect"
       ? await readNativeScopeDiscoveryView(root)
@@ -257,7 +271,11 @@ export const prepareSync = async (
   const providerSelection = await selectProviderObservations({
     generation,
     decoded: providerBasisDecoded,
-    intent: options.providerObservationIntent ?? "ordinary-sync",
+    intent:
+      nativeReconciliationRequest === undefined
+        ? (options.providerObservationIntent ?? "ordinary-sync")
+        : "targeted-reconciliation",
+    ...(nativeReconciliationRequest === undefined ? {} : { nativeReconciliationRequest }),
     ...(options.providerFactory === undefined ? {} : { providerFactory: options.providerFactory }),
     ...(options.providerObservationNow === undefined
       ? {}

@@ -9,21 +9,24 @@ import type { StructuralDiagnostic } from "./types";
 
 export type ProviderObservationIntent =
   | "ordinary-sync"
+  | "targeted-reconciliation"
   | "initial-baseline"
   | "recovery"
   | "full-verification";
 export type ProviderObservationAcquisitionIntent = Exclude<
   ProviderObservationIntent,
-  "ordinary-sync"
+  "ordinary-sync" | "targeted-reconciliation"
 >;
 export type ProviderObservationAttemptIntent =
   | ProviderObservationAcquisitionIntent
+  | "targeted-reconciliation"
   | "native-scope-inspection";
 export type ProviderObservationAttempt = Readonly<{
   intent: ProviderObservationAttemptIntent;
   attemptedAt: string;
   outcome: "succeeded" | "failed";
   diagnostics: readonly StructuralDiagnostic[];
+  requestFingerprint?: string | undefined;
 }>;
 export type ProviderObservationSelection = Readonly<{
   provider: "matt-skills/v1";
@@ -34,7 +37,7 @@ export type ProviderObservationSelection = Readonly<{
 }>;
 export type ProviderObservationOperation = Readonly<{
   intent: ProviderObservationIntent;
-  outcome: "reused" | "acquired" | "unavailable" | "retained-after-failure";
+  outcome: "reused" | "acquired" | "unavailable" | "retained-after-failure" | "not-applicable";
   acquisitionCount: number;
 }>;
 
@@ -44,12 +47,32 @@ const structuralDiagnosticSchema = z.strictObject({
   target: z.string().min(1),
   message: z.string().min(1),
 });
-const attemptSchema = z.strictObject({
-  intent: z.enum(["initial-baseline", "recovery", "full-verification", "native-scope-inspection"]),
-  attemptedAt: z.string().min(1),
-  outcome: z.enum(["succeeded", "failed"]),
-  diagnostics: z.array(structuralDiagnosticSchema),
-});
+const attemptSchema = z
+  .strictObject({
+    intent: z.enum([
+      "initial-baseline",
+      "recovery",
+      "full-verification",
+      "targeted-reconciliation",
+      "native-scope-inspection",
+    ]),
+    attemptedAt: z.string().min(1),
+    outcome: z.enum(["succeeded", "failed"]),
+    diagnostics: z.array(structuralDiagnosticSchema),
+    requestFingerprint: z
+      .string()
+      .regex(/^sha256:[0-9a-f]{64}$/)
+      .optional(),
+  })
+  .superRefine((attempt, context) => {
+    if (attempt.intent !== "targeted-reconciliation" && attempt.requestFingerprint !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["requestFingerprint"],
+        message: "Only targeted reconciliation attempts carry a request fingerprint.",
+      });
+    }
+  });
 export const providerObservationSelectionSchema = z
   .strictObject({
     provider: z.literal("matt-skills/v1"),

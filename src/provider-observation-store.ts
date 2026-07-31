@@ -3,10 +3,16 @@ import stableStringify from "safe-stable-stringify";
 import { z } from "zod";
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
 import {
+  affectedSetFor,
+  type NativeReconciliationRequest,
+  nativeReconciliationRequestFingerprint,
+} from "./native-reconciliation-contract";
+import {
   acquireProviderObservations,
   boundProviderScopes,
   type MattProviderFactory,
   providerBindingConflicts,
+  resolveMattProvider,
 } from "./provider-observation-acquisition";
 import {
   type ProviderObservationAcquisitionIntent,
@@ -299,6 +305,7 @@ export const selectProviderObservations = async (
     intent: ProviderObservationIntent;
     providerFactory?: MattProviderFactory;
     now?: () => string;
+    nativeReconciliationRequest?: NativeReconciliationRequest;
   }>,
 ): Promise<ProviderObservationSelectionPlan> => {
   const current = await readProviderObservationStore(input.generation.root);
@@ -307,10 +314,14 @@ export const selectProviderObservations = async (
   const prior = current.kind === "available" ? current.store : undefined;
   const priorBytes = current.kind === "available" ? current.bytes : undefined;
   const acquisitionIntent: ProviderObservationAcquisitionIntent | undefined =
-    input.intent === "ordinary-sync" ? undefined : input.intent;
+    input.intent === "initial-baseline" ||
+    input.intent === "recovery" ||
+    input.intent === "full-verification"
+      ? input.intent
+      : undefined;
   const target = providerObservationStorePath(input.generation.root);
 
-  if (acquisitionIntent === undefined) {
+  if (input.intent === "ordinary-sync") {
     const selectedBase =
       prior === undefined
         ? {
@@ -353,6 +364,158 @@ export const selectProviderObservations = async (
       storeBytes: bytes,
       storeChanged: false,
     };
+  }
+
+  if (input.intent === "targeted-reconciliation") {
+    const request = input.nativeReconciliationRequest;
+    if (request === undefined) {
+      throw new TypeError("Targeted provider reconciliation requires one validated request.");
+    }
+    const requestFingerprint = nativeReconciliationRequestFingerprint(request);
+    const matchedBinding = bindings.find((binding) =>
+      sameMattNativeBindingDefinition(binding, request.binding),
+    );
+    if (matchedBinding === undefined) {
+      const selectedBase =
+        prior === undefined
+          ? { observations: [], selections: [], diagnostics: [] }
+          : selectedFrom(prior, bindings);
+      const selected = withBindingConflicts(selectedBase, bindingConflicts);
+      const store = prior ?? ({ schemaVersion: 1, observations: [], selections: [] } as const);
+      const bytes = storeBytes(store);
+      return {
+        ...selected,
+        operation: {
+          intent: "targeted-reconciliation",
+          outcome: "not-applicable",
+          acquisitionCount: 0,
+        },
+        store,
+        storePath: target,
+        storeBytes: bytes,
+        storeChanged: false,
+      };
+    }
+
+    const attemptedAt = (input.now ?? (() => new Date().toISOString()))();
+    const priorSelection = prior === undefined ? undefined : selectionFor(prior, matchedBinding);
+    const priorObservation =
+      prior === undefined || priorSelection === undefined
+        ? undefined
+        : observationFor(prior, priorSelection);
+    let observation: MattSkillsV1ProviderObservation | undefined;
+    let attemptDiagnostics: readonly StructuralDiagnostic[] = [];
+    let acquisitionCount = 0;
+    if (
+      priorObservation === undefined ||
+      priorSelection?.effectiveFreshness !== "current" ||
+      priorSelection.latestAttempt?.outcome === "failed"
+    ) {
+      attemptDiagnostics = [
+        unavailableDiagnostic(
+          "provider-targeted-reconciliation-basis-unavailable",
+          matchedBinding.nativeScope,
+          "Targeted reconciliation requires one current prior full-scope observation; run explicit observation recovery.",
+        ),
+      ];
+    } else {
+      const resolution = resolveMattProvider(input.generation, input.providerFactory);
+      if (resolution.state === "unavailable") {
+        attemptDiagnostics = resolution.diagnostics;
+      } else if (resolution.provider.reconcile === undefined) {
+        attemptDiagnostics = [
+          unavailableDiagnostic(
+            "provider-targeted-reconciliation-unsupported",
+            matchedBinding.nativeScope,
+            "The confirmed native-work provider does not support targeted reconciliation.",
+          ),
+        ];
+      } else {
+        try {
+          acquisitionCount = 1;
+          observation = await resolution.provider.reconcile({
+            binding: matchedBinding,
+            prior: priorObservation,
+            affected: affectedSetFor(request),
+          });
+          attemptDiagnostics = structuralObservationDiagnostics(observation);
+        } catch (error) {
+          if (!(error instanceof ProviderObservationAcquisitionUnavailableError)) throw error;
+          attemptDiagnostics = [
+            unavailableDiagnostic(
+              "provider-targeted-reconciliation-failed",
+              matchedBinding.nativeScope,
+              "Targeted provider reconciliation could not complete its bounded read.",
+            ),
+          ];
+        }
+      }
+    }
+    const successfulObservation =
+      observation !== undefined && acquisitionSucceeded(observation) ? observation : undefined;
+    const succeeded = successfulObservation !== undefined;
+    const failureDiagnostics = succeeded
+      ? attemptDiagnostics
+      : [...attemptDiagnostics, incompleteAcquisitionDiagnostic(observation, matchedBinding)];
+    const selections: ProviderObservationSelection[] = bindings.map((binding) => {
+      const existing = prior === undefined ? undefined : selectionFor(prior, binding);
+      const existingObservation =
+        prior === undefined || existing === undefined ? undefined : observationFor(prior, existing);
+      if (!sameMattNativeBindingDefinition(binding, matchedBinding)) {
+        return (
+          existing ?? {
+            provider: binding.provider,
+            nativeScope: binding.nativeScope,
+            observationId: null,
+            effectiveFreshness: "undetermined",
+            latestAttempt: null,
+          }
+        );
+      }
+      return {
+        provider: binding.provider,
+        nativeScope: binding.nativeScope,
+        observationId: successfulObservation?.id ?? existingObservation?.id ?? null,
+        effectiveFreshness:
+          successfulObservation?.freshness.assessment ?? ("undetermined" as const),
+        latestAttempt: {
+          intent: "targeted-reconciliation",
+          attemptedAt,
+          outcome: succeeded ? "succeeded" : "failed",
+          diagnostics: succeeded ? attemptDiagnostics : failureDiagnostics,
+          requestFingerprint,
+        },
+      };
+    });
+    const store: ProviderObservationStore = {
+      schemaVersion: 1,
+      observations: mergeHistory(prior, observation === undefined ? [] : [observation]),
+      selections,
+    };
+    const bytes = storeBytes(store);
+    const selected = withBindingConflicts(selectedFrom(store, bindings), bindingConflicts);
+    return {
+      observations: selected.observations,
+      selections: selected.selections,
+      diagnostics: selected.diagnostics,
+      operation: {
+        intent: "targeted-reconciliation",
+        outcome: succeeded
+          ? "acquired"
+          : priorObservation === undefined
+            ? "unavailable"
+            : "retained-after-failure",
+        acquisitionCount,
+      },
+      store,
+      storePath: target,
+      storeBytes: bytes,
+      storeChanged: current.kind !== "available" || !current.bytes.equals(bytes),
+    };
+  }
+
+  if (acquisitionIntent === undefined) {
+    throw new TypeError("Provider acquisition intent is unavailable.");
   }
 
   try {

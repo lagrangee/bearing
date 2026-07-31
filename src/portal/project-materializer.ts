@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import packageMetadata from "../../package.json";
+import { assessNativeReconciliation } from "../native-reconciliation-assessment";
 import type { NativeScopeDiscoveryIntent } from "../native-scope-discovery";
 import type { NativeScopeInspectionIntent } from "../native-scope-inspection";
 import { readProjectSnapshotCache } from "../project-snapshot/cache";
@@ -139,13 +140,31 @@ export const createProjectMaterializer = (options: {
     );
     return snapshot;
   };
-  const createReceiptFor = (plan: SyncPlan): SyncReceipt =>
-    createSyncReceipt({
+  const createReceiptFor = (plan: SyncPlan): SyncReceipt => {
+    const intent = plan.nativeScopeInspectionOperation.intent;
+    const operation =
+      intent.kind === "reconcile"
+        ? (() => {
+            const assessment = assessNativeReconciliation({
+              request: intent.request,
+              boundSelections: plan.providerObservationSelections,
+              inspectionSelections: plan.nativeScopeInspectionSelections,
+            });
+            return {
+              kind: "native-reconciliation" as const,
+              requestFingerprint: assessment.requestFingerprint,
+              outcome: assessment.outcome,
+            };
+          })()
+        : ({ kind: "sync" } as const);
+    return createSyncReceipt({
       producer: { packageName, packageVersion: options.packageVersion },
       completedAt: now(),
       sitemap: { version: 1, fingerprint: plan.fingerprint },
       reconciliation: plan.changed ? "applied" : "no-op",
+      operation,
     });
+  };
   const executeWrite = async (
     executor: ProjectWriteAuthorizer | undefined,
     writePhase: ProjectWritePhase,

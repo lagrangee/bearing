@@ -470,6 +470,102 @@ test("native scope inspection route validates authority and forwards one typed t
   ]);
 });
 
+test("targeted native reconciliation route validates a bounded read set and forwards no mutation authority", async () => {
+  const root = await realpath(await createValidBearingRepo());
+  const validation = { due: true, cooldownRemainingMs: 0, inFlight: false };
+  const calls: unknown[][] = [];
+  const projects: ProjectService = {
+    read: async () => ({ kind: "ready", view: emptyView, validation }),
+    sync: async (...args) => {
+      calls.push(args);
+      return {
+        kind: "failed",
+        mode: args[1],
+        outcome: "failed",
+        error: { code: "request-failed", message: "Portal request failed." },
+        validation,
+      };
+    },
+  };
+  const app = appFor(catalogFor(root), projects);
+  const { cookie, csrfToken } = await establish(app);
+  const endpoint = `${ORIGIN}/api/v1/projects/${PROJECT_ID}/reconcile-native`;
+  const request = (body: unknown, token = csrfToken) =>
+    app.request(endpoint, {
+      method: "POST",
+      headers: {
+        Cookie: cookie,
+        "Content-Type": "application/json",
+        "X-Bearing-CSRF-Token": token,
+      },
+      body: JSON.stringify(body),
+    });
+  const body = {
+    schemaVersion: 1,
+    binding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
+    subjects: [
+      ".scratch/work/issues/02-follow-up.md",
+      ".scratch/work/issues/01-finish.md",
+      ".scratch/work/issues/02-follow-up.md",
+    ],
+    relations: [
+      {
+        kind: "blocked-by",
+        source: ".scratch/work/issues/02-follow-up.md",
+        target: ".scratch/work/issues/01-finish.md",
+      },
+      {
+        kind: "blocked-by",
+        source: ".scratch/work/issues/02-follow-up.md",
+        target: ".scratch/work/issues/01-finish.md",
+      },
+    ],
+  } as const;
+
+  expect((await request(body, "invalid")).status).toBe(403);
+  expect(
+    (
+      await request({
+        ...body,
+        subjects: [],
+        relations: [],
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await request({
+        ...body,
+        mutation: { close: true },
+      })
+    ).status,
+  ).toBe(400);
+  expect(calls).toEqual([]);
+
+  const response = await request(body);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    version: 1,
+    state: "failed",
+    mode: "force",
+  });
+  expect(calls).toEqual([
+    [
+      PROJECT_ID,
+      "force",
+      "ordinary-sync",
+      {
+        kind: "reconcile",
+        request: {
+          ...body,
+          subjects: [".scratch/work/issues/01-finish.md", ".scratch/work/issues/02-follow-up.md"],
+          relations: [body.relations[0]],
+        },
+      },
+    ],
+  ]);
+});
+
 test("ensure-current, cooldown, and force return complete typed project views", async () => {
   const root = await realpath(await createValidBearingRepo());
   try {

@@ -1,3 +1,4 @@
+import { nativeReconciliationRequestFingerprint } from "../native-reconciliation-contract";
 import type { NativeScopeInspectionIntent } from "../native-scope-inspection";
 import { mattNativeBindingDefinitionKey } from "../providers/matt-skills-v1/native-subject";
 
@@ -36,7 +37,11 @@ type ProjectState<T> = {
 const nativeScopeInspectionKey = (intent: NativeScopeInspectionIntent): string =>
   intent.kind === "none"
     ? "none"
-    : `${mattNativeBindingDefinitionKey(intent.target)}\0${intent.refresh ? "refresh" : "reuse"}`;
+    : intent.kind === "reconcile"
+      ? `${mattNativeBindingDefinitionKey(intent.request.binding)}\0reconcile\0${nativeReconciliationRequestFingerprint(
+          intent.request,
+        )}`
+      : `${mattNativeBindingDefinitionKey(intent.target)}\0${intent.refresh ? "refresh" : "reuse"}`;
 
 export type ProjectCoordinator<T> = Readonly<{
   execute(operation: ProjectOperation): Promise<CoordinatedResult<T>>;

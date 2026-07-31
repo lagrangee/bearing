@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
 import type { TargetPlan } from "./install-manifest";
+import { assessNativeReconciliation } from "./native-reconciliation-assessment";
 import type { SyncPlan } from "./sync-plan";
 import { createSyncReceipt, type SyncReceipt } from "./sync-receipt";
 
@@ -17,6 +18,22 @@ export const buildSyncTransactionTargets = (
     completedAt: string;
   }>,
 ): SyncTransactionTargets => {
+  const inspectionIntent = plan.nativeScopeInspectionOperation.intent;
+  const operation =
+    inspectionIntent.kind === "reconcile"
+      ? (() => {
+          const assessment = assessNativeReconciliation({
+            request: inspectionIntent.request,
+            boundSelections: plan.providerObservationSelections,
+            inspectionSelections: plan.nativeScopeInspectionSelections,
+          });
+          return {
+            kind: "native-reconciliation" as const,
+            requestFingerprint: assessment.requestFingerprint,
+            outcome: assessment.outcome,
+          };
+        })()
+      : ({ kind: "sync" } as const);
   const receipt = createSyncReceipt({
     producer: {
       packageName: producer.packageName,
@@ -25,6 +42,7 @@ export const buildSyncTransactionTargets = (
     completedAt: producer.completedAt,
     sitemap: { version: 1, fingerprint: plan.fingerprint },
     reconciliation: plan.changed ? "applied" : "no-op",
+    operation,
   });
   const receiptPath = join(dirname(plan.sitemapPath), "sync-receipt.json");
   const targets: TargetPlan[] = [
