@@ -4,6 +4,7 @@ import { App } from "./app";
 import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/shell.css";
+import "./styles/find.css";
 import "./styles/catalog.css";
 import "./styles/planning.css";
 import "./styles/overview.css";

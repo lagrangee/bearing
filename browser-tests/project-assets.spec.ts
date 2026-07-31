@@ -476,3 +476,52 @@ test("Assets distinguishes empty, partial, invalid, and filtered-empty states", 
   await expect(page.getByRole("heading", { name: "Assets unavailable" })).toBeVisible();
   await expect(page.getByPlaceholder("Find an Asset")).toHaveCount(0);
 });
+
+test("Project Find recovers typed identity and semantic context without leaving the project surface", async ({
+  page,
+}) => {
+  const snapshot = assetsFixture();
+  const posts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(request.url());
+  });
+  await serveSnapshot(page, () => snapshot);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/projects/assets/assets");
+
+  const find = page.getByRole("button", { name: "Find in project" });
+  await find.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Find in project" });
+  const input = dialog.getByRole("searchbox", {
+    name: "Search identity, title, or semantic phrase",
+  });
+  await expect(input).toBeFocused();
+  await input.fill("asset:uncited-context");
+  const result = dialog.getByRole("option").filter({ hasText: "Uncited Product Context" }).first();
+  await expect(result).toBeVisible();
+  await expect(result).toContainText("Asset");
+  await expect(result).toContainText("Identity");
+  await expect(result).toContainText("Portal Project");
+  expect(
+    await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
+  ).toBe(false);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  await page.keyboard.press("Escape");
+  await expect(find).toBeFocused();
+  await find.press("Enter");
+  const reopened = page.getByRole("dialog", { name: "Find in project" });
+  const reopenedInput = reopened.getByRole("searchbox", {
+    name: "Search identity, title, or semantic phrase",
+  });
+  await reopenedInput.fill("whole-project orientation");
+  const roadmap = reopened.getByRole("option").filter({ hasText: "Portal Evolution" }).first();
+  await expect(roadmap).toContainText("Intent");
+  await page.keyboard.press("ArrowDown");
+  await expect(reopenedInput).toHaveAttribute("aria-activedescendant", /project-find-result-/u);
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/projects\/assets\/lineage\/roadmap\/roadmap%3Aportal/u);
+  await expect(page.getByRole("heading", { name: "Portal Evolution" })).toBeVisible();
+  expect(posts).toEqual([]);
+});

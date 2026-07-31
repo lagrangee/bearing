@@ -112,6 +112,7 @@
     "provenance": true
   },
   "dependencies": {
+    "fuse.js": "^7.3.0",
     "markdown-it": "14.1.0",
     "sanitize-html": "2.17.0"
   }

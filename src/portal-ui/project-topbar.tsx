@@ -89,10 +89,13 @@ const formatLastSync = (completedAt: string | undefined): LastSyncLabel => {
 
 export function ProjectTopbar({
   attentionCount,
+  findDisabled,
+  findRef,
   lastSyncedAt,
   menuRef,
   navOpen,
   onOpenNavigation,
+  onOpenFind,
   onSync,
   projectLabel,
   projectTitle,
@@ -100,10 +103,13 @@ export function ProjectTopbar({
   suspended,
 }: {
   readonly attentionCount: number | undefined;
+  readonly findDisabled: boolean;
+  readonly findRef: RefObject<HTMLButtonElement | null>;
   readonly lastSyncedAt?: string | undefined;
   readonly menuRef: RefObject<HTMLButtonElement | null>;
   readonly navOpen: boolean;
   readonly onOpenNavigation: () => void;
+  readonly onOpenFind: () => void;
   readonly onSync: () => void;
   readonly projectLabel: string;
   readonly projectTitle: string;
@@ -188,6 +194,16 @@ export function ProjectTopbar({
             {lastSync.time}
           </strong>
         </span>
+        <Action
+          ref={findRef}
+          className="topbar-find"
+          disabled={findDisabled}
+          onClick={onOpenFind}
+          aria-label="Find in project"
+        >
+          <Icons.search />
+          <span>Find</span>
+        </Action>
         <Action
           className="topbar-sync"
           tone="primary"

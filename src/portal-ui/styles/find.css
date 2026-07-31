@@ -1,0 +1,219 @@
+.topbar-find svg {
+  width: 16px;
+  height: 16px;
+}
+
+.project-find-layer {
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  display: grid;
+  place-items: start center;
+  padding: min(12vh, 96px) var(--space-4) var(--space-4);
+}
+
+.project-find-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: color-mix(in oklch, var(--ink) 34%, transparent);
+  cursor: default;
+}
+
+.project-find-dialog {
+  position: relative;
+  display: flex;
+  width: min(720px, 100%);
+  max-height: min(760px, 86dvh);
+  flex-direction: column;
+  padding: var(--space-6);
+  overflow: hidden;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 24px 80px color-mix(in oklch, var(--ink) 24%, transparent);
+}
+
+.project-find-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.project-find-heading h2 {
+  margin: var(--space-1) 0 0;
+  font-size: var(--type-view);
+}
+
+.project-find-close {
+  display: grid;
+  width: var(--control-touch);
+  height: var(--control-touch);
+  flex: 0 0 var(--control-touch);
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.project-find-close:hover,
+.project-find-close:focus-visible {
+  background: var(--surface-pressed);
+  color: var(--ink);
+}
+
+.project-find-input-label {
+  margin-top: var(--space-6);
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+
+.project-find-input {
+  width: 100%;
+  min-height: 48px;
+  margin-top: var(--space-2);
+  padding: 0 var(--space-4);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  font-size: var(--type-body);
+}
+
+.project-find-input:focus {
+  border-color: var(--accent);
+  outline: 3px solid var(--accent-wash);
+  outline-offset: 0;
+}
+
+.project-find-status,
+.project-find-empty {
+  margin: var(--space-3) 0 0;
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+
+.project-find-results {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-4) calc(-1 * var(--space-2)) 0;
+  padding: 0 var(--space-2) var(--space-1);
+  overflow: auto;
+  list-style: none;
+}
+
+.project-find-result {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  text-decoration: none;
+}
+
+.project-find-result:hover,
+.project-find-result:focus-visible,
+.project-find-result.is-active {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.project-find-result-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.project-find-result-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-find-result-type,
+.project-find-result-parent,
+.project-find-result-match,
+.project-find-result-unavailable {
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+
+.project-find-result-type {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.project-find-result code {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: var(--type-tech);
+}
+
+.project-find-result-parent {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-find-result-match {
+  display: flex;
+  min-width: 0;
+  gap: var(--space-2);
+  line-height: 1.45;
+}
+
+.project-find-result-match b {
+  flex: 0 0 auto;
+  color: var(--ink);
+}
+
+.project-find-result-match span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-find-result-unavailable {
+  color: var(--warning);
+}
+
+@media (max-width: 680px) {
+  .project-find-layer {
+    place-items: end center;
+    padding: 0;
+  }
+
+  .project-find-dialog {
+    width: 100%;
+    max-height: 88dvh;
+    padding: var(--space-5) var(--space-4) var(--space-4);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+  }
+
+  .project-find-result-heading strong {
+    white-space: normal;
+  }
+
+  .project-find-result-match {
+    display: grid;
+    gap: 2px;
+  }
+
+  .project-find-result-match span {
+    white-space: normal;
+  }
+}

@@ -15,6 +15,7 @@ import {
   projectCanvasFocusKey,
   restoreProjectCanvas,
 } from "./project-canvas-history";
+import { ProjectFindDialog } from "./project-find-dialog";
 import { ProjectContextInspector, type ProjectInspectorSelection } from "./project-inspector";
 import {
   type CapturedProjectInspectorSelection,
@@ -46,9 +47,11 @@ export function ProjectPage({
   const activation = useProjectActivation(entryId);
   const narrow = useNarrowViewport();
   const [navOpen, setNavOpen] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
   const [capturedSelection, setCapturedSelection] =
     useState<CapturedProjectInspectorSelection | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
+  const findTriggerRef = useRef<HTMLButtonElement>(null);
   const inspectorTriggerRef = useRef<HTMLElement | null>(null);
   const inspectorHistoryTokenRef = useRef<string | null>(null);
   const inspectorScrollRef = useRef(0);
@@ -118,7 +121,7 @@ export function ProjectPage({
       ? activation.state.project.displayName
       : "Loading project");
   const projectTitle = snapshotTitle(snapshot) ?? projectLabel;
-  const overlayOpen = narrow && (navOpen || selection !== null);
+  const overlayOpen = findOpen || (narrow && (navOpen || selection !== null));
   const currentFocusKey = (): string | undefined =>
     document.activeElement instanceof HTMLElement
       ? projectCanvasFocusKey(document.activeElement)
@@ -398,9 +401,12 @@ export function ProjectPage({
     >
       <ProjectTopbar
         attentionCount={snapshot?.attention.length}
+        findDisabled={snapshot === undefined}
+        findRef={findTriggerRef}
         lastSyncedAt={view?.cache.receipt?.completedAt}
         menuRef={menuRef}
         navOpen={navOpen}
+        onOpenFind={() => setFindOpen(true)}
         onOpenNavigation={() => setNavOpen(true)}
         onSync={runSync}
         projectLabel={projectLabel}
@@ -416,7 +422,7 @@ export function ProjectPage({
         onNavigate={(_next, href) => navigateFromProject(href)}
         projectTitle={projectLabel}
         returnFocusRef={menuRef}
-        suspended={narrow && selection !== null}
+        suspended={narrow && (selection !== null || findOpen)}
       />
       <main
         id="main-content"
@@ -446,6 +452,15 @@ export function ProjectPage({
           selection={selection}
         />
       )}
+      {findOpen && snapshot !== undefined ? (
+        <ProjectFindDialog
+          entryId={entryId}
+          onClose={() => setFindOpen(false)}
+          onNavigate={navigateFromProject}
+          returnFocusRef={findTriggerRef}
+          snapshot={snapshot}
+        />
+      ) : null}
     </div>
   );
 }

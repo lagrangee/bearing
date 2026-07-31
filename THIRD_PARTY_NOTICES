@@ -23,6 +23,7 @@ The distributed CLI and Portal bundle code from the following packages. The buil
 - escape-string-regexp@5.0.0 — MIT
 - fault@2.0.1 — MIT
 - format@0.2.2 — MIT
+- fuse.js@7.3.0 — Apache-2.0
 - hono@4.12.30 — MIT
 - htmlparser2@8.0.2 — MIT
 - is-plain-object@5.0.0 — MIT

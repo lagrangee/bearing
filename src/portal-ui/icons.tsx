@@ -13,6 +13,7 @@ import {
   Menu,
   RefreshCw,
   Route,
+  Search,
   TriangleAlert,
   X,
 } from "lucide-react";
@@ -31,6 +32,7 @@ export const Icons = {
   overview: Grid2X2,
   refresh: RefreshCw,
   roadmap: Route,
+  search: Search,
   source: Link2,
   information: Info,
   unavailable: CircleAlert,
