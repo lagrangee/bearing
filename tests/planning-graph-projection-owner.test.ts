@@ -131,6 +131,7 @@ ID: gate:unrelated
 Title: Unrelated duplicate
 Roadmap: roadmap:test
 Status: planned
+Effort order: []
 ---
 
 # Milestone Gate: Unrelated duplicate
@@ -206,7 +207,7 @@ test("Sitemap consumes graph states but remains a compact sibling without revers
 
   expect(sitemap).toContain("Gate readiness: `gate:test` = not-ready");
   expect(roadmapLine).not.toContain("effort");
-  expect(gateLine).not.toContain("effort");
+  expect(gateLine).toContain("effort: `effort:test`");
   for (const forbidden of [
     "contributing-effort",
     "contributor-count",

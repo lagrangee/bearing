@@ -212,6 +212,26 @@ Alignment Check: \`alignment-check:missing\`
     expect(sitemap).toContain("Gate readiness: `gate:test` = unknown");
   });
 
+  test("diagnoses Gate Effort order that does not exactly cover current contributors", async () => {
+    const root = await createValidBearingRepo();
+    const gatePath = ".bearing/state/milestone-gates/test.md";
+    const gate = await readFile(`${root}/${gatePath}`, "utf8");
+    await writeFixture(
+      root,
+      gatePath,
+      gate.replace("Effort order:\n  - effort:test", "Effort order: []"),
+    );
+
+    const result = await runSync(root);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "gate-effort-order-mismatch",
+      impact: "blocking",
+      target: gatePath,
+      message: "Gate Effort order must exactly cover current contributors: gate:test.",
+    });
+  });
+
   test("diagnoses missing native blockers and inconsistent Roadmap-Gate-Effort topology", async () => {
     const root = await createValidBearingRepo();
     await writeFixture(
@@ -227,7 +247,7 @@ Alignment Check: \`alignment-check:missing\`
     await writeFixture(
       root,
       ".bearing/state/milestone-gates/test.md",
-      `---\nType: milestone-gate\nID: gate:test\nTitle: Test Gate\nRoadmap: roadmap:other\nStatus: active\n---\n\n# Gate\n\n## Intent\n\nMismatch.\n\n## Exit Criteria\n\n- Resolve.\n`,
+      `---\nType: milestone-gate\nID: gate:test\nTitle: Test Gate\nRoadmap: roadmap:other\nStatus: active\nEffort order:\n  - effort:test\n---\n\n# Gate\n\n## Intent\n\nMismatch.\n\n## Exit Criteria\n\n- Resolve.\n`,
     );
     await writeFixture(
       root,

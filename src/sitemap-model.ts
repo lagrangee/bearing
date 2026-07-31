@@ -133,6 +133,8 @@ const bearingNodes = (
     case "milestone-gate": {
       const node = base(data.ID);
       node.links.push({ label: "roadmap", target: data.Roadmap });
+      for (const effort of data["Effort order"])
+        node.links.push({ label: "effort", target: effort });
       return [node];
     }
     case "effort": {

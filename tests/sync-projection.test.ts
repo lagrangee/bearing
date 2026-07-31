@@ -135,6 +135,7 @@ ID: gate:terminal
 Title: Terminal Gate
 Roadmap: roadmap:test
 Status: superseded
+Effort order: []
 ---
 
 # Milestone Gate: Terminal

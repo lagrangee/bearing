@@ -163,6 +163,8 @@ const guidanceItem = (title: string, rationale: string, source: typeof guidanceS
 const localNative = (locator: string) => ({
   kind: "local" as const,
   identity: { locator },
+  createdAt: { availability: "unsupported" as const },
+  lastUpdated: { availability: "unsupported" as const },
   sourceAnchors: [],
   rawFacets: [],
 });
@@ -211,7 +213,11 @@ const wayfinder = (locator: string, title: string, state: "claimed" | "ready" | 
     state === "resolved"
       ? ({
           availability: "available",
-          content: { role: "answer", body: "Resolved." },
+          content: {
+            role: "answer",
+            body: "Resolved.",
+            authoredAt: { availability: "unsupported" },
+          },
         } as const)
       : ({ availability: "unavailable", reason: "not-authored" } as const),
   comments: [],
@@ -291,6 +297,7 @@ const incoming = (locator: string, title: string) => ({
     {
       role: "triage-note" as const,
       body: "Route this request through the accepted Matt workflow.",
+      authoredAt: { availability: "unsupported" as const },
     },
   ],
   lifecycle: { state: "open" as const },
@@ -335,6 +342,13 @@ const capture = (
       wayfinderTickets: projection.wayfinderTickets,
       deliveryTickets: projection.deliveryTickets,
       incomingIssues: projection.incomingIssues ?? [],
+      structuralOrder: [
+        projection.map.ref,
+        ...(projection.spec === undefined ? [] : [projection.spec.ref]),
+        ...projection.wayfinderTickets.map((ticket) => ticket.ref),
+        ...projection.deliveryTickets.map((ticket) => ticket.ref),
+        ...(projection.incomingIssues ?? []).map((issue) => issue.ref),
+      ],
       graph: {
         parentChild: [
           ...projection.wayfinderTickets.map((ticket) => ({
@@ -360,7 +374,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 8,
+    schemaVersion: 9,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {

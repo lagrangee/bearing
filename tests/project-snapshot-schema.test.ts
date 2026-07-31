@@ -83,7 +83,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 8,
+  schemaVersion: 9,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -134,6 +134,7 @@ const providerCapture = createProviderScopeObservation({
     wayfinderTickets: [],
     deliveryTickets: [],
     incomingIssues: [],
+    structuralOrder: [],
     graph: { parentChild: [], blockedBy: [] },
   },
 });

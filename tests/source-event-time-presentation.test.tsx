@@ -68,3 +68,18 @@ test("uses now rather than exposing source seconds in ordinary relative display"
     formatSourceEventRelative(instant, Date.parse("2026-07-31T00:09:30Z"), "en-US"),
   ).toBe("now");
 });
+
+test("keeps minute-level absolute disclosure on compact relative time", () => {
+  const markup = renderToStaticMarkup(
+    <SourceEventTimeValue
+      label="Verified at"
+      locale="en-US"
+      mode="compact"
+      now={Date.parse("2026-07-31T01:10:00Z")}
+      time={instant}
+      timeZone="UTC"
+    />,
+  );
+  expect(markup).toContain('data-absolute="Jul 31, 2026 at 12:09 AM"');
+  expect(markup).toContain(">1 hour ago<");
+});

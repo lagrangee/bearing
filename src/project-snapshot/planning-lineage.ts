@@ -580,6 +580,26 @@ const section = (
   availability: "available" | "confirmed-empty" | "unavailable" | "unsupported" = "available",
 ) => ({ role, availability });
 
+export const nativeEventHistoryAvailabilityFor = (
+  object: MattProjectedObject,
+): "available" | "unavailable" | "unsupported" => {
+  const closure =
+    (object.native.kind === "github" && object.native.trackerClosure.state === "closed"
+      ? object.native.trackerClosure.closedAt
+      : undefined) ??
+    (object.kind === "wayfinder-ticket" || object.kind === "delivery-ticket"
+      ? object.trackerClosure.state === "closed"
+        ? object.trackerClosure.closedAt
+        : undefined
+      : object.kind === "incoming-issue" && object.lifecycle.state === "closed"
+        ? object.lifecycle.closedAt
+        : undefined);
+  const times = [object.native.createdAt, ...(closure === undefined ? [] : [closure])];
+  if (times.some((time) => time.availability === "available")) return "available";
+  if (times.some((time) => time.availability === "unavailable")) return "unavailable";
+  return "unsupported";
+};
+
 const nativeStructuralSections = (
   object: MattProjectedObject,
   complete: boolean,
@@ -605,6 +625,7 @@ const nativeStructuralSections = (
   return [
     lifecycle,
     ...conditional,
+    section("native.event-history", nativeEventHistoryAvailabilityFor(object)),
     section("native.provenance"),
     section("native.observation-trust", complete ? "available" : "unavailable"),
   ];

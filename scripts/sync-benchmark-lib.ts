@@ -151,7 +151,7 @@ const fixtureFiles = (scale: BenchmarkScale): FixtureFile[] => {
       },
       {
         locator: `.bearing/state/milestone-gates/g${ordinal}.md`,
-        content: `---\nType: milestone-gate\nID: ${gateId}\nTitle: Gate ${ordinal}\nRoadmap: ${roadmapId}\nStatus: active\n---\n\n# Gate ${ordinal}\n\n## Intent\n\nComplete deterministic scope ${ordinal}.\n\n## Exit Criteria\n\n- All generated tickets resolve.\n`,
+        content: `---\nType: milestone-gate\nID: ${gateId}\nTitle: Gate ${ordinal}\nRoadmap: ${roadmapId}\nStatus: active\nEffort order:\n  - ${effortId}\n---\n\n# Gate ${ordinal}\n\n## Intent\n\nComplete deterministic scope ${ordinal}.\n\n## Exit Criteria\n\n- All generated tickets resolve.\n`,
       },
       {
         locator: `.bearing/state/efforts/e${ordinal}.md`,

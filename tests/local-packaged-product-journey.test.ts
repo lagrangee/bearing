@@ -91,6 +91,8 @@ ID: gate:journey
 Title: Journey complete
 Roadmap: roadmap:journey
 Status: active
+Effort order:
+  - effort:journey
 ---
 
 # Milestone Gate: Journey complete

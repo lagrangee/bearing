@@ -140,7 +140,7 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
   await writeFixture(
     root,
     ".bearing/state/milestone-gates/other.md",
-    `---\nType: milestone-gate\nID: gate:other\nTitle: Other Gate\nRoadmap: roadmap:other\nStatus: active\n---\n\n# Milestone Gate: Other\n\n## Intent\n\nPreserve exact sibling readiness.\n\n## Exit Criteria\n\n- Resolve the sibling work.\n`,
+    `---\nType: milestone-gate\nID: gate:other\nTitle: Other Gate\nRoadmap: roadmap:other\nStatus: active\nEffort order:\n  - effort:other\n---\n\n# Milestone Gate: Other\n\n## Intent\n\nPreserve exact sibling readiness.\n\n## Exit Criteria\n\n- Resolve the sibling work.\n`,
   );
   await writeFixture(
     root,

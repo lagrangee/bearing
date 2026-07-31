@@ -21,6 +21,7 @@ import type {
   MattDeliveryTicket,
   MattIncomingIssue,
   MattMap,
+  MattNativeEventTime,
   MattSemanticSectionAvailability,
   MattSpec,
   MattWayfinderTicket,
@@ -38,8 +39,10 @@ import {
 } from "../providers/matt-skills-v1/native-subject";
 import type { MattProjectedObject } from "../providers/matt-skills-v1/projection";
 import { mattObjects } from "../providers/matt-skills-v1/projection";
+import { projectExpectedSourceEventTime } from "../source-event-time";
 import {
   type PlanningLineageEvent,
+  type PlanningLineageEventTime,
   planningLineageEventsFor,
   planningLineageRelationEvent,
 } from "./planning-lineage-events";
@@ -92,6 +95,15 @@ export type PlanningLineageSection = Readonly<{
   title: string;
   body?: string | undefined;
   items?: readonly string[] | undefined;
+  times?: readonly PlanningLineageTimeFact[] | undefined;
+}>;
+
+export type PlanningLineageTimeFact = Readonly<{
+  key: string;
+  label: string;
+  time: MattNativeEventTime;
+  mode?: "compact" | "detail" | undefined;
+  detail?: string | undefined;
 }>;
 
 export type PlanningLineageParentCrumb = Readonly<{
@@ -111,7 +123,7 @@ type ReadablePlanningLineageSubjectModel = Readonly<{
   }>;
   parentPath: readonly PlanningLineageParentCrumb[];
   parentNotice?: string | undefined;
-  events: readonly PlanningLineageEvent[];
+  events: readonly PlanningLineageEvent<PlanningLineageEventTime>[];
   sections: readonly PlanningLineageSection[];
   semanticAvailability: ReadonlyMap<string, MattSemanticSectionAvailability>;
   relations: readonly PlanningLineageRelation[];
@@ -524,6 +536,7 @@ const nativeSemanticSection = (
     title: string;
     body?: string | undefined;
     items?: readonly string[] | undefined;
+    times?: readonly PlanningLineageTimeFact[] | undefined;
     emptyCopy: string;
     unavailableBody?: string | undefined;
   }>,
@@ -540,6 +553,7 @@ const nativeSemanticSection = (
         input.unavailableBody ??
         "This semantic section is unavailable in the selected provider observation.",
       ...(input.items === undefined ? {} : { items: input.items }),
+      ...(input.times === undefined ? {} : { times: input.times }),
     };
   }
   if (availability === "unsupported") {
@@ -547,6 +561,7 @@ const nativeSemanticSection = (
       anchor: input.role,
       title: input.title,
       body: "This provider version does not support the requested semantic section.",
+      ...(input.times === undefined ? {} : { times: input.times }),
     };
   }
   return {
@@ -554,6 +569,7 @@ const nativeSemanticSection = (
     title: input.title,
     ...(input.body === undefined ? {} : { body: input.body }),
     ...(input.items === undefined ? {} : { items: input.items }),
+    ...(input.times === undefined ? {} : { times: input.times }),
   };
 };
 
@@ -577,12 +593,34 @@ const nativeTrustSections = (
     {
       anchor: "native.observation-trust",
       title: "Observation Trust",
-      body: `Observation ${observation.id}; projection ${observation.state}; freshness ${observation.freshness.assessment}; coverage ${observation.coverage.assessment}; completion ${observation.completion}; selected evidence ${evidence.frontierEvidence}.`,
+      body: `Observation ${observation.id}; projection ${observation.state}; freshness ${evidence.freshness}; coverage ${observation.coverage.assessment}; completion ${observation.completion}; selected evidence ${evidence.frontierEvidence}. Current means verified at the recorded observation against the confirmed source revision; it does not promise live currency.`,
+      times: [
+        {
+          key: `observation:${observation.id}:verified-at`,
+          label: "Verified at",
+          time: projectExpectedSourceEventTime(observation.observedAt),
+          mode: "compact",
+          detail: observation.sourceRevision ?? "Source revision unavailable",
+        },
+      ],
     },
     {
       anchor: "native.provenance",
       title: "Native Provenance",
       body: provenance,
+      ...(object === undefined
+        ? {}
+        : {
+            times: [
+              { key: "native-created", label: "Created", time: object.native.createdAt },
+              {
+                key: "native-last-updated",
+                label: "Last updated",
+                time: object.native.lastUpdated,
+                detail: "Secondary source metadata; not a lifecycle event.",
+              },
+            ],
+          }),
     },
   ];
 };
@@ -598,7 +636,16 @@ const nativeScopeSections = (
     {
       anchor: "native-scope.trust",
       title: "Scope Context and Trust",
-      body: `${record.observation.provider} · ${record.title}. Projection ${record.observation.state}; freshness ${record.observation.freshness.assessment}; coverage ${record.observation.coverage.assessment}; completion ${record.observation.completion}; selected evidence ${evidence.frontierEvidence}.`,
+      body: `${record.observation.provider} · ${record.title}. Projection ${record.observation.state}; freshness ${evidence.freshness}; coverage ${record.observation.coverage.assessment}; completion ${record.observation.completion}; selected evidence ${evidence.frontierEvidence}. Current means verified at the recorded observation against the confirmed source revision; it does not promise live currency.`,
+      times: [
+        {
+          key: `observation:${record.observation.id}:verified-at`,
+          label: "Verified at",
+          time: projectExpectedSourceEventTime(record.observation.observedAt),
+          mode: "compact",
+          detail: record.observation.sourceRevision ?? "Source revision unavailable",
+        },
+      ],
     },
     {
       anchor: "native-scope.subjects",
@@ -687,14 +734,39 @@ const specSections = (spec: MattSpec): readonly PlanningLineageSection[] => [
 
 const trackerClosureItems = (
   closure: MattWayfinderTicket["trackerClosure"] | MattDeliveryTicket["trackerClosure"],
-): readonly string[] =>
+): Pick<PlanningLineageSection, "items" | "times"> =>
   closure.state === "open"
-    ? ["Tracker closure: open"]
-    : [
-        `Tracker closure: closed · ${closure.disposition}`,
-        `Closure observed at: ${closure.observedAt}`,
-        ...(closure.actor === undefined ? [] : [`Closure actor: ${closure.actor}`]),
-      ];
+    ? { items: ["Tracker closure: open"] }
+    : {
+        items: [
+          `Tracker closure: closed · ${closure.disposition}`,
+          ...(closure.actor === undefined ? [] : [`Closure actor: ${closure.actor}`]),
+        ],
+        times: [{ key: "tracker-closed", label: "Tracker closed", time: closure.closedAt }],
+      };
+
+const contentTimeFacts = (
+  content: readonly Readonly<{
+    role: string;
+    nativeIdentity?: string | undefined;
+    author?: string | undefined;
+    authoredAt?: MattNativeEventTime | undefined;
+  }>[],
+): readonly PlanningLineageTimeFact[] =>
+  content.flatMap((entry, index) =>
+    entry.authoredAt === undefined
+      ? []
+      : [
+          {
+            key: `content-authored:${entry.nativeIdentity ?? index}`,
+            label: `${entry.role === "answer" ? "Answer" : "Comment"} authored${
+              entry.author === undefined ? "" : ` by ${entry.author}`
+            }`,
+            time: entry.authoredAt,
+            detail: `Native content position ${index + 1}; event time does not reorder content.`,
+          },
+        ],
+  );
 
 const wayfinderSections = (ticket: MattWayfinderTicket): readonly PlanningLineageSection[] => [
   nativeSemanticSection(ticket, {
@@ -707,7 +779,7 @@ const wayfinderSections = (ticket: MattWayfinderTicket): readonly PlanningLineag
     anchor: "wayfinder.lifecycle",
     title: "Lifecycle and Subtype",
     body: `${ticket.lifecycle.state} · ${ticket.subtype}`,
-    items: trackerClosureItems(ticket.trackerClosure),
+    ...trackerClosureItems(ticket.trackerClosure),
   },
   nativeSemanticSection(ticket, {
     role: "wayfinder.claim",
@@ -731,6 +803,18 @@ const wayfinderSections = (ticket: MattWayfinderTicket): readonly PlanningLineag
       ticket.answer.availability === "available" && ticket.answer.content.sourceAnchor !== undefined
         ? [sourceAnchorLabel(ticket.answer.content.sourceAnchor)]
         : undefined,
+    ...(ticket.answer.availability === "available" && ticket.answer.content.authoredAt !== undefined
+      ? {
+          times: [
+            {
+              key: "answer-authored",
+              label: "Answer authored",
+              time: ticket.answer.content.authoredAt,
+              detail: "Established only from the uniquely referenced native Answer content.",
+            },
+          ],
+        }
+      : {}),
     emptyCopy: "No Answer has been authored.",
   }),
   nativeSemanticSection(ticket, {
@@ -742,6 +826,7 @@ const wayfinderSections = (ticket: MattWayfinderTicket): readonly PlanningLineag
           comment.sourceAnchor === undefined ? "" : ` · ${sourceAnchorLabel(comment.sourceAnchor)}`
         }`,
     ),
+    times: contentTimeFacts(ticket.comments),
     emptyCopy: "No comments are recorded.",
   }),
   ...(ticket.lifecycle.state === "resolved-on-route"
@@ -780,7 +865,7 @@ const deliverySections = (ticket: MattDeliveryTicket): readonly PlanningLineageS
     anchor: "delivery.lifecycle",
     title: "Delivery Lifecycle",
     body: ticket.lifecycle.state,
-    items: trackerClosureItems(ticket.trackerClosure),
+    ...trackerClosureItems(ticket.trackerClosure),
   },
   nativeSemanticSection(ticket, {
     role: "delivery.completion-evidence",
@@ -802,6 +887,7 @@ const deliverySections = (ticket: MattDeliveryTicket): readonly PlanningLineageS
           comment.sourceAnchor === undefined ? "" : ` · ${sourceAnchorLabel(comment.sourceAnchor)}`
         }`,
     ),
+    times: contentTimeFacts(ticket.comments),
     emptyCopy: "No comments are recorded.",
   }),
 ];
@@ -832,10 +918,18 @@ const incomingSections = (issue: MattIncomingIssue): readonly PlanningLineageSec
   {
     anchor: "incoming.lifecycle",
     title: "Native Lifecycle",
-    body:
-      issue.lifecycle.state === "open"
-        ? "open"
-        : `closed · ${issue.lifecycle.disposition} · observed ${issue.lifecycle.observedAt}`,
+    body: issue.lifecycle.state === "open" ? "open" : `closed · ${issue.lifecycle.disposition}`,
+    ...(issue.lifecycle.state === "open"
+      ? {}
+      : {
+          times: [
+            {
+              key: "tracker-closed",
+              label: "Tracker closed",
+              time: issue.lifecycle.closedAt,
+            },
+          ],
+        }),
   },
   nativeSemanticSection(issue, {
     role: "incoming.content",
@@ -846,6 +940,7 @@ const incomingSections = (issue: MattIncomingIssue): readonly PlanningLineageSec
           content.sourceAnchor === undefined ? "" : ` · ${sourceAnchorLabel(content.sourceAnchor)}`
         }`,
     ),
+    times: contentTimeFacts(issue.content),
     emptyCopy: "No issue content or triage notes are recorded.",
   }),
 ];
@@ -871,6 +966,33 @@ const nativeSections = (
   })();
   return [...objectSections, ...nativeTrustSections(snapshot, record)];
 };
+
+export const nativeLifecycleEventsFor = (
+  object: MattProjectedObject,
+): readonly PlanningLineageEvent<PlanningLineageEventTime>[] => {
+  const closure =
+    (object.native.kind === "github" && object.native.trackerClosure.state === "closed"
+      ? object.native.trackerClosure.closedAt
+      : undefined) ??
+    (object.kind === "wayfinder-ticket" || object.kind === "delivery-ticket"
+      ? object.trackerClosure.state === "closed"
+        ? object.trackerClosure.closedAt
+        : undefined
+      : object.kind === "incoming-issue" && object.lifecycle.state === "closed"
+        ? object.lifecycle.closedAt
+        : undefined);
+  return [
+    { role: "native.created", label: "Created", time: object.native.createdAt },
+    ...(closure === undefined
+      ? []
+      : [{ role: "native.tracker-closed", label: "Tracker closed", time: closure }]),
+  ];
+};
+
+const nativeLifecycleEvents = (
+  record: NativeRecord,
+): readonly PlanningLineageEvent<PlanningLineageEventTime>[] =>
+  record.recordKind === "native-object" ? nativeLifecycleEventsFor(record.object) : [];
 
 const nativeSourceHref = (record: NativeRecord): string | undefined => {
   if (record.recordKind !== "native-object" || record.object.native.kind !== "github") {
@@ -1009,7 +1131,7 @@ export const buildPlanningLineageSubjectModel = (
           parentNotice: `${lineage.parentPath.reason ?? "Canonical parentage is unavailable."} The path stops at the last trustworthy ancestor.`,
         }),
     events: isNativeSubject(subject)
-      ? []
+      ? nativeLifecycleEvents(record as NativeRecord)
       : planningLineageEventsFor(snapshot, subject, record as CanonicalSubjectRecord),
     sections: sectionsFor(snapshot, lineage, record),
     semanticAvailability,

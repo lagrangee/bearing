@@ -91,6 +91,8 @@ ID: gate:test
 Title: Test Gate
 Roadmap: roadmap:test
 Status: active
+Effort order:
+  - effort:test
 Passage:
   Accepted decision: Keep the evidence attached.
   Rationale: It demonstrates the relation.

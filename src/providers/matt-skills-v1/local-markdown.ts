@@ -33,6 +33,7 @@ import {
 } from "./capture";
 import { retainTrustedLocalProjection } from "./local-markdown-trust";
 import type {
+  MattAuthoredContent,
   MattBlockedByRelation,
   MattContent,
   MattDeliveryTicket,
@@ -292,6 +293,8 @@ const nativeEvidenceFor = (
 ): MattNativeEvidence => ({
   kind: "local",
   identity: { locator: file.locator },
+  createdAt: { availability: "unsupported" },
+  lastUpdated: { availability: "unsupported" },
   sourceAnchors: anchorsFor(file),
   rawFacets: rawFacetsFor(file, extra),
 });
@@ -299,13 +302,14 @@ const nativeEvidenceFor = (
 const contentSection = (
   file: CapturedFile,
   title: string,
-  role: MattContent["role"],
-): MattContent | undefined => {
+  role: MattAuthoredContent["role"],
+): MattAuthoredContent | undefined => {
   const result = queryMarkdownSection(file.document, { title });
   if (result.state !== "found" || result.value.markdown.length === 0) return undefined;
   return {
     role,
     body: result.value.markdown,
+    authoredAt: { availability: "unsupported" },
     ...(role === "answer"
       ? {
           sourceAnchor: {
@@ -323,7 +327,7 @@ const supplementaryContent = (file: CapturedFile): readonly MattContent[] => {
     ["Agent Brief", "agent-brief"],
     ["Triage Notes", "triage-note"],
   ] as const;
-  const content = roles.flatMap(([title, role]) => {
+  const content: MattContent[] = roles.flatMap(([title, role]) => {
     const item = contentSection(file, title, role);
     return item === undefined ? [] : [item];
   });
@@ -587,7 +591,6 @@ const shortReferenceFor = (locator: string): string | undefined => {
 
 const decodeWayfinder = (
   file: CapturedFile,
-  capturedAt: string,
   diagnostics: CaptureDiagnostic[],
 ): MattWayfinderTicket | undefined => {
   const title = titleFor(file, diagnostics);
@@ -642,7 +645,7 @@ const decodeWayfinder = (
       ? {
           state: "closed",
           disposition: "completed",
-          observedAt: capturedAt,
+          closedAt: { availability: "unsupported" },
         }
       : { state: "open" },
     semanticSections: [
@@ -668,7 +671,6 @@ const decodeWayfinder = (
 const decodeDelivery = (
   file: CapturedFile,
   vocabulary: TriageVocabulary | undefined,
-  capturedAt: string,
   diagnostics: CaptureDiagnostic[],
 ): MattDeliveryTicket | undefined => {
   const title = titleFor(file, diagnostics);
@@ -707,14 +709,14 @@ const decodeDelivery = (
     trackerClosure = {
       state: "closed",
       disposition: "completed",
-      observedAt: capturedAt,
+      closedAt: { availability: "unsupported" },
     };
   } else if (semanticStatus === "wontfix") {
     lifecycle = { state: "completion-unavailable", reason: "source-contract-gap" };
     trackerClosure = {
       state: "closed",
       disposition: "wontfix",
-      observedAt: capturedAt,
+      closedAt: { availability: "unsupported" },
     };
   } else if (
     status === undefined ||
@@ -768,7 +770,6 @@ const decodeDelivery = (
 const decodeIncoming = (
   file: CapturedFile,
   vocabulary: TriageVocabulary | undefined,
-  capturedAt: string,
   diagnostics: CaptureDiagnostic[],
 ): MattIncomingIssue | undefined => {
   const title = titleFor(file, diagnostics);
@@ -846,7 +847,7 @@ const decodeIncoming = (
         ? {
             state: "closed",
             disposition: "wontfix",
-            observedAt: capturedAt,
+            closedAt: { availability: "unsupported" },
           }
         : { state: "open" },
     semanticSections: [
@@ -1631,12 +1632,11 @@ const captureLocalScope = async (
         ),
       );
     }
-    const wayfinder =
-      role === "wayfinder" ? decodeWayfinder(file, capturedAt, diagnostics) : undefined;
+    const wayfinder = role === "wayfinder" ? decodeWayfinder(file, diagnostics) : undefined;
     const delivery =
-      role === "delivery" ? decodeDelivery(file, vocabulary, capturedAt, diagnostics) : undefined;
+      role === "delivery" ? decodeDelivery(file, vocabulary, diagnostics) : undefined;
     const incoming =
-      role === "incoming" ? decodeIncoming(file, vocabulary, capturedAt, diagnostics) : undefined;
+      role === "incoming" ? decodeIncoming(file, vocabulary, diagnostics) : undefined;
     const decoded: DecodedIssue = {
       file,
       shortReference,
@@ -1830,6 +1830,14 @@ const captureLocalScope = async (
     wayfinderTickets: resolvedWayfinder,
     deliveryTickets,
     incomingIssues,
+    structuralOrder: [
+      ...(mapProjection === undefined ? [] : [mapProjection.ref]),
+      ...(specProjection === undefined ? [] : [specProjection.ref]),
+      ...decodedIssues.flatMap((issue) => {
+        const projected = issue.wayfinder ?? issue.delivery ?? issue.incoming;
+        return projected === undefined ? [] : [projected.ref];
+      }),
+    ],
     graph: { parentChild, blockedBy },
   };
   const unstableIssueLocators = new Set(

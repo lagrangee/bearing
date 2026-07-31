@@ -225,31 +225,39 @@ type NormalizedPlanningProjection = Readonly<{
   efforts: CollectionProjection<Effort>;
 }>;
 
-const effortIdsFor = (
-  efforts: CollectionProjection<Effort>,
-  matches: (effort: Effort) => boolean,
-): readonly Effort["id"][] =>
-  trusted(efforts)
-    .filter(matches)
-    .map((effort) => effort.id)
-    .sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)));
+const retainedEffortIds = (efforts: CollectionProjection<Effort>): ReadonlySet<Effort["id"]> =>
+  new Set(trusted(efforts).map((effort) => effort.id));
+
+const retainCanonicalEffortOrder = (
+  effortIds: readonly Effort["id"][],
+  retained: ReadonlySet<Effort["id"]>,
+): readonly Effort["id"][] => effortIds.filter((effortId) => retained.has(effortId));
+
+const roadmapEffortOrder = (
+  roadmap: Roadmap,
+  gates: CollectionProjection<MilestoneGate>,
+): readonly Effort["id"][] => {
+  const gatesById = new Map(trusted(gates).map((gate) => [gate.id, gate]));
+  return roadmap.gateOrder.flatMap((gateId) => gatesById.get(gateId)?.effortIds ?? []);
+};
 
 export const normalizePlanningDerivations = (
   input: ProjectionInput,
 ): NormalizedPlanningProjection => {
   const efforts = input.efforts;
+  const retained = retainedEffortIds(efforts);
+  const gatesWithRelations = mapCollection(input.gates, (gate) => ({
+    ...gate,
+    effortIds: retainCanonicalEffortOrder(gate.effortIds, retained),
+  }));
   const roadmaps = mapCollection(input.roadmaps, (roadmap) => ({
     ...roadmap,
     horizon: normalizedRoadmapHorizon(roadmap, input.gates),
-    effortIds: effortIdsFor(efforts, (effort) => effort.roadmapId === roadmap.id),
-  }));
-  const gatesWithRelations = mapCollection(input.gates, (gate) => ({
-    ...gate,
-    horizonState: normalizedGateHorizon(gate, roadmaps),
-    effortIds: effortIdsFor(efforts, (effort) => effort.targetGateId === gate.id),
+    effortIds: roadmapEffortOrder(roadmap, gatesWithRelations),
   }));
   const gates = mapCollection(gatesWithRelations, (gate) => ({
     ...gate,
+    horizonState: normalizedGateHorizon(gate, roadmaps),
     readiness: normalizedGateReadiness(
       gate,
       efforts,

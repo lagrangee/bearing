@@ -13,6 +13,7 @@ export type GateTopology = Readonly<{
   locator: string;
   lifecycle: "planned" | "active" | "passed" | "superseded";
   roadmap: string;
+  effortOrder: readonly string[];
 }>;
 export type EffortTopology = Readonly<{
   id: string;

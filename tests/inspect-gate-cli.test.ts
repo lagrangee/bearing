@@ -52,6 +52,16 @@ const stableInspectOutput = (stdout: string): string =>
   );
 
 const addRev002Context = async (root: string): Promise<void> => {
+  const gatePath = join(root, ".bearing/state/milestone-gates/test.md");
+  const gate = await readFile(gatePath, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/milestone-gates/test.md",
+    gate.replace(
+      "Effort order:\n  - effort:test",
+      "Effort order:\n  - effort:second\n  - effort:test",
+    ),
+  );
   await writeFixture(
     root,
     ".bearing/state/efforts/second.md",
@@ -316,6 +326,7 @@ test("real inspect roadmap and effort commands use the same complete typed closu
   await addRev002Context(root);
   const perturbedRoot = await createValidBearingRepo();
   for (const reference of [
+    ".bearing/state/milestone-gates/test.md",
     "evidence/second.md",
     ".bearing/state/assets.md",
     ".bearing/state/alignment-checks/second.md",
@@ -398,6 +409,8 @@ ID: gate:detached
 Title: Detached Gate
 Roadmap: roadmap:test
 Status: planned
+Effort order:
+  - effort:detached
 ---
 
 # Detached Gate

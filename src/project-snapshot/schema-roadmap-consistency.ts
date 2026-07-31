@@ -121,7 +121,20 @@ const validateRoadmaps = (snapshot: RoadmapConsistencySnapshot, context: Refinem
     const ownedEffortIds = efforts
       .filter((effort) => effort.roadmapId === roadmap.id)
       .map((effort) => effort.id);
-    if (!validRelationSet(snapshot.efforts, roadmap.effortIds, ownedEffortIds)) {
+    const retainedOwnedGateIds = new Set(
+      gates.filter((gate) => gate.roadmapId === roadmap.id).map((gate) => gate.id),
+    );
+    const orderableEffortIds = efforts
+      .filter(
+        (effort) =>
+          effort.roadmapId === roadmap.id && retainedOwnedGateIds.has(effort.targetGateId),
+      )
+      .map((effort) => effort.id);
+    const validEffortOrder =
+      complete(snapshot.efforts) && complete(snapshot.gates)
+        ? sameSet(roadmap.effortIds, ownedEffortIds)
+        : coversRetained(roadmap.effortIds, orderableEffortIds);
+    if (!validEffortOrder) {
       addIssue(
         context,
         ["roadmaps", "items", position, "effortIds"],

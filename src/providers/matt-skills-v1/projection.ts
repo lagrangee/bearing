@@ -52,21 +52,29 @@ type MattPlanningCapture =
   | Pick<Extract<SchemaCapture, { state: "available" | "partial" }>, "state" | "projection">
   | Pick<Extract<SchemaCapture, { state: "absent" | "invalid" }>, "state">;
 
-export const mattObjects = (
-  capture: MattSkillsV1ProviderObservation | MattObservationView | undefined,
+export const mattObjectsFromProjection = (
+  projection: MattScopeProjection,
 ): readonly MattProjectedObject[] => {
-  if (capture === undefined || (capture.state !== "available" && capture.state !== "partial")) {
-    return [];
-  }
-  const projection: MattScopeProjection = capture.projection;
-  return [
+  const objects = [
     ...(projection.map === undefined ? [] : [projection.map]),
     ...(projection.spec === undefined ? [] : [projection.spec]),
     ...projection.wayfinderTickets,
     ...projection.deliveryTickets,
     ...projection.incomingIssues,
   ];
+  const byReference = new Map(objects.map((object) => [object.ref, object]));
+  return projection.structuralOrder.flatMap((reference) => {
+    const object = byReference.get(reference);
+    return object === undefined ? [] : [object];
+  });
 };
+
+export const mattObjects = (
+  capture: MattSkillsV1ProviderObservation | MattObservationView | undefined,
+): readonly MattProjectedObject[] =>
+  capture === undefined || (capture.state !== "available" && capture.state !== "partial")
+    ? []
+    : mattObjectsFromProjection(capture.projection);
 
 export const mattObjectLocator = (object: MattProjectedObject): string =>
   object.native.kind === "local"

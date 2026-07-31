@@ -51,7 +51,7 @@ test("projects exact governance prose without owning planning derivation", async
         exitCriteria: ["All fixture work resolves."],
         readiness: "unknown",
         horizonState: "unknown",
-        effortIds: [],
+        effortIds: ["effort:test"],
       },
     ],
   });

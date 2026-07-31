@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import { buildRoadmapDetailModel } from "../src/portal-ui/project-roadmap-model";
 import { findPlanningLineageSubjectProjection } from "../src/project-snapshot/planning-lineage";
@@ -101,6 +103,16 @@ Prove that duplicate bindings do not share completion or readiness.
 
 test("reconciles canonical GitHub locator variants by stable native identity before conflict checks", async () => {
   const root = await createValidBearingRepo();
+  const gatePath = join(root, ".bearing/state/milestone-gates/test.md");
+  const gate = await readFile(gatePath, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/milestone-gates/test.md",
+    gate.replace(
+      "Effort order:\n  - effort:test",
+      "Effort order:\n  - effort:relocated\n  - effort:test",
+    ),
+  );
   const scope = (rootKind: "wayfinder-map" | "parent-issue", owner: string, number: number) =>
     encodeGitHubMattNativeScope({
       host: "github.com",

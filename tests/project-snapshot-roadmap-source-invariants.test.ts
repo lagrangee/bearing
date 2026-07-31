@@ -48,6 +48,7 @@ ID: gate:other
 Title: Other Gate
 Roadmap: roadmap:other
 Status: active
+Effort order: []
 ---
 
 # Milestone Gate: Other

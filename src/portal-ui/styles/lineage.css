@@ -85,6 +85,33 @@
 .lineage-sections ul {
   padding-left: var(--space-5);
 }
+.lineage-time-facts {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 0;
+}
+.lineage-sections .lineage-time-facts > div {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.25fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.lineage-time-facts dt,
+.lineage-time-facts dd > small,
+.source-event-time.unsupported {
+  color: var(--muted);
+  font-size: var(--type-micro);
+}
+.lineage-time-facts dd {
+  min-width: 0;
+  margin: 0;
+}
+.lineage-time-facts dd > small {
+  display: block;
+  margin-top: var(--space-2);
+  overflow-wrap: anywhere;
+}
 .lineage-context {
   padding: var(--space-10) 0;
 }
@@ -147,12 +174,12 @@
 }
 .lineage-relation-item strong,
 .lineage-relation-item code,
-.lineage-relation-item small {
+.lineage-context .lineage-relation-item small {
   display: block;
   overflow-wrap: anywhere;
 }
 .lineage-relation-item code,
-.lineage-relation-item small {
+.lineage-context .lineage-relation-item small {
   margin-top: var(--space-1);
   color: var(--muted);
   font-size: var(--type-micro);
@@ -251,7 +278,16 @@
 .source-event-time.compact {
   position: relative;
 }
+.lineage-time-disclosure > summary {
+  width: max-content;
+  cursor: pointer;
+}
+.lineage-time-disclosure > .source-event-time.detail {
+  display: block;
+  margin-top: var(--space-2);
+}
 .source-event-time.compact:hover::after,
+:where(.lineage-time-disclosure > summary:focus) .source-event-time.compact::after,
 :where(
     .roadmap-index-row a:focus + .roadmap-event,
     .roadmap-landscape-header h3:focus-within + .roadmap-event,

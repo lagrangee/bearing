@@ -5,10 +5,12 @@ import type {
 } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
+import type { MattNativeEventTime } from "../providers/matt-skills-v1/model";
 import { Icons } from "./icons";
 import type {
   PlanningLineageRelation,
   PlanningLineageRelationItem,
+  PlanningLineageTimeFact,
 } from "./planning-lineage-model";
 import {
   buildPlanningLineageSubjectModel,
@@ -33,6 +35,47 @@ const follow = (href: string, event: MouseEvent<HTMLAnchorElement>, onNavigate: 
   event.preventDefault();
   onNavigate(href, projectCanvasFocusKey(event.currentTarget));
 };
+
+function PlanningLineageTimeValue({
+  label,
+  mode,
+  time,
+}: {
+  readonly label: string;
+  readonly mode: "compact" | "detail";
+  readonly time: MattNativeEventTime;
+}) {
+  return time.availability === "unsupported" ? (
+    <span className="source-event-time unsupported">Time unsupported</span>
+  ) : (
+    <SourceEventTimeValue label={label} mode={mode} time={time} />
+  );
+}
+
+function TimeFacts({ facts }: { readonly facts: readonly PlanningLineageTimeFact[] }) {
+  return (
+    <dl className="lineage-time-facts">
+      {facts.map((fact) => (
+        <div key={fact.key}>
+          <dt>{fact.label}</dt>
+          <dd>
+            {fact.mode === "compact" ? (
+              <details className="lineage-time-disclosure">
+                <summary>
+                  <PlanningLineageTimeValue label={fact.label} mode="compact" time={fact.time} />
+                </summary>
+                <PlanningLineageTimeValue label={fact.label} mode="detail" time={fact.time} />
+              </details>
+            ) : (
+              <PlanningLineageTimeValue label={fact.label} mode="detail" time={fact.time} />
+            )}
+            {fact.detail === undefined ? null : <small>{fact.detail}</small>}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 const relationStateLabel = (relation: PlanningLineageRelation): string => {
   switch (relation.state) {
@@ -80,7 +123,7 @@ function RelationItem({
         {item.event === undefined ? null : (
           <small className="lineage-relation-event">
             {item.event.label}{" "}
-            <SourceEventTimeValue
+            <PlanningLineageTimeValue
               label={`${item.label} ${item.event.label}`}
               mode="compact"
               time={item.event.time}
@@ -386,6 +429,12 @@ export function PlanningLineagePage({
     );
   }
   const contextRelations = model.relations.filter((relation) => !relation.inParentPath);
+  const eventHistoryAnchor =
+    model.subject.kind === "alignment-check" || model.subject.kind === "planning-review"
+      ? `${model.subject.kind}.event-time`
+      : model.subject.kind === "native-subject"
+        ? "native.event-history"
+        : `${model.subject.kind}.event-history`;
   const anchorAvailable =
     semanticAnchor === undefined ||
     (model.semanticAvailability.has(semanticAnchor) &&
@@ -453,17 +502,9 @@ export function PlanningLineagePage({
         <section
           className="lineage-event-history"
           data-semantic-availability={
-            model.semanticAvailability.get(
-              model.subject.kind === "alignment-check" || model.subject.kind === "planning-review"
-                ? `${model.subject.kind}.event-time`
-                : `${model.subject.kind}.event-history`,
-            ) ?? "available"
+            model.semanticAvailability.get(eventHistoryAnchor) ?? "available"
           }
-          id={
-            model.subject.kind === "alignment-check" || model.subject.kind === "planning-review"
-              ? `${model.subject.kind}.event-time`
-              : `${model.subject.kind}.event-history`
-          }
+          id={eventHistoryAnchor}
         >
           <p className="eyebrow">Source-owned chronology</p>
           <h2>Event History</h2>
@@ -472,7 +513,7 @@ export function PlanningLineagePage({
               <div key={`${event.role}:${event.decisionReference ?? index}`}>
                 <dt>{event.label}</dt>
                 <dd>
-                  <SourceEventTimeValue label={event.label} mode="detail" time={event.time} />
+                  <PlanningLineageTimeValue label={event.label} mode="detail" time={event.time} />
                   {event.decisionReference === undefined ? null : (
                     <code>{event.decisionReference}</code>
                   )}
@@ -497,6 +538,9 @@ export function PlanningLineagePage({
                   <li key={`${section.anchor}:${item}`}>{item}</li>
                 ))}
               </ul>
+            )}
+            {section.times === undefined || section.times.length === 0 ? null : (
+              <TimeFacts facts={section.times} />
             )}
           </section>
         ))}

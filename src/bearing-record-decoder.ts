@@ -185,6 +185,7 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         Title: data.Title,
         Roadmap: data.Roadmap,
         Status: data.Status,
+        "Effort order": [...data["Effort order"]],
         ...(data["Planned at"] === undefined ? {} : { "Planned at": data["Planned at"] }),
         ...(data["Activated at"] === undefined ? {} : { "Activated at": data["Activated at"] }),
         ...(data["Superseded at"] === undefined ? {} : { "Superseded at": data["Superseded at"] }),

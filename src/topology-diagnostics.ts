@@ -19,6 +19,7 @@ export const deriveTopologyDiagnostics = (
   const diagnostics: StructuralDiagnostic[] = [];
   const roadmapById = uniqueById(roadmaps);
   const gateById = uniqueById(gates);
+  const effortById = uniqueById(efforts);
   for (const roadmap of roadmaps) {
     if (roadmap.focusedGate !== null && !roadmap.gateOrder.includes(roadmap.focusedGate)) {
       diagnostics.push({
@@ -60,6 +61,41 @@ export const deriveTopologyDiagnostics = (
         impact: "blocking",
         target: gate.locator,
         message: `Owning Roadmap does not include Gate in Gate order: ${gate.id}.`,
+      });
+    }
+    const contributingEffortIds = efforts
+      .filter((effort) => effort.targetGate === gate.id)
+      .map((effort) => effort.id);
+    const orderedEffortIds = new Set(gate.effortOrder);
+    const contributingEffortIdSet = new Set(contributingEffortIds);
+    if (
+      gate.effortOrder.length !== contributingEffortIdSet.size ||
+      gate.effortOrder.some((effortId) => !contributingEffortIdSet.has(effortId))
+    ) {
+      diagnostics.push({
+        code: "gate-effort-order-mismatch",
+        impact: "blocking",
+        target: gate.locator,
+        message: `Gate Effort order must exactly cover current contributors: ${gate.id}.`,
+      });
+    }
+    for (const effortId of gate.effortOrder) {
+      const effort = effortById.get(effortId);
+      if (effort !== undefined && effort.targetGate !== gate.id) {
+        diagnostics.push({
+          code: "gate-effort-order-target-mismatch",
+          impact: "blocking",
+          target: gate.locator,
+          message: `Gate Effort order includes an Effort targeting ${effort.targetGate}: ${effortId}.`,
+        });
+      }
+    }
+    if (orderedEffortIds.size !== gate.effortOrder.length) {
+      diagnostics.push({
+        code: "gate-effort-order-duplicate",
+        impact: "blocking",
+        target: gate.locator,
+        message: `Gate Effort order contains a duplicate contributor: ${gate.id}.`,
       });
     }
   }

@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import { buildPlanningGraph } from "../src/planning-graph";
 import { prepareSync } from "../src/sync-plan";
@@ -11,6 +13,16 @@ const addSecondEffort = async (
   root: string,
   authorities: readonly string[] = [],
 ): Promise<void> => {
+  const gatePath = join(root, ".bearing/state/milestone-gates/test.md");
+  const gate = await readFile(gatePath, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/milestone-gates/test.md",
+    gate.replace(
+      "Effort order:\n  - effort:test",
+      "Effort order:\n  - effort:second\n  - effort:test",
+    ),
+  );
   await writeFixture(
     root,
     ".bearing/state/efforts/second.md",
@@ -305,6 +317,7 @@ ID: ${id}
 Title: ${title}
 Roadmap: roadmap:test
 Status: active
+Effort order: ${id === "gate:test" ? "\n  - effort:test" : "[]"}
 ---
 
 # ${title}

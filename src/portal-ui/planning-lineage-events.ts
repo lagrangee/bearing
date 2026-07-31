@@ -11,12 +11,15 @@ import type {
 } from "../project-snapshot/contract";
 import type { SourceEventTime } from "../source-event-time";
 
-export type PlanningLineageEvent = Readonly<{
-  role: string;
-  label: string;
-  time: SourceEventTime;
-  decisionReference?: string | undefined;
-}>;
+export type PlanningLineageEventTime = SourceEventTime | Readonly<{ availability: "unsupported" }>;
+
+export type PlanningLineageEvent<TTime extends PlanningLineageEventTime = SourceEventTime> =
+  Readonly<{
+    role: string;
+    label: string;
+    time: TTime;
+    decisionReference?: string | undefined;
+  }>;
 
 type SubjectRecord =
   | Roadmap

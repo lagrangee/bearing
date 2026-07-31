@@ -41,6 +41,8 @@ ID: gate:test
 Title: Test Gate
 Roadmap: roadmap:test
 Status: active
+Effort order:
+  - effort:test
 Planned at: null
 Activated at: 2026-07-30T02:03:04Z
 ---
@@ -146,7 +148,7 @@ Assets:
     advisoryFreshness: sync.advisoryFreshness,
   });
 
-  expect(snapshot.schemaVersion).toBe(8);
+  expect(snapshot.schemaVersion).toBe(9);
   expect(snapshot.roadmaps.validity).toBe("available");
   expect(
     snapshot.roadmaps.validity === "invalid" ? undefined : snapshot.roadmaps.items[0],

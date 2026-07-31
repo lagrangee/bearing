@@ -81,6 +81,16 @@ describe("GitHub matt-skills/v1 capture", () => {
       lifecycle: { state: "open" },
       native: {
         kind: "github",
+        createdAt: {
+          availability: "available",
+          value: "2026-07-01T00:00:00Z",
+          precision: "second",
+        },
+        lastUpdated: {
+          availability: "available",
+          value: "2026-07-02T00:00:00Z",
+          precision: "second",
+        },
         identity: {
           repositoryDatabaseId: "9001",
           repositoryNodeId: "R_reference",
@@ -94,6 +104,9 @@ describe("GitHub matt-skills/v1 capture", () => {
         },
       },
     });
+    expect(result.projection?.structuralOrder.map(String)).toEqual([
+      "github:R_reference:I_reference_9",
+    ]);
     expect(result.projection?.incomingIssues[0]?.native.rawFacets).toEqual(
       expect.arrayContaining([
         {
@@ -113,6 +126,55 @@ describe("GitHub matt-skills/v1 capture", () => {
       transport.requests.filter((request) => request.endpoint.endsWith("/parent")),
     ).toHaveLength(2);
     expect(JSON.stringify(result)).not.toContain("token");
+  });
+
+  test("keeps a missing GitHub closure time unavailable instead of falling back to capture time", async () => {
+    const root = await createRepository();
+    const closed = {
+      ...githubIssue({
+        number: 110,
+        title: "Closed without a source timestamp",
+        body: "Reporter prose.",
+        labels: ["custom-enhancement", "custom-wontfix"],
+        state: "closed",
+        stateReason: "not_planned",
+      }),
+      closed_at: null,
+      updated_at: "2026-07-30T00:00:00Z",
+    };
+    const transport = new FixtureGitHubTransport({
+      "repos/example/reference": {
+        first: response(repository, '"repo-v1"'),
+      },
+      "repos/example/reference/issues/110": {
+        first: response(closed, '"issue-110-v1"'),
+      },
+      "repos/example/reference/issues/110/comments?per_page=100&page=1": {
+        first: response([], '"comments-110-v1"'),
+      },
+      "repos/example/reference/issues/110/dependencies/blocked_by?per_page=100&page=1": {
+        first: response([], '"blocked-110-v1"'),
+      },
+    });
+    const result = await createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      transport,
+      clock: () => new Date("2099-12-31T23:59:59Z"),
+    }).capture({
+      provider: "matt-skills/v1",
+      nativeScope: nativeScopeFor(closed),
+    });
+
+    expect(result.projection?.incomingIssues[0]).toMatchObject({
+      lifecycle: {
+        state: "closed",
+        disposition: "wontfix",
+        closedAt: { availability: "unavailable" },
+      },
+    });
+    expect(JSON.stringify(result.projection)).not.toContain("2099-12-31T23:59:59");
   });
 
   test("uses generation-captured contract and vocabulary after repository files change", async () => {
@@ -285,6 +347,11 @@ describe("GitHub matt-skills/v1 capture", () => {
           role: "answer",
           body: "Preserve workflow-specific lifecycle and evidence.",
           nativeIdentity: "IC_301",
+          authoredAt: {
+            availability: "available",
+            value: "2026-07-20T00:00:00Z",
+            precision: "second",
+          },
         },
       },
       comments: [
@@ -293,10 +360,23 @@ describe("GitHub matt-skills/v1 capture", () => {
           body: "This comment is not the Answer.",
           nativeIdentity: "IC_302",
           author: "reviewer",
+          authoredAt: {
+            availability: "available",
+            value: "2026-07-20T00:00:00Z",
+            precision: "second",
+          },
         },
       ],
       lifecycle: { state: "resolved-on-route" },
-      trackerClosure: { state: "closed", disposition: "completed" },
+      trackerClosure: {
+        state: "closed",
+        disposition: "completed",
+        closedAt: {
+          availability: "available",
+          value: "2026-07-20T00:00:00Z",
+          precision: "second",
+        },
+      },
     });
     expect(result.projection?.deliveryTickets[0]).toMatchObject({
       title: "Implement provider capture",
@@ -337,6 +417,85 @@ describe("GitHub matt-skills/v1 capture", () => {
         evidence: "github-native",
       },
     ]);
+  });
+
+  test("keeps tracker closure as an independent native event for closed Map and Spec issues", async () => {
+    const root = await createRepository();
+    const closedMap = {
+      ...mapIssue,
+      state: "closed" as const,
+      state_reason: "completed",
+      closed_at: "2026-07-21T01:02:03Z",
+      closed_by: { login: "closer", id: 92, node_id: "U_closer" },
+    };
+    const closedSpec = {
+      ...specIssue,
+      state: "closed" as const,
+      state_reason: "completed",
+      closed_at: "2026-07-22T04:05:06Z",
+      closed_by: { login: "closer", id: 92, node_id: "U_closer" },
+    };
+    const fixtures: Record<string, FixtureResponse> = {
+      "repos/example/reference": {
+        first: response(repository, '"repo-v1"'),
+      },
+    };
+    for (const issue of [closedMap, closedSpec]) {
+      const issueEndpoint = `repos/example/reference/issues/${issue.number}`;
+      fixtures[issueEndpoint] = {
+        first: response(issue, `"issue-${issue.number}-v1"`),
+      };
+      fixtures[`${issueEndpoint}/comments?per_page=100&page=1`] = {
+        first: response([], `"comments-${issue.number}-v1"`),
+      };
+      fixtures[`${issueEndpoint}/dependencies/blocked_by?per_page=100&page=1`] = {
+        first: response([], `"deps-${issue.number}-v1"`),
+      };
+      fixtures[`${issueEndpoint}/sub_issues?per_page=100&page=1`] = {
+        first: response(
+          issue.number === closedMap.number ? [closedSpec] : [],
+          `"children-${issue.number}-v1"`,
+        ),
+      };
+    }
+
+    const result = await createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      transport: new FixtureGitHubTransport(fixtures),
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    }).capture({
+      provider: "matt-skills/v1",
+      nativeScope: nativeScopeFor(closedMap, "wayfinder-map"),
+    });
+
+    expect(result.projection?.map).toMatchObject({
+      lifecycle: { state: "resolved" },
+      native: {
+        trackerClosure: {
+          state: "closed",
+          closedAt: {
+            availability: "available",
+            value: "2026-07-21T01:02:03Z",
+            precision: "second",
+          },
+        },
+      },
+    });
+    expect(result.projection?.spec).toMatchObject({
+      lifecycle: { state: "ready-for-agent" },
+      native: {
+        trackerClosure: {
+          state: "closed",
+          closedAt: {
+            availability: "available",
+            value: "2026-07-22T04:05:06Z",
+            precision: "second",
+          },
+        },
+      },
+    });
   });
 
   test("keeps scope-external and cross-repository relations as references without aggregation", async () => {

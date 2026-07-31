@@ -164,6 +164,8 @@ ID: gate:test
 Title: Test
 Roadmap: roadmap:test
 Status: active
+Effort order:
+  - effort:test
 ---
 
 # Milestone Gate: Test

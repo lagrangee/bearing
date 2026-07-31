@@ -19,6 +19,7 @@ const emptyProjection: MattScopeProjection = {
   wayfinderTickets: [],
   deliveryTickets: [],
   incomingIssues: [],
+  structuralOrder: [],
   graph: { parentChild: [], blockedBy: [] },
 };
 
@@ -149,6 +150,8 @@ ID: gate:degraded
 Title: Degraded Gate
 Roadmap: roadmap:degraded
 Status: active
+Effort order:
+${failureScenarios.map((scenario) => `  - effort:degraded-${scenario.slug}`).join("\n")}
 ---
 
 # Milestone Gate: Degraded
@@ -197,6 +200,16 @@ Exercise ${scenario.code}.
 };
 
 const writeRealLocalDegradedScope = async (root: string): Promise<void> => {
+  const gatePath = join(root, ".bearing/state/milestone-gates/test.md");
+  const gate = await readFile(gatePath, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/milestone-gates/test.md",
+    gate.replace(
+      "Effort order:\n  - effort:test",
+      "Effort order:\n  - effort:degraded-cli\n  - effort:test",
+    ),
+  );
   await writeFixture(
     root,
     ".bearing/state/efforts/degraded-cli.md",

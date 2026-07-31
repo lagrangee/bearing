@@ -146,6 +146,8 @@ ID: gate:test
 Title: Test Gate
 Roadmap: roadmap:test
 Status: active
+Effort order:
+  - effort:test
 Citations:
   - Asset: asset:gate
     Note: Isolated Gate citation.

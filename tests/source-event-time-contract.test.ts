@@ -93,6 +93,7 @@ test("models Gate planning, activation, Passage acceptance, and supersession as 
     Title: "Test",
     Roadmap: "roadmap:test",
     Status: "passed",
+    "Effort order": [],
     "Planned at": INSTANT,
     "Activated at": "2026-07-31T09:09:10.123Z",
     Passage: {

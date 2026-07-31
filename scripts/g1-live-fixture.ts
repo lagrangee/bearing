@@ -607,6 +607,8 @@ ID: gate:g1-fixture
 Title: G1 Fixture Gate
 Roadmap: roadmap:g1-fixture
 Status: active
+Effort order:
+  - effort:g1-fixture
 Citations: []
 ---
 

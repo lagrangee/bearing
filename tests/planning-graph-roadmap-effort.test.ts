@@ -37,6 +37,8 @@ ID: gate:first
 Title: First Gate
 Roadmap: roadmap:test
 Status: planned
+Effort order:
+  - effort:optional
 ---
 
 # First Gate
@@ -170,6 +172,78 @@ Assets:
   );
   await writeFixture(root, "evidence/test.md", "verified\n");
 };
+
+test("uses explicit Gate Effort order instead of lexical identity or event time", async () => {
+  const root = await createValidBearingRepo();
+  const gatePath = ".bearing/state/milestone-gates/test.md";
+  await writeFixture(
+    root,
+    gatePath,
+    `---
+Type: milestone-gate
+ID: gate:test
+Title: Test Gate
+Roadmap: roadmap:test
+Status: active
+Effort order:
+  - effort:test
+  - effort:alpha
+---
+
+# Milestone Gate: Test
+
+## Intent
+
+Reach the fixture boundary.
+
+## Exit Criteria
+
+- All fixture work resolves.
+`,
+  );
+  await writeFixture(
+    root,
+    ".bearing/state/efforts/alpha.md",
+    `---
+Type: effort
+ID: effort:alpha
+Title: Earlier Timestamp
+Roadmap: roadmap:test
+Target gate: gate:test
+Authorities: []
+Citations: []
+Lifecycle: planned
+Planned at: 2020-01-01T00:00:00Z
+---
+
+# Effort: Earlier Timestamp
+
+## Intent
+
+Prove canonical order outranks identity and time.
+
+## Work
+
+- None.
+`,
+  );
+
+  const graph = (await prepareSync(root)).planningGraph;
+  const gate = graph.contextFor({ kind: "gate", id: "gate:test" });
+  const roadmap = graph.contextFor({ kind: "roadmap", id: "roadmap:test" });
+
+  if (gate.state === "invalid" || roadmap.state === "invalid") {
+    throw new Error("Expected trustworthy planning contexts.");
+  }
+  expect(gate.context.efforts.map(({ effort }) => String(effort.value.id))).toEqual([
+    "effort:test",
+    "effort:alpha",
+  ]);
+  expect(roadmap.context.efforts.map(({ effort }) => String(effort.value.id))).toEqual([
+    "effort:test",
+    "effort:alpha",
+  ]);
+});
 
 test("Roadmap closure preserves canonical order while exposing an unresolved bound contributor", async () => {
   const root = await createValidBearingRepo();
@@ -367,6 +441,8 @@ ID: gate:detached
 Title: Detached Gate
 Roadmap: roadmap:test
 Status: planned
+Effort order:
+  - effort:detached
 ---
 
 # Detached Gate

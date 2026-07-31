@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   createLocalMarkdownMattProvider,
@@ -224,6 +224,7 @@ const capture = async (
   options: Readonly<{
     onCaptureEvent?: (event: LocalMarkdownCaptureEvent) => void | Promise<void>;
     maximumFileBytes?: number;
+    clock?: () => Date;
   }> = {},
 ) =>
   createLocalMarkdownMattProvider({
@@ -272,6 +273,10 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       title: "Wayfinder Map: Reference",
       destination: "Prove one complete Matt-native semantic scope.",
       lifecycle: { state: "resolved" },
+      native: {
+        createdAt: { availability: "unsupported" },
+        lastUpdated: { availability: "unsupported" },
+      },
     });
     expect(result.projection?.map?.decisions[0]).toMatchObject({
       gist: "Use the versioned capture seam.",
@@ -306,9 +311,12 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     ]);
     expect(result.projection?.wayfinderTickets[0]).toMatchObject({
       claim: { state: "unclaimed" },
-      answer: { availability: "available" },
+      answer: {
+        availability: "available",
+        content: { authoredAt: { availability: "unsupported" } },
+      },
       lifecycle: { state: "resolved-on-route" },
-      trackerClosure: { state: "closed" },
+      trackerClosure: { state: "closed", closedAt: { availability: "unsupported" } },
     });
     expect(result.projection?.wayfinderTickets[1]).toMatchObject({
       claim: { state: "claimed", claimant: "lago" },
@@ -323,6 +331,16 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       ],
       lifecycle: { state: "completed" },
     });
+    expect(result.projection?.structuralOrder.map(String)).toEqual([
+      `${nativeScope}/map.md`,
+      `${nativeScope}/PRD.md`,
+      `${nativeScope}/issues/01-research.md`,
+      `${nativeScope}/issues/02-prototype.md`,
+      `${nativeScope}/issues/03-grilling.md`,
+      `${nativeScope}/issues/04-task.md`,
+      `${nativeScope}/issues/05-delivery.md`,
+      `${nativeScope}/issues/06-incoming.md`,
+    ]);
     expect(result.projection?.incomingIssues[0]).toMatchObject({
       classification: {
         category: "enhancement",
@@ -391,6 +409,26 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     });
   });
 
+  test("uses Local metadata only as a bounded capture hint, never as native event time", async () => {
+    const root = await writeReferenceRepository();
+    await utimes(
+      join(root, nativeScope, "map.md"),
+      new Date("2040-01-02T03:04:05Z"),
+      new Date("2040-01-02T03:04:05Z"),
+    );
+
+    const result = await capture(root, {
+      clock: () => new Date("2099-12-31T23:59:59Z"),
+    });
+
+    expect(result.projection?.map?.native).toMatchObject({
+      createdAt: { availability: "unsupported" },
+      lastUpdated: { availability: "unsupported" },
+    });
+    expect(JSON.stringify(result.projection)).not.toContain("2040-01-02");
+    expect(JSON.stringify(result.projection)).not.toContain("2099-12-31");
+  });
+
   test("treats absent optional Map and Spec plus untriaged Incoming as fully acquired", async () => {
     const root = await makeTemporaryDirectory("bearing-local-provider-optional-");
     await writeFixture(root, contractLocator, contract);
@@ -424,6 +462,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       wayfinderTickets: [],
       deliveryTickets: [],
       incomingIssues: [],
+      structuralOrder: [],
       graph: { parentChild: [], blockedBy: [] },
     });
   });

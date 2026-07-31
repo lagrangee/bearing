@@ -772,13 +772,23 @@ class ImmutablePlanningGraph implements PlanningGraph {
         );
     }
     this.#attachContributorIssues(closureIssues);
-    const effortContexts = trusted(this.#collections.efforts)
-      .filter((effort) => effort.roadmapId === roadmap.id)
-      .sort((left, right) => compareUtf8(left.id, right.id))
+    const effortsById = new Map(
+      trusted(this.#collections.efforts).map((effort) => [effort.id, effort]),
+    );
+    const effortContexts = roadmap.effortIds
+      .flatMap((effortId) => {
+        const effort = effortsById.get(effortId);
+        return effort === undefined || effort.roadmapId !== roadmap.id ? [] : [effort];
+      })
       .flatMap((effort) => {
         const context = this.#buildEffortContext(effort, closureIssues);
         return context === undefined ? [] : [context];
       });
+    const orderedEffortIds = new Set(roadmap.effortIds);
+    for (const effort of trusted(this.#collections.efforts)) {
+      if (effort.roadmapId !== roadmap.id || orderedEffortIds.has(effort.id)) continue;
+      this.#buildEffortContext(effort, closureIssues);
+    }
     const finalIssues = stableIssues(closureIssues);
     return deepFreeze({
       fingerprint: this.fingerprint,
@@ -833,9 +843,14 @@ class ImmutablePlanningGraph implements PlanningGraph {
         ),
       );
     this.#attachContributorIssues(closureIssues);
-    const effortContexts = trusted(this.#collections.efforts)
-      .filter((effort) => effort.targetGateId === gate.id)
-      .sort((left, right) => compareUtf8(left.id, right.id))
+    const effortsById = new Map(
+      trusted(this.#collections.efforts).map((effort) => [effort.id, effort]),
+    );
+    const effortContexts = gate.effortIds
+      .flatMap((effortId) => {
+        const effort = effortsById.get(effortId);
+        return effort === undefined || effort.targetGateId !== gate.id ? [] : [effort];
+      })
       .flatMap((effort) => {
         const context = this.#buildEffortContext(effort, closureIssues);
         return context === undefined ? [] : [context];
@@ -903,6 +918,11 @@ export const buildPlanningGraph = async (
       .filter((record) => record.type === "effort")
       .map((record) => record.locator),
   );
+  const gateLocators = new Set(
+    input.decoded.records
+      .filter((record) => record.type === "milestone-gate")
+      .map((record) => record.locator),
+  );
   const governance = buildGovernanceProjection({
     records: input.decoded.records,
     sitemapFingerprint: input.fingerprint,
@@ -911,7 +931,7 @@ export const buildPlanningGraph = async (
         !PLANNING_RELATION_DIAGNOSTIC_CODES.has(diagnostic.code) &&
         !(
           diagnostic.code === "ambiguous-canonical-reference" &&
-          effortLocators.has(diagnostic.target)
+          (effortLocators.has(diagnostic.target) || gateLocators.has(diagnostic.target))
         ),
     ),
   });

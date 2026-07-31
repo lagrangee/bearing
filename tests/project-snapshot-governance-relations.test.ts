@@ -64,7 +64,7 @@ const addIndependentRoadmap = async (root: string): Promise<void> => {
   await writeFixture(
     root,
     ".bearing/state/milestone-gates/other.md",
-    `---\nType: milestone-gate\nID: gate:other\nTitle: Other Gate\nRoadmap: roadmap:other\nStatus: active\n---\n\n# Milestone Gate: Other\n\n## Intent\n\nKeep the sibling readable.\n\n## Exit Criteria\n\n- Preserve the sibling.\n`,
+    `---\nType: milestone-gate\nID: gate:other\nTitle: Other Gate\nRoadmap: roadmap:other\nStatus: active\nEffort order: []\n---\n\n# Milestone Gate: Other\n\n## Intent\n\nKeep the sibling readable.\n\n## Exit Criteria\n\n- Preserve the sibling.\n`,
   );
 };
 

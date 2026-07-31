@@ -269,6 +269,7 @@ export const bearingSchema = z.discriminatedUnion("Type", [
       Title: requiredPlainTextSchema,
       Roadmap: roadmapIdSchema,
       Status: z.enum(["planned", "active", "passed", "superseded"]),
+      "Effort order": uniqueArray(effortIdSchema),
       "Planned at": bearingOwnedEventTimeSchema.optional(),
       "Activated at": bearingOwnedEventTimeSchema.optional(),
       "Superseded at": bearingOwnedEventTimeSchema.optional(),

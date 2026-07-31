@@ -1,4 +1,8 @@
+import type { SourceEventTime } from "../../source-event-time";
+
 export type MattObjectReference = string & Readonly<{ __mattObjectReference: true }>;
+
+export type MattNativeEventTime = SourceEventTime | Readonly<{ availability: "unsupported" }>;
 
 export type MattSourceAnchor = Readonly<{
   kind: "source" | "external" | "decision" | "answer" | "disposition";
@@ -27,6 +31,8 @@ export type MattNativeEvidence =
       identity: Readonly<{
         locator: string;
       }>;
+      createdAt: MattNativeEventTime;
+      lastUpdated: MattNativeEventTime;
       sourceAnchors: readonly MattSourceAnchor[];
       rawFacets: readonly MattRawFacet[];
     }>
@@ -43,24 +49,33 @@ export type MattNativeEvidence =
         owner: string;
         repository: string;
       }>;
+      createdAt: MattNativeEventTime;
+      lastUpdated: MattNativeEventTime;
+      trackerClosure: MattTrackerClosure;
       sourceAnchors: readonly MattSourceAnchor[];
       rawFacets: readonly MattRawFacet[];
     }>;
 
-export type MattContent = Readonly<{
-  role:
-    | "answer"
-    | "issue-body"
-    | "ordinary-comment"
-    | "agent-brief"
-    | "triage-note"
-    | "source-anchor";
+type MattContentProvenance = Readonly<{
   body: string;
   sourceAnchor?: MattSourceAnchor | undefined;
   nativeIdentity?: string | undefined;
   author?: string | undefined;
-  authoredAt?: string | undefined;
 }>;
+
+export type MattAuthoredContent = MattContentProvenance &
+  Readonly<{
+    role: "answer" | "ordinary-comment" | "agent-brief" | "triage-note";
+    authoredAt: MattNativeEventTime;
+  }>;
+
+export type MattContent =
+  | MattAuthoredContent
+  | (MattContentProvenance &
+      Readonly<{
+        role: "issue-body" | "source-anchor";
+        authoredAt?: never;
+      }>);
 
 export type MattAnswer =
   | Readonly<{
@@ -77,7 +92,7 @@ export type MattTrackerClosure =
   | Readonly<{
       state: "closed";
       disposition: "completed" | "wontfix" | "not-planned" | "unknown";
-      observedAt: string;
+      closedAt: MattNativeEventTime;
       actor?: string | undefined;
     }>;
 
@@ -207,7 +222,7 @@ export type MattIncomingIssue = Readonly<{
     | Readonly<{
         state: "closed";
         disposition: "completed" | "wontfix" | "not-planned" | "unknown";
-        observedAt: string;
+        closedAt: MattNativeEventTime;
       }>;
   semanticSections: readonly MattSemanticSection[];
   native: MattNativeEvidence;
@@ -231,6 +246,7 @@ export type MattScopeProjection = Readonly<{
   wayfinderTickets: readonly MattWayfinderTicket[];
   deliveryTickets: readonly MattDeliveryTicket[];
   incomingIssues: readonly MattIncomingIssue[];
+  structuralOrder: readonly MattObjectReference[];
   graph: Readonly<{
     parentChild: readonly MattParentChildRelation[];
     blockedBy: readonly MattBlockedByRelation[];

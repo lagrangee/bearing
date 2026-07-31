@@ -104,8 +104,15 @@ export const analyzeDecodedBearingArtifact = (
       break;
     case "milestone-gate":
       nodes.push({ id: data.ID, locator });
-      gates.push({ id: data.ID, locator, lifecycle: data.Status, roadmap: data.Roadmap });
+      gates.push({
+        id: data.ID,
+        locator,
+        lifecycle: data.Status,
+        roadmap: data.Roadmap,
+        effortOrder: data["Effort order"],
+      });
       references.push({ source: locator, target: data.Roadmap });
+      references.push(...data["Effort order"].map((target) => ({ source: locator, target })));
       addPlanningCitations(data.Citations);
       if (data.Status === "passed" && data.Passage === undefined) {
         diagnostics.push({

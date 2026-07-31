@@ -27,6 +27,7 @@ import {
   resolveContainedPath,
   resolveRepositoryRoot,
 } from "../../path-boundary";
+import { projectExpectedSourceEventTime } from "../../source-event-time";
 import { validateMattSkillsV1Contract } from "../matt-skills-v1";
 import {
   MATT_SKILLS_V1_PROVIDER_ID,
@@ -43,6 +44,7 @@ export {
 } from "./github-native-scope";
 
 import type {
+  MattAuthoredContent,
   MattBlockedByRelation,
   MattContent,
   MattDeliveryTicket,
@@ -981,6 +983,9 @@ const nativeEvidenceFor = (
       owner: repository.owner.login,
       repository: repository.name,
     },
+    createdAt: projectExpectedSourceEventTime(issue.created_at),
+    lastUpdated: projectExpectedSourceEventTime(issue.updated_at),
+    trackerClosure: trackerClosureFor(issue),
     sourceAnchors,
     rawFacets,
   };
@@ -998,7 +1003,7 @@ const nativeEvidenceForAcquired = (
     acquired.relationFacets,
   );
 
-const trackerClosureFor = (issue: GitHubIssue, capturedAt: string): MattTrackerClosure => {
+const trackerClosureFor = (issue: GitHubIssue): MattTrackerClosure => {
   if (issue.state === "open") return { state: "open" };
   const disposition =
     issue.state_reason === "completed"
@@ -1009,7 +1014,7 @@ const trackerClosureFor = (issue: GitHubIssue, capturedAt: string): MattTrackerC
   return {
     state: "closed",
     disposition,
-    observedAt: issue.closed_at ?? capturedAt,
+    closedAt: projectExpectedSourceEventTime(issue.closed_at),
     ...(issue.closed_by === null || issue.closed_by === undefined
       ? {}
       : { actor: issue.closed_by.login }),
@@ -1135,7 +1140,7 @@ const compatibleMapSectionItems = (
   };
 };
 
-const commentContent = (comment: GitHubComment): MattContent => {
+const commentContent = (comment: GitHubComment): MattAuthoredContent => {
   const document = parseMarkdownDocument(comment.body);
   const agentBrief = queryMarkdownSection(document, { title: "Agent Brief" });
   const triageNotes = queryMarkdownSection(document, { title: "Triage Notes" });
@@ -1156,7 +1161,7 @@ const commentContent = (comment: GitHubComment): MattContent => {
     body,
     nativeIdentity: comment.node_id,
     author: comment.user.login,
-    authoredAt: comment.created_at,
+    authoredAt: projectExpectedSourceEventTime(comment.created_at),
     sourceAnchor: { kind: "source", target: comment.html_url },
   };
 };
@@ -1463,7 +1468,6 @@ const decodeSpec = (
 const decodeDelivery = (
   acquired: AcquiredIssue,
   repository: GitHubRepository,
-  capturedAt: string,
 ): MattDeliveryTicket | undefined => {
   const whatToBuild = section(acquired, "What to build");
   const acceptance = sectionItems(acquired, "Acceptance criteria");
@@ -1484,7 +1488,7 @@ const decodeDelivery = (
       acquired.issue.state === "open"
         ? { state: "open" }
         : { state: "completion-unavailable", reason: "source-contract-gap" },
-    trackerClosure: trackerClosureFor(acquired.issue, capturedAt),
+    trackerClosure: trackerClosureFor(acquired.issue),
     comments: acquired.comments.map(commentContent),
     semanticSections: [
       semanticSection(
@@ -1518,7 +1522,6 @@ const decodeWayfinder = (
   acquired: AcquiredIssue,
   repository: GitHubRepository,
   map: MattMap | undefined,
-  capturedAt: string,
   diagnostics: ProviderDiagnostic[],
 ): MattWayfinderTicket | undefined => {
   const subtypeLabels = acquired.issue.labels
@@ -1577,7 +1580,7 @@ const decodeWayfinder = (
             claimant: (acquired.issue.assignees[0] as GitHubIssue["assignees"][number]).login,
           }
         : { state: "claimed", claimantAmbiguous: true };
-  const trackerClosure = trackerClosureFor(acquired.issue, capturedAt);
+  const trackerClosure = trackerClosureFor(acquired.issue);
   if (acquired.issue.assignees.length > 1) {
     diagnostics.push(
       diagnostic(
@@ -1685,7 +1688,6 @@ const incomingIssueFor = (
   repository: GitHubRepository,
   acquired: AcquiredIssue,
   vocabulary: TriageVocabulary | undefined,
-  capturedAt: string,
   diagnostics: ProviderDiagnostic[],
 ): MattIncomingIssue => {
   const { issue } = acquired;
@@ -1773,7 +1775,7 @@ const incomingIssueFor = (
                   : issue.state_reason === "completed"
                     ? "completed"
                     : "unknown",
-            observedAt: issue.closed_at ?? capturedAt,
+            closedAt: projectExpectedSourceEventTime(issue.closed_at),
           },
     semanticSections: [
       semanticSection(
@@ -2703,7 +2705,7 @@ const captureGitHubScope = async (
       label.name.startsWith("wayfinder:"),
     );
     if (wayfinderLabels.length > 0) {
-      const wayfinder = decodeWayfinder(entry, repository, mapProjection, capturedAt, diagnostics);
+      const wayfinder = decodeWayfinder(entry, repository, mapProjection, diagnostics);
       if (wayfinder === undefined) {
         diagnostics.push(
           diagnostic(
@@ -2719,7 +2721,7 @@ const captureGitHubScope = async (
       continue;
     }
     const spec = decodeSpec(entry, repository, vocabulary, diagnostics);
-    const delivery = decodeDelivery(entry, repository, capturedAt);
+    const delivery = decodeDelivery(entry, repository);
     const specStructure = MATT_SPEC_SECTION_DEFINITIONS.flatMap((definition) =>
       [definition.title, ...definition.aliases].map((title) =>
         queryMarkdownSection(entry.document, { title }),
@@ -2765,7 +2767,7 @@ const captureGitHubScope = async (
       deliveryTickets.push(delivery);
       continue;
     }
-    incomingIssues.push(incomingIssueFor(repository, entry, vocabulary, capturedAt, diagnostics));
+    incomingIssues.push(incomingIssueFor(repository, entry, vocabulary, diagnostics));
   }
   if (specCandidates.length > 1) {
     diagnostics.push(
@@ -2778,12 +2780,22 @@ const captureGitHubScope = async (
     );
   }
   const specProjection = specCandidates.length === 1 ? specCandidates[0] : undefined;
+  const projectedReferences = new Set([
+    ...(mapProjection === undefined ? [] : [mapProjection.ref]),
+    ...(specProjection === undefined ? [] : [specProjection.ref]),
+    ...wayfinderTickets.map((ticket) => ticket.ref),
+    ...deliveryTickets.map((ticket) => ticket.ref),
+    ...incomingIssues.map((incoming) => incoming.ref),
+  ]);
   const projection: MattScopeProjection = {
     ...(mapProjection === undefined ? {} : { map: mapProjection }),
     ...(specProjection === undefined ? {} : { spec: specProjection }),
     wayfinderTickets,
     deliveryTickets,
     incomingIssues,
+    structuralOrder: acquired
+      .map((entry) => issueReference(repository, entry.issue))
+      .filter((reference) => projectedReferences.has(reference)),
     graph: { parentChild, blockedBy },
   };
   const finalization = await finalizeObservedGeneration({

@@ -18,6 +18,7 @@ import {
   mattNativeScopeLocator,
   mattNativeSubjectForObject,
 } from "../src/providers/matt-skills-v1/native-subject";
+import { mattObjectsFromProjection } from "../src/providers/matt-skills-v1/projection";
 import {
   mattScopeProjectionSchema,
   mattSkillsV1ProviderObservationSchema,
@@ -333,6 +334,64 @@ test("rejects semantic availability that contradicts provider content", () => {
           section.role === "problem" ? { ...section, body: "" } : section,
         ),
       },
+    }).success,
+  ).toBe(false);
+});
+
+test("requires explicit availability for supported native authored and closure time roles", () => {
+  const local = createMattReferenceProjection("local");
+  const localWayfinder = local.wayfinderTickets[0];
+  if (localWayfinder?.answer.availability !== "available") {
+    throw new Error("Expected an available Local Answer fixture.");
+  }
+  const { authoredAt: _authoredAt, ...answerWithoutAuthoredTime } = localWayfinder.answer.content;
+  expect(
+    mattScopeProjectionSchema.safeParse({
+      ...local,
+      wayfinderTickets: [
+        {
+          ...localWayfinder,
+          answer: {
+            availability: "available",
+            content: answerWithoutAuthoredTime,
+          },
+        },
+        ...local.wayfinderTickets.slice(1),
+      ],
+    }).success,
+  ).toBe(false);
+
+  const github = createMattReferenceProjection("github");
+  const map = github.map;
+  if (map === undefined || map.native.kind !== "github") {
+    throw new Error("Expected a GitHub Map fixture.");
+  }
+  const { trackerClosure: _trackerClosure, ...nativeWithoutClosureRole } = map.native;
+  expect(
+    mattScopeProjectionSchema.safeParse({
+      ...github,
+      map: { ...map, native: nativeWithoutClosureRole },
+    }).success,
+  ).toBe(false);
+});
+
+test("requires one explicit native structural order and never substitutes object type or identity", () => {
+  const projection = createMattReferenceProjection("github");
+  const reversed = [...projection.structuralOrder].reverse();
+  const reordered = { ...projection, structuralOrder: reversed };
+
+  expect(mattScopeProjectionSchema.safeParse(reordered).success).toBe(true);
+  expect(mattObjectsFromProjection(reordered).map((object) => object.ref)).toEqual(reversed);
+  expect(
+    mattScopeProjectionSchema.safeParse({
+      ...projection,
+      structuralOrder: projection.structuralOrder.slice(1),
+    }).success,
+  ).toBe(false);
+  expect(
+    mattScopeProjectionSchema.safeParse({
+      ...projection,
+      structuralOrder: [projection.structuralOrder[0], ...projection.structuralOrder],
     }).success,
   ).toBe(false);
 });

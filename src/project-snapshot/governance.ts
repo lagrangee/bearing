@@ -107,7 +107,7 @@ const gateProjection = (input: Input): BuildResult<MilestoneGate>[] =>
           : {}),
         readiness: "unknown",
         horizonState: "unknown",
-        effortIds: [],
+        effortIds: data["Effort order"],
         ...(data.Passage === undefined
           ? {}
           : {

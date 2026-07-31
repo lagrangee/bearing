@@ -3,6 +3,7 @@ import {
   hasConsistentProviderCompletion,
   providerObservationIdentityFor,
 } from "../../native-work-provider";
+import { sourceEventTimeSchema } from "../../source-event-time";
 import type { MattObjectReference } from "./model";
 
 const nonEmpty = z.string().min(1);
@@ -25,6 +26,11 @@ const semanticSectionSchema = z.strictObject({
   role: z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u),
   availability: z.enum(["available", "confirmed-empty", "unavailable", "unsupported"]),
 });
+
+const nativeEventTimeSchema = z.union([
+  sourceEventTimeSchema,
+  z.strictObject({ availability: z.literal("unsupported") }),
+]);
 
 const exactSemanticSections = (roles: readonly string[]) =>
   z.array(semanticSectionSchema).superRefine((sections, context) => {
@@ -74,12 +80,38 @@ const validateSemanticContent = (
   });
 };
 
-const localEvidenceSchema = z.strictObject({
-  kind: z.literal("local"),
-  identity: z.strictObject({ locator: nonEmpty }),
-  sourceAnchors: z.array(sourceAnchorSchema),
-  rawFacets: z.array(rawFacetSchema),
-});
+const trackerClosureSchema = z.discriminatedUnion("state", [
+  z.strictObject({ state: z.literal("open") }),
+  z.strictObject({
+    state: z.literal("closed"),
+    disposition: z.enum(["completed", "wontfix", "not-planned", "unknown"]),
+    closedAt: nativeEventTimeSchema,
+    actor: nonEmpty.optional(),
+  }),
+]);
+
+const localEvidenceSchema = z
+  .strictObject({
+    kind: z.literal("local"),
+    identity: z.strictObject({ locator: nonEmpty }),
+    createdAt: nativeEventTimeSchema,
+    lastUpdated: nativeEventTimeSchema,
+    sourceAnchors: z.array(sourceAnchorSchema),
+    rawFacets: z.array(rawFacetSchema),
+  })
+  .superRefine((evidence, context) => {
+    for (const [key, time] of [
+      ["createdAt", evidence.createdAt],
+      ["lastUpdated", evidence.lastUpdated],
+    ] as const) {
+      if (time.availability === "unsupported") continue;
+      context.addIssue({
+        code: "custom",
+        path: [key],
+        message: "Local Markdown does not support native Source Event Time.",
+      });
+    }
+  });
 
 const githubEvidenceSchema = z.strictObject({
   kind: z.literal("github"),
@@ -100,6 +132,9 @@ const githubEvidenceSchema = z.strictObject({
     owner: nonEmpty,
     repository: nonEmpty,
   }),
+  createdAt: nativeEventTimeSchema,
+  lastUpdated: nativeEventTimeSchema,
+  trackerClosure: trackerClosureSchema,
   sourceAnchors: z.array(sourceAnchorSchema),
   rawFacets: z.array(rawFacetSchema),
 });
@@ -109,40 +144,46 @@ const nativeEvidenceSchema = z.discriminatedUnion("kind", [
   githubEvidenceSchema,
 ]);
 
-const contentSchema = z.strictObject({
-  role: z.enum([
-    "answer",
-    "issue-body",
-    "ordinary-comment",
-    "agent-brief",
-    "triage-note",
-    "source-anchor",
-  ]),
+const contentBaseShape = {
   body: z.string(),
   sourceAnchor: sourceAnchorSchema.optional(),
   nativeIdentity: nonEmpty.optional(),
   author: nonEmpty.optional(),
-  authoredAt: nonEmpty.optional(),
+};
+const answerContentSchema = z.strictObject({
+  ...contentBaseShape,
+  role: z.literal("answer"),
+  authoredAt: nativeEventTimeSchema,
 });
+const contentSchema = z.discriminatedUnion("role", [
+  answerContentSchema,
+  z.strictObject({
+    ...contentBaseShape,
+    role: z.literal("ordinary-comment"),
+    authoredAt: nativeEventTimeSchema,
+  }),
+  z.strictObject({
+    ...contentBaseShape,
+    role: z.literal("agent-brief"),
+    authoredAt: nativeEventTimeSchema,
+  }),
+  z.strictObject({
+    ...contentBaseShape,
+    role: z.literal("triage-note"),
+    authoredAt: nativeEventTimeSchema,
+  }),
+  z.strictObject({ ...contentBaseShape, role: z.literal("issue-body") }),
+  z.strictObject({ ...contentBaseShape, role: z.literal("source-anchor") }),
+]);
 
 const answerSchema = z.discriminatedUnion("availability", [
   z.strictObject({
     availability: z.literal("available"),
-    content: contentSchema.extend({ role: z.literal("answer") }),
+    content: answerContentSchema,
   }),
   z.strictObject({
     availability: z.literal("unavailable"),
     reason: z.enum(["not-authored", "no-unique-native-reference", "source-contract-gap"]),
-  }),
-]);
-
-const trackerClosureSchema = z.discriminatedUnion("state", [
-  z.strictObject({ state: z.literal("open") }),
-  z.strictObject({
-    state: z.literal("closed"),
-    disposition: z.enum(["completed", "wontfix", "not-planned", "unknown"]),
-    observedAt: nonEmpty,
-    actor: nonEmpty.optional(),
   }),
 ]);
 
@@ -428,7 +469,7 @@ const incomingIssueSchema = z
       z.strictObject({
         state: z.literal("closed"),
         disposition: z.enum(["completed", "wontfix", "not-planned", "unknown"]),
-        observedAt: nonEmpty,
+        closedAt: nativeEventTimeSchema,
       }),
     ]),
     semanticSections: exactSemanticSections([
@@ -459,29 +500,56 @@ const incomingIssueSchema = z
     );
   });
 
-export const mattScopeProjectionSchema = z.strictObject({
-  map: mapSchema.optional(),
-  spec: specSchema.optional(),
-  wayfinderTickets: z.array(wayfinderTicketSchema),
-  deliveryTickets: z.array(deliveryTicketSchema),
-  incomingIssues: z.array(incomingIssueSchema),
-  graph: z.strictObject({
-    parentChild: z.array(
-      z.strictObject({
-        parent: reference,
-        child: reference,
-        evidence: z.enum(["matt-contract", "github-native", "matt-body-fallback"]),
-      }),
-    ),
-    blockedBy: z.array(
-      z.strictObject({
-        blocked: reference,
-        blocker: reference,
-        evidence: z.enum(["matt-contract", "github-native", "matt-body-fallback"]),
-      }),
-    ),
-  }),
-});
+export const mattScopeProjectionSchema = z
+  .strictObject({
+    map: mapSchema.optional(),
+    spec: specSchema.optional(),
+    wayfinderTickets: z.array(wayfinderTicketSchema),
+    deliveryTickets: z.array(deliveryTicketSchema),
+    incomingIssues: z.array(incomingIssueSchema),
+    structuralOrder: z.array(reference),
+    graph: z.strictObject({
+      parentChild: z.array(
+        z.strictObject({
+          parent: reference,
+          child: reference,
+          evidence: z.enum(["matt-contract", "github-native", "matt-body-fallback"]),
+        }),
+      ),
+      blockedBy: z.array(
+        z.strictObject({
+          blocked: reference,
+          blocker: reference,
+          evidence: z.enum(["matt-contract", "github-native", "matt-body-fallback"]),
+        }),
+      ),
+    }),
+  })
+  .superRefine((projection, context) => {
+    const references = [
+      ...(projection.map === undefined ? [] : [projection.map.ref]),
+      ...(projection.spec === undefined ? [] : [projection.spec.ref]),
+      ...projection.wayfinderTickets.map((ticket) => ticket.ref),
+      ...projection.deliveryTickets.map((ticket) => ticket.ref),
+      ...projection.incomingIssues.map((issue) => issue.ref),
+    ];
+    const expected = new Set(references);
+    const actual = new Set(projection.structuralOrder);
+    if (
+      expected.size === references.length &&
+      actual.size === projection.structuralOrder.length &&
+      expected.size === actual.size &&
+      [...expected].every((reference) => actual.has(reference))
+    ) {
+      return;
+    }
+    context.addIssue({
+      code: "custom",
+      path: ["structuralOrder"],
+      message:
+        "Native structural order must contain every projected object reference exactly once.",
+    });
+  });
 
 const diagnosticSchema = z.strictObject({
   code: nonEmpty,

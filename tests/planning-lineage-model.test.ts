@@ -2,12 +2,14 @@ import { expect, test } from "bun:test";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import {
   buildPlanningLineageSubjectModel,
+  nativeLifecycleEventsFor,
   type PlanningLineageSubjectModel,
 } from "../src/portal-ui/planning-lineage-model";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import {
   buildPlanningLineageProjection,
   findPlanningLineageSubjectProjection,
+  nativeEventHistoryAvailabilityFor,
 } from "../src/project-snapshot/planning-lineage";
 import {
   authoritySchema,
@@ -391,11 +393,20 @@ test("the lineage builder stops ambiguous parentage while the complete Snapshot 
 
 test("large relation collections expose truthful coverage and a stable filtered view", () => {
   const snapshot = fixture();
-  if (snapshot.efforts.validity === "invalid" || snapshot.gates.validity === "invalid") {
-    throw new Error("Expected Efforts and Gates.");
+  if (
+    snapshot.roadmaps.validity === "invalid" ||
+    snapshot.efforts.validity === "invalid" ||
+    snapshot.gates.validity === "invalid"
+  ) {
+    throw new Error("Expected Roadmaps, Efforts, and Gates.");
   }
   const template = snapshot.efforts.items[0];
   if (template === undefined) throw new Error("Expected an Effort.");
+  const modelEffort = snapshot.efforts.items.find((effort) => effort.id === "effort:model");
+  const portalEffort = snapshot.efforts.items.find((effort) => effort.id === "effort:portal");
+  if (modelEffort === undefined || portalEffort === undefined) {
+    throw new Error("Expected the ordered fixture Efforts.");
+  }
   const extras = Array.from({ length: 5 }, (_, index) => {
     const id = `effort:extra-${index + 1}`;
     const source = createSourceRecord(snapshot.basis.sitemapFingerprint, {
@@ -417,9 +428,24 @@ test("large relation collections expose truthful coverage and a stable filtered 
     };
   });
   const extraEfforts = extras.map(({ effort }) => effort);
+  const gateOneEffortIds = [modelEffort.id, ...extraEfforts.map((effort) => effort.id)];
   const expanded = withLineage({
     ...snapshot,
     sources: [...snapshot.sources, ...extras.map(({ source }) => source)],
+    roadmaps: {
+      ...snapshot.roadmaps,
+      items: snapshot.roadmaps.items.map((roadmap) =>
+        roadmap.id === "roadmap:portal"
+          ? { ...roadmap, effortIds: [...gateOneEffortIds, portalEffort.id] }
+          : roadmap,
+      ),
+    },
+    gates: {
+      ...snapshot.gates,
+      items: snapshot.gates.items.map((gate) =>
+        gate.id === "gate:one" ? { ...gate, effortIds: gateOneEffortIds } : gate,
+      ),
+    },
     efforts: {
       validity: "available" as const,
       items: [...snapshot.efforts.items, ...extraEfforts],
@@ -572,7 +598,29 @@ test("keeps Spec, Delivery, Incoming, and native scope semantics independent", (
   );
   expect(
     scope.sections.find((section) => section.anchor === "native-scope.subjects")?.items,
-  ).toHaveLength(6);
+  ).toEqual([
+    "map: Portal Validation",
+    "spec: Portal Validation PRD",
+    "wayfinder-ticket: Build the Roadmap journey",
+    "wayfinder-ticket: Review the Roadmap journey",
+    "delivery-ticket: Pass the integration gate",
+    "incoming-issue: Route a new Portal request",
+  ]);
+  const scopeTrust = scope.sections.find((section) => section.anchor === "native-scope.trust");
+  expect(scopeTrust?.body).toContain(
+    "Current means verified at the recorded observation against the confirmed source revision; it does not promise live currency.",
+  );
+  expect(scopeTrust?.times).toContainEqual({
+    key: expect.stringContaining(":verified-at"),
+    label: "Verified at",
+    time: {
+      availability: "available",
+      value: "2026-07-28T00:00:00.000Z",
+      precision: "fractional-second",
+    },
+    mode: "compact",
+    detail: `sha256:${"b".repeat(64)}`,
+  });
 
   expect(
     buildPlanningLineageSubjectModel(
@@ -718,6 +766,10 @@ test("withholds native hierarchy certainty when the selected observation is not 
     role: "map.decisions",
     availability: "confirmed-empty",
   });
+  expect(mapProjection?.semanticSections).toContainEqual({
+    role: "native.event-history",
+    availability: "unsupported",
+  });
 
   const scopeProjection = findPlanningLineageSubjectProjection(lineage, {
     kind: "native-scope",
@@ -747,7 +799,7 @@ test("withholds native hierarchy certainty when the selected observation is not 
   ).toContain("selected evidence withheld");
 });
 
-test("keeps a trustworthy native route available when an unrelated scope is stale", () => {
+test("keeps a trustworthy native route readable when an unrelated scope is stale", () => {
   const snapshot = fixture();
   const providerObservationSelections = snapshot.providerObservationSelections.map((selection) =>
     selection.nativeScope === ".scratch/model"
@@ -760,16 +812,20 @@ test("keeps a trustworthy native route available when an unrelated scope is stal
     lineage: buildPlanningLineageProjection(candidate),
   } as ProjectSnapshot;
 
-  expect(
+  const trustworthy = readable(
     buildPlanningLineageSubjectModel(
       scoped,
       { kind: "native-subject", id: ".scratch/portal/map.md" },
       "bearing",
     ),
-  ).toMatchObject({
-    state: "available",
+  );
+  expect(trustworthy).toMatchObject({
+    state: "partial",
     subject: { title: "Portal Validation" },
   });
+  expect(
+    trustworthy.sections.find((section) => section.anchor === "native.observation-trust")?.body,
+  ).toContain("selected evidence trustworthy");
   expect(
     buildPlanningLineageSubjectModel(
       scoped,
@@ -780,6 +836,113 @@ test("keeps a trustworthy native route available when an unrelated scope is stal
     state: "partial",
     subject: { title: "Planning Model" },
   });
+});
+
+test("discloses selected stale and undetermined freshness without changing native event facts", () => {
+  const snapshot = fixture();
+  for (const freshness of ["stale", "undetermined"] as const) {
+    const providerObservationSelections = snapshot.providerObservationSelections.map((selection) =>
+      selection.nativeScope === ".scratch/portal"
+        ? { ...selection, effectiveFreshness: freshness }
+        : selection,
+    );
+    const candidate = { ...snapshot, providerObservationSelections };
+    const scoped = {
+      ...candidate,
+      lineage: buildPlanningLineageProjection(candidate),
+    } as ProjectSnapshot;
+    const model = readable(
+      buildPlanningLineageSubjectModel(
+        scoped,
+        { kind: "native-subject", id: ".scratch/portal/map.md" },
+        "bearing",
+      ),
+    );
+
+    expect(
+      model.sections.find((section) => section.anchor === "native.observation-trust")?.body,
+    ).toContain(`freshness ${freshness}`);
+    expect(
+      model.sections
+        .find((section) => section.anchor === "native.observation-trust")
+        ?.times?.find((fact) => fact.label === "Verified at")?.time,
+    ).toEqual({
+      availability: "available",
+      value: "2026-07-28T00:00:00.000Z",
+      precision: "fractional-second",
+    });
+    expect(model.events).toEqual([
+      {
+        role: "native.created",
+        label: "Created",
+        time: { availability: "unsupported" },
+      },
+    ]);
+  }
+});
+
+test("renders GitHub tracker closure independently for Map and Spec native subjects", () => {
+  const snapshot = fixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) => observation.binding.nativeScope === ".scratch/portal",
+  );
+  if (
+    portal === undefined ||
+    (portal.state !== "available" && portal.state !== "partial") ||
+    portal.projection.map === undefined ||
+    portal.projection.spec === undefined
+  ) {
+    throw new Error("Expected Map and Spec fixtures.");
+  }
+  for (const [object, number, closedAt] of [
+    [portal.projection.map, 1, "2026-07-21T01:02:03Z"],
+    [portal.projection.spec, 2, "2026-07-22T04:05:06Z"],
+  ] as const) {
+    const closedObject = {
+      ...object,
+      native: {
+        kind: "github" as const,
+        identity: {
+          repositoryDatabaseId: "9001",
+          repositoryNodeId: "R_reference",
+          objectKind: "issue" as const,
+          objectDatabaseId: String(9100 + number),
+          objectNodeId: `I_reference_${number}`,
+          number,
+          url: `https://github.com/example/reference/issues/${number}`,
+          owner: "example",
+          repository: "reference",
+        },
+        createdAt: {
+          availability: "available" as const,
+          value: "2026-07-01T00:00:00Z",
+          precision: "second" as const,
+        },
+        lastUpdated: {
+          availability: "available" as const,
+          value: "2026-07-02T00:00:00Z",
+          precision: "second" as const,
+        },
+        trackerClosure: {
+          state: "closed" as const,
+          disposition: "completed" as const,
+          closedAt: {
+            availability: "available" as const,
+            value: closedAt,
+            precision: "second" as const,
+          },
+        },
+        sourceAnchors: [],
+        rawFacets: [],
+      },
+    };
+    expect(nativeLifecycleEventsFor(closedObject)).toContainEqual({
+      role: "native.tracker-closed",
+      label: "Tracker closed",
+      time: { availability: "available", value: closedAt, precision: "second" },
+    });
+    expect(nativeEventHistoryAvailabilityFor(closedObject)).toBe("available");
+  }
 });
 
 test("carries provider unsupported availability through validated Snapshot and Portal rendering", () => {

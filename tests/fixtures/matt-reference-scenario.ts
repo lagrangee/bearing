@@ -14,6 +14,10 @@ const scenarioRef = (nativeKind: NativeKind, role: string): MattObjectReference 
   ref(`${nativeKind}:opaque:${role}`);
 const availableSections = (...roles: readonly string[]) =>
   roles.map((role) => ({ role, availability: "available" as const }));
+const nativeTime = (nativeKind: NativeKind, value: string) =>
+  nativeKind === "local"
+    ? ({ availability: "unsupported" } as const)
+    : ({ availability: "available", value, precision: "second" } as const);
 
 const nativeEvidence = (
   nativeKind: NativeKind,
@@ -26,6 +30,8 @@ const nativeEvidence = (
         identity: {
           locator: `.scratch/reference/${role}-${ordinal}.md`,
         },
+        createdAt: { availability: "unsupported" },
+        lastUpdated: { availability: "unsupported" },
         sourceAnchors: [
           {
             kind: "source",
@@ -47,6 +53,12 @@ const nativeEvidence = (
           owner: "example",
           repository: "reference",
         },
+        createdAt: nativeTime(nativeKind, `2026-07-${String(ordinal).padStart(2, "0")}T00:00:00Z`),
+        lastUpdated: nativeTime(
+          nativeKind,
+          `2026-07-${String(ordinal).padStart(2, "0")}T12:00:00Z`,
+        ),
+        trackerClosure: { state: "open" },
         sourceAnchors: [
           {
             kind: "source",
@@ -187,6 +199,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
               kind: "answer",
               target: nativeKind === "local" ? "research.md#answer" : "comment:answer-1",
             },
+            authoredAt: nativeTime(nativeKind, "2026-07-03T10:00:00Z"),
           },
         },
         comments: [
@@ -194,6 +207,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
             role: "ordinary-comment",
             body: "This comment is not the Answer.",
             nativeIdentity: nativeKind === "local" ? "comment:local-1" : "comment:github-1",
+            authoredAt: nativeTime(nativeKind, "2026-07-03T11:00:00Z"),
           },
         ],
         lifecycle: {
@@ -206,7 +220,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         trackerClosure: {
           state: "closed",
           disposition: "completed",
-          observedAt: "2026-07-01T00:00:00Z",
+          closedAt: nativeTime(nativeKind, "2026-07-01T00:00:00Z"),
         },
         semanticSections: availableSections(
           "wayfinder.question",
@@ -253,7 +267,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         trackerClosure: {
           state: "closed",
           disposition: "wontfix",
-          observedAt: "2026-07-02T00:00:00Z",
+          closedAt: nativeTime(nativeKind, "2026-07-02T00:00:00Z"),
         },
         semanticSections: [
           ...availableSections("wayfinder.question", "wayfinder.claim"),
@@ -274,6 +288,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           {
             role: "agent-brief",
             body: "Write only the accepted resolution.",
+            authoredAt: nativeTime(nativeKind, "2026-07-06T10:00:00Z"),
           },
         ],
         lifecycle: { state: "open" },
@@ -301,6 +316,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           {
             role: "triage-note",
             body: "Delivery completion is not tracker closure.",
+            authoredAt: nativeTime(nativeKind, "2026-07-07T10:00:00Z"),
           },
         ],
         semanticSections: availableSections(
@@ -321,7 +337,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         trackerClosure: {
           state: "closed",
           disposition: "completed",
-          observedAt: "2026-07-03T00:00:00Z",
+          closedAt: nativeTime(nativeKind, "2026-07-03T00:00:00Z"),
         },
         comments: [],
         semanticSections: [
@@ -361,6 +377,17 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         ),
         native: nativeEvidence(nativeKind, "incoming", 9),
       },
+    ],
+    structuralOrder: [
+      mapRef,
+      specRef,
+      researchRef,
+      prototypeRef,
+      grillingRef,
+      taskRef,
+      deliveryOneRef,
+      deliveryTwoRef,
+      incomingRef,
     ],
     graph: {
       parentChild: [
