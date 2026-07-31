@@ -93,6 +93,159 @@ test("renders native Source Event Time, Last updated, and Verified at as distinc
   );
 });
 
+test("renders one accessible role-first Matt-Native Work Region from Effort and scope routes", () => {
+  const effortHtml = render({
+    validity: "valid",
+    value: { kind: "effort", id: "effort:portal" },
+  });
+  const scopeHtml = render({
+    validity: "valid",
+    value: { kind: "native-scope", id: ".scratch/portal" },
+  });
+
+  for (const html of [effortHtml, scopeHtml]) {
+    expect(html).toContain('class="matt-work-region context-bound"');
+    expect(html).toContain('id="matt-work-region-title">Contributing Work</h2>');
+    expect(html).toContain('aria-label="Native Work Frontier views"');
+    expect(html).toContain('href="#native-work-current">Current');
+    expect(html).toContain('href="#native-work-history">History');
+    expect(html).toContain('href="#native-work-all">All');
+    expect(html).toContain('id="matt-map-chapter-title"><a');
+    expect(html).toContain(">Portal Validation</a></h3>");
+    expect(html).toContain("Reach the accepted project outcome.");
+    expect(html).toContain("<dt>Fog</dt><dd><strong>2</strong>");
+    expect(html).toContain("Build the Roadmap journey");
+    expect(html).toContain("<dt>Claimant</dt><dd><strong>lago</strong>");
+    expect(html).toContain("Pass the integration gate");
+    expect(html).toContain("Blocked");
+    expect(html).toContain("Route a new Portal request");
+    expect(html).toContain("ready-for-agent");
+    expect(html).toContain("/lineage/native-subject/");
+  }
+
+  const anchored = render(
+    {
+      validity: "valid",
+      value: { kind: "effort", id: "effort:portal" },
+    },
+    { semanticAnchor: "native-work-current" },
+  );
+  expect(anchored).not.toContain("Requested section unavailable");
+});
+
+test("renders scoped Map Destination uncertainty instead of a blank available chapter", () => {
+  const snapshot = createProjectOverviewFixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) =>
+      observation.binding.nativeScope === ".scratch/portal" &&
+      (observation.state === "available" || observation.state === "partial"),
+  );
+  if (
+    portal === undefined ||
+    (portal.state !== "available" && portal.state !== "partial") ||
+    portal.projection.map === undefined
+  ) {
+    throw new Error("Expected the Portal Map observation.");
+  }
+  const map = portal.projection.map;
+  const degraded: ProjectSnapshot = {
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portal.id
+        ? {
+            ...portal,
+            projection: {
+              ...portal.projection,
+              map: {
+                ...map,
+                destination: "",
+                semanticSections: map.semanticSections.map((section) =>
+                  section.role === "map.destination"
+                    ? { ...section, availability: "unavailable" as const }
+                    : section,
+                ),
+              },
+            },
+          }
+        : observation,
+    ),
+  };
+  const html = render(
+    {
+      validity: "valid",
+      value: { kind: "effort", id: "effort:portal" },
+    },
+    { snapshot: degraded },
+  );
+
+  expect(html).toContain('data-semantic-availability="unavailable"');
+  expect(html).toContain("Destination is unavailable in the selected provider observation.");
+  expect(html).not.toContain('data-semantic-availability="available"></p>');
+});
+
+test("renders the same native scope as Discovered Work when no Effort binds it", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
+  const unbound = withLineage({
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === "effort:portal" ? { ...effort, workBinding: undefined } : effort,
+      ),
+    },
+  });
+  const html = render(
+    {
+      validity: "valid",
+      value: { kind: "native-scope", id: ".scratch/portal" },
+    },
+    { snapshot: unbound },
+  );
+
+  expect(html).toContain('class="matt-work-region context-unbound"');
+  expect(html).toContain('id="matt-work-region-title">Discovered Work</h2>');
+  expect(html).toContain("Not linked to an Effort");
+  expect(html).not.toContain('id="matt-work-region-title">Contributing Work</h2>');
+});
+
+test("omits confirmed-empty role shells while preserving their native history", () => {
+  const html = render({
+    validity: "valid",
+    value: { kind: "native-scope", id: ".scratch/model" },
+  });
+
+  expect(html).toContain('class="matt-work-region context-bound"');
+  expect(html).toContain("Resolve the planning model");
+  expect(html).toContain('id="native-work-history"');
+  expect(html).not.toContain("<h4>Spec / PRD</h4>");
+  expect(html).not.toContain("<h4>Delivery</h4>");
+  expect(html).not.toContain("<h4>Incoming</h4>");
+});
+
+test("keeps Roadmap and Gate native work bounded to Effort frontier summaries and links", () => {
+  const roadmapHtml = render({
+    validity: "valid",
+    value: { kind: "roadmap", id: "roadmap:portal" },
+  });
+  const gateHtml = render({
+    validity: "valid",
+    value: { kind: "gate", id: "gate:two" },
+  });
+
+  for (const html of [roadmapHtml, gateHtml]) {
+    expect(html).toContain("<h2>Contributing Effort Summaries</h2>");
+    const sectionStart = html.indexOf('id="native-work.effort-summaries"');
+    const summarySection = html.slice(sectionStart, html.indexOf("</section>", sectionStart));
+    expect(summarySection).toContain(
+      'href="/projects/bearing/lineage/effort/effort%3Aportal">Web Portal Validation</a>',
+    );
+    expect(summarySection).toContain("Claimed 1 · Ready 1 · Blocked 1 · Resolved 0");
+    expect(html).not.toContain('class="matt-work-region');
+    expect(html).not.toContain("Reach the accepted project outcome.");
+  }
+});
+
 test("keeps missing, invalid, and unavailable-anchor requests scoped to the requested route", () => {
   expect(
     render({

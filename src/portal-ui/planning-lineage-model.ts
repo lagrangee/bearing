@@ -36,9 +36,15 @@ import {
 import {
   type MattNativeSubject,
   mattNativeSubjectForObject,
+  sameMattNativeBindingDefinition,
+  sameMattNativeScope,
 } from "../providers/matt-skills-v1/native-subject";
 import type { MattProjectedObject } from "../providers/matt-skills-v1/projection";
-import { mattObjects } from "../providers/matt-skills-v1/projection";
+import {
+  buildMattNativeWorkRegion,
+  type MattNativeWorkRegionContext,
+  type MattNativeWorkRegionModel,
+} from "../providers/matt-skills-v1/work-region";
 import { projectExpectedSourceEventTime } from "../source-event-time";
 import {
   type PlanningLineageEvent,
@@ -95,6 +101,13 @@ export type PlanningLineageSection = Readonly<{
   title: string;
   body?: string | undefined;
   items?: readonly string[] | undefined;
+  links?:
+    | readonly Readonly<{
+        label: string;
+        detail: string;
+        href: string;
+      }>[]
+    | undefined;
   times?: readonly PlanningLineageTimeFact[] | undefined;
 }>;
 
@@ -125,6 +138,7 @@ type ReadablePlanningLineageSubjectModel = Readonly<{
   parentNotice?: string | undefined;
   events: readonly PlanningLineageEvent<PlanningLineageEventTime>[];
   sections: readonly PlanningLineageSection[];
+  workRegion?: MattNativeWorkRegionModel | undefined;
   semanticAvailability: ReadonlyMap<string, MattSemanticSectionAvailability>;
   relations: readonly PlanningLineageRelation[];
 }>;
@@ -300,9 +314,74 @@ const relationForDisplay = (
   };
 };
 
+const countByFrontier = (
+  region: MattNativeWorkRegionModel,
+  frontier: "claimed" | "ready" | "blocked" | "resolved" | "uncertain",
+): number =>
+  region.roles
+    .filter((role) => role.role === "wayfinder" || role.role === "delivery")
+    .flatMap((role) => role.items)
+    .filter((item) => item.frontier === frontier).length;
+
+const boundedFrontierSummary = (region: MattNativeWorkRegionModel): string => {
+  if (region.context.state === "attention") return region.context.label;
+  const frontierRoles = region.roles.filter(
+    (role) => role.role === "wayfinder" || role.role === "delivery",
+  );
+  if (frontierRoles.some((role) => role.count.mode === "unavailable")) {
+    return "Native frontier counts unavailable";
+  }
+  const values = [
+    ["Claimed", countByFrontier(region, "claimed")],
+    ["Ready", countByFrontier(region, "ready")],
+    ...(countByFrontier(region, "uncertain") === 0
+      ? []
+      : ([["Uncertain", countByFrontier(region, "uncertain")]] as const)),
+    ["Blocked", countByFrontier(region, "blocked")],
+    ["Resolved", countByFrontier(region, "resolved")],
+  ] as const;
+  const qualifier = frontierRoles.some((role) => role.count.mode === "at-least") ? "≥" : "";
+  return values.map(([label, value]) => `${label} ${qualifier}${value}`).join(" · ");
+};
+
+const contributingEffortSummarySection = (
+  snapshot: ProjectSnapshot,
+  effortIds: readonly string[],
+  entryId: string,
+): PlanningLineageSection => {
+  const efforts = readableEfforts(snapshot);
+  const links = effortIds.flatMap((effortId) => {
+    const effort = efforts.find((candidate) => candidate.id === effortId);
+    if (effort === undefined) return [];
+    const region = effortWorkRegion(snapshot, effort);
+    return [
+      {
+        label: effort.title,
+        detail:
+          region === undefined ? "Native frontier unavailable" : boundedFrontierSummary(region),
+        href: planningLineageSubjectHref(entryId, { kind: "effort", id: effort.id }),
+      },
+    ];
+  });
+  const missingItems = effortIds
+    .filter((effortId) => !efforts.some((effort) => effort.id === effortId))
+    .map((effortId) => `${effortId} · unavailable`);
+  return {
+    anchor: "native-work.effort-summaries",
+    title: "Contributing Effort Summaries",
+    body:
+      links.length === 0 && missingItems.length === 0
+        ? "No trustworthy contributing Effort summary is available."
+        : "Bounded frontier orientation only. Full native content remains owned by Effort and native subject routes.",
+    ...(links.length === 0 ? {} : { links }),
+    ...(missingItems.length === 0 ? {} : { items: missingItems }),
+  };
+};
+
 const roadmapSections = (
   snapshot: ProjectSnapshot,
   roadmap: Roadmap,
+  entryId: string,
 ): readonly PlanningLineageSection[] => {
   const gateLabels = roadmap.gateOrder.map((id) => {
     const gate = recordFor(snapshot, { kind: "gate", id });
@@ -325,10 +404,15 @@ const roadmapSections = (
       title: "Focused Gate summary",
       body: `${focused}. Lifecycle ${roadmap.lifecycle}; horizon ${roadmap.horizon}.`,
     },
+    contributingEffortSummarySection(snapshot, roadmap.effortIds, entryId),
   ];
 };
 
-const gateSections = (gate: MilestoneGate): readonly PlanningLineageSection[] => [
+const gateSections = (
+  snapshot: ProjectSnapshot,
+  gate: MilestoneGate,
+  entryId: string,
+): readonly PlanningLineageSection[] => [
   { anchor: "gate.intent", title: "Intent", body: gate.intent },
   { anchor: "gate.exit-criteria", title: "Exit Criteria", items: gate.exitCriteria },
   {
@@ -347,6 +431,7 @@ const gateSections = (gate: MilestoneGate): readonly PlanningLineageSection[] =>
       ? {}
       : { items: gate.passage.exceptions }),
   },
+  contributingEffortSummarySection(snapshot, gate.effortIds, entryId),
 ];
 
 const effortSections = (
@@ -369,7 +454,7 @@ const effortSections = (
     },
     {
       anchor: "effort.native-work",
-      title: "Contributing Work",
+      title: "Work Binding",
       body:
         binding === undefined
           ? "No Work Binding is declared."
@@ -629,9 +714,7 @@ const nativeScopeSections = (
   snapshot: ProjectSnapshot,
   record: NativeScopeRecord,
 ): readonly PlanningLineageSection[] => {
-  const objects = mattObjects(record.observation);
   const evidence = nativeEvidenceAssessment(snapshot, record.observation);
-  const complete = evidence.frontierEvidence === "trustworthy";
   return [
     {
       anchor: "native-scope.trust",
@@ -646,19 +729,6 @@ const nativeScopeSections = (
           detail: record.observation.sourceRevision ?? "Source revision unavailable",
         },
       ],
-    },
-    {
-      anchor: "native-scope.subjects",
-      title: "Native Subjects",
-      body:
-        objects.length === 0
-          ? complete
-            ? "No native subjects were established by this complete provider observation."
-            : "Native subject membership is unavailable in the selected provider observation."
-          : "Role-first members established by the selected provider observation.",
-      ...(objects.length === 0
-        ? {}
-        : { items: objects.map((object) => `${object.kind}: ${object.title}`) }),
     },
   ];
 };
@@ -1005,12 +1075,13 @@ const sectionsFor = (
   snapshot: ProjectSnapshot,
   lineage: PlanningLineageSubjectProjection,
   record: SubjectRecord,
+  entryId: string,
 ): readonly PlanningLineageSection[] => {
   switch (lineage.identity.kind) {
     case "roadmap":
-      return roadmapSections(snapshot, record as Roadmap);
+      return roadmapSections(snapshot, record as Roadmap, entryId);
     case "gate":
-      return gateSections(record as MilestoneGate);
+      return gateSections(snapshot, record as MilestoneGate, entryId);
     case "effort":
       return effortSections(record as Effort, lineage);
     case "authority":
@@ -1057,6 +1128,83 @@ const parentPathForDisplay = (
     ...ancestors,
     { label: record.title, reference: lineage.identity.id },
   ];
+};
+
+const readableEfforts = (snapshot: ProjectSnapshot): readonly Effort[] =>
+  snapshot.efforts.validity === "invalid" ? [] : snapshot.efforts.items;
+
+const scopeContextFor = (
+  snapshot: ProjectSnapshot,
+  observation: ProjectSnapshot["providerObservations"][number],
+): MattNativeWorkRegionContext => {
+  const effortCandidates = readableEfforts(snapshot).filter(
+    (effort) =>
+      effort.workBinding !== undefined &&
+      sameMattNativeScope(effort.workBinding, observation.binding),
+  );
+  if (effortCandidates.length === 0) return { state: "unbound" };
+  if (effortCandidates.length > 1) {
+    return {
+      state: "attention",
+      reason: "binding-conflict",
+      effortIds: effortCandidates.map((effort) => effort.id),
+    };
+  }
+  const effort = effortCandidates[0];
+  if (
+    effort?.workBinding === undefined ||
+    !sameMattNativeBindingDefinition(effort.workBinding, observation.binding)
+  ) {
+    return {
+      state: "attention",
+      reason: "root-kind-conflict",
+      effortIds: effort === undefined ? [] : [effort.id],
+    };
+  }
+  return { state: "bound", effortIds: [effort.id] };
+};
+
+const effortWorkRegion = (
+  snapshot: ProjectSnapshot,
+  effort: Effort,
+): MattNativeWorkRegionModel | undefined => {
+  const binding = effort.workBinding;
+  if (binding === undefined) return undefined;
+  const effortCandidates = readableEfforts(snapshot).filter(
+    (candidate) =>
+      candidate.workBinding !== undefined && sameMattNativeScope(candidate.workBinding, binding),
+  );
+  const observation = snapshot.providerObservations.find((candidate) =>
+    sameMattNativeScope(candidate.binding, binding),
+  );
+  const context: MattNativeWorkRegionContext =
+    effortCandidates.length > 1
+      ? {
+          state: "attention",
+          reason: "binding-conflict",
+          effortIds: effortCandidates.map((candidate) => candidate.id),
+        }
+      : observation === undefined
+        ? { state: "attention", reason: "bound-unresolved", effortIds: [effort.id] }
+        : !sameMattNativeBindingDefinition(binding, observation.binding)
+          ? { state: "attention", reason: "root-kind-conflict", effortIds: [effort.id] }
+          : { state: "bound", effortIds: [effort.id] };
+  return buildMattNativeWorkRegion(observation, snapshot.providerObservationSelections, context);
+};
+
+const workRegionFor = (
+  snapshot: ProjectSnapshot,
+  subject: PlanningLineageSubject,
+  record: SubjectRecord,
+): MattNativeWorkRegionModel | undefined => {
+  if (subject.kind === "effort") return effortWorkRegion(snapshot, record as Effort);
+  if (subject.kind !== "native-scope") return undefined;
+  const scopeRecord = record as NativeScopeRecord;
+  return buildMattNativeWorkRegion(
+    scopeRecord.observation,
+    snapshot.providerObservationSelections,
+    scopeContextFor(snapshot, scopeRecord.observation),
+  );
 };
 
 export const buildPlanningLineageSubjectModel = (
@@ -1115,6 +1263,7 @@ export const buildPlanningLineageSubjectModel = (
   const sourceHref = isNativeSubject(subject)
     ? nativeSourceHref(record as NativeRecord)
     : undefined;
+  const workRegion = workRegionFor(snapshot, subject, record);
   return {
     state: degraded ? "partial" : "available",
     subject: {
@@ -1133,7 +1282,8 @@ export const buildPlanningLineageSubjectModel = (
     events: isNativeSubject(subject)
       ? nativeLifecycleEvents(record as NativeRecord)
       : planningLineageEventsFor(snapshot, subject, record as CanonicalSubjectRecord),
-    sections: sectionsFor(snapshot, lineage, record),
+    sections: sectionsFor(snapshot, lineage, record, entryId),
+    ...(workRegion === undefined ? {} : { workRegion }),
     semanticAvailability,
     relations,
   };

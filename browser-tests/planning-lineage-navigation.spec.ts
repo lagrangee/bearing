@@ -643,7 +643,9 @@ test("relation navigation and Inspector full detail restore lineage focus and sc
   });
   await page.goto(gateHref);
 
-  const relationLink = page.getByRole("link", { name: "Planning Model", exact: true });
+  const relationLink = page
+    .getByLabel("Lineage Context")
+    .getByRole("link", { name: "Planning Model", exact: true });
   await relationLink.scrollIntoViewIfNeeded();
   await relationLink.focus();
   await expect(relationLink).toHaveAttribute(
@@ -706,19 +708,38 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   ).toBe(false);
   expect(await viewportOverflow(page)).toEqual([]);
 
+  const effortHref = planningLineageSubjectHref("lineage", {
+    kind: "effort",
+    id: "effort:portal",
+  });
+  await page.goto(effortHref);
+  await expect(
+    page.getByRole("heading", { name: "Web Portal Validation", level: 1 }),
+  ).toBeVisible();
+  const workRegion = page.locator(".matt-work-region");
+  await expect(
+    workRegion.getByRole("heading", { name: "Contributing Work", level: 2 }),
+  ).toBeVisible();
+  const currentView = workRegion.getByRole("link", { name: /^Current/u });
+  await currentView.focus();
+  await expect(currentView).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(`${effortHref}#native-work-current`);
+  await expect(workRegion.getByRole("heading", { name: "Current", level: 3 })).toBeInViewport();
+  expect(await viewportOverflow(page)).toEqual([]);
+
   await page.setViewportSize({ width: 375, height: 812 });
   const nativeHref = planningLineageSubjectHref("lineage", {
-    kind: "native-subject",
-    id: ".scratch/portal/issues/03-gate.md",
+    kind: "native-scope",
+    id: ".scratch/portal",
   });
   await page.goto(nativeHref);
-  await expect(
-    page.getByRole("heading", { name: "Pass the integration gate", level: 1 }),
-  ).toBeVisible();
-  await page.getByRole("link", { name: "Review the Roadmap journey", exact: true }).focus();
-  await expect(
-    page.getByRole("link", { name: "Review the Roadmap journey", exact: true }),
-  ).toBeFocused();
+  await expect(page.getByRole("heading", { name: ".scratch/portal", level: 1 })).toBeVisible();
+  const subjectLink = page
+    .getByRole("link", { name: "Review the Roadmap journey", exact: true })
+    .first();
+  await subjectLink.focus();
+  await expect(subjectLink).toBeFocused();
   await expect
     .poll(() =>
       page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),

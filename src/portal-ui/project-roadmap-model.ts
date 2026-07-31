@@ -8,8 +8,15 @@ import type {
   SourceRecord,
 } from "../project-snapshot/contract";
 import { assessSelectedProviderObservationEvidence } from "../provider-observation-contract";
-import { sameMattNativeScope } from "../providers/matt-skills-v1/native-subject";
-import { mattPlanningPresentation } from "../providers/matt-skills-v1/projection";
+import {
+  sameMattNativeBindingDefinition,
+  sameMattNativeScope,
+} from "../providers/matt-skills-v1/native-subject";
+import {
+  buildMattNativeWorkRegion,
+  type MattNativeWorkRegionCount,
+  type MattNativeWorkRegionFrontier,
+} from "../providers/matt-skills-v1/work-region";
 import {
   assessScopedMapIssues,
   collectRoadmapEvidenceIds,
@@ -54,12 +61,13 @@ export type MattMapView = Readonly<{
   source: string;
   state: string;
   fogCount: number;
+  fogCountMode: MattNativeWorkRegionCount["mode"];
 }>;
 export type MattTicketView = Readonly<{
   reference: string;
   title: string;
   source: string;
-  state: "claimed" | "ready" | "blocked" | "resolved";
+  state: MattNativeWorkRegionFrontier;
   blockedBy: readonly string[];
 }>;
 
@@ -69,7 +77,10 @@ export type RoadmapEffortModel = Readonly<{
   targetGate: MilestoneGate | undefined;
   maps: readonly MattMapView[];
   fogCount: number;
+  fogCountMode: MattNativeWorkRegionCount["mode"] | "not-applicable";
   frontier: Frontier;
+  frontierCountMode: MattNativeWorkRegionCount["mode"];
+  bindingAttention?: "binding-conflict" | "root-kind-conflict" | "bound-unresolved" | undefined;
   providerAssessment: ProviderObservationEvidenceAssessment | undefined;
   missingFrontierReferences: readonly string[];
 }>;
@@ -181,6 +192,9 @@ const frontierFor = (
   frontier: Frontier;
   maps: readonly MattMapView[];
   missing: readonly string[];
+  fogCountMode: MattNativeWorkRegionCount["mode"] | "not-applicable";
+  frontierCountMode: MattNativeWorkRegionCount["mode"];
+  bindingAttention?: "binding-conflict" | "root-kind-conflict" | "bound-unresolved" | undefined;
   providerAssessment: ProviderObservationEvidenceAssessment | undefined;
 }> => {
   const binding = effort.workBinding;
@@ -211,6 +225,24 @@ const frontierFor = (
       frontier: { claimed: [], ready: [], uncertain: [], blocked: [], resolved: [] },
       maps: [],
       missing: [],
+      fogCountMode: "unavailable",
+      frontierCountMode: "unavailable",
+      bindingAttention: "binding-conflict",
+      providerAssessment,
+    };
+  }
+  if (
+    binding !== undefined &&
+    capture !== undefined &&
+    !sameMattNativeBindingDefinition(binding, capture.binding)
+  ) {
+    return {
+      frontier: { claimed: [], ready: [], uncertain: [], blocked: [], resolved: [] },
+      maps: [],
+      missing: [binding.nativeScope],
+      fogCountMode: "unavailable",
+      frontierCountMode: "unavailable",
+      bindingAttention: "root-kind-conflict",
       providerAssessment,
     };
   }
@@ -219,33 +251,75 @@ const frontierFor = (
       frontier: { claimed: [], ready: [], uncertain: [], blocked: [], resolved: [] },
       maps: [],
       missing: binding === undefined || capture !== undefined ? [] : [binding.nativeScope],
+      fogCountMode: binding === undefined ? "not-applicable" : "unavailable",
+      frontierCountMode: "unavailable",
+      ...(binding !== undefined && capture === undefined
+        ? { bindingAttention: "bound-unresolved" as const }
+        : {}),
       providerAssessment,
     };
   }
-  const presentation = mattPlanningPresentation(capture);
-  const tickets: MattTicketView[] = presentation.tickets.map((ticket) => ({
-    ...ticket,
-    source: sourceFor(sources, ticket.reference),
-  }));
-  const lane = (state: MattTicketView["state"]) =>
+  const region = buildMattNativeWorkRegion(capture, snapshot.providerObservationSelections, {
+    state: "bound",
+    effortIds: [String(effort.id)],
+  });
+  const frontierRoles = region.roles.filter(
+    (role) => role.role === "wayfinder" || role.role === "delivery",
+  );
+  const tickets: MattTicketView[] = frontierRoles.flatMap((role) =>
+    role.items.flatMap((ticket) =>
+      ticket.frontier === undefined
+        ? []
+        : [
+            {
+              reference: ticket.reference,
+              title: ticket.title,
+              source: sourceFor(sources, ticket.reference),
+              state: ticket.frontier,
+              blockedBy: ticket.blockers ?? [],
+            },
+          ],
+    ),
+  );
+  const lane = (state: MattNativeWorkRegionFrontier) =>
     tickets.filter((ticket) => ticket.state === state);
-  const maps: MattMapView[] = presentation.maps.map((map) => ({
-    ...map,
-    source: sourceFor(sources, map.reference),
-  }));
+  const frontierCountMode = frontierRoles.some((role) => role.count.mode === "unavailable")
+    ? "unavailable"
+    : frontierRoles.some((role) => role.count.mode === "at-least")
+      ? "at-least"
+      : "exact";
+  const mapChapter = region.mapChapter;
+  const maps: MattMapView[] =
+    mapChapter?.availability === "available"
+      ? [
+          {
+            reference: mapChapter.reference,
+            title: mapChapter.title,
+            source: sourceFor(sources, mapChapter.reference),
+            state: mapChapter.lifecycle,
+            fogCount:
+              mapChapter.totals.fog.mode === "unavailable" ? 0 : mapChapter.totals.fog.value,
+            fogCountMode: mapChapter.totals.fog.mode,
+          },
+        ]
+      : [];
   return {
     frontier: {
-      claimed: providerAssessment?.frontierEvidence === "trustworthy" ? lane("claimed") : [],
-      ready: providerAssessment?.frontierEvidence === "trustworthy" ? lane("ready") : [],
-      uncertain:
-        providerAssessment?.frontierEvidence === "withheld"
-          ? [...lane("claimed"), ...lane("ready")]
-          : [],
+      claimed: lane("claimed"),
+      ready: lane("ready"),
+      uncertain: lane("uncertain"),
       blocked: lane("blocked"),
       resolved: lane("resolved"),
     },
     maps,
     missing: [],
+    fogCountMode:
+      mapChapter === undefined
+        ? "not-applicable"
+        : mapChapter.availability === "available"
+          ? mapChapter.totals.fog.mode
+          : "unavailable",
+    frontierCountMode,
     providerAssessment,
   };
 };
@@ -280,7 +354,12 @@ export const buildRoadmapDetailModel = (
       targetGate: gateIndex.get(effort.targetGateId),
       maps: resolved.maps,
       fogCount: resolved.maps.reduce((total, map) => total + map.fogCount, 0),
+      fogCountMode: resolved.fogCountMode,
       frontier: resolved.frontier,
+      frontierCountMode: resolved.frontierCountMode,
+      ...(resolved.bindingAttention === undefined
+        ? {}
+        : { bindingAttention: resolved.bindingAttention }),
       providerAssessment: resolved.providerAssessment,
       missingFrontierReferences: resolved.missing,
     });

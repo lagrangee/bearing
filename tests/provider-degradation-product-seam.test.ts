@@ -611,10 +611,11 @@ test("real Local mixed scopes keep CLI Inspect, Snapshot, Sitemap, and Portal on
   expect(healthyEffort?.providerAssessment?.frontierEvidence).toBe("trustworthy");
   expect(degradedEffort?.providerAssessment?.frontierEvidence).toBe("withheld");
   expect(degradedEffort?.frontier).toMatchObject({
-    claimed: [],
+    claimed: [{ title: "Drive the degraded scope" }],
     ready: [],
-    uncertain: [{ title: "Drive the degraded scope" }],
+    uncertain: [],
   });
+  expect(degradedEffort?.frontierCountMode).toBe("at-least");
 });
 
 test("throws programming defects, cancellation, and wrapper invariant violations", async () => {

@@ -14,7 +14,7 @@ export function EffortRow({
   onSelect,
   title,
 }: {
-  readonly fog?: number;
+  readonly fog?: string;
   readonly event?: PlanningLineageEvent | undefined;
   readonly frontier: string;
   readonly gate: string;
@@ -83,7 +83,7 @@ function EffortRowContent({
   lifecycle,
   title,
 }: {
-  readonly fog?: number;
+  readonly fog?: string;
   readonly event?: PlanningLineageEvent | undefined;
   readonly frontier: string;
   readonly gate: string;

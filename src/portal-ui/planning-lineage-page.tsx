@@ -6,6 +6,13 @@ import type {
 import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import type { MattNativeEventTime } from "../providers/matt-skills-v1/model";
+import type {
+  MattNativeWorkRegionCount,
+  MattNativeWorkRegionItem,
+  MattNativeWorkRegionMapChapter,
+  MattNativeWorkRegionModel,
+  MattNativeWorkRegionRoleGroup,
+} from "../providers/matt-skills-v1/work-region";
 import { Icons } from "./icons";
 import type {
   PlanningLineageRelation,
@@ -212,6 +219,353 @@ function RelationCollection({
   );
 }
 
+const workRegionCountLabel = (count: MattNativeWorkRegionCount): string => {
+  if (count.mode === "unavailable") return "Count unavailable";
+  return count.mode === "exact" ? String(count.value) : `At least ${count.value}`;
+};
+
+const workRegionSubjectHref = (entryId: string, reference: string, anchor?: string): string =>
+  planningLineageSubjectHref(entryId, { kind: "native-subject", id: reference }, anchor);
+
+const humanizeWorkState = (state: string): string => {
+  const words = state.replaceAll("-", " ");
+  return `${words[0]?.toUpperCase() ?? ""}${words.slice(1)}`;
+};
+
+const WORK_REGION_VIEW_ANCHORS = new Set([
+  "native-work-current",
+  "native-work-history",
+  "native-work-all",
+]);
+
+function WorkRegionItem({
+  entryId,
+  item,
+  onNavigate,
+}: {
+  readonly entryId: string;
+  readonly item: MattNativeWorkRegionItem;
+  readonly onNavigate: Navigate;
+}) {
+  const href = workRegionSubjectHref(entryId, item.reference);
+  const state =
+    item.frontier ??
+    (item.role === "incoming" ? item.routingState : undefined) ??
+    item.nativeLifecycle;
+  return (
+    <li className="matt-work-item">
+      <div className="matt-work-item-heading">
+        <div className="matt-work-item-title">
+          <small>{item.role}</small>
+          <a href={href} onClick={(event) => follow(href, event, onNavigate)}>
+            {item.title}
+          </a>
+        </div>
+        <span>{humanizeWorkState(state)}</span>
+      </div>
+      <dl>
+        <div>
+          <dt>Native lifecycle</dt>
+          <dd>{item.nativeLifecycle}</dd>
+        </div>
+        {item.claimant === undefined ? null : (
+          <div>
+            <dt>Claimant</dt>
+            <dd>
+              <strong>{item.claimant}</strong>
+              {item.claimantAmbiguous === true ? " · ambiguous" : ""}
+            </dd>
+          </div>
+        )}
+        {item.answerAvailability === undefined ? null : (
+          <div>
+            <dt>Answer</dt>
+            <dd>{item.answerAvailability}</dd>
+          </div>
+        )}
+        {item.decisionEvidence === undefined ? null : (
+          <div>
+            <dt>Decision evidence</dt>
+            <dd>
+              {item.decisionEvidence.kind}
+              {item.decisionEvidence.target === undefined
+                ? ""
+                : ` · ${item.decisionEvidence.target}`}
+            </dd>
+          </div>
+        )}
+        {item.trackerClosure === undefined ? null : (
+          <div>
+            <dt>Tracker closure</dt>
+            <dd>{item.trackerClosure}</dd>
+          </div>
+        )}
+        {item.category === undefined ? null : (
+          <div>
+            <dt>Category</dt>
+            <dd>{item.category}</dd>
+          </div>
+        )}
+        {item.routingState === undefined ? null : (
+          <div>
+            <dt>Routing state</dt>
+            <dd>{item.routingState}</dd>
+          </div>
+        )}
+        {item.nativeDisposition === undefined ? null : (
+          <div>
+            <dt>Native disposition</dt>
+            <dd>{item.nativeDisposition}</dd>
+          </div>
+        )}
+      </dl>
+      {item.blockers === undefined || item.blockers.length === 0 ? null : (
+        <p className="matt-work-blockers">
+          Blockers:{" "}
+          {item.blockers.map((blocker) => (
+            <code className="matt-work-blocker" key={`${item.reference}:${blocker}`}>
+              {blocker}
+            </code>
+          ))}
+        </p>
+      )}
+      {item.completionEvidence === undefined ? null : (
+        <ul className="matt-work-evidence">
+          {item.completionEvidence.map((evidence) => (
+            <li key={`${item.reference}:${evidence}`}>{evidence}</li>
+          ))}
+        </ul>
+      )}
+      {item.diagnosticCodes === undefined ? null : (
+        <p className="matt-work-diagnostic" role="status">
+          Needs attention: {item.diagnosticCodes.join(", ")}
+        </p>
+      )}
+    </li>
+  );
+}
+
+function WorkRegionItems({
+  entryId,
+  items,
+  onNavigate,
+}: {
+  readonly entryId: string;
+  readonly items: readonly MattNativeWorkRegionItem[];
+  readonly onNavigate: Navigate;
+}) {
+  return (
+    <ul className="matt-work-items">
+      {items.map((item) => (
+        <WorkRegionItem
+          entryId={entryId}
+          item={item}
+          key={item.reference}
+          onNavigate={onNavigate}
+        />
+      ))}
+    </ul>
+  );
+}
+
+function MapChapter({
+  chapter,
+  entryId,
+  onNavigate,
+}: {
+  readonly chapter: MattNativeWorkRegionMapChapter;
+  readonly entryId: string;
+  readonly onNavigate: Navigate;
+}) {
+  if (chapter.availability !== "available") {
+    return (
+      <section className="matt-work-role role-unavailable">
+        <h3>Map</h3>
+        <p>Map role {chapter.availability} in the selected provider observation.</p>
+      </section>
+    );
+  }
+  const mapHref = workRegionSubjectHref(entryId, chapter.reference);
+  const previewGroups = [
+    ["Fog", chapter.previews.fog],
+    ["Decisions", chapter.previews.decisions],
+    ["Out of scope", chapter.previews.outOfScope],
+  ] as const;
+  const destination =
+    chapter.destination.availability === "available"
+      ? chapter.destination.value
+      : chapter.destination.availability === "confirmed-empty"
+        ? "Destination is confirmed empty in the selected provider observation."
+        : chapter.destination.availability === "unsupported"
+          ? "Destination is unsupported by this provider version."
+          : "Destination is unavailable in the selected provider observation.";
+  return (
+    <section className="matt-map-chapter" aria-labelledby="matt-map-chapter-title">
+      <p className="eyebrow">Map chapter</p>
+      <h3 id="matt-map-chapter-title">
+        <a href={mapHref} onClick={(event) => follow(mapHref, event, onNavigate)}>
+          {chapter.title}
+        </a>
+      </h3>
+      <p data-semantic-availability={chapter.destination.availability}>{destination}</p>
+      <dl>
+        <div>
+          <dt>Lifecycle</dt>
+          <dd>{chapter.lifecycle}</dd>
+        </div>
+        <div>
+          <dt>Fog</dt>
+          <dd>
+            <strong>{workRegionCountLabel(chapter.totals.fog)}</strong>
+          </dd>
+        </div>
+        <div>
+          <dt>Decisions</dt>
+          <dd>
+            <strong>{workRegionCountLabel(chapter.totals.decisions)}</strong>
+          </dd>
+        </div>
+        <div>
+          <dt>Out of scope</dt>
+          <dd>
+            <strong>{workRegionCountLabel(chapter.totals.outOfScope)}</strong>
+          </dd>
+        </div>
+      </dl>
+      <div className="matt-map-previews">
+        {previewGroups.map(([label, previews]) =>
+          previews.length === 0 ? null : (
+            <section key={label}>
+              <h4>{label}</h4>
+              <ul>
+                {previews.map((preview) => {
+                  const href = workRegionSubjectHref(
+                    entryId,
+                    chapter.reference,
+                    preview.semanticAnchor,
+                  );
+                  return (
+                    <li key={`${label}:${preview.semanticAnchor}:${preview.label}`}>
+                      <a href={href} onClick={(event) => follow(href, event, onNavigate)}>
+                        {preview.label}
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ),
+        )}
+      </div>
+    </section>
+  );
+}
+
+function WorkRegionRole({
+  entryId,
+  group,
+  onNavigate,
+}: {
+  readonly entryId: string;
+  readonly group: MattNativeWorkRegionRoleGroup;
+  readonly onNavigate: Navigate;
+}) {
+  if (group.availability === "confirmed-empty") return null;
+  return (
+    <section className={`matt-work-role role-${group.availability}`}>
+      <div className="matt-work-role-heading">
+        <h4>{group.label}</h4>
+        <span>{workRegionCountLabel(group.count)}</span>
+      </div>
+      {group.availability === "available" ? (
+        <WorkRegionItems entryId={entryId} items={group.items} onNavigate={onNavigate} />
+      ) : (
+        <p>
+          This role is {group.availability}; the selected observation cannot establish an empty
+          collection.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function MattNativeWorkRegion({
+  entryId,
+  onNavigate,
+  region,
+}: {
+  readonly entryId: string;
+  readonly onNavigate: Navigate;
+  readonly region: MattNativeWorkRegionModel;
+}) {
+  const current = region.views[0];
+  const history = region.views[1];
+  const all = region.views[2];
+  return (
+    <section
+      className={`matt-work-region context-${region.context.state}`}
+      aria-labelledby="matt-work-region-title"
+    >
+      <header>
+        <p className="eyebrow">Matt-native work region</p>
+        <h2 id="matt-work-region-title">{region.context.label}</h2>
+        {"detail" in region.context ? <p>{region.context.detail}</p> : null}
+        <p>{workRegionCountLabel(region.total)} observed native subjects.</p>
+      </header>
+      <nav aria-label="Native Work Frontier views">
+        <a href="#native-work-current">Current · {workRegionCountLabel(current.count)}</a>
+        <a href="#native-work-history">History · {workRegionCountLabel(history.count)}</a>
+        <a href="#native-work-all">All · {workRegionCountLabel(all.count)}</a>
+      </nav>
+      {region.mapChapter === undefined ? null : (
+        <MapChapter chapter={region.mapChapter} entryId={entryId} onNavigate={onNavigate} />
+      )}
+      <section id="native-work-current" className="matt-work-view">
+        <h3>Current</h3>
+        {current.items.length === 0 ? (
+          <p>No current subjects are established by this observation.</p>
+        ) : (
+          <WorkRegionItems entryId={entryId} items={current.items} onNavigate={onNavigate} />
+        )}
+      </section>
+      <section id="native-work-history" className="matt-work-view">
+        <h3>History</h3>
+        {history.items.length === 0 ? (
+          <p>No historical subjects are established by this observation.</p>
+        ) : (
+          <WorkRegionItems entryId={entryId} items={history.items} onNavigate={onNavigate} />
+        )}
+      </section>
+      <section id="native-work-all" className="matt-work-view">
+        <h3>All</h3>
+        <div className="matt-work-role-groups">
+          {all.groups.map((group) => (
+            <WorkRegionRole
+              entryId={entryId}
+              group={group}
+              key={group.role}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+      </section>
+      {region.diagnostics.length === 0 ? null : (
+        <section className="matt-work-diagnostics" aria-labelledby="matt-work-diagnostics-title">
+          <h3 id="matt-work-diagnostics-title">Native work attention</h3>
+          <ul>
+            {region.diagnostics.map((diagnostic) => (
+              <li key={`${diagnostic.code}:${diagnostic.target}`}>
+                <strong>{diagnostic.code}</strong>
+                <span>{diagnostic.message}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </section>
+  );
+}
+
 function ScopedUnavailable({
   entryId,
   kind,
@@ -319,23 +673,26 @@ export function PlanningLineagePage({
       ? "not-requested"
       : requested.validity === "invalid"
         ? "invalid-subject"
-        : (() => {
-            const projection = snapshot.lineage.subjects.find(
-              (candidate) =>
-                candidate.identity.kind === requested.value.kind &&
-                candidate.identity.id === requested.value.id,
-            );
-            if (projection === undefined) return "unavailable-subject";
-            const section = projection.semanticSections.find(
-              (candidate) => candidate.role === semanticAnchor,
-            );
-            if (section !== undefined) return section.availability;
-            return projection.relations.some(
-              (relation) => `relation.${relation.key}` === semanticAnchor,
-            )
-              ? "available"
-              : "unavailable";
-          })();
+        : WORK_REGION_VIEW_ANCHORS.has(semanticAnchor) &&
+            (requested.value.kind === "effort" || requested.value.kind === "native-scope")
+          ? "available"
+          : (() => {
+              const projection = snapshot.lineage.subjects.find(
+                (candidate) =>
+                  candidate.identity.kind === requested.value.kind &&
+                  candidate.identity.id === requested.value.id,
+              );
+              if (projection === undefined) return "unavailable-subject";
+              const section = projection.semanticSections.find(
+                (candidate) => candidate.role === semanticAnchor,
+              );
+              if (section !== undefined) return section.availability;
+              return projection.relations.some(
+                (relation) => `relation.${relation.key}` === semanticAnchor,
+              )
+                ? "available"
+                : "unavailable";
+            })();
   useEffect(() => {
     if (semanticAnchor === undefined) return;
     const frame = requestAnimationFrame(() => {
@@ -437,6 +794,7 @@ export function PlanningLineagePage({
         : `${model.subject.kind}.event-history`;
   const anchorAvailable =
     semanticAnchor === undefined ||
+    (model.workRegion !== undefined && WORK_REGION_VIEW_ANCHORS.has(semanticAnchor)) ||
     (model.semanticAvailability.has(semanticAnchor) &&
       model.semanticAvailability.get(semanticAnchor) !== "unavailable" &&
       model.semanticAvailability.get(semanticAnchor) !== "unsupported") ||
@@ -539,12 +897,27 @@ export function PlanningLineagePage({
                 ))}
               </ul>
             )}
+            {section.links === undefined ? null : (
+              <ul className="lineage-section-links">
+                {section.links.map((item) => (
+                  <li key={`${section.anchor}:${item.href}`}>
+                    <a href={item.href} onClick={(event) => follow(item.href, event, onNavigate)}>
+                      {item.label}
+                    </a>
+                    <span> · {item.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
             {section.times === undefined || section.times.length === 0 ? null : (
               <TimeFacts facts={section.times} />
             )}
           </section>
         ))}
       </div>
+      {model.workRegion === undefined ? null : (
+        <MattNativeWorkRegion entryId={entryId} onNavigate={onNavigate} region={model.workRegion} />
+      )}
       <section className="lineage-context" aria-labelledby="lineage-context-title">
         <header>
           <p className="eyebrow">Direct typed relations</p>

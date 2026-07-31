@@ -116,6 +116,8 @@ const laneItems = (
       ];
 
 export const frontierSummary = (model: RoadmapEffortModel): string => {
+  if (model.bindingAttention !== undefined) return "Binding needs attention";
+  if (model.frontierCountMode === "unavailable") return "Counts unavailable";
   const counts = [
     ["Claimed", model.frontier.claimed.length],
     ["Ready", model.frontier.ready.length],
@@ -125,8 +127,18 @@ export const frontierSummary = (model: RoadmapEffortModel): string => {
     ["Blocked", model.frontier.blocked.length],
     ["Resolved", model.frontier.resolved.length],
   ] as const;
-  return counts.map(([label, count]) => `${label} ${count}`).join(" · ");
+  const summary = counts.map(([label, count]) => `${label} ${count}`).join(" · ");
+  return model.frontierCountMode === "at-least" ? `At least: ${summary}` : summary;
 };
+
+export const fogSummary = (count: number, mode: RoadmapEffortModel["fogCountMode"]): string =>
+  mode === "not-applicable"
+    ? "Not applicable"
+    : mode === "unavailable"
+      ? "Unavailable"
+      : mode === "at-least"
+        ? `At least ${count}`
+        : String(count);
 
 export const effortInspection = (model: RoadmapEffortModel): ProjectInspectorSelection => ({
   eyebrow: "Effort",
@@ -161,7 +173,12 @@ export const effortInspection = (model: RoadmapEffortModel): ProjectInspectorSel
         ]),
     { label: "Target Gate", value: model.targetGate?.title ?? "Unavailable" },
     { label: "Frontier", value: frontierSummary(model) },
-    { label: "Fog", value: String(model.fogCount) },
+    ...(model.fogCountMode === "not-applicable"
+      ? []
+      : [{ label: "Fog", value: fogSummary(model.fogCount, model.fogCountMode) }]),
+    ...(model.bindingAttention === undefined
+      ? []
+      : [{ label: "Work Binding", value: "Binding needs attention" }]),
     ...(model.providerAssessment === undefined
       ? []
       : [
@@ -201,7 +218,7 @@ export const mapInspection = (
   source,
   facts: [
     { label: "Lifecycle", value: map.state },
-    { label: "Fog", value: String(map.fogCount) },
+    { label: "Fog", value: fogSummary(map.fogCount, map.fogCountMode) },
     { label: "Reference", value: map.reference, code: true },
   ],
 });

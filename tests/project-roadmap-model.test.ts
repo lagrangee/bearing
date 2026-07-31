@@ -12,6 +12,7 @@ import {
 } from "../src/portal-ui/project-roadmap-model";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
+import { encodeGitHubMattNativeScope } from "../src/providers/matt-skills-v1/github";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
@@ -55,7 +56,14 @@ test("resolves one Roadmap Detail through Gates, Efforts, native frontiers, and 
     blocked: [{ title: "Pass the integration gate" }],
     resolved: [],
   });
-  expect(model.efforts[1]?.maps).toMatchObject([{ title: "Portal Validation", fogCount: 2 }]);
+  expect(model.efforts[1]).toMatchObject({
+    frontierCountMode: "exact",
+    fogCountMode: "exact",
+    maps: [{ title: "Portal Validation", fogCount: 2, fogCountMode: "exact" }],
+  });
+  expect(model.efforts[1]?.frontier.claimed).not.toEqual(
+    expect.arrayContaining([{ title: "Pass the integration gate" }]),
+  );
   expect(model.evidence.map((entry) => entry.asset.title)).toEqual(["Planning Model Evidence"]);
   expect(model.missingMapRelationCount).toBe(0);
 });
@@ -209,9 +217,9 @@ test("propagates scoped partial Ticket issues without publishing a false-ready f
   expect(detail.state).toBe("partial");
   if (detail.state !== "partial") throw new Error("Expected a partial Roadmap Detail.");
   expect(detail.efforts[1]?.frontier).toMatchObject({
-    claimed: [],
+    claimed: [{ title: "Build the Roadmap journey" }],
     ready: [],
-    uncertain: [{ title: "Build the Roadmap journey" }, { title: "Review the Roadmap journey" }],
+    uncertain: [{ title: "Review the Roadmap journey" }],
     blocked: [{ title: "Pass the integration gate" }],
   });
   const effort = detail.efforts[1];
@@ -225,8 +233,11 @@ test("propagates scoped partial Ticket issues without publishing a false-ready f
     frontierEvidence: "withheld",
   });
   expect(frontierSummary(effort)).toBe(
-    "Claimed 0 · Ready 0 · Uncertain 2 · Blocked 1 · Resolved 0",
+    "At least: Claimed 1 · Ready 0 · Uncertain 1 · Blocked 1 · Resolved 0",
   );
+  expect(effort.frontierCountMode).toBe("at-least");
+  expect(effort.fogCountMode).toBe("at-least");
+  expect(effort.maps[0]?.fogCountMode).toBe("at-least");
   expect(effortInspection(effort).facts).toEqual(
     expect.arrayContaining([
       { label: "Capture", value: "partial" },
@@ -280,13 +291,120 @@ test("withholds a current-looking prior frontier after the selected latest attem
   expect(detail.state).toBe("partial");
   if (detail.state !== "partial") throw new Error("Expected a partial Roadmap Detail.");
   expect(detail.efforts[1]?.frontier).toMatchObject({
-    claimed: [],
+    claimed: [{ title: "Build the Roadmap journey" }],
     ready: [],
-    uncertain: [{ title: "Build the Roadmap journey" }, { title: "Review the Roadmap journey" }],
+    uncertain: [{ title: "Review the Roadmap journey" }],
   });
   expect(detail.efforts[1]?.providerAssessment).toMatchObject({
     freshness: "undetermined",
     blockingDiagnosticCount: 1,
     frontierEvidence: "withheld",
   });
+});
+
+test("fails a root-kind binding-definition conflict closed across Roadmap and Effort summaries", () => {
+  const snapshot = fixture();
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
+  const scope = (rootKind: "wayfinder-map" | "parent-issue") =>
+    encodeGitHubMattNativeScope({
+      host: "github.com",
+      rootKind,
+      repository: {
+        owner: "example",
+        name: "portal",
+        databaseId: "repository-1",
+        nodeId: "R_portal",
+      },
+      root: {
+        objectKind: "issue",
+        number: 15,
+        databaseId: "issue-15",
+        nodeId: "I_15",
+      },
+    });
+  const captureScope = scope("wayfinder-map");
+  const bindingScope = scope("parent-issue");
+  const conflicted = {
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === "effort:portal"
+          ? {
+              ...effort,
+              workBinding: { provider: "matt-skills/v1" as const, nativeScope: bindingScope },
+            }
+          : effort,
+      ),
+    },
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.binding.nativeScope === ".scratch/portal"
+        ? {
+            ...observation,
+            binding: { provider: "matt-skills/v1" as const, nativeScope: captureScope },
+          }
+        : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.nativeScope === ".scratch/portal"
+        ? { ...selection, nativeScope: captureScope }
+        : selection,
+    ),
+  } as ProjectSnapshot;
+
+  const detail = buildRoadmapDetailModel(conflicted, "roadmap:portal");
+  expect(detail.state).toBe("partial");
+  if (detail.state !== "partial") throw new Error("Expected a partial Roadmap Detail.");
+  const effort = detail.efforts.find((candidate) => candidate.effort.id === "effort:portal");
+  expect(effort).toMatchObject({
+    bindingAttention: "root-kind-conflict",
+    frontierCountMode: "unavailable",
+    frontier: {
+      claimed: [],
+      ready: [],
+      uncertain: [],
+      blocked: [],
+      resolved: [],
+    },
+  });
+  if (effort === undefined) throw new Error("Expected the conflicted Effort.");
+  expect(frontierSummary(effort)).toBe("Binding needs attention");
+});
+
+test("omits Fog when complete coverage confirms that the optional Map is absent", () => {
+  const snapshot = fixture();
+  const withoutMap = {
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) => {
+      if (
+        observation.binding.nativeScope !== ".scratch/portal" ||
+        (observation.state !== "available" && observation.state !== "partial")
+      ) {
+        return observation;
+      }
+      const { map: _map, ...projection } = observation.projection;
+      return {
+        ...observation,
+        projection: {
+          ...projection,
+          structuralOrder: projection.structuralOrder.filter(
+            (reference) => reference !== ".scratch/portal/map.md",
+          ),
+        },
+      };
+    }),
+  } as ProjectSnapshot;
+
+  const detail = buildRoadmapDetailModel(withoutMap, "roadmap:portal");
+  if (detail.state !== "available") throw new Error("Expected an available Roadmap Detail.");
+  const effort = detail.efforts.find((candidate) => candidate.effort.id === "effort:portal");
+  expect(effort).toMatchObject({
+    maps: [],
+    fogCount: 0,
+    fogCountMode: "not-applicable",
+  });
+  if (effort === undefined) throw new Error("Expected the map-free Effort.");
+  expect(effortInspection(effort).facts).not.toEqual(
+    expect.arrayContaining([{ label: "Fog", value: expect.any(String) }]),
+  );
 });

@@ -6,6 +6,7 @@ import { effortLifecycleEvents, latestPlanningLineageEvent } from "./planning-li
 import type { ProjectInspectorSelection } from "./project-inspector";
 import {
   effortInspection,
+  fogSummary,
   frontierSummary,
   mapInspection,
   sourceInspection,
@@ -78,7 +79,9 @@ export function RoadmapDetailWork({
                 <EffortRow
                   key={effort.effort.id}
                   event={latestPlanningLineageEvent(effortLifecycleEvents(effort.effort))}
-                  fog={effort.fogCount}
+                  {...(effort.fogCountMode === "not-applicable"
+                    ? {}
+                    : { fog: fogSummary(effort.fogCount, effort.fogCountMode) })}
                   frontier={frontierSummary(effort)}
                   gate={gateLabels.get(effort.effort.targetGateId) ?? "Unavailable"}
                   href={href}

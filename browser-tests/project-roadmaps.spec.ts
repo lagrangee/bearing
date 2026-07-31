@@ -232,7 +232,10 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
   await expect(page.getByText("Degraded relations stay scoped.", { exact: true })).toBeVisible();
   await page.goBack();
 
-  await page.getByRole("link", { name: "Web Portal Validation", exact: true }).click();
+  await page
+    .getByLabel("Lineage Context")
+    .getByRole("link", { name: "Web Portal Validation", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Web Portal Validation", level: 1 }),
   ).toBeVisible();
@@ -320,7 +323,9 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
     }
     if (width === 375) {
       await expect(
-        page.getByRole("link", { name: "Web Portal Validation", exact: true }),
+        page
+          .getByLabel("Lineage Context")
+          .getByRole("link", { name: "Web Portal Validation", exact: true }),
       ).toBeVisible();
       await expect(
         page.getByRole("button", { name: "Quick Look Web Portal Validation" }),

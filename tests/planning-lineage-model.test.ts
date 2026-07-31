@@ -53,6 +53,16 @@ test("builds a Gate-owned route with trustworthy parents, full content, and type
     "gate.exit-criteria",
     "gate.readiness",
     "gate.passage",
+    "native-work.effort-summaries",
+  ]);
+  expect(
+    model.sections.find((section) => section.anchor === "native-work.effort-summaries")?.links,
+  ).toEqual([
+    {
+      label: "Planning Model",
+      detail: "Claimed 0 · Ready 0 · Blocked 0 · Resolved 1",
+      href: "/projects/bearing/lineage/effort/effort%3Amodel",
+    },
   ]);
   expect(model.relations).toEqual(
     expect.arrayContaining([
@@ -596,15 +606,21 @@ test("keeps Spec, Delivery, Incoming, and native scope semantics independent", (
       "bearing",
     ),
   );
-  expect(
-    scope.sections.find((section) => section.anchor === "native-scope.subjects")?.items,
-  ).toEqual([
-    "map: Portal Validation",
-    "spec: Portal Validation PRD",
-    "wayfinder-ticket: Build the Roadmap journey",
-    "wayfinder-ticket: Review the Roadmap journey",
-    "delivery-ticket: Pass the integration gate",
-    "incoming-issue: Route a new Portal request",
+  expect(scope.sections.some((section) => section.anchor === "native-scope.subjects")).toBe(false);
+  expect(scope.workRegion?.roles.map((role) => role.role)).toEqual([
+    "map",
+    "spec",
+    "wayfinder",
+    "delivery",
+    "incoming",
+  ]);
+  expect(scope.workRegion?.roles.flatMap((role) => role.items.map((item) => item.title))).toEqual([
+    "Portal Validation",
+    "Portal Validation PRD",
+    "Build the Roadmap journey",
+    "Review the Roadmap journey",
+    "Pass the integration gate",
+    "Route a new Portal request",
   ]);
   const scopeTrust = scope.sections.find((section) => section.anchor === "native-scope.trust");
   expect(scopeTrust?.body).toContain(
