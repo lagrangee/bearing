@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import packageMetadata from "../package.json";
+import { ACTIVATION_ORIGINS, checkBearingActivation } from "./activation-policy";
 import { createPlanningLineageAgentHandoff } from "./agent-planning-lineage-handoff";
 import { registerAsset } from "./asset-registration";
 import { runCatalogCommand } from "./catalog/cli";
@@ -45,6 +46,7 @@ Usage:
   bearing
   bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
   bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>] [--confirm-repair] [--confirm-reactivate] [--accept-upgrade-direction --confirm-cutover --cutover-at <ISO-8601> --cutover-plan-token <sha256>] [--plan]
+  bearing activation check --origin <model-invoked|explicit> [--repo <path>]
   bearing deactivate --repo <path>
   bearing purge --repo <path> [--plan] [--confirm-purge --purge-plan-token <sha256> (--recovery-export <path> | --accept-no-recovery-export)]
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [--producer-reference <reference>] [--produced-for <reference>] [--produced-at <date-or-ISO-instant>]
@@ -60,6 +62,7 @@ Commands:
   <none>   Run the install/update wizard for the detected local Agent Surfaces.
   install  Install the global bundle, CLI, and skills for selected Agent Surfaces.
   setup    Enable Bearing in one repository without copying package-owned contracts or skills into it.
+  activation  Check read-only repository eligibility and routing before Bearing activation.
   deactivate  Remove repository enablement and managed pointers; preserve state and native work.
   purge    Remove only the repository .bearing namespace and managed pointers after confirmation.
   asset    Register factual durable-output metadata in the repository Asset Registry.
@@ -74,6 +77,7 @@ Environment:
 `;
 
 const surfaceSchema = z.array(z.enum(["agent-skills", "claude"])).min(1);
+const activationOriginSchema = z.enum(ACTIVATION_ORIGINS);
 
 const packageRoot = (): string => {
   const adjacent = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -281,6 +285,25 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
     );
     process.exitCode = 1;
   }
+};
+
+const runActivationCheck = async (args: readonly string[]): Promise<void> => {
+  const [subcommand, ...values] = args;
+  if (subcommand !== "check") {
+    throw new Error("Activation requires the `check` subcommand.");
+  }
+  const parsed = parseArgs({
+    args: values,
+    options: {
+      origin: { type: "string" },
+      repo: { type: "string" },
+    },
+    allowPositionals: false,
+    strict: true,
+  });
+  const origin = activationOriginSchema.parse(parsed.values.origin);
+  const result = await checkBearingActivation(parsed.values.repo ?? process.cwd(), origin);
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 };
 
 const runInstall = async (args: readonly string[]): Promise<void> => {
@@ -745,6 +768,10 @@ const main = async (): Promise<void> => {
   }
   if (command === "setup") {
     await runSetup(args);
+    return;
+  }
+  if (command === "activation") {
+    await runActivationCheck(args);
     return;
   }
   if (command === "deactivate" || command === "purge") {

@@ -44,6 +44,19 @@ backup first; otherwise the downgrade fails closed.
 
 ## Enable one repository
 
+The managed Agent Surface pointer uses the package-owned read-only activation check before loading
+the global skill for an ordinary repository request:
+
+```bash
+bearing activation check --origin model-invoked --repo .
+```
+
+The versioned JSON disposition is `invoke-bearing` only for an Active manifest. Fresh and
+Deactivated return `continue-without-bearing`; Invalid or Unsupported return
+`stop-for-explicit-entry`. An explicit Bearing entry uses `--origin explicit` and routes to
+ordinary Bearing work, Setup, reactivation, or recovery according to the same lifecycle
+inspection. The check reads no Catalog or planning projection and performs no writes.
+
 ```bash
 bearing setup --repo . --surface agent-skills \
   --provider-contract docs/agents/issue-tracker.md \

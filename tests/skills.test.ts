@@ -129,18 +129,40 @@ describe("package-owned planning skills", () => {
     }
   });
 
-  test("public bearing encodes activation, continuation, routing and truthful reconciliation", async () => {
-    const { body } = await readSkill("bearing");
-
-    for (const activationRule of [
-      "correct answer or action may depend on",
-      "Explicit Bearing invocation",
-      "ambiguous repository relevance",
-      "working directory alone",
-      "clear repository-independent conversation",
+  test("public bearing contains managed activation and explicit-entry routing", async () => {
+    const { frontmatter, body } = await readSkill("bearing");
+    expect(frontmatter).toEqual({
+      name: "bearing",
+      description: expect.stringContaining(
+        "Setup-managed Agent Surface activation check returned `invoke-bearing`",
+      ),
+    });
+    expect((frontmatter as { description: string }).description).toContain(
+      "explicit Bearing invocation",
+    );
+    expect((frontmatter as { description: string }).description).not.toContain(
+      "any request whose correct answer or action may depend on a repository",
+    );
+    expect(body).toContain(
+      "$HOME/.bearing/bin/bearing activation check --origin <explicit|model-invoked> --repo <repository-root>",
+    );
+    for (const disposition of [
+      "continue-bearing",
+      "continue-without-bearing",
+      "enter-reactivation",
+      "enter-recovery",
+      "enter-setup",
+      "invoke-bearing",
+      "stop-for-explicit-entry",
     ]) {
-      expect(body).toContain(activationRule);
+      expect(body).toContain(disposition);
     }
+    expect(body).toMatch(/model-invoked[\s\S]*stop without processing the original request/iu);
+    expect(body).toMatch(/explicit[\s\S]*Setup[\s\S]*reactivation[\s\S]*recovery/iu);
+    expect(body).toMatch(/containment[\s\S]*does not prove that the skill was never loaded/iu);
+    expect(body).toContain("correct answer or action may depend on");
+    expect(body).toContain("working directory alone");
+    expect(body).toContain("clear repository-independent conversation");
     expect(body).toMatch(/direct continuation[\s\S]*visibly reliable orientation/iu);
     expect(body).toMatch(
       /repository, target, or request[\s\S]*context loss[\s\S]*freshness doubt/iu,

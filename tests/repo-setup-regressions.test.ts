@@ -27,14 +27,20 @@ const writeMattProviderContract = async (repoRoot: string): Promise<void> => {
 };
 
 describe("repository setup review regressions", () => {
-  test("keeps the managed pointer inside the accepted English activation boundary", () => {
+  test("keeps automatic Bearing nomination behind the managed activation check", () => {
     expect(pointer.trim().split(/\s+/u).length).toBeLessThanOrEqual(100);
     expect(pointer).not.toMatch(/[\u3400-\u9fff]/u);
     expect(pointer).toContain("new request");
-    expect(pointer).toContain("explicit `/bearing` request");
-    expect(pointer).toContain("ambiguous repository relevance");
+    expect(pointer).toContain(
+      "$HOME/.bearing/bin/bearing activation check --origin model-invoked --repo <repository-root>",
+    );
+    expect(pointer).toContain("`invoke-bearing`");
+    expect(pointer).toContain("`continue-without-bearing`");
+    expect(pointer).toContain("`stop-for-explicit-entry`");
+    expect(pointer).toContain("Explicit `/bearing` loads the skill directly");
     expect(pointer).toContain("direct continuation");
     expect(pointer).toContain("Clear repository-independent conversation");
+    expect(pointer).not.toContain("invoke the global `bearing` skill before proceeding");
   });
 
   test("creates state and cache namespaces and removes an unselected surface pointer", async () => {
