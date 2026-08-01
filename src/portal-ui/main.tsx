@@ -13,13 +13,15 @@ import "./styles/assets.css";
 import "./styles/audit.css";
 import "./styles/lineage.css";
 
-const root = document.querySelector("#root");
-if (!(root instanceof HTMLElement)) {
-  throw new Error("Bearing Portal root element is missing.");
-}
+export const startPortal = (): void => {
+  const root = document.querySelector("#root");
+  if (!(root instanceof HTMLElement)) {
+    throw new Error("Bearing Portal root element is missing.");
+  }
 
-createRoot(root).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+  createRoot(root).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+};

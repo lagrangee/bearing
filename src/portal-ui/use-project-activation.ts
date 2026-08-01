@@ -14,6 +14,7 @@ import {
 } from "./project-activation-state";
 import {
   discoverNativeScopes,
+  InvalidProjectSessionError,
   inspectNativeScope,
   type ProjectOperationError,
   type ProjectView,
@@ -111,6 +112,25 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
     [],
   );
 
+  const withSessionRecovery = useCallback(
+    async function withSessionRecovery<Result>(
+      csrfToken: string,
+      signal: AbortSignal,
+      run: (currentCsrfToken: string, currentSignal: AbortSignal) => Promise<Result>,
+    ): Promise<Result> {
+      try {
+        return await run(csrfToken, signal);
+      } catch (error) {
+        if (!(error instanceof InvalidProjectSessionError)) throw error;
+        const envelope = await readProjectSnapshot(entryId, signal);
+        const currentCsrfToken = envelope.session.csrfToken;
+        csrfTokenRef.current = currentCsrfToken;
+        return run(currentCsrfToken, signal);
+      }
+    },
+    [entryId],
+  );
+
   const activate = useCallback(async () => {
     if (busyRequestRef.current !== undefined) return;
     stateEntryIdRef.current = entryId;
@@ -144,7 +164,9 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       }
       dispatch({ type: "checking", view: envelope.view });
       const result = await withController((signal) =>
-        syncProject(entryId, "ensure-current", envelope.session.csrfToken, signal),
+        withSessionRecovery(envelope.session.csrfToken, signal, (currentCsrfToken, currentSignal) =>
+          syncProject(entryId, "ensure-current", currentCsrfToken, currentSignal),
+        ),
       );
       applySyncResult(requestId, result);
     } catch (error) {
@@ -159,7 +181,7 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
       if (automaticRequestRef.current === requestId) automaticRequestRef.current = undefined;
     }
-  }, [applySyncResult, dispatchCurrent, entryId, withController]);
+  }, [applySyncResult, dispatchCurrent, entryId, withController, withSessionRecovery]);
 
   const forceSync = useCallback(() => {
     const csrfToken = csrfTokenRef.current;
@@ -180,7 +202,11 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
     const candidate = visibleProjectView(stateRef.current);
     const cached = candidate?.project.entryId === entryId ? candidate : undefined;
     dispatch(cached === undefined ? { type: "syncing" } : { type: "syncing", view: cached });
-    void withController((signal) => syncProject(entryId, "force", csrfToken, signal))
+    void withController((signal) =>
+      withSessionRecovery(csrfToken, signal, (currentCsrfToken, currentSignal) =>
+        syncProject(entryId, "force", currentCsrfToken, currentSignal),
+      ),
+    )
       .then((result) => applySyncResult(requestId, result))
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -194,7 +220,7 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       .finally(() => {
         if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
       });
-  }, [applySyncResult, dispatchCurrent, entryId, withController]);
+  }, [applySyncResult, dispatchCurrent, entryId, withController, withSessionRecovery]);
 
   const refreshDiscovery = useCallback(() => {
     const csrfToken = csrfTokenRef.current;
@@ -203,7 +229,11 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
     const candidate = visibleProjectView(stateRef.current);
     const cached = candidate?.project.entryId === entryId ? candidate : undefined;
     setDiscovery({ state: "running" });
-    void withController((signal) => discoverNativeScopes(entryId, csrfToken, signal))
+    void withController((signal) =>
+      withSessionRecovery(csrfToken, signal, (currentCsrfToken, currentSignal) =>
+        discoverNativeScopes(entryId, currentCsrfToken, currentSignal),
+      ),
+    )
       .then((result) => {
         applySyncResult(requestId, result);
         setDiscovery(result.state === "failed" ? { state: "failed" } : { state: "idle" });
@@ -222,7 +252,14 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
           });
         }
       });
-  }, [applySyncResult, discovery.state, dispatchCurrent, entryId, withController]);
+  }, [
+    applySyncResult,
+    discovery.state,
+    dispatchCurrent,
+    entryId,
+    withController,
+    withSessionRecovery,
+  ]);
 
   const inspectScope = useCallback(
     (
@@ -240,7 +277,9 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       const cached = candidate?.project.entryId === entryId ? candidate : undefined;
       setInspection({ state: "running", subjectKey });
       void withController((signal) =>
-        inspectNativeScope(entryId, subject, target, refresh, csrfToken, signal),
+        withSessionRecovery(csrfToken, signal, (currentCsrfToken, currentSignal) =>
+          inspectNativeScope(entryId, subject, target, refresh, currentCsrfToken, currentSignal),
+        ),
       )
         .then((result) => {
           applySyncResult(requestId, result);
@@ -268,7 +307,14 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
           if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
         });
     },
-    [applySyncResult, dispatchCurrent, entryId, inspection.state, withController],
+    [
+      applySyncResult,
+      dispatchCurrent,
+      entryId,
+      inspection.state,
+      withController,
+      withSessionRecovery,
+    ],
   );
 
   useEffect(() => {

@@ -116,6 +116,13 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
 
   app.get("/favicon.ico", (context) => context.body(null, 204));
 
+  app.get("/api/v1/bootstrap", (context) => {
+    context.header("Cache-Control", "no-store");
+    const session = sessions.establish(context.req.header("cookie"));
+    if (session.cookie !== undefined) context.header("Set-Cookie", session.cookie);
+    return context.json({ version: 1, state: "ready" });
+  });
+
   app.get("/api/v1/catalog", async (context) => {
     context.header("Cache-Control", "no-store");
     const session = sessions.establish(context.req.header("cookie"));

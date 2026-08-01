@@ -25,3 +25,14 @@ test("the Portal build contains production React and no local source paths", asy
   expect(output).not.toContain(projectRoot);
   expect(output).not.toContain(`file://${projectRoot}`);
 });
+
+test("the production entrypoint owns the API session bootstrap", async () => {
+  const projectRoot = resolve(import.meta.dir, "..");
+  const entrypoint = await readFile(join(projectRoot, "dist/portal/index.html"), "utf8");
+  const scriptPath = /<script type="module"[^>]* src="([^"]+)"/u.exec(entrypoint)?.[1];
+  if (scriptPath === undefined) throw new Error("Expected one Portal entry module.");
+  const entryModule = await readFile(join(projectRoot, "dist/portal", scriptPath), "utf8");
+  const bootstrapAt = entryModule.indexOf("/api/v1/bootstrap");
+
+  expect(bootstrapAt).toBeGreaterThan(-1);
+});

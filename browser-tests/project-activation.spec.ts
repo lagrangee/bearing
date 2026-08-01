@@ -65,6 +65,23 @@ const forcedEnvelope = () => ({
   validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
 });
 
+test("the entry module establishes an API session before project activation", async ({ page }) => {
+  const requests: string[] = [];
+  await page.route("**/api/v1/bootstrap", (route) => {
+    requests.push("bootstrap");
+    return route.fulfill({ json: { version: 1, state: "ready" } });
+  });
+  await page.route("**/api/v1/projects/overview/snapshot", (route) => {
+    requests.push("snapshot");
+    return route.fulfill({ json: readyEnvelope() });
+  });
+
+  await page.goto("/projects/overview");
+
+  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  expect(requests).toEqual(["bootstrap", "snapshot"]);
+});
+
 test("project switch remounts activation and clears project-scoped inspector state", async ({
   page,
 }) => {
@@ -222,6 +239,39 @@ test("a malformed Sync response retains the GET cache and Retry forces reconcili
     JSON.stringify({ version: 1, mode: "ensure-current" }),
     JSON.stringify({ version: 1, mode: "force" }),
   ]);
+});
+
+test("an invalid CSRF session is refreshed once before the automatic check fails", async ({
+  page,
+}) => {
+  let reads = 0;
+  const csrfTokens: string[] = [];
+  await page.route("**/api/v1/projects/overview/snapshot", (route) => {
+    reads += 1;
+    return route.fulfill({
+      json: {
+        ...readyEnvelope("overview", true),
+        session: { csrfToken: reads === 1 ? "csrf-stale" : "csrf-current" },
+      },
+    });
+  });
+  await page.route("**/api/v1/projects/overview/sync", (route) => {
+    csrfTokens.push(route.request().headers()["x-bearing-csrf-token"] ?? "");
+    return csrfTokens.length === 1
+      ? route.fulfill({
+          status: 403,
+          json: { code: "invalid-csrf-token", message: "CSRF check failed." },
+        })
+      : route.fulfill({ json: automaticEnvelope("checked") });
+  });
+
+  await page.goto("/projects/overview");
+
+  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".project-operation")).toHaveText("Up to date");
+  expect(reads).toBe(2);
+  expect(csrfTokens).toEqual(["csrf-stale", "csrf-current"]);
 });
 
 test("a typed Sync failure without a view retains the GET cache and exposes Retry", async ({

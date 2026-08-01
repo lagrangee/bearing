@@ -321,6 +321,35 @@ test("serves only the frozen manifest assets and uses index.html for SPA navigat
   }
 });
 
+test("bootstraps the API-scoped Portal session before concurrent API reads", async () => {
+  const app = createReadyApp();
+
+  const entrypoint = await app.request(`${LOCAL_ORIGIN}/projects/entry-bearing`);
+  const bootstrap = await app.request(`${LOCAL_ORIGIN}/api/v1/bootstrap`);
+  const cookie = bootstrap.headers.get("set-cookie");
+  if (cookie === null) throw new Error("Expected the bootstrap script to establish a session.");
+  const requestCookie = cookie.split(";", 1)[0] ?? cookie;
+  const [catalog, project] = await Promise.all([
+    app.request(`${LOCAL_ORIGIN}/api/v1/catalog`, { headers: { Cookie: requestCookie } }),
+    app.request(`${LOCAL_ORIGIN}/api/v1/projects/entry-bearing/snapshot`, {
+      headers: { Cookie: requestCookie },
+    }),
+  ]);
+
+  expect(entrypoint.headers.get("set-cookie")).toBeNull();
+  expect(bootstrap.headers.get("cache-control")).toBe("no-store");
+  expect(bootstrap.status).toBe(200);
+  expect(await bootstrap.json()).toEqual({ version: 1, state: "ready" });
+  expect(cookie).toContain("bearing_session=");
+  expect(cookie).toContain("HttpOnly");
+  expect(cookie).toContain("SameSite=Strict");
+  expect(catalog.headers.get("set-cookie")).toBeNull();
+  expect(project.headers.get("set-cookie")).toBeNull();
+  expect(catalog.headers.get("x-bearing-csrf-token")).toBe(
+    project.headers.get("x-bearing-csrf-token"),
+  );
+});
+
 test("serves an immutable fixed asset as gzip when the client accepts it", async () => {
   const app = createReadyApp();
   const rawAsset = assets.get("/app.js");
