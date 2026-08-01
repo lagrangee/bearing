@@ -1,7 +1,10 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { inspectInstallPath } from "./install-boundary";
+import { isRepositoryPathBoundaryError, readContainedFile } from "./path-boundary";
 import { repositoryManifestSchema } from "./schema-definitions";
+
+const MAXIMUM_REPOSITORY_MANIFEST_BYTES = 64 * 1024;
 
 export type RepositoryIntegrationLifecycle = Readonly<{
   kind: "fresh" | "active" | "deactivated" | "invalid-or-unsupported";
@@ -64,9 +67,24 @@ export const inspectRepositoryIntegrationLifecycle = async (
     return invalidLifecycle("The repository manifest must be one safe single-link regular file.");
   }
 
+  let source: string;
+  try {
+    source = (
+      await readContainedFile(root, manifestPath, {
+        maximumBytes: MAXIMUM_REPOSITORY_MANIFEST_BYTES,
+      })
+    ).toString("utf8");
+  } catch (error) {
+    if (isRepositoryPathBoundaryError(error)) {
+      return invalidLifecycle(
+        "The repository manifest could not be read safely within its bounded inspection.",
+      );
+    }
+    throw error;
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await readFile(manifestPath, "utf8"));
+    parsed = JSON.parse(source);
   } catch {
     return invalidLifecycle("The repository manifest is not valid JSON.");
   }

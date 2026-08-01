@@ -145,6 +145,9 @@ describe("repository Bearing lifecycle", () => {
       "durable\n",
     );
     expect(await readFile(join(repoRoot, "source.txt"), "utf8")).toBe("source stays\n");
+    expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).not.toContain(
+      "bearing:managed-start",
+    );
     expect((await readCatalogDocument({ homeDir })).entries).toEqual([]);
   });
 
