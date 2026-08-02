@@ -33,6 +33,8 @@ const PORTAL_CONTENT_SECURITY_POLICY = [
   "form-action 'self'",
   "script-src 'self'",
   "style-src 'self'",
+  "style-src-elem 'self' 'unsafe-inline'",
+  "style-src-attr 'none'",
   "img-src 'self'",
   "font-src 'self'",
   "connect-src 'self'",

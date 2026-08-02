@@ -9,7 +9,14 @@ export const interactionNeedsActivation = (
 export const visibilityReturnNeedsActivation = (
   previous: DocumentVisibilityState,
   current: DocumentVisibilityState,
-): boolean => previous === "hidden" && current === "visible";
+  hiddenAt: number | undefined,
+  currentActivityAt: number,
+  thresholdMs = PROJECT_INACTIVITY_MS,
+): boolean =>
+  previous === "hidden" &&
+  current === "visible" &&
+  hiddenAt !== undefined &&
+  interactionNeedsActivation(hiddenAt, currentActivityAt, thresholdMs);
 
 export const manualActionOwnsActivation = (event: Event): boolean =>
   event.target instanceof Element &&

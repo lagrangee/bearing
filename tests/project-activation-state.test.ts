@@ -251,11 +251,27 @@ test("only the first interaction after prolonged inactivity activates validation
   ).toBe(false);
 });
 
-test("only a real hidden-to-visible return activates visibility validation", () => {
-  expect(visibilityReturnNeedsActivation("hidden", "visible")).toBe(true);
-  expect(visibilityReturnNeedsActivation("visible", "visible")).toBe(false);
-  expect(visibilityReturnNeedsActivation("visible", "hidden")).toBe(false);
-  expect(visibilityReturnNeedsActivation("hidden", "hidden")).toBe(false);
+test("only a hidden-to-visible return after inactivity activates visibility validation", () => {
+  const hiddenAt = 1_000;
+  expect(
+    visibilityReturnNeedsActivation(
+      "hidden",
+      "visible",
+      hiddenAt,
+      hiddenAt + PROJECT_INACTIVITY_MS,
+    ),
+  ).toBe(true);
+  expect(
+    visibilityReturnNeedsActivation(
+      "hidden",
+      "visible",
+      hiddenAt,
+      hiddenAt + PROJECT_INACTIVITY_MS - 1,
+    ),
+  ).toBe(false);
+  expect(visibilityReturnNeedsActivation("visible", "visible", undefined, hiddenAt)).toBe(false);
+  expect(visibilityReturnNeedsActivation("visible", "hidden", undefined, hiddenAt)).toBe(false);
+  expect(visibilityReturnNeedsActivation("hidden", "hidden", hiddenAt, hiddenAt)).toBe(false);
 });
 
 test("entry switches hide stale pending, unavailable, and viewless failure state", () => {

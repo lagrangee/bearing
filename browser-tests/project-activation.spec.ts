@@ -130,12 +130,20 @@ test("reload, reconnect, browser return, and inactive interaction reactivate cac
   };
   await expectReadAfter(() => page.evaluate(() => window.dispatchEvent(new Event("online"))));
   await expectReadAfter(() =>
-    page.evaluate(() => {
-      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
-      document.dispatchEvent(new Event("visibilitychange"));
-      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
-      document.dispatchEvent(new Event("visibilitychange"));
-    }),
+    (async () => {
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await page.clock.fastForward(300_001);
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          value: "visible",
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+    })(),
   );
   await expectReadAfter(() => page.reload());
   await page.clock.fastForward(300_001);
@@ -162,6 +170,40 @@ test("visible-only focus does not reactivate project validation", async ({ page 
   expect(reads).toBe(1);
   expect(bodies).toEqual([]);
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  await expect(page.locator("main")).toHaveAttribute("aria-hidden", "false");
+  expect(await page.locator("main").getAttribute("inert")).toBeNull();
+});
+
+test("brief annotation-like visibility cycle does not reactivate project validation", async ({
+  page,
+}) => {
+  let reads = 0;
+  const bodies: string[] = [];
+  await page.clock.install({ time: new Date("2026-07-13T20:00:00+08:00") });
+  await page.route("**/api/v1/projects/overview/snapshot", (route) => {
+    reads += 1;
+    return route.fulfill({ json: readyEnvelope("overview", reads > 1) });
+  });
+  await page.route("**/api/v1/projects/overview/sync", (route) => {
+    bodies.push(route.request().postData() ?? "");
+    return route.fulfill({ json: automaticEnvelope("checked") });
+  });
+  await page.goto("/projects/overview");
+  await expect.poll(() => reads).toBe(1);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(1_000);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForTimeout(100);
+
+  expect(reads).toBe(1);
+  expect(bodies).toEqual([]);
   await expect(page.locator("main")).toHaveAttribute("aria-hidden", "false");
   expect(await page.locator("main").getAttribute("inert")).toBeNull();
 });
@@ -226,11 +268,12 @@ test("a browser-return click on Sync forces reconciliation before automatic acti
   const sync = page.getByRole("button", { name: "Sync", exact: true });
   const box = await sync.boundingBox();
   if (box === null) throw new Error("Expected the Sync button to have a bounding box.");
-  await page.clock.fastForward(300_001);
-
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
     document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(300_001);
+  await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
     document.dispatchEvent(new Event("visibilitychange"));
   });

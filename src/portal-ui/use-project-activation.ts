@@ -338,17 +338,25 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
   useEffect(() => {
     let lastActivityAt = Date.now();
     let previousVisibilityState = document.visibilityState;
+    let hiddenAt = previousVisibilityState === "hidden" ? Date.now() : undefined;
     const deferredActivation = createDeferredActivation(() => void activate());
     const queueActivation = () => {
       if (busyRequestRef.current === undefined) deferredActivation.schedule();
     };
     const visibilityChanged = () => {
+      const currentActivityAt = Date.now();
       const currentVisibilityState = document.visibilityState;
+      if (previousVisibilityState !== "hidden" && currentVisibilityState === "hidden") {
+        hiddenAt = currentActivityAt;
+      }
       const shouldActivate = visibilityReturnNeedsActivation(
         previousVisibilityState,
         currentVisibilityState,
+        hiddenAt,
+        currentActivityAt,
       );
       previousVisibilityState = currentVisibilityState;
+      if (currentVisibilityState === "visible") hiddenAt = undefined;
       if (shouldActivate) queueActivation();
     };
     const interaction = (event: PointerEvent | KeyboardEvent) => {

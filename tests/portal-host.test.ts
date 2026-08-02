@@ -285,7 +285,8 @@ test("applies the accepted browser security policy to every Portal response surf
   for (const response of responses) {
     expect(response.headers.get("content-security-policy")).toBe(
       "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; " +
-        "form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self'; " +
+        "form-action 'self'; script-src 'self'; style-src 'self'; " +
+        "style-src-elem 'self' 'unsafe-inline'; style-src-attr 'none'; img-src 'self'; " +
         "font-src 'self'; connect-src 'self'",
     );
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
