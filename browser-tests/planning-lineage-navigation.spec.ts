@@ -474,9 +474,9 @@ test("Source Event Time stays source-precise while browser-relative updates rema
   ).toContain("2026");
 
   await page.goto("/projects/lineage/roadmaps");
-  await expect(page.locator('.gate-node time[datetime="2026-07-31T10:00:00.123Z"]')).toHaveText(
-    "5 minutes ago",
-  );
+  const gateStateTime = page.locator('.gate-node time[datetime="2026-07-31T10:00:00.123Z"]');
+  await expect(gateStateTime).toHaveText("Jul 31");
+  await expect(gateStateTime.locator("xpath=..")).toHaveText("Passed · Jul 31");
 
   await page.goto("/projects/lineage/assets");
   await expect(page.locator('.asset-row-primary time[datetime="2026-07-31T09:30:00Z"]')).toHaveText(

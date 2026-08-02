@@ -5,21 +5,16 @@ import {
   latestPlanningLineageEvent,
   roadmapLifecycleEvents,
 } from "./planning-lineage-events";
-import type { ProjectInspectorSelection } from "./project-inspector";
 import type { ProjectOverviewModel } from "./project-overview-model";
 import { type Gate, RoadmapHorizon } from "./roadmap-primitives";
 import { SourceEventTimeValue } from "./source-event-time";
 
-type Inspect = (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
-
 export function OverviewRoadmaps({
   entryId,
-  onInspect,
   onOpenRoadmap,
   roadmaps,
 }: {
   readonly entryId: string;
-  readonly onInspect: Inspect;
   readonly onOpenRoadmap: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
   readonly roadmaps: ProjectOverviewModel["roadmaps"];
 }) {
@@ -62,7 +57,6 @@ export function OverviewRoadmaps({
       ) : null}
       {roadmaps.items.length === 0 ? <p className="scoped-copy">No active Roadmaps.</p> : null}
       {roadmaps.items.map((item) => {
-        const gateModel = new Map(item.gates.map((entry) => [String(entry.gate.id), entry]));
         const gates: Gate[] = item.gates.map((entry) => ({
           id: entry.gate.id,
           href: planningLineageSubjectHref(entryId, {
@@ -91,7 +85,7 @@ export function OverviewRoadmaps({
                   {item.roadmap.title}
                 </a>
               </h3>
-              {roadmapEvent === undefined ? null : (
+              {roadmapEvent?.time.availability !== "available" ? null : (
                 <small className="roadmap-event">
                   {roadmapEvent.label}{" "}
                   <SourceEventTimeValue
@@ -119,21 +113,7 @@ export function OverviewRoadmaps({
               <RoadmapHorizon
                 gates={gates}
                 label={`${item.roadmap.title} Roadmap horizon`}
-                onOpen={(gate, event) => onOpenRoadmap(gate.href ?? "", event)}
-                onSelect={(gate, trigger) => {
-                  const selected = gateModel.get(gate.id);
-                  onInspect(
-                    {
-                      eyebrow: "Milestone Gate",
-                      title: gate.title,
-                      detail: selected?.gate.intent,
-                      handoff: true,
-                      fullDetailHref: gate.href,
-                      source: selected?.source,
-                    },
-                    trigger,
-                  );
-                }}
+                onOpen={(gate, event) => onOpenRoadmap(gate.href, event)}
               />
             )}
           </article>

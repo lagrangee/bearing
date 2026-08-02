@@ -1,3 +1,5 @@
+import type { MouseEvent } from "react";
+import { planningLineageSubjectHref } from "../planning-lineage-route";
 import { Icons } from "./icons";
 import { gateLifecycleEvents, latestPlanningLineageEvent } from "./planning-lineage-events";
 import type { ProjectInspectorSelection } from "./project-inspector";
@@ -10,17 +12,22 @@ type Inspect = (selection: ProjectInspectorSelection, trigger: HTMLButtonElement
 const VISIBLE_CRITERIA = 3;
 
 export function RoadmapDetailGate({
+  entryId,
   model,
   onInspect,
+  onNavigate,
 }: {
+  readonly entryId: string;
   readonly model: Detail;
   readonly onInspect: Inspect;
+  readonly onNavigate: (href: string) => void;
 }) {
   const gateIndex = new Map(model.gates.map((entry) => [String(entry.gate.id), entry]));
   const visibleCriteria = model.focusedGate?.gate.exitCriteria.slice(0, VISIBLE_CRITERIA) ?? [];
   const hiddenCriteria =
     (model.focusedGate?.gate.exitCriteria.length ?? 0) - visibleCriteria.length;
   const gates: Gate[] = model.gates.map((entry) => ({
+    href: planningLineageSubjectHref(entryId, { kind: "gate", id: entry.gate.id }),
     id: entry.gate.id,
     label: `G${entry.ordinal}`,
     state: entry.gate.horizonState,
@@ -35,6 +42,13 @@ export function RoadmapDetailGate({
         trigger,
       );
     }
+  };
+  const openGate = (gate: Gate, event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    event.preventDefault();
+    onNavigate(gate.href);
   };
   return (
     <>
@@ -51,7 +65,7 @@ export function RoadmapDetailGate({
           <RoadmapHorizon
             gates={gates}
             label={`${model.roadmap.title} ordered Gate horizon`}
-            onSelect={(gate, trigger) => inspectGate(gate.id, trigger)}
+            onOpen={openGate}
           />
         )}
         {model.missingGateIds.length === 0 ? null : (

@@ -2,12 +2,12 @@ import type { MouseEvent } from "react";
 import { assertNever } from "./assert-never";
 import { Icons } from "./icons";
 import type { PlanningLineageEvent } from "./planning-lineage-events";
-import { formatSourceEventAbsolute, SourceEventTimeValue } from "./source-event-time";
+import { SourceEventTimeValue } from "./source-event-time";
 
 export type GateState = "passed" | "focused" | "planned" | "superseded" | "unknown";
 
 export type Gate = {
-  readonly href?: string;
+  readonly href: string;
   readonly id: string;
   readonly label: string;
   readonly state: GateState;
@@ -32,8 +32,28 @@ function gateNote(state: GateState): string {
   }
 }
 
-const eventNote = (event: PlanningLineageEvent | undefined): string =>
-  event === undefined ? "" : `, ${event.label} ${formatSourceEventAbsolute(event.time)}`;
+const gateDateFormatter = new Intl.DateTimeFormat("en", {
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+const availableEvent = (
+  event: PlanningLineageEvent | undefined,
+): PlanningLineageEvent | undefined =>
+  event?.time.availability === "available" ? event : undefined;
+
+const gateEventDate = (event: PlanningLineageEvent | undefined): string | undefined => {
+  const time = event?.time;
+  return time?.availability === "available"
+    ? gateDateFormatter.format(new Date(time.value))
+    : undefined;
+};
+
+const eventNote = (event: PlanningLineageEvent | undefined): string => {
+  const date = gateEventDate(event);
+  return date === undefined ? "" : `, ${date}`;
+};
 
 function GateMarker({ state }: { readonly state: GateState }) {
   switch (state) {
@@ -53,85 +73,61 @@ function GateMarker({ state }: { readonly state: GateState }) {
   }
 }
 
+function GateNode({
+  gate,
+  onOpen,
+}: {
+  readonly gate: Gate;
+  readonly onOpen?: (gate: Gate, event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  const date = gateEventDate(gate.event);
+  const content = (
+    <>
+      <GateMarker state={gate.state} />
+      <span className="gate-copy">
+        <strong>
+          {gate.label} · {gate.title}
+        </strong>
+        <small>
+          {gateNote(gate.state)}
+          {date === undefined || gate.event?.time.availability !== "available" ? null : (
+            <>
+              {" · "}
+              <time dateTime={gate.event.time.value}>{date}</time>
+            </>
+          )}
+        </small>
+      </span>
+    </>
+  );
+  const accessibleName = `${gate.label}, ${gate.title}, ${gateNote(gate.state)}${eventNote(gate.event)}`;
+  return (
+    <a
+      className={`gate-node gate-${gate.state}`}
+      href={gate.href}
+      aria-label={accessibleName}
+      onClick={(event) => onOpen?.(gate, event)}
+    >
+      {content}
+    </a>
+  );
+}
+
 export function RoadmapHorizon({
   gates,
   label,
   onOpen,
-  onSelect,
 }: {
   readonly gates: readonly Gate[];
   readonly label: string;
   readonly onOpen?: (gate: Gate, event: MouseEvent<HTMLAnchorElement>) => void;
-  readonly onSelect?: (gate: Gate, trigger: HTMLButtonElement) => void;
 }) {
   return (
     <fieldset className="horizon">
       <legend className="sr-only">{label}</legend>
       {gates.map((gate, index) => (
         <div className="gate-segment" key={gate.id}>
-          {gate.href === undefined ? (
-            <button
-              className={`gate-node gate-${gate.state}`}
-              type="button"
-              aria-label={`${gate.label}, ${gate.title}, ${gateNote(gate.state)}${eventNote(gate.event)}`}
-              onClick={(event) => onSelect?.(gate, event.currentTarget)}
-            >
-              <GateMarker state={gate.state} />
-              <span className="gate-copy">
-                <strong>
-                  {gate.label} · {gate.title}
-                </strong>
-                <small>{gateNote(gate.state)}</small>
-                {gate.event === undefined ? null : (
-                  <small>
-                    {gate.event.label}{" "}
-                    <SourceEventTimeValue
-                      label={`${gate.title} ${gate.event.label}`}
-                      mode="compact"
-                      time={gate.event.time}
-                    />
-                  </small>
-                )}
-              </span>
-            </button>
-          ) : (
-            <>
-              <a
-                className={`gate-node gate-${gate.state}`}
-                href={gate.href}
-                aria-label={`${gate.label}, ${gate.title}, ${gateNote(gate.state)}${eventNote(gate.event)}`}
-                onClick={(event) => onOpen?.(gate, event)}
-              >
-                <GateMarker state={gate.state} />
-                <span className="gate-copy">
-                  <strong>
-                    {gate.label} · {gate.title}
-                  </strong>
-                  <small>{gateNote(gate.state)}</small>
-                  {gate.event === undefined ? null : (
-                    <small>
-                      {gate.event.label}{" "}
-                      <SourceEventTimeValue
-                        label={`${gate.title} ${gate.event.label}`}
-                        mode="compact"
-                        time={gate.event.time}
-                      />
-                    </small>
-                  )}
-                </span>
-              </a>
-              {onSelect === undefined ? null : (
-                <button
-                  className="gate-quick-look"
-                  type="button"
-                  aria-label={`Quick Look ${gate.title}`}
-                  onClick={(event) => onSelect(gate, event.currentTarget)}
-                >
-                  Quick Look
-                </button>
-              )}
-            </>
-          )}
+          <GateNode gate={gate} {...(onOpen === undefined ? {} : { onOpen })} />
           {index < gates.length - 1 ? <span className="horizon-line" aria-hidden="true" /> : null}
         </div>
       ))}
@@ -148,7 +144,6 @@ export function RoadmapIndexRow({
   event,
   onOpen,
   onOpenGate,
-  onSelectGate,
   title,
 }: {
   readonly gates: readonly Gate[];
@@ -159,22 +154,22 @@ export function RoadmapIndexRow({
   readonly event?: PlanningLineageEvent | undefined;
   readonly onOpen?: ((event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
   readonly onOpenGate?: ((gate: Gate, event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
-  readonly onSelectGate?: ((gate: Gate, trigger: HTMLButtonElement) => void) | undefined;
   readonly title: string;
 }) {
+  const visibleEvent = availableEvent(event);
   return (
     <article className="roadmap-index-row">
       {lifecycle === undefined ? null : <span className="roadmap-lifecycle">{lifecycle}</span>}
       <a href={href} onClick={onOpen}>
         {title}
       </a>
-      {event === undefined ? null : (
+      {visibleEvent === undefined ? null : (
         <small className="roadmap-event">
-          {event.label}{" "}
+          {visibleEvent.label}{" "}
           <SourceEventTimeValue
-            label={`${title} ${event.label}`}
+            label={`${title} ${visibleEvent.label}`}
             mode="compact"
-            time={event.time}
+            time={visibleEvent.time}
           />
         </small>
       )}
@@ -192,7 +187,6 @@ export function RoadmapIndexRow({
           gates={gates}
           label={`${title} horizon`}
           {...(onOpenGate === undefined ? {} : { onOpen: onOpenGate })}
-          {...(onSelectGate === undefined ? {} : { onSelect: onSelectGate })}
         />
       )}
     </article>

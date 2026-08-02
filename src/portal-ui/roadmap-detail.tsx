@@ -68,7 +68,12 @@ export function RoadmapDetail({
           This Roadmap remains readable with unresolved relations explicitly scoped below.
         </p>
       ) : null}
-      <RoadmapDetailGate model={model} onInspect={onInspect} />
+      <RoadmapDetailGate
+        entryId={entryId}
+        model={model}
+        onInspect={onInspect}
+        onNavigate={onNavigate}
+      />
       <RoadmapDetailWork
         entryId={entryId}
         model={model}

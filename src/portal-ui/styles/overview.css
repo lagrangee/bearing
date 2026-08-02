@@ -307,6 +307,7 @@
   padding-bottom: 0;
 }
 .roadmap-landscape-item {
+  container: roadmap-horizon / inline-size;
   padding: var(--space-6) 0 var(--space-5);
   border-top: 1px solid var(--border);
 }
@@ -321,7 +322,7 @@
   letter-spacing: -0.015em;
 }
 .roadmap-landscape-header p {
-  max-width: 730px;
+  max-width: 78ch;
   margin-bottom: 0;
   color: var(--muted);
   font-size: var(--type-ui);
@@ -342,11 +343,7 @@
   padding: var(--space-5) 2px var(--space-3);
 }
 .roadmap-landscape-item .gate-node {
-  display: grid;
-  flex: 0 1 250px;
   min-height: var(--control-size);
-  grid-template-columns: var(--inline-action) minmax(0, 1fr);
-  gap: var(--space-2);
   padding: 0;
 }
 .roadmap-horizon-empty {
@@ -354,10 +351,6 @@
   padding: var(--space-4) 0 var(--space-3);
   color: var(--muted);
   font-size: var(--type-tech);
-}
-.roadmap-landscape-item .horizon-line {
-  flex: 1 1 80px;
-  margin-top: var(--space-3);
 }
 
 @media (max-width: 640px) {

@@ -46,6 +46,14 @@ const minimumTarget = async (locator: Locator, size: number): Promise<void> => {
   expect(box.height).toBeGreaterThanOrEqual(size);
 };
 
+const expectReadableGateMeasure = async (locator: Locator, minimumWidth: number): Promise<void> => {
+  const widths = await locator.evaluateAll((elements) =>
+    elements.map((element) => element.getBoundingClientRect().width),
+  );
+  expect(widths.length).toBe(4);
+  expect(Math.min(...widths)).toBeGreaterThanOrEqual(minimumWidth);
+};
+
 const longCriteriaFixture = (): ProjectSnapshot => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.gates.validity === "invalid") throw new Error("Expected Gate fixture.");
@@ -117,8 +125,135 @@ const plannedGateFixture = (): ProjectSnapshot => {
   );
 };
 
-const oneFogFixture = (): ProjectSnapshot => {
+const longRoadmapIntent =
+  "让维护者在不中断阅读节奏的前提下看清完整的 canonical Roadmap intent, while preserving the full English planning meaning across a deliberately long responsive reading line.";
+const longPassedGateTitle =
+  "Model ready with a deliberately long bilingual outcome title that remains fully readable 模型契约完整可读";
+
+const roadmapReadingFixture = (): ProjectSnapshot => {
   const snapshot = createProjectOverviewFixture();
+  if (
+    snapshot.roadmapIndex.validity !== "available" ||
+    snapshot.roadmaps.validity !== "available"
+  ) {
+    throw new Error("Expected complete Roadmap fixture.");
+  }
+  if (snapshot.gates.validity !== "available") throw new Error("Expected complete Gate fixture.");
+  return projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      roadmapIndex: {
+        ...snapshot.roadmapIndex,
+        value: {
+          ...snapshot.roadmapIndex.value,
+          activeRoadmapIds: ["roadmap:portal"],
+          completedRoadmapIds: ["roadmap:second"],
+        },
+      },
+      roadmaps: {
+        ...snapshot.roadmaps,
+        items: snapshot.roadmaps.items.map((roadmap) =>
+          roadmap.id === "roadmap:portal"
+            ? { ...roadmap, intent: longRoadmapIntent }
+            : {
+                ...roadmap,
+                lifecycle: "completed" as const,
+                completedAt: {
+                  availability: "available" as const,
+                  value: "2026-08-01T00:00:00Z",
+                  precision: "second" as const,
+                },
+                horizon: "exhausted" as const,
+              },
+        ),
+      },
+      gates: {
+        ...snapshot.gates,
+        items: snapshot.gates.items.map((gate) =>
+          gate.id === "gate:one"
+            ? {
+                ...gate,
+                title: longPassedGateTitle,
+                passage: {
+                  ...gate.passage,
+                  acceptedDecision: gate.passage?.acceptedDecision ?? "Accept the model.",
+                  acceptedAt: {
+                    availability: "available" as const,
+                    value: "2026-08-02T00:00:00Z",
+                    precision: "second" as const,
+                  },
+                  rationale: gate.passage?.rationale ?? "The model is ready.",
+                  evidenceAssetIds: gate.passage?.evidenceAssetIds ?? [],
+                  exceptions: gate.passage?.exceptions ?? [],
+                },
+              }
+            : gate,
+        ),
+      },
+    }),
+  );
+};
+
+const fourGateReadingFixture = (): ProjectSnapshot => {
+  const snapshot = roadmapReadingFixture();
+  if (snapshot.roadmaps.validity !== "available" || snapshot.gates.validity !== "available") {
+    throw new Error("Expected complete planning fixture.");
+  }
+  const template = snapshot.gates.items.find((gate) => gate.id === "gate:two");
+  if (template === undefined) throw new Error("Expected focused Gate fixture.");
+  const addedGates = [
+    { id: "gate:three", title: "Evidence decision" },
+    {
+      id: "gate:four",
+      title: "Operational handoff remains understandable across every responsive reading mode",
+    },
+  ] as const;
+  const addedSources = addedGates.map((gate) =>
+    createSourceRecord(snapshot.basis.sitemapFingerprint, {
+      kind: "canonical",
+      locator: `.bearing/state/milestone-gates/${gate.id.slice("gate:".length)}.md`,
+      binding: { role: "milestone-gate", identity: gate.id },
+    }),
+  );
+  return projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      sources: [...snapshot.sources, ...addedSources],
+      roadmaps: {
+        ...snapshot.roadmaps,
+        items: snapshot.roadmaps.items.map((roadmap) =>
+          roadmap.id === "roadmap:portal"
+            ? {
+                ...roadmap,
+                gateOrder: [...roadmap.gateOrder, ...addedGates.map((gate) => gate.id)],
+              }
+            : roadmap,
+        ),
+      },
+      gates: {
+        ...snapshot.gates,
+        items: [
+          ...snapshot.gates.items,
+          ...addedGates.map((gate, index) => ({
+            ...template,
+            id: gate.id,
+            source: addedSources[index]?.reference ?? template.source,
+            title: gate.title,
+            lifecycle: "planned" as const,
+            activatedAt: undefined,
+            readiness: "unknown" as const,
+            horizonState: "planned" as const,
+            effortIds: [],
+          })),
+        ],
+      },
+    }),
+  );
+};
+
+const oneFogFixture = (
+  snapshot: ProjectSnapshot = createProjectOverviewFixture(),
+): ProjectSnapshot => {
   const providerObservations = snapshot.providerObservations.map((capture) =>
     capture.binding.nativeScope === ".scratch/portal" &&
     (capture.state === "available" || capture.state === "partial") &&
@@ -153,7 +288,7 @@ const oneFogFixture = (): ProjectSnapshot => {
 test("Roadmaps opens the lifecycle Index before Detail and preserves contextual inspection", async ({
   page,
 }, testInfo) => {
-  await serveSnapshot(page, createProjectOverviewFixture());
+  await serveSnapshot(page, roadmapReadingFixture());
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/projects/roadmaps/roadmaps");
 
@@ -163,29 +298,47 @@ test("Roadmaps opens the lifecycle Index before Detail and preserves contextual 
     "page",
   );
   await expect(page.locator(".roadmap-index-row > a")).toHaveText([
-    "Second Horizon",
     "Portal Evolution",
+    "Second Horizon",
   ]);
   await expect(page.getByText("Active", { exact: true })).toBeVisible();
-  await expect(page.getByText("Passed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+  await expect(page.getByText(longRoadmapIntent, { exact: true })).toBeVisible();
   await expect(page.getByText("Current", { exact: true })).toBeVisible();
   await expect(page.getByText("Planned", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Gate horizon state is unavailable.", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Declared Gate horizon exhausted; Roadmap completion remains explicit.", {
+      exact: true,
+    }),
+  ).toBeVisible();
   await expect(page.locator("main")).not.toContainText("%");
+  await expect(page.getByText("Time unavailable", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".roadmap-index-row .gate-quick-look")).toHaveCount(0);
+  await expect(page.locator(".roadmap-index-row .gate-copy small")).toHaveCount(2);
+  await expect(page.locator(".roadmap-index-row .gate-copy small").first()).toHaveText(
+    "Passed · Aug 2",
+  );
+  await expect(page.locator(".roadmap-index-row .gate-copy small").nth(1)).toHaveText("Current");
+  await expect(
+    page.locator(".roadmap-index-row .gate-copy small").nth(1).locator("time"),
+  ).toHaveCount(0);
+  await expect(
+    page.locator(".roadmap-index-row", { hasText: "Portal Evolution" }).locator(".roadmap-event"),
+  ).toHaveCount(0);
+  await expect(page.locator(".roadmap-index-row .horizon").first()).toHaveCSS(
+    "flex-direction",
+    "row",
+  );
+  await expect(page.locator(".gate-copy strong", { hasText: longPassedGateTitle })).toBeVisible();
 
-  const gate = page.getByRole("button", { name: "Quick Look Model ready" });
+  const gate = page.getByRole("link", { name: new RegExp(`G1, ${longPassedGateTitle}, Passed`) });
   await gate.focus();
   await page.keyboard.press("Enter");
-  const inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(inspector.getByRole("heading", { name: "Model ready" })).toBeVisible();
-  await expect(inspector.getByText("Ready for review", { exact: true })).toBeVisible();
-  await expect(inspector.getByText("The planning model is accepted.")).toBeVisible();
-  await expect(inspector.getByRole("link", { name: "Open full detail" })).toHaveAttribute(
-    "href",
+  await expect(page).toHaveURL(
     planningLineageSubjectHref("roadmaps", { kind: "gate", id: "gate:one" }),
   );
-  await page.keyboard.press("Escape");
-  await expect(gate).toBeFocused();
+  await expect(page.getByRole("heading", { name: longPassedGateTitle, level: 1 })).toBeVisible();
+  await page.goBack();
 
   await page.screenshot({
     path: await browserArtifactPath(testInfo, "roadmaps-index-1280.png"),
@@ -203,6 +356,10 @@ test("Roadmaps opens the lifecycle Index before Detail and preserves contextual 
     .getByRole("link", { name: "Roadmaps", exact: true })
     .click();
   await expect(page).toHaveURL(/\/projects\/roadmaps\/roadmaps$/u);
+
+  await page.goto("/projects/roadmaps");
+  await expect(page.locator(".roadmap-landscape-item h3")).toHaveText(["Portal Evolution"]);
+  await expect(page.getByText("Second Horizon", { exact: true })).toHaveCount(0);
 });
 
 test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-only", async ({
@@ -286,15 +443,28 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
 test("Roadmap journey reflows at review widths and retains scoped degraded states", async ({
   page,
 }, testInfo) => {
-  const snapshot = oneFogFixture();
+  const snapshot = oneFogFixture(fourGateReadingFixture());
   await serveSnapshot(page, snapshot);
   await page.goto("/projects/roadmaps/roadmaps");
-  for (const width of [640, 375]) {
+  for (const width of [1280, 1201, 1200, 1100, 1024, 901, 900, 768, 681, 640, 375]) {
     await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
-    await expect(page.locator(".project-nav")).toHaveAttribute("aria-hidden", "true");
+    await page.waitForTimeout(250);
+    if (width <= 900) {
+      await expect(page.locator(".project-nav")).toHaveAttribute("aria-hidden", "true");
+    }
     expect(
       await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
     ).toBe(false);
+    const indexHorizon = page.locator(".roadmap-index-row .horizon").first();
+    if (width === 1280) await expect(indexHorizon).toHaveCSS("flex-direction", "row");
+    if (width === 375) await expect(indexHorizon).toHaveCSS("flex-direction", "column");
+    await expectReadableGateMeasure(page.locator(".roadmap-index-row .gate-copy"), 120);
+    if (width === 1280) {
+      await page.screenshot({
+        path: await browserArtifactPath(testInfo, "roadmaps-index-four-gates-1280.png"),
+        fullPage: true,
+      });
+    }
     if (width === 375) {
       await page.screenshot({
         path: await browserArtifactPath(testInfo, "roadmaps-index-375.png"),
@@ -302,13 +472,52 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
       });
     }
   }
-  await expect(page.getByText("Gate horizon state is unavailable.")).toBeVisible();
-  await minimumTarget(page.locator(".gate-node").first(), 44);
+  await expect(page.getByText(longRoadmapIntent, { exact: true })).toBeVisible();
+  await minimumTarget(page.locator(".roadmap-index-row .gate-node").first(), 44);
+  // A 1280 × 900 display at 200% browser zoom exposes a 640 × 450 CSS viewport.
+  await page.setViewportSize({ width: 640, height: 450 });
+  await expect(page.locator(".roadmap-index-row .gate-node")).toHaveCount(4);
+  await expectReadableGateMeasure(page.locator(".roadmap-index-row .gate-copy"), 220);
+  expect(
+    await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
+  ).toBe(false);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  await page.goto("/projects/roadmaps");
+  await expect(page.locator(".roadmap-landscape-item")).toHaveCount(1);
+  await expect(page.getByText("Second Horizon", { exact: true })).toHaveCount(0);
+  for (const width of [1280, 1201, 1200, 1100, 1024, 901, 900, 768, 681, 640, 375]) {
+    await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+    await page.waitForTimeout(250);
+    await expect(page.getByText(longRoadmapIntent, { exact: true })).toBeVisible();
+    await expect(page.locator(".roadmap-landscape-item .gate-node")).toHaveCount(4);
+    await expect(page.locator(".gate-copy strong", { hasText: longPassedGateTitle })).toBeVisible();
+    expect(
+      await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
+    ).toBe(false);
+    const overviewHorizon = page.locator(".roadmap-landscape-item .horizon");
+    if (width === 1280) await expect(overviewHorizon).toHaveCSS("flex-direction", "row");
+    if (width === 375) await expect(overviewHorizon).toHaveCSS("flex-direction", "column");
+    await expectReadableGateMeasure(page.locator(".roadmap-landscape-item .gate-copy"), 120);
+    if (width === 1280 || width === 375) {
+      await page.screenshot({
+        path: await browserArtifactPath(testInfo, `roadmaps-overview-four-gates-${width}.png`),
+        fullPage: true,
+      });
+    }
+  }
+  await page.setViewportSize({ width: 640, height: 450 });
+  await expect(page.locator(".roadmap-landscape-item .gate-node")).toHaveCount(4);
+  await expectReadableGateMeasure(page.locator(".roadmap-landscape-item .gate-copy"), 220);
+  expect(
+    await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
+  ).toBe(false);
+  await page.goto("/projects/roadmaps/roadmaps");
 
   await page.getByRole("link", { name: "Portal Evolution" }).click();
   for (const width of [768, 640, 375]) {
     await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+    await page.waitForTimeout(250);
     await expect(page.locator(".project-nav")).toHaveAttribute("aria-hidden", "true");
     expect(
       await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
@@ -330,7 +539,6 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
       ).toBeVisible();
     }
   }
-  await minimumTarget(page.getByRole("button", { name: "Quick Look Model ready" }), 44);
   await minimumTarget(page.getByRole("button", { name: "Quick Look Web Portal Validation" }), 44);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
@@ -418,13 +626,12 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
 test("Roadmaps keeps planned, absent, and invalid states explicit", async ({ page }) => {
   await serveSnapshot(page, plannedGateFixture());
   await page.goto("/projects/roadmaps/roadmaps");
-  const planned = page.getByRole("button", { name: "Quick Look Evidence decision" });
+  await expect(page.locator(".roadmap-index-row .gate-node")).toHaveCount(3);
+  const planned = page.getByRole("link", { name: /G3, Evidence decision, Planned/u });
   await planned.focus();
-  await page.keyboard.press("Space");
-  const inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(inspector.getByRole("heading", { name: "Evidence decision" })).toBeVisible();
-  await expect(inspector.getByText("Readiness unknown", { exact: true })).toBeVisible();
-  await page.keyboard.press("Escape");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Evidence decision", level: 1 })).toBeVisible();
+  await page.goBack();
 
   const base = createProjectOverviewFixture();
   await page.unroute("**/api/v1/projects/roadmaps/snapshot");

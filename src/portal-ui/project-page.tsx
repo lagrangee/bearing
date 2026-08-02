@@ -251,12 +251,7 @@ export function ProjectPage({
           snapshot={snapshot}
         />
       ) : section === "roadmaps" ? (
-        <RoadmapsPage
-          entryId={entryId}
-          onInspect={inspect}
-          onNavigate={navigateFromProject}
-          snapshot={snapshot}
-        />
+        <RoadmapsPage entryId={entryId} onNavigate={navigateFromProject} snapshot={snapshot} />
       ) : section === "assets" ? (
         <AssetsPage
           entryId={entryId}

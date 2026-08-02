@@ -30,12 +30,7 @@ export function OverviewPage({
         onInspect={onInspect}
         onNavigate={onNavigate}
       />
-      <OverviewRoadmaps
-        entryId={entryId}
-        onInspect={onInspect}
-        onOpenRoadmap={onOpenRoadmap}
-        roadmaps={model.roadmaps}
-      />
+      <OverviewRoadmaps entryId={entryId} onOpenRoadmap={onOpenRoadmap} roadmaps={model.roadmaps} />
     </div>
   );
 }

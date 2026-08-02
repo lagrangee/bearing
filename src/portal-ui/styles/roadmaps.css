@@ -96,6 +96,7 @@
   white-space: nowrap;
 }
 .roadmap-detail-horizon {
+  container: roadmap-horizon / inline-size;
   padding: var(--space-8) 0 var(--space-10);
   border-top: 1px solid var(--border);
 }
