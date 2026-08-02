@@ -131,7 +131,7 @@ export type PlanningLineageTimeFact = Readonly<{
 
 export type PlanningLineageParentCrumb = Readonly<{
   label: string;
-  href?: string | undefined;
+  href: string;
   reference?: string | undefined;
 }>;
 
@@ -389,7 +389,7 @@ const boundedFrontierSummary = (region: MattNativeWorkRegionModel): string => {
   return values.map(([label, value]) => `${label} ${qualifier}${value}`).join(" · ");
 };
 
-const contributingEffortSummarySection = (
+const contributingEffortsSection = (
   snapshot: ProjectSnapshot,
   effortIds: readonly string[],
   entryId: string,
@@ -413,11 +413,11 @@ const contributingEffortSummarySection = (
     .map((effortId) => `${effortId} · unavailable`);
   return {
     anchor: "native-work.effort-summaries",
-    title: "Contributing Effort Summaries",
+    title: "Contributing Efforts",
     body:
       links.length === 0 && missingItems.length === 0
         ? "No trustworthy contributing Effort summary is available."
-        : "Bounded frontier orientation only. Full native content remains owned by Effort and native subject routes.",
+        : "Each contributing Effort opens its complete lifecycle and bound native work context.",
     ...(links.length === 0 ? {} : { links }),
     ...(missingItems.length === 0 ? {} : { items: missingItems }),
   };
@@ -446,10 +446,10 @@ const roadmapSections = (
     },
     {
       anchor: "roadmap.focus",
-      title: "Focused Gate summary",
+      title: "Lifecycle and Focus",
       body: `${focused}. Lifecycle ${roadmap.lifecycle}; horizon ${roadmap.horizon}.`,
     },
-    contributingEffortSummarySection(snapshot, roadmap.effortIds, entryId),
+    contributingEffortsSection(snapshot, roadmap.effortIds, entryId),
   ];
 };
 
@@ -476,7 +476,7 @@ const gateSections = (
       ? {}
       : { items: gate.passage.exceptions }),
   },
-  contributingEffortSummarySection(snapshot, gate.effortIds, entryId),
+  contributingEffortsSection(snapshot, gate.effortIds, entryId),
 ];
 
 const effortSections = (
@@ -1168,7 +1168,6 @@ const parentPathForDisplay = (
   snapshot: ProjectSnapshot,
   entryId: string,
   lineage: PlanningLineageSubjectProjection,
-  record: SubjectRecord,
 ): readonly PlanningLineageParentCrumb[] => {
   const project = {
     label: projectTitle(snapshot),
@@ -1188,12 +1187,7 @@ const parentPathForDisplay = (
     href: planningLineageSubjectHref(entryId, ancestor),
     reference: ancestor.id,
   }));
-  return [
-    project,
-    ...collection,
-    ...ancestors,
-    { label: record.title, reference: lineage.identity.id },
-  ];
+  return [project, ...collection, ...ancestors];
 };
 
 const readableEfforts = (snapshot: ProjectSnapshot): readonly Effort[] =>
@@ -1329,7 +1323,7 @@ export const buildPlanningLineageSubjectModel = (
       source: sourceIndex(snapshot).get(record.source),
       ...(sourceHref === undefined ? {} : { sourceHref }),
     },
-    parentPath: parentPathForDisplay(snapshot, entryId, lineage, record),
+    parentPath: parentPathForDisplay(snapshot, entryId, lineage),
     ...(lineage.parentPath.state === "complete"
       ? {}
       : {

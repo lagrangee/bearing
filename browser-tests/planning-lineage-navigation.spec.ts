@@ -383,15 +383,29 @@ test("stable durable-subject routes survive direct entry and keep failures scope
       await expect(page.locator(`#${anchor.replace(".", "\\.")}`)).toBeInViewport();
       await expect(page.getByRole("heading", { name: nativeCase.title, level: 1 })).toBeVisible();
     }
+    await page.getByRole("button", { name: "Open Technical Details" }).click();
+    const technicalDetails = page.getByRole("complementary", { name: "Technical Details" });
     if (nativeCase.sourceHref === undefined) {
-      await expect(page.getByRole("link", { name: nativeCase.source })).toHaveCount(0);
-      await expect(page.getByText(nativeCase.source, { exact: true }).first()).toBeVisible();
+      await expect(technicalDetails.getByRole("link", { name: nativeCase.source })).toHaveCount(0);
+      await expect(
+        technicalDetails
+          .locator("dt", { hasText: /^Source$/u })
+          .locator("xpath=following-sibling::dd"),
+      ).toHaveText(nativeCase.source);
     } else {
-      await expect(page.getByRole("link", { name: nativeCase.source })).toHaveAttribute(
-        "href",
-        nativeCase.sourceHref,
-      );
+      const sourceLink = technicalDetails.getByRole("link", { name: nativeCase.source });
+      await expect(sourceLink).toHaveAttribute("href", nativeCase.sourceHref);
+      await expect(
+        technicalDetails.getByRole("button", { name: "Close Technical Details" }),
+      ).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(sourceLink).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(
+        technicalDetails.getByRole("button", { name: "Close Technical Details" }),
+      ).toBeFocused();
     }
+    await page.keyboard.press("Escape");
   }
 
   const unavailableNativeAnchor = `${planningLineageSubjectHref("lineage", {
@@ -509,6 +523,87 @@ test("Source Event Time stays source-precise while browser-relative updates rema
   await expect(samePageRelative).toHaveText("6 minutes ago");
   expect(posts).toEqual([]);
   expect(snapshotReads).toBe(readsBeforeTick);
+});
+
+test("semantic detail owns the reading contract while Technical Details stays transient and accessible", async ({
+  page,
+}) => {
+  await serveSnapshot(page, fixture());
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const gateHref = planningLineageSubjectHref("lineage", {
+    kind: "gate",
+    id: "gate:one",
+  });
+  await page.goto(`${gateHref}#gate.exit-criteria`);
+  await page.reload();
+  await expect(page).toHaveURL(`${gateHref}#gate.exit-criteria`);
+  await expect(page.locator("#gate\\.exit-criteria")).toBeInViewport();
+
+  const breadcrumb = page.getByRole("navigation", { name: "Canonical Parent Path" });
+  await expect(breadcrumb.getByRole("link")).toHaveText(["Portal Project", "Portal Evolution"]);
+  await expect(breadcrumb).not.toContainText("Model ready");
+  const header = page.locator(".lineage-header");
+  await expect(header.getByRole("heading", { name: "Model ready", level: 1 })).toBeVisible();
+  await expect(header).not.toContainText("Gate");
+  await expect(header).not.toContainText("gate:one");
+  await expect(header).not.toContainText(".bearing/state/milestone-gates/one.md");
+  await expect(header).not.toContainText("available");
+  await expect(page.getByRole("heading", { name: "Intent", level: 2 })).toHaveCount(1);
+  await expect(page.getByText("Establish the model.", { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "Exit Criteria", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Passage", level: 2 })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Lifecycle and Readiness", level: 2 }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Contributing Efforts", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Event History", level: 2 })).toHaveCount(0);
+
+  const trigger = page.getByRole("button", { name: "Open Technical Details" });
+  await expect(trigger).toHaveCount(1);
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  const drawer = page.getByRole("complementary", { name: "Technical Details" });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "Close Technical Details" })).toBeFocused();
+  await expect(drawer.getByText("gate:one", { exact: true })).toBeVisible();
+  await expect(
+    drawer.getByText(".bearing/state/milestone-gates/one.md", { exact: true }),
+  ).toBeVisible();
+  await expect(drawer.getByText("available", { exact: true })).toBeVisible();
+  await expect(drawer.getByRole("heading", { name: "Provenance", level: 3 })).toBeVisible();
+  await expect(drawer.getByRole("heading", { name: "Diagnostics", level: 3 })).toBeVisible();
+  await expect(drawer).not.toContainText("Establish the model.");
+  await expect(drawer).not.toContainText("Exit Criteria");
+  await expect(drawer).not.toContainText("Lineage Context");
+  await page.keyboard.press("Tab");
+  await expect(drawer.getByRole("button", { name: "Close Technical Details" })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(drawer.getByRole("button", { name: "Close Technical Details" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(drawer).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.keyboard.press("Enter");
+  const sheet = page.getByRole("dialog", { name: "Technical Details" });
+  const close = sheet.getByRole("button", { name: "Close Technical Details" });
+  await expect(sheet).toBeVisible();
+  await expect(close).toBeFocused();
+  expect(
+    await sheet.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { top: bounds.top, height: bounds.height, viewport: window.innerHeight };
+    }),
+  ).toEqual({ top: 0, height: 812, viewport: 812 });
+  await page.keyboard.press("Tab");
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(close).toBeFocused();
+  expect(await viewportOverflow(page)).toEqual([]);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  await expect(trigger).toBeFocused();
 });
 
 test("a same-route Snapshot transition sends an unavailable semantic anchor back to subject top", async ({

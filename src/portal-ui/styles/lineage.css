@@ -33,35 +33,31 @@
   color: var(--ink);
 }
 .lineage-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.36fr);
-  gap: var(--space-8);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-6);
   padding: var(--space-2) 0 var(--space-10);
 }
 .lineage-header h1 {
-  margin-bottom: var(--space-2);
+  max-width: 24ch;
+  margin-bottom: 0;
   overflow-wrap: anywhere;
 }
-.lineage-id {
+.technical-details-trigger {
+  min-height: var(--control-size);
+  flex: 0 0 auto;
+  padding: 0 var(--space-2);
   color: var(--muted);
+  background: transparent;
+  border: 0;
   font-size: var(--type-tech);
-  overflow-wrap: anywhere;
+  cursor: pointer;
 }
-.lineage-header dl {
-  margin: 0;
-}
-.lineage-header dl div {
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--border);
-}
-.lineage-header dt {
-  color: var(--muted);
-  font-size: var(--type-micro);
-}
-.lineage-header dd {
-  margin: var(--space-1) 0 0;
-  font-size: var(--type-tech);
-  overflow-wrap: anywhere;
+.technical-details-trigger:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .native-inspection-actions {
   display: flex;
@@ -84,7 +80,7 @@
 }
 .lineage-sections > section {
   max-width: 850px;
-  padding: var(--space-7) 0;
+  padding: var(--space-8) 0;
   border-bottom: 1px solid var(--border);
   scroll-margin-top: calc(var(--topbar) + var(--space-5));
 }
@@ -94,6 +90,7 @@
 }
 .lineage-sections p,
 .lineage-sections li {
+  max-width: 72ch;
   color: var(--muted);
   line-height: 1.65;
   overflow-wrap: anywhere;

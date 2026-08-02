@@ -45,18 +45,64 @@ test("renders one route-owned Gate dossier and non-duplicated Lineage Context", 
   expect(html).toContain('aria-label="Canonical Parent Path"');
   expect(html).toContain("Portal Project");
   expect(html).toContain("Portal Evolution");
+  expect(html).not.toContain('aria-current="page"');
+  expect(html).toContain('aria-label="Open Technical Details"');
+  expect(html).not.toContain('<code class="lineage-id">gate:one</code>');
+  expect(html).not.toContain("<dt>Projection</dt>");
+  expect(html).not.toContain("<dt>Source</dt>");
   expect(html).toContain('id="gate.exit-criteria"');
   expect(html).toContain("The planning model is accepted.");
   expect(html).toContain("Accept the planning model as ready.");
-  expect(html).toContain('id="gate.event-history"');
-  expect(html).toContain("Event History");
-  expect(html).toContain("Time unavailable");
+  expect(html).not.toContain('id="gate.event-history"');
+  expect(html).not.toContain("Event History");
+  expect(html).toContain("Lifecycle and Readiness");
+  expect(html).toContain("Contributing Efforts");
   expect(html).toContain("receives contribution from");
   expect(html).toContain("accepted with evidence");
   expect(html).toContain("Confirmed none");
   expect(html).not.toContain("<h3>Roadmap</h3>");
   expect(html).toContain('aria-label="Quick Look Planning Model"');
   expect(html).not.toContain("Resume in Agent Surface");
+});
+
+test("renders only available named Source Event Times in Event History", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.gates.validity === "invalid") throw new Error("Expected Gates.");
+  const partialEventHistory = withLineage({
+    ...snapshot,
+    gates: {
+      ...snapshot.gates,
+      items: snapshot.gates.items.map((gate) =>
+        gate.id === "gate:one" && gate.passage !== undefined
+          ? {
+              ...gate,
+              passage: {
+                ...gate.passage,
+                acceptedAt: {
+                  availability: "available" as const,
+                  value: "2026-08-03T09:15:00Z",
+                  precision: "second" as const,
+                },
+              },
+            }
+          : gate,
+      ),
+    },
+  });
+  const html = render(
+    { validity: "valid", value: { kind: "gate", id: "gate:one" } },
+    { snapshot: partialEventHistory },
+  );
+
+  const eventHistory = html.match(
+    /<section class="lineage-event-history"[\s\S]*?<\/section>/u,
+  )?.[0];
+  expect(eventHistory).toBeDefined();
+  expect(eventHistory).toContain('id="gate.event-history"');
+  expect(eventHistory).toContain("<dt>Passage accepted</dt>");
+  expect(eventHistory).not.toContain("<dt>Planned</dt>");
+  expect(eventHistory).not.toContain("<dt>Activated</dt>");
+  expect(eventHistory).not.toContain("Time unavailable");
 });
 
 test("renders native Source Event Time, Last updated, and Verified at as distinct provenance", () => {
@@ -66,9 +112,8 @@ test("renders native Source Event Time, Last updated, and Verified at as distinc
   });
 
   expect(html).toContain("Native Provenance");
-  expect(html).toContain('id="native.event-history"');
-  expect(html).toContain('data-semantic-availability="unsupported"');
-  expect(html).toContain("<h2>Event History</h2>");
+  expect(html).not.toContain('id="native.event-history"');
+  expect(html).not.toContain("<h2>Event History</h2>");
   expect(html).toContain("<dt>Created</dt>");
   expect(html).toContain("<dt>Last updated</dt>");
   expect(html).toContain("Time unsupported");
@@ -82,7 +127,6 @@ test("renders native Source Event Time, Last updated, and Verified at as distinc
     "Current means verified at the recorded observation against the confirmed source revision; it does not promise live currency.",
   );
   expect(html).toContain("Secondary source metadata; not a lifecycle event.");
-  expect(html.match(/<h2>Event History<\/h2>/g)).toHaveLength(1);
 
   const scopeHtml = render({
     validity: "valid",
@@ -307,7 +351,7 @@ test("keeps Roadmap and Gate native work bounded to Effort frontier summaries an
   });
 
   for (const html of [roadmapHtml, gateHtml]) {
-    expect(html).toContain("<h2>Contributing Effort Summaries</h2>");
+    expect(html).toContain("<h2>Contributing Efforts</h2>");
     const sectionStart = html.indexOf('id="native-work.effort-summaries"');
     const summarySection = html.slice(sectionStart, html.indexOf("</section>", sectionStart));
     expect(summarySection).toContain(

@@ -46,6 +46,54 @@ const follow = (href: string, event: MouseEvent<HTMLAnchorElement>, onNavigate: 
   onNavigate(href, projectCanvasFocusKey(event.currentTarget));
 };
 
+const technicalDetailsSelection = (
+  model: Extract<
+    ReturnType<typeof buildPlanningLineageSubjectModel>,
+    { state: "available" | "partial" }
+  >,
+  snapshot: ProjectSnapshot,
+): ProjectInspectorSelection => {
+  const source = model.subject.source;
+  const diagnostics = snapshot.diagnostics.filter(
+    (diagnostic) =>
+      diagnostic.target === model.subject.id ||
+      diagnostic.target === source?.displayLocator ||
+      diagnostic.source === source?.reference,
+  );
+  const provenance = [
+    `Source kind: ${source?.kind ?? "unavailable"}`,
+    ...(source?.binding === undefined
+      ? []
+      : [`Binding: ${source.binding.role} · ${source.binding.identity}`]),
+    ...(source?.fragment === undefined ? [] : [`Fragment: ${source.fragment}`]),
+  ];
+  return {
+    accessibleLabel: "Technical Details",
+    closeLabel: "Close Technical Details",
+    eyebrow: "Technical Details",
+    title: model.subject.title,
+    variant: "technical-details",
+    facts: [
+      { label: "Stable ID", value: model.subject.id, code: true },
+      { label: "Projection", value: model.state },
+    ],
+    source,
+    sourceHref: model.subject.sourceHref,
+    sections: [
+      { title: "Provenance", items: provenance },
+      {
+        title: "Diagnostics",
+        items:
+          diagnostics.length === 0
+            ? ["No diagnostics are recorded for this subject."]
+            : diagnostics.map(
+                (diagnostic) => `${diagnostic.impact} · ${diagnostic.code} · ${diagnostic.message}`,
+              ),
+      },
+    ],
+  };
+};
+
 function PlanningLineageTimeValue({
   label,
   mode,
@@ -920,6 +968,7 @@ export function PlanningLineagePage({
     );
   }
   const contextRelations = model.relations.filter((relation) => !relation.inParentPath);
+  const availableEvents = model.events.filter((event) => event.time.availability === "available");
   const eventHistoryAnchor =
     model.subject.kind === "alignment-check" || model.subject.kind === "planning-review"
       ? `${model.subject.kind}.event-time`
@@ -937,20 +986,11 @@ export function PlanningLineagePage({
     <div className="page lineage-page">
       <nav aria-label="Canonical Parent Path" className="lineage-breadcrumb">
         <ol>
-          {model.parentPath.map((crumb, index) => (
-            <li key={crumb.href ?? `current:${crumb.label}`}>
-              {crumb.href === undefined ? (
-                <span aria-current={index === model.parentPath.length - 1 ? "page" : undefined}>
-                  {crumb.label}
-                </span>
-              ) : (
-                <a
-                  href={crumb.href}
-                  onClick={(event) => follow(crumb.href ?? "", event, onNavigate)}
-                >
-                  {crumb.label}
-                </a>
-              )}
+          {model.parentPath.map((crumb) => (
+            <li key={crumb.href}>
+              <a href={crumb.href} onClick={(event) => follow(crumb.href, event, onNavigate)}>
+                {crumb.label}
+              </a>
             </li>
           ))}
         </ol>
@@ -966,52 +1006,40 @@ export function PlanningLineagePage({
         </p>
       ) : null}
       <header className="lineage-header">
-        <div>
-          <p className="eyebrow">{subjectLabel(model.subject.kind)}</p>
-          <h1>{model.subject.title}</h1>
-          <code className="lineage-id">{model.subject.id}</code>
-        </div>
-        <dl>
-          <div>
-            <dt>Projection</dt>
-            <dd>{model.state}</dd>
-          </div>
-          <div>
-            <dt>Source</dt>
-            <dd>
-              {model.subject.sourceHref === undefined ? (
-                <code>{model.subject.source?.displayLocator ?? "Unavailable"}</code>
-              ) : (
-                <a href={model.subject.sourceHref} rel="noreferrer" target="_blank">
-                  {model.subject.source?.displayLocator ?? model.subject.sourceHref}
-                </a>
-              )}
-            </dd>
-          </div>
-        </dl>
-        {model.nativeInspection === undefined ||
-        onRefreshDetails === undefined ||
-        requestedNativeSubject === undefined ? null : (
-          <div className="native-inspection-actions">
-            <p>
-              Inspected detail · {model.nativeInspection.freshness}
-              {model.nativeInspection.latestAttempt?.outcome === "failed"
-                ? " · latest refresh failed"
-                : ""}
-            </p>
-            <Action
-              disabled={inspectionOperation?.state === "running"}
-              onClick={() => onRefreshDetails(requestedNativeSubject)}
-            >
-              <Icons.refresh
-                className={inspectionOperation?.state === "running" ? "is-spinning" : ""}
-              />
-              {inspectionOperation?.state === "running" ? "Refreshing details" : "Refresh details"}
-            </Action>
-          </div>
-        )}
+        <h1>{model.subject.title}</h1>
+        <button
+          aria-label="Open Technical Details"
+          className="technical-details-trigger"
+          type="button"
+          onClick={(event) =>
+            onInspect(technicalDetailsSelection(model, snapshot), event.currentTarget)
+          }
+        >
+          Technical Details
+        </button>
       </header>
-      {model.events.length === 0 ? null : (
+      {model.nativeInspection === undefined ||
+      onRefreshDetails === undefined ||
+      requestedNativeSubject === undefined ? null : (
+        <div className="native-inspection-actions">
+          <p>
+            Inspected detail · {model.nativeInspection.freshness}
+            {model.nativeInspection.latestAttempt?.outcome === "failed"
+              ? " · latest refresh failed"
+              : ""}
+          </p>
+          <Action
+            disabled={inspectionOperation?.state === "running"}
+            onClick={() => onRefreshDetails(requestedNativeSubject)}
+          >
+            <Icons.refresh
+              className={inspectionOperation?.state === "running" ? "is-spinning" : ""}
+            />
+            {inspectionOperation?.state === "running" ? "Refreshing details" : "Refresh details"}
+          </Action>
+        </div>
+      )}
+      {availableEvents.length === 0 ? null : (
         <section
           className="lineage-event-history"
           data-semantic-availability={
@@ -1022,7 +1050,7 @@ export function PlanningLineagePage({
           <p className="eyebrow">Source-owned chronology</p>
           <h2>Event History</h2>
           <dl>
-            {model.events.map((event, index) => (
+            {availableEvents.map((event, index) => (
               <div key={`${event.role}:${event.decisionReference ?? index}`}>
                 <dt>{event.label}</dt>
                 <dd>

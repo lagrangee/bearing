@@ -46,7 +46,6 @@ test("builds a Gate-owned route with trustworthy parents, full content, and type
   expect(model.parentPath.map((crumb) => crumb.label)).toEqual([
     "Portal Project",
     "Portal Evolution",
-    "Model ready",
   ]);
   expect(model.sections.map((section) => section.anchor)).toEqual([
     "gate.intent",
@@ -493,7 +492,6 @@ test("renders complete provider-native dossiers on stable Local identities witho
     "Portal Evolution",
     "Overview proven",
     "Web Portal Validation",
-    "Portal Validation",
   ]);
   expect(map.subject.sourceHref).toBeUndefined();
   expect(map.sections.map((section) => section.anchor)).toEqual(
@@ -536,7 +534,6 @@ test("renders complete provider-native dossiers on stable Local identities witho
     "Overview proven",
     "Web Portal Validation",
     "Portal Validation",
-    "Build the Roadmap journey",
   ]);
   expect(wayfinder.sections.map((section) => section.anchor)).toEqual(
     expect.arrayContaining([
@@ -611,7 +608,6 @@ test("keeps Spec, Delivery, Incoming, and native scope semantics independent", (
     "Overview proven",
     "Web Portal Validation",
     "Portal Validation PRD",
-    "Pass the integration gate",
   ]);
   expect(
     delivery.relations.find((relation) => relation.key === "native-work.blocked-by"),

@@ -54,6 +54,9 @@ const expectReadableGateMeasure = async (locator: Locator, minimumWidth: number)
   expect(Math.min(...widths)).toBeGreaterThanOrEqual(minimumWidth);
 };
 
+const longGateIntent =
+  "让维护者完整理解 Gate 的语义目标、退出条件与 Passage ownership, while preserving the full canonical planning meaning across a deliberately long reading line without moving essential content into an inspector.";
+
 const longCriteriaFixture = (): ProjectSnapshot => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.gates.validity === "invalid") throw new Error("Expected Gate fixture.");
@@ -66,6 +69,7 @@ const longCriteriaFixture = (): ProjectSnapshot => {
           gate.id === "gate:two"
             ? {
                 ...gate,
+                intent: longGateIntent,
                 exitCriteria: [
                   "Overview is usable.",
                   "Evidence remains inspectable.",
@@ -379,10 +383,30 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
 
   await expect(page.getByRole("heading", { name: "Complete Gate order" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ordered Gates" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Contributing Efforts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Contributing Efforts", level: 2 })).toBeVisible();
   await page.getByRole("link", { name: "Overview proven", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Overview proven", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Exit Criteria" })).toBeVisible();
+  const gateIntent = page.getByText(longGateIntent, { exact: true });
+  await expect(gateIntent).toBeVisible();
+  const semanticSectionMetrics = await gateIntent.evaluate((element) => {
+    const section = element.closest("section");
+    if (section === null) throw new Error("Expected semantic section.");
+    const paragraphBounds = element.getBoundingClientRect();
+    const sectionBounds = section.getBoundingClientRect();
+    const sectionStyle = getComputedStyle(section);
+    return {
+      paragraphWidth: paragraphBounds.width,
+      sectionWidth: sectionBounds.width,
+      paddingTop: Number.parseFloat(sectionStyle.paddingTop),
+      paddingBottom: Number.parseFloat(sectionStyle.paddingBottom),
+    };
+  });
+  expect(semanticSectionMetrics.paragraphWidth).toBeLessThan(semanticSectionMetrics.sectionWidth);
+  expect(semanticSectionMetrics.paddingTop).toBeGreaterThanOrEqual(24);
+  expect(semanticSectionMetrics.paddingTop).toBeLessThanOrEqual(32);
+  expect(semanticSectionMetrics.paddingBottom).toBeGreaterThanOrEqual(24);
+  expect(semanticSectionMetrics.paddingBottom).toBeLessThanOrEqual(32);
   await expect(page.getByText("Overview is usable.", { exact: true })).toBeVisible();
   await expect(page.getByText("Evidence remains inspectable.", { exact: true })).toBeVisible();
   await expect(page.getByText("Frontiers remain read-only.", { exact: true })).toBeVisible();

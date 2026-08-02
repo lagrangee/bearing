@@ -451,6 +451,11 @@
     border-left: 0;
     box-shadow: 0 -12px 40px color-mix(in oklch, var(--ink) 14%, transparent);
   }
+  .inspector.inspector-technical-details {
+    top: 0;
+    height: 100dvh;
+    max-height: none;
+  }
   .inspector-close {
     width: var(--control-touch);
     height: var(--control-touch);

@@ -5,6 +5,8 @@ import { Icons } from "./icons";
 import { Inspector } from "./shell";
 
 export type ProjectInspectorSelection = Readonly<{
+  accessibleLabel?: string | undefined;
+  closeLabel?: string | undefined;
   contentAction?: Readonly<{ href: string; label: string }> | undefined;
   detail?: string | undefined;
   eyebrow: string;
@@ -18,7 +20,9 @@ export type ProjectInspectorSelection = Readonly<{
     items?: readonly string[] | undefined;
   }>[];
   source?: SourceRecord | undefined;
+  sourceHref?: string | undefined;
   title: string;
+  variant?: "technical-details" | undefined;
 }>;
 
 function InspectorItems({
@@ -53,10 +57,13 @@ export function ProjectContextInspector({
 }) {
   return (
     <Inspector
+      accessibleLabel={selection.accessibleLabel}
+      closeLabel={selection.closeLabel}
       eyebrow={selection.eyebrow}
       onClose={onClose}
       returnFocusRef={returnFocusRef}
       title={selection.title}
+      variant={selection.variant}
     >
       {selection.detail === undefined ? null : <p className="inspector-body">{selection.detail}</p>}
       <dl className="inspector-list">
@@ -81,9 +88,15 @@ export function ProjectContextInspector({
         <div>
           <dt>Source</dt>
           <dd>
-            {selection.source === undefined
-              ? "Unavailable in the current Snapshot"
-              : selection.source.displayLocator}
+            {selection.source === undefined ? (
+              "Unavailable in the current Snapshot"
+            ) : selection.sourceHref === undefined ? (
+              selection.source.displayLocator
+            ) : (
+              <a href={selection.sourceHref} rel="noreferrer" target="_blank">
+                {selection.source.displayLocator}
+              </a>
+            )}
           </dd>
         </div>
         {selection.source === undefined ? null : (
