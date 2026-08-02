@@ -148,7 +148,6 @@ test("Audit findings reflow at 200 percent equivalent and narrow modal widths", 
   for (const width of [640, 375]) {
     await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
     await expectClosedNarrowNavigation(page);
-    await expect(page.getByText("Read-only normalized snapshot", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /2 affected references/u })).toBeVisible();
     expect(await page.locator("html").evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(
       false,

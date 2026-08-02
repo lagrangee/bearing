@@ -88,8 +88,8 @@ test.beforeAll(async ({ browserName }, testInfo) => {
   missingParent = await mkdtemp(join(tmpdir(), "bearing-portal-isolation-missing-"));
   missingRoot = join(missingParent, "repository-is-gone");
 
-  await runBuiltBearing(["sync", "--repo", alphaRoot]);
-  await runBuiltBearing(["sync", "--repo", recoveryRoot]);
+  await runBuiltBearing(["sync", "--repo", alphaRoot, "--initialize-provider-observations"]);
+  await runBuiltBearing(["sync", "--repo", recoveryRoot, "--initialize-provider-observations"]);
   await writeFile(join(recoveryRoot, ".bearing/cache/project-snapshot.json"), "{malformed\n");
   alphaSources = await readRepositorySourceBytes(alphaRoot);
   recoverySources = await readRepositorySourceBytes(recoveryRoot);
@@ -165,17 +165,16 @@ test("a real Host recovers and synchronizes one project without disturbing its n
   await page.goto(host.url);
   const catalog = page.getByRole("list", { name: "Registered Bearing projects" });
   const orderedNames = async () => catalog.locator("strong").allTextContents();
-  await expect(catalog.getByRole("button")).toHaveCount(3);
+  await expect(catalog.locator("li")).toHaveCount(3);
   expect(await orderedNames()).toEqual(catalogOrder);
   await page.screenshot({ path: join(evidence, "catalog-three-projects.png"), fullPage: true });
 
-  await catalog.getByRole("button").filter({ hasText: "Alpha Project" }).click();
   const alphaCheck = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/v1/projects/alpha-trustworthy/sync") &&
       response.request().postData() === JSON.stringify({ version: 1, mode: "ensure-current" }),
   );
-  await page.getByRole("link", { name: "Open project" }).click();
+  await catalog.getByRole("link", { name: /Alpha Project/u }).click();
   expect(await (await alphaCheck).json()).toMatchObject({
     state: "completed",
     outcome: "materialized",
@@ -184,23 +183,22 @@ test("a real Host recovers and synchronizes one project without disturbing its n
   const alphaCacheBefore = await fixedCacheHashes(alphaRoot);
 
   await page.getByRole("link", { name: /Return to Project Catalog from Alpha Project/u }).click();
-  await expect(catalog.getByRole("button")).toHaveCount(3);
+  await expect(catalog.locator("li")).toHaveCount(3);
   expect(await orderedNames()).toEqual(catalogOrder);
-  await catalog.getByRole("button").filter({ hasText: "Bravo Unavailable" }).click();
-  await expect(page.getByRole("button", { name: "Open project" })).toBeDisabled();
+  await expect(catalog.getByRole("link", { name: /Bravo Unavailable/u })).toHaveCount(0);
+  await expect(catalog.getByText("Bravo Unavailable", { exact: true })).toBeVisible();
+  await expect(catalog.getByText("Repository missing", { exact: true })).toBeVisible();
   await page.screenshot({
     path: join(evidence, "catalog-unavailable-neighbor.png"),
     fullPage: true,
   });
-  await page.keyboard.press("Escape");
 
-  await catalog.getByRole("button").filter({ hasText: "Zulu Recovery" }).click();
   const recoveryCheck = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/v1/projects/zulu-recovery/sync") &&
       response.request().postData() === JSON.stringify({ version: 1, mode: "ensure-current" }),
   );
-  await page.getByRole("link", { name: "Open project" }).click();
+  await catalog.getByRole("link", { name: /Zulu Recovery/u }).click();
   expect(await (await recoveryCheck).json()).toMatchObject({
     state: "completed",
     outcome: "materialized",
@@ -228,7 +226,7 @@ test("a real Host recovers and synchronizes one project without disturbing its n
     outcome: "applied",
     reconciliation: "applied",
   });
-  await expect(page.locator(".project-operation")).toHaveText("Updated");
+  await expect(page.locator(".topbar-sync")).toHaveText("Updated");
   expect(forceTargets).toEqual(["zulu-recovery"]);
   expect(await fixedCacheHashes(alphaRoot)).toEqual(alphaCacheBefore);
   expect(await readRepositorySourceBytes(alphaRoot)).toEqual(alphaSources);
@@ -238,10 +236,9 @@ test("a real Host recovers and synchronizes one project without disturbing its n
   });
 
   await page.getByRole("link", { name: /Return to Project Catalog from Zulu Recovery/u }).click();
-  await expect(catalog.getByRole("button")).toHaveCount(3);
+  await expect(catalog.locator("li")).toHaveCount(3);
   expect(await orderedNames()).toEqual(catalogOrder);
-  await catalog.getByRole("button").filter({ hasText: "Alpha Project" }).click();
-  await page.getByRole("link", { name: "Open project" }).click();
+  await catalog.getByRole("link", { name: /Alpha Project/u }).click();
   await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
   await page.screenshot({ path: join(evidence, "trustworthy-project-return.png"), fullPage: true });
   expect(consoleErrors).toEqual([]);

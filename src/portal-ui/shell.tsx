@@ -1,40 +1,26 @@
-import type {
-  PropsWithChildren,
-  KeyboardEvent as ReactKeyboardEvent,
-  ReactNode,
-  RefObject,
-} from "react";
+import type { PropsWithChildren, KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useCallback, useEffect, useRef } from "react";
 import { Icons } from "./icons";
 import { Action } from "./primitives";
 import { useNarrowViewport } from "./use-narrow";
 
 type ShellProps = PropsWithChildren<{
-  readonly inspector?: ReactNode;
   readonly onRefresh?: () => void;
   readonly refreshing?: boolean;
   readonly title: string;
 }>;
 
-export function CatalogShell({
-  children,
-  inspector,
-  onRefresh,
-  refreshing = false,
-  title,
-}: ShellProps) {
-  const narrow = useNarrowViewport();
-  const modalOpen = narrow && Boolean(inspector);
+export function CatalogShell({ children, onRefresh, refreshing = false, title }: ShellProps) {
   return (
-    <div className={`catalog-shell${inspector ? " has-inspector" : ""}`}>
-      <header className="topbar" inert={modalOpen} aria-hidden={modalOpen}>
+    <div className="catalog-shell">
+      <header className="topbar">
         <a className="brand" href="/" aria-label="Bearing Portal home">
           <span className="brand-mark">C</span>
           <span>Bearing Portal</span>
         </a>
         <div className="catalog-context">
           <span className="catalog-context-label">Catalog</span>
-          <strong>{title}</strong>
+          <h1>{title}</h1>
         </div>
         {onRefresh ? (
           <Action
@@ -48,10 +34,9 @@ export function CatalogShell({
           </Action>
         ) : null}
       </header>
-      <main id="main-content" className="catalog-main" inert={modalOpen} aria-hidden={modalOpen}>
+      <main id="main-content" className="catalog-main">
         {children}
       </main>
-      {inspector}
     </div>
   );
 }

@@ -82,9 +82,8 @@ test("one real-browser comprehension journey opens a prototype and selects an or
   await page.goto(host.url);
   await page
     .getByRole("list", { name: "Registered Bearing projects" })
-    .getByRole("button", { name: "G3 Preview Project" })
+    .getByRole("link", { name: /G3 Preview Project/u })
     .click();
-  await page.getByRole("link", { name: "Open project" }).click();
   await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
   await page.goto(`${host.url}/projects/g3-preview/assets`);
   await expect(page.getByRole("heading", { name: "Assets", level: 1 })).toBeVisible();

@@ -128,7 +128,7 @@ test("Overview is Brief-first, keeps managed context stable, and stays responsiv
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
   await expect(page.locator(".project-switcher code")).toHaveText("Bearing 控制台");
   await expect(page.locator(".project-switcher strong")).toHaveText("Portal Project");
-  await expect(page.locator(".project-operation")).toContainText("Checking");
+  await expect(page.locator(".topbar-sync")).toContainText("Checking");
   const briefTab = page.getByRole("tab", { name: "Brief", exact: true });
   const summaryTab = page.getByRole("tab", { name: "Project Summary", exact: true });
   await expect(briefTab).toHaveAttribute("aria-selected", "true");
@@ -177,10 +177,10 @@ test("Overview is Brief-first, keeps managed context stable, and stays responsiv
   );
   await page.mouse.move(0, 0);
   releaseSync();
-  await expect(page.locator(".project-operation")).toHaveText("Up to date");
+  await expect(page.locator(".topbar-sync")).toHaveText("Sync");
 
   await expect.poll(() => syncCalls).toBe(1);
-  await expect(page.locator(".project-operation")).toHaveText("Up to date");
+  await expect(page.locator(".topbar-sync")).toHaveText("Sync");
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   });
@@ -200,6 +200,13 @@ test("Overview is Brief-first, keeps managed context stable, and stays responsiv
     expect(
       await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
     ).toBe(false);
+    if (width <= 640) {
+      const topbar = await page.locator(".topbar").boundingBox();
+      if (topbar === null) throw new Error("Expected the narrow topbar.");
+      expect(topbar.height).toBeLessThanOrEqual(61);
+      await expect(page.locator(".project-switcher")).toBeHidden();
+      await expect(page.locator(".project-title-narrow")).toBeVisible();
+    }
     await page.screenshot({
       path: await browserArtifactPath(testInfo, `overview-${width}.png`),
       fullPage: true,
@@ -209,6 +216,18 @@ test("Overview is Brief-first, keeps managed context stable, and stays responsiv
   await expectMinimumTarget(summaryTab, 44);
   await expectMinimumTarget(page.locator(".gate-node").first(), 44);
   await expect(page.locator(".updated-date")).toBeHidden();
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  await menu.click();
+  const navigation = page.getByRole("navigation", { name: "Project navigation" });
+  await expect(navigation).toBeVisible();
+  await expect(navigation.getByText("Read only", { exact: true })).toHaveCount(1);
+  await expect(navigation.getByRole("link", { name: "Switch project" })).toHaveAttribute(
+    "href",
+    "/",
+  );
+  await expect(navigation.getByRole("button", { name: "Close navigation" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeFocused();
   const syncBox = await page.getByRole("button", { name: "Sync" }).boundingBox();
   if (syncBox === null) throw new Error("Expected the mobile Sync target.");
   expect(syncBox.x + syncBox.width).toBeLessThanOrEqual(365);
@@ -253,7 +272,7 @@ test("retained cache stays readable and Retry performs a forced reconciliation",
   const banner = page.getByRole("alert");
   await expect(banner).toContainText("Cached project content remains visible");
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
-  await banner.getByRole("button", { name: "Retry", exact: true }).click();
+  await page.locator(".topbar-sync").click();
   await expect(banner).toHaveCount(0);
   expect(requestBodies).toEqual([
     JSON.stringify({ version: 1, mode: "ensure-current" }),

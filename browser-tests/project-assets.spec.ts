@@ -343,7 +343,6 @@ test("Assets preserves zero citations, keyboard return, and modal focus at revie
   for (const width of [640, 375]) {
     await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
     await expectClosedNarrowNavigation(page);
-    await expect(page.getByText("Read-only normalized snapshot", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("link", { name: /Uncited Product Context.+0 citations/u }),
     ).toBeVisible();

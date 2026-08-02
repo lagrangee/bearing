@@ -323,9 +323,8 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
   await page.goto(host.url);
   await page
     .getByRole("list", { name: "Registered Bearing projects" })
-    .getByRole("button", { name: "G3 Comprehension Project" })
+    .getByRole("link", { name: /G3 Comprehension Project/u })
     .click();
-  await page.getByRole("link", { name: "Open project" }).click();
   await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
   let activeSnapshot = local.snapshot;
   let syncTarget = degradedSnapshot(local.snapshot);

@@ -129,9 +129,8 @@ test(
       await page.goto(portal.url);
       await page
         .getByRole("list", { name: "Registered Bearing projects" })
-        .getByRole("button", { name: entryName })
+        .getByRole("link", { name: entryName })
         .click();
-      await page.getByRole("link", { name: "Open project" }).click();
       await expect(page.getByRole("tab", { name: "Brief", exact: true })).toHaveAttribute(
         "aria-selected",
         "true",

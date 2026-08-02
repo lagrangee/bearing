@@ -31,59 +31,33 @@ const expectMinimumTarget = async (target: Locator, size: number): Promise<void>
   expect(box.height).toBeGreaterThanOrEqual(size);
 };
 
-test("Catalog selection is keyboard-safe, responsive, and path-opaque", async ({
+test("Catalog rows open available projects directly and stay quiet and responsive", async ({
   page,
 }, testInfo) => {
   await page.route("**/api/v1/catalog", (route) => route.fulfill({ json: mixedCatalog }));
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/");
 
-  const available = page.getByRole("button", {
-    name: "Bearing 控制台 /Users/example/Projects/Bearing Portal Available",
-    exact: true,
-  });
+  const available = page.getByRole("link", { name: /Bearing 控制台.*Available/u });
+  await expect(available).toHaveAttribute("href", "/projects/available-bearing");
   await available.focus();
-  await page.keyboard.press("Enter");
-  const inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(inspector).toBeVisible();
-  await expect(inspector.getByText("Catalog entry", { exact: true })).toBeVisible();
-  await expectMinimumTarget(inspector.getByRole("button", { name: "Close selected context" }), 40);
-  await expect(inspector.getByRole("link", { name: "Open project" })).toHaveAttribute(
-    "href",
-    "/projects/available-bearing",
-  );
-  await page.keyboard.press("Escape");
   await expect(available).toBeFocused();
-
-  await page.keyboard.press("ArrowDown");
-  const missing = page.getByRole("button", {
-    name: "Missing project /Users/example/Projects/missing-project Repository missing",
-    exact: true,
-  });
-  await expect(missing).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(page.getByRole("button", { name: "Open project" })).toBeDisabled();
-  await page.keyboard.press("Escape");
+  await expect(page.getByRole("link", { name: /Missing project/u })).toHaveCount(0);
+  await expect(page.getByText("Repository missing", { exact: true })).toBeVisible();
   await page.screenshot({
     path: await browserArtifactPath(testInfo, "catalog-mixed-1280.png"),
     fullPage: true,
   });
 
   await page.setViewportSize({ width: 375, height: 812 });
-  await available.click();
-  const narrowInspector = page.getByRole("dialog", { name: "Selected context" });
-  await expect(narrowInspector).toBeVisible();
-  await expectMinimumTarget(
-    narrowInspector.getByRole("button", { name: "Close selected context" }),
-    44,
-  );
-  await expect(page.locator("main")).toHaveAttribute("inert", "");
+  await expectMinimumTarget(available, 44);
+  await expect(
+    page.getByText("/Users/example/Projects/Bearing Portal", { exact: true }),
+  ).toBeHidden();
   await page.screenshot({
-    path: await browserArtifactPath(testInfo, "catalog-inspector-375.png"),
+    path: await browserArtifactPath(testInfo, "catalog-375.png"),
     fullPage: true,
   });
-  await page.keyboard.press("Escape");
-  await expect(available).toBeFocused();
   expect(
     await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
   ).toBe(false);
@@ -91,6 +65,7 @@ test("Catalog selection is keyboard-safe, responsive, and path-opaque", async ({
 });
 
 test("Catalog renders empty and typed failure states", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 375, height: 812 });
   await page.route("**/api/v1/catalog", (route) =>
     route.fulfill({ json: { version: 1, state: "ready", entries: [], session } }),
   );

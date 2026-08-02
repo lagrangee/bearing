@@ -363,12 +363,7 @@ export function ProjectPage({
       <div className="page project-state-page">
         <EmptyState
           title="Project could not be loaded"
-          detail={activation.state.error.message}
-          action={
-            <Action data-project-activation-action="manual" onClick={activation.retry}>
-              Retry
-            </Action>
-          }
+          detail="Use the Sync control to try loading this project again."
         />
       </div>
     );
@@ -414,18 +409,6 @@ export function ProjectPage({
         inert={overlayOpen}
         aria-hidden={overlayOpen}
       >
-        <p className="mobile-truth-boundary">Read-only normalized snapshot</p>
-        {activation.state.kind === "failed" && view !== undefined ? (
-          <div className="operation-banner" role="alert">
-            <span>
-              {activation.state.error.message}
-              {snapshot === undefined ? null : " Cached project content remains visible."}
-            </span>
-            <Action data-project-activation-action="manual" onClick={activation.retry}>
-              Retry
-            </Action>
-          </div>
-        ) : null}
         {content}
       </main>
       {selection === null ? null : (

@@ -292,7 +292,6 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
   for (const width of [640, 375]) {
     await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
     await expect(page.locator(".project-nav")).toHaveAttribute("aria-hidden", "true");
-    await expect(page.getByText("Read-only normalized snapshot", { exact: true })).toBeVisible();
     expect(
       await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
     ).toBe(false);
@@ -311,7 +310,6 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
   for (const width of [768, 640, 375]) {
     await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
     await expect(page.locator(".project-nav")).toHaveAttribute("aria-hidden", "true");
-    await expect(page.getByText("Read-only normalized snapshot", { exact: true })).toBeVisible();
     expect(
       await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
     ).toBe(false);
