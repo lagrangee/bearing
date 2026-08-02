@@ -1,4 +1,5 @@
 import type { RefinementCtx } from "zod";
+import { isManagedAttentionDiagnostic } from "./managed-attention";
 
 type Collection<T> =
   | Readonly<{ validity: "available"; items: readonly T[] }>
@@ -15,7 +16,30 @@ type AttentionItem =
     }>;
 
 export type AttentionConsistencySnapshot = Readonly<{
-  diagnostics: readonly Readonly<{ reference: string; impact: "blocking" | "non-blocking" }>[];
+  diagnostics: readonly Readonly<{
+    reference: string;
+    impact: "blocking" | "non-blocking";
+    target: string;
+    source?: string | undefined;
+  }>[];
+  efforts: Collection<Readonly<{ workBinding?: Readonly<{ nativeScope: string }> | undefined }>>;
+  sources: readonly Readonly<{
+    reference: string;
+    kind: "canonical" | "tracker" | "asset" | "evidence";
+    binding?: Readonly<{ role: string }> | undefined;
+  }>[];
+  nativeScopeDiscovery:
+    | Readonly<{ state: "never-run" }>
+    | Readonly<{
+        state: "available" | "partial" | "unavailable" | "invalid" | "unsupported";
+        scopes: readonly Readonly<{
+          summary: Readonly<{
+            locator: string;
+            subjects: readonly Readonly<{ locator: string }>[];
+          }>;
+          bindingContext: Readonly<{ state: string }>;
+        }>[];
+      }>;
   checks: Collection<Decision>;
   reviews: Collection<Decision>;
   attention: readonly AttentionItem[];
@@ -43,8 +67,24 @@ export const validateAttentionConsistency = (
   snapshot: AttentionConsistencySnapshot,
   context: RefinementCtx,
 ): void => {
+  const managedTargets = [
+    ...trustedItems(snapshot.efforts).flatMap((effort) =>
+      effort.workBinding === undefined ? [] : [effort.workBinding.nativeScope],
+    ),
+    ...(snapshot.nativeScopeDiscovery.state === "never-run"
+      ? []
+      : snapshot.nativeScopeDiscovery.scopes.flatMap((scope) =>
+          scope.bindingContext.state === "unbound"
+            ? []
+            : [scope.summary.locator, ...scope.summary.subjects.map((subject) => subject.locator)],
+        )),
+  ];
   const expected: AttentionItem[] = snapshot.diagnostics
-    .filter((diagnostic) => diagnostic.impact === "blocking")
+    .filter(
+      (diagnostic) =>
+        diagnostic.impact === "blocking" &&
+        isManagedAttentionDiagnostic(diagnostic, snapshot.sources, managedTargets),
+    )
     .map((diagnostic) => ({
       kind: "structural-diagnostic",
       diagnosticReference: diagnostic.reference,

@@ -47,7 +47,6 @@ export function AttentionQueue({
           <Icons.attention />
         </span>
         <div>
-          <p className="eyebrow">Needs a decision before normal guidance</p>
           <h2 id="attention-title">Attention</h2>
           <p>{items.length} actionable project items</p>
         </div>

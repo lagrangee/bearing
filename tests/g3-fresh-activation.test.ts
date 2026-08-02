@@ -139,11 +139,14 @@ test(
         .getByRole("button", { name: entryName })
         .click();
       await page.getByRole("link", { name: "Open project" }).click();
-      await expect(page.getByRole("heading", { name: "Discovered Work", level: 2 })).toBeVisible();
-      await expect(page.getByText("Summary only", { exact: true })).toBeVisible();
-      await expect(page.getByText("1 scope", { exact: true })).toBeVisible();
-      await expect(page.getByText("complete coverage", { exact: true })).toBeVisible();
-      await expect(page.getByText("current freshness", { exact: true })).toBeVisible();
+      await expect(page.getByRole("tab", { name: "Brief", exact: true })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      await expect(page.getByText("Project Brief has not been generated yet.")).toBeVisible();
+      await expect(page.getByRole("tab", { name: "Project Summary", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Discovered Work", level: 2 })).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "Next work", level: 2 })).toHaveCount(0);
       await expect(page.getByText("Create Effort", { exact: true })).toHaveCount(0);
       await expect(page.getByText("Bind", { exact: true })).toHaveCount(0);
       await expect(page.getByText("No Roadmap Index is available", { exact: false })).toBeVisible();

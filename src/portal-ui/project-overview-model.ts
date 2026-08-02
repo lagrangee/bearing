@@ -2,9 +2,8 @@ import type { NativeScopeInspectionSubject } from "../native-scope-inspection";
 import type {
   AlignmentCheck,
   AttentionItem,
-  NativeScopeDiscoveryProjection,
-  NextWorkGuidance,
   PlanningReview,
+  ProjectBrief,
   ProjectionIssue,
   ProjectSnapshot,
   ProjectSummary,
@@ -12,6 +11,7 @@ import type {
   SourceRecord,
   SourceReference,
 } from "../project-snapshot/contract";
+import { targetWithinNativeScope } from "../project-snapshot/managed-attention";
 import { mattNativeScopeSubject } from "../providers/matt-skills-v1/native-subject";
 import { buildOverviewRoadmaps, type OverviewRoadmaps } from "./project-overview-roadmaps";
 
@@ -37,11 +37,10 @@ export type OverviewAttentionItem = Readonly<{
 }>;
 
 export type ProjectOverviewModel = Readonly<{
+  brief: ScopedValue<ProjectBrief>;
   summary: ScopedValue<ProjectSummary>;
   attention: readonly OverviewAttentionItem[];
-  guidance: ScopedValue<NextWorkGuidance>;
   roadmaps: OverviewRoadmaps;
-  discoveredWork: NativeScopeDiscoveryProjection;
   sources: ReadonlyMap<string, SourceRecord>;
 }>;
 
@@ -92,8 +91,8 @@ const attentionModel = (
   checks: ReadonlyMap<string, AlignmentCheck>,
   reviews: ReadonlyMap<string, PlanningReview>,
   sources: ReadonlyMap<string, SourceRecord>,
-  discovery: NativeScopeDiscoveryProjection,
   efforts: ProjectSnapshot["efforts"],
+  discovery: ProjectSnapshot["nativeScopeDiscovery"],
 ): OverviewAttentionItem => {
   switch (item.kind) {
     case "structural-diagnostic": {
@@ -118,20 +117,28 @@ const attentionModel = (
               const discoveredScope =
                 discovery.state === "never-run"
                   ? undefined
-                  : discovery.scopes.find(
-                      (candidate) => candidate.summary.locator === diagnostic.target,
+                  : discovery.scopes.find((scope) =>
+                      [
+                        scope.summary.locator,
+                        ...scope.summary.subjects.map((subject) => subject.locator),
+                      ].some((target) => targetWithinNativeScope(diagnostic.target, target)),
                     );
               const boundScope =
                 efforts.validity === "invalid"
                   ? undefined
                   : efforts.items.find(
-                      (effort) => effort.workBinding?.nativeScope === diagnostic.target,
+                      (effort) =>
+                        effort.workBinding !== undefined &&
+                        targetWithinNativeScope(diagnostic.target, effort.workBinding.nativeScope),
                     )?.workBinding;
               const boundSubject =
                 boundScope === undefined
                   ? undefined
                   : mattNativeScopeSubject({ binding: boundScope });
-              const nativeScopeId = discoveredScope?.summary.identity ?? boundSubject?.id;
+              const nativeScopeId =
+                discoveredScope === undefined
+                  ? boundSubject?.id
+                  : mattNativeScopeSubject(discoveredScope.summary).id;
               return nativeScopeId === undefined
                 ? {}
                 : {
@@ -174,6 +181,7 @@ export const buildProjectOverviewModel = (snapshot: ProjectSnapshot): ProjectOve
   const checks = indexBy(projectionItems(snapshot.checks), (check) => check.id);
   const reviews = indexBy(projectionItems(snapshot.reviews), (review) => review.id);
   return {
+    brief: scopedValue(snapshot.brief, sources),
     summary: scopedValue(snapshot.summary, sources),
     attention: snapshot.attention.map((item) =>
       attentionModel(
@@ -182,13 +190,11 @@ export const buildProjectOverviewModel = (snapshot: ProjectSnapshot): ProjectOve
         checks,
         reviews,
         sources,
-        snapshot.nativeScopeDiscovery,
         snapshot.efforts,
+        snapshot.nativeScopeDiscovery,
       ),
     ),
-    guidance: scopedValue(snapshot.guidance, sources),
     roadmaps: buildOverviewRoadmaps(snapshot, sources),
-    discoveredWork: snapshot.nativeScopeDiscovery,
     sources,
   };
 };

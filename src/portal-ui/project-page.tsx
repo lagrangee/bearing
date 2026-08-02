@@ -248,12 +248,10 @@ export function ProjectPage({
     content =
       section === "overview" ? (
         <OverviewPage
-          discoveryOperation={activation.discovery}
           entryId={entryId}
           onInspect={inspect}
           onNavigate={navigateFromProject}
           onOpenRoadmap={openRoadmap}
-          onRefreshDiscovery={activation.refreshDiscovery}
           snapshot={snapshot}
         />
       ) : section === "roadmaps" ? (

@@ -86,6 +86,23 @@ export const buildProjectSnapshot = async (
   );
   const diagnosticProjection = buildSnapshotDiagnostics({
     sitemapFingerprint: input.sitemapFingerprint,
+    managedTargets: [
+      ...(planning.efforts.validity === "invalid"
+        ? []
+        : planning.efforts.items.flatMap((effort) =>
+            effort.workBinding === undefined ? [] : [effort.workBinding.nativeScope],
+          )),
+      ...(nativeScopeDiscovery.state === "never-run"
+        ? []
+        : nativeScopeDiscovery.scopes.flatMap((scope) =>
+            scope.bindingContext.state === "unbound"
+              ? []
+              : [
+                  scope.summary.locator,
+                  ...scope.summary.subjects.map((subject) => subject.locator),
+                ],
+          )),
+    ],
     diagnostics: [
       ...input.diagnostics,
       ...nativeScopeDiscoveryBindingDiagnostics(nativeScopeDiscovery),

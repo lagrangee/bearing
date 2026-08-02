@@ -31,6 +31,103 @@
 .project-intro {
   padding: var(--space-3) 0 var(--space-10);
 }
+.orientation-tabs {
+  display: flex;
+  gap: var(--space-1);
+  width: fit-content;
+  max-width: 100%;
+  margin-top: var(--space-6);
+  padding: 3px;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.orientation-tabs button {
+  min-height: var(--control-size);
+  padding: 0 var(--space-4);
+  color: var(--muted);
+  border: 0;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.orientation-tabs button[aria-selected="true"] {
+  color: var(--ink);
+  background: var(--canvas);
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--ink) 12%, transparent);
+}
+.orientation-tabs button:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+.orientation-canvas {
+  max-width: 850px;
+  margin-top: var(--space-5);
+  padding: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--canvas);
+}
+.orientation-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-6);
+  margin-bottom: var(--space-4);
+}
+.orientation-time {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--type-meta);
+}
+.orientation-time span {
+  font-weight: 600;
+}
+.orientation-prose > p,
+.orientation-state > p,
+.summary-prose section > p,
+.summary-prose li {
+  max-width: 76ch;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+.orientation-prose > p,
+.orientation-state > p {
+  margin-bottom: var(--space-3);
+  font-size: var(--type-section);
+}
+.orientation-prose > p:last-child,
+.orientation-state > p:last-child {
+  margin-bottom: 0;
+}
+.orientation-state > p {
+  color: var(--muted);
+}
+.summary-prose {
+  display: grid;
+  gap: var(--space-5);
+}
+.summary-prose .orientation-heading {
+  margin-bottom: 0;
+}
+.summary-prose section h3 {
+  margin-bottom: var(--space-2);
+  font-size: var(--type-ui);
+}
+.summary-prose section p,
+.summary-prose ul {
+  margin-bottom: 0;
+}
+.summary-prose ul {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: var(--space-5);
+}
 .project-brief {
   max-width: 850px;
   margin-top: var(--space-8);
@@ -357,6 +454,27 @@
 .roadmap-landscape-item .horizon-line {
   flex: 1 1 80px;
   margin-top: var(--space-3);
+}
+
+@media (max-width: 640px) {
+  .orientation-tabs {
+    width: 100%;
+  }
+
+  .orientation-tabs button {
+    flex: 1 1 0;
+    min-height: 44px;
+    min-width: 0;
+    padding-inline: var(--space-2);
+  }
+
+  .roadmap-landscape-item .gate-node {
+    min-height: 44px;
+  }
+
+  .orientation-canvas {
+    padding: var(--space-5);
+  }
 }
 .project-operation {
   display: inline-flex;
