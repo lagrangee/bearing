@@ -6,7 +6,9 @@ import { buildPlanningLineageProjection } from "../src/project-snapshot/planning
 import {
   assetProjectionSchema,
   gateSchema,
+  projectBriefSchema,
   projectSnapshotSchema,
+  projectSummarySchema,
 } from "../src/project-snapshot/schema";
 import {
   createSourceReference,
@@ -84,10 +86,11 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 13,
+  schemaVersion: 14,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
+  brief: { validity: "absent" },
   roadmapIndex: { validity: "absent" },
   roadmaps: availableItems,
   gates: availableItems,
@@ -192,6 +195,7 @@ test("parses a repository-scoped Snapshot with the complete domain breadth", () 
     "producer",
     "basis",
     "summary",
+    "brief",
     "roadmapIndex",
     "roadmaps",
     "gates",
@@ -399,6 +403,40 @@ test("accepts only explicit BCP-47 metadata for Project Summary parts", () => {
   // Then: only the explicit valid BCP-47 tag is accepted.
   expect(valid.success).toBe(true);
   expect(invalid.success).toBe(false);
+});
+
+test("keeps Summary and Brief time provenance UTC and independently optional", () => {
+  const summary = {
+    id: "project-summary:current",
+    title: "Project Summary",
+    source,
+    purpose: "Keep the project oriented.",
+    currentDesign: "Use explicit governance boundaries.",
+    boundaries: [],
+    futureCandidates: [],
+    materialRevisions: [],
+  };
+  const brief = {
+    id: "project-brief:current",
+    title: "Project Brief",
+    source,
+    generatedAt: "2026-08-03T02:03:04Z",
+    projectPurpose: "Keep the project oriented.",
+    currentStage: "Validate the revised reading contract.",
+    materialAchievedState: "The typed planning boundary is established.",
+  };
+
+  expect(projectSummarySchema.safeParse(summary).success).toBe(true);
+  expect(
+    projectSummarySchema.safeParse({ ...summary, updatedAt: "2026-08-03T01:02:03Z" }).success,
+  ).toBe(true);
+  expect(
+    projectSummarySchema.safeParse({ ...summary, updatedAt: "2026-08-03T09:02:03+08:00" }).success,
+  ).toBe(false);
+  expect(projectBriefSchema.safeParse(brief).success).toBe(true);
+  expect(
+    projectBriefSchema.safeParse({ ...brief, generatedAt: "2026-08-03T10:03:04+08:00" }).success,
+  ).toBe(false);
 });
 
 test("requires one primary and permits zero to two Guidance alternatives", () => {

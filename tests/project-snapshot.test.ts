@@ -74,7 +74,7 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   });
 
   expect(snapshot).toMatchObject({
-    schemaVersion: 13,
+    schemaVersion: 14,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapFingerprint: sync.fingerprint },
     summary: {
@@ -116,6 +116,62 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
     expect(source.reference).not.toContain(source.displayLocator);
     expect(source.displayLocator.startsWith("/")).toBe(false);
   }
+});
+
+test("materializes Project Brief independently from Project Summary", async () => {
+  const root = await createValidBearingRepo();
+  await writeFixture(
+    root,
+    ".bearing/state/project-brief.md",
+    `---
+Type: project-brief
+ID: project-brief:current
+Generated at: 2026-08-03T02:03:04Z
+---
+
+# Project Brief
+
+## Project Purpose
+
+Exercise the fixture.
+
+## Current Stage
+
+The project is proving its typed reading boundary.
+
+## Material Achieved State
+
+The canonical planning loop is available.
+`,
+  );
+  const sync = await runInitialSync(root);
+
+  const snapshot = await buildProjectSnapshot({
+    repoRoot: root,
+    packageVersion: "0.0.0-test",
+    inputs: sync.inputs,
+    sitemapFingerprint: sync.fingerprint,
+    diagnostics: sync.diagnostics,
+    advisoryFreshness: sync.advisoryFreshness,
+  });
+
+  expect(snapshot.summary).toMatchObject({ validity: "available" });
+  expect(snapshot.brief).toMatchObject({
+    validity: "available",
+    value: {
+      id: "project-brief:current",
+      generatedAt: "2026-08-03T02:03:04Z",
+      currentStage: "The project is proving its typed reading boundary.",
+    },
+  });
+  if (snapshot.brief.validity !== "available") throw new Error("Expected Project Brief.");
+  expect(snapshot.sources).toContainEqual(
+    expect.objectContaining({
+      kind: "canonical",
+      displayLocator: ".bearing/state/project-brief.md",
+      binding: { role: "project-brief", identity: "project-brief:current" },
+    }),
+  );
 });
 
 test("isolates an invalid Summary while preserving trustworthy Roadmaps", async () => {

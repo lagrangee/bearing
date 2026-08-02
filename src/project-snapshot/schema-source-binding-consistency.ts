@@ -33,6 +33,7 @@ type SourceRecord = Readonly<{
 
 export type SourceBindingConsistencySnapshot = Readonly<{
   summary: Singleton<IdentifiedSource>;
+  brief: Singleton<IdentifiedSource>;
   roadmapIndex: Singleton<Readonly<{ source: string }>>;
   roadmaps: Collection<IdentifiedSource>;
   gates: Collection<IdentifiedSource>;
@@ -192,6 +193,21 @@ export const validateSourceBindingConsistency = (
         bearingType: "project-summary",
       },
       ["summary", "value"],
+      context,
+    );
+  }
+  const brief = trustedValue(snapshot.brief);
+  if (brief !== undefined) {
+    validateBinding(
+      index,
+      brief.source,
+      {
+        kind: "canonical",
+        role: "project-brief",
+        identity: brief.id,
+        bearingType: "project-brief",
+      },
+      ["brief", "value"],
       context,
     );
   }

@@ -98,12 +98,22 @@ describe("package-owned planning skills", () => {
           reference: "skills/bearing/references/shared/executor-continuation.md",
           loading: "on-direct-executor",
         },
+        {
+          key: "project-brief-refresh",
+          reference: "skills/bearing/references/shared/project-brief-refresh.md",
+          loading: "branch-declared",
+        },
       ],
       publicSharedContracts: ["typed-inspection", "artifact-registration", "executor-continuation"],
       branches: branchEntries.map((key) => ({
         key,
         reference: `skills/bearing/references/branches/${key}.md`,
-        sharedContracts: ["planning-transaction"],
+        sharedContracts: [
+          "planning-transaction",
+          ...(["roadmap", "milestone-gate", "effort-lifecycle"].includes(key)
+            ? ["project-brief-refresh"]
+            : []),
+        ],
       })),
     });
   });
@@ -353,6 +363,43 @@ describe("package-owned planning skills", () => {
     expect(skill).toMatch(/never infer/iu);
   });
 
+  test("terminal lifecycle routes orchestrate Summary and Brief refresh exactly once", async () => {
+    // Given: the package-owned lifecycle routes and their shared Brief refresh protocol.
+    const setup = await readBranch("setup");
+    const summary = await readBranch("summary");
+    const effort = await readBranch("effort-lifecycle");
+    const gate = await readBranch("milestone-gate");
+    const roadmap = await readBranch("roadmap");
+    const refresh = await readSharedContract("project-brief-refresh");
+
+    // Then: initialization owns Summary only, terminal routes share one end-of-workflow refresh,
+    // and Roadmap completion orders Summary before Brief without background coalescing.
+    expect(setup).toMatch(
+      /initialization[\s\S]*Project Summary[\s\S]*does not[\s\S]*Project Brief/iu,
+    );
+    expect(summary).toMatch(/initialization[\s\S]*Roadmap completion/iu);
+    expect(summary).toMatch(/Updated at/iu);
+    expect(summary).toMatch(/Gate Passage[\s\S]*Effort conclusion[\s\S]*do not refresh/iu);
+    expect(effort).toMatch(/conclusion[\s\S]*Project Brief Refresh/iu);
+    expect(gate).toMatch(/Passage[\s\S]*Project Brief Refresh/iu);
+    expect(roadmap).toMatch(/completed[\s\S]*Project Summary[\s\S]*Project Brief/iu);
+    expect(roadmap).toMatch(/superseded[\s\S]*Project Brief[\s\S]*not[\s\S]*Project Summary/iu);
+    expect(refresh).toMatch(/workflow[\s\S]*exactly once/iu);
+    expect(refresh).toMatch(/already loaded[\s\S]*complete semantic context/iu);
+    expect(refresh).toMatch(/retain[\s\S]*previous[\s\S]*Generated at/iu);
+    expect(refresh).toMatch(/failure does not roll back[\s\S]*lifecycle-owner write/iu);
+    expect(refresh).toMatch(/not[\s\S]*timer[\s\S]*background worker[\s\S]*Portal action/iu);
+    expect(refresh).toMatch(
+      /Ticket creation, claim, resolution, ordinary Sync, Portal entry, elapsed time, and ordinary conversation never trigger/iu,
+    );
+    const router = await readSkill("bearing");
+    expect(router.body).toMatch(/`partial`[\s\S]*lifecycle[\s\S]*Summary or Brief/iu);
+    for (const route of [summary, effort, gate, roadmap]) {
+      expect(route).toMatch(/- `partial`:/iu);
+    }
+    expect(summary).toMatch(/restore[\s\S]*previous bytes[\s\S]*previous `Updated at`/iu);
+  });
+
   test("bearing clean-cuts completeness-sensitive retrieval to typed package CLI inspection", async () => {
     const skill = await readSharedContract("typed-inspection");
 
@@ -388,6 +435,8 @@ describe("package-owned planning skills", () => {
     expect(skill).toMatch(/`complete`[\s\S]*source retrieval[\s\S]*semantic judgment/iu);
     expect(skill).toMatch(/`partial`[\s\S]*bounded orientation/iu);
     expect(skill).toMatch(/`partial`[\s\S]*Do not[\s\S]*scope-complete planning mutation/iu);
+    expect(skill).toMatch(/projectOrientation[\s\S]*summary[\s\S]*brief/iu);
+    expect(skill).toMatch(/legacy Summary[\s\S]*omit[\s\S]*absent Brief/iu);
     for (const forbiddenClaim of [
       "all contributors are known",
       "definitive readiness",

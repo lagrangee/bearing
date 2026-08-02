@@ -16,6 +16,7 @@ import type {
   PlanningLineageProjection,
   PlanningReview,
   ProjectionIssue,
+  ProjectSnapshotInput,
   ProviderScopeObservation,
   Roadmap,
   SnapshotDiagnostic,
@@ -87,10 +88,17 @@ export type PlanningTarget =
   | Readonly<{ kind: "gate"; id: string }>
   | Readonly<{ kind: "effort"; id: string }>;
 
+export type PlanningGraphProjectOrientation = Readonly<{
+  summary: ProjectSnapshotInput["summary"];
+  brief: ProjectSnapshotInput["brief"];
+  sources: readonly SourceRecord[];
+}>;
+
 type InvalidContextResult<Target extends PlanningTarget> = Readonly<{
   fingerprint: string;
   state: "invalid";
   target: Target;
+  projectOrientation: PlanningGraphProjectOrientation;
   context?: undefined;
   issues: readonly PlanningGraphIssue[];
 }>;
@@ -100,6 +108,7 @@ type PlanningContextResultFor<Target extends PlanningTarget, Context> =
       fingerprint: string;
       state: "complete" | "partial";
       target: Target;
+      projectOrientation: PlanningGraphProjectOrientation;
       context: Context;
       issues: readonly PlanningGraphIssue[];
     }>
@@ -151,6 +160,8 @@ export interface PlanningGraph {
 }
 
 type GraphCollections = Readonly<{
+  summary: ProjectSnapshotInput["summary"];
+  brief: ProjectSnapshotInput["brief"];
   roadmaps: CollectionProjection<Roadmap>;
   gates: CollectionProjection<MilestoneGate>;
   efforts: CollectionProjection<Effort>;
@@ -367,6 +378,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
   readonly #collections: GraphCollections;
   readonly #planningProjection: PlanningGraphProjection;
   readonly #lineageProjection: PlanningLineageProjection;
+  readonly #projectOrientation: PlanningGraphProjectOrientation;
   readonly #sources: readonly SourceRecord[];
   readonly #sourceByReference: ReadonlyMap<string, SourceRecord>;
   readonly #knownKinds: ReadonlyMap<string, ReadonlySet<string>>;
@@ -393,6 +405,26 @@ class ImmutablePlanningGraph implements PlanningGraph {
     this.#collections = deepFreeze(collections);
     this.#planningProjection = deepFreeze(planningProjection);
     this.#lineageProjection = deepFreeze(lineageProjection);
+    const orientationSourceReferences = new Set(
+      [
+        ...(collections.summary.validity === "partial" || collections.summary.validity === "invalid"
+          ? collections.summary.issues
+          : []),
+        ...(collections.brief.validity === "partial" || collections.brief.validity === "invalid"
+          ? collections.brief.issues
+          : []),
+      ].flatMap((issue) => (issue.source === undefined ? [] : [issue.source])),
+    );
+    this.#projectOrientation = deepFreeze({
+      summary: collections.summary,
+      brief: collections.brief,
+      sources: sources.filter(
+        (source) =>
+          source.binding?.role === "project-summary" ||
+          source.binding?.role === "project-brief" ||
+          orientationSourceReferences.has(source.reference),
+      ),
+    });
     this.#sources = deepFreeze([...sources]);
     this.#sourceByReference = new Map(sources.map((source) => [source.reference, source]));
     this.#knownKinds = knownKinds;
@@ -435,6 +467,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       fingerprint: this.fingerprint,
       state: "invalid" as const,
       target,
+      projectOrientation: this.#projectOrientation,
       issues: stableIssues([
         relationIssue(
           wrongKind
@@ -813,6 +846,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       fingerprint: this.fingerprint,
       state: finalIssues.length === 0 ? ("complete" as const) : ("partial" as const),
       target,
+      projectOrientation: this.#projectOrientation,
       context: {
         roadmap: valueWithSource(roadmap, this.#sourceByReference),
         gates: orderedGates.map((gate) => valueWithSource(gate, this.#sourceByReference)),
@@ -879,6 +913,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       fingerprint: this.fingerprint,
       state: finalIssues.length === 0 ? ("complete" as const) : ("partial" as const),
       target,
+      projectOrientation: this.#projectOrientation,
       context: {
         gate: valueWithSource(gate, this.#sourceByReference),
         ...(roadmap === undefined
@@ -910,6 +945,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       fingerprint: this.fingerprint,
       state: finalIssues.length === 0 ? ("complete" as const) : ("partial" as const),
       target,
+      projectOrientation: this.#projectOrientation,
       context: {
         ...context,
         sources: this.#sourceClosure([effort.source], [context], finalIssues),
@@ -1029,6 +1065,8 @@ export const buildPlanningGraph = async (
     directEvidence: collectAssetDirectEvidence(input.decoded.records),
   });
   const graphCollections: GraphCollections = {
+    summary: governance.summary,
+    brief: governance.brief,
     roadmaps: overlayNormalizedItems(governance.roadmaps, planningProjection.roadmaps),
     gates: overlayNormalizedItems(governance.gates, planningProjection.gates),
     efforts: overlayNormalizedItems(governance.efforts, planningProjection.efforts),

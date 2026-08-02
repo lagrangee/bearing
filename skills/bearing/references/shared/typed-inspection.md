@@ -2,7 +2,7 @@
 
 Load this shared contract only when a conclusion or action depends on target completeness. The Sitemap remains limited to whole-project orientation, target discovery, source routing, and top-level Attention; it cannot prove a closed target scope.
 
-Use only the installed package-owned CLI at `$HOME/.bearing/bin/bearing`. Automatically invoke `$HOME/.bearing/bin/bearing inspect <roadmap|gate|effort> <stable-id> --repo <repo-root>` and do not ask the user to run it. The target union is closed to `roadmap`, `gate`, and `effort`.
+Use only the installed package-owned CLI at `$HOME/.bearing/bin/bearing`. Automatically invoke `$HOME/.bearing/bin/bearing inspect <roadmap|gate|effort> <stable-id> --repo <repo-root>` and do not ask the user to run it. The target union is closed to `roadmap`, `gate`, and `effort`. Every result carries one generation-bound `projectOrientation` with independently typed `summary` and `brief` singleton projections plus their exact Source records. Preserve `available`, `absent`, `partial`, and `invalid`; a legacy Summary may omit `updatedAt`, an absent Brief remains absent, and no inspect path derives one product or time from the other.
 
 Inspection is mandatory for any completeness-sensitive claim or action about:
 

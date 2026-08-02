@@ -374,7 +374,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 13,
+    schemaVersion: 14,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -390,6 +390,7 @@ export const createProjectOverviewFixture = () => {
         source: summarySource,
       },
     },
+    brief: { validity: "absent" },
     roadmapIndex: {
       validity: "available",
       value: {

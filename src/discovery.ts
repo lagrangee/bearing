@@ -9,6 +9,7 @@ const INTERPRETATION_INPUTS = [
   ".bearing/manifest.json",
   ".bearing/provider.json",
   ".bearing/state/project-summary.md",
+  ".bearing/state/project-brief.md",
   "CONTEXT.md",
   "docs/agents/issue-tracker.md",
   "docs/agents/triage-labels.md",

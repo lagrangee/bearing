@@ -11,6 +11,7 @@ import type {
   Roadmap,
   SourceRecord,
 } from "./contract";
+import { buildBriefProjection } from "./governance-brief";
 import {
   type BuildResult,
   bodyIssue,
@@ -33,7 +34,7 @@ import { isolateDuplicateIdentities } from "./projection-identity";
 import { authoritySchema, effortSchema, gateSchema, roadmapSchema } from "./schema";
 
 type Input = GovernanceInput;
-type Governance = Pick<ProjectSnapshotInput, "summary" | "roadmapIndex"> &
+type Governance = Pick<ProjectSnapshotInput, "summary" | "brief" | "roadmapIndex"> &
   Readonly<{
     roadmaps: CollectionProjection<Roadmap>;
     gates: CollectionProjection<MilestoneGate>;
@@ -214,6 +215,7 @@ export const buildGovernanceProjection = (input: Input): Governance => {
   );
   return {
     summary: buildSummaryProjection(input),
+    brief: buildBriefProjection(input),
     roadmapIndex: buildRoadmapIndexProjection(input, roadmapCollection),
     roadmaps: roadmapCollection,
     gates,

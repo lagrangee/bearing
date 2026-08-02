@@ -6,6 +6,7 @@ export { displayAssetLocatorSchema, displaySourceLocatorSchema } from "../refere
 export const SOURCE_KINDS = ["canonical", "tracker", "asset", "evidence"] as const;
 export const SOURCE_BINDING_ROLES = [
   "project-summary",
+  "project-brief",
   "roadmap-index",
   "roadmap",
   "milestone-gate",

@@ -36,6 +36,7 @@ export type ProjectSitemapModel = Readonly<{
 
 const SECTION_BY_TYPE: Readonly<Record<BearingRecordType, string | undefined>> = {
   "project-summary": "Project Summaries",
+  "project-brief": "Project Briefs",
   "roadmap-index": undefined,
   roadmap: "Roadmaps",
   "milestone-gate": "Milestone Gates",
@@ -50,6 +51,7 @@ const SECTION_BY_TYPE: Readonly<Record<BearingRecordType, string | undefined>> =
 
 const DEFAULT_TITLE: Readonly<Record<BearingRecordType, string>> = {
   "project-summary": "Invalid Project Summary",
+  "project-brief": "Project Brief",
   "roadmap-index": "Invalid Roadmap Index",
   roadmap: "Invalid Roadmap",
   "milestone-gate": "Invalid Milestone Gate",
@@ -122,6 +124,7 @@ const bearingNodes = (
   });
   switch (data.Type) {
     case "project-summary":
+    case "project-brief":
       return [base(data.ID)];
     case "roadmap": {
       const node = base(data.ID);

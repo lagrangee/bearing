@@ -8,6 +8,7 @@ import type { AdvisoryFreshness, StructuralDiagnostic } from "./types";
 
 const SECTION_ORDER = [
   "Project Summaries",
+  "Project Briefs",
   "Roadmaps",
   "Milestone Gates",
   "Efforts",

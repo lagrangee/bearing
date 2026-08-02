@@ -13,6 +13,7 @@ import {
   PROJECT_SNAPSHOT_VERSION,
   type planningAuditSchema,
   type planningReviewSchema,
+  type projectBriefSchema,
   type projectionIssueSchema,
   type projectSnapshotSchema,
   type projectSummarySchema,
@@ -60,6 +61,7 @@ export type CollectionProjection<T> =
     }>
   | Readonly<{ validity: "invalid"; issues: readonly ProjectionIssue[] }>;
 export type ProjectSummary = DeepReadonly<z.infer<typeof projectSummarySchema>>;
+export type ProjectBrief = DeepReadonly<z.infer<typeof projectBriefSchema>>;
 export type RoadmapIndex = DeepReadonly<z.infer<typeof roadmapIndexSchema>>;
 export type Roadmap = DeepReadonly<z.infer<typeof roadmapSchema>>;
 export type MilestoneGate = DeepReadonly<z.infer<typeof gateSchema>>;

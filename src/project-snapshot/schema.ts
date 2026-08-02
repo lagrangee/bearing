@@ -6,6 +6,7 @@ import { bearingSourceEventTimeSchema } from "../source-event-time";
 import { uniqueIdentityArraySchema } from "./projection-identity";
 import { assetProjectionSchema } from "./schema-asset";
 import { planningAuditSchema } from "./schema-audit";
+import { projectBriefSchema } from "./schema-brief";
 import { validateProjectSnapshotConsistency } from "./schema-consistency";
 import { nativeScopeDiscoveryProjectionSchema } from "./schema-native-scope-discovery";
 import { nativeScopeInspectionProjectionSchema } from "./schema-native-scope-inspection";
@@ -33,11 +34,12 @@ import { sourceRecordSchema, sourceReferenceSchema } from "./source-schema";
 
 export { assetProjectionSchema } from "./schema-asset";
 export { auditFindingSchema, planningAuditSchema } from "./schema-audit";
+export { projectBriefSchema } from "./schema-brief";
 export { planningLineageProjectionSchema } from "./schema-planning-lineage";
 export { diagnosticReferenceSchema } from "./schema-primitives";
 export { projectionIssueSchema } from "./schema-projection";
 export { projectSummarySchema } from "./schema-summary";
-export const PROJECT_SNAPSHOT_VERSION = 13 as const;
+export const PROJECT_SNAPSHOT_VERSION = 14 as const;
 const resolutionSchema = z.strictObject({
   acceptedDecision: semanticPlainTextSchema,
   acceptedAt: bearingSourceEventTimeSchema,
@@ -312,6 +314,7 @@ export const projectSnapshotSchema = z
     producer: z.strictObject({ packageVersion: nonEmptyStringSchema }),
     basis: z.strictObject({ sitemapVersion: z.literal(1), sitemapFingerprint: fingerprintSchema }),
     summary: singletonProjectionSchema(projectSummarySchema),
+    brief: singletonProjectionSchema(projectBriefSchema),
     roadmapIndex: singletonProjectionSchema(roadmapIndexSchema),
     roadmaps: collectionProjectionSchema(roadmapSchema, (roadmap) => roadmap.id),
     gates: collectionProjectionSchema(gateSchema, (gate) => gate.id),

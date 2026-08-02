@@ -10,7 +10,7 @@ Own long-horizon direction and ordered Gate horizons without becoming a work bre
 4. **Check disposition.** Before completion or supersession, enumerate active or planned Gates, unresolved Efforts, open Checks, pending Reviews, and dependent references. Existing Gate passage or supersession remains owned by the Milestone Gate branch. Supersession names a replacement Roadmap. Completion: no dependency is silently orphaned.
 5. **Obtain the decision.** Present intent, rationale, ordering, focus, consequences, and exact write set. Roadmap creation and every material lifecycle, ordering, or focus change require an Accepted Decision. Completion: accepted scope is precise or the outcome is `awaiting-decision`.
 6. **Apply the transaction.** Re-read all decision inputs. Write the Roadmap file, Roadmap Index, and accepted new planned Gates. Require any Effort binding disposition through the Alignment Check branch before this transaction; never write Effort sidecars here. Preserve native Maps and Tickets. Validate unique IDs, references, lifecycle, Gate order, focused Gate, and required sections. Completion: the entire accepted graph validates.
-7. **Refresh orientation.** Run `$HOME/.bearing/bin/bearing sync --repo <repo-root>` and inspect Roadmap Horizon plus affected diagnostics. Completion: the Sitemap reflects the accepted horizon.
+7. **Refresh durable and derived orientation.** Run `$HOME/.bearing/bin/bearing sync --repo <repo-root>` and inspect Roadmap Horizon plus affected diagnostics. For an accepted completed transition, compose the Project Summary owner exactly once, then read `$HOME/.bearing/kit/current/skills/bearing/references/shared/project-brief-refresh.md` on demand and invoke Project Brief Refresh exactly once at the end of the workflow using the revised Summary and already loaded semantic context. For an accepted superseded transition, refresh Project Brief exactly once but do not refresh Project Summary or present supersession as completion. Creation, extension, reorder, and refocus trigger neither refresh. A Summary or Brief failure retains its previous successful bytes and time, reports a separate partial stage, and never rolls back the accepted Roadmap mutation. Completion: the Sitemap reflects the accepted horizon and each synthesis owner has one truthful outcome.
 
 ## Read Set
 
@@ -32,6 +32,7 @@ Never mutate Map, Ticket, claim, blocker, or native resolution state.
 
 - `applied`: the accepted Roadmap graph validates and is synced.
 - `no-op`: current horizon already matches the requested decision.
+- `partial`: the accepted Roadmap transition validates while the later Summary or Brief stage failed and retained its previous successful state.
 - `awaiting-decision`: target, horizon, ordering, focus, or disposition remains unresolved.
 - `blocked`: required Gate lifecycle or invalid structure prevents a trustworthy transaction.
 

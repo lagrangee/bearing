@@ -10,6 +10,7 @@ Own explicit planning, activation, and conclusion events for one or more precise
 4. **Obtain explicit user acceptance.** Present the transition, disposition and replacement when applicable, rationale, consequences for Gate Readiness, exact write set, and preserved data. For a project-wide lifecycle cutover, require one accepted Planning Review with the exact Effort set. Completion: explicit user acceptance covers every lifecycle mutation.
 5. **Build the atomic virtual result.** Re-read all inputs. For an ordinary new event, generate the current UTC Source Event Time inside the owning operation and include it in the same atomic canonical mutation. A null event time represents `Time unavailable` only under explicit historical migration authority; current acceptance time, chat time, file metadata, Git history, Provider Observation Time, Sync time, or later prose never becomes a historical event time. Validate lifecycle shape, conclusion shape, replacement chain, Roadmap and Target Gate ownership, bindings, and all dependent references before writing. Completion: the entire candidate parses and its exact bytes are ready.
 6. **Apply and verify.** Atomically write only the enumerated Effort records and, for an accepted project-wide cutover, its one directly authorizing Planning Review record. Roll back the full set on any failure. Run `$HOME/.bearing/bin/bearing sync --repo <repo-root>`, require zero structural diagnostics, and typed-inspect every affected Effort and Gate. Completion: canonical lifecycle, derived readiness, and independent Passage truth are coherent.
+7. **Refresh derived orientation after conclusion.** For a successful Effort conclusion only, read `$HOME/.bearing/kit/current/skills/bearing/references/shared/project-brief-refresh.md` on demand and enqueue Project Brief Refresh for the end of the current workflow. Creation and activation do not trigger it. If a later accepted Gate or Roadmap terminal transition occurs in the same orchestration, the coordinator still invokes the shared refresh exactly once. A Brief failure is reported as a separate partial stage and never rolls back the concluded Effort. Completion: lifecycle and derived orientation outcomes remain owner-separated.
 
 ## Read Set
 
@@ -29,6 +30,7 @@ Never mutate a Roadmap, Gate, Gate Passage, Work Binding, native artifact, nativ
 
 - `applied`: every explicitly accepted lifecycle event and its source time validate atomically.
 - `no-op`: current lifecycle already matches the accepted event without a new transition.
+- `partial`: the accepted Effort conclusion validates while the later Project Brief stage failed and retained its previous successful state.
 - `awaiting-decision`: transition, conclusion disposition, rationale, replacement, or historical migration authority is not accepted.
 - `blocked`: current lifecycle, dependencies, replacement chain, binding evidence, or virtual result cannot be trusted.
 

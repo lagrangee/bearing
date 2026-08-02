@@ -111,10 +111,11 @@ const secondGuidanceRecord = guidanceItemRecord("alternative-2");
 const issue = { code: "relation-mismatch", target: "snapshot", message: "Relation mismatch." };
 const emptyItems = { validity: "available", items: [] } as const;
 const emptySnapshot = {
-  schemaVersion: 13,
+  schemaVersion: 14,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
+  brief: { validity: "absent" },
   roadmapIndex: { validity: "absent" },
   roadmaps: emptyItems,
   gates: emptyItems,

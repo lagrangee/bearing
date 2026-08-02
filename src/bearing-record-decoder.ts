@@ -76,6 +76,7 @@ const emptyAnalysis = (diagnostics: readonly StructuralDiagnostic[]): ArtifactAn
 
 const DEFAULT_DISPLAY_TITLE: Readonly<Record<BearingRecordType, string>> = {
   "project-summary": "Project Summary",
+  "project-brief": "Project Brief",
   "roadmap-index": "Roadmap Index",
   roadmap: "Roadmap",
   "milestone-gate": "Milestone Gate",
@@ -151,6 +152,7 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         Type: data.Type,
         ID: data.ID,
         Title: data.Title,
+        ...(data["Updated at"] === undefined ? {} : { "Updated at": data["Updated at"] }),
         ...(data.Languages === undefined
           ? {}
           : {
@@ -161,6 +163,27 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
                 ...(data.Languages["Current Design"] === undefined
                   ? {}
                   : { "Current Design": data.Languages["Current Design"] }),
+              },
+            }),
+      };
+    case "project-brief":
+      return {
+        Type: data.Type,
+        ID: data.ID,
+        "Generated at": data["Generated at"],
+        ...(data.Languages === undefined
+          ? {}
+          : {
+              Languages: {
+                ...(data.Languages["Project Purpose"] === undefined
+                  ? {}
+                  : { "Project Purpose": data.Languages["Project Purpose"] }),
+                ...(data.Languages["Current Stage"] === undefined
+                  ? {}
+                  : { "Current Stage": data.Languages["Current Stage"] }),
+                ...(data.Languages["Material Achieved State"] === undefined
+                  ? {}
+                  : { "Material Achieved State": data.Languages["Material Achieved State"] }),
               },
             }),
       };
@@ -416,6 +439,12 @@ const decodeContent = (
         ["Purpose", "Current Design"],
         ["Boundaries", "Future Candidates", "Material Revisions"],
       );
+    case "project-brief":
+      return decodePlainSections(locator, body, [
+        "Project Purpose",
+        "Current Stage",
+        "Material Achieved State",
+      ]);
     case "roadmap":
       return decodePlainSections(locator, body, ["Intent"]);
     case "milestone-gate":
@@ -695,6 +724,7 @@ const declaredNodes = (records: readonly DecodedBearingRecord[]): readonly Beari
 const singletonDiagnostics = (records: readonly DecodedBearingRecord[]): StructuralDiagnostic[] => {
   const singletons = new Set<BearingRecordType>([
     "project-summary",
+    "project-brief",
     "roadmap-index",
     "asset-registry",
     "planning-audit",

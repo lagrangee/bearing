@@ -47,6 +47,41 @@ describe("bearing sync", () => {
     expect(sitemap).toContain("Attention: 0 blocking diagnostic(s)");
   });
 
+  test("projects an authored Brief as its own valid singleton", async () => {
+    const root = await createValidBearingRepo();
+    await writeFixture(
+      root,
+      ".bearing/state/project-brief.md",
+      `---
+Type: project-brief
+ID: project-brief:current
+Generated at: 2026-08-03T02:03:04Z
+---
+
+# Project Brief
+
+## Project Purpose
+
+Exercise the fixture.
+
+## Current Stage
+
+The project is proving its typed reading boundary.
+
+## Material Achieved State
+
+The canonical planning loop is available.
+`,
+    );
+
+    const result = await runInitialSync(root);
+    const sitemap = await readFile(result.sitemapPath, "utf8");
+
+    expect(result.inputs).toContain(".bearing/state/project-brief.md");
+    expect(sitemap).toContain("`project-brief:current` | Project Brief | current");
+    expect(sitemap).not.toContain("Invalid Project Brief");
+  });
+
   test("reconciles a direct canonical edit into the sitemap", async () => {
     const root = await createValidBearingRepo();
     const first = await runInitialSync(root);

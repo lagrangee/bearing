@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { languageTagSchema } from "../language-tag";
+import { bearingOwnedEventTimeSchema } from "../source-event-time";
 import { uniqueIdentityArraySchema } from "./projection-identity";
 import { titledSourceShape } from "./schema-node";
 import { semanticPlainTextSchema } from "./schema-primitives";
@@ -11,6 +12,7 @@ export const projectSummarySchema = z.strictObject({
   ...titledSourceShape,
   purpose: semanticPlainTextSchema,
   currentDesign: semanticPlainTextSchema,
+  updatedAt: bearingOwnedEventTimeSchema.unwrap().optional(),
   languages: z
     .strictObject({
       purpose: languageTagSchema.optional(),

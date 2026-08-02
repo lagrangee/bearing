@@ -111,6 +111,7 @@ export const buildProjectSnapshot = async (
     producer: { packageVersion: input.packageVersion },
     basis: { sitemapVersion: 1, sitemapFingerprint: input.sitemapFingerprint },
     summary: governance.summary,
+    brief: governance.brief,
     roadmapIndex,
     roadmaps: planning.roadmaps,
     gates: planning.gates,

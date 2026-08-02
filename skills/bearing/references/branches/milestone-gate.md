@@ -9,7 +9,7 @@ Own one decision boundary and its human passage review. This internal branch con
 3. **Evaluate readiness.** `unknown` blocks passage because source truth is unreliable. `ready-for-review` opens human evaluation of Exit Criteria. `not-ready` may pass only when the candidate explicitly lists Exceptions and dispositions every unfinished contributing Effort or dependent reference. Readiness never proves passage. Completion: each criterion, evidence Asset, exception, conflict, and unfinished item is accounted for.
 4. **Propose the decision.** Present status change, Rationale, Evidence Asset IDs, explicit Exceptions, relation dispositions, and exact write set. Split or supersession identifies every contributing Effort and dependent reference; required Effort binding changes become Alignment Check branch prerequisites. Completion: material consequences are visible and an Accepted Decision is obtained.
 5. **Apply atomically.** Re-read decision inputs after every prerequisite resolves. Write the Gate, its exact `Effort order`, and the owning Roadmap order or focus transition coupled to this Gate operation. A passed Gate records `Passage` with `Accepted decision`, `Accepted at`, `Rationale`, `Evidence`, and `Exceptions`; when it was focused, update Roadmap focus to the next ordered active/planned Gate or `null`. Preserve Effort sidecars and native work lifecycle. Completion: Gate, contributor order, passage record, Roadmap transition, event times, and dependent references validate together.
-6. **Refresh orientation.** Run `$HOME/.bearing/bin/bearing sync --repo <repo-root>` and inspect readiness, Roadmap Horizon, and affected Attention. Completion: the Project Sitemap reflects the decision without claiming the Roadmap completed automatically.
+6. **Refresh orientation.** Run `$HOME/.bearing/bin/bearing sync --repo <repo-root>` and inspect readiness, Roadmap Horizon, and affected Attention. After an accepted Gate Passage only, read `$HOME/.bearing/kit/current/skills/bearing/references/shared/project-brief-refresh.md` on demand and enqueue Project Brief Refresh for the end of the current workflow. Gate creation, revision, activation, split, and supersession do not trigger Brief refresh. If an Effort conclusion or Roadmap terminal transition shares this orchestration, invoke the shared refresh exactly once. A Brief failure remains a separate partial stage and never rolls back Passage. Completion: the Project Sitemap reflects the decision without claiming the Roadmap completed automatically.
 
 ## Read Set
 
@@ -30,6 +30,7 @@ Never rewrite native work to manufacture readiness.
 
 - `applied`: the accepted Gate operation and all dependent transitions validate.
 - `no-op`: the requested review confirms no canonical change.
+- `partial`: the accepted Passage validates while the later Project Brief stage failed and retained its previous successful state.
 - `awaiting-decision`: passage, exceptions, split, supersession, or disposition is not accepted.
 - `blocked`: readiness is unknown or required inputs cannot be trusted.
 

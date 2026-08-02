@@ -1,3 +1,4 @@
+import type { BearingArtifact, DecodedBearingRecordContent } from "../bearing-record-decoder";
 import type { StructuralDiagnostic } from "../types";
 import { type ParsedCanonicalRecord, parseCanonicalRecord } from "./canonical-record";
 import type { CollectionProjection, ProjectionIssue, SourceRecord } from "./contract";
@@ -14,6 +15,17 @@ export type BuildResult<T> = Readonly<{
   issue?: ProjectionIssue;
   source: SourceRecord;
 }>;
+type ProjectOrientationRecordType = "project-summary" | "project-brief";
+type ParsedProjectOrientationRecord<T extends ProjectOrientationRecordType> =
+  ParsedCanonicalRecord &
+    Readonly<{
+      data: Extract<BearingArtifact, { Type: T }>;
+      content: Extract<DecodedBearingRecordContent, { kind: "sections" }>;
+    }>;
+export type ProjectOrientationRecordResult<T extends ProjectOrientationRecordType> =
+  | Readonly<{ validity: "absent" }>
+  | Readonly<{ validity: "invalid"; issues: readonly ProjectionIssue[] }>
+  | Readonly<{ validity: "available"; record: ParsedProjectOrientationRecord<T> }>;
 
 export const compareUtf8 = (left: string, right: string): number =>
   Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
@@ -26,6 +38,25 @@ export const bodyIssue = (record: ParsedCanonicalRecord, code: string): Projecti
   message: "Bearing source body does not match its exact semantic section contract.",
   source: record.source.reference,
 });
+export const projectOrientationRecord = <T extends ProjectOrientationRecordType>(
+  input: GovernanceInput,
+  type: T,
+): ProjectOrientationRecordResult<T> => {
+  const source = input.records.find((candidate) => candidate.type === type);
+  if (source === undefined) return { validity: "absent" };
+  const parsed = parseCanonicalRecord(source);
+  if (!parsed.ok) return { validity: "invalid", issues: [parsed.issue] };
+  if (parsed.value.data.Type !== type) {
+    return { validity: "invalid", issues: [bodyIssue(parsed.value, `invalid-${type}`)] };
+  }
+  if (parsed.value.content.kind !== "sections") {
+    return { validity: "invalid", issues: [bodyIssue(parsed.value, `invalid-${type}-body`)] };
+  }
+  return {
+    validity: "available",
+    record: parsed.value as ParsedProjectOrientationRecord<T>,
+  };
+};
 export const collection = <T>(results: readonly BuildResult<T>[]): CollectionProjection<T> => {
   const items = results.flatMap((result) => (result.item === undefined ? [] : [result.item]));
   const issues = results.flatMap((result) => (result.issue === undefined ? [] : [result.issue]));
@@ -86,6 +117,7 @@ export const governanceSources = (input: GovernanceInput): readonly SourceRecord
   input.records.flatMap((record) => {
     const type = record.type;
     return type === "project-summary" ||
+      type === "project-brief" ||
       type === "roadmap-index" ||
       type === "roadmap" ||
       type === "milestone-gate" ||

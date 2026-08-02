@@ -75,6 +75,7 @@ export const analyzeDecodedBearingArtifact = (
 
   switch (data.Type) {
     case "project-summary":
+    case "project-brief":
       break;
     case "roadmap-index":
       references.push(...data.Roadmaps.map((target) => ({ source: locator, target })));

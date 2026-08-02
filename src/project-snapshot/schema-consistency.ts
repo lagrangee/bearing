@@ -99,6 +99,7 @@ type GovernanceSnapshot = EventTimeConsistencySnapshot &
   Readonly<{
     basis: AuditConsistencySnapshot["basis"];
     summary: Singleton<PrimarySource>;
+    brief: Singleton<PrimarySource>;
     roadmaps: Collection<
       CollectionItem<PlanningDerivationConsistencySnapshot["roadmaps"]> &
         CollectionItem<AssetConsistencySnapshot["roadmaps"]> &

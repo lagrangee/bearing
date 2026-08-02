@@ -24,6 +24,7 @@ const authorityIdSchema = stableIdSchema("authority");
 const assetIdSchema = stableIdSchema("asset");
 const alignmentCheckIdSchema = stableIdSchema("alignment-check");
 const planningReviewIdSchema = stableIdSchema("planning-review");
+const requiredBearingOwnedEventTimeSchema = bearingOwnedEventTimeSchema.unwrap();
 const PLANNING_AUDIT_INPUT = ".bearing/state/planning-audit.md";
 const requiredPlainTextSchema = z
   .string()
@@ -221,10 +222,23 @@ export const bearingSchema = z.discriminatedUnion("Type", [
     Type: z.literal("project-summary"),
     ID: z.literal("project-summary:current"),
     Title: requiredPlainTextSchema,
+    "Updated at": requiredBearingOwnedEventTimeSchema.optional(),
     Languages: z
       .strictObject({
         Purpose: languageTagSchema.optional(),
         "Current Design": languageTagSchema.optional(),
+      })
+      .optional(),
+  }),
+  z.strictObject({
+    Type: z.literal("project-brief"),
+    ID: z.literal("project-brief:current"),
+    "Generated at": requiredBearingOwnedEventTimeSchema,
+    Languages: z
+      .strictObject({
+        "Project Purpose": languageTagSchema.optional(),
+        "Current Stage": languageTagSchema.optional(),
+        "Material Achieved State": languageTagSchema.optional(),
       })
       .optional(),
   }),
