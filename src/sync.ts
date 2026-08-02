@@ -1,7 +1,6 @@
 import packageMetadata from "../package.json";
 import { applyInstallPlans } from "./installer";
 import type { NativeReconciliationRequest } from "./native-reconciliation-contract";
-import type { NativeScopeDiscoveryIntent } from "./native-scope-discovery";
 import type { ProviderObservationIntent } from "./provider-observation-store";
 import {
   prepareSync,
@@ -15,7 +14,6 @@ type RunSyncOptions = Readonly<{
   packageVersion?: string;
   completedAt?: string;
   providerObservationIntent?: ProviderObservationIntent;
-  nativeScopeDiscoveryIntent?: NativeScopeDiscoveryIntent;
   nativeReconciliationRequest?: NativeReconciliationRequest;
 }>;
 
@@ -27,9 +25,6 @@ export const runSyncMeasured = async (
     ...(options.providerObservationIntent === undefined
       ? {}
       : { providerObservationIntent: options.providerObservationIntent }),
-    ...(options.nativeScopeDiscoveryIntent === undefined
-      ? {}
-      : { nativeScopeDiscoveryIntent: options.nativeScopeDiscoveryIntent }),
     ...(options.nativeReconciliationRequest === undefined
       ? {}
       : {
@@ -49,7 +44,6 @@ export const runSyncMeasured = async (
     result: {
       ...syncProjectionResultFromPlan(plan),
       providerObservationOperation: plan.providerObservationOperation,
-      nativeScopeDiscoveryOperation: plan.nativeScopeDiscoveryOperation,
       nativeScopeInspectionOperation: plan.nativeScopeInspectionOperation,
       receipt: transaction.receipt,
       receiptPath: transaction.receiptPath,

@@ -17,10 +17,6 @@ import {
   validateEventTimeConsistency,
 } from "./schema-event-time-consistency";
 import {
-  type NativeScopeDiscoveryConsistencySnapshot,
-  validateNativeScopeDiscoveryConsistency,
-} from "./schema-native-scope-discovery-consistency";
-import {
   type PlanningDerivationConsistencySnapshot,
   validatePlanningDerivationConsistency,
 } from "./schema-planning-derivation-consistency";
@@ -95,7 +91,6 @@ type PrimarySource = Readonly<{ id: string; source: string }>;
 
 type GovernanceSnapshot = EventTimeConsistencySnapshot &
   PlanningLineageConsistencySnapshot &
-  NativeScopeDiscoveryConsistencySnapshot &
   Readonly<{
     basis: AuditConsistencySnapshot["basis"];
     summary: Singleton<PrimarySource>;
@@ -206,7 +201,6 @@ export const validateProjectSnapshotConsistency = (
   validateEventTimeConsistency(snapshot, context);
   validatePlanningDerivationConsistency(snapshot, context);
   validatePlanningLineageConsistency(snapshot, context);
-  validateNativeScopeDiscoveryConsistency(snapshot, context);
   validateAssetConsistency(snapshot, context);
   validateAdvisoryConsistency(snapshot, context);
   validateAuditConsistency(snapshot, context);

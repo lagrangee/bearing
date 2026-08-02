@@ -1202,7 +1202,7 @@ const readableEfforts = (snapshot: ProjectSnapshot): readonly Effort[] =>
 const scopeContextFor = (
   snapshot: ProjectSnapshot,
   observation: NativeObservation,
-): MattNativeWorkRegionContext =>
+): MattNativeWorkRegionContext | undefined =>
   mattNativeWorkReadingContextForScope(readableEfforts(snapshot), observation);
 
 const effortWorkRegion = (
@@ -1244,10 +1244,12 @@ const workRegionFor = (
   if (subject.kind === "effort") return effortWorkRegion(snapshot, record as Effort, readingState);
   if (subject.kind !== "native-scope") return undefined;
   const scopeRecord = record as NativeScopeRecord;
+  const context = scopeContextFor(snapshot, scopeRecord.observation);
+  if (context === undefined) return undefined;
   return buildMattNativeWorkRegion(
     scopeRecord.observation,
     nativeSelections(snapshot),
-    scopeContextFor(snapshot, scopeRecord.observation),
+    context,
     readingState,
   );
 };

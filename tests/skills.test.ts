@@ -103,13 +103,24 @@ describe("package-owned planning skills", () => {
           reference: "skills/bearing/references/shared/project-brief-refresh.md",
           loading: "branch-declared",
         },
+        {
+          key: "governance-disposition",
+          reference: "skills/bearing/references/shared/governance-disposition.md",
+          loading: "on-native-handling-or-scope-review",
+        },
       ],
-      publicSharedContracts: ["typed-inspection", "artifact-registration", "executor-continuation"],
+      publicSharedContracts: [
+        "typed-inspection",
+        "artifact-registration",
+        "executor-continuation",
+        "governance-disposition",
+      ],
       branches: branchEntries.map((key) => ({
         key,
         reference: `skills/bearing/references/branches/${key}.md`,
         sharedContracts: [
           "planning-transaction",
+          ...(["setup"].includes(key) ? ["governance-disposition"] : []),
           ...(["roadmap", "milestone-gate", "effort-lifecycle"].includes(key)
             ? ["project-brief-refresh"]
             : []),
@@ -195,6 +206,32 @@ describe("package-owned planning skills", () => {
 
     expect(branch).toMatch(/zero to two meaningful alternatives/iu);
     expect(branch).not.toMatch(/exactly two alternatives|two distinct alternatives/iu);
+  });
+
+  test("keeps Bearing Scope Review transient and Governance Disposition user-owned", async () => {
+    const router = await readSkill("bearing");
+    const setup = await readBranch("setup");
+    const disposition = await readSharedContract("governance-disposition");
+
+    expect(router.body).toContain("governance-disposition");
+    expect(setup).toMatch(/successful Fresh Setup[\s\S]*optional Bearing Scope Review/iu);
+    expect(setup).toMatch(/Active project[\s\S]*explicitly requests/iu);
+    expect(disposition).toMatch(/transient Work Management inventory/iu);
+    expect(disposition).toMatch(/discard[\s\S]*inventory/iu);
+    expect(disposition).toMatch(
+      /already managed[\s\S]*enrollment suggested[\s\S]*kept standalone/iu,
+    );
+    expect(disposition).toMatch(/at most one[\s\S]*high-confidence/iu);
+    expect(disposition).toMatch(/no reasonable binding[\s\S]*kept standalone/iu);
+    expect(disposition).toMatch(
+      /explicit user acceptance[\s\S]*planning owner[\s\S]*Work Binding/iu,
+    );
+    expect(disposition).toMatch(
+      /never writes[\s\S]*Project Snapshot[\s\S]*Portal[\s\S]*Attention[\s\S]*canonical history/iu,
+    );
+    expect(disposition).toMatch(
+      /ambient discovery[\s\S]*background inventory[\s\S]*automatic enrollment/iu,
+    );
   });
 
   test("keeps Effort lifecycle transitions explicit, atomic, and independent", async () => {
@@ -304,7 +341,9 @@ describe("package-owned planning skills", () => {
     expect(setup).toMatch(
       /matt-skills\/v1[\s\S]*Provider Configuration[\s\S]*never stores or asks for a tracker driver/iu,
     );
-    expect(setup).toMatch(/native scopes[\s\S]*never binds/iu);
+    expect(setup).toMatch(
+      /never[\s\S]*inspects native scope outside an explicitly accepted transient Scope Review/iu,
+    );
     expect(setup).toMatch(/zero nominations[\s\S]*complete/iu);
     expect(setup).toMatch(/Generic[\s\S]*hidden during Setup/iu);
     expect(setup).toMatch(
@@ -345,9 +384,8 @@ describe("package-owned planning skills", () => {
     expect(setup).toMatch(
       /Portal[\s\S]*never changes Setup success[\s\S]*Fresh[\s\S]*routine Active no-op/iu,
     );
-    expect(setup).toMatch(
-      /Initial Bearing Analysis[\s\S]*only after complete Fresh success[\s\S]*non-mutating/iu,
-    );
+    expect(setup).not.toMatch(/Initial Bearing Analysis|discovered native scopes/iu);
+    expect(setup).toMatch(/one optional Scope Review offer in step 8/iu);
     expect(setup).toMatch(/current user's language/iu);
   });
 

@@ -22,19 +22,13 @@ const build = (context: MattNativeWorkRegionContext) => {
   return buildMattNativeWorkRegion(observation, selections, context);
 };
 
-test("presents one role-first native region in bound and unbound contexts without copying subjects", () => {
+test("presents one role-first native region in a bound context", () => {
   const bound = build({ state: "bound", effortIds: ["effort:portal"] });
-  const unbound = build({ state: "unbound" });
 
   expect(bound.context).toEqual({
     state: "bound",
     label: "Contributing Work",
     effortIds: ["effort:portal"],
-  });
-  expect(unbound.context).toEqual({
-    state: "unbound",
-    label: "Discovered Work",
-    detail: "Not linked to an Effort",
   });
   expect(bound.roles.map((role) => role.role)).toEqual([
     "map",
@@ -43,9 +37,6 @@ test("presents one role-first native region in bound and unbound contexts withou
     "delivery",
     "incoming",
   ]);
-  expect(bound.roles.flatMap((role) => role.items.map((item) => item.reference))).toEqual(
-    unbound.roles.flatMap((role) => role.items.map((item) => item.reference)),
-  );
   expect(bound.total).toEqual({ mode: "exact", value: 6 });
   expect(bound.roles.map((role) => role.count)).toEqual([
     { mode: "exact", value: 1 },
@@ -550,5 +541,4 @@ test("keeps binding failures in a separate attention context", () => {
     expect(region.context.state).toBe("attention");
     expect(region.context.label).toBe("Binding needs attention");
   }
-  expect(conflict.context).not.toHaveProperty("detail", "Not linked to an Effort");
 });

@@ -14,7 +14,6 @@ import {
   visibleProjectView,
 } from "./project-activation-state";
 import {
-  discoverNativeScopes,
   InvalidProjectSessionError,
   inspectNativeScope,
   type ProjectOperationError,
@@ -36,8 +35,6 @@ export type ProjectActivation = Readonly<{
   view?: ProjectView;
   forceSync: () => void;
   retry: () => void;
-  discovery: Readonly<{ state: "idle" | "running" | "failed" }>;
-  refreshDiscovery: () => void;
   inspection: Readonly<{
     state: "idle" | "running" | "failed";
     subjectKey?: string | undefined;
@@ -51,9 +48,6 @@ export type ProjectActivation = Readonly<{
 
 export const useProjectActivation = (entryId: string): ProjectActivation => {
   const [state, dispatch] = useReducer(projectActivationReducer, { kind: "loading-cache" });
-  const [discovery, setDiscovery] = useState<Readonly<{ state: "idle" | "running" | "failed" }>>({
-    state: "idle",
-  });
   const [inspection, setInspection] = useState<
     Readonly<{
       state: "idle" | "running" | "failed";
@@ -223,45 +217,6 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       });
   }, [applySyncResult, dispatchCurrent, entryId, withController, withSessionRecovery]);
 
-  const refreshDiscovery = useCallback(() => {
-    const csrfToken = csrfTokenRef.current;
-    if (csrfToken === undefined || discovery.state === "running") return;
-    const requestId = ++requestIdRef.current;
-    const candidate = visibleProjectView(stateRef.current);
-    const cached = candidate?.project.entryId === entryId ? candidate : undefined;
-    setDiscovery({ state: "running" });
-    void withController((signal) =>
-      withSessionRecovery(csrfToken, signal, (currentCsrfToken, currentSignal) =>
-        discoverNativeScopes(entryId, currentCsrfToken, currentSignal),
-      ),
-    )
-      .then((result) => {
-        applySyncResult(requestId, result);
-        setDiscovery(result.state === "failed" ? { state: "failed" } : { state: "idle" });
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          setDiscovery({ state: "idle" });
-          return;
-        }
-        setDiscovery({ state: "failed" });
-        if (cached !== undefined) {
-          dispatchCurrent(requestId, {
-            type: "settled",
-            confirmation: "checked-recently",
-            view: cached,
-          });
-        }
-      });
-  }, [
-    applySyncResult,
-    discovery.state,
-    dispatchCurrent,
-    entryId,
-    withController,
-    withSessionRecovery,
-  ]);
-
   const inspectScope = useCallback(
     (
       subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
@@ -320,7 +275,6 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
 
   useEffect(() => {
     csrfTokenRef.current = undefined;
-    setDiscovery({ state: "idle" });
     setInspection({ state: "idle" });
     void activate();
     return () => {
@@ -399,8 +353,6 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
         state: scopedState,
         forceSync,
         retry,
-        discovery,
-        refreshDiscovery,
         inspection,
         inspectNativeScope: inspectScope,
       }
@@ -409,8 +361,6 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
         view,
         forceSync,
         retry,
-        discovery,
-        refreshDiscovery,
         inspection,
         inspectNativeScope: inspectScope,
       };

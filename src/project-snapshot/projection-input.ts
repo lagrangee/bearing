@@ -3,7 +3,6 @@ import type {
   DecodedBearingRecord,
   DecodedBearingRecordGeneration,
 } from "../bearing-record-decoder";
-import type { NativeScopeDiscoveryView } from "../native-scope-discovery";
 import type { PlanningGraph } from "../planning-graph";
 import type { ProviderObservationSelection } from "../provider-observation-store";
 import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
@@ -18,7 +17,6 @@ export type ProjectSnapshotBuildInput = Readonly<{
   decoded: DecodedBearingRecordGeneration;
   providerObservations: readonly MattSkillsV1ProviderObservation[];
   providerObservationSelections?: readonly ProviderObservationSelection[];
-  nativeScopeDiscovery?: NativeScopeDiscoveryView;
   nativeScopeInspectionObservations?: readonly MattSkillsV1ProviderObservation[];
   nativeScopeInspectionSelections?: readonly ProviderObservationSelection[];
   assetContentObservations: readonly AssetContentObservation[];

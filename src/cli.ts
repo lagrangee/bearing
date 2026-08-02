@@ -51,7 +51,7 @@ Usage:
   bearing purge --repo <path> [--plan] [--confirm-purge --purge-plan-token <sha256> (--recovery-export <path> | --accept-no-recovery-export)]
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [--producer-reference <reference>] [--produced-for <reference>] [--produced-at <date-or-ISO-instant>]
   bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
-  bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification] [--discover-native-scopes]
+  bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
   bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
   bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]
   bearing portal [--port <1-65535>]
@@ -490,7 +490,6 @@ const runSyncCommand = async (args: readonly string[]): Promise<void> => {
       "initialize-provider-observations": { type: "boolean" },
       "recover-provider-observations": { type: "boolean" },
       "full-provider-verification": { type: "boolean" },
-      "discover-native-scopes": { type: "boolean" },
     },
     allowPositionals: false,
     strict: true,
@@ -515,11 +514,9 @@ const runSyncCommand = async (args: readonly string[]): Promise<void> => {
           : ("ordinary-sync" as const);
   const result = await runSync(resolve(parsed.values.repo ?? process.cwd()), {
     providerObservationIntent,
-    nativeScopeDiscoveryIntent:
-      parsed.values["discover-native-scopes"] === true ? "explicit-discovery" : "ordinary-sync",
   });
   process.stdout.write(
-    `Report: ${result.reportPath}\nSitemap: ${result.sitemapPath}\nInput fingerprint: ${result.fingerprint}\nDiagnostics: ${result.diagnostics.length}\nProvider observations: ${result.providerObservationOperation.intent}/${result.providerObservationOperation.outcome} (${result.providerObservationOperation.acquisitionCount} acquisitions)\nNative scope discovery: ${result.nativeScopeDiscoveryOperation.intent}/${result.nativeScopeDiscoveryOperation.outcome} (${result.nativeScopeDiscoveryOperation.acquisitionCount} acquisitions)\nNative scope inspection: ${result.nativeScopeInspectionOperation.intent.kind}/${result.nativeScopeInspectionOperation.outcome} (${result.nativeScopeInspectionOperation.acquisitionCount} acquisitions)\nOutcome: ${result.changed ? "applied" : "no-op"}\n`,
+    `Report: ${result.reportPath}\nSitemap: ${result.sitemapPath}\nInput fingerprint: ${result.fingerprint}\nDiagnostics: ${result.diagnostics.length}\nProvider observations: ${result.providerObservationOperation.intent}/${result.providerObservationOperation.outcome} (${result.providerObservationOperation.acquisitionCount} acquisitions)\nNative scope inspection: ${result.nativeScopeInspectionOperation.intent.kind}/${result.nativeScopeInspectionOperation.outcome} (${result.nativeScopeInspectionOperation.acquisitionCount} acquisitions)\nOutcome: ${result.changed ? "applied" : "no-op"}\n`,
   );
   if (result.diagnostics.some((diagnostic) => diagnostic.impact === "blocking")) {
     process.exitCode = 1;
@@ -605,7 +602,6 @@ const runNativeReconciliationCommand = async (args: readonly string[]): Promise<
         "force",
         undefined,
         undefined,
-        "ordinary-sync",
         "ordinary-sync",
         { kind: "reconcile", request },
       );

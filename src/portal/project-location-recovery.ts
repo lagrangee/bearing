@@ -24,7 +24,6 @@ export type CapturedProjectOperation =
 type Execute = (
   entryId: string,
   mode: ProjectOperationMode,
-  nativeScopeDiscoveryIntent: "ordinary-sync" | "explicit-discovery",
   nativeScopeInspectionIntent: NativeScopeInspectionIntent,
 ) => Promise<CoordinatedResult<CapturedProjectOperation>>;
 
@@ -94,12 +93,10 @@ export const createProjectLocationRecovery = (options: {
     entryId: string,
     repoRoot: string,
     afterSequence: number,
-    nativeScopeDiscoveryIntent: "ordinary-sync" | "explicit-discovery" = "ordinary-sync",
     nativeScopeInspectionIntent: NativeScopeInspectionIntent = { kind: "none" },
   ): Promise<CoordinatedResult<CapturedProjectOperation>> => {
     const recent = recentForces.get(entryId);
     if (
-      nativeScopeDiscoveryIntent === "ordinary-sync" &&
       nativeScopeInspectionIntent.kind === "none" &&
       recent !== undefined &&
       recent.sequence > afterSequence &&
@@ -113,14 +110,12 @@ export const createProjectLocationRecovery = (options: {
         joined: true,
       });
     }
-    const key = `${entryId}\0${repoRoot}\0${nativeScopeDiscoveryIntent}\0${JSON.stringify(
-      nativeScopeInspectionIntent,
-    )}`;
+    const key = `${entryId}\0${repoRoot}\0${JSON.stringify(nativeScopeInspectionIntent)}`;
     const existing = recoveries.get(key);
     if (existing !== undefined && existing.generation > afterSequence) return existing.promise;
     const generation = advance(entryId);
     const running = options
-      .execute(entryId, "ensure-current", nativeScopeDiscoveryIntent, nativeScopeInspectionIntent)
+      .execute(entryId, "ensure-current", nativeScopeInspectionIntent)
       .then((settled) => {
         if (
           settled.kind === "completed" &&
@@ -130,12 +125,7 @@ export const createProjectLocationRecovery = (options: {
         ) {
           return settled;
         }
-        return options.execute(
-          entryId,
-          "force",
-          nativeScopeDiscoveryIntent,
-          nativeScopeInspectionIntent,
-        );
+        return options.execute(entryId, "force", nativeScopeInspectionIntent);
       });
     let promise: Promise<CoordinatedResult<CapturedProjectOperation>>;
     const settle = <Value>(continuation: () => Value): Value => {

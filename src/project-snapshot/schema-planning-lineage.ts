@@ -118,11 +118,6 @@ export const nativeWorkReadingStateSchema = z.strictObject({
     z.strictObject({
       state: z.literal("bound"),
       effortIds: uniqueIdentityArraySchema(nonEmptyStringSchema, (id) => id),
-      discovery: z.enum(["discovered", "bound-not-discovered", "unknown"]),
-    }),
-    z.strictObject({
-      state: z.literal("unbound"),
-      label: z.literal("Not linked to an Effort"),
     }),
     z.strictObject({
       state: z.literal("attention"),

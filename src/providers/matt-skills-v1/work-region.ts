@@ -101,11 +101,6 @@ export type MattNativeWorkRegionModel = Readonly<{
   context:
     | Readonly<{ state: "bound"; label: "Contributing Work"; effortIds: readonly string[] }>
     | Readonly<{
-        state: "unbound";
-        label: "Discovered Work";
-        detail: "Not linked to an Effort";
-      }>
-    | Readonly<{
         state: "attention";
         label: "Binding needs attention";
         reason: Extract<MattNativeWorkRegionContext, { state: "attention" }>["reason"];
@@ -168,13 +163,6 @@ const normalizedContext = (
 ): MattNativeWorkRegionModel["context"] => {
   if (context.state === "bound") {
     return { state: "bound", label: "Contributing Work", effortIds: context.effortIds };
-  }
-  if (context.state === "unbound") {
-    return {
-      state: "unbound",
-      label: "Discovered Work",
-      detail: "Not linked to an Effort",
-    };
   }
   const detailByReason = {
     "binding-conflict":

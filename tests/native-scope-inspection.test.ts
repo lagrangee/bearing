@@ -3,14 +3,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  createNativeScopeDiscoveryObservation,
-  type DiscoveredNativeScope,
-  NATIVE_SCOPE_DISCOVERY_PROVIDER,
-  type NativeScopeDiscoveryObservation,
-} from "../src/native-scope-discovery";
-import type { NativeScopeDiscoveryProviderFactory } from "../src/native-scope-discovery-acquisition";
-import { readNativeScopeInspectionStore } from "../src/native-scope-inspection";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
 import { buildProjectOverviewModel } from "../src/portal-ui/project-overview-model";
@@ -23,76 +15,27 @@ import { commitSyncPlan, prepareSync } from "../src/sync-plan";
 import { createMattReferenceProjection } from "./fixtures/matt-reference-scenario";
 import { buildSnapshotForSyncPlan, createValidBearingRepo, writeFixture } from "./helpers";
 
-const scope = (nativeScope: string, title = `Scope ${nativeScope}`): DiscoveredNativeScope => ({
-  identity: nativeScope,
-  binding: { provider: "matt-skills/v1", nativeScope },
-  locator: nativeScope,
-  driver: "local",
-  rootRole: "wayfinder-map",
-  title,
-  lifecycle: "open",
-  classification: "map",
-  admission: ["contract-root"],
-  subjects: [
-    {
-      identity: `${nativeScope}/map.md`,
-      locator: `${nativeScope}/map.md`,
-      title: `${title} Map`,
-      classification: "map",
-      lifecycle: "open",
-      parentIdentity: null,
-      admission: ["contract-map"],
-    },
-    {
-      identity: `${nativeScope}/issues/01-work.md`,
-      locator: `${nativeScope}/issues/01-work.md`,
-      title: `${title} Work`,
-      classification: "wayfinder",
-      lifecycle: "open",
-      parentIdentity: `${nativeScope}/map.md`,
-      admission: ["contract-ticket"],
-    },
-  ],
-});
-
-const discoveryObservation = (
-  scopes: readonly DiscoveredNativeScope[],
-  observedAt: string,
-): NativeScopeDiscoveryObservation =>
-  createNativeScopeDiscoveryObservation({
-    provider: NATIVE_SCOPE_DISCOVERY_PROVIDER,
-    state: "available",
-    observedAt,
-    sourceRevision: `fixture:${observedAt}`,
-    freshness: "current",
-    coverage: "complete",
-    scopes,
-    diagnostics: [],
-  });
-
-const discoveryFactory =
-  (observation: NativeScopeDiscoveryObservation): NativeScopeDiscoveryProviderFactory =>
-  () => ({
-    id: NATIVE_SCOPE_DISCOVERY_PROVIDER,
-    discover: async () => observation,
-  });
-
 const providerFactory =
   (
     calls: { count: number; capturedLocators: string[][] },
     observedAt: string,
     state: "available" | "partial" = "available",
+    mapTitle?: string,
   ): MattProviderFactory =>
   (input) => ({
     id: "matt-skills/v1",
     capture: async (binding) => {
       calls.count += 1;
       calls.capturedLocators.push([...input.capturedDocuments.keys()].sort());
-      const projection = JSON.parse(
+      const baseProjection = JSON.parse(
         JSON.stringify(createMattReferenceProjection("local"))
           .replaceAll(".scratch/reference", binding.nativeScope)
           .replaceAll("local:opaque", `local:${binding.nativeScope}`),
       ) as ReturnType<typeof createMattReferenceProjection>;
+      const projection =
+        mapTitle === undefined || baseProjection.map === undefined
+          ? baseProjection
+          : { ...baseProjection, map: { ...baseProjection.map, title: mapTitle } };
       return createProviderScopeObservation({
         provider: "matt-skills/v1",
         binding,
@@ -143,95 +86,6 @@ const writeScope = async (root: string, nativeScope: string): Promise<void> => {
     "# Work\n\nType: task\n\nStatus: claimed\n\nClaimed by: fixture-agent\n\n## Question\n\nInspect this work.\n",
   );
 };
-
-const publishDiscovery = async (root: string, observation: NativeScopeDiscoveryObservation) => {
-  const plan = await prepareSync(root, {
-    nativeScopeDiscoveryIntent: "explicit-discovery",
-    nativeScopeDiscoveryProviderFactory: discoveryFactory(observation),
-  });
-  await commitSyncPlan(plan);
-  return plan;
-};
-
-test("ordinary Sync and Discovery Sync never inspect, while explicit detail acquires only its target", async () => {
-  const root = await createValidBearingRepo();
-  await writeScope(root, ".scratch/unbound");
-  await writeScope(root, ".scratch/other");
-  const scopes = [scope(".scratch/unbound"), scope(".scratch/other")];
-  const discovery = await publishDiscovery(
-    root,
-    discoveryObservation(scopes, "2026-07-31T01:00:00.000Z"),
-  );
-
-  expect(discovery.nativeScopeInspectionOperation).toEqual({
-    intent: { kind: "none" },
-    outcome: "not-requested",
-    acquisitionCount: 0,
-  });
-  expect(await readNativeScopeInspectionStore(root)).toEqual({ kind: "missing" });
-
-  const misdirectedCalls = { count: 0, capturedLocators: [] as string[][] };
-  const misdirected = await prepareSync(root, {
-    nativeScopeInspectionIntent: {
-      kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/unbound" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/other" },
-      refresh: false,
-    },
-    providerFactory: providerFactory(misdirectedCalls, "2026-07-31T01:04:00.000Z"),
-  });
-  expect(misdirected.nativeScopeInspectionOperation).toMatchObject({
-    outcome: "target-unavailable",
-    acquisitionCount: 0,
-  });
-  expect(misdirectedCalls.count).toBe(0);
-
-  const calls = { count: 0, capturedLocators: [] as string[][] };
-  const inspected = await prepareSync(root, {
-    nativeScopeInspectionIntent: {
-      kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/unbound" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
-      refresh: false,
-    },
-    providerFactory: providerFactory(calls, "2026-07-31T01:05:00.000Z"),
-    providerObservationNow: () => "2026-07-31T01:05:00.000Z",
-  });
-
-  expect(inspected.nativeScopeInspectionOperation).toMatchObject({
-    outcome: "acquired",
-    acquisitionCount: 1,
-  });
-  expect(inspected.metrics.nativeScopeInspectionAcquisitionCount).toBe(1);
-  expect(calls.count).toBe(1);
-  expect(calls.capturedLocators[0]).toEqual(
-    expect.arrayContaining([".scratch/unbound/map.md", ".scratch/unbound/issues/01-work.md"]),
-  );
-  expect(calls.capturedLocators[0]).not.toEqual(expect.arrayContaining([".scratch/other/map.md"]));
-  expect(inspected.nativeScopeInspectionSelections[0]).toMatchObject({
-    nativeScope: ".scratch/unbound",
-    effectiveFreshness: "current",
-    latestAttempt: {
-      intent: "native-scope-inspection",
-      outcome: "succeeded",
-    },
-  });
-  expect(inspected.planningGraph.planningProjection().providerObservations).toEqual([]);
-  const snapshot = await buildSnapshotForSyncPlan(root, "0.0.0-test", inspected);
-  expect(snapshot.providerObservations).toEqual([]);
-  expect(snapshot.nativeScopeInspections.observations).toHaveLength(1);
-  expect(
-    snapshot.nativeScopeDiscovery.state === "never-run"
-      ? undefined
-      : snapshot.nativeScopeDiscovery.scopes.map((candidate) => ({
-          nativeScope: candidate.summary.binding.nativeScope,
-          detailAvailability: candidate.detailAvailability,
-        })),
-  ).toEqual([
-    { nativeScope: ".scratch/unbound", detailAvailability: "details-inspected" },
-    { nativeScope: ".scratch/other", detailAvailability: "summary-only" },
-  ]);
-});
 
 test("ordinary Sync retains an unresolved canonical binding route in Lineage and Attention", async () => {
   const root = await createValidBearingRepo();
@@ -320,37 +174,35 @@ test("ordinary Sync canonicalizes a GitHub binding route without provider eviden
   ).toBe(true);
 });
 
-test("a first partial inspection remains a failed attempt without selecting untrusted detail", async () => {
+test("an unbound inspection is a zero-intrusion standalone result", async () => {
   const root = await createValidBearingRepo();
-  await writeScope(root, ".scratch/unbound");
-  await publishDiscovery(
-    root,
-    discoveryObservation([scope(".scratch/unbound")], "2026-07-31T01:30:00.000Z"),
-  );
   const calls = { count: 0, capturedLocators: [] as string[][] };
   const plan = await prepareSync(root, {
     nativeScopeInspectionIntent: {
       kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/unbound" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
-      refresh: false,
+      subject: { kind: "native-scope", id: ".scratch/standalone" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/standalone" },
+      refresh: true,
     },
-    providerFactory: providerFactory(calls, "2026-07-31T01:35:00.000Z", "partial"),
+    providerFactory: providerFactory(calls, "2026-08-03T01:00:00.000Z"),
   });
 
-  expect(plan.nativeScopeInspectionOperation.outcome).toBe("unavailable");
-  expect(plan.nativeScopeInspectionObservations).toEqual([]);
-  expect(plan.nativeScopeInspectionSelections[0]).toMatchObject({
-    observationId: null,
-    effectiveFreshness: "undetermined",
-    latestAttempt: { outcome: "failed" },
+  expect(calls.count).toBe(0);
+  expect(plan.nativeScopeInspectionOperation).toMatchObject({
+    outcome: "target-unavailable",
+    acquisitionCount: 0,
   });
+  expect(plan.nativeScopeInspectionObservations).toEqual([]);
+  expect(plan.nativeScopeInspectionSelections).toEqual([]);
+  expect(plan.nativeScopeInspectionStoreChanged).toBe(false);
+
   const snapshot = await buildSnapshotForSyncPlan(root, "0.0.0-test", plan);
   expect(
-    snapshot.nativeScopeDiscovery.state === "never-run"
-      ? undefined
-      : snapshot.nativeScopeDiscovery.scopes[0]?.detailAvailability,
-  ).toBe("summary-only");
+    snapshot.lineage.subjects.some((subject) => subject.identity.id.includes("standalone")),
+  ).toBe(false);
+  expect(snapshot.attention.some((item) => JSON.stringify(item).includes("standalone"))).toBe(
+    false,
+  );
 });
 
 test("a binding conflict withholds only its contributing Gate readiness", async () => {
@@ -510,17 +362,12 @@ Preserve unrelated readiness.
 
 test("a subject detail uses canonical identity and fails closed when capture omits that subject", async () => {
   const root = await createValidBearingRepo();
-  await writeScope(root, ".scratch/unbound");
-  await publishDiscovery(
-    root,
-    discoveryObservation([scope(".scratch/unbound")], "2026-07-31T01:20:00.000Z"),
-  );
 
   const inspected = await prepareSync(root, {
     nativeScopeInspectionIntent: {
       kind: "inspect",
-      subject: { kind: "native-subject", id: ".scratch/unbound/issues/01-work.md" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+      subject: { kind: "native-subject", id: ".scratch/work/issues/01-finish.md" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
       refresh: false,
     },
     providerObservationNow: () => "2026-07-31T01:25:00.000Z",
@@ -534,7 +381,7 @@ test("a subject detail uses canonical identity and fails closed when capture omi
     snapshot.lineage.subjects.some(
       (subject) =>
         subject.identity.kind === "native-subject" &&
-        subject.identity.id === ".scratch/unbound/issues/01-work.md",
+        subject.identity.id === ".scratch/work/issues/01-finish.md",
     ),
   ).toBe(true);
   await commitSyncPlan(inspected);
@@ -543,8 +390,8 @@ test("a subject detail uses canonical identity and fails closed when capture omi
   const mismatched = await prepareSync(root, {
     nativeScopeInspectionIntent: {
       kind: "inspect",
-      subject: { kind: "native-subject", id: ".scratch/unbound/issues/01-work.md" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+      subject: { kind: "native-subject", id: ".scratch/work/issues/01-finish.md" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
       refresh: true,
     },
     providerFactory: providerFactory(mismatchedCalls, "2026-07-31T01:30:00.000Z"),
@@ -563,17 +410,12 @@ test("a subject detail uses canonical identity and fails closed when capture omi
 
 test("detail reopen reuses cache, Refresh reacquires, and failure retains prior evidence", async () => {
   const root = await createValidBearingRepo();
-  await writeScope(root, ".scratch/unbound");
-  await publishDiscovery(
-    root,
-    discoveryObservation([scope(".scratch/unbound")], "2026-07-31T02:00:00.000Z"),
-  );
   const initialCalls = { count: 0, capturedLocators: [] as string[][] };
   const first = await prepareSync(root, {
     nativeScopeInspectionIntent: {
       kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/unbound" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+      subject: { kind: "native-scope", id: ".scratch/work" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
       refresh: false,
     },
     providerFactory: providerFactory(initialCalls, "2026-07-31T02:05:00.000Z"),
@@ -586,8 +428,8 @@ test("detail reopen reuses cache, Refresh reacquires, and failure retains prior 
   const reopened = await prepareSync(root, {
     nativeScopeInspectionIntent: {
       kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/unbound" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+      subject: { kind: "native-scope", id: ".scratch/work" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
       refresh: false,
     },
     providerFactory: providerFactory(reopenCalls, "2026-07-31T02:10:00.000Z"),
@@ -603,8 +445,8 @@ test("detail reopen reuses cache, Refresh reacquires, and failure retains prior 
   const failedRefresh = await prepareSync(root, {
     nativeScopeInspectionIntent: {
       kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/unbound" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+      subject: { kind: "native-scope", id: ".scratch/work" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
       refresh: true,
     },
     providerFactory: providerFactory(refreshCalls, "2026-07-31T02:15:00.000Z", "partial"),
@@ -636,7 +478,7 @@ test("detail reopen reuses cache, Refresh reacquires, and failure retains prior 
       entryId: "bearing",
       requested: {
         validity: "valid",
-        value: { kind: "native-scope", id: ".scratch/unbound" },
+        value: { kind: "native-scope", id: ".scratch/work" },
       },
       snapshot: retainedSnapshot,
       onInspect: () => {},
@@ -652,8 +494,8 @@ test("detail reopen reuses cache, Refresh reacquires, and failure retains prior 
   const thrown = await prepareSync(root, {
     nativeScopeInspectionIntent: {
       kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/unbound" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+      subject: { kind: "native-scope", id: ".scratch/work" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
       refresh: true,
     },
     providerFactory: () => ({
@@ -672,237 +514,11 @@ test("detail reopen reuses cache, Refresh reacquires, and failure retains prior 
   expect(thrown.nativeScopeInspectionSelections[0]?.latestAttempt?.diagnostics).toContainEqual({
     code: "native-scope-inspection.acquisition-failed",
     impact: "blocking",
-    target: ".scratch/unbound",
+    target: ".scratch/work",
     message: "Native scope detail acquisition failed.",
   });
   expect(JSON.stringify(thrown.nativeScopeInspectionSelections)).not.toContain(
     "private transport detail",
-  );
-});
-
-test("new discovery evidence marks changed detail stale and unproven sameness undetermined", async () => {
-  const root = await createValidBearingRepo();
-  await writeScope(root, ".scratch/unbound");
-  const original = scope(".scratch/unbound");
-  await publishDiscovery(root, discoveryObservation([original], "2026-07-31T03:00:00.000Z"));
-  const calls = { count: 0, capturedLocators: [] as string[][] };
-  const inspected = await prepareSync(root, {
-    nativeScopeInspectionIntent: {
-      kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/unbound" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
-      refresh: false,
-    },
-    providerFactory: providerFactory(calls, "2026-07-31T03:05:00.000Z"),
-  });
-  await commitSyncPlan(inspected);
-
-  const failedDiscovery = await publishDiscovery(
-    root,
-    createNativeScopeDiscoveryObservation({
-      provider: NATIVE_SCOPE_DISCOVERY_PROVIDER,
-      state: "invalid",
-      observedAt: "2026-07-31T03:07:00.000Z",
-      freshness: "undetermined",
-      coverage: "incomplete",
-      scopes: [],
-      diagnostics: [
-        {
-          code: "fixture.discovery-failed",
-          class: "acquisition",
-          impact: "blocking",
-          target: root,
-          message: "The latest discovery attempt failed.",
-        },
-      ],
-    }),
-  );
-  expect(failedDiscovery.nativeScopeDiscovery?.observationId).toBe(
-    inspected.nativeScopeDiscovery?.observationId,
-  );
-  expect(failedDiscovery.nativeScopeDiscovery?.latestAttempt?.state).toBe("invalid");
-  expect(failedDiscovery.nativeScopeInspectionSelections[0]?.effectiveFreshness).toBe(
-    "undetermined",
-  );
-
-  const changed = await publishDiscovery(
-    root,
-    discoveryObservation(
-      [scope(".scratch/unbound", "Renamed native scope")],
-      "2026-07-31T03:10:00.000Z",
-    ),
-  );
-  expect(changed.nativeScopeInspectionSelections[0]?.effectiveFreshness).toBe("stale");
-
-  const unproven = await publishDiscovery(
-    root,
-    discoveryObservation([original], "2026-07-31T03:15:00.000Z"),
-  );
-  expect(unproven.nativeScopeInspectionSelections[0]?.effectiveFreshness).toBe("undetermined");
-});
-
-test("aggregate inspection budget retains the prior readable store and records a scoped failure", async () => {
-  const root = await createValidBearingRepo();
-  await writeScope(root, ".scratch/one");
-  await writeScope(root, ".scratch/two");
-  await publishDiscovery(
-    root,
-    discoveryObservation(
-      [scope(".scratch/one"), scope(".scratch/two")],
-      "2026-07-31T03:30:00.000Z",
-    ),
-  );
-  const firstCalls = { count: 0, capturedLocators: [] as string[][] };
-  const first = await prepareSync(root, {
-    nativeScopeInspectionIntent: {
-      kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/one" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/one" },
-      refresh: false,
-    },
-    providerFactory: providerFactory(firstCalls, "2026-07-31T03:35:00.000Z"),
-  });
-  await commitSyncPlan(first);
-  const priorBytes = first.nativeScopeInspectionStoreBytes;
-  const priorObservationId = first.nativeScopeInspectionObservations[0]?.id;
-  if (priorObservationId === undefined) throw new Error("Expected a selected prior observation.");
-  const maximumStoreBytes = priorBytes.length + 2_048;
-
-  const secondCalls = { count: 0, capturedLocators: [] as string[][] };
-  const bounded = await prepareSync(root, {
-    nativeScopeInspectionIntent: {
-      kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/two" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/two" },
-      refresh: false,
-    },
-    providerFactory: providerFactory(secondCalls, "2026-07-31T03:40:00.000Z"),
-    nativeScopeInspectionMaximumStoreBytes: maximumStoreBytes,
-  });
-
-  expect(secondCalls.count).toBe(1);
-  expect(bounded.nativeScopeInspectionOperation.outcome).toBe("unavailable");
-  expect(bounded.nativeScopeInspectionStoreBytes.length).toBeLessThanOrEqual(maximumStoreBytes);
-  expect(bounded.nativeScopeInspectionObservations.map((observation) => observation.id)).toContain(
-    priorObservationId,
-  );
-  expect(
-    bounded.nativeScopeInspectionSelections
-      .find((selection) => selection.nativeScope === ".scratch/two")
-      ?.latestAttempt?.diagnostics.map((diagnostic) => diagnostic.code),
-  ).toContain("native-scope-inspection.store-resource-budget");
-  await commitSyncPlan(bounded);
-  expect((await readNativeScopeInspectionStore(root)).kind).toBe("available");
-});
-
-test("freshness reconciliation publishes only a readable aggregate cache", async () => {
-  const root = await createValidBearingRepo();
-  await writeScope(root, ".scratch/one");
-  await publishDiscovery(
-    root,
-    discoveryObservation([scope(".scratch/one")], "2026-07-31T03:42:00.000Z"),
-  );
-  const first = await prepareSync(root, {
-    nativeScopeInspectionIntent: {
-      kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/one" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/one" },
-      refresh: false,
-    },
-    providerFactory: providerFactory(
-      { count: 0, capturedLocators: [] },
-      "2026-07-31T03:43:00.000Z",
-    ),
-  });
-  await commitSyncPlan(first);
-
-  const reconciled = await prepareSync(root, {
-    nativeScopeDiscoveryIntent: "explicit-discovery",
-    nativeScopeDiscoveryProviderFactory: discoveryFactory(
-      discoveryObservation([scope(".scratch/one")], "2026-07-31T03:44:00.000Z"),
-    ),
-    nativeScopeInspectionMaximumStoreBytes: first.nativeScopeInspectionStoreBytes.length,
-  });
-
-  expect(reconciled.nativeScopeInspectionStoreBytes.length).toBeLessThanOrEqual(
-    first.nativeScopeInspectionStoreBytes.length,
-  );
-  expect(
-    reconciled.nativeScopeInspectionSelections.every(
-      (selection) => selection.effectiveFreshness !== "current",
-    ),
-  ).toBe(true);
-  await commitSyncPlan(reconciled);
-  expect((await readNativeScopeInspectionStore(root)).kind).toBe("available");
-});
-
-test("bounded cache reuse retains the requested target before unrelated detail", async () => {
-  const root = await createValidBearingRepo();
-  await writeScope(root, ".scratch/one");
-  await writeScope(root, ".scratch/two");
-  await publishDiscovery(
-    root,
-    discoveryObservation(
-      [scope(".scratch/one"), scope(".scratch/two")],
-      "2026-07-31T03:45:00.000Z",
-    ),
-  );
-  const first = await prepareSync(root, {
-    nativeScopeInspectionIntent: {
-      kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/one" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/one" },
-      refresh: false,
-    },
-    providerFactory: providerFactory(
-      { count: 0, capturedLocators: [] },
-      "2026-07-31T03:46:00.000Z",
-    ),
-  });
-  await commitSyncPlan(first);
-  const firstObservationId = first.nativeScopeInspectionObservations[0]?.id;
-  if (firstObservationId === undefined) throw new Error("Expected the first cached inspection.");
-
-  const second = await prepareSync(root, {
-    nativeScopeInspectionIntent: {
-      kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/two" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/two" },
-      refresh: false,
-    },
-    providerFactory: providerFactory(
-      { count: 0, capturedLocators: [] },
-      "2026-07-31T03:47:00.000Z",
-    ),
-  });
-  await commitSyncPlan(second);
-  expect(second.nativeScopeInspectionSelections).toHaveLength(2);
-
-  const reuseCalls = { count: 0, capturedLocators: [] as string[][] };
-  const reused = await prepareSync(root, {
-    nativeScopeInspectionIntent: {
-      kind: "inspect",
-      subject: { kind: "native-scope", id: ".scratch/one" },
-      target: { provider: "matt-skills/v1", nativeScope: ".scratch/one" },
-      refresh: false,
-    },
-    providerFactory: providerFactory(reuseCalls, "2026-07-31T03:48:00.000Z"),
-    nativeScopeInspectionMaximumStoreBytes: first.nativeScopeInspectionStoreBytes.length,
-  });
-
-  expect(reused.nativeScopeInspectionOperation).toMatchObject({
-    outcome: "reused-cache",
-    acquisitionCount: 0,
-  });
-  expect(reuseCalls.count).toBe(0);
-  expect(reused.nativeScopeInspectionSelections.map((selection) => selection.nativeScope)).toEqual([
-    ".scratch/one",
-  ]);
-  expect(reused.nativeScopeInspectionObservations.map((observation) => observation.id)).toEqual([
-    firstObservationId,
-  ]);
-  expect(reused.nativeScopeInspectionStoreBytes.length).toBeLessThanOrEqual(
-    first.nativeScopeInspectionStoreBytes.length,
   );
 });
 
@@ -947,10 +563,6 @@ test("inspection Snapshot rejects a current selection over stale observation evi
 
 test("a matching bound capture is reused before the inspection cache", async () => {
   const root = await createValidBearingRepo();
-  await publishDiscovery(
-    root,
-    discoveryObservation([scope(".scratch/work")], "2026-07-31T04:00:00.000Z"),
-  );
   const calls = { count: 0, capturedLocators: [] as string[][] };
   const plan = await prepareSync(root, {
     providerObservationIntent: "initial-baseline",
@@ -976,79 +588,55 @@ test("a matching bound capture is reused before the inspection cache", async () 
     snapshot.lineage.subjects.find(
       (subject) => subject.identity.kind === "effort" && subject.identity.id === "effort:test",
     )?.nativeWorkReadingState?.binding,
-  ).toMatchObject({ state: "bound", discovery: "discovered" });
+  ).toMatchObject({ state: "bound" });
 });
 
-test("complete discovery omission is bound-not-discovered while uncertain omission stays unknown", async () => {
-  const exactRoot = await createValidBearingRepo();
-  await publishDiscovery(exactRoot, discoveryObservation([], "2026-07-31T05:00:00.000Z"));
-  const exactCalls = { count: 0, capturedLocators: [] as string[][] };
-  const exactPlan = await prepareSync(exactRoot, {
-    providerObservationIntent: "initial-baseline",
-    providerFactory: providerFactory(exactCalls, "2026-07-31T05:05:00.000Z"),
-    providerObservationNow: () => "2026-07-31T05:05:00.000Z",
+test("an authoritative bound capture outranks retained inspection detail for lineage", async () => {
+  const root = await createValidBearingRepo();
+  const inspectionCalls = { count: 0, capturedLocators: [] as string[][] };
+  const inspected = await prepareSync(root, {
+    nativeScopeInspectionIntent: {
+      kind: "inspect",
+      subject: { kind: "native-scope", id: ".scratch/work" },
+      target: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
+      refresh: true,
+    },
+    providerFactory: providerFactory(
+      inspectionCalls,
+      "2026-08-03T02:00:00.000Z",
+      "available",
+      "Retained inspection detail",
+    ),
   });
-  const exactSnapshot = await buildSnapshotForSyncPlan(exactRoot, "0.0.0-test", exactPlan);
-  const exactEffort = exactSnapshot.lineage.subjects.find(
-    (subject) => subject.identity.kind === "effort" && subject.identity.id === "effort:test",
-  );
-  expect(exactEffort?.nativeWorkReadingState?.binding).toEqual({
-    state: "bound",
-    effortIds: ["effort:test"],
-    discovery: "bound-not-discovered",
-  });
-  expect(
-    exactPlan.planningGraph.contextFor({ kind: "effort", id: "effort:test" }).context
-      ?.nativeWorkReadingState,
-  ).toEqual(exactEffort?.nativeWorkReadingState);
+  await commitSyncPlan(inspected);
 
-  const uncertainRoot = await createValidBearingRepo();
-  await publishDiscovery(
-    uncertainRoot,
-    createNativeScopeDiscoveryObservation({
-      provider: NATIVE_SCOPE_DISCOVERY_PROVIDER,
-      state: "partial",
-      observedAt: "2026-07-31T05:10:00.000Z",
-      freshness: "undetermined",
-      coverage: "incomplete",
-      scopes: [],
-      diagnostics: [
-        {
-          code: "fixture.discovery-partial",
-          class: "acquisition",
-          impact: "blocking",
-          target: uncertainRoot,
-          message: "The fixture cannot prove complete discovery coverage.",
-        },
-      ],
-    }),
-  );
-  const uncertainCalls = { count: 0, capturedLocators: [] as string[][] };
-  const uncertainPlan = await prepareSync(uncertainRoot, {
+  const providerCalls = { count: 0, capturedLocators: [] as string[][] };
+  const captured = await prepareSync(root, {
     providerObservationIntent: "initial-baseline",
-    providerFactory: providerFactory(uncertainCalls, "2026-07-31T05:15:00.000Z"),
-    providerObservationNow: () => "2026-07-31T05:15:00.000Z",
+    providerFactory: providerFactory(
+      providerCalls,
+      "2026-08-03T02:05:00.000Z",
+      "available",
+      "Authoritative provider capture",
+    ),
   });
-  const uncertainSnapshot = await buildSnapshotForSyncPlan(
-    uncertainRoot,
-    "0.0.0-test",
-    uncertainPlan,
+  const snapshot = await buildSnapshotForSyncPlan(root, "0.0.0-test", captured);
+  const scope = snapshot.lineage.subjects.find(
+    (subject) =>
+      subject.identity.kind === "native-scope" && subject.identity.id === ".scratch/work",
   );
-  const uncertainEffort = uncertainSnapshot.lineage.subjects.find(
-    (subject) => subject.identity.kind === "effort" && subject.identity.id === "effort:test",
-  );
-  expect(uncertainEffort?.nativeWorkReadingState?.binding).toMatchObject({
-    state: "bound",
-    discovery: "unknown",
-  });
+  const members = scope?.relations.find((relation) => relation.key === "native-work.members");
+
+  expect(providerCalls.count).toBe(1);
+  expect(snapshot.nativeScopeInspections.observations).toHaveLength(1);
+  expect(
+    members?.state === "present" ? members.targets.map((target) => target.label) : [],
+  ).toContain("Authoritative provider capture");
+  expect(JSON.stringify(scope)).not.toContain("Retained inspection detail");
 });
 
 test("inspection detail never becomes bound completion authority", async () => {
   const root = await createValidBearingRepo();
-  await publishDiscovery(
-    root,
-    discoveryObservation([scope(".scratch/work")], "2026-07-31T06:00:00.000Z"),
-  );
   const calls = { count: 0, capturedLocators: [] as string[][] };
   const plan = await prepareSync(root, {
     nativeScopeInspectionIntent: {

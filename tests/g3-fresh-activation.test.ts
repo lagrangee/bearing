@@ -54,7 +54,7 @@ const sourceBytes = async (root: string): Promise<Readonly<Record<string, string
 };
 
 test(
-  "Fresh Local activation uses explicit Discovery and read-only Portal orientation",
+  "Fresh Local activation keeps Scope Review transient and Portal read-only",
   async () => {
     const root = await makeTemporaryDirectory("bearing-g3-fresh-local-");
     const home = await makeTemporaryDirectory("bearing-g3-fresh-home-");
@@ -93,20 +93,16 @@ test(
         ),
       );
 
-      const discovery = await runDevelopmentCli(home, [
+      const baseline = await runDevelopmentCli(home, [
         "sync",
         "--repo",
         root,
         "--initialize-provider-observations",
-        "--discover-native-scopes",
       ]);
-      expectSuccessful(discovery);
-      expect(discovery.stdout).toContain("Diagnostics: 0");
-      expect(discovery.stdout).toContain("Provider observations: initial-baseline/acquired");
-      expect(discovery.stdout).toContain(
-        "Native scope discovery: explicit-discovery/acquired (1 acquisitions)",
-      );
-      expect(discovery.stdout).toContain(
+      expectSuccessful(baseline);
+      expect(baseline.stdout).toContain("Diagnostics: 0");
+      expect(baseline.stdout).toContain("Provider observations: initial-baseline/acquired");
+      expect(baseline.stdout).toContain(
         "Native scope inspection: none/not-requested (0 acquisitions)",
       );
 
@@ -114,9 +110,6 @@ test(
       expectSuccessful(ordinary);
       expect(ordinary.stdout).toContain(
         "Provider observations: ordinary-sync/reused (0 acquisitions)",
-      );
-      expect(ordinary.stdout).toContain(
-        "Native scope discovery: ordinary-sync/reused (0 acquisitions)",
       );
       expect(ordinary.stdout).toContain("Outcome: no-op");
 

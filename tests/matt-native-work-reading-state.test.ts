@@ -200,7 +200,7 @@ test("turns every untrustworthy evidence axis into Can't verify with concrete ca
   expect(mismatchedSelection.conclusion).toBe("Can't verify");
 });
 
-test("keeps binding attention and unbound inspection outside completion authority", () => {
+test("keeps binding attention outside completion authority", () => {
   for (const reason of [
     "binding-conflict",
     "bound-unresolved",
@@ -217,18 +217,6 @@ test("keeps binding attention and unbound inspection outside completion authorit
       binding: { state: "attention", reason },
     });
   }
-
-  const unbound = build({ state: "unbound" }, (observation) => ({
-    ...observation,
-    completion: "complete",
-  }));
-  expect(unbound).toMatchObject({
-    conclusion: "Can't verify",
-    binding: { state: "unbound", label: "Not linked to an Effort" },
-  });
-  expect(unbound.why.causes).toContain(
-    "This scope is not linked to an Effort, so completion cannot establish contribution or readiness.",
-  );
 });
 
 test("withholds a prior complete observation after the latest verification fails", () => {

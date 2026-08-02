@@ -8,7 +8,6 @@ import {
   type ProjectSnapshotApiResponse,
   type ProjectSyncApiResponse,
   type ProjectSyncRequest,
-  projectDiscoveryRequestSchema,
   projectNativeReconciliationRequestSchema,
   projectNativeScopeInspectionRequestSchema,
   projectSyncRequestSchema,
@@ -326,42 +325,6 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
     );
   });
 
-  app.post("/api/v1/projects/:entryId/discover-native-scopes", async (context) => {
-    noStore(context);
-    if (
-      !options.sessions.verify(
-        context.req.header("cookie"),
-        context.req.header("x-bearing-csrf-token"),
-      )
-    ) {
-      return context.json({ code: "invalid-csrf-token", message: "CSRF check failed." }, 403);
-    }
-    const mediaType = context.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-    if (mediaType !== "application/json") {
-      return context.json(
-        { code: "unsupported-media-type", message: "Expected application/json." },
-        415,
-      );
-    }
-    let input: unknown;
-    try {
-      input = await context.req.json();
-    } catch {
-      return context.json({ code: "invalid-request", message: "Request body is not JSON." }, 400);
-    }
-    if (!projectDiscoveryRequestSchema.safeParse(input).success) {
-      return context.json(
-        { code: "invalid-request", message: "Native Scope Discovery request is invalid." },
-        400,
-      );
-    }
-    return syncResponse(
-      context,
-      await options.projects.sync(context.req.param("entryId"), "force", "explicit-discovery"),
-      "force",
-    );
-  });
-
   app.post("/api/v1/projects/:entryId/inspect-native-scope", async (context) => {
     noStore(context);
     if (
@@ -394,7 +357,7 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
     }
     return syncResponse(
       context,
-      await options.projects.sync(context.req.param("entryId"), "force", "ordinary-sync", {
+      await options.projects.sync(context.req.param("entryId"), "force", {
         kind: "inspect",
         subject: parsed.data.subject,
         target: parsed.data.target,
@@ -436,7 +399,7 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
     }
     return syncResponse(
       context,
-      await options.projects.sync(context.req.param("entryId"), "force", "ordinary-sync", {
+      await options.projects.sync(context.req.param("entryId"), "force", {
         kind: "reconcile",
         request: normalizeNativeReconciliationRequest(parsed.data),
       }),

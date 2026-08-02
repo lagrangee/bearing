@@ -8,7 +8,6 @@ import { assetProjectionSchema } from "./schema-asset";
 import { planningAuditSchema } from "./schema-audit";
 import { projectBriefSchema } from "./schema-brief";
 import { validateProjectSnapshotConsistency } from "./schema-consistency";
-import { nativeScopeDiscoveryProjectionSchema } from "./schema-native-scope-discovery";
 import { nativeScopeInspectionProjectionSchema } from "./schema-native-scope-inspection";
 import { citedNodeShape, titledSourceShape } from "./schema-node";
 import { planningLineageProjectionSchema } from "./schema-planning-lineage";
@@ -39,7 +38,7 @@ export { planningLineageProjectionSchema } from "./schema-planning-lineage";
 export { diagnosticReferenceSchema } from "./schema-primitives";
 export { projectionIssueSchema } from "./schema-projection";
 export { projectSummarySchema } from "./schema-summary";
-export const PROJECT_SNAPSHOT_VERSION = 14 as const;
+export const PROJECT_SNAPSHOT_VERSION = 15 as const;
 const resolutionSchema = z.strictObject({
   acceptedDecision: semanticPlainTextSchema,
   acceptedAt: bearingSourceEventTimeSchema,
@@ -334,7 +333,6 @@ export const projectSnapshotSchema = z
       providerObservationSelectionSchema,
       mattNativeScopeKey,
     ),
-    nativeScopeDiscovery: nativeScopeDiscoveryProjectionSchema,
     nativeScopeInspections: nativeScopeInspectionProjectionSchema,
     diagnostics: uniqueIdentityArraySchema(
       structuralDiagnosticSchema,

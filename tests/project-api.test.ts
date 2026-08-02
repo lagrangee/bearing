@@ -22,7 +22,7 @@ const assets: PortalAssets = {
     schemaVersion: 1,
     packageVersion: "0.0.0-test",
     interfaceVersion: 1,
-    projectSnapshotVersion: 14,
+    projectSnapshotVersion: 15,
     entry: "index.html",
     buildId: "0".repeat(64),
     assets: [
@@ -289,7 +289,7 @@ test("POST rejects missing CSRF and malformed input before project work", async 
       body: JSON.stringify({ version: 1, mode: "ensure-current" }),
     });
     expect(missingCsrf.status).toBe(403);
-    const missingDiscoveryCsrf = await app.request(
+    const removedDiscovery = await app.request(
       `${ORIGIN}/api/v1/projects/${PROJECT_ID}/discover-native-scopes`,
       {
         method: "POST",
@@ -297,7 +297,7 @@ test("POST rejects missing CSRF and malformed input before project work", async 
         body: JSON.stringify({ version: 1 }),
       },
     );
-    expect(missingDiscoveryCsrf.status).toBe(403);
+    expect(removedDiscovery.status).toBe(404);
     await expect(access(join(root, ".bearing/cache/project-snapshot.json"))).rejects.toThrow();
 
     const { cookie, csrfToken } = await establish(app);
@@ -456,7 +456,6 @@ test("native scope inspection route validates authority and forwards one typed t
     [
       PROJECT_ID,
       "force",
-      "ordinary-sync",
       {
         kind: "inspect",
         subject: {
@@ -553,7 +552,6 @@ test("targeted native reconciliation route validates a bounded read set and forw
     [
       PROJECT_ID,
       "force",
-      "ordinary-sync",
       {
         kind: "reconcile",
         request: {
@@ -650,7 +648,7 @@ test("ensure-current, cooldown, and force return complete typed project views", 
       ],
     });
 
-    const discovered = await app.request(
+    const removedDiscovery = await app.request(
       `${ORIGIN}/api/v1/projects/${PROJECT_ID}/discover-native-scopes`,
       {
         method: "POST",
@@ -658,44 +656,14 @@ test("ensure-current, cooldown, and force return complete typed project views", 
         body: JSON.stringify({ version: 1 }),
       },
     );
-    const discoveredBody = await discovered.json();
-    expect(discovered.status).toBe(200);
-    expect(discoveredBody).toMatchObject({
-      state: "completed",
-      mode: "force",
-      view: {
-        cache: {
-          snapshot: {
-            snapshot: {
-              nativeScopeDiscovery: {
-                state: "available",
-                coverage: "complete",
-                scopes: [
-                  {
-                    summary: {
-                      binding: { nativeScope: ".scratch/work" },
-                      driver: "local",
-                    },
-                    bindingContext: {
-                      state: "bound",
-                      effortIds: ["effort:test"],
-                    },
-                    detailAvailability: "details-inspected",
-                  },
-                ],
-                confirmedUnboundEmpty: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    expect(removedDiscovery.status).toBe(404);
+    expect("nativeScopeDiscovery" in ensuredBody.view.cache.snapshot.snapshot).toBe(false);
     expect(
       await access(join(root, ".bearing/cache/native-scope-discovery.json")).then(
         () => true,
         () => false,
       ),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(await (await sync("ensure-current")).json()).toMatchObject({
       state: "cooldown",

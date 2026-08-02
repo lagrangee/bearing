@@ -3,7 +3,6 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OverviewAttention } from "../src/portal-ui/overview-attention";
 import { buildProjectOverviewModel } from "../src/portal-ui/project-overview-model";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
@@ -70,77 +69,6 @@ test("renders no healthy-state Attention placeholder when the normalized queue i
   );
 
   expect(html).toBe("");
-});
-
-test("binding diagnostics deep-link to the preserved native scope route", () => {
-  const snapshot = snapshotFixture();
-  const diagnosticAttention = snapshot.attention.find(
-    (item) => item.kind === "structural-diagnostic",
-  );
-  if (diagnosticAttention?.kind !== "structural-diagnostic") {
-    throw new Error("Expected one structural diagnostic Attention item.");
-  }
-  const conflicted = {
-    ...snapshot,
-    diagnostics: snapshot.diagnostics.map((diagnostic) =>
-      diagnostic.reference === diagnosticAttention.diagnosticReference
-        ? {
-            ...diagnostic,
-            code: "native-scope-discovery.binding-conflict",
-            target: ".scratch/portal",
-            message: "Multiple Efforts bind this native scope.",
-          }
-        : diagnostic,
-    ),
-    nativeScopeDiscovery: {
-      state: "available",
-      provider: "matt-skills/v1",
-      observationId: `sha256:${"d".repeat(64)}`,
-      observedAt: "2026-07-31T08:00:00.000Z",
-      validators: [],
-      freshness: "current",
-      coverage: "complete",
-      scopes: [
-        {
-          summary: {
-            identity: ".scratch/portal",
-            binding: { provider: "matt-skills/v1", nativeScope: ".scratch/portal" },
-            locator: ".scratch/portal",
-            driver: "local",
-            rootRole: "wayfinder-map",
-            title: "Portal Validation",
-            lifecycle: "open",
-            classification: "map",
-            admission: ["contract-map"],
-            subjects: [],
-          },
-          bindingContext: {
-            state: "binding-conflict",
-            effortIds: ["effort:model", "effort:portal"],
-          },
-          detailAvailability: "details-inspected",
-        },
-      ],
-      count: { kind: "exact", value: 0 },
-      confirmedUnboundEmpty: true,
-      diagnostics: [],
-      latestAttempt: null,
-    },
-  } as const;
-  const model = buildProjectOverviewModel(conflicted as unknown as ProjectSnapshot);
-  const item = model.attention.find((candidate) => candidate.kind === "diagnostic");
-  expect(item?.nativeSubject).toEqual({ kind: "native-scope", id: ".scratch/portal" });
-
-  const html = renderToStaticMarkup(
-    createElement(OverviewAttention, {
-      attention: model.attention,
-      entryId: "bearing",
-      onInspect: () => {},
-      onNavigate: () => {},
-    }),
-  );
-  expect(html).toContain("native-scope");
-  expect(html).toContain(encodeURIComponent(".scratch/portal"));
 });
 
 test("renders retained members from a trustworthy partial Roadmap projection", () => {

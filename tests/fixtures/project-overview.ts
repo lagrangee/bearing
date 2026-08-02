@@ -374,7 +374,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 14,
+    schemaVersion: 15,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -722,7 +722,6 @@ export const createProjectOverviewFixture = () => {
   return projectSnapshotSchema.parse({
     ...candidate,
     providerObservationSelections,
-    nativeScopeDiscovery: { state: "never-run" },
     nativeScopeInspections: { observations: [], selections: [] },
     lineage: buildPlanningLineageProjection({
       roadmaps: candidate.roadmaps,
@@ -734,6 +733,7 @@ export const createProjectOverviewFixture = () => {
       reviews: candidate.reviews,
       providerObservations: candidate.providerObservations,
       providerObservationSelections,
+      nativeScopeInspections: { observations: [], selections: [] },
       sources: candidate.sources,
     }),
   });

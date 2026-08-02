@@ -92,7 +92,6 @@ const attentionModel = (
   reviews: ReadonlyMap<string, PlanningReview>,
   sources: ReadonlyMap<string, SourceRecord>,
   efforts: ProjectSnapshot["efforts"],
-  discovery: ProjectSnapshot["nativeScopeDiscovery"],
 ): OverviewAttentionItem => {
   switch (item.kind) {
     case "structural-diagnostic": {
@@ -114,15 +113,16 @@ const attentionModel = (
             detail: diagnostic.target,
             source: diagnostic.source === undefined ? undefined : sources.get(diagnostic.source),
             ...(() => {
-              const discoveredScope =
-                discovery.state === "never-run"
+              const source =
+                diagnostic.source === undefined ? undefined : sources.get(diagnostic.source);
+              const sourceSubject =
+                source?.binding === undefined || source.binding.role === "next-work-guidance"
                   ? undefined
-                  : discovery.scopes.find((scope) =>
-                      [
-                        scope.summary.locator,
-                        ...scope.summary.subjects.map((subject) => subject.locator),
-                      ].some((target) => targetWithinNativeScope(diagnostic.target, target)),
-                    );
+                  : source.binding.role === "native-scope"
+                    ? ({ kind: "native-scope", id: source.binding.identity } as const)
+                    : source.kind === "tracker"
+                      ? ({ kind: "native-subject", id: source.binding.identity } as const)
+                      : undefined;
               const boundScope =
                 efforts.validity === "invalid"
                   ? undefined
@@ -135,17 +135,15 @@ const attentionModel = (
                 boundScope === undefined
                   ? undefined
                   : mattNativeScopeSubject({ binding: boundScope });
-              const nativeScopeId =
-                discoveredScope === undefined
-                  ? boundSubject?.id
-                  : mattNativeScopeSubject(discoveredScope.summary).id;
-              return nativeScopeId === undefined
+              const nativeSubject =
+                sourceSubject ??
+                (boundSubject === undefined
+                  ? undefined
+                  : ({ kind: "native-scope", id: boundSubject.id } as const));
+              return nativeSubject === undefined
                 ? {}
                 : {
-                    nativeSubject: {
-                      kind: "native-scope" as const,
-                      id: nativeScopeId,
-                    },
+                    nativeSubject,
                   };
             })(),
           };
@@ -184,15 +182,7 @@ export const buildProjectOverviewModel = (snapshot: ProjectSnapshot): ProjectOve
     brief: scopedValue(snapshot.brief, sources),
     summary: scopedValue(snapshot.summary, sources),
     attention: snapshot.attention.map((item) =>
-      attentionModel(
-        item,
-        diagnostics,
-        checks,
-        reviews,
-        sources,
-        snapshot.efforts,
-        snapshot.nativeScopeDiscovery,
-      ),
+      attentionModel(item, diagnostics, checks, reviews, sources, snapshot.efforts),
     ),
     roadmaps: buildOverviewRoadmaps(snapshot, sources),
     sources,

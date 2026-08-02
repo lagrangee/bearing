@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { stringify } from "yaml";
 import {
@@ -17,20 +17,8 @@ import { listFiles } from "./discovery";
 import { fingerprintInputRecords } from "./fingerprint";
 import { retainContainedInputs } from "./input-boundary";
 import {
-  fingerprintNativeScopeDiscoveryView,
-  type NativeScopeDiscoveryIntent,
-  type NativeScopeDiscoveryView,
-  readNativeScopeDiscoveryView,
-  selectNativeScopeDiscovery,
-} from "./native-scope-discovery";
-import {
-  defaultNativeScopeDiscoveryProvider,
-  type NativeScopeDiscoveryProviderFactory,
-} from "./native-scope-discovery-acquisition";
-import {
   fingerprintNativeScopeInspections,
   type NativeScopeInspectionIntent,
-  nativeScopeInspectionExplicitInputs,
   selectNativeScopeInspections,
 } from "./native-scope-inspection";
 import { resolveRepositoryRoot } from "./path-boundary";
@@ -59,6 +47,8 @@ export type SyncPlan = Readonly<{
   sitemap: Buffer;
   reportPath: string;
   sitemapPath: string;
+  legacyNativeScopeDiscoveryStorePath: string;
+  legacyNativeScopeDiscoveryStorePresent: boolean;
   inputs: readonly string[];
   fingerprint: string;
   diagnostics: readonly StructuralDiagnostic[];
@@ -70,13 +60,6 @@ export type SyncPlan = Readonly<{
   providerObservationStorePath: string;
   providerObservationStoreBytes: Buffer;
   providerObservationStoreChanged: boolean;
-  nativeScopeDiscovery: NativeScopeDiscoveryView | undefined;
-  nativeScopeDiscoveryOperation: Awaited<
-    ReturnType<typeof selectNativeScopeDiscovery>
-  >["operation"];
-  nativeScopeDiscoveryStorePath: string;
-  nativeScopeDiscoveryStoreBytes: Buffer;
-  nativeScopeDiscoveryStoreChanged: boolean;
   nativeScopeInspectionObservations: readonly MattSkillsV1ProviderObservation[];
   nativeScopeInspectionSelections: readonly ProviderObservationSelection[];
   nativeScopeInspectionOperation: Awaited<
@@ -102,7 +85,6 @@ export type SyncPerformanceMetrics = Readonly<{
   recordDecodeCount: number;
   repositoryRevalidationCount: number;
   providerAcquisitionCount: number;
-  nativeScopeDiscoveryAcquisitionCount: number;
   nativeScopeInspectionAcquisitionCount: number;
   phaseMs: Readonly<{
     discovery: number;
@@ -121,8 +103,6 @@ export type PrepareSyncOptions = Readonly<{
   providerFactory?: MattProviderFactory;
   providerObservationIntent?: ProviderObservationIntent;
   providerObservationNow?: () => string;
-  nativeScopeDiscoveryIntent?: NativeScopeDiscoveryIntent;
-  nativeScopeDiscoveryProviderFactory?: NativeScopeDiscoveryProviderFactory;
   nativeScopeInspectionIntent?: NativeScopeInspectionIntent;
   nativeScopeInspectionMaximumStoreBytes?: number;
 }>;
@@ -222,23 +202,11 @@ export const prepareSync = async (
       "Targeted native reconciliation cannot be combined with baseline, recovery or full verification.",
     );
   }
-  const inspectionDiscovery =
-    nativeScopeInspectionIntent.kind === "inspect"
-      ? await readNativeScopeDiscoveryView(root)
-      : undefined;
-  const inspectionInputs =
-    nativeScopeInspectionIntent.kind === "inspect"
-      ? nativeScopeInspectionExplicitInputs(
-          inspectionDiscovery,
-          nativeScopeInspectionIntent.subject,
-          nativeScopeInspectionIntent.target,
-        )
-      : [];
   const discovery = await discoverProjectSitemapInputs(root);
   const explicit =
-    options.explicitInputs === undefined && inspectionInputs.length === 0
+    options.explicitInputs === undefined
       ? { inputs: [], diagnostics: [] }
-      : await retainContainedInputs(root, [...(options.explicitInputs ?? []), ...inspectionInputs]);
+      : await retainContainedInputs(root, options.explicitInputs);
   const discoveryInputs = [...new Set([...discovery.inputs, ...explicit.inputs])].sort(
     (left, right) => left.localeCompare(right, "en"),
   );
@@ -281,17 +249,9 @@ export const prepareSync = async (
       ? {}
       : { now: options.providerObservationNow }),
   });
-  const nativeScopeDiscovery = await selectNativeScopeDiscovery({
-    repoRoot: generation.root,
-    intent: options.nativeScopeDiscoveryIntent ?? "ordinary-sync",
-    provider: (options.nativeScopeDiscoveryProviderFactory ?? defaultNativeScopeDiscoveryProvider)(
-      generation,
-    ),
-  });
   const nativeScopeInspection = await selectNativeScopeInspections({
     repoRoot: generation.root,
     generation,
-    discovery: nativeScopeDiscovery.view,
     intent: nativeScopeInspectionIntent,
     boundObservations: providerSelection.observations,
     boundSelections: providerSelection.selections,
@@ -311,10 +271,6 @@ export const prepareSync = async (
         providerSelection.observations,
         providerSelection.selections,
       ),
-    },
-    {
-      key: "native-scope-discovery-selection",
-      value: fingerprintNativeScopeDiscoveryView(nativeScopeDiscovery.view),
     },
     {
       key: "native-scope-inspection-selection",
@@ -342,9 +298,6 @@ export const prepareSync = async (
         decoded,
         providerObservations: providerSelection.observations,
         providerObservationSelections: providerSelection.selections,
-        ...(nativeScopeDiscovery.view === undefined
-          ? {}
-          : { nativeScopeDiscovery: nativeScopeDiscovery.view }),
         nativeScopeInspectionObservations: nativeScopeInspection.observations,
         nativeScopeInspectionSelections: nativeScopeInspection.selections,
         diagnostics,
@@ -370,19 +323,27 @@ export const prepareSync = async (
   const sitemapPath = join(root, ".bearing/cache/project-sitemap.md");
   const previousReport = await readExisting(reportPath);
   const previousSitemap = await readExisting(sitemapPath);
+  const legacyNativeScopeDiscoveryStorePath = join(
+    root,
+    ".bearing/cache/native-scope-discovery.json",
+  );
+  const legacyNativeScopeDiscoveryStorePresent =
+    (await readExisting(legacyNativeScopeDiscoveryStorePath)) !== undefined;
   const reportChanged = previousReport === undefined || !previousReport.equals(report);
   const sitemapChanged = previousSitemap === undefined || !previousSitemap.equals(sitemap);
   const compared = performance.now();
   const operationMetrics = generation.instrumentation.snapshot();
   return {
     root,
-    changed: reportChanged || sitemapChanged,
+    changed: reportChanged || sitemapChanged || legacyNativeScopeDiscoveryStorePresent,
     reportChanged,
     sitemapChanged,
     report,
     sitemap,
     reportPath,
     sitemapPath,
+    legacyNativeScopeDiscoveryStorePath,
+    legacyNativeScopeDiscoveryStorePresent,
     inputs: finalGeneration.inputs,
     fingerprint: finalGeneration.fingerprint,
     diagnostics,
@@ -394,11 +355,6 @@ export const prepareSync = async (
     providerObservationStorePath: providerSelection.storePath,
     providerObservationStoreBytes: providerSelection.storeBytes,
     providerObservationStoreChanged: providerSelection.storeChanged,
-    nativeScopeDiscovery: nativeScopeDiscovery.view,
-    nativeScopeDiscoveryOperation: nativeScopeDiscovery.operation,
-    nativeScopeDiscoveryStorePath: nativeScopeDiscovery.storePath,
-    nativeScopeDiscoveryStoreBytes: nativeScopeDiscovery.storeBytes,
-    nativeScopeDiscoveryStoreChanged: nativeScopeDiscovery.storeChanged,
     nativeScopeInspectionObservations: nativeScopeInspection.observations,
     nativeScopeInspectionSelections: nativeScopeInspection.selections,
     nativeScopeInspectionOperation: nativeScopeInspection.operation,
@@ -419,7 +375,6 @@ export const prepareSync = async (
       recordDecodeCount: decoded.metrics.decodeCount,
       repositoryRevalidationCount: operationMetrics.repositoryRevalidationCount,
       providerAcquisitionCount: providerSelection.operation.acquisitionCount,
-      nativeScopeDiscoveryAcquisitionCount: nativeScopeDiscovery.operation.acquisitionCount,
       nativeScopeInspectionAcquisitionCount: nativeScopeInspection.operation.acquisitionCount,
       phaseMs: {
         discovery: discovered - started,
@@ -447,28 +402,26 @@ export const commitSyncPlan = async (
   plan: SyncPlan,
   options: Readonly<{
     publishProviderObservations?: boolean;
-    publishNativeScopeDiscovery?: boolean;
     publishNativeScopeInspections?: boolean;
   }> = {},
 ): Promise<SyncProjectionResult> => {
   if (
     plan.changed ||
     plan.providerObservationStoreChanged ||
-    plan.nativeScopeDiscoveryStoreChanged ||
     plan.nativeScopeInspectionStoreChanged
   ) {
     await mkdir(dirname(plan.reportPath), { recursive: true });
+    if (plan.legacyNativeScopeDiscoveryStorePresent) {
+      try {
+        await unlink(plan.legacyNativeScopeDiscoveryStorePath);
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      }
+    }
     if (plan.providerObservationStoreChanged && options.publishProviderObservations !== false) {
       await writeFileAtomically(
         plan.providerObservationStorePath,
         plan.providerObservationStoreBytes,
-        0o644,
-      );
-    }
-    if (plan.nativeScopeDiscoveryStoreChanged && options.publishNativeScopeDiscovery !== false) {
-      await writeFileAtomically(
-        plan.nativeScopeDiscoveryStorePath,
-        plan.nativeScopeDiscoveryStoreBytes,
         0o644,
       );
     }

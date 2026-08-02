@@ -20,9 +20,6 @@ export const buildSnapshotForSyncPlan = (root: string, packageVersion: string, p
     decoded: plan.decoded,
     providerObservations: plan.providerObservations,
     providerObservationSelections: plan.providerObservationSelections,
-    ...(plan.nativeScopeDiscovery === undefined
-      ? {}
-      : { nativeScopeDiscovery: plan.nativeScopeDiscovery }),
     nativeScopeInspectionObservations: plan.nativeScopeInspectionObservations,
     nativeScopeInspectionSelections: plan.nativeScopeInspectionSelections,
     assetContentObservations: plan.assetContentObservations,

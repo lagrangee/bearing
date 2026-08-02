@@ -92,7 +92,7 @@ test("Attention includes canonical and bound-scope diagnostics but excludes stan
   ]);
 });
 
-test("GitHub discovery locators preserve managed Attention across locator dialects", () => {
+test("GitHub native locators preserve managed Attention across locator dialects", () => {
   const nativeScope = encodeGitHubMattNativeScope({
     host: "github.com",
     rootKind: "wayfinder-map",
@@ -116,7 +116,7 @@ test("GitHub discovery locators preserve managed Attention across locator dialec
     managedTargets: [nativeScope, locator, childLocator],
     diagnostics: [
       {
-        code: "native-scope-discovery.binding-conflict",
+        code: "native-work.binding-conflict",
         impact: "blocking",
         target: childLocator,
         message: "A managed GitHub child has an identity conflict.",

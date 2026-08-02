@@ -74,7 +74,7 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   });
 
   expect(snapshot).toMatchObject({
-    schemaVersion: 14,
+    schemaVersion: 15,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapFingerprint: sync.fingerprint },
     summary: {
@@ -372,6 +372,7 @@ Input fingerprint: sha256:${"a".repeat(64)}
           item.kind === "structural-diagnostic" &&
           item.diagnosticReference === diagnostic?.reference,
       ),
+      `${code}:${target ?? "no-target"}`,
     ).toBe(true);
   }
   expect(snapshot.checks).toMatchObject({

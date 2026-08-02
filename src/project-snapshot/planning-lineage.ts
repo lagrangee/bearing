@@ -19,7 +19,6 @@ import type { MattProjectedObject } from "../providers/matt-skills-v1/projection
 import { mattObjects } from "../providers/matt-skills-v1/projection";
 import {
   buildMattNativeWorkReadingState,
-  type MattNativeWorkDiscoveryReconciliation,
   type MattNativeWorkReadingState,
   mattNativeWorkReadingContextForEffort,
   mattNativeWorkReadingContextForScope,
@@ -32,72 +31,54 @@ import type {
   ProjectSnapshot,
   ProjectSnapshotInput,
 } from "./contract";
-import { nativeScopeDiscoveryProjectionSchema } from "./schema-native-scope-discovery";
 import { planningLineageProjectionSchema } from "./schema-planning-lineage";
 
-export type PlanningLineageBuildInput = Omit<
-  Pick<
-    ProjectSnapshotInput,
-    | "roadmaps"
-    | "gates"
-    | "efforts"
-    | "authorities"
-    | "assets"
-    | "checks"
-    | "reviews"
-    | "providerObservations"
-    | "providerObservationSelections"
-    | "nativeScopeDiscovery"
-    | "nativeScopeInspections"
-    | "sources"
-  >,
-  "nativeScopeDiscovery" | "nativeScopeInspections"
-> &
-  Readonly<{
-    nativeScopeDiscovery?: unknown;
-    nativeScopeInspections?: ProjectSnapshotInput["nativeScopeInspections"];
-  }>;
-type Input = Omit<
-  PlanningLineageBuildInput,
+export type PlanningLineageBuildInput = Pick<
+  ProjectSnapshotInput,
+  | "roadmaps"
+  | "gates"
+  | "efforts"
+  | "authorities"
+  | "assets"
+  | "checks"
+  | "reviews"
   | "providerObservations"
   | "providerObservationSelections"
-  | "nativeScopeDiscovery"
   | "nativeScopeInspections"
+  | "sources"
+>;
+type Input = Omit<
+  PlanningLineageBuildInput,
+  "providerObservations" | "providerObservationSelections" | "nativeScopeInspections"
 > &
   Readonly<{
     providerObservations: ProjectSnapshot["providerObservations"];
     providerObservationSelections: ProjectSnapshot["providerObservationSelections"];
     boundProviderObservations: ProjectSnapshot["providerObservations"];
     boundProviderObservationSelections: ProjectSnapshot["providerObservationSelections"];
-    nativeScopeDiscovery: ProjectSnapshot["nativeScopeDiscovery"];
   }>;
 
 const normalizedInput = (input: PlanningLineageBuildInput): Input => {
-  const nativeScopeInspections = input.nativeScopeInspections ?? {
-    observations: [],
-    selections: [],
-  };
-  const observationByScope = new Map(
-    nativeScopeInspections.observations.map((observation) => [
-      mattNativeScopeKey(observation.binding),
-      mattSkillsV1ProviderObservationSchema.parse(observation),
-    ]),
+  const boundScopeKeys = new Set(
+    input.efforts.validity === "invalid"
+      ? []
+      : input.efforts.items.flatMap((effort) =>
+          effort.workBinding === undefined ? [] : [mattNativeScopeKey(effort.workBinding)],
+        ),
   );
-  for (const observation of input.providerObservations) {
-    observationByScope.set(
-      mattNativeScopeKey(observation.binding),
-      mattSkillsV1ProviderObservationSchema.parse(observation),
-    );
-  }
-  const selectionByScope = new Map(
-    nativeScopeInspections.selections.map((selection) => [
-      mattNativeScopeKey(selection),
-      selection,
-    ]),
+  const observations = [...input.nativeScopeInspections.observations, ...input.providerObservations]
+    .filter((observation) => boundScopeKeys.has(mattNativeScopeKey(observation.binding)))
+    .map((observation) => mattSkillsV1ProviderObservationSchema.parse(observation));
+  const selections = [
+    ...input.nativeScopeInspections.selections,
+    ...input.providerObservationSelections,
+  ].filter((selection) => boundScopeKeys.has(mattNativeScopeKey(selection)));
+  const uniqueObservations = new Map(
+    observations.map((observation) => [mattNativeScopeKey(observation.binding), observation]),
   );
-  for (const selection of input.providerObservationSelections) {
-    selectionByScope.set(mattNativeScopeKey(selection), selection);
-  }
+  const uniqueSelections = new Map(
+    selections.map((selection) => [mattNativeScopeKey(selection), selection]),
+  );
   return {
     roadmaps: input.roadmaps,
     gates: input.gates,
@@ -107,34 +88,13 @@ const normalizedInput = (input: PlanningLineageBuildInput): Input => {
     checks: input.checks,
     reviews: input.reviews,
     sources: input.sources,
-    nativeScopeDiscovery:
-      input.nativeScopeDiscovery === undefined
-        ? { state: "never-run" }
-        : nativeScopeDiscoveryProjectionSchema.parse(input.nativeScopeDiscovery),
     boundProviderObservations: input.providerObservations.map((observation) =>
       mattSkillsV1ProviderObservationSchema.parse(observation),
     ),
     boundProviderObservationSelections: input.providerObservationSelections,
-    providerObservations: [...observationByScope.values()],
-    providerObservationSelections: [...selectionByScope.values()],
+    providerObservations: [...uniqueObservations.values()],
+    providerObservationSelections: [...uniqueSelections.values()],
   };
-};
-
-const discoveryReconciliationFor = (
-  input: Input,
-  binding: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
-): MattNativeWorkDiscoveryReconciliation => {
-  const discovery = input.nativeScopeDiscovery;
-  if (discovery.state === "never-run") return "unknown";
-  if (discovery.scopes.some((scope) => sameMattNativeScope(scope.summary.binding, binding))) {
-    return "discovered";
-  }
-  return discovery.state === "available" &&
-    discovery.freshness === "current" &&
-    discovery.coverage === "complete" &&
-    discovery.latestAttempt === null
-    ? "bound-not-discovered"
-    : "unknown";
 };
 
 type CollectionItem<Projection> =
@@ -1468,12 +1428,12 @@ const nativeWorkReadingStateFor = (
           observation,
           input.boundProviderObservationSelections,
           context,
-          discoveryReconciliationFor(input, binding),
         );
   }
   if (subject.kind !== "native-scope") return undefined;
   const detailObservation = (record as NativeRecord).observation;
   const scopeContext = mattNativeWorkReadingContextForScope(efforts, detailObservation);
+  if (scopeContext === undefined) return undefined;
   const authoritativeObservation =
     scopeContext.state === "bound"
       ? input.boundProviderObservations.find((candidate) =>
@@ -1501,7 +1461,6 @@ const nativeWorkReadingStateFor = (
     authoritativeObservation,
     authoritativeSelections,
     context,
-    discoveryReconciliationFor(input, detailObservation.binding),
   );
 };
 

@@ -282,38 +282,6 @@ test("renders scoped Map Destination uncertainty instead of a blank available ch
   expect(html).not.toContain('data-semantic-availability="available"></p>');
 });
 
-test("renders the same native scope as Discovered Work when no Effort binds it", () => {
-  const snapshot = createProjectOverviewFixture();
-  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
-  const unbound = withLineage({
-    ...snapshot,
-    efforts: {
-      ...snapshot.efforts,
-      items: snapshot.efforts.items.map((effort) =>
-        effort.id === "effort:portal" ? { ...effort, workBinding: undefined } : effort,
-      ),
-    },
-  });
-  const html = render(
-    {
-      validity: "valid",
-      value: { kind: "native-scope", id: ".scratch/portal" },
-    },
-    { snapshot: unbound },
-  );
-
-  expect(html).toContain('class="matt-work-region context-unbound"');
-  expect(html).toContain('id="matt-work-region-title">Discovered Work</h2>');
-  expect(html).toContain("Not linked to an Effort");
-  expect(html).toContain(">Can&#x27;t verify</h3>");
-  expect(html).toContain(
-    "This scope is not linked to an Effort, so completion cannot establish contribution or readiness.",
-  );
-  expect(html).not.toContain('id="matt-work-region-title">Contributing Work</h2>');
-  expect(html).not.toContain(">Complete</h3>");
-  expect(html).not.toContain(">Open work remains</h3>");
-});
-
 test("omits confirmed-empty role shells while preserving their native history", () => {
   const html = render({
     validity: "valid",

@@ -1,7 +1,6 @@
 import type { AssetContentObservation } from "./asset-inputs";
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
 import { deepFreeze } from "./immutable";
-import type { NativeScopeDiscoveryView } from "./native-scope-discovery";
 import type { PlanningGraphInstrumentation } from "./planning-graph-instrumentation";
 import { collectAssetDirectEvidence } from "./project-snapshot/asset-direct-evidence";
 import { rebuildAssetReverseRelations } from "./project-snapshot/asset-reverse-relations";
@@ -25,7 +24,6 @@ import type {
 import { buildDecisionProjection } from "./project-snapshot/decisions";
 import { buildSnapshotDiagnostics } from "./project-snapshot/diagnostic-projection";
 import { buildGovernanceProjection } from "./project-snapshot/governance";
-import { buildNativeScopeDiscoveryProjection } from "./project-snapshot/native-scope-discovery";
 import { buildMattNativeSourceRecords } from "./project-snapshot/native-work-sources";
 import { normalizePlanningDerivations } from "./project-snapshot/normalized-planning-derivation";
 import { buildPlanningLineageProjection } from "./project-snapshot/planning-lineage";
@@ -132,7 +130,6 @@ export type PlanningGraphBuildInput = Readonly<{
   decoded: DecodedBearingRecordGeneration;
   providerObservations: readonly MattSkillsV1ProviderObservation[];
   providerObservationSelections?: readonly ProviderObservationSelection[];
-  nativeScopeDiscovery?: NativeScopeDiscoveryView;
   nativeScopeInspectionObservations?: readonly MattSkillsV1ProviderObservation[];
   nativeScopeInspectionSelections?: readonly ProviderObservationSelection[];
   diagnostics: readonly StructuralDiagnostic[];
@@ -969,8 +966,21 @@ export const buildPlanningGraph = async (
       latestAttempt: null,
     }));
   const lineageObservationByScope = new Map<string, MattSkillsV1ProviderObservation>();
+  const boundScopeKeys = new Set(
+    input.decoded.records.flatMap((record) => {
+      const data = record.data;
+      if (data?.Type !== "effort" || data["Work binding"] === undefined) return [];
+      return [
+        mattNativeScopeKey({
+          provider: data["Work binding"].Provider,
+          nativeScope: data["Work binding"]["Native scope"],
+        }),
+      ];
+    }),
+  );
   for (const observation of input.nativeScopeInspectionObservations ?? []) {
-    lineageObservationByScope.set(mattNativeScopeKey(observation.binding), observation);
+    const key = mattNativeScopeKey(observation.binding);
+    if (boundScopeKeys.has(key)) lineageObservationByScope.set(key, observation);
   }
   for (const observation of input.providerObservations) {
     lineageObservationByScope.set(mattNativeScopeKey(observation.binding), observation);
@@ -1087,11 +1097,6 @@ export const buildPlanningGraph = async (
     reviews: decisions.reviews,
     providerObservations: input.providerObservations,
     providerObservationSelections,
-    nativeScopeDiscovery: buildNativeScopeDiscoveryProjection(
-      input.nativeScopeDiscovery,
-      planningProjection.efforts,
-      lineageObservations,
-    ),
     nativeScopeInspections: {
       observations: input.nativeScopeInspectionObservations ?? [],
       selections: input.nativeScopeInspectionSelections ?? [],

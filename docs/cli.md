@@ -147,13 +147,11 @@ symlink, directory, multiply-linked file, or special type fails closed.
 
 ```bash
 bearing sync --repo .
-bearing sync --repo . --discover-native-scopes
 ```
 
 Ordinary Sync rebuilds deterministic diagnostics and Project Sitemap projection under cache while
-reusing the latest immutable provider and discovery observations. `--discover-native-scopes` is an
-explicit, read-only Native Scope Discovery request; it atomically publishes lightweight summaries
-and never creates planning, Work Bindings, native lifecycle changes, completion, or readiness.
+reusing the latest immutable provider observations selected by explicit Work Bindings. It does not
+discover standalone work or expand Bearing Scope.
 
 ## Inspect
 

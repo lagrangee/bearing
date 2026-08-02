@@ -8,10 +8,6 @@ import { buildDecisionProjection } from "./decisions";
 import { buildSnapshotDiagnostics } from "./diagnostic-projection";
 import { buildGovernanceProjection } from "./governance";
 import { buildRoadmapIndexProjection } from "./governance-index";
-import {
-  buildNativeScopeDiscoveryProjection,
-  nativeScopeDiscoveryBindingDiagnostics,
-} from "./native-scope-discovery";
 import { buildMattNativeSourceRecords } from "./native-work-sources";
 import type { ProjectSnapshotBuildInput } from "./projection-input";
 import { PROJECT_SNAPSHOT_VERSION, projectSnapshotSchema } from "./schema";
@@ -63,15 +59,21 @@ export const buildProjectSnapshot = async (
     checks: decisions.checks,
     reviews: decisions.reviews,
   });
-  const lineageObservationByScope = new Map(
-    (input.nativeScopeInspectionObservations ?? []).map((observation) => [
-      mattNativeScopeKey(observation.binding),
-      observation,
-    ]),
+  const boundScopeKeys = new Set(
+    planning.efforts.validity === "invalid"
+      ? []
+      : planning.efforts.items.flatMap((effort) =>
+          effort.workBinding === undefined ? [] : [mattNativeScopeKey(effort.workBinding)],
+        ),
   );
-  for (const observation of input.providerObservations) {
-    lineageObservationByScope.set(mattNativeScopeKey(observation.binding), observation);
-  }
+  const lineageObservationByScope = new Map(
+    [
+      ...(input.nativeScopeInspectionObservations ?? []).filter((observation) =>
+        boundScopeKeys.has(mattNativeScopeKey(observation.binding)),
+      ),
+      ...input.providerObservations,
+    ].map((observation) => [mattNativeScopeKey(observation.binding), observation]),
+  );
   const sources = mergeSourceRecords([
     governance.sources,
     assetProjection.sources,
@@ -79,34 +81,22 @@ export const buildProjectSnapshot = async (
     advisory.sources,
     buildMattNativeSourceRecords([...lineageObservationByScope.values()], input.sitemapFingerprint),
   ]);
-  const nativeScopeDiscovery = buildNativeScopeDiscoveryProjection(
-    input.nativeScopeDiscovery,
-    planning.efforts,
-    [...input.providerObservations, ...(input.nativeScopeInspectionObservations ?? [])],
-  );
   const diagnosticProjection = buildSnapshotDiagnostics({
     sitemapFingerprint: input.sitemapFingerprint,
     managedTargets: [
+      ...(assetProjection.assets.validity === "invalid"
+        ? []
+        : assetProjection.assets.items.map((asset) => asset.id)),
       ...(planning.efforts.validity === "invalid"
         ? []
         : planning.efforts.items.flatMap((effort) =>
             effort.workBinding === undefined ? [] : [effort.workBinding.nativeScope],
           )),
-      ...(nativeScopeDiscovery.state === "never-run"
-        ? []
-        : nativeScopeDiscovery.scopes.flatMap((scope) =>
-            scope.bindingContext.state === "unbound"
-              ? []
-              : [
-                  scope.summary.locator,
-                  ...scope.summary.subjects.map((subject) => subject.locator),
-                ],
-          )),
+      ...sources.flatMap((source) =>
+        source.kind === "tracker" && source.binding !== undefined ? [source.displayLocator] : [],
+      ),
     ],
-    diagnostics: [
-      ...input.diagnostics,
-      ...nativeScopeDiscoveryBindingDiagnostics(nativeScopeDiscovery),
-    ],
+    diagnostics: input.diagnostics,
     sourceLocators: sources.map((source) => ({
       kind: source.kind,
       locator: source.displayLocator,
@@ -142,10 +132,13 @@ export const buildProjectSnapshot = async (
     guidance: advisory.guidance,
     providerObservations: input.providerObservations,
     providerObservationSelections,
-    nativeScopeDiscovery,
     nativeScopeInspections: {
-      observations: input.nativeScopeInspectionObservations ?? [],
-      selections: input.nativeScopeInspectionSelections ?? [],
+      observations: (input.nativeScopeInspectionObservations ?? []).filter((observation) =>
+        boundScopeKeys.has(mattNativeScopeKey(observation.binding)),
+      ),
+      selections: (input.nativeScopeInspectionSelections ?? []).filter((selection) =>
+        boundScopeKeys.has(mattNativeScopeKey(selection)),
+      ),
     },
     diagnostics: diagnosticProjection.diagnostics,
     attention: [...diagnosticProjection.attention, ...decisions.attention],

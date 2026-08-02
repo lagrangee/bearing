@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import packageMetadata from "../../package.json";
 import { assessNativeReconciliation } from "../native-reconciliation-assessment";
-import type { NativeScopeDiscoveryIntent } from "../native-scope-discovery";
 import type { NativeScopeInspectionIntent } from "../native-scope-inspection";
 import { readProjectSnapshotCache } from "../project-snapshot/cache";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
@@ -129,9 +128,6 @@ export const createProjectMaterializer = (options: {
           decoded: plan.decoded,
           providerObservations: plan.providerObservations,
           providerObservationSelections: plan.providerObservationSelections,
-          ...(plan.nativeScopeDiscovery === undefined
-            ? {}
-            : { nativeScopeDiscovery: plan.nativeScopeDiscovery }),
           nativeScopeInspectionObservations: plan.nativeScopeInspectionObservations,
           nativeScopeInspectionSelections: plan.nativeScopeInspectionSelections,
           assetContentObservations: plan.assetContentObservations,
@@ -203,7 +199,6 @@ export const createProjectMaterializer = (options: {
       writeExecutor?: ProjectWriteAuthorizer,
       generationGraph?: ProjectGenerationGraphAccess,
       providerObservationIntent: ProviderObservationIntent = "ordinary-sync",
-      nativeScopeDiscoveryIntent: NativeScopeDiscoveryIntent = "ordinary-sync",
       nativeScopeInspectionIntent: NativeScopeInspectionIntent = { kind: "none" },
     ): Promise<ProjectMaterializationResult> {
       const currentGraph = generationGraph?.current();
@@ -214,7 +209,6 @@ export const createProjectMaterializer = (options: {
           dependencies.prepare(repoRoot, {
             ...(currentGraph === undefined ? {} : { planningGraph: currentGraph }),
             providerObservationIntent,
-            nativeScopeDiscoveryIntent,
             nativeScopeInspectionIntent,
           }),
       );
@@ -260,12 +254,8 @@ export const createProjectMaterializer = (options: {
                     },
                   }
                 : {}),
-              ...(initial.nativeScopeDiscoveryStoreChanged
-                ? {
-                    nativeScopeDiscoveryStore: {
-                      bytes: initial.nativeScopeDiscoveryStoreBytes,
-                    },
-                  }
+              ...(initial.legacyNativeScopeDiscoveryStorePresent
+                ? { deleteLegacyNativeScopeDiscoveryStore: true }
                 : {}),
               ...(initial.nativeScopeInspectionStoreChanged
                 ? {
@@ -299,7 +289,6 @@ export const createProjectMaterializer = (options: {
               phase("sync-failed", "Project reconciliation failed.", async () =>
                 dependencies.commit(plan, {
                   publishProviderObservations: false,
-                  publishNativeScopeDiscovery: false,
                   publishNativeScopeInspections: false,
                 }),
               ),
@@ -311,12 +300,8 @@ export const createProjectMaterializer = (options: {
                 },
               }
             : {}),
-          ...(plan.nativeScopeDiscoveryStoreChanged
-            ? {
-                nativeScopeDiscoveryStore: {
-                  bytes: plan.nativeScopeDiscoveryStoreBytes,
-                },
-              }
+          ...(plan.legacyNativeScopeDiscoveryStorePresent
+            ? { deleteLegacyNativeScopeDiscoveryStore: true }
             : {}),
           ...(plan.nativeScopeInspectionStoreChanged
             ? {

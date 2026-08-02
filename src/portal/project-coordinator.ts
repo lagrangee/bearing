@@ -7,7 +7,6 @@ export type ProjectOperationMode = "ensure-current" | "force";
 export type ProjectOperation = Readonly<{
   entryId: string;
   mode: ProjectOperationMode;
-  nativeScopeDiscoveryIntent?: "ordinary-sync" | "explicit-discovery";
   nativeScopeInspectionIntent?: NativeScopeInspectionIntent;
 }>;
 
@@ -22,7 +21,6 @@ export type CoordinatedResult<T> =
 
 type Active<T> = Readonly<{
   mode: ProjectOperationMode;
-  nativeScopeDiscoveryIntent: "ordinary-sync" | "explicit-discovery";
   nativeScopeInspectionIntent: NativeScopeInspectionIntent;
   nativeScopeInspectionKey: string;
   promise: Promise<T>;
@@ -88,7 +86,6 @@ export const createProjectCoordinator = <T>(options: {
     );
     state.active = {
       mode: operation.mode,
-      nativeScopeDiscoveryIntent: operation.nativeScopeDiscoveryIntent ?? "ordinary-sync",
       nativeScopeInspectionIntent: operation.nativeScopeInspectionIntent ?? { kind: "none" },
       nativeScopeInspectionKey: nativeScopeInspectionKey(
         operation.nativeScopeInspectionIntent ?? { kind: "none" },
@@ -112,18 +109,16 @@ export const createProjectCoordinator = <T>(options: {
     execute(operation): Promise<CoordinatedResult<T>> {
       const state = stateFor(operation.entryId);
       const active = state.active;
-      const intent = operation.nativeScopeDiscoveryIntent ?? "ordinary-sync";
       const inspectionIntent = operation.nativeScopeInspectionIntent ?? { kind: "none" };
       const inspectionKey = nativeScopeInspectionKey(inspectionIntent);
       if (
         active !== undefined &&
-        active.nativeScopeDiscoveryIntent === intent &&
         active.nativeScopeInspectionKey === inspectionKey &&
         (operation.mode === "ensure-current" || active.mode === "force")
       ) {
         return completed(active.promise, active.mode, true);
       }
-      const queueKey = `force:${intent}:${inspectionKey}`;
+      const queueKey = `force:${inspectionKey}`;
       const existingQueue = state.queuedForces?.get(queueKey);
       if (existingQueue !== undefined) return completed(existingQueue, "force", true);
       const predecessor = state.queueTail ?? active?.promise;
@@ -135,14 +130,12 @@ export const createProjectCoordinator = <T>(options: {
             begin(state, {
               ...operation,
               mode: "force",
-              nativeScopeDiscoveryIntent: intent,
               nativeScopeInspectionIntent: inspectionIntent,
             }),
           () =>
             begin(state, {
               ...operation,
               mode: "force",
-              nativeScopeDiscoveryIntent: intent,
               nativeScopeInspectionIntent: inspectionIntent,
             }),
         );

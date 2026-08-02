@@ -498,9 +498,6 @@ function WorkRegionRole({
 
 function NativeWorkReadingState({ reading }: { readonly reading: MattNativeWorkReadingState }) {
   const whyFacts = [
-    ...(reading.binding.state === "bound"
-      ? ([["Discovery relationship", reading.binding.discovery]] as const)
-      : []),
     ["Freshness", reading.why.freshness],
     ["Coverage", reading.why.coverage],
     ["Projection State", reading.why.projectionState],

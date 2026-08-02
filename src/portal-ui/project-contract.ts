@@ -91,26 +91,6 @@ export const syncProject = async (
     projectSyncEnvelopeSchema,
   );
 
-export const discoverNativeScopes = async (
-  entryId: string,
-  csrfToken: string,
-  signal: AbortSignal,
-): Promise<ProjectSyncEnvelope> =>
-  readJson(
-    await window.fetch(`/api/v1/projects/${encodeURIComponent(entryId)}/discover-native-scopes`, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "X-Bearing-CSRF-Token": csrfToken,
-      },
-      body: JSON.stringify({ version: 1 }),
-      signal,
-    }),
-    projectSyncEnvelopeSchema,
-  );
-
 export const inspectNativeScope = async (
   entryId: string,
   subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,

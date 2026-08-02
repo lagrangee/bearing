@@ -9,11 +9,6 @@ import {
   nativeReconciliationRequestSchema,
   normalizeNativeReconciliationRequest,
 } from "../src/native-reconciliation-contract";
-import {
-  createNativeScopeDiscoveryObservation,
-  NATIVE_SCOPE_DISCOVERY_PROVIDER,
-} from "../src/native-scope-discovery";
-import { readNativeScopeInspectionStore } from "../src/native-scope-inspection";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
 import { readProjectSnapshotCache } from "../src/project-snapshot/cache";
@@ -229,6 +224,38 @@ test("the observation owner dispatches targeted intent only through reconcile, p
   expect(snapshot.providerObservations[0]?.id).toBe(reconciled.providerObservations[0]?.id);
 });
 
+test("an unbound reconciliation never invokes provider capture or reconciliation", async () => {
+  const root = await createValidBearingRepo();
+  const calls = { capture: 0, reconcile: 0 };
+  const request = normalizeNativeReconciliationRequest({
+    binding: { provider: "matt-skills/v1", nativeScope: ".scratch/standalone" },
+    subjects: [".scratch/standalone/issues/01.md"],
+  });
+  const plan = await prepareSync(root, {
+    nativeScopeInspectionIntent: { kind: "reconcile", request },
+    providerFactory: () => ({
+      id: "matt-skills/v1",
+      capture: async () => {
+        calls.capture += 1;
+        throw new Error("Standalone work must not be captured.");
+      },
+      reconcile: async () => {
+        calls.reconcile += 1;
+        throw new Error("Standalone work must not be reconciled.");
+      },
+    }),
+  });
+
+  expect(calls).toEqual({ capture: 0, reconcile: 0 });
+  expect(plan.providerObservationOperation.acquisitionCount).toBe(0);
+  expect(plan.nativeScopeInspectionOperation).toMatchObject({
+    outcome: "target-unavailable",
+    acquisitionCount: 0,
+  });
+  expect(plan.providerObservations).toEqual([]);
+  expect(plan.nativeScopeInspectionObservations).toEqual([]);
+});
+
 test("targeted reconciliation updates one matched binding without capture-every-bound-scope N+1 work", async () => {
   const root = await createValidBearingRepo();
   const effort = await readFile(join(root, ".bearing/state/efforts/test.md"), "utf8");
@@ -386,226 +413,6 @@ test("bound reconciliation without a current basis requests recovery without cal
       code: "provider-targeted-reconciliation-basis-unavailable",
     }),
   );
-});
-
-test("an unbound discovered transaction publishes scoped partial detail without gaining completion authority", async () => {
-  const root = await createValidBearingRepo();
-  const binding = { provider: "matt-skills/v1" as const, nativeScope: ".scratch/unbound" };
-  const discovery = createNativeScopeDiscoveryObservation({
-    provider: NATIVE_SCOPE_DISCOVERY_PROVIDER,
-    state: "available",
-    observedAt: "2026-07-31T03:00:00.000Z",
-    freshness: "current",
-    coverage: "complete",
-    diagnostics: [],
-    scopes: [
-      {
-        identity: ".scratch/unbound",
-        binding,
-        locator: ".scratch/unbound",
-        driver: "local",
-        rootRole: "parent-scope",
-        title: "Unbound",
-        lifecycle: "open",
-        classification: "delivery",
-        admission: ["contract-root"],
-        subjects: [
-          {
-            identity: ".scratch/unbound/research-3.md",
-            locator: ".scratch/unbound/research-3.md",
-            title: "Work",
-            classification: "delivery",
-            lifecycle: "open",
-            parentIdentity: null,
-            admission: ["contract-ticket"],
-          },
-        ],
-      },
-    ],
-  });
-  const discoveryPlan = await prepareSync(root, {
-    nativeScopeDiscoveryIntent: "explicit-discovery",
-    nativeScopeDiscoveryProviderFactory: () => ({
-      id: NATIVE_SCOPE_DISCOVERY_PROVIDER,
-      discover: async () => discovery,
-    }),
-  });
-  await commitSyncPlan(discoveryPlan);
-  const request = normalizeNativeReconciliationRequest({
-    binding,
-    subjects: [".scratch/unbound/research-3.md"],
-  });
-  const calls = { capture: 0, reconcile: 0 };
-  const partial = createProviderScopeObservation({
-    provider: "matt-skills/v1",
-    binding,
-    observedAt: "2026-07-31T03:05:00.000Z",
-    state: "partial",
-    freshness: {
-      assessment: "current",
-      evidence: [{ kind: "fixture", value: "targeted-unbound" }],
-    },
-    coverage: {
-      assessment: "incomplete",
-      dimensions: [{ key: "scope-membership-basis", state: "excluded" }],
-    },
-    completion: "undetermined",
-    diagnostics: [
-      {
-        code: "fixture.partial-basis",
-        class: "acquisition",
-        impact: "non-blocking",
-        target: ".scratch/unbound",
-        message: "Only affected detail is projected.",
-      },
-    ],
-    projection: projectionFor(".scratch/unbound", "Targeted unbound"),
-  });
-  const reconciled = await prepareSync(root, {
-    nativeScopeInspectionIntent: { kind: "reconcile", request },
-    providerFactory: () => ({
-      id: "matt-skills/v1",
-      capture: async () => {
-        calls.capture += 1;
-        throw new Error("Full inspection must not run.");
-      },
-      reconcile: async (input) => {
-        calls.reconcile += 1;
-        expect(input.prior).toBeUndefined();
-        return partial;
-      },
-    }),
-  });
-
-  expect(calls).toEqual({ capture: 0, reconcile: 1 });
-  expect(reconciled.providerObservationOperation).toEqual({
-    intent: "targeted-reconciliation",
-    outcome: "not-applicable",
-    acquisitionCount: 0,
-  });
-  expect(reconciled.nativeScopeInspectionOperation).toMatchObject({
-    outcome: "acquired",
-    acquisitionCount: 1,
-  });
-  expect(reconciled.nativeScopeInspectionSelections[0]).toMatchObject({
-    effectiveFreshness: "current",
-    latestAttempt: { intent: "targeted-reconciliation", outcome: "succeeded" },
-  });
-  expect(reconciled.providerObservations).toEqual([]);
-  await commitSyncPlan(reconciled);
-  expect((await readNativeScopeInspectionStore(root)).kind).toBe("available");
-  const snapshot = await buildSnapshotForSyncPlan(root, "0.0.0-test", reconciled);
-  expect(snapshot.providerObservations).toEqual([]);
-  expect(snapshot.nativeScopeInspections.observations).toHaveLength(1);
-});
-
-test("consecutive unbound Local reconciliations preserve partial-basis provenance and accept deletion as final evidence", async () => {
-  const root = await createValidBearingRepo();
-  const binding = { provider: "matt-skills/v1" as const, nativeScope: ".scratch/unbound" };
-  const ticket = ".scratch/unbound/issues/01-temporary.md";
-  await writeFixture(
-    root,
-    ticket,
-    `# Temporary
-
-Type: task
-
-Status: claimed
-
-Claimed by: fixture-agent
-
-## Question
-
-Should this ticket remain?
-`,
-  );
-  const discovery = createNativeScopeDiscoveryObservation({
-    provider: NATIVE_SCOPE_DISCOVERY_PROVIDER,
-    state: "available",
-    observedAt: "2026-07-31T03:10:00.000Z",
-    freshness: "current",
-    coverage: "complete",
-    diagnostics: [],
-    scopes: [
-      {
-        identity: binding.nativeScope,
-        binding,
-        locator: binding.nativeScope,
-        driver: "local",
-        rootRole: "parent-scope",
-        title: "Unbound",
-        lifecycle: "open",
-        classification: "delivery",
-        admission: ["contract-root"],
-        subjects: [
-          {
-            identity: ticket,
-            locator: ticket,
-            title: "Temporary",
-            classification: "delivery",
-            lifecycle: "open",
-            parentIdentity: null,
-            admission: ["contract-ticket"],
-          },
-        ],
-      },
-    ],
-  });
-  const discovered = await prepareSync(root, {
-    nativeScopeDiscoveryIntent: "explicit-discovery",
-    nativeScopeDiscoveryProviderFactory: () => ({
-      id: NATIVE_SCOPE_DISCOVERY_PROVIDER,
-      discover: async () => discovery,
-    }),
-  });
-  await commitSyncPlan(discovered);
-  const request = normalizeNativeReconciliationRequest({ binding, subjects: [ticket] });
-  const first = await prepareSync(root, {
-    nativeScopeInspectionIntent: { kind: "reconcile", request },
-  });
-  await commitSyncPlan(first);
-  expect(first.nativeScopeInspectionOperation.outcome).toBe("acquired");
-  expect(first.nativeScopeInspectionObservations[0]).toMatchObject({
-    state: "partial",
-    completion: "undetermined",
-    coverage: { assessment: "incomplete" },
-  });
-
-  await unlink(join(root, ticket));
-  const second = await prepareSync(root, {
-    nativeScopeInspectionIntent: { kind: "reconcile", request },
-  });
-
-  expect(second.nativeScopeInspectionOperation.outcome).toBe("acquired");
-  expect(second.nativeScopeInspectionSelections[0]?.latestAttempt).toMatchObject({
-    intent: "targeted-reconciliation",
-    outcome: "succeeded",
-  });
-  expect(second.nativeScopeInspectionObservations[0]).toMatchObject({
-    state: "partial",
-    completion: "undetermined",
-    coverage: { assessment: "incomplete" },
-  });
-  expect(second.nativeScopeInspectionObservations[0]?.projection?.wayfinderTickets).toEqual([]);
-  await commitSyncPlan(second);
-
-  await unlink(join(root, ".bearing/cache/native-scope-discovery.json"));
-  const withoutDiscovery = await prepareSync(root, {
-    nativeScopeInspectionIntent: { kind: "reconcile", request },
-  });
-  expect(withoutDiscovery.nativeScopeInspectionOperation.outcome).toBe("target-unavailable");
-  expect(withoutDiscovery.nativeScopeInspectionSelections[0]).toMatchObject({
-    effectiveFreshness: "undetermined",
-    latestAttempt: {
-      intent: "targeted-reconciliation",
-      outcome: "failed",
-      diagnostics: [
-        expect.objectContaining({
-          code: "native-targeted-reconciliation.target-unavailable",
-        }),
-      ],
-    },
-  });
 });
 
 test("Local targeted reconciliation reads no scope directory, coalesces duplicate refs, and preserves Matt-owned bytes and modes", async () => {
@@ -908,57 +715,6 @@ test("GitHub targeted reconciliation reads one affected subject and its bounded 
   expect(JSON.stringify(invalid)).not.toContain("ghp_secret_value");
 });
 
-test("consecutive unbound GitHub reconciliations cannot upgrade a partial membership basis", async () => {
-  const root = await createGitHubMattRepository();
-  const binding = {
-    provider: "matt-skills/v1" as const,
-    nativeScope: githubNativeScopeFor(githubIncomingIssue),
-  };
-  const transport = new FixtureGitHubTransport({
-    "repos/example/reference": {
-      first: githubFixtureResponse(githubRepository, '"repo-partial"'),
-    },
-    "repos/example/reference/issues/109": {
-      first: githubFixtureResponse(githubIncomingIssue, '"issue-partial"'),
-    },
-    "repos/example/reference/issues/109/comments?per_page=100&page=1": {
-      first: githubFixtureResponse([], '"comments-partial"'),
-    },
-    "repos/example/reference/issues/109/dependencies/blocked_by?per_page=100&page=1": {
-      first: githubFixtureResponse([], '"dependencies-partial"'),
-    },
-    "repos/example/reference/issues/109/sub_issues?per_page=100&page=1": {
-      first: { status: 410, headers: {} },
-    },
-  });
-  let observed = 0;
-  const provider = createGitHubMattProvider({
-    repoRoot: root,
-    contractLocator: githubContractLocator,
-    triageLocator: githubTriageLocator,
-    transport,
-    clock: () => new Date(`2026-07-31T05:${String(observed++).padStart(2, "0")}:00.000Z`),
-  });
-  const affected = { subjects: [githubIncomingIssue.html_url], relations: [] } as const;
-  const first = await provider.reconcile?.({ binding, affected });
-  if (first === undefined) throw new Error("Expected first GitHub targeted reconciliation.");
-  const second = await provider.reconcile?.({ binding, prior: first, affected });
-  if (second === undefined) throw new Error("Expected second GitHub targeted reconciliation.");
-
-  for (const observation of [first, second]) {
-    expect(observation).toMatchObject({
-      state: "partial",
-      completion: "undetermined",
-      coverage: { assessment: "incomplete" },
-    });
-    expect(
-      observation.coverage.dimensions.find(
-        (dimension) => dimension.key === "scope-membership-basis",
-      ),
-    ).toMatchObject({ state: "excluded" });
-  }
-});
-
 test("reconcile-native CLI atomically rematerializes the Project Snapshot instead of requiring a generic follow-up Sync", async () => {
   const root = await createValidBearingRepo();
   const homeDir = await makeTemporaryDirectory("bearing-native-reconciliation-home-");
@@ -1047,85 +803,6 @@ Yes, through one targeted command.
   );
   expect(html).toContain("Finish through CLI");
   expect(await readFile(join(root, ticket))).toEqual(nativeBytes);
-});
-
-test("reconcile-native CLI reports an unbound provider failure and its scoped diagnostics", async () => {
-  const root = await createValidBearingRepo();
-  const homeDir = await makeTemporaryDirectory("bearing-native-reconciliation-home-");
-  await upsertCatalogEntry({
-    homeDir,
-    repoRoot: root,
-    createEntryId: () => "native-reconciliation-failure",
-  });
-  await runSync(root, {
-    providerObservationIntent: "initial-baseline",
-    completedAt: "2026-07-31T06:10:00.000Z",
-  });
-  const binding = {
-    provider: "matt-skills/v1" as const,
-    nativeScope: ".scratch/not-discovered",
-  };
-  const discovered = await prepareSync(root, {
-    nativeScopeDiscoveryIntent: "explicit-discovery",
-    nativeScopeDiscoveryProviderFactory: () => ({
-      id: NATIVE_SCOPE_DISCOVERY_PROVIDER,
-      discover: async () =>
-        createNativeScopeDiscoveryObservation({
-          provider: NATIVE_SCOPE_DISCOVERY_PROVIDER,
-          state: "available",
-          observedAt: "2026-07-31T06:11:00.000Z",
-          freshness: "current",
-          coverage: "complete",
-          diagnostics: [],
-          scopes: [
-            {
-              identity: binding.nativeScope,
-              binding,
-              locator: binding.nativeScope,
-              driver: "local",
-              rootRole: "parent-scope",
-              title: "Unbound",
-              lifecycle: "open",
-              classification: "delivery",
-              admission: ["contract-root"],
-              subjects: [],
-            },
-          ],
-        }),
-    }),
-  });
-  await commitSyncPlan(discovered);
-  const child = Bun.spawn(
-    [
-      "bun",
-      "src/cli.ts",
-      "reconcile-native",
-      "--repo",
-      root,
-      "--scope",
-      binding.nativeScope,
-      "--ref",
-      ".scratch/outside/issues/01-missing.md",
-    ],
-    {
-      cwd: process.cwd(),
-      env: { ...process.env, HOME: homeDir },
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-
-  expect(exitCode).toBe(1);
-  expect(stderr).toBe("");
-  expect(stdout).toContain("Reconciliation: failed");
-  expect(stdout).toContain("Outcome: blocked");
-  expect(stdout).toContain("matt.local.reconciliation.reference-outside-scope");
-  expect(stdout).not.toContain("Outcome: applied");
 });
 
 test("concurrent duplicate reconcile-native CLI calls share the Catalog entry lease result", async () => {

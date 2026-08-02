@@ -23,23 +23,13 @@ export type AttentionConsistencySnapshot = Readonly<{
     source?: string | undefined;
   }>[];
   efforts: Collection<Readonly<{ workBinding?: Readonly<{ nativeScope: string }> | undefined }>>;
+  assets: Collection<Readonly<{ id: string }>>;
   sources: readonly Readonly<{
     reference: string;
     kind: "canonical" | "tracker" | "asset" | "evidence";
+    displayLocator: string;
     binding?: Readonly<{ role: string }> | undefined;
   }>[];
-  nativeScopeDiscovery:
-    | Readonly<{ state: "never-run" }>
-    | Readonly<{
-        state: "available" | "partial" | "unavailable" | "invalid" | "unsupported";
-        scopes: readonly Readonly<{
-          summary: Readonly<{
-            locator: string;
-            subjects: readonly Readonly<{ locator: string }>[];
-          }>;
-          bindingContext: Readonly<{ state: string }>;
-        }>[];
-      }>;
   checks: Collection<Decision>;
   reviews: Collection<Decision>;
   attention: readonly AttentionItem[];
@@ -68,16 +58,13 @@ export const validateAttentionConsistency = (
   context: RefinementCtx,
 ): void => {
   const managedTargets = [
+    ...trustedItems(snapshot.assets).map((asset) => asset.id),
     ...trustedItems(snapshot.efforts).flatMap((effort) =>
       effort.workBinding === undefined ? [] : [effort.workBinding.nativeScope],
     ),
-    ...(snapshot.nativeScopeDiscovery.state === "never-run"
-      ? []
-      : snapshot.nativeScopeDiscovery.scopes.flatMap((scope) =>
-          scope.bindingContext.state === "unbound"
-            ? []
-            : [scope.summary.locator, ...scope.summary.subjects.map((subject) => subject.locator)],
-        )),
+    ...snapshot.sources.flatMap((source) =>
+      source.kind === "tracker" && source.binding !== undefined ? [source.displayLocator] : [],
+    ),
   ];
   const expected: AttentionItem[] = snapshot.diagnostics
     .filter(

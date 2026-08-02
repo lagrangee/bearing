@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { commitProjectCache } from "../src/portal/project-cache-transaction";
 import { writeProjectSnapshotCache } from "../src/project-snapshot/cache";
@@ -82,21 +82,18 @@ test("restores the prior observation selection when Snapshot publication fails",
   expect(await readFile(observationPath)).toEqual(priorObservation);
 });
 
-test("restores the prior discovery observation when coherent Snapshot publication fails", async () => {
+test("restores the legacy discovery cache when coherent Snapshot publication fails", async () => {
   const root = await createValidBearingRepo();
   const prior = await snapshotFor(root, "prior");
   const discoveryPath = join(root, ".bearing/cache/native-scope-discovery.json");
   const priorDiscovery = Buffer.from("prior immutable discovery\n");
-  await commitProjectCache({
-    repoRoot: root,
-    nativeScopeDiscoveryStore: { bytes: priorDiscovery },
-  });
+  await writeFile(discoveryPath, priorDiscovery);
 
   await expect(
     commitProjectCache(
       {
         repoRoot: root,
-        nativeScopeDiscoveryStore: { bytes: Buffer.from("candidate discovery\n") },
+        deleteLegacyNativeScopeDiscoveryStore: true,
         snapshot: prior.snapshot,
       },
       {
@@ -106,6 +103,29 @@ test("restores the prior discovery observation when coherent Snapshot publicatio
   ).rejects.toThrow("injected Snapshot failure");
 
   expect(await readFile(discoveryPath)).toEqual(priorDiscovery);
+});
+
+test("coherent publication tolerates Sync deleting the legacy discovery cache first", async () => {
+  const root = await createValidBearingRepo();
+  const next = await snapshotFor(root, "next");
+  const discoveryPath = join(root, ".bearing/cache/native-scope-discovery.json");
+  await writeFile(discoveryPath, "legacy discovery\n");
+
+  await commitProjectCache({
+    repoRoot: root,
+    sync: {
+      reportPath: join(root, ".bearing/cache/sync-report.md"),
+      sitemapPath: join(root, ".bearing/cache/project-sitemap.md"),
+      commit: async () => {
+        await unlink(discoveryPath);
+      },
+    },
+    deleteLegacyNativeScopeDiscoveryStore: true,
+    snapshot: next.snapshot,
+  });
+
+  await expect(readFile(discoveryPath)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await readFile(join(root, ".bearing/cache/project-snapshot.json"))).not.toHaveLength(0);
 });
 
 test("restores the prior targeted inspection when coherent Snapshot publication fails", async () => {

@@ -46,7 +46,6 @@ type Materializer = Readonly<{
     authorizer?: ProjectWriteAuthorizer,
     generationGraph?: ProjectGenerationGraphAccess,
     providerObservationIntent?: "ordinary-sync",
-    nativeScopeDiscoveryIntent?: "ordinary-sync" | "explicit-discovery",
     nativeScopeInspectionIntent?: NativeScopeInspectionIntent,
   ): Promise<ProjectMaterializationResult>;
 }>;
@@ -81,11 +80,10 @@ export const createProjectService = (options: {
   const generationGraphs = options.generationGraphs ?? createProjectGenerationGraphHost();
   let coordinator: ProjectCoordinator<CapturedProjectOperation>;
   const locationRecovery = createProjectLocationRecovery({
-    execute: (entryId, mode, nativeScopeDiscoveryIntent, nativeScopeInspectionIntent) =>
+    execute: (entryId, mode, nativeScopeInspectionIntent) =>
       coordinator.execute({
         entryId,
         mode,
-        nativeScopeDiscoveryIntent,
         nativeScopeInspectionIntent,
       }),
     status: (entryId) => coordinator.status({ entryId }),
@@ -122,7 +120,6 @@ export const createProjectService = (options: {
             authorizeWrites,
             operationGraph,
             "ordinary-sync",
-            operation.nativeScopeDiscoveryIntent ?? "ordinary-sync",
             operation.nativeScopeInspectionIntent ?? { kind: "none" },
           );
           if (publication !== undefined) {
@@ -184,7 +181,6 @@ export const createProjectService = (options: {
     async sync(
       entryId: string,
       mode: ProjectOperationMode,
-      nativeScopeDiscoveryIntent: "ordinary-sync" | "explicit-discovery" = "ordinary-sync",
       nativeScopeInspectionIntent: NativeScopeInspectionIntent = { kind: "none" },
     ): Promise<ProjectSyncServiceResult> {
       const recoveryCheckpoint = locationRecovery.checkpoint(entryId);
@@ -200,14 +196,12 @@ export const createProjectService = (options: {
               ? await coordinator.execute({
                   entryId,
                   mode,
-                  nativeScopeDiscoveryIntent,
                   nativeScopeInspectionIntent,
                 })
               : await locationRecovery.recover(
                   entryId,
                   recoveryRoot,
                   recoveryCheckpoint,
-                  nativeScopeDiscoveryIntent,
                   nativeScopeInspectionIntent,
                 );
           if (coordinated.kind === "cooldown") {

@@ -4,6 +4,7 @@ import type {
   RequestedPlanningLineageFilteredView,
   RequestedPlanningLineageSubject,
 } from "../planning-lineage-route";
+import { mattNativeObservationForSubject } from "../providers/matt-skills-v1/native-subject";
 import { AssetsPage } from "./assets-page";
 import { AuditPage } from "./audit-page";
 import { Icons } from "./icons";
@@ -73,26 +74,21 @@ export function ProjectPage({
   const inspectionAttemptedForSubject =
     inspectionSubjectKey !== undefined && activation.inspection.subjectKey === inspectionSubjectKey;
   const inspectionTarget =
-    snapshot !== undefined &&
-    inspectionSubject !== undefined &&
-    snapshot.nativeScopeDiscovery.state !== "never-run"
-      ? snapshot.nativeScopeDiscovery.scopes.find((scope) =>
-          inspectionSubject.kind === "native-scope"
-            ? scope.summary.identity === inspectionSubject.id
-            : scope.summary.subjects.some(
-                (candidate) => candidate.identity === inspectionSubject.id,
-              ),
+    snapshot !== undefined && inspectionSubject !== undefined
+      ? mattNativeObservationForSubject(
+          [...snapshot.providerObservations, ...snapshot.nativeScopeInspections.observations],
+          inspectionSubject,
         )
       : undefined;
   const inspectionTargetAvailable = inspectionTarget !== undefined;
-  const inspectionTargetBinding = inspectionTarget?.summary.binding;
+  const inspectionTargetBinding = inspectionTarget?.binding;
   const inspectionSelection =
     snapshot === undefined || inspectionTarget === undefined
       ? undefined
       : snapshot.nativeScopeInspections.selections.find(
           (selection) =>
-            selection.provider === inspectionTarget.summary.binding.provider &&
-            selection.nativeScope === inspectionTarget.summary.binding.nativeScope,
+            selection.provider === inspectionTarget.binding.provider &&
+            selection.nativeScope === inspectionTarget.binding.nativeScope,
         );
   const inspectionLatestFailure =
     inspectionSelection?.latestAttempt?.outcome === "failed"
@@ -283,7 +279,7 @@ export function ProjectPage({
         <div className="page project-state-page">
           <LoadingState
             title="Inspecting native scope"
-            detail="Acquiring this target's full native detail. No other discovered scope is inspected."
+            detail="Acquiring this target's full native detail. No other bound scope is inspected."
           />
         </div>
       ) : inspectionTargetAvailable &&
@@ -294,16 +290,12 @@ export function ProjectPage({
             title="Native scope detail unavailable"
             detail={`The latest targeted inspection failed. Detail freshness is ${
               inspectionSelection?.effectiveFreshness ?? "undetermined"
-            }; the Discovery summary remains available.`}
+            }; the managed scope summary remains available.`}
             action={
               inspectionSubject === undefined ? undefined : (
                 <Action
                   onClick={() =>
-                    activation.inspectNativeScope(
-                      inspectionSubject,
-                      inspectionTarget.summary.binding,
-                      true,
-                    )
+                    activation.inspectNativeScope(inspectionSubject, inspectionTarget.binding, true)
                   }
                 >
                   Retry details
@@ -333,12 +325,7 @@ export function ProjectPage({
                 onRefreshDetails: (nextSubject: {
                   kind: "native-scope" | "native-subject";
                   id: string;
-                }) =>
-                  activation.inspectNativeScope(
-                    nextSubject,
-                    inspectionTarget.summary.binding,
-                    true,
-                  ),
+                }) => activation.inspectNativeScope(nextSubject, inspectionTarget.binding, true),
               })}
         />
       );

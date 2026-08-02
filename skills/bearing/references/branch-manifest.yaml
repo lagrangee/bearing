@@ -20,15 +20,20 @@ sharedContracts:
   - key: project-brief-refresh
     reference: skills/bearing/references/shared/project-brief-refresh.md
     loading: branch-declared
+  - key: governance-disposition
+    reference: skills/bearing/references/shared/governance-disposition.md
+    loading: on-native-handling-or-scope-review
 publicSharedContracts:
   - typed-inspection
   - artifact-registration
   - executor-continuation
+  - governance-disposition
 branches:
   - key: setup
     reference: skills/bearing/references/branches/setup.md
     sharedContracts:
       - planning-transaction
+      - governance-disposition
   - key: summary
     reference: skills/bearing/references/branches/summary.md
     sharedContracts:
