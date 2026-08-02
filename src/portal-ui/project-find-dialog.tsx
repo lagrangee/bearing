@@ -10,7 +10,7 @@ import {
 const resultId = (index: number): string => `project-find-result-${index}`;
 
 const resultSummary = (result: ProjectFindResult): string =>
-  `${result.subjectType}: ${result.title}. Matched ${result.matchedField}. ${result.excerpt}`;
+  `${result.subjectType}: ${result.title}. ${result.excerpt}`;
 
 function ResultItem({
   active,
@@ -49,17 +49,8 @@ function ResultItem({
           <span className="project-find-result-type">{result.subjectType}</span>
           <strong>{result.title}</strong>
         </span>
-        <code>{result.subject.id}</code>
         <span className="project-find-result-parent">{result.parentPath.join(" / ")}</span>
-        <span className="project-find-result-match">
-          <b>{result.matchedField}</b>
-          <span>{result.excerpt}</span>
-        </span>
-        {result.anchorAvailability === "unavailable" ? (
-          <small className="project-find-result-unavailable">
-            Target section unavailable in the current Snapshot; opening the subject route.
-          </small>
-        ) : null}
+        <span className="project-find-result-excerpt">{result.excerpt}</span>
         <span className="sr-only">{resultSummary(result)}</span>
       </a>
     </div>
@@ -68,19 +59,23 @@ function ResultItem({
 
 export function ProjectFindDialog({
   entryId,
+  initialQuery,
   onClose,
   onNavigate,
+  onQueryChange,
   returnFocusRef,
   snapshot,
 }: {
   readonly entryId: string;
+  readonly initialQuery: string;
   readonly onClose: () => void;
   readonly onNavigate: (href: string) => void;
+  readonly onQueryChange: (query: string) => void;
   readonly returnFocusRef: RefObject<HTMLButtonElement | null>;
   readonly snapshot: ProjectSnapshot;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [activeIndex, setActiveIndex] = useState(0);
   const fingerprint = snapshot.basis.sitemapFingerprint;
   const snapshotForIndexRef = useRef(snapshot);
@@ -181,17 +176,22 @@ export function ProjectFindDialog({
           onChange={(event) => {
             setActiveIndex(0);
             setQuery(event.target.value);
+            onQueryChange(event.target.value);
           }}
         />
         <p className="project-find-status" role="status" aria-live="polite">
           {indexError
-            ? "Find is unavailable for this Snapshot. The project reading surface remains available."
+            ? "Find is unavailable. Close Find and Sync, then try again."
             : query.trim().length === 0
-              ? "Search is limited to typed Planning Lineage subjects in this project."
+              ? "Search is limited to Bearing-managed project content."
               : `${results.length} result${results.length === 1 ? "" : "s"}`}
         </p>
-        {query.trim().length === 0 ? null : results.length === 0 ? (
-          <p className="project-find-empty">No matching subject in this Snapshot.</p>
+        {query.trim().length === 0 || indexError ? null : results.length === 0 ? (
+          <p className="project-find-empty">
+            {index !== null && index.scopeState.state !== "available"
+              ? `No matches in the currently readable managed content. ${index.scopeState.cause} ${index.scopeState.impact} ${index.scopeState.nextStep}`
+              : "No matches in Bearing-managed scope. Try another title, phrase, or internal ID."}
+          </p>
         ) : (
           <div
             id="project-find-results"

@@ -370,12 +370,12 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(page).toHaveURL(`${host.url}${roadmapHref}`);
     await expect(page.getByRole("heading", { name: "Portal Evolution", level: 1 })).toBeVisible();
 
-    await page.getByRole("link", { name: "Overview proven", exact: true }).click();
+    await page.locator(`a[href="${gateHref}"]`).first().click();
     await expect(page).toHaveURL(`${host.url}${gateHref}`);
     await expect(page.getByRole("heading", { name: "Overview proven", level: 1 })).toBeVisible();
     const effortLink = page
       .getByLabel("Lineage Context")
-      .getByRole("link", { name: "Web Portal Validation", exact: true });
+      .getByRole("link", { name: /^Web Portal Validation\b/u });
     await effortLink.click();
     const effortHref = planningLineageSubjectHref(entryId, {
       kind: "effort",
@@ -420,7 +420,8 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(searchbox).toBeFocused();
     await searchbox.fill("whole-project orientation");
     const result = findDialog.getByRole("option").filter({ hasText: "Portal Evolution" }).first();
-    await expect(result).toContainText("Intent");
+    await expect(result).toContainText("Prove whole-project orientation.");
+    await expect(result).not.toContainText("Intent");
     await expect(result).toContainText("Roadmap");
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.keyboard.press("Escape");
@@ -435,7 +436,8 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       .getByRole("option")
       .filter({ hasText: "Portal Evolution" })
       .first();
-    await expect(identityResult).toContainText("Identity");
+    await expect(identityResult).not.toContainText("roadmap:portal");
+    await expect(identityResult).not.toContainText("Identity");
     await identityResult.click();
     await expect(page).toHaveURL(/roadmap%3Aportal/);
 

@@ -379,12 +379,20 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
     kind: "roadmap",
     id: "roadmap:portal",
   });
+  const focusedGateHref = planningLineageSubjectHref("roadmaps", {
+    kind: "gate",
+    id: "gate:two",
+  });
+  const passedGateHref = planningLineageSubjectHref("roadmaps", {
+    kind: "gate",
+    id: "gate:one",
+  });
   await page.goto(roadmapHref);
 
   await expect(page.getByRole("heading", { name: "Complete Gate order" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ordered Gates" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Contributing Efforts", level: 2 })).toBeVisible();
-  await page.getByRole("link", { name: "Overview proven", exact: true }).click();
+  await page.locator(`a[href="${focusedGateHref}"]`).first().click();
   await expect(page.getByRole("heading", { name: "Overview proven", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Exit Criteria" })).toBeVisible();
   const gateIntent = page.getByText(longGateIntent, { exact: true });
@@ -415,7 +423,7 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
 
   await page
     .getByLabel("Lineage Context")
-    .getByRole("link", { name: "Web Portal Validation", exact: true })
+    .getByRole("link", { name: /^Web Portal Validation\b/u })
     .click();
   await expect(
     page.getByRole("heading", { name: "Web Portal Validation", level: 1 }),
@@ -428,14 +436,12 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
   ).toBeVisible();
   await page.goBack();
 
-  await page.getByRole("link", { name: "Model ready", exact: true }).click();
+  await page.locator(`a[href="${passedGateHref}"]`).first().click();
   await expect(page.getByRole("heading", { name: "Passage", exact: true })).toBeVisible();
   await expect(
     page.getByText("Accept the planning model as ready.", { exact: false }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Planning Model Evidence", exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Planning Model Evidence\b/u })).toBeVisible();
   await expect(
     page.getByRole("navigation", { name: "Canonical Parent Path" }).getByRole("link", {
       name: "Portal Evolution",
@@ -448,14 +454,9 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
     }),
   );
 
-  const quickLook = page.getByRole("button", {
-    name: "Quick Look Planning Model Evidence",
-  });
-  await quickLook.click();
-  const inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(inspector.getByRole("heading", { name: "Planning Model Evidence" })).toBeVisible();
-  await expect(inspector.getByRole("link", { name: "Open full detail" })).toBeVisible();
-  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "Quick Look Planning Model Evidence" }),
+  ).toHaveCount(0);
   expect(postRequests).toEqual([]);
   await page.screenshot({
     path: await browserArtifactPath(testInfo, "roadmap-lineage-1280.png"),
@@ -554,16 +555,17 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
     }
     if (width === 375) {
       await expect(
-        page
-          .getByLabel("Lineage Context")
-          .getByRole("link", { name: "Web Portal Validation", exact: true }),
+        page.getByLabel("Lineage Context").getByRole("link", { name: /^Web Portal Validation\b/u }),
       ).toBeVisible();
       await expect(
         page.getByRole("button", { name: "Quick Look Web Portal Validation" }),
-      ).toBeVisible();
+      ).toHaveCount(0);
     }
   }
-  await minimumTarget(page.getByRole("button", { name: "Quick Look Web Portal Validation" }), 44);
+  await minimumTarget(
+    page.getByLabel("Lineage Context").getByRole("link", { name: /^Web Portal Validation\b/u }),
+    44,
+  );
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
   const partial = projectSnapshotSchema.parse(
@@ -595,7 +597,8 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
   await page.unroute("**/api/v1/projects/roadmaps/snapshot");
   await serveSnapshot(page, partial);
   await page.reload();
-  await expect(page.getByText("gate:one · target unavailable", { exact: true })).toBeVisible();
+  await expect(page.getByText("Unavailable Gate", { exact: true })).toBeVisible();
+  await expect(page.getByText("gate:one", { exact: false })).toHaveCount(0);
 
   const mapPartial = projectSnapshotSchema.parse(
     withRebuiltPlanningLineage({

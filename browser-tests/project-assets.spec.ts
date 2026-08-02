@@ -4,7 +4,10 @@ import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createSourceRecord } from "../src/project-snapshot/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
-import { withRebuiltPlanningLineage } from "../tests/planning-lineage-fixture";
+import {
+  parseRebuiltPlanningLineageFixture,
+  withRebuiltPlanningLineage,
+} from "../tests/planning-lineage-fixture";
 import { browserArtifactPath } from "./browser-artifact-output";
 
 const projectView = (snapshot: ProjectSnapshot) => ({
@@ -479,7 +482,7 @@ test("Assets distinguishes empty, partial, invalid, and filtered-empty states", 
 test("Project Find recovers typed identity and semantic context without leaving the project surface", async ({
   page,
 }) => {
-  const snapshot = assetsFixture();
+  let snapshot = assetsFixture();
   const posts: string[] = [];
   page.on("request", (request) => {
     if (request.method() === "POST") posts.push(request.url());
@@ -500,8 +503,11 @@ test("Project Find recovers typed identity and semantic context without leaving 
   const result = dialog.getByRole("option").filter({ hasText: "Uncited Product Context" }).first();
   await expect(result).toBeVisible();
   await expect(result).toContainText("Asset");
-  await expect(result).toContainText("Identity");
   await expect(result).toContainText("Portal Project");
+  await expect(result).not.toContainText("asset:uncited-context");
+  await expect(result).not.toContainText("Identity");
+  await expect(result).not.toContainText("Snapshot");
+  await expect(result).not.toContainText("Target section unavailable");
   expect(
     await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
   ).toBe(false);
@@ -516,11 +522,91 @@ test("Project Find recovers typed identity and semantic context without leaving 
   });
   await reopenedInput.fill("whole-project orientation");
   const roadmap = reopened.getByRole("option").filter({ hasText: "Portal Evolution" }).first();
-  await expect(roadmap).toContainText("Intent");
+  await expect(roadmap).toContainText("Prove whole-project orientation.");
+  await expect(roadmap).not.toContainText("Intent");
   await page.keyboard.press("ArrowDown");
   await expect(reopenedInput).toHaveAttribute("aria-activedescendant", /project-find-result-/u);
   await page.keyboard.press("Enter");
-  await expect(page).toHaveURL(/\/projects\/assets\/lineage\/roadmap\/roadmap%3Aportal/u);
+  await expect(page).toHaveURL(
+    /\/projects\/assets\/lineage\/roadmap\/roadmap%3Aportal#roadmap\.intent$/u,
+  );
   await expect(page.getByRole("heading", { name: "Portal Evolution" })).toBeVisible();
+
+  await page.goBack();
+  const restoredDialog = page.getByRole("dialog", { name: "Find in project" });
+  await expect(restoredDialog).toBeVisible();
+  await expect(
+    restoredDialog.getByRole("searchbox", {
+      name: "Search identity, title, or semantic phrase",
+    }),
+  ).toHaveValue("whole-project orientation");
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "Find in project" }).press("Enter");
+  const auditDialog = page.getByRole("dialog", { name: "Find in project" });
+  const auditInput = auditDialog.getByRole("searchbox", {
+    name: "Search identity, title, or semantic phrase",
+  });
+  await auditInput.fill("complete coverage");
+  const auditResult = auditDialog.getByRole("option").filter({ hasText: "Planning Audit" });
+  await expect(auditResult).toContainText("complete coverage");
+  await auditResult.click();
+  await expect(page).toHaveURL(/\/projects\/assets\/audit$/u);
+  await expect(page.getByRole("heading", { name: "Planning Audit" })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("dialog", { name: "Find in project" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Effort fixture.");
+  snapshot = parseRebuiltPlanningLineageFixture({
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === "effort:portal" ? { ...effort, workBinding: undefined } : effort,
+      ),
+    },
+  });
+  expect(
+    snapshot.providerObservations.some(
+      (observation) => observation.binding.nativeScope === ".scratch/portal",
+    ),
+  ).toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: "Find in project" }).press("Enter");
+  const standaloneDialog = page.getByRole("dialog", { name: "Find in project" });
+  const standaloneInput = standaloneDialog.getByRole("searchbox", {
+    name: "Search identity, title, or semantic phrase",
+  });
+  await standaloneInput.fill(".scratch/portal/issues/03-gate.md");
+  await expect(standaloneDialog.getByRole("option")).toHaveCount(0);
+  await standaloneInput.fill("Pass the integration gate");
+  await expect(standaloneDialog.getByRole("option")).toHaveCount(0);
+  await expect(
+    standaloneDialog.getByText("No matches in Bearing-managed scope", { exact: false }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  snapshot = projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      assets: {
+        validity: "invalid",
+        issues: [{ code: "invalid-assets", target: "assets", message: "Assets unavailable." }],
+      },
+    }),
+  );
+  await page.reload();
+  await page.getByRole("button", { name: "Find in project" }).press("Enter");
+  const degradedDialog = page.getByRole("dialog", { name: "Find in project" });
+  await degradedDialog
+    .getByRole("searchbox", { name: "Search identity, title, or semantic phrase" })
+    .fill("no such managed object");
+  await expect(
+    degradedDialog.getByText("Asset content is unavailable", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    degradedDialog.getByText("run Sync from the project header", { exact: false }),
+  ).toBeVisible();
   expect(posts).toEqual([]);
 });

@@ -61,7 +61,10 @@ test("renders one route-owned Gate dossier and non-duplicated Lineage Context", 
   expect(html).toContain("accepted with evidence");
   expect(html).toContain("Confirmed none");
   expect(html).not.toContain("<h3>Roadmap</h3>");
-  expect(html).toContain('aria-label="Quick Look Planning Model"');
+  expect(html).not.toContain('aria-label="Quick Look Planning Model"');
+  expect(html).not.toContain("<code>effort:model</code>");
+  expect(html).not.toContain("1 total");
+  expect(html).toContain('href="/projects/bearing/lineage/effort/effort%3Amodel"');
   expect(html).not.toContain("Resume in Agent Surface");
 });
 
@@ -464,4 +467,12 @@ test("renders a stable filtered relation view as owner-derived list state, not a
   expect(html).toContain("Showing 6 of 6");
   expect(html).toContain("Extra Effort 5");
   expect(html).not.toContain('aria-label="Canonical Parent Path"');
+
+  const detailHtml = render(
+    { validity: "valid", value: { kind: "gate", id: "gate:one" } },
+    { snapshot: expanded },
+  );
+  expect(detailHtml).toMatch(/<h3>Contributing Efforts<\/h3><span>6<\/span>/u);
+  expect(detailHtml).not.toContain("6 total");
+  expect(detailHtml).not.toContain("Quick Look");
 });

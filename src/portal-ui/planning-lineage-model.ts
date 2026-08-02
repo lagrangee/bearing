@@ -410,7 +410,7 @@ const contributingEffortsSection = (
   });
   const missingItems = effortIds
     .filter((effortId) => !efforts.some((effort) => effort.id === effortId))
-    .map((effortId) => `${effortId} · unavailable`);
+    .map(() => "Unavailable contributing Effort");
   return {
     anchor: "native-work.effort-summaries",
     title: "Contributing Efforts",
@@ -430,13 +430,13 @@ const roadmapSections = (
 ): readonly PlanningLineageSection[] => {
   const gateLabels = roadmap.gateOrder.map((id) => {
     const gate = recordFor(snapshot, { kind: "gate", id });
-    return gate?.title ?? `${id} · unavailable`;
+    return gate?.title ?? "Unavailable Gate";
   });
   const focused =
     roadmap.focusedGateId === null
       ? "No focused Gate"
       : (recordFor(snapshot, { kind: "gate", id: roadmap.focusedGateId })?.title ??
-        `${roadmap.focusedGateId} · unavailable`);
+        "Focused Gate unavailable");
   return [
     { anchor: "roadmap.intent", title: "Intent", body: roadmap.intent },
     {

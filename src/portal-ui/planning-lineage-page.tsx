@@ -135,12 +135,13 @@ function TimeFacts({ facts }: { readonly facts: readonly PlanningLineageTimeFact
   );
 }
 
-const relationStateLabel = (relation: PlanningLineageRelation): string => {
+const relationStateLabel = (relation: PlanningLineageRelation): string | undefined => {
   switch (relation.state) {
     case "present":
+      if (relation.total.count < 4) return undefined;
       return relation.total.coverage === "complete"
-        ? `${relation.total.count} total`
-        : `At least ${relation.total.count}`;
+        ? String(relation.total.count)
+        : `${relation.total.count}+`;
     case "confirmed-none":
       return "Confirmed none";
     case "unknown":
@@ -153,67 +154,39 @@ const relationStateLabel = (relation: PlanningLineageRelation): string => {
 function RelationItem({
   focusKeyPrefix,
   item,
-  onInspect,
   onNavigate,
+  role,
 }: {
   readonly focusKeyPrefix: string;
   readonly item: PlanningLineageRelationItem;
-  readonly onInspect: Inspect;
   readonly onNavigate: Navigate;
+  readonly role: string;
 }) {
-  const title =
-    item.availability === "available" ? item.label : `${item.label} · target unavailable`;
+  const title = item.availability === "available" ? item.label : "Related object unavailable";
+  const state = item.availability === "available" ? item.event?.label : undefined;
+  const content = (
+    <>
+      <strong>{title}</strong>
+      <small>
+        {role}
+        {state === undefined ? null : ` · ${state}`}
+        {item.availability === "available" ? null : " · Target unavailable"}
+      </small>
+    </>
+  );
   return (
     <li className="lineage-relation-item">
-      <span>
-        {item.href === undefined ? (
-          <strong>{title}</strong>
-        ) : (
-          <a
-            data-bearing-focus-key={`${focusKeyPrefix}:primary`}
-            href={item.href}
-            onClick={(event) => follow(item.href ?? "", event, onNavigate)}
-          >
-            {title}
-          </a>
-        )}
-        <code>{item.reference}</code>
-        {item.event === undefined ? null : (
-          <small className="lineage-relation-event">
-            {item.event.label}{" "}
-            <PlanningLineageTimeValue
-              label={`${item.label} ${item.event.label}`}
-              mode="compact"
-              time={item.event.time}
-            />
-          </small>
-        )}
-        {item.note === undefined ? null : <small>{item.note}</small>}
-      </span>
-      {item.href === undefined ? null : (
-        <button
-          aria-label={`Quick Look ${item.label}`}
-          className="lineage-quick-look"
-          data-bearing-focus-key={`${focusKeyPrefix}:quick-look`}
-          type="button"
-          onClick={(event) =>
-            onInspect(
-              {
-                eyebrow: "Quick Look",
-                title: item.label,
-                detail: "A direct typed relation from the current subject.",
-                facts: [
-                  { label: "Reference", value: item.reference, code: true },
-                  { label: "Availability", value: item.availability },
-                ],
-                fullDetailHref: item.href,
-              },
-              event.currentTarget,
-            )
-          }
+      {item.href === undefined ? (
+        <span className="lineage-relation-unavailable">{content}</span>
+      ) : (
+        <a
+          className="lineage-relation-link"
+          data-bearing-focus-key={`${focusKeyPrefix}:primary`}
+          href={item.href}
+          onClick={(event) => follow(item.href ?? "", event, onNavigate)}
         >
-          Quick Look
-        </button>
+          {content}
+        </a>
       )}
     </li>
   );
@@ -221,24 +194,20 @@ function RelationItem({
 
 function RelationCollection({
   relation,
-  onInspect,
   onNavigate,
 }: {
   readonly relation: PlanningLineageRelation;
-  readonly onInspect: Inspect;
   readonly onNavigate: Navigate;
 }) {
+  const stateLabel = relationStateLabel(relation);
   return (
     <section
       className={`lineage-relation relation-${relation.state}`}
       id={`relation.${relation.key}`}
     >
       <div className="lineage-relation-heading">
-        <div>
-          <h3>{relation.label}</h3>
-          <p>{relation.direction}</p>
-        </div>
-        <span>{relationStateLabel(relation)}</span>
+        <h3>{relation.label}</h3>
+        {stateLabel === undefined ? null : <span>{stateLabel}</span>}
       </div>
       {relation.state === "present" ? (
         <>
@@ -248,8 +217,8 @@ function RelationCollection({
                 focusKeyPrefix={`lineage:${relation.key}:${item.reference}`}
                 item={item}
                 key={`${relation.key}:${item.reference}`}
-                onInspect={onInspect}
                 onNavigate={onNavigate}
+                role={relation.direction}
               />
             ))}
           </ul>
@@ -263,7 +232,7 @@ function RelationCollection({
             </a>
           )}
         </>
-      ) : (
+      ) : relation.state === "confirmed-none" ? null : (
         <p>{relation.reason}</p>
       )}
     </section>
@@ -760,14 +729,12 @@ function ScopedUnavailable({
 
 function FilteredRelationView({
   filter,
-  onInspect,
   onNavigate,
   ownerHref,
   ownerTitle,
   relation,
 }: {
   readonly filter: "all" | "available" | "unavailable";
-  readonly onInspect: Inspect;
   readonly onNavigate: Navigate;
   readonly ownerHref: string;
   readonly ownerTitle: string;
@@ -811,8 +778,8 @@ function FilteredRelationView({
             focusKeyPrefix={`lineage-filtered:${relation.key}:${item.reference}`}
             item={item}
             key={`${relation.key}:${item.reference}`}
-            onInspect={onInspect}
             onNavigate={onNavigate}
+            role={relation.direction}
           />
         ))}
       </ul>
@@ -959,7 +926,6 @@ export function PlanningLineagePage({
     return (
       <FilteredRelationView
         filter={filteredView.filter}
-        onInspect={onInspect}
         onNavigate={onNavigate}
         ownerHref={ownerHref}
         ownerTitle={model.subject.title}
@@ -1112,18 +1078,11 @@ export function PlanningLineagePage({
       )}
       <section className="lineage-context" aria-labelledby="lineage-context-title">
         <header>
-          <p className="eyebrow">Direct typed relations</p>
           <h2 id="lineage-context-title">Lineage Context</h2>
-          <p>Relations already used as breadcrumb ancestors are not duplicated here.</p>
         </header>
         <div className="lineage-relation-grid">
           {contextRelations.map((relation) => (
-            <RelationCollection
-              key={relation.key}
-              relation={relation}
-              onInspect={onInspect}
-              onNavigate={onNavigate}
-            />
+            <RelationCollection key={relation.key} relation={relation} onNavigate={onNavigate} />
           ))}
         </div>
       </section>

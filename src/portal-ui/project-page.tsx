@@ -49,6 +49,7 @@ export function ProjectPage({
   const narrow = useNarrowViewport();
   const [navOpen, setNavOpen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
   const [capturedSelection, setCapturedSelection] =
     useState<CapturedProjectInspectorSelection | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
@@ -193,6 +194,19 @@ export function ProjectPage({
     if (activation.state.kind === "failed") activation.retry();
     else activation.forceSync();
   };
+  const navigateFromFind = (href: string) => {
+    const state =
+      typeof window.history.state === "object" && window.history.state !== null
+        ? { ...(window.history.state as Record<string, unknown>) }
+        : {};
+    window.history.replaceState(
+      { ...state, bearingFind: { entryId, query: findQuery } },
+      "",
+      window.location.href,
+    );
+    setFindOpen(false);
+    onNavigate(href);
+  };
 
   useEffect(() => {
     if (capturedSelection !== null && selection === null) {
@@ -210,6 +224,20 @@ export function ProjectPage({
     window.addEventListener("popstate", closeFromHistory);
     return () => window.removeEventListener("popstate", closeFromHistory);
   }, [capturedSelection, dismissInspector]);
+
+  useEffect(() => {
+    void routeIdentity;
+    const state =
+      typeof window.history.state === "object" && window.history.state !== null
+        ? { ...(window.history.state as Record<string, unknown>) }
+        : {};
+    const marker = (state as { bearingFind?: { entryId?: string; query?: string } }).bearingFind;
+    if (marker?.entryId !== entryId || typeof marker.query !== "string") return;
+    delete state["bearingFind"];
+    window.history.replaceState(state, "", window.location.href);
+    setFindQuery(marker.query);
+    setFindOpen(true);
+  }, [entryId, routeIdentity]);
 
   useEffect(() => {
     if (snapshot === undefined) return undefined;
@@ -417,8 +445,10 @@ export function ProjectPage({
       {findOpen && snapshot !== undefined ? (
         <ProjectFindDialog
           entryId={entryId}
+          initialQuery={findQuery}
           onClose={() => setFindOpen(false)}
-          onNavigate={navigateFromProject}
+          onNavigate={navigateFromFind}
+          onQueryChange={setFindQuery}
           returnFocusRef={findTriggerRef}
           snapshot={snapshot}
         />

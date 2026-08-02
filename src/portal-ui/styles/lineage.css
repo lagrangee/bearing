@@ -379,9 +379,8 @@
 }
 .lineage-relation {
   min-width: 0;
-  padding: var(--space-5);
-  background: var(--surface);
-  border-radius: var(--radius-panel);
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--border);
   scroll-margin-top: calc(var(--topbar) + var(--space-5));
 }
 .lineage-relation-heading {
@@ -394,7 +393,6 @@
   margin: 0;
   font-size: var(--type-ui);
 }
-.lineage-relation-heading p,
 .lineage-relation > p {
   color: var(--muted);
   font-size: var(--type-tech);
@@ -411,38 +409,33 @@
   list-style: none;
 }
 .lineage-relation-item {
-  display: flex;
   min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) 0;
   border-top: 1px solid var(--border);
 }
-.lineage-relation-item > span {
+.lineage-relation-link,
+.lineage-relation-unavailable {
+  display: block;
   min-width: 0;
+  padding: var(--space-3) var(--space-2);
+}
+.lineage-relation-link {
+  color: inherit;
+  border-radius: var(--radius-control);
+  text-decoration: none;
+}
+.lineage-relation-link:hover,
+.lineage-relation-link:focus-visible {
+  background: var(--accent-wash);
 }
 .lineage-relation-item strong,
-.lineage-relation-item code,
-.lineage-context .lineage-relation-item small {
+.lineage-relation-item small {
   display: block;
   overflow-wrap: anywhere;
 }
-.lineage-relation-item code,
-.lineage-context .lineage-relation-item small {
+.lineage-relation-item small {
   margin-top: var(--space-1);
   color: var(--muted);
   font-size: var(--type-micro);
-}
-.lineage-quick-look {
-  min-height: var(--control-size);
-  flex: 0 0 auto;
-  padding: 0 var(--space-2);
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  cursor: pointer;
 }
 .lineage-filtered-view-link {
   display: inline-flex;
@@ -520,11 +513,6 @@
   margin-top: var(--space-1);
   overflow-wrap: anywhere;
 }
-.lineage-relation-item .lineage-relation-event {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
 .source-event-time.compact {
   position: relative;
 }
@@ -543,8 +531,7 @@
     .roadmap-landscape-header h3:focus-within + .roadmap-event,
     .asset-row-primary:focus,
     .effort-row-primary:focus,
-    .gate-node:focus,
-    .lineage-relation-item a:focus + code + .lineage-relation-event
+    .gate-node:focus
   )
   .source-event-time.compact::after {
   position: absolute;
@@ -575,14 +562,6 @@
   .lineage-event-history dl > div {
     grid-template-columns: 1fr;
     gap: var(--space-1);
-  }
-  .lineage-relation-item {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .lineage-quick-look {
-    width: 100%;
-    min-height: var(--control-touch);
   }
   .matt-work-region > nav,
   .matt-work-items,
