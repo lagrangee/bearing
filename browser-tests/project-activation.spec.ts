@@ -417,7 +417,7 @@ test("topbar exposes healthy and unavailable Attention truth", async ({ page }) 
   await expect(page.getByRole("heading", { name: "Project is unavailable" })).toBeVisible();
 });
 
-test("refresh and reconciliation states remain visible, then confirmations clear", async ({
+test("refresh and reconciliation states settle into a persistent current status", async ({
   page,
 }) => {
   await page.route("**/api/v1/projects/overview/snapshot", (route) =>
@@ -437,5 +437,6 @@ test("refresh and reconciliation states remain visible, then confirmations clear
   await page.getByRole("button", { name: "Sync" }).click();
   await expect(page.locator(".project-operation")).toHaveText("Syncing");
   await expect(page.locator(".project-operation")).toHaveText("Updated");
-  await expect(page.locator(".project-operation")).toHaveCount(0, { timeout: 3_000 });
+  await expect(page.locator(".project-operation")).toHaveText("Up to date", { timeout: 3_000 });
+  await expect(page.getByText(/Last synced|Synced Jul|Synced Never/u)).toHaveCount(0);
 });

@@ -140,12 +140,10 @@
   gap: var(--space-1);
 }
 .attention-compact small,
-.attention-compact strong,
-.updated-time {
+.attention-compact strong {
   font-size: var(--type-meta);
 }
-.attention-compact small,
-.updated-time {
+.attention-compact small {
   color: var(--muted);
 }
 .attention-present strong {
@@ -160,18 +158,6 @@
   color: var(--muted);
   font-weight: 600;
 }
-.updated-time strong {
-  color: var(--ink);
-  font-weight: 600;
-}
-.updated-time {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.updated-label-compact {
-  display: none;
-}
-
 .project-nav {
   position: sticky;
   top: var(--topbar);
@@ -559,16 +545,8 @@
     padding-inline: var(--space-1);
   }
   .attention-compact small,
-  .attention-compact strong,
-  .updated-time {
+  .attention-compact strong {
     font-size: var(--type-tech);
-  }
-  .updated-label,
-  .updated-date {
-    display: none;
-  }
-  .updated-label-compact {
-    display: inline;
   }
   .topbar-sync {
     width: var(--control-touch);

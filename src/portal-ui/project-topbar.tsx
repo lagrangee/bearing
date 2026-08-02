@@ -56,42 +56,26 @@ function OperationLabel({ operation }: { readonly operation: OperationStatus }) 
   );
 }
 
-function TimedConfirmation({ operation }: { readonly operation: OperationStatus }) {
-  const [visible, setVisible] = useState(true);
+const CURRENT_OPERATION = {
+  busy: false,
+  label: "Up to date",
+  tone: "success",
+} as const satisfies OperationStatus;
+
+function SettledOperationLabel({ operation }: { readonly operation: OperationStatus }) {
+  const [displayedOperation, setDisplayedOperation] = useState(operation);
   useEffect(() => {
-    const timer = window.setTimeout(() => setVisible(false), 1_600);
+    if (operation.label === CURRENT_OPERATION.label) return;
+    const timer = window.setTimeout(() => setDisplayedOperation(CURRENT_OPERATION), 1_600);
     return () => window.clearTimeout(timer);
-  }, []);
-  return visible ? <OperationLabel operation={operation} /> : null;
+  }, [operation.label]);
+  return <OperationLabel operation={displayedOperation} />;
 }
-
-type LastSyncLabel = Readonly<{ date: string; time: string; full: string }>;
-const LAST_SYNC_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-});
-const LAST_SYNC_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-
-const formatLastSync = (completedAt: string | undefined): LastSyncLabel => {
-  if (completedAt === undefined) return { date: "", time: "Never", full: "Never" };
-  const date = new Date(completedAt);
-  if (Number.isNaN(date.getTime())) {
-    return { date: "", time: "Unavailable", full: "Unavailable" };
-  }
-  const dateLabel = LAST_SYNC_DATE_FORMATTER.format(date);
-  const time = LAST_SYNC_TIME_FORMATTER.format(date);
-  return { date: `${dateLabel}, `, time, full: `${dateLabel}, ${time}` };
-};
 
 export function ProjectTopbar({
   attentionCount,
   findDisabled,
   findRef,
-  lastSyncedAt,
   menuRef,
   navOpen,
   onOpenNavigation,
@@ -105,7 +89,6 @@ export function ProjectTopbar({
   readonly attentionCount: number | undefined;
   readonly findDisabled: boolean;
   readonly findRef: RefObject<HTMLButtonElement | null>;
-  readonly lastSyncedAt?: string | undefined;
   readonly menuRef: RefObject<HTMLButtonElement | null>;
   readonly navOpen: boolean;
   readonly onOpenNavigation: () => void;
@@ -117,7 +100,6 @@ export function ProjectTopbar({
   readonly suspended: boolean;
 }) {
   const operation = operationStatus(state);
-  const lastSync = formatLastSync(lastSyncedAt);
   const syncLabel =
     state.kind === "refreshing"
       ? "Refreshing"
@@ -182,18 +164,10 @@ export function ProjectTopbar({
           </a>
         )}
         {operation.tone === "success" ? (
-          <TimedConfirmation key={operation.label} operation={operation} />
+          <SettledOperationLabel key={operation.label} operation={operation} />
         ) : (
           <OperationLabel operation={operation} />
         )}
-        <span className="updated-time" title={`Last successful Sync: ${lastSync.full}`}>
-          <span className="updated-label">Last synced </span>
-          <span className="updated-label-compact">Synced </span>
-          <strong>
-            <span className="updated-date">{lastSync.date}</span>
-            {lastSync.time}
-          </strong>
-        </span>
         <Action
           ref={findRef}
           className="topbar-find"

@@ -403,7 +403,6 @@ export function ProjectPage({
         attentionCount={snapshot?.attention.length}
         findDisabled={snapshot === undefined}
         findRef={findTriggerRef}
-        lastSyncedAt={view?.cache.receipt?.completedAt}
         menuRef={menuRef}
         navOpen={navOpen}
         onOpenFind={() => setFindOpen(true)}

@@ -427,7 +427,7 @@ test("Overview keeps cache visible, preserves reading order, and uses contextual
   await expect(source).toBeFocused();
 
   await expect.poll(() => syncCalls).toBe(1);
-  await expect(page.locator(".project-operation")).toHaveCount(0, { timeout: 3_000 });
+  await expect(page.locator(".project-operation")).toHaveText("Up to date");
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   });

@@ -471,9 +471,6 @@
   .roadmap-landscape-item .horizon-line {
     margin: var(--space-1) 0 var(--space-1) var(--space-3);
   }
-  .topbar-status.is-busy .updated-time {
-    display: none;
-  }
   .project-operation {
     font-size: var(--type-tech);
   }
