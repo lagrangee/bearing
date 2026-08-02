@@ -129,9 +129,10 @@ test("reload, reconnect, browser return, and inactive interaction reactivate cac
     await expect.poll(() => reads).toBeGreaterThan(before);
   };
   await expectReadAfter(() => page.evaluate(() => window.dispatchEvent(new Event("online"))));
-  await expectReadAfter(() => page.evaluate(() => window.dispatchEvent(new Event("focus"))));
   await expectReadAfter(() =>
     page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
       document.dispatchEvent(new Event("visibilitychange"));
     }),
@@ -139,6 +140,30 @@ test("reload, reconnect, browser return, and inactive interaction reactivate cac
   await expectReadAfter(() => page.reload());
   await page.clock.fastForward(300_001);
   await expectReadAfter(() => page.locator("main").click({ position: { x: 4, y: 4 } }));
+});
+
+test("visible-only focus does not reactivate project validation", async ({ page }) => {
+  let reads = 0;
+  const bodies: string[] = [];
+  await page.route("**/api/v1/projects/overview/snapshot", (route) => {
+    reads += 1;
+    return route.fulfill({ json: readyEnvelope("overview", reads > 1) });
+  });
+  await page.route("**/api/v1/projects/overview/sync", (route) => {
+    bodies.push(route.request().postData() ?? "");
+    return route.fulfill({ json: automaticEnvelope("checked") });
+  });
+  await page.goto("/projects/overview");
+  await expect.poll(() => reads).toBe(1);
+
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.waitForTimeout(100);
+
+  expect(reads).toBe(1);
+  expect(bodies).toEqual([]);
+  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  await expect(page.locator("main")).toHaveAttribute("aria-hidden", "false");
+  expect(await page.locator("main").getAttribute("inert")).toBeNull();
 });
 
 test("the first explicit Sync after inactivity forces reconciliation without an automatic check", async ({
@@ -203,7 +228,12 @@ test("a browser-return click on Sync forces reconciliation before automatic acti
   if (box === null) throw new Error("Expected the Sync button to have a bounding box.");
   await page.clock.fastForward(300_001);
 
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
   await expect(page.locator(".project-operation")).toHaveText("Checking");
   await expect(page.locator(".topbar-sync")).toBeEnabled();
   await expect(page.locator(".topbar-sync svg")).not.toHaveClass(/is-spinning/u);

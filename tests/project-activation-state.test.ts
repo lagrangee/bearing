@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   interactionNeedsActivation,
   PROJECT_INACTIVITY_MS,
+  visibilityReturnNeedsActivation,
 } from "../src/portal-ui/project-activation-events";
 import {
   type ActivationState,
@@ -248,6 +249,13 @@ test("only the first interaction after prolonged inactivity activates validation
   expect(
     interactionNeedsActivation(1_000 + PROJECT_INACTIVITY_MS, 1_001 + PROJECT_INACTIVITY_MS),
   ).toBe(false);
+});
+
+test("only a real hidden-to-visible return activates visibility validation", () => {
+  expect(visibilityReturnNeedsActivation("hidden", "visible")).toBe(true);
+  expect(visibilityReturnNeedsActivation("visible", "visible")).toBe(false);
+  expect(visibilityReturnNeedsActivation("visible", "hidden")).toBe(false);
+  expect(visibilityReturnNeedsActivation("hidden", "hidden")).toBe(false);
 });
 
 test("entry switches hide stale pending, unavailable, and viewless failure state", () => {

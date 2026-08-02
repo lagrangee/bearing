@@ -3,6 +3,7 @@ import {
   createDeferredActivation,
   interactionNeedsActivation,
   manualActionOwnsActivation,
+  visibilityReturnNeedsActivation,
 } from "./project-activation-events";
 import {
   type ActivationAction,
@@ -336,12 +337,19 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
 
   useEffect(() => {
     let lastActivityAt = Date.now();
+    let previousVisibilityState = document.visibilityState;
     const deferredActivation = createDeferredActivation(() => void activate());
     const queueActivation = () => {
       if (busyRequestRef.current === undefined) deferredActivation.schedule();
     };
-    const visible = () => {
-      if (document.visibilityState === "visible") queueActivation();
+    const visibilityChanged = () => {
+      const currentVisibilityState = document.visibilityState;
+      const shouldActivate = visibilityReturnNeedsActivation(
+        previousVisibilityState,
+        currentVisibilityState,
+      );
+      previousVisibilityState = currentVisibilityState;
+      if (shouldActivate) queueActivation();
     };
     const interaction = (event: PointerEvent | KeyboardEvent) => {
       const currentActivityAt = Date.now();
@@ -354,14 +362,12 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       if (shouldActivate) queueActivation();
     };
     window.addEventListener("online", queueActivation);
-    window.addEventListener("focus", queueActivation);
-    document.addEventListener("visibilitychange", visible);
+    document.addEventListener("visibilitychange", visibilityChanged);
     window.addEventListener("pointerdown", interaction, true);
     window.addEventListener("keydown", interaction, true);
     return () => {
       window.removeEventListener("online", queueActivation);
-      window.removeEventListener("focus", queueActivation);
-      document.removeEventListener("visibilitychange", visible);
+      document.removeEventListener("visibilitychange", visibilityChanged);
       window.removeEventListener("pointerdown", interaction, true);
       window.removeEventListener("keydown", interaction, true);
       deferredActivation.cancel();
