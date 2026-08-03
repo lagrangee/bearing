@@ -17,6 +17,7 @@ import type {
 import { AssetLocationCopy } from "./asset-location-copy";
 import { Icons } from "./icons";
 import type {
+  PlanningLineageOutcomeSpine,
   PlanningLineageRelation,
   PlanningLineageRelationItem,
   PlanningLineageTimeFact,
@@ -265,6 +266,66 @@ function RelationCollection({
       ) : relation.state === "confirmed-none" ? null : (
         <p>{relation.reason}</p>
       )}
+    </section>
+  );
+}
+
+function OutcomeSpine({
+  onNavigate,
+  spine,
+}: {
+  readonly onNavigate: Navigate;
+  readonly spine: PlanningLineageOutcomeSpine;
+}) {
+  return (
+    <section
+      aria-labelledby="outcome-spine-title"
+      className="outcome-spine"
+      data-gate-count={spine.gates.length}
+      data-layout={spine.layout}
+      id="roadmap.gates"
+    >
+      <header>
+        <h2 id="outcome-spine-title">Outcome Spine</h2>
+        <p>Ordered Gates and their complete governed Efforts.</p>
+      </header>
+      <ol className="outcome-spine-list">
+        {spine.gates.map((gate) => (
+          <li className={`outcome-spine-gate${gate.focused ? " is-focused" : ""}`} key={gate.id}>
+            <div className="outcome-spine-gate-heading">
+              <span>G{gate.ordinal}</span>
+              {gate.href === undefined ? (
+                <strong>{gate.title}</strong>
+              ) : (
+                <a href={gate.href} onClick={(event) => follow(gate.href ?? "", event, onNavigate)}>
+                  {gate.title}
+                </a>
+              )}
+              <small>{gate.focused ? "Current" : (gate.lifecycle ?? "Unavailable")}</small>
+            </div>
+            {gate.efforts.length === 0 ? (
+              <p>No governed Efforts.</p>
+            ) : (
+              <ul>
+                {gate.efforts.map((effort) => (
+                  <li key={effort.id}>
+                    {effort.href === undefined ? (
+                      <span>{effort.title}</span>
+                    ) : (
+                      <a
+                        href={effort.href}
+                        onClick={(event) => follow(effort.href ?? "", event, onNavigate)}
+                      >
+                        {effort.title}
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ol>
     </section>
   );
 }
@@ -963,7 +1024,18 @@ export function PlanningLineagePage({
       />
     );
   }
-  const contextRelations = model.relations.filter((relation) => !relation.inParentPath);
+  const contentOwnedRelationKeys =
+    model.subject.kind === "roadmap"
+      ? new Set(["outcome.ordered-gates", "outcome.contributing-efforts"])
+      : model.subject.kind === "gate"
+        ? new Set(["outcome.contributing-efforts"])
+        : new Set<string>();
+  const contextRelations = model.relations.filter(
+    (relation) =>
+      !relation.inParentPath &&
+      !contentOwnedRelationKeys.has(relation.key) &&
+      !(model.subject.kind === "roadmap" && relation.state === "confirmed-none"),
+  );
   const availableEvents = model.events.filter((event) => event.time.availability === "available");
   const eventHistoryAnchor =
     model.subject.kind === "alignment-check" || model.subject.kind === "planning-review"
@@ -1069,6 +1141,9 @@ export function PlanningLineagePage({
           </dl>
         </section>
       )}
+      {model.outcomeSpine === undefined ? null : (
+        <OutcomeSpine onNavigate={onNavigate} spine={model.outcomeSpine} />
+      )}
       <div className="lineage-sections">
         {model.sections.map((section) => (
           <section
@@ -1115,16 +1190,18 @@ export function PlanningLineagePage({
       {model.workRegion === undefined ? null : (
         <MattNativeWorkRegion entryId={entryId} onNavigate={onNavigate} region={model.workRegion} />
       )}
-      <section className="lineage-context" aria-labelledby="lineage-context-title">
-        <header>
-          <h2 id="lineage-context-title">Lineage Context</h2>
-        </header>
-        <div className="lineage-relation-grid">
-          {contextRelations.map((relation) => (
-            <RelationCollection key={relation.key} relation={relation} onNavigate={onNavigate} />
-          ))}
-        </div>
-      </section>
+      {contextRelations.length === 0 ? null : (
+        <section className="lineage-context" aria-labelledby="lineage-context-title">
+          <header>
+            <h2 id="lineage-context-title">Lineage Context</h2>
+          </header>
+          <div className="lineage-relation-grid">
+            {contextRelations.map((relation) => (
+              <RelationCollection key={relation.key} relation={relation} onNavigate={onNavigate} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

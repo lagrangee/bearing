@@ -109,6 +109,95 @@
 .lineage-sections ul {
   padding-left: var(--space-5);
 }
+.outcome-spine {
+  container: outcome-spine / inline-size;
+  padding: var(--space-8) 0 var(--space-10);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.outcome-spine > header {
+  margin-bottom: var(--space-5);
+}
+.outcome-spine > header p {
+  margin: var(--space-2) 0 0;
+  color: var(--muted);
+}
+.outcome-spine-list {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  background: var(--border);
+  list-style: none;
+}
+.outcome-spine-gate {
+  min-width: 0;
+  padding: var(--space-5);
+  background: var(--canvas);
+}
+.outcome-spine-gate.is-focused {
+  background: var(--accent-wash);
+}
+.outcome-spine-gate-heading {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  align-items: baseline;
+}
+.outcome-spine-gate-heading > span,
+.outcome-spine-gate-heading > small {
+  color: var(--muted);
+  font-size: var(--type-tech);
+}
+.outcome-spine-gate-heading > small {
+  grid-column: 2;
+  text-transform: capitalize;
+}
+.outcome-spine-gate-heading > a,
+.outcome-spine-gate-heading > strong,
+.outcome-spine-gate li a,
+.outcome-spine-gate li span {
+  overflow-wrap: anywhere;
+}
+.outcome-spine-gate-heading > a {
+  font-size: var(--type-section);
+  font-weight: 600;
+  text-underline-offset: 3px;
+}
+.outcome-spine-gate > ul {
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+.outcome-spine-gate > ul li {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.outcome-spine-gate > ul a {
+  text-underline-offset: 3px;
+}
+.outcome-spine-gate > p {
+  margin: var(--space-4) 0 0;
+  color: var(--muted);
+  font-size: var(--type-tech);
+}
+@container outcome-spine (min-width: 760px) {
+  .outcome-spine[data-layout="horizontal-eligible"][data-gate-count="1"] .outcome-spine-list {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+  .outcome-spine[data-layout="horizontal-eligible"][data-gate-count="2"] .outcome-spine-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .outcome-spine[data-layout="horizontal-eligible"][data-gate-count="3"] .outcome-spine-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .outcome-spine[data-layout="horizontal-eligible"][data-gate-count="4"] .outcome-spine-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
 .matt-work-region {
   min-width: 0;
   padding: var(--space-10) 0;

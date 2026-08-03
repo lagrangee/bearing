@@ -88,6 +88,68 @@ test("builds a Gate-owned route with trustworthy parents, full content, and type
   );
 });
 
+test("builds one complete Roadmap Outcome Spine with ordered Gates and nested Efforts", () => {
+  const model = readable(
+    buildPlanningLineageSubjectModel(
+      fixture(),
+      { kind: "roadmap", id: "roadmap:portal" },
+      "bearing",
+    ),
+  );
+
+  expect(model.outcomeSpine).toMatchObject({
+    layout: "horizontal-eligible",
+    gates: [
+      {
+        id: "gate:one",
+        title: "Model ready",
+        focused: false,
+        efforts: [{ id: "effort:model", title: "Planning Model" }],
+      },
+      {
+        id: "gate:two",
+        title: "Overview proven",
+        focused: true,
+        efforts: [{ id: "effort:portal", title: "Web Portal Validation" }],
+      },
+    ],
+  });
+  expect(model.sections.map((section) => section.anchor)).toEqual([
+    "roadmap.intent",
+    "roadmap.focus",
+  ]);
+});
+
+test("forces the complete Outcome Spine vertical when title content exceeds readable cells", () => {
+  const snapshot = fixture();
+  if (snapshot.gates.validity === "invalid") throw new Error("Expected Gates.");
+  const longTitle = withLineage({
+    ...snapshot,
+    gates: {
+      ...snapshot.gates,
+      items: snapshot.gates.items.map((gate) =>
+        gate.id === "gate:one"
+          ? {
+              ...gate,
+              title:
+                "A deliberately long mixed 中文 English Gate title that must remain complete without shrinking or horizontal scrolling",
+            }
+          : gate,
+      ),
+    },
+  });
+  const model = readable(
+    buildPlanningLineageSubjectModel(
+      longTitle,
+      { kind: "roadmap", id: "roadmap:portal" },
+      "bearing",
+    ),
+  );
+
+  expect(model.outcomeSpine?.layout).toBe("vertical");
+  expect(model.outcomeSpine?.gates[0]?.title).toContain("mixed 中文 English");
+});
+
 test("builds Effort, Asset, Alignment Check, and Planning Review routes from their own truth", () => {
   const snapshot = fixture();
   const expectations = [

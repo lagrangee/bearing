@@ -59,7 +59,7 @@ test("renders one route-owned Gate dossier and non-duplicated Lineage Context", 
   expect(html).not.toContain("Event History");
   expect(html).toContain("Lifecycle and Readiness");
   expect(html).toContain("Contributing Efforts");
-  expect(html).toContain("receives contribution from");
+  expect(html).not.toContain('id="relation.outcome.contributing-efforts"');
   expect(html).toContain("accepted with evidence");
   expect(html).toContain("Confirmed none");
   expect(html).not.toContain("<h3>Roadmap</h3>");
@@ -95,6 +95,38 @@ test("gives lineage identity and mixed-language prose container-owned readable w
   expect(css).toMatch(
     /@media \(max-width: 820px\)[\s\S]*\.lineage-sections > section[\s\S]*max-width: 100%;/u,
   );
+});
+
+test("renders Roadmap Outcome Spine as the sole ordered Gate and nested Effort owner", () => {
+  const roadmap = render({
+    validity: "valid",
+    value: { kind: "roadmap", id: "roadmap:portal" },
+  });
+  const spine = roadmap.match(/<section[^>]*class="outcome-spine"[\s\S]*?<\/section>/u)?.[0];
+  expect(spine).toBeDefined();
+  expect(spine).toContain('data-layout="horizontal-eligible"');
+  expect(spine).toContain('class="outcome-spine-gate is-focused"');
+  expect(spine).toContain('href="/projects/bearing/lineage/gate/gate%3Aone"');
+  expect(spine).toContain('href="/projects/bearing/lineage/gate/gate%3Atwo"');
+  expect(spine).toContain('href="/projects/bearing/lineage/effort/effort%3Amodel"');
+  expect(spine).toContain('href="/projects/bearing/lineage/effort/effort%3Aportal"');
+  expect(spine).not.toContain("<button");
+  expect(spine).not.toContain("<details");
+  expect(roadmap).not.toContain('id="relation.outcome.ordered-gates"');
+  expect(roadmap).not.toContain('id="relation.outcome.contributing-efforts"');
+
+  const gate = render({ validity: "valid", value: { kind: "gate", id: "gate:one" } });
+  expect(gate).toContain('id="native-work.effort-summaries"');
+  expect(gate).not.toContain('id="relation.outcome.contributing-efforts"');
+});
+
+test("uses container-owned all-or-nothing Outcome Spine layout without truncation", async () => {
+  const css = await readFile(join(process.cwd(), "src/portal-ui/styles/lineage.css"), "utf8");
+  expect(css).toContain("container: outcome-spine / inline-size");
+  expect(css).toMatch(/@container outcome-spine \(min-width: 760px\)/u);
+  expect(css).not.toMatch(/outcome-spine[^}]*text-overflow/u);
+  expect(css).not.toMatch(/outcome-spine[^}]*white-space:\s*nowrap/u);
+  expect(css).not.toMatch(/outcome-spine[^}]*overflow-x:\s*(auto|scroll)/u);
 });
 
 test("keeps Asset semantics on detail and routes content outside Technical Details", () => {
@@ -459,7 +491,7 @@ test("omits confirmed-empty role shells while preserving their native history", 
   expect(html).not.toContain("<h4>Incoming</h4>");
 });
 
-test("keeps Roadmap and Gate native work bounded to Effort frontier summaries and links", () => {
+test("keeps Roadmap and Gate Effort relations in their single semantic owners", () => {
   const roadmapHtml = render({
     validity: "valid",
     value: { kind: "roadmap", id: "roadmap:portal" },
@@ -469,14 +501,22 @@ test("keeps Roadmap and Gate native work bounded to Effort frontier summaries an
     value: { kind: "gate", id: "gate:two" },
   });
 
+  expect(roadmapHtml).toContain('<h2 id="outcome-spine-title">Outcome Spine</h2>');
+  expect(roadmapHtml).toContain(
+    'href="/projects/bearing/lineage/effort/effort%3Aportal">Web Portal Validation</a>',
+  );
+  expect(roadmapHtml).not.toContain('id="native-work.effort-summaries"');
+  expect(roadmapHtml).not.toContain('id="relation.outcome.contributing-efforts"');
+
+  expect(gateHtml).toContain("<h2>Contributing Efforts</h2>");
+  const sectionStart = gateHtml.indexOf('id="native-work.effort-summaries"');
+  const summarySection = gateHtml.slice(sectionStart, gateHtml.indexOf("</section>", sectionStart));
+  expect(summarySection).toContain(
+    'href="/projects/bearing/lineage/effort/effort%3Aportal">Web Portal Validation</a>',
+  );
+  expect(summarySection).toContain("Claimed 1 · Ready 1 · Blocked 1 · Resolved 0");
+  expect(gateHtml).not.toContain('id="relation.outcome.contributing-efforts"');
   for (const html of [roadmapHtml, gateHtml]) {
-    expect(html).toContain("<h2>Contributing Efforts</h2>");
-    const sectionStart = html.indexOf('id="native-work.effort-summaries"');
-    const summarySection = html.slice(sectionStart, html.indexOf("</section>", sectionStart));
-    expect(summarySection).toContain(
-      'href="/projects/bearing/lineage/effort/effort%3Aportal">Web Portal Validation</a>',
-    );
-    expect(summarySection).toContain("Claimed 1 · Ready 1 · Blocked 1 · Resolved 0");
     expect(html).not.toContain('class="matt-work-region');
     expect(html).not.toContain("Reach the accepted project outcome.");
   }
@@ -624,7 +664,9 @@ test("renders a stable filtered relation view as owner-derived list state, not a
     { validity: "valid", value: { kind: "gate", id: "gate:one" } },
     { snapshot: expanded },
   );
-  expect(detailHtml).toMatch(/<h3>Contributing Efforts<\/h3><span>6<\/span>/u);
+  expect(detailHtml).toContain("<h2>Contributing Efforts</h2>");
+  expect(detailHtml).toContain("Extra Effort 5");
+  expect(detailHtml).not.toContain('id="relation.outcome.contributing-efforts"');
   expect(detailHtml).not.toContain("6 total");
   expect(detailHtml).not.toContain("Quick Look");
 });

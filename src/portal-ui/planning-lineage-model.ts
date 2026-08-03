@@ -130,6 +130,23 @@ export type PlanningLineageTimeFact = Readonly<{
   detail?: string | undefined;
 }>;
 
+export type PlanningLineageOutcomeSpine = Readonly<{
+  layout: "horizontal-eligible" | "vertical";
+  gates: readonly Readonly<{
+    id: string;
+    title: string;
+    href?: string | undefined;
+    ordinal: number;
+    focused: boolean;
+    lifecycle?: MilestoneGate["lifecycle"] | undefined;
+    efforts: readonly Readonly<{
+      id: string;
+      title: string;
+      href?: string | undefined;
+    }>[];
+  }>[];
+}>;
+
 export type PlanningLineageParentCrumb = Readonly<{
   label: string;
   href: string;
@@ -149,6 +166,7 @@ type ReadablePlanningLineageSubjectModel = Readonly<{
   parentNotice?: string | undefined;
   events: readonly PlanningLineageEvent<PlanningLineageEventTime>[];
   sections: readonly PlanningLineageSection[];
+  outcomeSpine?: PlanningLineageOutcomeSpine | undefined;
   workRegion?: MattNativeWorkRegionModel | undefined;
   nativeInspection?:
     | Readonly<{
@@ -424,34 +442,71 @@ const contributingEffortsSection = (
   };
 };
 
-const roadmapSections = (
-  snapshot: ProjectSnapshot,
-  roadmap: Roadmap,
-  entryId: string,
-): readonly PlanningLineageSection[] => {
-  const gateLabels = roadmap.gateOrder.map((id) => {
-    const gate = recordFor(snapshot, { kind: "gate", id });
-    return gate?.title ?? "Unavailable Gate";
-  });
-  const focused =
-    roadmap.focusedGateId === null
-      ? "No focused Gate"
-      : (recordFor(snapshot, { kind: "gate", id: roadmap.focusedGateId })?.title ??
-        "Focused Gate unavailable");
+const roadmapSections = (roadmap: Roadmap): readonly PlanningLineageSection[] => {
   return [
     { anchor: "roadmap.intent", title: "Intent", body: roadmap.intent },
     {
-      anchor: "roadmap.gates",
-      title: "Complete Gate order",
-      items: gateLabels.length === 0 ? ["No Gates in the declared horizon."] : gateLabels,
-    },
-    {
       anchor: "roadmap.focus",
-      title: "Lifecycle and Focus",
-      body: `${focused}. Lifecycle ${roadmap.lifecycle}; horizon ${roadmap.horizon}.`,
+      title: "Roadmap Lifecycle",
+      body: `Lifecycle ${roadmap.lifecycle}; horizon ${roadmap.horizon}.`,
     },
-    contributingEffortsSection(snapshot, roadmap.effortIds, entryId),
   ];
+};
+
+const readableTitleUnits = (value: string): number =>
+  [...value].reduce((total, character) => total + (/\p{Script=Han}/u.test(character) ? 2 : 1), 0);
+
+const outcomeSpineLayout = (
+  gates: readonly Readonly<{ title: string; efforts: readonly Readonly<{ title: string }>[] }>[],
+): PlanningLineageOutcomeSpine["layout"] =>
+  gates.length <= 4 &&
+  gates.length * 220 <= 960 &&
+  gates.every(
+    (gate) =>
+      readableTitleUnits(gate.title) <= 52 &&
+      gate.efforts.every((effort) => readableTitleUnits(effort.title) <= 52),
+  )
+    ? "horizontal-eligible"
+    : "vertical";
+
+const roadmapOutcomeSpine = (
+  snapshot: ProjectSnapshot,
+  roadmap: Roadmap,
+  entryId: string,
+): PlanningLineageOutcomeSpine => {
+  const efforts = readableEfforts(snapshot);
+  const gates = roadmap.gateOrder.map((gateId, index) => {
+    const gate = recordFor(snapshot, { kind: "gate", id: gateId });
+    if (gate === undefined || !("effortIds" in gate)) {
+      return {
+        id: gateId,
+        title: "Gate unavailable",
+        ordinal: index + 1,
+        focused: roadmap.focusedGateId === gateId,
+        efforts: [],
+      };
+    }
+    const milestone = gate as MilestoneGate;
+    return {
+      id: milestone.id,
+      title: milestone.title,
+      href: planningLineageSubjectHref(entryId, { kind: "gate", id: milestone.id }),
+      ordinal: index + 1,
+      focused: roadmap.focusedGateId === milestone.id,
+      lifecycle: milestone.lifecycle,
+      efforts: milestone.effortIds.map((effortId) => {
+        const effort = efforts.find((candidate) => candidate.id === effortId);
+        return effort === undefined
+          ? { id: effortId, title: "Effort unavailable" }
+          : {
+              id: effort.id,
+              title: effort.title,
+              href: planningLineageSubjectHref(entryId, { kind: "effort", id: effort.id }),
+            };
+      }),
+    };
+  });
+  return { layout: outcomeSpineLayout(gates), gates };
 };
 
 const gateSections = (
@@ -1167,7 +1222,7 @@ const sectionsFor = (
 ): readonly PlanningLineageSection[] => {
   switch (lineage.identity.kind) {
     case "roadmap":
-      return roadmapSections(snapshot, record as Roadmap, entryId);
+      return roadmapSections(record as Roadmap);
     case "gate":
       return gateSections(snapshot, record as MilestoneGate, entryId);
     case "effort":
@@ -1356,6 +1411,9 @@ export const buildPlanningLineageSubjectModel = (
       ? nativeLifecycleEvents(record as NativeRecord)
       : planningLineageEventsFor(snapshot, subject, record as CanonicalSubjectRecord),
     sections: sectionsFor(snapshot, lineage, record, entryId),
+    ...(subject.kind === "roadmap"
+      ? { outcomeSpine: roadmapOutcomeSpine(snapshot, record as Roadmap, entryId) }
+      : {}),
     ...(workRegion === undefined ? {} : { workRegion }),
     ...(inspectionSelection === undefined
       ? {}
