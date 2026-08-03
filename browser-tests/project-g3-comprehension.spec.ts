@@ -26,7 +26,7 @@ import {
 } from "../tests/planning-lineage-fixture";
 import {
   type RunningTestPortal,
-  runBuiltBearing,
+  runHarnessCommand,
   startBuiltPortal,
   stopBuiltPortal,
 } from "./real-host-test-support";
@@ -104,6 +104,37 @@ const withProjectBrief = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   });
 };
 
+const standaloneObservation = (nativeKind: "local" | "github", nativeScope: string) => {
+  const projection = createMattReferenceProjection(nativeKind);
+  return createProviderScopeObservation({
+    provider: "matt-skills/v1",
+    binding: { provider: "matt-skills/v1", nativeScope },
+    observedAt: "2026-08-03T03:00:00.000Z",
+    sourceRevision: `${nativeKind}:standalone-revision`,
+    sourceObservedAt: "2026-08-03T03:00:00.000Z",
+    validators: [],
+    state: "available",
+    freshness: {
+      assessment: "current",
+      evidence: [{ kind: `${nativeKind}-standalone`, value: nativeScope }],
+    },
+    coverage: {
+      assessment: "complete",
+      dimensions: [{ key: "scope", state: "covered" }],
+    },
+    completion: "incomplete",
+    diagnostics: [],
+    projection: {
+      ...projection,
+      map: {
+        ...projection.map,
+        title: "Unbound Standalone Release Triage",
+        destination: "Triage release work without enrolling it in Bearing Scope.",
+      },
+    },
+  });
+};
+
 const withPreviewAsset = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   if (snapshot.assets.validity !== "available") throw new Error("Expected readable Assets.");
   const source = createSourceRecord(snapshot.basis.sitemapFingerprint, {
@@ -167,6 +198,7 @@ const githubScenarioSnapshot = (): Readonly<{
   nativeSubject: PlanningLineageSubject;
   nativeScopeTitle: string;
   nativeSubjectTitle: string;
+  standalone: ReturnType<typeof standaloneObservation>;
 }> => {
   const base = withProjectBrief(createProjectOverviewFixture());
   if (base.efforts.validity !== "available") throw new Error("Expected readable Efforts.");
@@ -251,6 +283,25 @@ const githubScenarioSnapshot = (): Readonly<{
     nativeSubject: { kind: "native-subject", id: observation.projection.map.ref },
     nativeScopeTitle: "example/reference issue #101",
     nativeSubjectTitle: "Reference Map",
+    standalone: standaloneObservation(
+      "github",
+      encodeGitHubMattNativeScope({
+        host: "github.com",
+        rootKind: "wayfinder-map",
+        repository: {
+          owner: "example",
+          name: "standalone",
+          databaseId: "9901",
+          nodeId: "R_standalone",
+        },
+        root: {
+          objectKind: "issue",
+          number: 404,
+          databaseId: "9911",
+          nodeId: "I_standalone_404",
+        },
+      }),
+    ),
   };
 };
 
@@ -282,6 +333,42 @@ const degradedSnapshot = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   };
   return projectSnapshotSchema.parse(withRebuiltPlanningLineage(candidate as ProjectSnapshotInput));
 };
+
+const healthySnapshot = (snapshot: ProjectSnapshot): ProjectSnapshot =>
+  projectSnapshotSchema.parse({
+    ...snapshot,
+    checks:
+      snapshot.checks.validity === "available"
+        ? {
+            ...snapshot.checks,
+            items: snapshot.checks.items.map((check) => ({ ...check, status: "resolved" })),
+          }
+        : snapshot.checks,
+    reviews:
+      snapshot.reviews.validity === "available"
+        ? {
+            ...snapshot.reviews,
+            items: snapshot.reviews.items.map((review) => ({ ...review, status: "completed" })),
+          }
+        : snapshot.reviews,
+    diagnostics: [],
+    attention: [],
+  });
+
+const invalidSummarySnapshot = (snapshot: ProjectSnapshot): ProjectSnapshot =>
+  projectSnapshotSchema.parse({
+    ...snapshot,
+    summary: {
+      validity: "invalid",
+      issues: [
+        {
+          code: "invalid-summary",
+          target: ".bearing/state/project-summary.md",
+          message: "Summary sections are malformed.",
+        },
+      ],
+    },
+  });
 
 const viewportOverflow = async (page: Page) =>
   page.locator("body *").evaluateAll((elements) =>
@@ -322,17 +409,31 @@ type Scenario = Readonly<{
   nativeScopeTitle: string;
   nativeSubjectTitle: string;
   nativeScopeEvidence: string;
+  standalone: ReturnType<typeof standaloneObservation>;
 }>;
 
 let host: RunningTestPortal | undefined;
 let homeRoot = "";
 let fixtureRoot = "";
+let exactReconciliation: Awaited<ReturnType<typeof runHarnessCommand>> | undefined;
+let sourcesBeforeExactReconciliation: Readonly<Record<string, string>> = {};
+let sourcesAfterExactReconciliation: Readonly<Record<string, string>> = {};
 
 test.beforeAll(async () => {
   fixtureRoot = await realpath(await copyPortalProjectFixture("G3 Comprehension Project"));
-  await runBuiltBearing(["sync", "--repo", fixtureRoot, "--initialize-provider-observations"]);
   homeRoot = await mkdtemp(join(tmpdir(), "bearing-g3-comprehension-browser-home-"));
   await mkdir(join(homeRoot, ".bearing"), { recursive: true });
+  await mkdir(join(fixtureRoot, ".scratch/standalone/issues"), { recursive: true });
+  await Promise.all([
+    writeFile(
+      join(fixtureRoot, ".scratch/standalone/map.md"),
+      "# Wayfinder Map: Standalone Release Triage\n\nStatus: active\n\n## Destination\n\nRemain outside Bearing Scope.\n\n## Decisions so far\n\nNone.\n\n## Fog\n\nNone.\n",
+    ),
+    writeFile(
+      join(fixtureRoot, ".scratch/standalone/issues/99-release-triage.md"),
+      "# Unbound Standalone Release Triage\n\nType: task\n\nStatus: ready\n\n## Question\n\nCan native work remain outside Bearing Scope?\n",
+    ),
+  ]);
   const catalog = {
     version: 1,
     entries: [{ entryId, repoRoot: fixtureRoot, displayName: "G3 Comprehension Project" }],
@@ -344,6 +445,30 @@ test.beforeAll(async () => {
       `${JSON.stringify(catalog, null, 2)}\n`,
     ),
   ]);
+  const commandEnvironment: NodeJS.ProcessEnv = { ...process.env, HOME: homeRoot };
+  delete commandEnvironment["FORCE_COLOR"];
+  const baseline = await runHarnessCommand(
+    "node",
+    ["dist/cli.js", "sync", "--repo", fixtureRoot, "--initialize-provider-observations"],
+    { environment: commandEnvironment, label: "G3 real Host baseline" },
+  );
+  if (baseline.exitCode !== 0) throw new Error(`G3 baseline failed: ${baseline.stderr}`);
+  sourcesBeforeExactReconciliation = await sourceState(fixtureRoot);
+  exactReconciliation = await runHarnessCommand(
+    "node",
+    [
+      "dist/cli.js",
+      "reconcile-native",
+      "--repo",
+      fixtureRoot,
+      "--scope",
+      ".scratch/work",
+      "--ref",
+      ".scratch/work/issues/01-verify-isolation.md",
+    ],
+    { environment: commandEnvironment, label: "G3 exact native reconciliation" },
+  );
+  sourcesAfterExactReconciliation = await sourceState(fixtureRoot);
   host = await startBuiltPortal(homeRoot);
 });
 
@@ -372,6 +497,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     nativeScopeTitle: ".scratch/portal",
     nativeSubjectTitle: "Review the Roadmap journey",
     nativeScopeEvidence: ".scratch/portal",
+    standalone: standaloneObservation("local", ".scratch/standalone"),
   };
   const github = githubScenarioSnapshot();
   const scenarios: readonly Scenario[] = [
@@ -384,14 +510,29 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       nativeScopeTitle: github.nativeScopeTitle,
       nativeSubjectTitle: github.nativeSubjectTitle,
       nativeScopeEvidence: "github-matt-v1:",
+      standalone: github.standalone,
     },
   ];
+  expect(exactReconciliation?.exitCode).toBe(0);
+  expect(exactReconciliation?.stderr).toBe("");
+  expect(exactReconciliation?.stdout).toContain("Diagnostics: 0");
+  expect(exactReconciliation?.stdout).toContain("Reconciliation: succeeded");
+  expect(exactReconciliation?.stdout).toContain("Snapshot: materialized");
+  expect(sourcesAfterExactReconciliation).toEqual(sourcesBeforeExactReconciliation);
   await page.goto(host.url);
   await page
     .getByRole("list", { name: "Registered Bearing projects" })
     .getByRole("link", { name: /G3 Comprehension Project/u })
     .click();
   await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
+  const reconciledNativeHref = planningLineageSubjectHref(entryId, {
+    kind: "native-subject",
+    id: ".scratch/work/issues/01-verify-isolation.md",
+  });
+  await page.goto(`${host.url}${reconciledNativeHref}`);
+  await expect(
+    page.getByRole("heading", { name: "Verify repository isolation", level: 1 }),
+  ).toBeVisible();
   let activeSnapshot = local.snapshot;
   let syncTarget = degradedSnapshot(local.snapshot);
   let syncAttempts = 0;
@@ -438,6 +579,28 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       .getByRole("link", { name: /G3 Comprehension Project/u })
       .click();
     await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+    expect(scenario.standalone.projection?.map?.title).toBe("Unbound Standalone Release Triage");
+    expect(
+      scenario.snapshot.providerObservations.some(
+        (observation) => observation.id === scenario.standalone.id,
+      ),
+    ).toBe(false);
+    expect(JSON.stringify(scenario.snapshot.attention)).not.toContain(
+      "Unbound Standalone Release Triage",
+    );
+    if (scenario.name === "Local") {
+      expect(
+        Buffer.from(
+          sourcesBeforeExactReconciliation[".scratch/standalone/issues/99-release-triage.md"] ?? "",
+          "base64",
+        ).toString("utf8"),
+      ).toContain("Unbound Standalone Release Triage");
+    }
+    const attention = page.getByRole("region", { name: "Attention" });
+    await expect(attention).toBeVisible();
+    await expect(attention).toContainText("actionable project items");
+    await expect(attention).not.toContainText("Unbound Standalone Release Triage");
+    await expect(page.locator("main")).not.toContainText("Unbound Standalone Release Triage");
     await expect(page.getByRole("tab", { name: "Brief" })).toHaveAttribute("aria-selected", "true");
     if (scenario.name === "Local") {
       await expect(page.getByText("Project Brief has not been generated yet.")).toBeVisible();
@@ -445,9 +608,23 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       await expect(
         page.getByText("Restore managed planning context without expanding Bearing Scope."),
       ).toBeVisible();
+      await expect(page.getByText("Generated", { exact: true })).toBeVisible();
     }
     await page.getByRole("tab", { name: "Project Summary" }).click();
     await expect(page.getByText("Keep the whole project visible.", { exact: true })).toBeVisible();
+    if (scenario.name === "Local") {
+      await expect(page.getByText("Updated", { exact: true })).toHaveCount(0);
+    }
+
+    activeSnapshot = healthySnapshot(scenario.snapshot);
+    await page.goto(`${host.url}/projects/${entryId}`);
+    await expect(page.getByRole("region", { name: "Attention" })).toHaveCount(0);
+    activeSnapshot = invalidSummarySnapshot(scenario.snapshot);
+    await page.goto(`${host.url}/projects/${entryId}`);
+    await page.getByRole("tab", { name: "Project Summary" }).click();
+    await expect(page.getByRole("heading", { name: "Project Summary unavailable" })).toBeVisible();
+    await expect(page.getByText("Summary sections are malformed.")).toBeVisible();
+    activeSnapshot = scenario.snapshot;
 
     if (scenario.name === "Local") {
       await page.emulateMedia({ reducedMotion: "reduce" });
@@ -545,7 +722,9 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(result).toContainText("Prove whole-project orientation.");
     await expect(result).not.toContainText("Intent");
     await expect(result).toContainText("Roadmap");
-    await searchbox.fill("standalone native work");
+    await searchbox.fill("Unbound Standalone Release Triage");
+    await expect(findDialog.getByRole("option")).toHaveCount(0);
+    await searchbox.fill(scenario.standalone.binding.nativeScope);
     await expect(findDialog.getByRole("option")).toHaveCount(0);
     await searchbox.fill("whole-project orientation");
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);

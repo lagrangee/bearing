@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createProviderScopeObservation } from "../src/native-work-provider";
-import { buildRoadmapDetailModel } from "../src/portal-ui/project-roadmap-model";
 import { findPlanningLineageSubjectProjection } from "../src/project-snapshot/planning-lineage";
 import type { MattProviderFactory } from "../src/provider-observation-acquisition";
 import { providerObservationSelectionSchema } from "../src/provider-observation-contract";
@@ -267,22 +266,6 @@ Prove stable-identity conflict reconciliation.
       ? undefined
       : snapshot.gates.items.find((gate) => gate.id === "gate:test")?.readiness,
   ).toBe("unknown");
-  const roadmap = buildRoadmapDetailModel(snapshot, "roadmap:test");
-  expect(roadmap.state).toBe("partial");
-  if (roadmap.state !== "partial" && roadmap.state !== "available") {
-    throw new Error("Expected a readable Roadmap projection.");
-  }
-  expect(
-    roadmap.efforts.map((item) => ({
-      id: String(item.effort.id),
-      mapCount: item.maps.length,
-      frontierEvidence: item.providerAssessment?.frontierEvidence,
-    })),
-  ).toEqual([
-    { id: "effort:relocated", mapCount: 0, frontierEvidence: "withheld" },
-    { id: "effort:test", mapCount: 0, frontierEvidence: "withheld" },
-  ]);
-
   const sitemap = buildProjectSitemapModelFromGeneration(
     plan.decoded,
     plan.providerObservations,

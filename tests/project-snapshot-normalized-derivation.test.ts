@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { buildRoadmapDetailModel } from "../src/portal-ui/project-roadmap-model";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { runSync } from "../src/sync";
 import { createValidBearingRepo, writeFixture } from "./helpers";
@@ -122,7 +121,6 @@ test("isolates duplicate Efforts before rebuilding exact reverse planning relati
       { code: "untrusted-effort-contributor", target: "gate:test" },
     ],
   });
-  expect(buildRoadmapDetailModel(snapshot, "roadmap:test").state).toBe("partial");
 });
 
 test("scopes an invalid canonical Effort contributor to only its declared Gate", async () => {
@@ -185,6 +183,4 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
     ],
     issues: [{ code: "untrusted-effort-contributor", target: "gate:test" }],
   });
-  expect(buildRoadmapDetailModel(snapshot, "roadmap:test").state).toBe("partial");
-  expect(buildRoadmapDetailModel(snapshot, "roadmap:other").state).toBe("available");
 });

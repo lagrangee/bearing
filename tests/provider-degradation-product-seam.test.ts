@@ -7,7 +7,6 @@ import {
   type ProviderScopeObservation,
 } from "../src/native-work-provider";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
-import { buildRoadmapDetailModel } from "../src/portal-ui/project-roadmap-model";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
 import type { MattProviderFactory } from "../src/provider-observation-acquisition";
 import type { MattSkillsV1ProviderObservation } from "../src/providers/matt-skills-v1/capture";
@@ -489,19 +488,6 @@ test("propagates every expected degradation class through one generation without
   const snapshot = materialized.snapshot;
   expect(String(snapshot.basis.sitemapFingerprint)).toBe(plan.fingerprint);
   expect(snapshot.providerObservations).toEqual(plan.providerObservations);
-  const healthyPortal = buildRoadmapDetailModel(snapshot, "roadmap:test");
-  expect(healthyPortal.state).toBe("available");
-  const degradedPortal = buildRoadmapDetailModel(snapshot, "roadmap:degraded");
-  expect(degradedPortal.state).toBe("partial");
-  if (degradedPortal.state !== "partial") throw new Error("Expected degraded Roadmap Detail.");
-  expect(
-    degradedPortal.efforts.every(
-      (effort) =>
-        effort.providerAssessment?.frontierEvidence === "withheld" &&
-        effort.frontier.ready.length === 0,
-    ),
-  ).toBe(true);
-
   const stable = await prepareSync(root, { providerFactory });
   expect(stable.diagnostics).toEqual(plan.diagnostics);
   expect(stable.fingerprint).toBe(plan.fingerprint);
@@ -555,7 +541,7 @@ test("captures continuing mutation only during explicit baseline and verificatio
   expect(second.fingerprint).not.toBe(first.fingerprint);
 });
 
-test("real Local mixed scopes keep CLI Inspect, Snapshot, Sitemap, and Portal on one generation", async () => {
+test("real Local mixed scopes keep CLI Inspect, Snapshot, and Sitemap on one generation", async () => {
   const root = await createValidBearingRepo();
   await writeRealLocalDegradedScope(root);
 
@@ -600,22 +586,6 @@ test("real Local mixed scopes keep CLI Inspect, Snapshot, Sitemap, and Portal on
   expect(sitemap).toContain(`Input fingerprint: ${String(snapshot.basis.sitemapFingerprint)}`);
   expect(sitemap).toContain("provider-state=partial");
   expect(sitemap).toContain("provider-frontier-evidence=withheld");
-
-  const portal = buildRoadmapDetailModel(snapshot, "roadmap:test");
-  expect(portal.state).toBe("partial");
-  if (portal.state !== "partial") throw new Error("Expected mixed-scope Roadmap Detail.");
-  const healthyEffort = portal.efforts.find((effort) => effort.effort.id === "effort:test");
-  const degradedEffort = portal.efforts.find(
-    (effort) => effort.effort.id === "effort:degraded-cli",
-  );
-  expect(healthyEffort?.providerAssessment?.frontierEvidence).toBe("trustworthy");
-  expect(degradedEffort?.providerAssessment?.frontierEvidence).toBe("withheld");
-  expect(degradedEffort?.frontier).toMatchObject({
-    claimed: [{ title: "Drive the degraded scope" }],
-    ready: [],
-    uncertain: [],
-  });
-  expect(degradedEffort?.frontierCountMode).toBe("at-least");
 });
 
 test("throws programming defects, cancellation, and wrapper invariant violations", async () => {
