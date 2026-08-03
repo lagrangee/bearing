@@ -21,6 +21,7 @@ Issues and PRDs for this repo live as markdown files in \`.scratch/\`.
 - The PRD is \`.scratch/<feature-slug>/PRD.md\`
 - Implementation issues are \`.scratch/<feature-slug>/issues/<NN>-<slug>.md\`, numbered from \`01\`
 - Triage state is recorded as a \`Status:\` line near the top of each issue file (see \`triage-labels.md\` for the role strings)
+- New tickets use \`Blocked by: None — can start immediately\` when unblocked; otherwise they use comma-separated numeric ticket IDs, optionally followed by a spaced em-dash title. Historical omission is readable as unblocked; semicolons and undeclared prose are invalid.
 - Comments and conversation history append to the bottom of the file under a \`## Comments\` heading
 
 ## Wayfinding operations
@@ -390,6 +391,152 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     ).not.toContain(`${nativeScope}/issues/nested/99-hidden.md`);
     expect(await snapshotNativeBytes(root)).toEqual(before);
     expect(Object.isFrozen(result.projection)).toBe(true);
+  });
+
+  test("captures canonical Matt-kit blocker syntax and rejects undeclared dialects", async () => {
+    const root = await writeReferenceRepository();
+    await writeFixture(
+      root,
+      `${nativeScope}/issues/02-prototype.md`,
+      wayfinder({
+        number: "02",
+        slug: "prototype",
+        type: "prototype",
+        status: "claimed",
+        question: "Does one capture preserve all axes?",
+        blockedBy: "None — can start immediately",
+      })[1],
+    );
+    await writeFixture(
+      root,
+      `${nativeScope}/issues/04-task.md`,
+      wayfinder({
+        number: "04",
+        slug: "task",
+        type: "task",
+        status: "claimed",
+        question: "Can the decision be written durably?",
+        blockedBy: "01 — research, 03 — grilling",
+      })[1],
+    );
+
+    const canonical = await capture(root);
+
+    expect(canonical.state).toBe("available");
+    expect(canonical.diagnostics).toEqual([]);
+    expect(
+      canonical.projection?.graph.blockedBy.map((relation) => [
+        String(relation.blocked),
+        String(relation.blocker),
+      ]),
+    ).toEqual([
+      [`${nativeScope}/issues/04-task.md`, `${nativeScope}/issues/01-research.md`],
+      [`${nativeScope}/issues/04-task.md`, `${nativeScope}/issues/03-grilling.md`],
+      [`${nativeScope}/issues/05-delivery.md`, `${nativeScope}/issues/01-research.md`],
+    ]);
+
+    for (const malformed of ["01; 03", "01 because it must finish", "01 trailing garbage"]) {
+      await writeFixture(
+        root,
+        `${nativeScope}/issues/04-task.md`,
+        wayfinder({
+          number: "04",
+          slug: "task",
+          type: "task",
+          status: "claimed",
+          question: "Can the decision be written durably?",
+          blockedBy: malformed,
+        })[1],
+      );
+      const invalid = await capture(root);
+      expect(invalid.state, malformed).toBe("partial");
+      expect(
+        invalid.diagnostics.map((diagnostic) => diagnostic.code),
+        malformed,
+      ).toContain("matt.local.relation.blocked-by-format");
+      expect(
+        invalid.projection?.graph.blockedBy.some(
+          (relation) => String(relation.blocked) === `${nativeScope}/issues/04-task.md`,
+        ),
+        malformed,
+      ).toBe(false);
+    }
+  });
+
+  test("targeted reconciliation applies the same canonical blocker grammar", async () => {
+    const root = await writeReferenceRepository();
+    const capturedDocuments = new Map(
+      await Promise.all(
+        [contractLocator, triageLocator].map(async (locator) => {
+          const bytes = await readFile(join(root, locator));
+          return [locator, { locator, source: bytes.toString("utf8"), bytes }] as const;
+        }),
+      ),
+    );
+    const provider = createLocalMarkdownMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      capturedDocuments,
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    });
+    const issue = `${nativeScope}/issues/04-task.md`;
+    const issueOne = `${nativeScope}/issues/01-research.md`;
+    const issueThree = `${nativeScope}/issues/03-grilling.md`;
+    let prior = await provider.capture(binding);
+
+    const reconcile = async (blockedBy: string | undefined) => {
+      await writeFixture(
+        root,
+        issue,
+        wayfinder({
+          number: "04",
+          slug: "task",
+          type: "task",
+          status: "claimed",
+          question: "Can the decision be written durably?",
+          ...(blockedBy === undefined ? {} : { blockedBy }),
+        })[1],
+      );
+      const next = await provider.reconcile?.({
+        binding,
+        prior,
+        affected: {
+          subjects: [issue],
+          relations: [
+            { kind: "blocked-by", source: issue, target: issueOne },
+            { kind: "blocked-by", source: issue, target: issueThree },
+          ],
+        },
+      });
+      if (next === undefined) throw new Error("Expected Local targeted reconciliation.");
+      prior = next;
+      return next;
+    };
+
+    const multiple = await reconcile("01, 03 — grilling");
+    expect(
+      multiple.projection?.graph.blockedBy.filter((relation) => String(relation.blocked) === issue),
+    ).toHaveLength(2);
+
+    for (const empty of ["None — can start immediately", undefined] as const) {
+      const result = await reconcile(empty);
+      expect(
+        result.projection?.graph.blockedBy.filter((relation) => String(relation.blocked) === issue),
+      ).toEqual([]);
+      expect(result.diagnostics).toEqual([]);
+    }
+
+    const malformed = await reconcile("01; 03");
+    expect(malformed.state).toBe("partial");
+    expect(malformed.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "matt.local.relation.blocked-by-format",
+    );
+    expect(
+      malformed.projection?.graph.blockedBy.filter(
+        (relation) => String(relation.blocked) === issue,
+      ),
+    ).toEqual([]);
   });
 
   test("captures a Status-absent Wayfinder ticket as open and unclaimed", async () => {

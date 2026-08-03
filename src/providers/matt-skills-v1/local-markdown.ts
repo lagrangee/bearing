@@ -527,13 +527,41 @@ const issueRole = (file: CapturedFile): IssueRole => {
   return "incoming";
 };
 
-const splitBlockerReferences = (value: string | undefined): readonly string[] =>
-  value === undefined
-    ? []
-    : value
-        .split(",")
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0);
+const NO_BLOCKERS_SENTINEL = "None — can start immediately";
+
+const blockerReferences = (
+  file: CapturedFile,
+  diagnostics: CaptureDiagnostic[],
+): readonly string[] => {
+  const value = fieldValue(file, "Blocked by", diagnostics);
+  if (value === undefined || value === NO_BLOCKERS_SENTINEL) return [];
+  const entries = value.split(",").map((entry) => entry.trim());
+  const references: string[] = [];
+  for (const entry of entries) {
+    const match = /^(\d+)(?:\s+—\s+([^,;]+))?$/u.exec(entry);
+    const numeric = match?.[1];
+    const normalized = numeric === undefined ? undefined : normalizedShortReference(numeric);
+    if (
+      match === null ||
+      numeric === undefined ||
+      normalized === undefined ||
+      Number(normalized) < 1 ||
+      (match[2] !== undefined && match[2].trim().length === 0)
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.relation.blocked-by-format",
+          "format",
+          file.locator,
+          `Blocked by must be "${NO_BLOCKERS_SENTINEL}" or a comma-separated list of ticket numbers with optional em-dash titles.`,
+        ),
+      );
+      return [];
+    }
+    references.push(normalized);
+  }
+  return [...new Set(references)];
+};
 
 const requiredEvidenceLocators = (
   file: CapturedFile,
@@ -1643,9 +1671,7 @@ const captureLocalScope = async (
       file,
       shortReference,
       role,
-      blockerReferences: splitBlockerReferences(fieldValue(file, "Blocked by", diagnostics)).map(
-        normalizedShortReference,
-      ),
+      blockerReferences: blockerReferences(file, diagnostics),
       ...(wayfinder === undefined ? {} : { wayfinder }),
       ...(delivery === undefined ? {} : { delivery }),
       ...(incoming === undefined ? {} : { incoming }),
@@ -2168,9 +2194,7 @@ const localReconciliationProjection = async (
       file,
       shortReference,
       role,
-      blockerReferences: splitBlockerReferences(fieldValue(file, "Blocked by", diagnostics)).map(
-        normalizedShortReference,
-      ),
+      blockerReferences: blockerReferences(file, diagnostics),
       ...(wayfinder === undefined ? {} : { wayfinder }),
       ...(delivery === undefined ? {} : { delivery }),
       ...(incoming === undefined ? {} : { incoming }),
