@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createPortalApp } from "../src/portal/app";
 import {
@@ -255,46 +254,24 @@ test("serves preview in a credential-free isolated Host surface", async () => {
   }
 });
 
-test("opens a bounded ordinary directory bundle and sanitizes selected resources", async () => {
+test("does not offer Preview for an ordinary directory Asset", async () => {
   const repoRoot = await prepareDirectoryRepo("docs/bundle", {
     "README.md": "# Bundle README\n",
     "notes.txt": "contained notes\n",
     "payload.bin": "opaque bytes\n",
   });
   try {
-    const service = createAssetPreviewService({ readCatalog: catalogFor(repoRoot) });
-    const bundle = await service.resolve("project-one", "asset:preview");
-    expect(bundle).toMatchObject({
-      kind: "available",
-      surface: "bundle-browser",
-      bundlePolicyVersion: 1,
+    await expect(resolvePreview(repoRoot)).resolves.toMatchObject({
+      kind: "unavailable",
+      code: "preview-not-offered",
+      availability: "not-offered",
     });
-    if (bundle.kind !== "available") throw new Error("Expected a bundle browser.");
-    expect(bundle.body.toString("utf8")).toContain("README.md");
-    expect(bundle.body.toString("utf8")).toContain("notes.txt");
-    expect(bundle.body.toString("utf8")).not.toContain("payload.bin</a>");
-
-    const selected = await service.resolveResource("project-one", "asset:preview", "README.md");
-    expect(selected).toMatchObject({
-      kind: "available",
-      surface: "bundle-resource",
-      mediaType: "text/markdown",
-    });
-    if (selected.kind !== "available") throw new Error("Expected a selected resource.");
-    expect(selected.body.toString("utf8")).toContain("Bundle README");
-
-    await expect(
-      service.resolveResource("project-one", "asset:preview", "payload.bin"),
-    ).resolves.toMatchObject({ kind: "unavailable", availability: "unsupported" });
-    await expect(
-      service.resolveResource("project-one", "asset:preview", "../outside.txt"),
-    ).resolves.toMatchObject({ kind: "unavailable", availability: "unavailable" });
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }
 });
 
-test("does not offer preview or runtime resources for prototype Assets", async () => {
+test("does not offer Preview for prototype Assets before probing their content", async () => {
   const repoRoot = await prepareDirectoryRepo(
     "prototypes/demo",
     {
@@ -309,8 +286,7 @@ test("does not offer preview or runtime resources for prototype Assets", async (
   );
   try {
     await rm(join(repoRoot, "prototypes/demo"), { recursive: true, force: true });
-    const service = createAssetPreviewService({ readCatalog: catalogFor(repoRoot) });
-    const prototype = await service.resolve("project-one", "asset:preview");
+    const prototype = await resolvePreview(repoRoot);
     expect(prototype).toMatchObject({
       kind: "unavailable",
       code: "preview-not-offered",
@@ -319,65 +295,8 @@ test("does not offer preview or runtime resources for prototype Assets", async (
     if (prototype.kind !== "unavailable") throw new Error("Expected Preview to be unavailable.");
     expect(prototype.message).toContain("not offered for prototype Assets");
     expect(prototype.message).not.toContain("missing");
-
-    const script = await service.resolveResource("project-one", "asset:preview", "app.js");
-    expect(script).toMatchObject({
-      kind: "unavailable",
-      code: "preview-not-offered",
-      availability: "not-offered",
-    });
-
-    await expect(
-      service.resolveResource("project-one", "asset:preview", "server.mjs"),
-    ).resolves.toMatchObject({
-      kind: "unavailable",
-      code: "preview-not-offered",
-      availability: "not-offered",
-    });
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
-  }
-});
-
-test("rejects an over-limit directory instead of truncating its navigation", async () => {
-  const files = Object.fromEntries(
-    Array.from({ length: 129 }, (_, index) => [`file-${index}.txt`, `${index}\n`]),
-  );
-  const repoRoot = await prepareDirectoryRepo("docs/too-many", files);
-  try {
-    await expect(resolvePreview(repoRoot)).resolves.toMatchObject({
-      kind: "unavailable",
-      availability: "exceeds-limit",
-    });
-  } finally {
-    await rm(repoRoot, { recursive: true, force: true });
-  }
-});
-
-test("fails closed for encoded traversal and symlink escape", async () => {
-  const repoRoot = await prepareDirectoryRepo("docs/safe-bundle", {
-    "README.md": "# safe\n",
-  });
-  const outsideRoot = await mkdtemp(join(tmpdir(), "bearing-preview-outside-"));
-  try {
-    const service = createAssetPreviewService({ readCatalog: catalogFor(repoRoot) });
-    await expect(
-      service.resolveResource("project-one", "asset:preview", "%2e%2e%2Fsecret.txt"),
-    ).resolves.toMatchObject({ kind: "unavailable", availability: "unavailable" });
-    await writeFile(join(outsideRoot, "secret.txt"), "outside secret\n");
-    await symlink(
-      join(outsideRoot, "secret.txt"),
-      join(repoRoot, "docs/safe-bundle", "secret.txt"),
-    );
-    await expect(resolvePreview(repoRoot)).resolves.toMatchObject({
-      kind: "unavailable",
-      availability: "unsafe",
-    });
-  } finally {
-    await Promise.all([
-      rm(repoRoot, { recursive: true, force: true }),
-      rm(outsideRoot, { recursive: true, force: true }),
-    ]);
   }
 });
 
@@ -403,17 +322,12 @@ test("Host returns typed not-offered responses without serving prototype content
     expect(responseBody).not.toContain("Content unavailable");
     expect(responseBody).not.toContain("Route prototype");
 
-    const resource = await app.request(
+    const removedResourceRoute = await app.request(
       "http://127.0.0.1:4178/preview/projects/project-one/assets/asset%3Apreview/resource/app.js",
     );
-    expect(resource.status).toBe(404);
-    expect(resource.headers.get("x-bearing-preview-availability")).toBe("not-offered");
-    expect(await resource.text()).not.toContain("console.log");
-
-    const traversal = await app.request(
-      "http://127.0.0.1:4178/preview/projects/project-one/assets/asset%3Apreview/resource/%2e%2e%2Fserver.mjs",
-    );
-    expect(traversal.status).toBe(404);
+    expect(removedResourceRoute.status).toBe(404);
+    expect(removedResourceRoute.headers.get("x-bearing-preview-availability")).toBeNull();
+    expect(await removedResourceRoute.text()).not.toContain("console.log");
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }

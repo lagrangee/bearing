@@ -218,12 +218,6 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
       context.header("X-Bearing-Preview-Policy", String(result.policyVersion));
       context.header("X-Bearing-Preview-Source", result.source);
       context.header("X-Bearing-Preview-Surface", result.surface);
-      if (result.bundlePolicyVersion !== undefined) {
-        context.header("X-Bearing-Preview-Bundle-Policy", String(result.bundlePolicyVersion));
-      }
-      if (result.resourcePath !== undefined) {
-        context.header("X-Bearing-Preview-Resource", result.resourcePath);
-      }
     } else {
       context.header("X-Bearing-Preview-Availability", result.availability);
     }
@@ -248,29 +242,6 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
         : 409;
     return context.html(assetPreviewUnavailableDocument(entryId, assetId, result), status);
   };
-
-  app.get("/preview/projects/:entryId/assets/:assetId/resource/*", async (context) => {
-    const marker = "/resource/";
-    const pathname = new URL(context.req.url).pathname;
-    const encodedResourcePath = pathname.slice(pathname.indexOf(marker) + marker.length);
-    let resourcePath = "";
-    try {
-      resourcePath = decodeURIComponent(encodedResourcePath);
-    } catch {
-      resourcePath = "";
-    }
-    const result = await options.assetPreview.resolveResource(
-      context.req.param("entryId"),
-      context.req.param("assetId"),
-      resourcePath,
-    );
-    return previewResponse(
-      context,
-      result,
-      context.req.param("entryId"),
-      context.req.param("assetId"),
-    );
-  });
 
   app.get("/preview/projects/:entryId/assets/:assetId", async (context) => {
     const result = await options.assetPreview.resolve(

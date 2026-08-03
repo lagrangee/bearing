@@ -1,9 +1,9 @@
-import { lstat, readdir } from "node:fs/promises";
-import { extname, isAbsolute, join, posix, relative, sep } from "node:path";
+import { lstat } from "node:fs/promises";
+import { extname } from "node:path";
 import MarkdownIt from "markdown-it";
 import sanitizeHtml from "sanitize-html";
 import { probeContainedInput } from "../input-boundary";
-import { readContainedFile, resolveContainedPath } from "../path-boundary";
+import { readContainedFile } from "../path-boundary";
 import { readProjectSnapshotCache } from "../project-snapshot/cache";
 import type { AssetProjection } from "../project-snapshot/contract";
 import { assetIdSchema } from "../project-snapshot/schema-primitives";
@@ -12,11 +12,7 @@ import type { CatalogReadResult } from "./contract";
 import { resolveProjectEntry } from "./project-entry";
 
 export const ASSET_PREVIEW_POLICY_VERSION = 1 as const;
-export const ASSET_PREVIEW_BUNDLE_POLICY_VERSION = 1 as const;
 export const MAX_ASSET_PREVIEW_BYTES = 4 * 1024 * 1024;
-export const MAX_ASSET_PREVIEW_BUNDLE_FILES = 128;
-export const MAX_ASSET_PREVIEW_BUNDLE_BYTES = 16 * 1024 * 1024;
-export const MAX_ASSET_PREVIEW_BUNDLE_DEPTH = 8;
 export const ASSET_PREVIEW_CONTENT_SECURITY_POLICY =
   "sandbox allow-scripts; default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src data:; object-src data:; connect-src 'none'; frame-ancestors 'none'; font-src 'none'";
 
@@ -41,8 +37,6 @@ export type AssetPreviewUnavailableCode =
   | "unsupported-content"
   | "content-exceeds-limit";
 
-export type AssetPreviewSurface = "file" | "bundle-browser" | "bundle-resource";
-
 export type AssetPreviewResolution =
   | Readonly<{
       kind: "available";
@@ -51,10 +45,8 @@ export type AssetPreviewResolution =
       mediaType: string;
       source: "current-checkout";
       policyVersion: typeof ASSET_PREVIEW_POLICY_VERSION;
-      surface: AssetPreviewSurface;
+      surface: "file";
       contentSecurityPolicy: string;
-      bundlePolicyVersion?: typeof ASSET_PREVIEW_BUNDLE_POLICY_VERSION;
-      resourcePath?: string;
     }>
   | Readonly<{
       kind: "unavailable";
@@ -74,11 +66,6 @@ type PreviewRepresentation =
 
 export type AssetPreviewService = Readonly<{
   resolve(entryId: string, assetId: string): Promise<AssetPreviewResolution>;
-  resolveResource(
-    entryId: string,
-    assetId: string,
-    resourcePath: string,
-  ): Promise<AssetPreviewResolution>;
 }>;
 
 const markdown = new MarkdownIt({
@@ -176,37 +163,11 @@ const previewDocument = (title: string, body: string, returnHref: string): Buffe
     "utf8",
   );
 
-const BUNDLE_BROWSER_CONTENT_SECURITY_POLICY =
-  "sandbox allow-scripts; default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; media-src 'none'; object-src 'none'; connect-src 'none'; frame-ancestors 'none'";
-
-type BundleEntry = Readonly<{
-  path: string;
-  byteLength: number;
-  representation: PreviewRepresentation | undefined;
-}>;
-
-type BundleInventory = Readonly<{
-  root: string;
-  entries: readonly BundleEntry[];
-  totalBytes: number;
-}>;
-
 type RegisteredAssetContext = Readonly<{
   repoRoot: string;
   asset: AssetProjection;
   path: string;
-  isDirectory: boolean;
 }>;
-
-const encodePath = (value: string): string =>
-  value
-    .split("/")
-    .filter((segment) => segment.length > 0)
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-
-const assetResourceHref = (entryId: string, assetId: string, resourcePath = ""): string =>
-  `/preview/projects/${encodeURIComponent(entryId)}/assets/${encodeURIComponent(assetId)}/resource/${encodePath(resourcePath)}`;
 
 const escapeAttribute = (value: string): string =>
   value
@@ -214,32 +175,6 @@ const escapeAttribute = (value: string): string =>
     .replaceAll('"', "&quot;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
-
-const bundleBrowserDocument = (
-  title: string,
-  entryId: string,
-  assetId: string,
-  entries: readonly BundleEntry[],
-  totalBytes: number,
-): Buffer => {
-  const supported = entries.filter(
-    (entry): entry is BundleEntry & { representation: PreviewRepresentation } =>
-      entry.representation !== undefined,
-  );
-  const list =
-    supported.length === 0
-      ? "<p>No supported contained files are available for preview.</p>"
-      : `<ul>${supported
-          .map(
-            (entry) =>
-              `<li><a href="${assetResourceHref(entryId, assetId, entry.path)}">${safeText(entry.path)}</a><span> · ${entry.byteLength} bytes</span></li>`,
-          )
-          .join("")}</ul>`;
-  return Buffer.from(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${BUNDLE_BROWSER_CONTENT_SECURITY_POLICY}"><title>${safeText(title)}</title></head><body><header>${returnToAssetDetailControl(assetDetailHref(entryId, assetId))}<p>View Content · current-checkout content</p><p>This is not historical Snapshot bytes; the registered directory was revalidated against the current checkout.</p><p>Bundle policy ${ASSET_PREVIEW_BUNDLE_POLICY_VERSION} · ${supported.length} supported entries · ${totalBytes} total bytes</p></header><main><h1>${safeText(title)}</h1>${list}</main></body></html>`,
-    "utf8",
-  );
-};
 
 const dataUri = (mediaType: string, bytes: Buffer): string =>
   `data:${mediaType};base64,${bytes.toString("base64")}`;
@@ -336,28 +271,6 @@ const unsafeExtensions = new Set([
   ".so",
   ".wasm",
 ]);
-
-const normalizeBundleRelativePath = (value: string): string | undefined => {
-  const normalized = value.replaceAll("\\", "/");
-  if (normalized.length === 0 || normalized.startsWith("/") || /^[A-Za-z]:\//u.test(normalized)) {
-    return undefined;
-  }
-  const segments = normalized.split("/");
-  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
-    return undefined;
-  }
-  return segments.join("/");
-};
-
-const isContainedBy = (root: string, target: string): boolean => {
-  const fromRoot = relative(root, target);
-  return (
-    fromRoot !== "" &&
-    fromRoot !== ".." &&
-    !fromRoot.startsWith(`..${sep}`) &&
-    !isAbsolute(fromRoot)
-  );
-};
 
 const unavailable = (
   code: AssetPreviewUnavailableCode,
@@ -514,7 +427,17 @@ const resolveRegisteredAsset = async (
       ) as UnavailableResolution,
     };
   }
-  if (!metadata.isFile() && !metadata.isDirectory()) {
+  if (metadata.isDirectory()) {
+    return {
+      kind: "unavailable",
+      resolution: unavailable(
+        "preview-not-offered",
+        "Content preview is not offered for directory Assets.",
+        "not-offered",
+      ) as UnavailableResolution,
+    };
+  }
+  if (!metadata.isFile()) {
     return {
       kind: "unavailable",
       resolution: unavailable(
@@ -530,88 +453,8 @@ const resolveRegisteredAsset = async (
       repoRoot: entry.entry.repoRoot,
       asset,
       path: probe.path,
-      isDirectory: metadata.isDirectory(),
     },
   };
-};
-
-type BundleInventoryResult =
-  | Readonly<{ kind: "available"; inventory: BundleInventory }>
-  | Readonly<{ kind: "unavailable"; resolution: UnavailableResolution }>;
-
-const enumerateBundle = async (context: RegisteredAssetContext): Promise<BundleInventoryResult> => {
-  const entries: BundleEntry[] = [];
-  let totalBytes = 0;
-  const visit = async (directory: string, prefix: string, depth: number): Promise<void> => {
-    if (depth > MAX_ASSET_PREVIEW_BUNDLE_DEPTH) {
-      throw unavailable(
-        "content-exceeds-limit",
-        "The registered directory exceeds the versioned navigation depth limit.",
-        "exceeds-limit",
-      );
-    }
-    const children = (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
-      Buffer.compare(Buffer.from(left.name), Buffer.from(right.name)),
-    );
-    for (const child of children) {
-      const childPath = join(directory, child.name);
-      const containedPath = await resolveContainedPath(context.repoRoot, childPath);
-      const metadata = await lstat(containedPath);
-      const childRelativePath = posix.join(prefix, child.name);
-      if (metadata.isDirectory()) {
-        await visit(containedPath, childRelativePath, depth + 1);
-        continue;
-      }
-      if (!metadata.isFile() || metadata.nlink !== 1) {
-        throw unavailable(
-          "unsafe-content",
-          `The bundle contains an unsafe filesystem member: ${childRelativePath}`,
-          "unsafe",
-        );
-      }
-      if (entries.length >= MAX_ASSET_PREVIEW_BUNDLE_FILES) {
-        throw unavailable(
-          "content-exceeds-limit",
-          "The registered directory exceeds the versioned file-count limit.",
-          "exceeds-limit",
-        );
-      }
-      totalBytes += metadata.size;
-      if (totalBytes > MAX_ASSET_PREVIEW_BUNDLE_BYTES) {
-        throw unavailable(
-          "content-exceeds-limit",
-          "The registered directory exceeds the versioned total-byte limit.",
-          "exceeds-limit",
-        );
-      }
-      entries.push({
-        path: childRelativePath,
-        byteLength: metadata.size,
-        representation: representationFor(childRelativePath),
-      });
-    }
-  };
-  try {
-    await visit(context.path, "", 0);
-  } catch (error) {
-    if (
-      error !== null &&
-      typeof error === "object" &&
-      "kind" in error &&
-      error.kind === "unavailable"
-    ) {
-      return { kind: "unavailable", resolution: error as UnavailableResolution };
-    }
-    return {
-      kind: "unavailable",
-      resolution: unavailable(
-        "unsafe-content",
-        "The registered directory changed or failed containment validation.",
-        "unsafe",
-      ) as UnavailableResolution,
-    };
-  }
-  return { kind: "available", inventory: { root: context.path, entries, totalBytes } };
 };
 
 const renderRepresentation = (
@@ -652,51 +495,6 @@ const renderRepresentation = (
         `<object data="${dataUri(representation.mediaType, bytes)}" type="${representation.mediaType}">PDF preview unavailable in this browser.</object>`,
         returnHref,
       );
-  }
-};
-
-const readBundleEntry = async (
-  context: RegisteredAssetContext,
-  inventory: BundleInventory,
-  entry: BundleEntry,
-): Promise<Readonly<{ bytes: Buffer; path: string }> | UnavailableResolution> => {
-  if (entry.byteLength > MAX_ASSET_PREVIEW_BYTES) {
-    return unavailable(
-      "content-exceeds-limit",
-      "The selected bundle resource exceeds the versioned single-file preview limit.",
-      "exceeds-limit",
-    ) as UnavailableResolution;
-  }
-  let target: string;
-  try {
-    target = await resolveContainedPath(context.repoRoot, join(inventory.root, entry.path));
-  } catch {
-    return unavailable(
-      "unsafe-content",
-      "The selected bundle resource failed current-checkout containment.",
-      "unsafe",
-    ) as UnavailableResolution;
-  }
-  if (!isContainedBy(inventory.root, target)) {
-    return unavailable(
-      "unsafe-content",
-      "The selected bundle resource escaped its registered directory.",
-      "unsafe",
-    ) as UnavailableResolution;
-  }
-  try {
-    return {
-      bytes: await readContainedFile(context.repoRoot, target, {
-        maximumBytes: MAX_ASSET_PREVIEW_BYTES,
-      }),
-      path: target,
-    };
-  } catch {
-    return unavailable(
-      "unsafe-content",
-      "The selected bundle resource changed or failed safety validation while it was read.",
-      "unsafe",
-    ) as UnavailableResolution;
   }
 };
 
@@ -758,93 +556,6 @@ export const createAssetPreviewService = (options: {
     async resolve(entryId: string, assetId: string): Promise<AssetPreviewResolution> {
       const registered = await resolveRegisteredAsset(entryId, assetId, options.readCatalog);
       if (registered.kind === "unavailable") return registered.resolution;
-      if (!registered.context.isDirectory) return fileResolution(registered.context, entryId);
-
-      const inventoryResult = await enumerateBundle(registered.context);
-      if (inventoryResult.kind === "unavailable") return inventoryResult.resolution;
-      const { inventory } = inventoryResult;
-      return {
-        kind: "available",
-        body: bundleBrowserDocument(
-          registered.context.asset.title,
-          entryId,
-          registered.context.asset.id,
-          inventory.entries,
-          inventory.totalBytes,
-        ),
-        contentType: "text/html; charset=utf-8",
-        mediaType: "text/html",
-        source: "current-checkout",
-        policyVersion: ASSET_PREVIEW_POLICY_VERSION,
-        surface: "bundle-browser",
-        contentSecurityPolicy: BUNDLE_BROWSER_CONTENT_SECURITY_POLICY,
-        bundlePolicyVersion: ASSET_PREVIEW_BUNDLE_POLICY_VERSION,
-      };
-    },
-
-    async resolveResource(
-      entryId: string,
-      assetId: string,
-      resourcePath: string,
-    ): Promise<AssetPreviewResolution> {
-      const registered = await resolveRegisteredAsset(entryId, assetId, options.readCatalog);
-      if (registered.kind === "unavailable") return registered.resolution;
-      if (!registered.context.isDirectory) {
-        return unavailable(
-          "asset-not-registered",
-          "A file Asset has no contained bundle resources.",
-          "unavailable",
-        );
-      }
-      const normalized = normalizeBundleRelativePath(resourcePath);
-      if (normalized === undefined) {
-        return unavailable(
-          "asset-not-registered",
-          "The requested bundle resource path is invalid.",
-          "unavailable",
-        );
-      }
-      const inventoryResult = await enumerateBundle(registered.context);
-      if (inventoryResult.kind === "unavailable") return inventoryResult.resolution;
-      const entry = inventoryResult.inventory.entries.find(
-        (candidate) => candidate.path === normalized,
-      );
-      if (entry === undefined) {
-        return unavailable(
-          "asset-not-registered",
-          "The requested bundle resource is not registered inside this directory.",
-          "unavailable",
-        );
-      }
-      const representation = entry.representation;
-      if (representation === undefined) {
-        const extension = extname(normalized).toLowerCase();
-        return unsafeExtensions.has(extension)
-          ? unavailable("unsafe-content", "Executable content is never previewed.", "unsafe")
-          : unavailable(
-              "unsupported-content",
-              "This bundle resource type is not supported for safe preview.",
-              "unsupported",
-            );
-      }
-      const contents = await readBundleEntry(registered.context, inventoryResult.inventory, entry);
-      if ("kind" in contents) return contents;
-      return {
-        kind: "available",
-        body: renderRepresentation(
-          `${registered.context.asset.title} · ${normalized}`,
-          contents.bytes,
-          representation,
-          assetDetailHref(entryId, registered.context.asset.id),
-        ),
-        contentType: "text/html; charset=utf-8",
-        mediaType: representation.mediaType,
-        source: "current-checkout",
-        policyVersion: ASSET_PREVIEW_POLICY_VERSION,
-        surface: "bundle-resource",
-        contentSecurityPolicy: ASSET_PREVIEW_CONTENT_SECURITY_POLICY,
-        bundlePolicyVersion: ASSET_PREVIEW_BUNDLE_POLICY_VERSION,
-        resourcePath: normalized,
-      };
+      return fileResolution(registered.context, entryId);
     },
   });

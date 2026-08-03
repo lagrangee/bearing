@@ -17,7 +17,6 @@ let fixtureRoot = "";
 test.beforeAll(async () => {
   fixtureRoot = await realpath(await copyPortalProjectFixture("G3 Preview Project"));
   await mkdir(join(fixtureRoot, "prototypes/demo"), { recursive: true });
-  await mkdir(join(fixtureRoot, "docs/bundle"), { recursive: true });
   await Promise.all([
     writeFile(
       join(fixtureRoot, "prototypes/demo/index.html"),
@@ -32,10 +31,10 @@ test.beforeAll(async () => {
       "throw new Error('must not run');\n",
     ),
     writeFile(
-      join(fixtureRoot, "docs/bundle/README.md"),
-      "# G3 bundle README\n\nContained selection.\n\n[External destination](https://example.com)\n",
+      join(fixtureRoot, "docs/reading.html"),
+      "<article><h1>G3 reading document</h1><p>Sanitized inert HTML.</p><script>globalThis.__mustNotRun = true</script></article>\n",
     ),
-    writeFile(join(fixtureRoot, "docs/bundle/payload.bin"), "opaque\n"),
+    writeFile(join(fixtureRoot, "docs/payload.bin"), "opaque\n"),
   ]);
   const assetsPath = join(fixtureRoot, ".bearing/state/assets.md");
   const assets = await readFile(assetsPath, "utf8");
@@ -44,7 +43,7 @@ test.beforeAll(async () => {
     assets.replace(
       "    Lifecycle source: native\n",
       "    Lifecycle source: native\n" +
-        `  - ID: asset:g3-prototype\n    Title: G3 Prototype\n    Kind: prototype\n    Location: prototypes/demo\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-bundle\n    Title: G3 Bundle\n    Kind: context\n    Location: docs/bundle\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-unsupported\n    Title: G3 Unsupported Content\n    Kind: binary\n    Location: docs/bundle/payload.bin\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n`,
+        `  - ID: asset:g3-prototype\n    Title: G3 Prototype\n    Kind: prototype\n    Location: prototypes/demo\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-reading-document\n    Title: G3 Reading Document\n    Kind: document\n    Location: docs/reading.html\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-unsupported\n    Title: G3 Unsupported Content\n    Kind: binary\n    Location: docs/payload.bin\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n`,
     ),
   );
   await runBuiltBearing(["sync", "--repo", fixtureRoot, "--initialize-provider-observations"]);
@@ -74,7 +73,7 @@ test.afterAll(async () => {
   );
 });
 
-test("prototype stays semantic-only while an ordinary bundle keeps inert View Content", async ({
+test("prototype stays semantic-only while an ordinary HTML document keeps inert View Content", async ({
   context,
   page,
 }) => {
@@ -122,23 +121,25 @@ test("prototype stays semantic-only while an ordinary bundle keeps inert View Co
     `${host.url}/preview/projects/g3-preview/assets/asset%3Ag3-prototype/resource/app.js`,
   );
   expect(prototypeScript.status()).toBe(404);
-  expect(prototypeScript.headers()["x-bearing-preview-availability"]).toBe("not-offered");
+  expect(prototypeScript.headers()["x-bearing-preview-availability"]).toBeUndefined();
   expect(await prototypeScript.text()).not.toContain("__bearingPrototypeResourceLoaded");
 
   await page.goto(`${host.url}/projects/g3-preview/assets`);
-  await page.getByRole("link", { name: /G3 Bundle/u }).click();
-  const bundleTab = context.waitForEvent("page");
+  await page.getByRole("link", { name: /G3 Reading Document/u }).click();
+  const documentTab = context.waitForEvent("page");
   await page.getByRole("link", { name: /View Content/u }).click();
-  const bundlePage = await bundleTab;
-  await expect(bundlePage.getByRole("heading", { name: "G3 Bundle" })).toBeVisible();
-  await bundlePage.getByRole("link", { name: "README.md" }).click();
-  await expect(bundlePage.getByText("G3 bundle README", { exact: false })).toBeVisible();
-  await expect(bundlePage.getByText("current-checkout content", { exact: false })).toBeVisible();
-  await expect(bundlePage.getByRole("button", { name: "Return to Asset detail" })).toHaveAttribute(
+  const documentPage = await documentTab;
+  await expect(documentPage.getByRole("heading", { name: "G3 reading document" })).toBeVisible();
+  await expect(documentPage.getByText("Sanitized inert HTML.", { exact: true })).toBeVisible();
+  await expect(documentPage.getByText("current-checkout content", { exact: false })).toBeVisible();
+  await expect(documentPage.locator("script")).toHaveCount(0);
+  await expect(
+    documentPage.getByRole("button", { name: "Return to Asset detail" }),
+  ).toHaveAttribute(
     "data-bearing-return-href",
-    "/projects/g3-preview/lineage/asset/asset%3Ag3-bundle",
+    "/projects/g3-preview/lineage/asset/asset%3Ag3-reading-document",
   );
-  await bundlePage.close();
+  await documentPage.close();
 
   await page.goto(`${host.url}/projects/g3-preview/assets`);
   await page.getByRole("link", { name: /G3 Unsupported Content/u }).click();
