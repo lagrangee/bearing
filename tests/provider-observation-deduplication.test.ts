@@ -232,34 +232,18 @@ Prove stable-identity conflict reconciliation.
     (relation) => relation.key === "native-work.binding",
   );
   expect(originalBinding).toMatchObject({
-    state: "present",
-    targets: [
-      {
-        availability: "unavailable",
-        subject: { kind: "native-scope", id: "github:R_reference:I_reference_map" },
-        note: expect.stringContaining("Binding needs attention"),
-      },
-    ],
+    state: "unavailable",
+    reason: "Multiple Efforts declare the same stable provider-native identity.",
   });
   expect(relocatedBinding).toMatchObject({
-    state: "present",
-    targets: [
-      {
-        availability: "unavailable",
-        subject: { kind: "native-scope", id: "github:R_reference:I_reference_map" },
-        note: expect.stringContaining("Binding needs attention"),
-      },
-    ],
+    state: "unavailable",
+    reason: "Multiple Efforts declare the same stable provider-native identity.",
   });
   const nativeScope = findPlanningLineageSubjectProjection(snapshot.lineage, {
     kind: "native-scope",
     id: "github:R_reference:I_reference_map",
   });
-  expect(nativeScope?.parentPath).toEqual({
-    state: "truncated-unavailable",
-    ancestors: [],
-    reason: "Native scope has conflicting canonical Work Bindings.",
-  });
+  expect(nativeScope).toBeUndefined();
 
   expect(
     snapshot.gates.validity === "invalid"

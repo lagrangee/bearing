@@ -344,7 +344,7 @@ test("Effort closure returns full nested context and fails a bound absent scope 
   );
 });
 
-test("Effort closure keeps a first provider acquisition failure as bound-unresolved evidence", async () => {
+test("Effort closure keeps a first provider acquisition failure structural without native reading", async () => {
   const root = await createValidBearingRepo();
   await addRoadmapEffortContext(root);
   const plan = await prepareSync(root);
@@ -384,30 +384,20 @@ test("Effort closure keeps a first provider acquisition failure as bound-unresol
   const result = graph.contextFor({ kind: "effort", id: "effort:test" });
   expect(result.state).toBe("partial");
   if (result.state === "invalid") throw new Error("Expected partial Effort context.");
-  expect(result.context.nativeWorkReadingState).toMatchObject({
-    conclusion: "Binding needs attention",
-    binding: {
-      state: "attention",
-      reason: "bound-unresolved",
-      effortIds: ["effort:test"],
-    },
-    why: {
-      projectionState: "missing",
-      blockingDiagnosticCount: 1,
-      causes: expect.arrayContaining(["The provider contract is unsupported."]),
-    },
-    observation: {
-      diagnostics: [
-        {
-          origin: "latest-attempt",
-          code: "provider.contract.unsupported",
-          impact: "blocking",
-          target: nativeScope,
-          message: "The provider contract is unsupported.",
-        },
-      ],
-    },
-  });
+  expect(result.context.providerCapture).toBeUndefined();
+  expect(result.context.nativeWorkReadingState).toBeUndefined();
+  expect(result.issues).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        code: "missing-provider-capture",
+        target: nativeScope,
+      }),
+      expect.objectContaining({
+        code: "untrusted-provider-observation-selection",
+        target: nativeScope,
+      }),
+    ]),
+  );
 });
 
 test("Effort closure retains the Effort when its required Target Gate is broken", async () => {

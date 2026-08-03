@@ -212,7 +212,7 @@ Can the project remain readable?
 
 Type: task
 
-Blocked by: **missing**
+Blocked by: 99 — **missing**
 
 Status: claimed
 
@@ -296,7 +296,7 @@ Input fingerprint: sha256:${"a".repeat(64)}
     {
       code: "matt.local.relation.broken",
       target: ".scratch/work/issues/03-invalid-blocker.md",
-      message: "Blocked by reference does not uniquely resolve to a ticket: missing.",
+      message: "Blocked by reference does not uniquely resolve to a ticket: 99.",
     },
     {
       code: "matt.local.lifecycle.unknown",
