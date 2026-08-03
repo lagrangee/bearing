@@ -479,6 +479,101 @@ function EffortGovernanceLens({
           )}
         </section>
       )}
+      {lens.planningBasis === undefined ? null : (
+        <section id="effort.planning-basis">
+          <h2>Planning Basis</h2>
+          {lens.planningBasis.state === "attention" ? (
+            <p className="effort-basis-attention" role="status">
+              {lens.planningBasis.diagnostic.message}
+            </p>
+          ) : (
+            <ul className="effort-basis-list">
+              {lens.planningBasis.items.map((item) => (
+                <li key={item.role}>
+                  <span>{item.role}</span>
+                  <a href={item.href} onClick={(event) => follow(item.href, event, onNavigate)}>
+                    {item.title}
+                  </a>
+                  <small>{humanizeWorkState(item.lifecycle)}</small>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+      {lens.outputs === undefined ? null : (
+        <section id="effort.outputs">
+          <h2>Outputs</h2>
+          {lens.outputs.state === "unavailable" ? (
+            <p>{lens.outputs.reason}</p>
+          ) : (
+            <ul className="effort-output-list">
+              {lens.outputs.items.map((item) => (
+                <li data-superseded={item.superseded || undefined} key={item.id}>
+                  <div>
+                    <span>{item.kind}</span>
+                    <a href={item.href} onClick={(event) => follow(item.href, event, onNavigate)}>
+                      {item.title}
+                    </a>
+                    <small>{humanizeWorkState(item.lifecycle)}</small>
+                  </div>
+                  {item.times.length === 0 ? null : <TimeFacts facts={item.times} />}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+      {lens.governance === undefined ? null : (
+        <section id="effort.governance">
+          <h2>Governance &amp; References</h2>
+          <div className="effort-governance-grid">
+            {lens.governance.authorities.length === 0 ? null : (
+              <section>
+                <h3>Authorities</h3>
+                <ul>
+                  {lens.governance.authorities.map((authority) => (
+                    <li key={authority.title}>
+                      {authority.href === undefined ? (
+                        authority.title
+                      ) : (
+                        <a
+                          href={authority.href}
+                          onClick={(event) => follow(authority.href ?? "", event, onNavigate)}
+                        >
+                          {authority.title}
+                        </a>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {lens.governance.citations.length === 0 ? null : (
+              <section>
+                <h3>Planning Citations</h3>
+                <ul>
+                  {lens.governance.citations.map((citation) => (
+                    <li key={`${citation.title}:${citation.note}`}>
+                      {citation.href === undefined ? (
+                        citation.title
+                      ) : (
+                        <a
+                          href={citation.href}
+                          onClick={(event) => follow(citation.href ?? "", event, onNavigate)}
+                        >
+                          {citation.title}
+                        </a>
+                      )}
+                      <p>{citation.note}</p>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -1183,7 +1278,12 @@ export function PlanningLineagePage({
       : model.subject.kind === "gate"
         ? new Set(["outcome.contributing-efforts"])
         : model.subject.kind === "effort"
-          ? new Set(["native-work.binding"])
+          ? new Set([
+              "native-work.binding",
+              "governance.authorities",
+              "planning-use.citations",
+              "production.owned-assets",
+            ])
           : new Set<string>();
   const contextRelations = model.relations.filter(
     (relation) =>

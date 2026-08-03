@@ -233,6 +233,76 @@
   padding-left: var(--space-3);
   border-left: 2px solid var(--warning);
 }
+.effort-basis-list,
+.effort-output-list,
+.effort-governance-grid ul {
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.effort-basis-list,
+.effort-output-list {
+  border-top: 1px solid var(--border);
+}
+.effort-basis-list > li,
+.effort-output-list > li {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(96px, 0.22fr) minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border);
+}
+.effort-basis-list span,
+.effort-basis-list small,
+.effort-output-list span,
+.effort-output-list small {
+  color: var(--muted);
+  font-size: var(--type-tech);
+}
+.effort-basis-list a,
+.effort-output-list a {
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.effort-basis-attention {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--warning);
+}
+.effort-output-list > li {
+  display: block;
+}
+.effort-output-list > li[data-superseded="true"] {
+  opacity: 0.68;
+}
+.effort-output-list > li > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(110px, 0.24fr) minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-4);
+}
+.effort-governance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-8);
+}
+.effort-governance-grid > section {
+  min-width: 0;
+}
+.effort-governance-grid h3 {
+  margin: 0;
+}
+.effort-governance-grid li {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.effort-governance-grid li p {
+  margin: var(--space-1) 0 0;
+}
 .outcome-spine > header {
   margin-bottom: var(--space-5);
 }
@@ -780,8 +850,14 @@
     align-self: flex-start;
   }
   .lineage-relation-grid,
-  .matt-map-previews {
+  .matt-map-previews,
+  .effort-governance-grid {
     grid-template-columns: 1fr;
+  }
+  .effort-basis-list > li,
+  .effort-output-list > li > div {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
   }
 }
 

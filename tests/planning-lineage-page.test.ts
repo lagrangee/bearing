@@ -11,6 +11,7 @@ import type {
 import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { effortSchema } from "../src/project-snapshot/schema";
+import { assetProjectionSchema } from "../src/project-snapshot/schema-asset";
 import { createSourceRecord } from "../src/project-snapshot/source-records";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import { parseRebuiltPlanningLineageFixture } from "./planning-lineage-fixture";
@@ -351,8 +352,12 @@ test("renders Effort status, canonical Intent, concluded-only Outcome, and gover
   expect(active).not.toContain("<h2>Outcome</h2>");
   expect(active).not.toContain('class="matt-work-region');
   expect(active).not.toContain('aria-label="Native Work Frontier views"');
-  expect(active).not.toContain(">Portal Validation</a></h3>");
-  expect(active).not.toContain(">Portal Validation PRD</a>");
+  const activeCurrentWork = active.match(
+    /<section id="native-work-current">[\s\S]*?<\/section>/u,
+  )?.[0];
+  expect(activeCurrentWork).toBeDefined();
+  expect(activeCurrentWork).not.toContain("Portal Validation");
+  expect(activeCurrentWork).not.toContain("Portal Validation PRD");
   expect(active).not.toContain(".scratch/portal/issues/02-review.md");
   expect(active.indexOf("<h1>Web Portal Validation</h1>")).toBeLessThan(
     active.indexOf("<h2>Intent</h2>"),
@@ -413,8 +418,64 @@ test("renders an explicit empty Current Work state for an active Effort", () => 
 
   expect(html).toContain("<h2>Current Work</h2>");
   expect(html).toContain("No nonterminal managed work is established by this observation.");
-  expect(html).not.toContain(">Portal Validation</a></h3>");
-  expect(html).not.toContain(">Portal Validation PRD</a>");
+  const currentWork = html.match(/<section id="native-work-current">[\s\S]*?<\/section>/u)?.[0];
+  expect(currentWork).toBeDefined();
+  expect(currentWork).not.toContain("Portal Validation");
+  expect(currentWork).not.toContain("Portal Validation PRD");
+});
+
+test("renders bounded Planning Basis, Outputs, and Governance as Effort-owned regions", async () => {
+  const active = render({
+    validity: "valid",
+    value: { kind: "effort", id: "effort:portal" },
+  });
+  expect(active).toContain('<section id="effort.planning-basis"><h2>Planning Basis</h2>');
+  expect(active).toContain("<span>Map</span>");
+  expect(active).toContain(">Portal Validation</a><small>Active</small>");
+  expect(active).toContain("<span>PRD / Spec</span>");
+  expect(active).toContain(">Portal Validation PRD</a><small>Ready for agent</small>");
+  expect(active).not.toContain("Reach the accepted project outcome.");
+  expect(active).not.toContain("<dt>Fog</dt>");
+  expect(active).not.toContain("<h2>Outputs</h2>");
+  expect(active).not.toContain("Governance &amp; References");
+  expect(active).not.toContain("Lineage Context");
+  expect(active.indexOf("<h2>Current Work</h2>")).toBeLessThan(
+    active.indexOf("<h2>Planning Basis</h2>"),
+  );
+
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.assets.validity === "invalid") throw new Error("Expected Assets.");
+  const withOutput = withLineage({
+    ...snapshot,
+    assets: {
+      ...snapshot.assets,
+      items: snapshot.assets.items.map((asset) =>
+        asset.id === "asset:planning-model-evidence"
+          ? assetProjectionSchema.parse({ ...asset, owner: "effort:model" })
+          : asset,
+      ),
+    },
+  });
+  const concluded = render(
+    { validity: "valid", value: { kind: "effort", id: "effort:model" } },
+    { snapshot: withOutput },
+  );
+  expect(concluded).toContain('<section id="effort.outputs"><h2>Outputs</h2>');
+  expect(concluded).toContain("<span>verification-report</span>");
+  expect(concluded).toContain(">Planning Model Evidence</a><small>Native</small>");
+  expect(concluded).toContain(
+    '<section id="effort.governance"><h2>Governance &amp; References</h2>',
+  );
+  expect(concluded).toContain("<h3>Planning Citations</h3>");
+  expect(concluded).not.toContain("<h3>Authorities</h3>");
+  expect(concluded).not.toContain('id="relation.production.owned-assets"');
+  expect(concluded).not.toContain('id="relation.planning-use.citations"');
+  expect(concluded).not.toContain('id="relation.governance.authorities"');
+
+  const css = await readFile(join(process.cwd(), "src/portal-ui/styles/lineage.css"), "utf8");
+  expect(css).toMatch(
+    /@media \(max-width: 820px\)[\s\S]*\.effort-governance-grid[\s\S]*grid-template-columns: 1fr;/u,
+  );
 });
 
 test("renders first acquisition failure as bound-unresolved with its concrete cause", () => {

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import {
   buildPlanningLineageSubjectModel,
+  effortPlanningBasisForWorkRegion,
   nativeLifecycleEventsFor,
   type PlanningLineageSubjectModel,
 } from "../src/portal-ui/planning-lineage-model";
@@ -826,6 +827,183 @@ test("keeps an active Effort Current Work section truthful when only planning-ba
 
   expect(model.effortLens?.currentWork).toMatchObject({ state: "available", items: [] });
   expect(model.effortLens?.managedWorkHealth).toBe("Healthy");
+});
+
+test("builds a bounded Planning Basis and rejects duplicate Map or Spec candidates", () => {
+  const active = readable(
+    buildPlanningLineageSubjectModel(fixture(), { kind: "effort", id: "effort:portal" }, "bearing"),
+  );
+  expect(active.effortLens?.planningBasis).toEqual({
+    state: "available",
+    items: [
+      {
+        role: "Map",
+        title: "Portal Validation",
+        lifecycle: "active",
+        href: "/projects/bearing/lineage/native-subject/.scratch%2Fportal%2Fmap.md",
+      },
+      {
+        role: "PRD / Spec",
+        title: "Portal Validation PRD",
+        lifecycle: "ready-for-agent",
+        href: "/projects/bearing/lineage/native-subject/.scratch%2Fportal%2FPRD.md",
+      },
+    ],
+  });
+
+  const concluded = readable(
+    buildPlanningLineageSubjectModel(fixture(), { kind: "effort", id: "effort:model" }, "bearing"),
+  );
+  expect(concluded.effortLens?.planningBasis).toMatchObject({
+    state: "available",
+    items: [{ role: "Map", title: "Planning Model" }],
+  });
+
+  const region = active.workRegion;
+  if (region === undefined) throw new Error("Expected a work region.");
+  const duplicateMap = {
+    ...region,
+    roles: region.roles.map((group) =>
+      group.role === "map" ? { ...group, items: [...group.items, ...group.items] } : group,
+    ),
+  };
+  expect(effortPlanningBasisForWorkRegion(duplicateMap, "bearing")).toEqual({
+    state: "attention",
+    diagnostic: {
+      code: "effort.planning-basis.multiple-candidates",
+      message:
+        "Planning Basis requires at most one Map and one PRD / Spec; multiple candidates cannot be rendered as a valid basis.",
+    },
+  });
+});
+
+test("projects explicit Effort Outputs and Governance without inferring latest from titles", () => {
+  const snapshot = fixture();
+  if (snapshot.assets.validity === "invalid" || snapshot.efforts.validity === "invalid") {
+    throw new Error("Expected Assets and Efforts.");
+  }
+  const firstAsset = snapshot.assets.items[0];
+  const modelEffort = snapshot.efforts.items.find((effort) => effort.id === "effort:model");
+  if (firstAsset === undefined || modelEffort === undefined) {
+    throw new Error("Expected the model Effort and its evidence.");
+  }
+  const accepted = (value: string) =>
+    ({ availability: "available", value, precision: "second" }) as const;
+  const authoritySource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    kind: "canonical",
+    locator: ".bearing/state/authorities/design.md",
+    binding: { role: "authority", identity: "authority:design" },
+  });
+  const secondAssetSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    kind: "asset",
+    locator: ".bearing/state/assets.md",
+    binding: { role: "asset", identity: "asset:planning-model-evidence-v2" },
+    fragment: "asset:planning-model-evidence-v2",
+  });
+  const thirdAssetSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    kind: "asset",
+    locator: ".bearing/state/assets.md",
+    binding: { role: "asset", identity: "asset:planning-model-evidence-v3" },
+    fragment: "asset:planning-model-evidence-v3",
+  });
+  const authority = authoritySchema.parse({
+    id: "authority:design",
+    title: "Design",
+    source: authoritySource.reference,
+    citations: [],
+    scope: "Govern the planning-model outputs.",
+    baselineAssetIds: [],
+    adoptions: [],
+  });
+  const first = assetProjectionSchema.parse({
+    ...firstAsset,
+    owner: modelEffort.id,
+    lifecycleSource: "registry",
+    disposition: "superseded",
+    supersededBy: "asset:planning-model-evidence-v2",
+    supersededAt: accepted("2026-08-03T08:00:00Z"),
+    registeredAt: accepted("2026-08-01T08:00:00Z"),
+  });
+  const availableOutput = (
+    id: "asset:planning-model-evidence-v2" | "asset:planning-model-evidence-v3",
+    title: string,
+    source: typeof secondAssetSource,
+    producedAt: string,
+  ) => {
+    const slug = id.slice("asset:".length);
+    return assetProjectionSchema.parse({
+      ...firstAsset,
+      id,
+      title,
+      source: source.reference,
+      owner: modelEffort.id,
+      citations: [],
+      authorityAdoptions: [],
+      passageEvidence: [],
+      evidenceRoles: [],
+      lifecycleSource: "registry",
+      disposition: "available",
+      registeredAt: accepted(producedAt),
+      producedAt: accepted(producedAt),
+      displayLocation: `.scratch/evidence/${slug}`,
+    });
+  };
+  const second = availableOutput(
+    "asset:planning-model-evidence-v2",
+    "Planning Model Evidence v2",
+    secondAssetSource,
+    "2026-08-02T08:00:00Z",
+  );
+  const third = availableOutput(
+    "asset:planning-model-evidence-v3",
+    "Planning Model Evidence v3",
+    thirdAssetSource,
+    "2026-08-03T08:00:00Z",
+  );
+  const candidate = withLineage({
+    ...snapshot,
+    sources: [...snapshot.sources, authoritySource, secondAssetSource, thirdAssetSource],
+    authorities: { validity: "available", items: [authority] },
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === modelEffort.id
+          ? effortSchema.parse({ ...effort, authorityIds: [authority.id] })
+          : effort,
+      ),
+    },
+    assets: { validity: "available", items: [first, second, third] },
+  });
+  const model = readable(
+    buildPlanningLineageSubjectModel(candidate, { kind: "effort", id: modelEffort.id }, "bearing"),
+  );
+
+  expect(model.effortLens?.outputs).toMatchObject({
+    state: "available",
+    items: [
+      { title: "Planning Model Evidence", superseded: true, lifecycle: "superseded" },
+      { title: "Planning Model Evidence v2", superseded: false, lifecycle: "available" },
+      { title: "Planning Model Evidence v3", superseded: false, lifecycle: "available" },
+    ],
+  });
+  expect(
+    model.effortLens?.outputs?.state === "available" && model.effortLens.outputs.items[1]?.times,
+  ).toEqual([
+    expect.objectContaining({ label: "Produced", time: accepted("2026-08-02T08:00:00Z") }),
+    expect.objectContaining({ label: "Registered", time: accepted("2026-08-02T08:00:00Z") }),
+  ]);
+  expect(model.effortLens?.governance).toEqual({
+    authorities: [
+      { title: "Design", href: "/projects/bearing/lineage/authority/authority%3Adesign" },
+    ],
+    citations: [
+      {
+        title: "Planning Model Evidence",
+        note: "Accepted planning-model evidence.",
+        href: "/projects/bearing/lineage/asset/asset%3Aplanning-model-evidence",
+      },
+    ],
+  });
 });
 
 test("keeps Spec, Delivery, Incoming, and native scope semantics independent", () => {

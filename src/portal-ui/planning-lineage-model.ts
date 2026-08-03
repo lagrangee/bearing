@@ -190,6 +190,55 @@ export type PlanningLineageEffortLens = Readonly<{
         recovery: string;
       }>
     | undefined;
+  planningBasis?:
+    | Readonly<{
+        state: "available";
+        items: readonly Readonly<{
+          role: "Map" | "PRD / Spec";
+          title: string;
+          lifecycle: string;
+          href: string;
+        }>[];
+      }>
+    | Readonly<{
+        state: "attention";
+        diagnostic: Readonly<{
+          code: "effort.planning-basis.multiple-candidates";
+          message: string;
+        }>;
+      }>
+    | undefined;
+  outputs?:
+    | Readonly<{
+        state: "available";
+        items: readonly Readonly<{
+          id: string;
+          title: string;
+          kind: string;
+          lifecycle: string;
+          href: string;
+          superseded: boolean;
+          times: readonly PlanningLineageTimeFact[];
+        }>[];
+      }>
+    | Readonly<{
+        state: "unavailable";
+        reason: string;
+      }>
+    | undefined;
+  governance?:
+    | Readonly<{
+        authorities: readonly Readonly<{
+          title: string;
+          href?: string | undefined;
+        }>[];
+        citations: readonly Readonly<{
+          title: string;
+          note: string;
+          href?: string | undefined;
+        }>[];
+      }>
+    | undefined;
 }>;
 
 export type PlanningLineageParentCrumb = Readonly<{
@@ -1366,6 +1415,107 @@ const invalidBindingCause = (effort: Effort): string => {
   }
 };
 
+export const effortPlanningBasisForWorkRegion = (
+  workRegion: MattNativeWorkRegionModel | undefined,
+  entryId: string,
+): NonNullable<PlanningLineageEffortLens["planningBasis"]> | undefined => {
+  if (workRegion === undefined) return undefined;
+  const map = workRegion.roles.find((group) => group.role === "map")?.items ?? [];
+  const spec = workRegion.roles.find((group) => group.role === "spec")?.items ?? [];
+  if (map.length > 1 || spec.length > 1) {
+    return {
+      state: "attention",
+      diagnostic: {
+        code: "effort.planning-basis.multiple-candidates",
+        message:
+          "Planning Basis requires at most one Map and one PRD / Spec; multiple candidates cannot be rendered as a valid basis.",
+      },
+    };
+  }
+  const items = [
+    ...map.map((item) => ({ role: "Map" as const, item })),
+    ...spec.map((item) => ({ role: "PRD / Spec" as const, item })),
+  ].map(({ role, item }) => ({
+    role,
+    title: item.title,
+    lifecycle: item.nativeLifecycle,
+    href: planningLineageSubjectHref(entryId, { kind: "native-subject", id: item.reference }),
+  }));
+  return items.length === 0 ? undefined : { state: "available", items };
+};
+
+const effortOutputTimes = (asset: AssetProjection): readonly PlanningLineageTimeFact[] => {
+  const facts: PlanningLineageTimeFact[] = [];
+  const add = (key: string, label: string, time: AssetProjection["registeredAt"] | undefined) => {
+    if (time?.availability === "available") facts.push({ key, label, time });
+  };
+  add(`${asset.id}:produced`, "Produced", asset.producedAt);
+  add(`${asset.id}:registered`, "Registered", asset.registeredAt);
+  add(`${asset.id}:superseded`, "Superseded", asset.supersededAt);
+  add(`${asset.id}:archived`, "Archived", asset.archivedAt);
+  return facts;
+};
+
+const effortOutputsFor = (
+  snapshot: ProjectSnapshot,
+  effort: Effort,
+  entryId: string,
+): PlanningLineageEffortLens["outputs"] => {
+  if (snapshot.assets.validity === "invalid") {
+    return { state: "unavailable", reason: "The Asset projection is unavailable." };
+  }
+  const assets = snapshot.assets.items.filter((asset) => asset.owner === effort.id);
+  if (assets.length === 0) {
+    return snapshot.assets.validity === "partial"
+      ? {
+          state: "unavailable",
+          reason: "Partial Asset coverage cannot confirm an empty Effort output collection.",
+        }
+      : undefined;
+  }
+  return {
+    state: "available",
+    items: assets.map((asset) => ({
+      id: asset.id,
+      title: asset.title,
+      kind: asset.kind,
+      lifecycle: asset.disposition ?? asset.lifecycleSource,
+      href: planningLineageSubjectHref(entryId, { kind: "asset", id: asset.id }),
+      superseded: asset.disposition === "superseded",
+      times: effortOutputTimes(asset),
+    })),
+  };
+};
+
+const effortGovernanceFor = (
+  snapshot: ProjectSnapshot,
+  effort: Effort,
+  entryId: string,
+): PlanningLineageEffortLens["governance"] => {
+  const authorities = effort.authorityIds.map((authorityId) => {
+    const authority = recordFor(snapshot, { kind: "authority", id: authorityId });
+    return authority === undefined
+      ? { title: "Authority unavailable" }
+      : {
+          title: authority.title,
+          href: planningLineageSubjectHref(entryId, { kind: "authority", id: authority.id }),
+        };
+  });
+  const citations = effort.citations.map((citation) => {
+    const asset = recordFor(snapshot, { kind: "asset", id: citation.assetId });
+    return asset === undefined
+      ? { title: "Planning Citation unavailable", note: citation.note }
+      : {
+          title: asset.title,
+          note: citation.note,
+          href: planningLineageSubjectHref(entryId, { kind: "asset", id: asset.id }),
+        };
+  });
+  return authorities.length === 0 && citations.length === 0
+    ? undefined
+    : { authorities, citations };
+};
+
 const effortLensFor = (
   snapshot: ProjectSnapshot,
   effort: Effort,
@@ -1453,6 +1603,9 @@ const effortLensFor = (
                 }
               : {}),
           };
+  const planningBasis = effortPlanningBasisForWorkRegion(workRegion, entryId);
+  const outputs = effortOutputsFor(snapshot, effort, entryId);
+  const governance = effortGovernanceFor(snapshot, effort, entryId);
   return {
     lifecycle: effort.lifecycle,
     targetGate,
@@ -1483,6 +1636,9 @@ const effortLensFor = (
           },
         }),
     ...(currentWork === undefined ? {} : { currentWork }),
+    ...(planningBasis === undefined ? {} : { planningBasis }),
+    ...(outputs === undefined ? {} : { outputs }),
+    ...(governance === undefined ? {} : { governance }),
   };
 };
 
