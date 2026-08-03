@@ -134,6 +134,25 @@ test("keeps Asset semantics on detail and routes content outside Technical Detai
   );
   expect(prototypeHtml).not.toContain("View Content");
   expect(prototypeHtml).not.toContain("Content unavailable");
+
+  const directory = withLineage({
+    ...snapshot,
+    assets: {
+      ...assets,
+      items: assets.items.map((asset) =>
+        asset.id === "asset:planning-model-evidence"
+          ? { ...asset, contentShape: "directory" }
+          : asset,
+      ),
+    },
+  });
+  const directoryDeepLinkHtml = render(
+    { validity: "valid", value: { kind: "asset", id: "asset:planning-model-evidence" } },
+    { snapshot: directory, semanticAnchor: "asset.content" },
+  );
+  expect(directoryDeepLinkHtml).not.toContain("View Content");
+  expect(directoryDeepLinkHtml).not.toContain('id="asset.content"');
+  expect(directoryDeepLinkHtml).toContain("Requested section unavailable");
 });
 
 test("renders only available named Source Event Times in Event History", () => {

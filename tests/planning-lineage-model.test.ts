@@ -200,6 +200,36 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
       id: "asset:planning-model-evidence",
     })?.semanticSections,
   ).not.toContainEqual(expect.objectContaining({ role: "asset.content" }));
+  const directorySnapshot = withLineage({
+    ...snapshot,
+    assets: {
+      ...snapshot.assets,
+      items: snapshot.assets.items.map((candidate) =>
+        candidate.id === "asset:planning-model-evidence"
+          ? { ...candidate, contentShape: "directory" }
+          : candidate,
+      ),
+    },
+  });
+  const directory = readable(
+    buildPlanningLineageSubjectModel(
+      directorySnapshot,
+      { kind: "asset", id: "asset:planning-model-evidence" },
+      "bearing",
+    ),
+  );
+  expect(directory.sections.map((section) => section.anchor)).toEqual([
+    "asset.identity",
+    "asset.ownership",
+    "asset.lifecycle",
+    "asset.evidence-roles",
+  ]);
+  expect(
+    findPlanningLineageSubjectProjection(directorySnapshot.lineage, {
+      kind: "asset",
+      id: "asset:planning-model-evidence",
+    })?.semanticSections,
+  ).not.toContainEqual(expect.objectContaining({ role: "asset.content" }));
   const check = readable(
     buildPlanningLineageSubjectModel(
       snapshot,

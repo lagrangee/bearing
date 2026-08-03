@@ -926,7 +926,7 @@ const semanticSectionsFor = (
         section("asset.ownership"),
         section("asset.lifecycle"),
         section("asset.evidence-roles"),
-        ...(asset.kind === "prototype"
+        ...(asset.kind === "prototype" || asset.contentShape === "directory"
           ? []
           : [
               section(
