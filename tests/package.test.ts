@@ -124,6 +124,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/skills/bearing/references/branches/summary.md",
         "package/skills/bearing/references/shared/artifact-registration.md",
         "package/skills/bearing/references/shared/executor-continuation.md",
+        "package/skills/bearing/references/shared/governance-disposition.md",
         "package/skills/bearing/references/shared/planning-transaction.md",
         "package/skills/bearing/references/shared/project-brief-refresh.md",
         "package/skills/bearing/references/shared/typed-inspection.md",
