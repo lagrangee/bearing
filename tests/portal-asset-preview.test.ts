@@ -266,6 +266,22 @@ test("does not offer Preview for an ordinary directory Asset", async () => {
       code: "preview-not-offered",
       availability: "not-offered",
     });
+
+    const app = createPortalApp({
+      assets: portalAssets,
+      readCatalog: catalogFor(repoRoot),
+      sessions: { secret: "ticket-38-directory-preview-secret-32-bytes" },
+    });
+    const response = await app.request(
+      "http://127.0.0.1:4178/preview/projects/project-one/assets/asset%3Apreview",
+    );
+    expect(response.status).toBe(404);
+    expect(response.headers.get("x-bearing-preview-availability")).toBe("not-offered");
+    const body = await response.text();
+    expect(body).toContain("Preview not offered");
+    expect(body).toContain("directory Assets");
+    expect(body).not.toContain("prototype Assets");
+    expect(body).not.toContain("Content unavailable");
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }
