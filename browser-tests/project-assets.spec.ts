@@ -568,7 +568,13 @@ test("Project Find recovers typed identity and semantic context without leaving 
     efforts: {
       ...snapshot.efforts,
       items: snapshot.efforts.items.map((effort) =>
-        effort.id === "effort:portal" ? { ...effort, workBinding: undefined } : effort,
+        effort.id === "effort:portal"
+          ? {
+              ...effort,
+              workBinding: undefined,
+              workBindingState: { state: "invalid" as const, reason: "missing" as const },
+            }
+          : effort,
       ),
     },
   });

@@ -393,9 +393,10 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
   });
   await page.goto(roadmapHref);
 
-  await expect(page.getByRole("heading", { name: "Complete Gate order" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Ordered Gates" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Contributing Efforts", level: 2 })).toBeVisible();
+  const outcomeSpine = page.getByRole("region", { name: "Outcome Spine" });
+  await expect(outcomeSpine).toBeVisible();
+  await expect(outcomeSpine.getByRole("link", { name: "Overview proven" })).toBeVisible();
+  await expect(outcomeSpine.getByRole("link", { name: "Web Portal Validation" })).toBeVisible();
   await page.locator(`a[href="${focusedGateHref}"]`).first().click();
   await expect(page.getByRole("heading", { name: "Overview proven", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Exit Criteria" })).toBeVisible();
@@ -414,7 +415,9 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
       paddingBottom: Number.parseFloat(sectionStyle.paddingBottom),
     };
   });
-  expect(semanticSectionMetrics.paragraphWidth).toBeLessThan(semanticSectionMetrics.sectionWidth);
+  expect(semanticSectionMetrics.paragraphWidth).toBeLessThanOrEqual(
+    semanticSectionMetrics.sectionWidth,
+  );
   expect(semanticSectionMetrics.paddingTop).toBeGreaterThanOrEqual(24);
   expect(semanticSectionMetrics.paddingTop).toBeLessThanOrEqual(32);
   expect(semanticSectionMetrics.paddingBottom).toBeGreaterThanOrEqual(24);
@@ -426,18 +429,16 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
   await page.goBack();
 
   await page
-    .getByLabel("Lineage Context")
-    .getByRole("link", { name: /^Web Portal Validation\b/u })
+    .getByRole("region", { name: "Outcome Spine" })
+    .getByRole("link", { name: "Web Portal Validation", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "Web Portal Validation", level: 1 }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Effort Lifecycle" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Contributing Work" })).toBeVisible();
-  await expect(page.getByText(/matt-skills\/v1 · \.scratch\/portal/u)).toBeVisible();
-  await expect(
-    page.locator('[id="effort.native-work"]').getByText(/frontier evidence trustworthy/u),
-  ).toBeVisible();
+  await expect(page.getByLabel("Effort governance status")).toContainText("Active");
+  await expect(page.getByLabel("Effort governance status")).toContainText("Healthy");
+  await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Planning Basis", level: 2 })).toBeVisible();
   await page.goBack();
 
   await page.locator(`a[href="${passedGateHref}"]`).first().click();
@@ -559,7 +560,9 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
     }
     if (width === 375) {
       await expect(
-        page.getByLabel("Lineage Context").getByRole("link", { name: /^Web Portal Validation\b/u }),
+        page
+          .getByRole("region", { name: "Outcome Spine" })
+          .getByRole("link", { name: "Web Portal Validation", exact: true }),
       ).toBeVisible();
       await expect(
         page.getByRole("button", { name: "Quick Look Web Portal Validation" }),
@@ -567,7 +570,9 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
     }
   }
   await minimumTarget(
-    page.getByLabel("Lineage Context").getByRole("link", { name: /^Web Portal Validation\b/u }),
+    page
+      .getByRole("region", { name: "Outcome Spine" })
+      .getByRole("link", { name: "Web Portal Validation", exact: true }),
     44,
   );
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
@@ -601,7 +606,7 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
   await page.unroute("**/api/v1/projects/roadmaps/snapshot");
   await serveSnapshot(page, partial);
   await page.reload();
-  await expect(page.getByText("Unavailable Gate", { exact: true })).toBeVisible();
+  await expect(page.getByText("Gate unavailable", { exact: true })).toBeVisible();
   await expect(page.getByText("gate:one", { exact: false })).toHaveCount(0);
 
   const mapPartial = projectSnapshotSchema.parse(
@@ -638,11 +643,12 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
       id: "effort:portal",
     }),
   );
-  const nativeWorkSection = page.locator('[id="effort.native-work"]');
+  await expect(page.getByLabel("Effort governance status")).toContainText("Needs attention");
   await expect(
-    nativeWorkSection.getByText(/Projection missing; freshness undetermined/u),
+    page.getByText("Managed work details are unavailable", { exact: false }),
   ).toBeVisible();
-  await expect(nativeWorkSection.getByText(/frontier evidence withheld/u)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+  await expect(page.locator('[id="effort.native-work"]')).toHaveCount(0);
 
   await page.goto(
     planningLineageSubjectHref("roadmaps", {

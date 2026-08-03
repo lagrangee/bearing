@@ -379,6 +379,9 @@
   overflow-wrap: anywhere;
 }
 .outcome-spine-gate-heading > a {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
   font-size: var(--type-section);
   font-weight: 600;
   text-underline-offset: 3px;
@@ -390,10 +393,12 @@
   list-style: none;
 }
 .outcome-spine-gate > ul li {
-  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--border);
 }
 .outcome-spine-gate > ul a {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
   text-underline-offset: 3px;
 }
 .outcome-spine-gate > p {

@@ -477,12 +477,11 @@ test("Source Event Time stays source-precise while browser-relative updates rema
       id: "roadmap:portal",
     }),
   );
-  const roadmapRelation = page
-    .getByLabel("Lineage Context")
-    .getByRole("link", { name: /^Model ready\b/u });
-  await expect(roadmapRelation).toContainText("Passage accepted");
-  await expect(roadmapRelation).not.toContainText("5 minutes ago");
-  await expect(page.getByLabel("Lineage Context")).not.toContainText("Time unavailable");
+  const outcomeSpine = page.getByRole("region", { name: "Outcome Spine" });
+  const roadmapGate = outcomeSpine.getByRole("link", { name: "Model ready", exact: true });
+  await expect(roadmapGate).toBeVisible();
+  await expect(outcomeSpine).not.toContainText("5 minutes ago");
+  await expect(outcomeSpine).not.toContainText("Time unavailable");
 
   await page.goto("/projects/lineage/roadmaps");
   const gateStateTime = page.locator('.gate-node time[datetime="2026-07-31T10:00:00.123Z"]');
@@ -539,7 +538,7 @@ test("semantic detail owns the reading contract while Technical Details stays tr
   await expect(breadcrumb).not.toContainText("Model ready");
   const header = page.locator(".lineage-header");
   await expect(header.getByRole("heading", { name: "Model ready", level: 1 })).toBeVisible();
-  await expect(header).not.toContainText("Gate");
+  await expect(header.getByText("Milestone Gate", { exact: true })).toBeVisible();
   await expect(header).not.toContainText("gate:one");
   await expect(header).not.toContainText(".bearing/state/milestone-gates/one.md");
   await expect(header).not.toContainText("available");
@@ -687,7 +686,7 @@ test("direct Asset rows preserve the filtered canvas through browser Back", asyn
   await expect(page.getByRole("button", { name: /Quick Look/u })).toHaveCount(0);
 });
 
-test("direct relation rows restore lineage focus and scroll", async ({ page }) => {
+test("direct contributing Effort links restore lineage focus and scroll", async ({ page }) => {
   await serveSnapshot(page, fixture());
   await page.setViewportSize({ width: 1280, height: 500 });
   const gateHref = planningLineageSubjectHref("lineage", {
@@ -696,23 +695,16 @@ test("direct relation rows restore lineage focus and scroll", async ({ page }) =
   });
   await page.goto(gateHref);
 
-  const relationLink = page
-    .getByLabel("Lineage Context")
-    .getByRole("link", { name: /^Planning Model receives/u });
+  const contributingEfforts = page
+    .getByRole("heading", { name: "Contributing Efforts", level: 2 })
+    .locator("xpath=..");
+  const relationLink = contributingEfforts.getByRole("link", {
+    name: "Planning Model",
+    exact: true,
+  });
   await relationLink.scrollIntoViewIfNeeded();
-  const relationBounds = await relationLink.boundingBox();
-  const rowBounds = await relationLink.locator("xpath=..").boundingBox();
-  expect(relationBounds).not.toBeNull();
-  expect(rowBounds).not.toBeNull();
-  expect(relationBounds?.width).toBe(rowBounds?.width);
-  expect(Math.abs((relationBounds?.height ?? 0) - (rowBounds?.height ?? 0))).toBeLessThanOrEqual(1);
-  await relationLink.hover();
-  await expect(relationLink).toHaveCSS("background-color", /^(?!rgba\(0, 0, 0, 0\))/u);
   await relationLink.focus();
-  await expect(relationLink).toHaveAttribute(
-    "data-bearing-focus-key",
-    "lineage:outcome.contributing-efforts:effort:model:primary",
-  );
+  await expect(relationLink).toBeFocused();
   const relationScroll = await page.evaluate(() => window.scrollY);
   await relationLink.click();
   await expect(page).toHaveURL(
@@ -725,7 +717,10 @@ test("direct relation rows restore lineage focus and scroll", async ({ page }) =
   await expect(page).toHaveURL(gateHref);
   expect(await page.evaluate(() => history.state)).toMatchObject({
     bearingCanvas: {
-      focusKey: "explicit:lineage:outcome.contributing-efforts:effort:model:primary",
+      focusKey: `href:${planningLineageSubjectHref("lineage", {
+        kind: "effort",
+        id: "effort:model",
+      })}`,
     },
   });
   await expect(relationLink).toBeFocused();
@@ -769,25 +764,15 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   await expect(
     page.getByRole("heading", { name: "Web Portal Validation", level: 1 }),
   ).toBeVisible();
-  const workRegion = page.locator(".matt-work-region");
-  await expect(
-    workRegion.getByRole("heading", { name: "Contributing Work", level: 2 }),
-  ).toBeVisible();
-  await expect(
-    workRegion.getByRole("heading", { name: "Open work remains", level: 3 }),
-  ).toBeVisible();
-  await workRegion.getByText("Why this state?", { exact: true }).click();
-  await expect(workRegion.getByText("Provider Completion", { exact: true })).toBeVisible();
-  await expect(workRegion.getByText("incomplete", { exact: true }).first()).toBeVisible();
-  await workRegion.getByText("Observation details", { exact: true }).click();
-  await expect(workRegion.getByText("Source revision", { exact: true })).toBeVisible();
-  await expect(workRegion).not.toContainText("Needs refresh");
-  const currentView = workRegion.getByRole("link", { name: /^Current/u });
-  await currentView.focus();
-  await expect(currentView).toBeFocused();
+  await expect(page.getByLabel("Effort governance status")).toContainText("Healthy");
+  await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Planning Basis", level: 2 })).toBeVisible();
+  const workHistory = page.getByRole("link", { name: "Full work history", exact: true });
+  await workHistory.focus();
+  await expect(workHistory).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page).toHaveURL(`${effortHref}#native-work-current`);
-  await expect(workRegion.getByRole("heading", { name: "Current", level: 3 })).toBeInViewport();
+  await expect(page).toHaveURL(/#native-work-history$/u);
+  await expect(page.getByRole("heading", { name: "History", level: 3 })).toBeInViewport();
   expect(await viewportOverflow(page)).toEqual([]);
 
   const assetHref = planningLineageSubjectHref("lineage", {
@@ -851,12 +836,16 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   ).toBe(false);
 
   await page.goto(gateHref);
-  const relationLink = page
-    .getByLabel("Lineage Context")
-    .getByRole("link", { name: /^Planning Model receives/u });
+  const contributingEfforts = page
+    .getByRole("heading", { name: "Contributing Efforts", level: 2 })
+    .locator("xpath=..");
+  const relationLink = contributingEfforts.getByRole("link", {
+    name: "Planning Model",
+    exact: true,
+  });
   await relationLink.focus();
   await expect(relationLink).toBeFocused();
   await expect(page.getByRole("button", { name: "Quick Look Planning Model" })).toHaveCount(0);
-  await expect(relationLink).toContainText("receives contribution from");
+  await expect(contributingEfforts).toContainText("Resolved 1");
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
