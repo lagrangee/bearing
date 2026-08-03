@@ -1,20 +1,31 @@
 import { expect, test } from "@playwright/test";
+import { createSourceRecord } from "../src/project-snapshot/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 
 test("Project Brief applies only authored per-part language metadata", async ({ page }) => {
-  // Given: a Chinese Purpose explicitly declares zh-CN while English Current Design is undeclared.
+  // Given: a Chinese Purpose explicitly declares zh-CN while English Current Stage is undeclared.
   const snapshot = createProjectOverviewFixture();
-  if (snapshot.summary.validity !== "available") throw new Error("Expected Summary fixture.");
+  const briefSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    kind: "canonical",
+    locator: ".bearing/state/project-brief.md",
+    binding: { role: "project-brief", identity: "project-brief:current" },
+  });
   const localizedSnapshot = {
     ...snapshot,
-    summary: {
-      ...snapshot.summary,
+    brief: {
+      validity: "available" as const,
       value: {
-        ...snapshot.summary.value,
-        purpose: "让用户和 agent 每天快速看清 whole project。",
-        languages: { purpose: "zh-CN" },
+        id: "project-brief:current" as const,
+        title: "Project Brief",
+        generatedAt: "2026-07-14T08:00:00Z",
+        projectPurpose: "让用户和 agent 每天快速看清 whole project。",
+        currentStage: "One read-oriented governance surface.",
+        materialAchievedState: "Managed planning remains directly readable.",
+        languages: { projectPurpose: "zh-CN" },
+        source: briefSource.reference,
       },
     },
+    sources: [...snapshot.sources, briefSource],
   };
   await page.route("**/api/v1/projects/overview/snapshot", (route) =>
     route.fulfill({
@@ -51,9 +62,9 @@ test("Project Brief applies only authored per-part language metadata", async ({ 
   // Then: declared Chinese is scoped locally and undeclared English inherits the document language.
   const purpose = page.getByText("让用户和 agent 每天快速看清 whole project。", { exact: true });
   await expect(purpose).toHaveAttribute("lang", "zh-CN");
-  const currentDesign = page.getByText("One read-oriented governance surface.", { exact: true });
-  await expect(currentDesign).not.toHaveAttribute("lang", /.+/u);
+  const currentStage = page.getByText("One read-oriented governance surface.", { exact: true });
+  await expect(currentStage).not.toHaveAttribute("lang", /.+/u);
   expect(
-    await currentDesign.evaluate((element) => element.closest("[lang]")?.getAttribute("lang")),
+    await currentStage.evaluate((element) => element.closest("[lang]")?.getAttribute("lang")),
   ).toBe("en");
 });
