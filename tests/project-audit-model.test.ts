@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { buildProjectAuditModel, findingInspection } from "../src/portal-ui/project-audit-model";
+import { buildProjectAuditModel } from "../src/portal-ui/project-audit-model";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import {
-  AUDIT_FINDING_ID,
   createAbsentProjectAuditFixture,
   createInvalidProjectAuditFixture,
+  createMissingGeneratedTimeAuditFixture,
   createPartialProjectAuditFixture,
   createProjectAuditFixture,
   createUnavailableAuditPromotionFixture,
@@ -29,7 +29,6 @@ test("preserves Audit finding order and resolves its canonical decision path", (
     id: "alignment-check:portal",
     title: "Confirm the Portal revision",
     status: "open",
-    source: { displayLocator: ".bearing/state/alignment-checks/portal.md" },
   });
 });
 
@@ -73,58 +72,8 @@ test("resolves a completed Planning Review without turning its Audit finding int
     id: "planning-review:sequence",
     title: "Review the current sequence",
     status: "completed",
-    source: { displayLocator: ".bearing/state/planning-reviews/sequence.md" },
   });
   expect(completed.attention.some((item) => item.kind === "planning-review")).toBe(false);
-});
-
-test("builds a provenance-only finding inspection with explicit confidence boundaries", () => {
-  const model = buildProjectAuditModel(createProjectAuditFixture());
-  if (model.state !== "available") throw new Error("Expected available Audit.");
-  const row = model.findings[0];
-  if (row === undefined) throw new Error("Expected one finding.");
-
-  expect(findingInspection(row)).toMatchObject({
-    eyebrow: "Audit Finding · Alignment Check",
-    title: "Portal direction needs a decision path",
-    detail: "The accepted direction and current implementation need an explicit review.",
-    source: { displayLocator: ".bearing/state/planning-audit.md" },
-    facts: [
-      { label: "Finding ID", value: AUDIT_FINDING_ID, code: true },
-      { label: "Decision path", value: "Alignment Check" },
-      { label: "Decision ID", value: "alignment-check:portal", code: true },
-      { label: "Decision title", value: "Confirm the Portal revision" },
-      { label: "Decision status", value: "open" },
-      {
-        label: "Decision source",
-        value: ".bearing/state/alignment-checks/portal.md",
-      },
-      {
-        label: "Decision Source ref",
-        value: expect.stringMatching(/^source:[0-9a-f]{64}$/u),
-        code: true,
-      },
-    ],
-  });
-  expect(findingInspection(row).sections).toEqual([
-    {
-      title: "Affected references",
-      items: ["roadmap:portal", ".scratch/portal/map.md"],
-    },
-    {
-      title: "Evidence",
-      body: "Display-only Source provenance; no file capability is granted.",
-      items: [expect.stringContaining(".bearing/state/roadmaps/portal.md · Source source:")],
-    },
-    {
-      title: "Consequence",
-      body: "The question should remain visible until the Check is resolved.",
-    },
-    {
-      title: "Confidence boundary",
-      body: "The Audit does not decide whether the revision is accepted.",
-    },
-  ]);
 });
 
 test("distinguishes absent, invalid, zero-finding, and trustworthy partial Audits", () => {
@@ -168,7 +117,7 @@ test("distinguishes absent, invalid, zero-finding, and trustworthy partial Audit
   expect(partial.state === "partial" && partial.findings).toHaveLength(1);
 });
 
-test("keeps a schema-valid unavailable promotion visible without losing evidence", () => {
+test("keeps a schema-valid unavailable promotion visible without inventing a target", () => {
   const model = buildProjectAuditModel(createUnavailableAuditPromotionFixture());
   if (model.state !== "partial") throw new Error("Expected partial Audit.");
   const row = model.findings[0];
@@ -179,13 +128,6 @@ test("keeps a schema-valid unavailable promotion visible without losing evidence
     id: "alignment-check:portal",
     title: undefined,
     status: undefined,
-  });
-  expect(
-    findingInspection(row).sections?.find((section) => section.title === "Evidence")?.items,
-  ).toEqual([expect.stringContaining(".bearing/state/roadmaps/portal.md · Source source:")]);
-  expect(findingInspection(row).facts).toContainEqual({
-    label: "Decision status",
-    value: "Unavailable",
   });
 });
 
@@ -198,6 +140,21 @@ test("keeps every deterministic browser Audit fixture inside the public Snapshot
       createPartialProjectAuditFixture(),
       createUnavailableAuditPromotionFixture(),
       createInvalidProjectAuditFixture(),
+      createMissingGeneratedTimeAuditFixture(),
     ].map((snapshot) => snapshot.audit.validity),
-  ).toEqual(["absent", "available", "available", "partial", "partial", "invalid"]);
+  ).toEqual(["absent", "available", "available", "partial", "partial", "invalid", "invalid"]);
+});
+
+test("projects a missing authored Generated time through the real source decoder", () => {
+  const snapshot = createMissingGeneratedTimeAuditFixture();
+
+  expect(snapshot.audit).toMatchObject({
+    validity: "invalid",
+    issues: [
+      {
+        code: "invalid-bearing-schema",
+        target: ".bearing/state/planning-audit.md",
+      },
+    ],
+  });
 });

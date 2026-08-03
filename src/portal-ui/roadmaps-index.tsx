@@ -36,7 +36,6 @@ export function RoadmapsIndex({
   if (model.state === "invalid") {
     return (
       <div className="page roadmaps-index scoped-state">
-        <p className="eyebrow">Peer outcome horizons</p>
         <h1>Roadmaps unavailable</h1>
         <p>
           The current Roadmap Index cannot be trusted ({model.issueCount} source issue
@@ -48,7 +47,6 @@ export function RoadmapsIndex({
   if (model.state === "absent") {
     return (
       <div className="page roadmaps-index scoped-state">
-        <p className="eyebrow">Peer outcome horizons</p>
         <h1>Roadmaps</h1>
         <p>No canonical Roadmap Index is available in the current Snapshot.</p>
       </div>
@@ -60,12 +58,7 @@ export function RoadmapsIndex({
   return (
     <div className="page roadmaps-index">
       <header className="list-header">
-        <p className="eyebrow">Peer outcome horizons</p>
         <h1>Roadmaps</h1>
-        <p>
-          Each Roadmap carries an independently governed Gate sequence. Open one to inspect its
-          contracts, contributing work, and evidence.
-        </p>
       </header>
       {model.state === "partial" ? (
         <p className="projection-note" role="status">

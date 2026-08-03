@@ -32,7 +32,6 @@ export function AssetsPage({
   if (model.state === "invalid") {
     return (
       <div className="page assets-page scoped-state">
-        <p className="eyebrow">Project context and evidence</p>
         <h1>Assets unavailable</h1>
         <p>
           The Asset projection cannot be trusted ({model.issueCount} source issue

@@ -297,6 +297,10 @@ test("Roadmaps opens the lifecycle Index before Detail and preserves contextual 
   await page.goto("/projects/roadmaps/roadmaps");
 
   await expect(page.getByRole("heading", { name: "Roadmaps", level: 1 })).toBeVisible();
+  await expect(page.getByText("Peer outcome horizons", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByText(/Each Roadmap carries an independently governed Gate sequence/u),
+  ).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Roadmaps", exact: true })).toHaveAttribute(
     "aria-current",
     "page",

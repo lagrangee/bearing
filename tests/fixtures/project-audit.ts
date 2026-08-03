@@ -1,3 +1,4 @@
+import { buildAdvisoryProjection } from "../../src/project-snapshot/advisory";
 import {
   createAuditFindingId,
   INVALID_AUDIT_FINDING_CODE,
@@ -6,9 +7,11 @@ import {
   UNAVAILABLE_AUDIT_PROMOTION_MESSAGE,
 } from "../../src/project-snapshot/audit-findings";
 import type { ProjectSnapshot } from "../../src/project-snapshot/contract";
+import { buildDecisionProjection } from "../../src/project-snapshot/decisions";
 import { projectSnapshotSchema } from "../../src/project-snapshot/schema";
 import { createSourceRecord } from "../../src/project-snapshot/source-records";
 import { withRebuiltPlanningLineage } from "../planning-lineage-fixture";
+import { decodeSourceFixtures } from "../project-snapshot-fixture";
 import { createProjectOverviewFixture } from "./project-overview";
 
 const AUDIT_LOCATOR = ".bearing/state/planning-audit.md";
@@ -143,6 +146,54 @@ export const createInvalidProjectAuditFixture = (): ProjectSnapshot => {
         target: AUDIT_LOCATOR,
         message: "Planning Audit cannot be normalized.",
       },
+    ],
+  });
+};
+
+export const createMissingGeneratedTimeAuditFixture = (): ProjectSnapshot => {
+  const snapshot = createProjectAuditFixture();
+  const records = decodeSourceFixtures(
+    [
+      {
+        locator: AUDIT_LOCATOR,
+        source: `---
+Type: planning-audit
+ID: planning-audit:current
+Inputs: []
+Input fingerprint: sha256:${"a".repeat(64)}
+Coverage: complete
+Skipped targets: []
+---
+
+# Planning Audit
+
+## Findings
+
+No material findings.
+`,
+      },
+    ],
+    snapshot.basis.sitemapFingerprint,
+  );
+  const decisions = buildDecisionProjection({
+    records,
+    sitemapFingerprint: snapshot.basis.sitemapFingerprint,
+  });
+  const advisory = buildAdvisoryProjection({
+    records,
+    sitemapFingerprint: snapshot.basis.sitemapFingerprint,
+    advisoryFreshness: {},
+    checks: decisions.checks,
+    reviews: decisions.reviews,
+  });
+  const projectedReferences = new Set(advisory.sources.map((source) => source.reference));
+  return projectSnapshotSchema.parse({
+    ...snapshot,
+    audit: advisory.audit,
+    guidance: { validity: "absent" },
+    sources: [
+      ...snapshot.sources.filter((source) => !projectedReferences.has(source.reference)),
+      ...advisory.sources,
     ],
   });
 };

@@ -283,7 +283,7 @@ export function ProjectPage({
       ) : section === "assets" ? (
         <AssetsPage entryId={entryId} onNavigate={navigateFromProject} snapshot={snapshot} />
       ) : section === "audit" ? (
-        <AuditPage entryId={entryId} onInspect={inspect} snapshot={snapshot} />
+        <AuditPage entryId={entryId} snapshot={snapshot} />
       ) : subject === undefined ? (
         <div className="page project-state-page">
           <EmptyState
