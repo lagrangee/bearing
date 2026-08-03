@@ -254,9 +254,6 @@ export const createProjectMaterializer = (options: {
                     },
                   }
                 : {}),
-              ...(initial.legacyNativeScopeDiscoveryStorePresent
-                ? { deleteLegacyNativeScopeDiscoveryStore: true }
-                : {}),
               ...(initial.nativeScopeInspectionStoreChanged
                 ? {
                     nativeScopeInspectionStore: {
@@ -299,9 +296,6 @@ export const createProjectMaterializer = (options: {
                   bytes: plan.providerObservationStoreBytes,
                 },
               }
-            : {}),
-          ...(plan.legacyNativeScopeDiscoveryStorePresent
-            ? { deleteLegacyNativeScopeDiscoveryStore: true }
             : {}),
           ...(plan.nativeScopeInspectionStoreChanged
             ? {

@@ -74,7 +74,7 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   });
 
   expect(snapshot).toMatchObject({
-    schemaVersion: 16,
+    schemaVersion: 17,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapFingerprint: sync.fingerprint },
     summary: {
@@ -89,18 +89,6 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
     gates: { validity: "available", items: [{ id: "gate:test", horizonState: "focused" }] },
     efforts: { validity: "available", items: [{ id: "effort:test" }] },
     audit: { validity: "absent" },
-    guidance: {
-      validity: "available",
-      value: {
-        id: "next-work-guidance:current",
-        semanticFreshness: "current",
-        primary: { title: "Finish the Project Snapshot seam" },
-        alternatives: [
-          { title: "Inspect the current Roadmap horizon" },
-          { title: "Run a Planning Audit after the seam is trustworthy" },
-        ],
-      },
-    },
   });
   expect(snapshot).not.toHaveProperty("entryId");
   expect(snapshot).not.toHaveProperty("repoRoot");
@@ -111,6 +99,7 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   expect(snapshot).toHaveProperty("providerObservations");
   expect(snapshot).not.toHaveProperty("maps");
   expect(snapshot).not.toHaveProperty("tickets");
+  expect(snapshot).not.toHaveProperty("guidance");
   expect(snapshot.sources.length).toBeGreaterThan(0);
   for (const source of snapshot.sources) {
     expect(source.reference).not.toContain(source.displayLocator);
@@ -197,40 +186,6 @@ test("isolates an invalid Summary while preserving trustworthy Roadmaps", async 
   expect(snapshot.summary.validity).toBe("invalid");
   expect(snapshot.roadmaps.validity).toBe("available");
   expect(snapshot.attention.some((item) => item.kind === "structural-diagnostic")).toBe(true);
-});
-
-test("consumes Guidance freshness computed by Sync", async () => {
-  const root = await createValidBearingRepo();
-  await writeCurrentGuidance(root);
-  await writeFixture(root, "CONTEXT.md", "# Changed context\n");
-  const sync = await runInitialSync(root);
-
-  const snapshot = await buildProjectSnapshot({
-    repoRoot: root,
-    packageVersion: "0.0.0-test",
-    inputs: sync.inputs,
-    sitemapFingerprint: sync.fingerprint,
-    diagnostics: sync.diagnostics,
-    advisoryFreshness: sync.advisoryFreshness,
-  });
-
-  expect(snapshot.guidance.validity).toBe("available");
-  if (snapshot.guidance.validity !== "available") throw new Error("Expected Guidance fixture.");
-  expect(snapshot.guidance.value.semanticFreshness).toBe("current");
-
-  await writeFixture(root, ".bearing/state/project-summary.md", "changed after guidance\n");
-  const staleSync = await runSync(root);
-  const stale = await buildProjectSnapshot({
-    repoRoot: root,
-    packageVersion: "0.0.0-test",
-    inputs: staleSync.inputs,
-    sitemapFingerprint: staleSync.fingerprint,
-    diagnostics: staleSync.diagnostics,
-    advisoryFreshness: staleSync.advisoryFreshness,
-  });
-  expect(stale.guidance.validity).toBe("available");
-  if (stale.guidance.validity !== "available") throw new Error("Expected retained Guidance.");
-  expect(stale.guidance.value.semanticFreshness).toBe("stale");
 });
 
 test("projects adversarial native diagnostics without echoing source details into prose", async () => {

@@ -173,7 +173,6 @@
 .overview-page .attention-queue {
   margin: 0 0 var(--space-10);
 }
-.guidance-section,
 .roadmap-landscape {
   padding: var(--space-8) 0 var(--space-10);
   border-top: 1px solid var(--border);
@@ -221,87 +220,6 @@
 .destination-placeholder > p:last-child {
   max-width: 72ch;
   color: var(--muted);
-}
-.primary-guidance {
-  display: grid;
-  width: 100%;
-  grid-template-columns: var(--inline-action) minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-5);
-  border: 1px solid color-mix(in oklch, var(--info) 26%, var(--border));
-  border-radius: var(--radius-panel);
-  background: var(--info-wash);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color 180ms var(--ease),
-    background 180ms var(--ease);
-}
-.primary-guidance:hover {
-  border-color: var(--info);
-  background: color-mix(in oklch, var(--info-wash) 74%, var(--canvas));
-}
-.guidance-arrow {
-  display: grid;
-  width: var(--inline-action);
-  height: var(--inline-action);
-  place-items: center;
-  color: var(--white);
-  background: var(--info);
-  border-radius: var(--radius-control);
-}
-.guidance-arrow svg {
-  width: 17px;
-  height: 17px;
-}
-.primary-guidance strong,
-.primary-guidance small {
-  display: block;
-}
-.primary-guidance strong {
-  font-size: var(--type-body);
-  font-weight: 600;
-}
-.primary-guidance small {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: var(--type-meta);
-}
-.resume-label {
-  color: color-mix(in oklch, var(--info) 82%, var(--ink));
-  font-size: var(--type-meta);
-  font-weight: 600;
-}
-.alternatives {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-1) 0;
-}
-.alternatives > span {
-  margin-right: var(--space-1);
-  color: var(--muted);
-  font-size: var(--type-tech);
-}
-.alternatives button {
-  display: inline-flex;
-  min-height: var(--control-size);
-  align-items: center;
-  gap: var(--space-1);
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  font-size: var(--type-meta);
-  cursor: pointer;
-}
-.alternatives button:hover {
-  background: var(--surface);
-}
-.alternatives svg {
-  width: 14px;
-  height: 14px;
 }
 .roadmap-landscape {
   padding-bottom: 0;
@@ -410,21 +328,6 @@
   }
   .overview-page .attention-queue {
     margin-bottom: var(--space-8);
-  }
-  .primary-guidance {
-    grid-template-columns: var(--inline-action) minmax(0, 1fr);
-  }
-  .resume-label {
-    display: none;
-  }
-  .alternatives {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .alternatives button {
-    justify-content: space-between;
-    min-height: var(--control-touch);
-    padding-inline: var(--space-1);
   }
   .source-action {
     min-height: var(--control-touch);

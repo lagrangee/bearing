@@ -63,7 +63,6 @@ test("renders no healthy-state Attention placeholder when the normalized queue i
     createElement(OverviewAttention, {
       attention: [],
       entryId: "bearing",
-      onInspect: () => {},
       onNavigate: () => {},
     }),
   );

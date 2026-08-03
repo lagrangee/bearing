@@ -137,7 +137,7 @@ test("GitHub native locators preserve managed Attention across locator dialects"
   ]);
 });
 
-test("Next Work diagnostics stay out of Attention even when their source is canonical", () => {
+test("Next Work diagnostics stay outside managed Attention without a Portal source", () => {
   const projected = buildSnapshotDiagnostics({
     sitemapFingerprint: BASIS,
     diagnostics: [
@@ -148,13 +148,7 @@ test("Next Work diagnostics stay out of Attention even when their source is cano
         message: "Legacy Next Work guidance is malformed.",
       },
     ],
-    sourceLocators: [
-      {
-        kind: "canonical",
-        locator: ".bearing/state/next-work-guidance.md",
-        binding: { role: "next-work-guidance", identity: "next-work-guidance:current" },
-      },
-    ],
+    sourceLocators: [],
   });
 
   expect(projected.diagnostics).toHaveLength(1);

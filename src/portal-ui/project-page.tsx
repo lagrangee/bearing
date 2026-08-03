@@ -17,16 +17,16 @@ import {
   restoreProjectCanvas,
 } from "./project-canvas-history";
 import { ProjectFindDialog } from "./project-find-dialog";
-import { ProjectContextInspector, type ProjectInspectorSelection } from "./project-inspector";
-import {
-  type CapturedProjectInspectorSelection,
-  captureProjectInspectorSelection,
-  currentProjectInspectorSelection,
-} from "./project-inspector-state";
 import { ProjectNavigation, type ProjectSection } from "./project-navigation";
 import { cacheStateCopy, snapshotFor, snapshotTitle } from "./project-page-read-model";
 import { ProjectTopbar } from "./project-topbar";
 import { RoadmapsPage } from "./roadmaps-page";
+import { TechnicalDetails, type TechnicalDetailsSelection } from "./technical-details";
+import {
+  type CapturedTechnicalDetailsSelection,
+  captureTechnicalDetailsSelection,
+  currentTechnicalDetailsSelection,
+} from "./technical-details-state";
 import { useNarrowViewport } from "./use-narrow";
 import { useProjectActivation } from "./use-project-activation";
 
@@ -51,12 +51,12 @@ export function ProjectPage({
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const [capturedSelection, setCapturedSelection] =
-    useState<CapturedProjectInspectorSelection | null>(null);
+    useState<CapturedTechnicalDetailsSelection | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   const findTriggerRef = useRef<HTMLButtonElement>(null);
-  const inspectorTriggerRef = useRef<HTMLElement | null>(null);
-  const inspectorHistoryTokenRef = useRef<string | null>(null);
-  const inspectorScrollRef = useRef(0);
+  const technicalDetailsTriggerRef = useRef<HTMLElement | null>(null);
+  const technicalDetailsHistoryTokenRef = useRef<string | null>(null);
+  const technicalDetailsScrollRef = useRef(0);
   const view = activation.view;
   const snapshot = snapshotFor(view);
   const inspectionSubject =
@@ -105,13 +105,13 @@ export function ProjectPage({
     );
   const routeIdentity =
     section === "lineage" ? JSON.stringify({ subject, filteredView, semanticAnchor }) : section;
-  const inspectorContext = {
+  const technicalDetailsContext = {
     entryId,
     routeIdentity: section === "lineage" ? routeIdentity : undefined,
     section,
     snapshotFingerprint: snapshot?.basis.sitemapFingerprint,
   };
-  const selection = currentProjectInspectorSelection(capturedSelection, inspectorContext);
+  const selection = currentTechnicalDetailsSelection(capturedSelection, technicalDetailsContext);
   const projectLabel =
     view?.project.displayName ??
     (activation.state.kind === "unavailable"
@@ -127,61 +127,46 @@ export function ProjectPage({
     captureProjectCanvasReturn(entryId, section, focusKey);
     onNavigate(href);
   };
-  const inspect = (next: ProjectInspectorSelection, trigger: HTMLButtonElement) => {
-    const token = `inspector:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-    inspectorTriggerRef.current = trigger;
-    inspectorHistoryTokenRef.current = token;
-    inspectorScrollRef.current = window.scrollY;
+  const inspect = (next: TechnicalDetailsSelection, trigger: HTMLButtonElement) => {
+    const token = `technical-details:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    technicalDetailsTriggerRef.current = trigger;
+    technicalDetailsHistoryTokenRef.current = token;
+    technicalDetailsScrollRef.current = window.scrollY;
     window.history.pushState(
       {
         ...(typeof window.history.state === "object" && window.history.state !== null
           ? window.history.state
           : {}),
-        bearingInspector: { entryId, token },
+        bearingTechnicalDetails: { entryId, token },
       },
       "",
       window.location.href,
     );
-    setCapturedSelection(captureProjectInspectorSelection(next, inspectorContext));
+    setCapturedSelection(captureTechnicalDetailsSelection(next, technicalDetailsContext));
   };
-  const dismissInspector = useCallback(() => {
-    const trigger = inspectorTriggerRef.current;
+  const dismissTechnicalDetails = useCallback(() => {
+    const trigger = technicalDetailsTriggerRef.current;
     setCapturedSelection(null);
     window.requestAnimationFrame(() => {
-      window.scrollTo({ top: inspectorScrollRef.current });
+      window.scrollTo({ top: technicalDetailsScrollRef.current });
       if (trigger?.isConnected) trigger.focus();
-      if (inspectorTriggerRef.current === trigger) inspectorTriggerRef.current = null;
+      if (technicalDetailsTriggerRef.current === trigger) technicalDetailsTriggerRef.current = null;
     });
   }, []);
-  const closeInspector = () => {
+  const closeTechnicalDetails = () => {
     const marker =
       typeof window.history.state === "object" && window.history.state !== null
-        ? (window.history.state as { bearingInspector?: { token?: string } }).bearingInspector
+        ? (window.history.state as { bearingTechnicalDetails?: { token?: string } })
+            .bearingTechnicalDetails
         : undefined;
     if (
-      inspectorHistoryTokenRef.current !== null &&
-      marker?.token === inspectorHistoryTokenRef.current
+      technicalDetailsHistoryTokenRef.current !== null &&
+      marker?.token === technicalDetailsHistoryTokenRef.current
     ) {
       window.history.back();
       return;
     }
-    dismissInspector();
-  };
-  const openInspectorDetail = (href: string) => {
-    captureProjectCanvasReturn(
-      entryId,
-      section,
-      projectCanvasFocusKey(inspectorTriggerRef.current),
-    );
-    const state =
-      typeof window.history.state === "object" && window.history.state !== null
-        ? { ...(window.history.state as Record<string, unknown>) }
-        : {};
-    delete state["bearingInspector"];
-    window.history.replaceState(state, "", window.location.href);
-    inspectorHistoryTokenRef.current = null;
-    setCapturedSelection(null);
-    onNavigate(href);
+    dismissTechnicalDetails();
   };
   const openRoadmap = (href: string, event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -210,20 +195,20 @@ export function ProjectPage({
 
   useEffect(() => {
     if (capturedSelection !== null && selection === null) {
-      dismissInspector();
+      dismissTechnicalDetails();
     }
-  }, [capturedSelection, dismissInspector, selection]);
+  }, [capturedSelection, dismissTechnicalDetails, selection]);
 
   useEffect(() => {
     const closeFromHistory = () => {
       if (capturedSelection !== null) {
-        inspectorHistoryTokenRef.current = null;
-        dismissInspector();
+        technicalDetailsHistoryTokenRef.current = null;
+        dismissTechnicalDetails();
       }
     };
     window.addEventListener("popstate", closeFromHistory);
     return () => window.removeEventListener("popstate", closeFromHistory);
-  }, [capturedSelection, dismissInspector]);
+  }, [capturedSelection, dismissTechnicalDetails]);
 
   useEffect(() => {
     void routeIdentity;
@@ -273,7 +258,6 @@ export function ProjectPage({
       section === "overview" ? (
         <OverviewPage
           entryId={entryId}
-          onInspect={inspect}
           onNavigate={navigateFromProject}
           onOpenRoadmap={openRoadmap}
           snapshot={snapshot}
@@ -395,7 +379,7 @@ export function ProjectPage({
 
   return (
     <div
-      className={`portal-shell${navOpen ? " nav-open" : ""}${selection ? " has-inspector" : ""}`}
+      className={`portal-shell${navOpen ? " nav-open" : ""}${selection ? " has-technical-details" : ""}`}
     >
       <ProjectTopbar
         attentionCount={snapshot?.attention.length}
@@ -430,10 +414,9 @@ export function ProjectPage({
         {content}
       </main>
       {selection === null ? null : (
-        <ProjectContextInspector
-          onClose={closeInspector}
-          onOpenFullDetail={openInspectorDetail}
-          returnFocusRef={inspectorTriggerRef}
+        <TechnicalDetails
+          onClose={closeTechnicalDetails}
+          returnFocusRef={technicalDetailsTriggerRef}
           selection={selection}
         />
       )}

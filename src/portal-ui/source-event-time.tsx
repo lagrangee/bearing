@@ -13,7 +13,7 @@ export const formatSourceEventAbsolute = (
   locale?: string,
   timeZone?: string,
 ): string => {
-  if (time.availability === "unavailable") return "Time unavailable";
+  if (time.availability === "unavailable") return "";
   if (time.precision === "date") return time.value;
   return absoluteFormatter(locale, timeZone).format(new Date(time.value));
 };
@@ -41,7 +41,7 @@ export const formatSourceEventRelative = (
   now: number,
   locale?: string,
 ): string => {
-  if (time.availability === "unavailable") return "Time unavailable";
+  if (time.availability === "unavailable") return "";
   if (time.precision === "date") return time.value;
   const { amount, unit } = relativeUnit((Date.parse(time.value) - now) / 1_000);
   return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(amount, unit);
@@ -76,7 +76,7 @@ export function SourceEventTimeValue({
   const absolute = formatSourceEventAbsolute(time, locale, timeZone);
   const relative = formatSourceEventRelative(time, displayNow, locale);
   if (time.availability === "unavailable") {
-    return <span className="source-event-time unavailable">Time unavailable</span>;
+    return null;
   }
   if (mode === "compact") {
     return (

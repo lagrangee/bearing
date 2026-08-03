@@ -110,21 +110,6 @@ const auditRecord = canonicalRecord(
   "planning-audit",
   "planning-audit:current",
 );
-const guidanceRecord = canonicalRecord(
-  ".bearing/state/next-work-guidance.md",
-  "next-work-guidance",
-  "next-work-guidance:current",
-);
-const guidanceItemRecord = (fragment: string) =>
-  canonicalRecord(
-    ".bearing/state/next-work-guidance.md",
-    "guidance-item",
-    `next-work-guidance:current#${fragment}`,
-    fragment,
-  );
-const primaryGuidanceRecord = guidanceItemRecord("primary");
-const firstAlternativeRecord = guidanceItemRecord("alternative-1");
-const secondAlternativeRecord = guidanceItemRecord("alternative-2");
 const checkRecord = canonicalRecord(
   ".bearing/state/alignment-checks/portal.md",
   "alignment-check",
@@ -145,21 +130,10 @@ const effortModelSource = effortModelRecord.reference;
 const effortPortalSource = effortPortalRecord.reference;
 const assetSource = assetRecord.reference;
 const auditSource = auditRecord.reference;
-const guidanceSource = guidanceRecord.reference;
-const primaryGuidanceSource = primaryGuidanceRecord.reference;
-const firstAlternativeSource = firstAlternativeRecord.reference;
-const secondAlternativeSource = secondAlternativeRecord.reference;
 const checkSource = checkRecord.reference;
 const reviewSource = reviewRecord.reference;
 const diagnosticReference = `diagnostic:${"c".repeat(64)}`;
 const availableItems = { validity: "available", items: [] } as const;
-const guidanceItem = (title: string, rationale: string, source: typeof guidanceSource) => ({
-  title,
-  rationale,
-  supportingReferences: ["gate:two"],
-  source,
-});
-
 const localNative = (locator: string) => ({
   kind: "local" as const,
   identity: { locator },
@@ -374,7 +348,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 16,
+    schemaVersion: 17,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -589,30 +563,6 @@ export const createProjectOverviewFixture = () => {
         source: auditSource,
       },
     },
-    guidance: {
-      validity: "available",
-      value: {
-        id: "next-work-guidance:current",
-        generatedAt: "2026-07-13T20:00:00+0800",
-        semanticFreshness: "stale",
-        semanticCoverage: "complete",
-        basedOnAuditId: "planning-audit:current",
-        primary: guidanceItem(
-          "Finish Overview",
-          "Connect the accepted reading path.",
-          primaryGuidanceSource,
-        ),
-        alternatives: [
-          guidanceItem(
-            "Inspect the horizon",
-            "Check the explicit Gate order.",
-            firstAlternativeSource,
-          ),
-          guidanceItem("Review evidence", "Confirm the current basis.", secondAlternativeSource),
-        ],
-        source: guidanceSource,
-      },
-    },
     providerObservations: [
       capture(
         ".scratch/model",
@@ -704,10 +654,6 @@ export const createProjectOverviewFixture = () => {
       portalSpecRecord,
       portalIncomingRecord,
       auditRecord,
-      guidanceRecord,
-      primaryGuidanceRecord,
-      firstAlternativeRecord,
-      secondAlternativeRecord,
       checkRecord,
       reviewRecord,
     ],

@@ -46,9 +46,9 @@ test("keeps date-only source time date-only and never gives it a relative instan
   );
 });
 
-test("keeps unavailable distinct from an omitted inapplicable event", () => {
+test("omits unavailable event time from ordinary Portal presentation", () => {
   const unavailable = { availability: "unavailable" } as const;
-  expect(formatSourceEventAbsolute(unavailable, "en-US", "UTC")).toBe("Time unavailable");
+  expect(formatSourceEventAbsolute(unavailable, "en-US", "UTC")).toBe("");
   expect(
     renderToStaticMarkup(
       <SourceEventTimeValue
@@ -60,7 +60,7 @@ test("keeps unavailable distinct from an omitted inapplicable event", () => {
         timeZone="UTC"
       />,
     ),
-  ).toContain("Time unavailable");
+  ).toBe("");
 });
 
 test("uses now rather than exposing source seconds in ordinary relative display", () => {

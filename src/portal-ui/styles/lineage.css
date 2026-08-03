@@ -530,7 +530,6 @@
     .roadmap-index-row a:focus + .roadmap-event,
     .roadmap-landscape-header h3:focus-within + .roadmap-event,
     .asset-row-primary:focus,
-    .effort-row-primary:focus,
     .gate-node:focus
   )
   .source-event-time.compact::after {

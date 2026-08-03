@@ -16,8 +16,6 @@ export const SOURCE_BINDING_ROLES = [
   "alignment-check",
   "planning-review",
   "planning-audit",
-  "next-work-guidance",
-  "guidance-item",
   "audit-finding",
   "native-scope",
   "map",

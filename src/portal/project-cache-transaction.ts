@@ -18,7 +18,6 @@ type CommitInput = Readonly<{
     commit: () => Promise<unknown>;
   }>;
   providerObservationStore?: Readonly<{ bytes: Buffer }>;
-  deleteLegacyNativeScopeDiscoveryStore?: true;
   nativeScopeInspectionStore?: Readonly<{ bytes: Buffer }>;
   snapshot?: ProjectSnapshot;
   receipt?: SyncReceipt;
@@ -65,7 +64,6 @@ export const commitProjectCache = async (
   if (
     input.sync === undefined &&
     input.providerObservationStore === undefined &&
-    input.deleteLegacyNativeScopeDiscoveryStore !== true &&
     input.nativeScopeInspectionStore === undefined &&
     input.snapshot === undefined &&
     input.receipt === undefined
@@ -73,7 +71,6 @@ export const commitProjectCache = async (
     return;
   }
   const observationPath = join(input.repoRoot, ".bearing/cache/provider-observations.json");
-  const discoveryPath = join(input.repoRoot, ".bearing/cache/native-scope-discovery.json");
   const inspectionPath = join(input.repoRoot, ".bearing/cache/native-scope-inspections.json");
   const snapshotPath = join(input.repoRoot, ".bearing/cache/project-snapshot.json");
   const receiptPath = join(input.repoRoot, ".bearing/cache/sync-receipt.json");
@@ -85,8 +82,6 @@ export const commitProjectCache = async (
   const priorSitemap = input.sync === undefined ? undefined : await capture(input.sync.sitemapPath);
   const priorObservation =
     input.providerObservationStore === undefined ? undefined : await capture(observationPath);
-  const priorDiscovery =
-    input.deleteLegacyNativeScopeDiscoveryStore === true ? await capture(discoveryPath) : undefined;
   const priorInspection =
     input.nativeScopeInspectionStore === undefined ? undefined : await capture(inspectionPath);
   const priorSnapshot = input.snapshot === undefined ? undefined : await capture(snapshotPath);
@@ -96,16 +91,6 @@ export const commitProjectCache = async (
     if (input.providerObservationStore !== undefined) {
       const mode = priorObservation?.kind === "available" ? priorObservation.mode : 0o644;
       await writeObservation(observationPath, input.providerObservationStore.bytes, mode);
-    }
-    if (
-      input.deleteLegacyNativeScopeDiscoveryStore === true &&
-      priorDiscovery?.kind === "available"
-    ) {
-      try {
-        await unlink(discoveryPath);
-      } catch (error) {
-        if (!missing(error)) throw error;
-      }
     }
     if (input.nativeScopeInspectionStore !== undefined) {
       const mode = priorInspection?.kind === "available" ? priorInspection.mode : 0o644;
@@ -119,7 +104,6 @@ export const commitProjectCache = async (
       [receiptPath, priorReceipt],
       [snapshotPath, priorSnapshot],
       [observationPath, priorObservation],
-      [discoveryPath, priorDiscovery],
       [inspectionPath, priorInspection],
       [input.sync?.sitemapPath ?? observationPath, priorSitemap],
       [input.sync?.reportPath ?? observationPath, priorReport],

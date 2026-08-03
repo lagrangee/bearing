@@ -18,11 +18,6 @@ type Singleton<T> =
   | Readonly<{ validity: "partial"; value: T; issues?: readonly unknown[] }>
   | Readonly<{ validity: "absent" | "invalid" }>;
 type IdentifiedSource = Readonly<{ id: string; source: string }>;
-type Guidance = IdentifiedSource &
-  Readonly<{
-    primary: Readonly<{ source: string }>;
-    alternatives: readonly Readonly<{ source: string }>[];
-  }>;
 type SourceRecord = Readonly<{
   reference: string;
   kind: SourceKind;
@@ -43,7 +38,6 @@ export type SourceBindingConsistencySnapshot = Readonly<{
   checks: Collection<IdentifiedSource>;
   reviews: Collection<IdentifiedSource>;
   audit: Singleton<IdentifiedSource>;
-  guidance: Singleton<Guidance>;
   providerObservations: readonly unknown[];
   sources: readonly SourceRecord[];
 }>;
@@ -267,39 +261,4 @@ export const validateSourceBindingConsistency = (
     );
   }
   validateNativeSources(snapshot, index, context);
-  const guidance = trustedValue(snapshot.guidance);
-  if (guidance === undefined) return;
-  validateBinding(
-    index,
-    guidance.source,
-    {
-      kind: "canonical",
-      role: "next-work-guidance",
-      identity: guidance.id,
-      bearingType: "next-work-guidance",
-    },
-    ["guidance", "value"],
-    context,
-  );
-  const items = [guidance.primary, ...guidance.alternatives];
-  for (const [position, item] of items.entries()) {
-    const fragment = position === 0 ? "primary" : `alternative-${position}`;
-    const path =
-      position === 0
-        ? (["guidance", "value", "primary"] as const)
-        : (["guidance", "value", "alternatives", position - 1] as const);
-    validateBinding(
-      index,
-      item.source,
-      {
-        kind: "canonical",
-        role: "guidance-item",
-        identity: `${guidance.id}#${fragment}`,
-        bearingType: "next-work-guidance",
-        fragment,
-      },
-      path,
-      context,
-    );
-  }
 };

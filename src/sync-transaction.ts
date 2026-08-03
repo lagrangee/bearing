@@ -69,12 +69,6 @@ export const buildSyncTransactionTargets = (
       executable: false,
     });
   }
-  if (plan.legacyNativeScopeDiscoveryStorePresent) {
-    targets.splice(2, 0, {
-      kind: "delete",
-      target: plan.legacyNativeScopeDiscoveryStorePath,
-    });
-  }
   if (plan.nativeScopeInspectionStoreChanged) {
     targets.splice(2, 0, {
       target: plan.nativeScopeInspectionStorePath,

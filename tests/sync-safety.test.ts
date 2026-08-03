@@ -30,6 +30,16 @@ describe("bearing sync", () => {
     expect((await lstat(reportPath)).isSymbolicLink()).toBe(false);
   });
 
+  test("does not inspect or mutate the removed Native Scope Discovery cache path", async () => {
+    const root = await createValidBearingRepo();
+    const removedPath = join(root, ".bearing/cache/native-scope-discovery.json");
+    await mkdir(removedPath, { recursive: true });
+
+    await runSync(root);
+
+    expect((await lstat(removedPath)).isDirectory()).toBe(true);
+  });
+
   test("rejects a repository root that does not exist", async () => {
     const parent = await createValidBearingRepo();
     await expect(runSync(join(parent, "missing"))).rejects.toThrow(

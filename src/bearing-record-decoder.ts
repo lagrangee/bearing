@@ -523,7 +523,9 @@ const decodeContent = (
 };
 
 const sourceBinding = (data: BearingArtifact | undefined): SourceBinding | undefined => {
-  if (data === undefined || data.Type === "asset-registry") return undefined;
+  if (data === undefined || data.Type === "asset-registry" || data.Type === "next-work-guidance") {
+    return undefined;
+  }
   if (data.Type === "roadmap-index") {
     return { role: "roadmap-index", identity: "roadmap-index:current" };
   }

@@ -29,11 +29,9 @@ function attentionKindLabel(kind: AttentionKind): string {
 export function AttentionQueue({
   items,
   onOpen,
-  onSelect,
 }: {
   readonly items: readonly AttentionQueueItem[];
   readonly onOpen?: (item: AttentionQueueItem, event: MouseEvent<HTMLAnchorElement>) => void;
-  readonly onSelect?: (item: AttentionQueueItem, trigger: HTMLButtonElement) => void;
 }) {
   return (
     <section
@@ -67,30 +65,18 @@ export function AttentionQueue({
             </>
           );
           return item.href === undefined ? (
-            <button
-              key={item.key ?? `${item.kind}:${item.title}`}
+            <article key={item.key ?? `${item.kind}:${item.title}`} className={className}>
+              {content}
+            </article>
+          ) : (
+            <a
               className={className}
-              type="button"
-              onClick={(event) => onSelect?.(item, event.currentTarget)}
+              href={item.href}
+              key={item.key ?? `${item.kind}:${item.title}`}
+              onClick={(event) => onOpen?.(item, event)}
             >
               {content}
-            </button>
-          ) : (
-            <div className="attention-route-item" key={item.key ?? `${item.kind}:${item.title}`}>
-              <a className={className} href={item.href} onClick={(event) => onOpen?.(item, event)}>
-                {content}
-              </a>
-              {onSelect === undefined ? null : (
-                <button
-                  className="row-quick-look"
-                  type="button"
-                  aria-label={`Quick Look ${item.title}`}
-                  onClick={(event) => onSelect(item, event.currentTarget)}
-                >
-                  Quick Look
-                </button>
-              )}
-            </div>
+            </a>
           );
         })}
       </div>

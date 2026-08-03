@@ -257,6 +257,18 @@ const viewportOverflow = async (page: Page) =>
     }),
   );
 
+const expectCalmOrdinarySurface = async (page: Page): Promise<void> => {
+  const main = page.locator("main");
+  await expect(main).not.toContainText(
+    /Time unavailable|Quick Look|Discovered Work|Next Work Guidance|Selected context/u,
+  );
+  await expect(main).not.toContainText(/source:[0-9a-f]{64}/u);
+  await expect(main).not.toContainText(/\.bearing\/state\//u);
+  await expect(main).not.toContainText(/\b(?:roadmap|gate|effort|asset):[a-z0-9-]+\b/u);
+  expect(await page.getByText("Read only", { exact: true }).count()).toBeLessThanOrEqual(1);
+  expect(await viewportOverflow(page)).toEqual([]);
+};
+
 const sourceState = async (root: string): Promise<Readonly<Record<string, string>>> => {
   const bytes = await readRepositorySourceBytes(root);
   return Object.fromEntries(
@@ -378,6 +390,24 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     } as const;
     expect(agentExplanation.answer).toContain("no Gate Passage");
     expect(agentExplanation.optionalPortalLink).toBe(roadmapHref);
+
+    if (scenario.name === "Local") {
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      const primaryDestinations = [
+        `/projects/${entryId}`,
+        `/projects/${entryId}/roadmaps`,
+        `/projects/${entryId}/assets`,
+        `/projects/${entryId}/audit`,
+      ] as const;
+      for (const width of [1280, 640, 375] as const) {
+        await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+        for (const destination of primaryDestinations) {
+          await page.goto(`${host.url}${destination}`);
+          await expectCalmOrdinarySurface(page);
+        }
+      }
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+    }
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${host.url}${agentExplanation.optionalPortalLink}`);

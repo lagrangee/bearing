@@ -9,7 +9,6 @@ const render = (snapshot: ProjectSnapshot): string =>
   renderToStaticMarkup(
     createElement(OverviewPage, {
       entryId: "bearing",
-      onInspect: () => {},
       onNavigate: () => {},
       onOpenRoadmap: () => {},
       snapshot,

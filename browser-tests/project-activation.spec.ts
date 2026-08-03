@@ -82,7 +82,7 @@ test("the entry module establishes an API session before project activation", as
   expect(requests).toEqual(["bootstrap", "snapshot"]);
 });
 
-test("project switch remounts activation and clears project-scoped inspector state", async ({
+test("project switch remounts activation without a transient diagnostic disclosure", async ({
   page,
 }) => {
   const entries: string[] = [];
@@ -96,10 +96,10 @@ test("project switch remounts activation and clears project-scoped inspector sta
   await expect(
     page.getByRole("link", { name: /Return to Project Catalog from first project/u }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: /Blocking diagnostic Project Summary has one malformed section/u })
-    .click();
-  await expect(page.getByRole("complementary", { name: "Selected context" })).toBeVisible();
+  await expect(
+    page.getByText("Project Summary has one malformed section.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Technical Details" })).toHaveCount(0);
 
   await page.evaluate(() => {
     window.history.pushState({}, "", "/projects/second");
@@ -109,7 +109,7 @@ test("project switch remounts activation and clears project-scoped inspector sta
   await expect(
     page.getByRole("link", { name: /Return to Project Catalog from second project/u }),
   ).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "Selected context" })).toHaveCount(0);
+  await expect(page.getByRole("complementary", { name: "Technical Details" })).toHaveCount(0);
   expect(entries).toEqual(["first", "second"]);
 });
 

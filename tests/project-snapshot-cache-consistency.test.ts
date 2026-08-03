@@ -38,16 +38,6 @@ const otherSource = createSourceReference({
   kind: "canonical",
   displayLocator: ".bearing/state/other.md",
 });
-const auditSource = createSourceReference({
-  basisFingerprint: BASIS,
-  kind: "canonical",
-  displayLocator: ".bearing/state/planning-audit.md",
-});
-const guidanceSource = createSourceReference({
-  basisFingerprint: BASIS,
-  kind: "canonical",
-  displayLocator: ".bearing/state/next-work-guidance.md",
-});
 const openCheckRecord = boundRecord(
   ".bearing/state/alignment-checks/open-check.md",
   "alignment-check",
@@ -88,30 +78,9 @@ const supersededRoadmapRecord = boundRecord(
   "roadmap",
   "roadmap:superseded",
 );
-const auditRecord = boundRecord(
-  ".bearing/state/planning-audit.md",
-  "planning-audit",
-  "planning-audit:current",
-);
-const guidanceRecord = boundRecord(
-  ".bearing/state/next-work-guidance.md",
-  "next-work-guidance",
-  "next-work-guidance:current",
-);
-const guidanceItemRecord = (fragment: string) =>
-  boundRecord(
-    ".bearing/state/next-work-guidance.md",
-    "guidance-item",
-    `next-work-guidance:current#${fragment}`,
-    fragment,
-  );
-const primaryGuidanceRecord = guidanceItemRecord("primary");
-const firstGuidanceRecord = guidanceItemRecord("alternative-1");
-const secondGuidanceRecord = guidanceItemRecord("alternative-2");
-const issue = { code: "relation-mismatch", target: "snapshot", message: "Relation mismatch." };
 const emptyItems = { validity: "available", items: [] } as const;
 const emptySnapshot = {
-  schemaVersion: 16,
+  schemaVersion: 17,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -126,7 +95,6 @@ const emptySnapshot = {
   reviews: emptyItems,
   lineage: { subjects: [] },
   audit: { validity: "absent" },
-  guidance: { validity: "absent" },
   providerObservations: [],
   providerObservationSelections: [],
   nativeScopeInspections: { observations: [], selections: [] },
@@ -143,16 +111,6 @@ const emptySnapshot = {
       kind: "canonical" as const,
       displayLocator: ".bearing/state/other.md",
     },
-    {
-      reference: auditSource,
-      kind: "canonical" as const,
-      displayLocator: ".bearing/state/planning-audit.md",
-    },
-    {
-      reference: guidanceSource,
-      kind: "canonical" as const,
-      displayLocator: ".bearing/state/next-work-guidance.md",
-    },
     openCheckRecord,
     resolvedCheckRecord,
     pendingReviewRecord,
@@ -161,11 +119,6 @@ const emptySnapshot = {
     activeRoadmapRecord,
     completedRoadmapRecord,
     supersededRoadmapRecord,
-    auditRecord,
-    guidanceRecord,
-    primaryGuidanceRecord,
-    firstGuidanceRecord,
-    secondGuidanceRecord,
   ],
 };
 
@@ -382,93 +335,4 @@ test("rejects a completed Roadmap tampered into the active Index group", () => {
     },
   };
   expect(projectSnapshotSchema.safeParse(tampered).success).toBe(false);
-});
-
-const audit = {
-  id: "planning-audit:current",
-  generatedAt: "2026-07-14T10:00:00+0800",
-  semanticFreshness: "current",
-  coverage: "complete",
-  skippedTargets: [],
-  findings: [],
-  source: auditRecord.reference,
-};
-const guidanceItem = {
-  title: "Continue the current Gate",
-  rationale: "Use the audited project horizon.",
-  supportingReferences: ["roadmap:active"],
-  source: primaryGuidanceRecord.reference,
-};
-const guidance = {
-  id: "next-work-guidance:current",
-  generatedAt: "2026-07-14T10:01:00+0800",
-  semanticFreshness: "current",
-  semanticCoverage: "complete",
-  basedOnAuditId: "planning-audit:current",
-  primary: guidanceItem,
-  alternatives: [
-    { ...guidanceItem, title: "Inspect Assets", source: firstGuidanceRecord.reference },
-    { ...guidanceItem, title: "Review Attention", source: secondGuidanceRecord.reference },
-  ],
-  source: guidanceRecord.reference,
-};
-const advisorySnapshot = {
-  ...emptySnapshot,
-  audit: { validity: "available", value: audit },
-  guidance: { validity: "available", value: guidance },
-};
-
-test("accepts available audit-based Guidance only against a current matching basis", () => {
-  expect(projectSnapshotSchema.safeParse(advisorySnapshot).success).toBe(true);
-  expect(
-    projectSnapshotSchema.safeParse({
-      ...advisorySnapshot,
-      audit: {
-        validity: "available",
-        value: { ...audit, coverage: "incomplete", skippedTargets: ["roadmap:active"] },
-      },
-      guidance: {
-        validity: "available",
-        value: { ...guidance, semanticCoverage: "partial" },
-      },
-    }).success,
-  ).toBe(true);
-});
-
-test("rejects available Guidance with an unavailable, stale, or mismatched Audit basis", () => {
-  const auditVariants = [
-    { validity: "absent" },
-    { validity: "invalid", issues: [issue] },
-    { validity: "available", value: { ...audit, semanticFreshness: "stale" } },
-    { validity: "available", value: { ...audit, semanticFreshness: "unknown" } },
-    { validity: "available", value: { ...audit, coverage: "incomplete" } },
-  ];
-  for (const auditVariant of auditVariants) {
-    expect(
-      projectSnapshotSchema.safeParse({ ...advisorySnapshot, audit: auditVariant }).success,
-    ).toBe(false);
-  }
-});
-
-test("accepts a relation failure only as scoped partial Guidance with an issue", () => {
-  const relationIssue = {
-    code: "unavailable-next-work-guidance-audit-basis",
-    target: ".bearing/state/next-work-guidance.md",
-    message: "Next Work Guidance depends on an unavailable Planning Audit.",
-    source: guidanceRecord.reference,
-  };
-  expect(
-    projectSnapshotSchema.safeParse({
-      ...advisorySnapshot,
-      audit: { validity: "absent" },
-      guidance: { validity: "partial", value: guidance, issues: [relationIssue] },
-    }).success,
-  ).toBe(true);
-  expect(
-    projectSnapshotSchema.safeParse({
-      ...advisorySnapshot,
-      audit: { validity: "absent" },
-      guidance: { validity: "partial", value: guidance, issues: [issue] },
-    }).success,
-  ).toBe(false);
 });

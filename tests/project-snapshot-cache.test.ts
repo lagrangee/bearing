@@ -15,7 +15,7 @@ const source = createSourceReference({
   displayLocator: ".bearing/state/project-summary.md",
 });
 const snapshot = projectSnapshotSchema.parse({
-  schemaVersion: 16,
+  schemaVersion: 17,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: basisFingerprint },
   summary: { validity: "absent" },
@@ -30,7 +30,6 @@ const snapshot = projectSnapshotSchema.parse({
   reviews: availableItems,
   lineage: { subjects: [] },
   audit: { validity: "absent" },
-  guidance: { validity: "absent" },
   providerObservations: [],
   providerObservationSelections: [],
   nativeScopeInspections: { observations: [], selections: [] },
@@ -134,7 +133,7 @@ describe("Project Snapshot cache semantics", () => {
     });
   });
 
-  test("rejects available audit-based Guidance whose cached Audit basis is unavailable", async () => {
+  test("rejects the removed Guidance field as an invalid v17 Snapshot", async () => {
     const root = await createRoot();
     const item = {
       title: "Continue the current Gate",

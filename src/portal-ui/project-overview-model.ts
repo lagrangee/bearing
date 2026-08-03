@@ -32,7 +32,6 @@ export type OverviewAttentionItem = Readonly<{
   state: "available" | "unresolved";
   title: string;
   detail: string | undefined;
-  source: SourceRecord | undefined;
   nativeSubject?: NativeScopeInspectionSubject | undefined;
 }>;
 
@@ -103,20 +102,18 @@ const attentionModel = (
             state: "unresolved",
             title: "Attention source unavailable",
             detail: undefined,
-            source: undefined,
           }
         : {
             key: diagnostic.reference,
             kind: "diagnostic",
             state: "available",
             title: diagnostic.message,
-            detail: diagnostic.target,
-            source: diagnostic.source === undefined ? undefined : sources.get(diagnostic.source),
+            detail: undefined,
             ...(() => {
               const source =
                 diagnostic.source === undefined ? undefined : sources.get(diagnostic.source);
               const sourceSubject =
-                source?.binding === undefined || source.binding.role === "next-work-guidance"
+                source?.binding === undefined
                   ? undefined
                   : source.binding.role === "native-scope"
                     ? ({ kind: "native-scope", id: source.binding.identity } as const)
@@ -155,8 +152,7 @@ const attentionModel = (
         kind: "alignment",
         state: check === undefined ? "unresolved" : "available",
         title: item.title,
-        detail: check?.target,
-        source: sources.get(item.source),
+        detail: undefined,
       };
     }
     case "planning-review": {
@@ -167,7 +163,6 @@ const attentionModel = (
         state: review === undefined ? "unresolved" : "available",
         title: item.title,
         detail: review?.scope,
-        source: sources.get(item.source),
       };
     }
   }

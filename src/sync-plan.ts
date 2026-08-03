@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, unlink } from "node:fs/promises";
+import { lstat, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { stringify } from "yaml";
 import {
@@ -47,8 +47,6 @@ export type SyncPlan = Readonly<{
   sitemap: Buffer;
   reportPath: string;
   sitemapPath: string;
-  legacyNativeScopeDiscoveryStorePath: string;
-  legacyNativeScopeDiscoveryStorePresent: boolean;
   inputs: readonly string[];
   fingerprint: string;
   diagnostics: readonly StructuralDiagnostic[];
@@ -122,7 +120,6 @@ const ensureCacheBoundary = async (repoRoot: string): Promise<void> => {
     join(repoRoot, ".bearing/cache/sync-report.md"),
     join(repoRoot, ".bearing/cache/project-sitemap.md"),
     join(repoRoot, ".bearing/cache/provider-observations.json"),
-    join(repoRoot, ".bearing/cache/native-scope-discovery.json"),
     join(repoRoot, ".bearing/cache/native-scope-inspections.json"),
   ];
   const inspect = async (
@@ -323,27 +320,19 @@ export const prepareSync = async (
   const sitemapPath = join(root, ".bearing/cache/project-sitemap.md");
   const previousReport = await readExisting(reportPath);
   const previousSitemap = await readExisting(sitemapPath);
-  const legacyNativeScopeDiscoveryStorePath = join(
-    root,
-    ".bearing/cache/native-scope-discovery.json",
-  );
-  const legacyNativeScopeDiscoveryStorePresent =
-    (await readExisting(legacyNativeScopeDiscoveryStorePath)) !== undefined;
   const reportChanged = previousReport === undefined || !previousReport.equals(report);
   const sitemapChanged = previousSitemap === undefined || !previousSitemap.equals(sitemap);
   const compared = performance.now();
   const operationMetrics = generation.instrumentation.snapshot();
   return {
     root,
-    changed: reportChanged || sitemapChanged || legacyNativeScopeDiscoveryStorePresent,
+    changed: reportChanged || sitemapChanged,
     reportChanged,
     sitemapChanged,
     report,
     sitemap,
     reportPath,
     sitemapPath,
-    legacyNativeScopeDiscoveryStorePath,
-    legacyNativeScopeDiscoveryStorePresent,
     inputs: finalGeneration.inputs,
     fingerprint: finalGeneration.fingerprint,
     diagnostics,
@@ -411,13 +400,6 @@ export const commitSyncPlan = async (
     plan.nativeScopeInspectionStoreChanged
   ) {
     await mkdir(dirname(plan.reportPath), { recursive: true });
-    if (plan.legacyNativeScopeDiscoveryStorePresent) {
-      try {
-        await unlink(plan.legacyNativeScopeDiscoveryStorePath);
-      } catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-      }
-    }
     if (plan.providerObservationStoreChanged && options.publishProviderObservations !== false) {
       await writeFileAtomically(
         plan.providerObservationStorePath,

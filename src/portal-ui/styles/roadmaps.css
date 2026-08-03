@@ -156,18 +156,6 @@
   padding: var(--space-8) 0 var(--space-10);
   border-top: 1px solid var(--border);
 }
-.effort-table {
-  border-top: 1px solid var(--border);
-}
-.roadmap-efforts .effort-row {
-  min-height: 72px;
-}
-.effort-concluded .effort-title i {
-  background: var(--success);
-}
-.effort-planned .effort-title i {
-  background: var(--muted);
-}
 .source-list {
   border-top: 1px solid var(--border);
 }
@@ -245,12 +233,5 @@
   }
   .contract-criteria {
     padding: var(--space-4);
-  }
-  .roadmap-efforts .effort-row {
-    grid-template-columns: minmax(0, 1fr) 86px 16px;
-    min-height: var(--control-touch);
-  }
-  .roadmap-efforts .effort-frontier {
-    padding-left: 0;
   }
 }

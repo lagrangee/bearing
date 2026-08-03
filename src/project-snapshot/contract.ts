@@ -8,8 +8,6 @@ import {
   type authoritySchema,
   type effortSchema,
   type gateSchema,
-  type guidanceItemSchema,
-  type nextWorkGuidanceSchema,
   PROJECT_SNAPSHOT_VERSION,
   type planningAuditSchema,
   type planningReviewSchema,
@@ -78,8 +76,6 @@ export type PlanningLineageRelation = DeepReadonly<z.infer<typeof planningLineag
 export type PlanningLineageSubjectProjection = DeepReadonly<
   z.infer<typeof planningLineageSubjectProjectionSchema>
 >;
-export type GuidanceItem = DeepReadonly<z.infer<typeof guidanceItemSchema>>;
-export type NextWorkGuidance = DeepReadonly<z.infer<typeof nextWorkGuidanceSchema>>;
 export type ProviderScopeObservation = DeepReadonly<MattSkillsV1ProviderObservation>;
 export type NativeScopeInspectionProjection = DeepReadonly<
   z.infer<typeof nativeScopeInspectionProjectionSchema>

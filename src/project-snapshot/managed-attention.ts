@@ -23,7 +23,6 @@ export const isManagedAttentionDiagnostic = (
     diagnostic.source === undefined
       ? undefined
       : sources.find((candidate) => candidate.reference === diagnostic.source);
-  if (source?.binding?.role === "next-work-guidance") return false;
   return (
     source?.kind === "canonical" ||
     managedTargets.some((target) => targetWithinNativeScope(diagnostic.target, target))

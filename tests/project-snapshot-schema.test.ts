@@ -59,23 +59,6 @@ const auditRecord = boundRecord(
   "planning-audit",
   "planning-audit:current",
 );
-const guidanceRecord = boundRecord(
-  "canonical",
-  ".bearing/state/next-work-guidance.md",
-  "next-work-guidance",
-  "next-work-guidance:current",
-);
-const guidanceItemRecord = (fragment: string) =>
-  boundRecord(
-    "canonical",
-    ".bearing/state/next-work-guidance.md",
-    "guidance-item",
-    `next-work-guidance:current#${fragment}`,
-    fragment,
-  );
-const primaryRecord = guidanceItemRecord("primary");
-const firstAlternativeRecord = guidanceItemRecord("alternative-1");
-const secondAlternativeRecord = guidanceItemRecord("alternative-2");
 const assetRecord = boundRecord(
   "asset",
   ".bearing/state/assets.md",
@@ -86,7 +69,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 16,
+  schemaVersion: 17,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -101,22 +84,12 @@ const validSnapshot = {
   reviews: availableItems,
   lineage: { subjects: [] },
   audit: { validity: "absent" },
-  guidance: { validity: "absent" },
   providerObservations: [],
   providerObservationSelections: [],
   nativeScopeInspections: { observations: [], selections: [] },
   diagnostics: [],
   attention: [],
-  sources: [
-    summaryRecord,
-    roadmapRecord,
-    auditRecord,
-    guidanceRecord,
-    primaryRecord,
-    firstAlternativeRecord,
-    secondAlternativeRecord,
-    assetRecord,
-  ],
+  sources: [summaryRecord, roadmapRecord, auditRecord, assetRecord],
 };
 const providerCapture = createProviderScopeObservation({
   provider: "matt-skills/v1",
@@ -150,41 +123,6 @@ const providerSelection = {
   effectiveFreshness: providerCapture.freshness.assessment,
   latestAttempt: null,
 } as const;
-const guidanceItem = {
-  title: "Complete Snapshot",
-  rationale: "Unlock every reading path.",
-  supportingReferences: ["gate:overview"],
-  source: primaryRecord.reference,
-};
-const guidance = {
-  validity: "available",
-  value: {
-    id: "next-work-guidance:current",
-    generatedAt: "2026-07-13T20:00:00+0800",
-    semanticFreshness: "current",
-    semanticCoverage: "complete",
-    basedOnAuditId: "planning-audit:current",
-    primary: guidanceItem,
-    alternatives: [
-      { ...guidanceItem, source: firstAlternativeRecord.reference },
-      { ...guidanceItem, title: "Inspect Assets", source: secondAlternativeRecord.reference },
-    ],
-    source: guidanceRecord.reference,
-  },
-};
-const audit = {
-  validity: "available",
-  value: {
-    id: "planning-audit:current",
-    generatedAt: "2026-07-13T19:59:00+0800",
-    semanticFreshness: "current",
-    coverage: "complete",
-    skippedTargets: [],
-    findings: [],
-    source: auditRecord.reference,
-  },
-};
-
 test("parses a repository-scoped Snapshot with the complete domain breadth", () => {
   const parsed = projectSnapshotSchema.safeParse(validSnapshot);
   expect(parsed.success).toBe(true);
@@ -205,7 +143,6 @@ test("parses a repository-scoped Snapshot with the complete domain breadth", () 
     "reviews",
     "lineage",
     "audit",
-    "guidance",
     "providerObservations",
     "providerObservationSelections",
     "nativeScopeInspections",
@@ -434,63 +371,6 @@ test("keeps Summary and Brief time provenance UTC and independently optional", (
   expect(projectBriefSchema.safeParse(brief).success).toBe(true);
   expect(
     projectBriefSchema.safeParse({ ...brief, generatedAt: "2026-08-03T10:03:04+08:00" }).success,
-  ).toBe(false);
-});
-
-test("requires one primary and permits zero to two Guidance alternatives", () => {
-  expect(projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance }).success).toBe(true);
-  const noAlternatives = {
-    ...guidance,
-    value: { ...guidance.value, alternatives: [] },
-  };
-  const oneAlternative = {
-    ...guidance,
-    value: {
-      ...guidance.value,
-      alternatives: [{ ...guidanceItem, source: firstAlternativeRecord.reference }],
-    },
-  };
-  expect(
-    projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance: noAlternatives }).success,
-  ).toBe(true);
-  expect(
-    projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance: oneAlternative }).success,
-  ).toBe(true);
-  const threeAlternatives = {
-    ...guidance,
-    value: {
-      ...guidance.value,
-      alternatives: [guidanceItem, guidanceItem, guidanceItem],
-    },
-  };
-  expect(
-    projectSnapshotSchema.safeParse({
-      ...validSnapshot,
-      audit,
-      guidance: threeAlternatives,
-    }).success,
-  ).toBe(false);
-});
-
-test("keeps Guidance coverage and Audit basis structurally consistent", () => {
-  // Given: a valid complete Guidance projection and two impossible cache variants.
-  const withoutAuditBasis = {
-    ...guidance,
-    value: { ...guidance.value, basedOnAuditId: undefined },
-  };
-  const absentWithAuditBasis = {
-    ...guidance,
-    value: { ...guidance.value, semanticCoverage: "absent" },
-  };
-
-  // When / Then: the normalized cache schema enforces the same invariant as canonical source.
-  expect(
-    projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance: withoutAuditBasis })
-      .success,
-  ).toBe(false);
-  expect(
-    projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance: absentWithAuditBasis })
-      .success,
   ).toBe(false);
 });
 

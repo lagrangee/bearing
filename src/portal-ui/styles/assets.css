@@ -147,9 +147,6 @@
 .asset-empty .action {
   margin-top: var(--space-2);
 }
-.inspector-enter + .inspector-enter {
-  margin-top: var(--space-2);
-}
 @media (max-width: 900px) {
   .assets-header {
     align-items: stretch;

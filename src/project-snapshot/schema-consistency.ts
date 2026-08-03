@@ -1,5 +1,4 @@
 import type { RefinementCtx } from "zod";
-import { validateAdvisoryConsistency } from "./schema-advisory-consistency";
 import {
   type AssetConsistencySnapshot,
   validateAssetConsistency,
@@ -78,15 +77,6 @@ type AuditBasis = Readonly<{
   }>[];
 }>;
 
-type GuidanceBasis = Readonly<{
-  id: string;
-  semanticCoverage: "absent" | "partial" | "complete";
-  basedOnAuditId?: "planning-audit:current" | undefined;
-  source: string;
-  primary: Readonly<{ source: string }>;
-  alternatives: readonly Readonly<{ source: string }>[];
-}>;
-
 type PrimarySource = Readonly<{ id: string; source: string }>;
 
 type GovernanceSnapshot = EventTimeConsistencySnapshot &
@@ -128,7 +118,6 @@ type GovernanceSnapshot = EventTimeConsistencySnapshot &
     >;
     attention: AttentionConsistencySnapshot["attention"];
     audit: Singleton<AuditBasis>;
-    guidance: Singleton<GuidanceBasis>;
     sources: SourceBindingConsistencySnapshot["sources"];
     lineage: PlanningLineageConsistencySnapshot["lineage"];
   }>;
@@ -202,7 +191,6 @@ export const validateProjectSnapshotConsistency = (
   validatePlanningDerivationConsistency(snapshot, context);
   validatePlanningLineageConsistency(snapshot, context);
   validateAssetConsistency(snapshot, context);
-  validateAdvisoryConsistency(snapshot, context);
   validateAuditConsistency(snapshot, context);
   validateSourceConsistency(snapshot, context);
   validateSourceBindingConsistency(snapshot, context);

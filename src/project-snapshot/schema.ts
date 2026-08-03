@@ -23,7 +23,6 @@ import {
   planningReferenceSchema,
   reviewIdSchema,
   roadmapIdSchema,
-  semanticFreshnessSchema,
   semanticPlainTextSchema,
 } from "./schema-primitives";
 import { collectionProjectionSchema, singletonProjectionSchema } from "./schema-projection";
@@ -38,7 +37,7 @@ export { planningLineageProjectionSchema } from "./schema-planning-lineage";
 export { diagnosticReferenceSchema } from "./schema-primitives";
 export { projectionIssueSchema } from "./schema-projection";
 export { projectSummarySchema } from "./schema-summary";
-export const PROJECT_SNAPSHOT_VERSION = 16 as const;
+export const PROJECT_SNAPSHOT_VERSION = 17 as const;
 const resolutionSchema = z.strictObject({
   acceptedDecision: semanticPlainTextSchema,
   acceptedAt: bearingSourceEventTimeSchema,
@@ -254,39 +253,6 @@ export const planningReviewSchema = z.strictObject({
   resolution: resolutionSchema.optional(),
 });
 
-export const guidanceItemSchema = z.strictObject({
-  ...titledSourceShape,
-  rationale: semanticPlainTextSchema,
-  supportingReferences: z.array(planningReferenceSchema).min(1),
-});
-export const nextWorkGuidanceSchema = z
-  .strictObject({
-    id: z.literal("next-work-guidance:current"),
-    generatedAt: nonEmptyStringSchema,
-    semanticFreshness: semanticFreshnessSchema,
-    semanticCoverage: z.enum(["absent", "partial", "complete"]),
-    basedOnAuditId: z.literal("planning-audit:current").optional(),
-    primary: guidanceItemSchema,
-    alternatives: z.array(guidanceItemSchema).max(2),
-    source: sourceReferenceSchema,
-  })
-  .superRefine((guidance, context) => {
-    const basedOnAudit = guidance.basedOnAuditId;
-    if (guidance.semanticCoverage === "absent" && basedOnAudit !== undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["basedOnAuditId"],
-        message: "Absent semantic coverage cannot reference an Audit.",
-      });
-    }
-    if (guidance.semanticCoverage !== "absent" && basedOnAudit === undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["basedOnAuditId"],
-        message: "Partial or complete semantic coverage requires the current Audit.",
-      });
-    }
-  });
 export const structuralDiagnosticSchema = z.strictObject({
   reference: diagnosticReferenceSchema,
   code: nonEmptyStringSchema,
@@ -324,7 +290,6 @@ export const projectSnapshotSchema = z
     reviews: collectionProjectionSchema(planningReviewSchema, (review) => review.id),
     lineage: planningLineageProjectionSchema,
     audit: singletonProjectionSchema(planningAuditSchema),
-    guidance: singletonProjectionSchema(nextWorkGuidanceSchema),
     providerObservations: uniqueIdentityArraySchema(
       mattSkillsV1ProviderObservationSchema,
       (capture) => mattNativeScopeKey(capture.binding),

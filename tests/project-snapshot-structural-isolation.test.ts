@@ -97,10 +97,7 @@ Assets:
     validity: "invalid",
     issues: [{ code: "invalid-bearing-schema" }],
   });
-  expect(snapshot.guidance).toMatchObject({
-    validity: "invalid",
-    issues: [{ code: "invalid-next-work-body" }],
-  });
+  expect("guidance" in snapshot).toBe(false);
   expect(snapshot.attention).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ kind: "alignment-check", id: "alignment-check:healthy" }),

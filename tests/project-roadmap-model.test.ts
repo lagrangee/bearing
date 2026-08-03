@@ -1,12 +1,6 @@
 import { expect, test } from "bun:test";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import {
-  effortInspection,
-  frontierSummary,
-  gateInspection,
-  roadmapInspection,
-} from "../src/portal-ui/project-roadmap-inspection";
-import {
   buildRoadmapDetailModel,
   buildRoadmapIndexModel,
 } from "../src/portal-ui/project-roadmap-model";
@@ -66,55 +60,6 @@ test("resolves one Roadmap Detail through Gates, Efforts, native frontiers, and 
   );
   expect(model.evidence.map((entry) => entry.asset.title)).toEqual(["Planning Model Evidence"]);
   expect(model.missingMapRelationCount).toBe(0);
-});
-
-test("presents explicit Effort lifecycle and conclusion independently from provider completion", () => {
-  const model = buildRoadmapDetailModel(fixture(), "roadmap:portal");
-  if (model.state !== "available") throw new Error("Expected available Roadmap Detail.");
-  const concluded = model.efforts[0];
-  const active = model.efforts[1];
-  if (concluded === undefined || active === undefined) throw new Error("Expected both Efforts.");
-
-  expect(effortInspection(concluded).facts).toEqual(
-    expect.arrayContaining([
-      { label: "Lifecycle", value: "concluded" },
-      { label: "Planned at", value: "Time unavailable" },
-      { label: "Activated at", value: "Time unavailable" },
-      { label: "Conclusion", value: "completed" },
-      {
-        label: "Conclusion rationale",
-        value: "The governed contribution was explicitly accepted as complete.",
-      },
-      { label: "Concluded at", value: "Time unavailable" },
-    ]),
-  );
-  expect(effortInspection(active).facts).toEqual(
-    expect.arrayContaining([
-      { label: "Lifecycle", value: "active" },
-      { label: "Completion", value: "incomplete" },
-    ]),
-  );
-  expect(effortInspection(active).facts).not.toEqual(
-    expect.arrayContaining([{ label: "Conclusion", value: expect.any(String) }]),
-  );
-});
-
-test("Portal inspectors expose the same applicable event roles without raw source seconds", () => {
-  const model = buildRoadmapDetailModel(fixture(), "roadmap:portal");
-  if (model.state !== "available") throw new Error("Expected available Roadmap Detail.");
-  const gate = model.gates[0];
-  if (gate === undefined) throw new Error("Expected a Gate.");
-
-  expect(roadmapInspection(model).facts).toEqual(
-    expect.arrayContaining([{ label: "Started at", value: "Time unavailable" }]),
-  );
-  expect(gateInspection(gate, model.roadmap.title, model.gates.length).facts).toEqual(
-    expect.arrayContaining([
-      { label: "Planned at", value: "Time unavailable" },
-      { label: "Activated at", value: "Time unavailable" },
-      { label: "Passage accepted at", value: "Time unavailable" },
-    ]),
-  );
 });
 
 test("keeps scoped Index and Detail failures readable without inventing relations", () => {
@@ -232,22 +177,9 @@ test("propagates scoped partial Ticket issues without publishing a false-ready f
     blockingDiagnosticCount: 1,
     frontierEvidence: "withheld",
   });
-  expect(frontierSummary(effort)).toBe(
-    "At least: Claimed 1 · Ready 0 · Uncertain 1 · Blocked 1 · Resolved 0",
-  );
   expect(effort.frontierCountMode).toBe("at-least");
   expect(effort.fogCountMode).toBe("at-least");
   expect(effort.maps[0]?.fogCountMode).toBe("at-least");
-  expect(effortInspection(effort).facts).toEqual(
-    expect.arrayContaining([
-      { label: "Capture", value: "partial" },
-      { label: "Freshness", value: "current" },
-      { label: "Coverage", value: "incomplete" },
-      { label: "Completion", value: "incomplete" },
-      { label: "Frontier evidence", value: "withheld" },
-      { label: "Blocking diagnostics", value: "1" },
-    ]),
-  );
   expect(buildRoadmapDetailModel(parsed.data, "roadmap:second").state).toBe("available");
 });
 
@@ -368,7 +300,6 @@ test("fails a root-kind binding-definition conflict closed across Roadmap and Ef
     },
   });
   if (effort === undefined) throw new Error("Expected the conflicted Effort.");
-  expect(frontierSummary(effort)).toBe("Binding needs attention");
 });
 
 test("omits Fog when complete coverage confirms that the optional Map is absent", () => {
@@ -404,7 +335,4 @@ test("omits Fog when complete coverage confirms that the optional Map is absent"
     fogCountMode: "not-applicable",
   });
   if (effort === undefined) throw new Error("Expected the map-free Effort.");
-  expect(effortInspection(effort).facts).not.toEqual(
-    expect.arrayContaining([{ label: "Fog", value: expect.any(String) }]),
-  );
 });

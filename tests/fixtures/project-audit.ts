@@ -65,13 +65,12 @@ export const createProjectAuditFixture = (): ProjectSnapshot => {
         ],
       },
     },
-    guidance: { validity: "absent" },
     sources: [...snapshot.sources, findingSource, evidenceSource],
   });
 };
 
 const withAudit = (snapshot: ProjectSnapshot, audit: ProjectSnapshot["audit"]): ProjectSnapshot =>
-  projectSnapshotSchema.parse({ ...snapshot, audit, guidance: { validity: "absent" } });
+  projectSnapshotSchema.parse({ ...snapshot, audit });
 
 export const createAbsentProjectAuditFixture = (): ProjectSnapshot =>
   withAudit(createProjectOverviewFixture(), { validity: "absent" });
@@ -190,7 +189,6 @@ No material findings.
   return projectSnapshotSchema.parse({
     ...snapshot,
     audit: advisory.audit,
-    guidance: { validity: "absent" },
     sources: [
       ...snapshot.sources.filter((source) => !projectedReferences.has(source.reference)),
       ...advisory.sources,

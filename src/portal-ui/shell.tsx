@@ -41,26 +41,18 @@ export function CatalogShell({ children, onRefresh, refreshing = false, title }:
   );
 }
 
-type InspectorProps = PropsWithChildren<{
-  readonly accessibleLabel?: string | undefined;
-  readonly closeLabel?: string | undefined;
-  readonly eyebrow: string;
+type TechnicalDetailsPanelProps = PropsWithChildren<{
   readonly onClose: () => void;
   readonly returnFocusRef?: RefObject<HTMLElement | null>;
   readonly title: string;
-  readonly variant?: "technical-details" | undefined;
 }>;
 
-export function Inspector({
-  accessibleLabel = "Selected context",
+export function TechnicalDetailsPanel({
   children,
-  closeLabel = "Close selected context",
-  eyebrow,
   onClose,
   returnFocusRef,
   title,
-  variant,
-}: InspectorProps) {
+}: TechnicalDetailsPanelProps) {
   const narrow = useNarrowViewport();
   const dialogRef = useRef<HTMLDivElement>(null);
   const complementaryRef = useRef<HTMLElement>(null);
@@ -88,7 +80,7 @@ export function Inspector({
     return () => document.removeEventListener("keydown", handleEscape);
   }, [close]);
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Tab" || (!narrow && variant !== "technical-details")) return;
+    if (event.key !== "Tab") return;
     const panel = dialogRef.current ?? complementaryRef.current;
     const focusable = Array.from(
       panel?.querySelectorAll<HTMLElement>(
@@ -109,14 +101,14 @@ export function Inspector({
     <>
       <button
         ref={closeRef}
-        className="inspector-close"
+        className="technical-details-close"
         type="button"
         onClick={close}
-        aria-label={closeLabel}
+        aria-label="Close Technical Details"
       >
         <Icons.close />
       </button>
-      <p className="eyebrow">{eyebrow}</p>
+      <p className="eyebrow">Technical Details</p>
       <h2>{title}</h2>
       {children}
     </>
@@ -126,8 +118,8 @@ export function Inspector({
       {narrow ? (
         <div
           ref={dialogRef}
-          className={`inspector${variant === undefined ? "" : ` inspector-${variant}`}`}
-          aria-label={accessibleLabel}
+          className="technical-details"
+          aria-label="Technical Details"
           role="dialog"
           aria-modal="true"
           onKeyDown={handleKeyDown}
@@ -137,14 +129,19 @@ export function Inspector({
       ) : (
         <aside
           ref={complementaryRef}
-          className={`inspector${variant === undefined ? "" : ` inspector-${variant}`}`}
-          aria-label={accessibleLabel}
+          className="technical-details"
+          aria-label="Technical Details"
           onKeyDown={handleKeyDown}
         >
           {panelContent}
         </aside>
       )}
-      <button className="inspector-scrim" type="button" onClick={close} aria-label={closeLabel} />
+      <button
+        className="technical-details-scrim"
+        type="button"
+        onClick={close}
+        aria-label="Close Technical Details"
+      />
     </>
   );
 }

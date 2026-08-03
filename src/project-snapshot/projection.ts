@@ -81,6 +81,11 @@ export const buildProjectSnapshot = async (
     advisory.sources,
     buildMattNativeSourceRecords([...lineageObservationByScope.values()], input.sitemapFingerprint),
   ]);
+  const portalDiagnostics = input.diagnostics.filter(
+    (diagnostic) =>
+      diagnostic.target !== ".bearing/state/next-work-guidance.md" &&
+      !diagnostic.target.startsWith(".bearing/state/next-work-guidance.md#"),
+  );
   const diagnosticProjection = buildSnapshotDiagnostics({
     sitemapFingerprint: input.sitemapFingerprint,
     managedTargets: [
@@ -96,7 +101,7 @@ export const buildProjectSnapshot = async (
         source.kind === "tracker" && source.binding !== undefined ? [source.displayLocator] : [],
       ),
     ],
-    diagnostics: input.diagnostics,
+    diagnostics: portalDiagnostics,
     sourceLocators: sources.map((source) => ({
       kind: source.kind,
       locator: source.displayLocator,
@@ -129,7 +134,6 @@ export const buildProjectSnapshot = async (
     reviews: decisions.reviews,
     lineage: input.planningGraph.lineageProjection(),
     audit: advisory.audit,
-    guidance: advisory.guidance,
     providerObservations: input.providerObservations,
     providerObservationSelections,
     nativeScopeInspections: {

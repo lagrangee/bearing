@@ -27,10 +27,10 @@ import {
 } from "./planning-lineage-model";
 import { Action } from "./primitives";
 import { projectCanvasFocusKey } from "./project-canvas-history";
-import type { ProjectInspectorSelection } from "./project-inspector";
 import { SourceEventTimeValue } from "./source-event-time";
+import type { TechnicalDetailsSelection } from "./technical-details";
 
-type Inspect = (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
+type Inspect = (selection: TechnicalDetailsSelection, trigger: HTMLButtonElement) => void;
 type Navigate = (href: string, focusKey?: string) => void;
 
 const subjectLabel = (kind: string): string =>
@@ -52,7 +52,7 @@ const technicalDetailsSelection = (
     { state: "available" | "partial" }
   >,
   snapshot: ProjectSnapshot,
-): ProjectInspectorSelection => {
+): TechnicalDetailsSelection => {
   const source = model.subject.source;
   const diagnostics = snapshot.diagnostics.filter(
     (diagnostic) =>
@@ -72,11 +72,7 @@ const technicalDetailsSelection = (
     ...(source?.fragment === undefined ? [] : [`Fragment: ${source.fragment}`]),
   ];
   return {
-    accessibleLabel: "Technical Details",
-    closeLabel: "Close Technical Details",
-    eyebrow: "Technical Details",
     title: model.subject.title,
-    variant: "technical-details",
     facts: [
       { label: "Stable ID", value: model.subject.id, code: true },
       { label: "Projection", value: model.state },
