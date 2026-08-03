@@ -68,6 +68,42 @@ const forcedEnvelope = (snapshot: ProjectSnapshot) => ({
   validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
 });
 
+const failedSyncEnvelope = () => ({
+  version: 1,
+  state: "failed",
+  mode: "force",
+  outcome: "failed",
+  error: {
+    code: "snapshot-write-failed",
+    message: "Project cache could not be saved.",
+  },
+  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
+});
+
+const withProjectBrief = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+  const source = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    kind: "canonical",
+    locator: ".bearing/state/project-brief.md",
+    binding: { role: "project-brief", identity: "project-brief:current" },
+  });
+  return projectSnapshotSchema.parse({
+    ...snapshot,
+    brief: {
+      validity: "available",
+      value: {
+        id: "project-brief:current",
+        title: "Project Brief",
+        generatedAt: "2026-08-03T02:03:04Z",
+        projectPurpose: "Restore managed planning context without expanding Bearing Scope.",
+        currentStage: "Review the revised G3 reading contract.",
+        materialAchievedState: "Direct semantic reading and clean-cut boundaries are delivered.",
+        source: source.reference,
+      },
+    },
+    sources: [...snapshot.sources, source],
+  });
+};
+
 const withPreviewAsset = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   if (snapshot.assets.validity !== "available") throw new Error("Expected readable Assets.");
   const source = createSourceRecord(snapshot.basis.sitemapFingerprint, {
@@ -132,7 +168,7 @@ const githubScenarioSnapshot = (): Readonly<{
   nativeScopeTitle: string;
   nativeSubjectTitle: string;
 }> => {
-  const base = createProjectOverviewFixture();
+  const base = withProjectBrief(createProjectOverviewFixture());
   if (base.efforts.validity !== "available") throw new Error("Expected readable Efforts.");
   const nativeScope = encodeGitHubMattNativeScope({
     host: "github.com",
@@ -358,6 +394,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
   await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
   let activeSnapshot = local.snapshot;
   let syncTarget = degradedSnapshot(local.snapshot);
+  let syncAttempts = 0;
   const posts: string[] = [];
   page.on("request", (request) => {
     if (request.method() === "POST") posts.push(request.url());
@@ -365,14 +402,18 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
   await page.route(`**/api/v1/projects/${entryId}/snapshot`, (route) =>
     route.fulfill({ json: readyEnvelope(activeSnapshot) }),
   );
-  await page.route(`**/api/v1/projects/${entryId}/sync`, (route) =>
-    route.fulfill({ json: forcedEnvelope(syncTarget) }),
-  );
+  await page.route(`**/api/v1/projects/${entryId}/sync`, (route) => {
+    syncAttempts += 1;
+    return route.fulfill({
+      json: syncAttempts === 1 ? failedSyncEnvelope() : forcedEnvelope(syncTarget),
+    });
+  });
   const beforeSources = await sourceState(fixtureRoot);
 
   for (const scenario of scenarios) {
     activeSnapshot = scenario.snapshot;
     syncTarget = degradedSnapshot(scenario.snapshot);
+    syncAttempts = 0;
     posts.length = 0;
     const roadmapHref = planningLineageSubjectHref(entryId, {
       kind: "roadmap",
@@ -390,6 +431,23 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     } as const;
     expect(agentExplanation.answer).toContain("no Gate Passage");
     expect(agentExplanation.optionalPortalLink).toBe(roadmapHref);
+
+    await page.goto(host.url);
+    await page
+      .getByRole("list", { name: "Registered Bearing projects" })
+      .getByRole("link", { name: /G3 Comprehension Project/u })
+      .click();
+    await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Brief" })).toHaveAttribute("aria-selected", "true");
+    if (scenario.name === "Local") {
+      await expect(page.getByText("Project Brief has not been generated yet.")).toBeVisible();
+    } else {
+      await expect(
+        page.getByText("Restore managed planning context without expanding Bearing Scope."),
+      ).toBeVisible();
+    }
+    await page.getByRole("tab", { name: "Project Summary" }).click();
+    await expect(page.getByText("Keep the whole project visible.", { exact: true })).toBeVisible();
 
     if (scenario.name === "Local") {
       await page.emulateMedia({ reducedMotion: "reduce" });
@@ -421,6 +479,16 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await page.locator(`a[href="${gateHref}"]`).first().click();
     await expect(page).toHaveURL(`${host.url}${gateHref}`);
     await expect(page.getByRole("heading", { name: "Overview proven", level: 1 })).toBeVisible();
+    const technicalDetailsTrigger = page.getByRole("button", { name: "Open Technical Details" });
+    await technicalDetailsTrigger.focus();
+    await page.keyboard.press("Enter");
+    const technicalDetails = page.getByRole("complementary", { name: "Technical Details" });
+    await expect(technicalDetails).toBeVisible();
+    await expect(technicalDetails.getByText("gate:two", { exact: true })).toBeVisible();
+    await expect(technicalDetails).not.toContainText("Prove Overview comprehension.");
+    await page.keyboard.press("Escape");
+    await expect(technicalDetails).toHaveCount(0);
+    await expect(technicalDetailsTrigger).toBeFocused();
     const effortLink = page
       .getByLabel("Lineage Context")
       .getByRole("link", { name: /^Web Portal Validation\b/u });
@@ -456,6 +524,12 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(
       page.getByRole("heading", { name: scenario.nativeSubjectTitle, level: 1 }),
     ).toBeVisible();
+    await expect(page.getByLabel("Lineage Context")).toBeVisible();
+
+    await page.goto(`${host.url}/projects/${entryId}/audit`);
+    await expect(page.getByRole("heading", { name: "Planning Audit", level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "No findings" })).toBeVisible();
+    await expect(page.getByText("Audit is advisory", { exact: false })).toHaveCount(1);
 
     await page.goto(`${host.url}/projects/${entryId}/assets`);
     const find = page.getByRole("button", { name: "Find in project" });
@@ -471,6 +545,9 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(result).toContainText("Prove whole-project orientation.");
     await expect(result).not.toContainText("Intent");
     await expect(result).toContainText("Roadmap");
+    await searchbox.fill("standalone native work");
+    await expect(findDialog.getByRole("option")).toHaveCount(0);
+    await searchbox.fill("whole-project orientation");
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.keyboard.press("Escape");
     await expect(find).toBeFocused();
@@ -567,18 +644,35 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     expect(await viewportOverflow(page)).toEqual([]);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
+    for (const [destination, heading] of [
+      [`/projects/${entryId}`, "Portal Project"],
+      [roadmapHref, "Portal Evolution"],
+      [gateHref, "Overview proven"],
+      [`/projects/${entryId}/audit`, "Planning Audit"],
+    ] as const) {
+      await page.goto(`${host.url}${destination}`);
+      await expect(page.getByRole("heading", { name: heading, level: 1 })).toBeVisible();
+      expect(await viewportOverflow(page)).toEqual([]);
+    }
+
     const degradedGateHref = planningLineageSubjectHref(entryId, {
       kind: "gate",
       id: "gate:one",
     });
     await page.goto(`${host.url}${degradedGateHref}`);
     await page.getByRole("button", { name: "Sync" }).click();
+    await expect(page.getByRole("alert")).toContainText("Cached project content remains visible");
+    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+    await page.getByRole("button", { name: "Retry" }).click();
     await expect(page.getByRole("heading", { name: "Gate unavailable", level: 1 })).toBeVisible();
     await expect(
       page.getByText("Partial collection coverage cannot establish", { exact: false }),
     ).toBeVisible();
     await expect(page.getByRole("link", { name: "Return to project Overview" })).toBeVisible();
-    expect(posts).toEqual([`${host.url}/api/v1/projects/${entryId}/sync`]);
+    expect(posts).toEqual([
+      `${host.url}/api/v1/projects/${entryId}/sync`,
+      `${host.url}/api/v1/projects/${entryId}/sync`,
+    ]);
   }
 
   expect(await sourceState(fixtureRoot)).toEqual(beforeSources);
