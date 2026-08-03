@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createProviderScopeObservation } from "../src/native-work-provider";
@@ -66,6 +68,33 @@ test("renders one route-owned Gate dossier and non-duplicated Lineage Context", 
   expect(html).not.toContain("1 total");
   expect(html).toContain('href="/projects/bearing/lineage/effort/effort%3Amodel"');
   expect(html).not.toContain("Resume in Agent Surface");
+});
+
+test("uses one shared low-noise identity header for Roadmap, Gate, and Effort details", () => {
+  const cases = [
+    [{ kind: "roadmap", id: "roadmap:portal" }, "Roadmap", "Portal Evolution"],
+    [{ kind: "gate", id: "gate:one" }, "Milestone Gate", "Model ready"],
+    [{ kind: "effort", id: "effort:model" }, "Effort", "Planning Model"],
+  ] as const;
+
+  for (const [subject, marker, title] of cases) {
+    const html = render({ validity: "valid", value: subject });
+    expect(html).toContain(`data-object-kind="${subject.kind}"`);
+    expect(html).toContain(`<span class="lineage-object-type">${marker}</span>`);
+    expect(html).toContain(`<h1>${title}</h1>`);
+    expect(html).not.toContain(`<code>${subject.id}</code>`);
+  }
+});
+
+test("gives lineage identity and mixed-language prose container-owned readable width", async () => {
+  const css = await readFile(join(process.cwd(), "src/portal-ui/styles/lineage.css"), "utf8");
+  expect(css).toContain(".lineage-identity");
+  expect(css).toMatch(/\.lineage-sections > section \{[\s\S]*max-width: 960px;/u);
+  expect(css).not.toContain("max-width: 24ch");
+  expect(css).not.toContain("max-width: 72ch");
+  expect(css).toMatch(
+    /@media \(max-width: 820px\)[\s\S]*\.lineage-sections > section[\s\S]*max-width: 100%;/u,
+  );
 });
 
 test("keeps Asset semantics on detail and routes content outside Technical Details", () => {

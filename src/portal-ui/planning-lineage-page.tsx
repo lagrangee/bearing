@@ -39,6 +39,19 @@ const subjectLabel = (kind: string): string =>
     .map((word) => `${word[0]?.toUpperCase()}${word.slice(1)}`)
     .join(" ");
 
+const detailObjectType = (kind: string): string | undefined => {
+  switch (kind) {
+    case "roadmap":
+      return "Roadmap";
+    case "gate":
+      return "Milestone Gate";
+    case "effort":
+      return "Effort";
+    default:
+      return undefined;
+  }
+};
+
 const follow = (href: string, event: MouseEvent<HTMLAnchorElement>, onNavigate: Navigate) => {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
     return;
@@ -965,6 +978,7 @@ export function PlanningLineagePage({
       model.semanticAvailability.get(semanticAnchor) !== "unavailable" &&
       model.semanticAvailability.get(semanticAnchor) !== "unsupported") ||
     contextRelations.some((relation) => `relation.${relation.key}` === semanticAnchor);
+  const objectType = detailObjectType(model.subject.kind);
   return (
     <div className="page lineage-page">
       <nav aria-label="Canonical Parent Path" className="lineage-breadcrumb">
@@ -988,8 +1002,16 @@ export function PlanningLineagePage({
           Requested section unavailable. The subject route remains open at the top.
         </p>
       ) : null}
-      <header className="lineage-header">
-        <h1>{model.subject.title}</h1>
+      <header
+        className="lineage-header"
+        {...(objectType === undefined ? {} : { "data-object-kind": model.subject.kind })}
+      >
+        <div className="lineage-identity">
+          {objectType === undefined ? null : (
+            <span className="lineage-object-type">{objectType}</span>
+          )}
+          <h1>{model.subject.title}</h1>
+        </div>
         <button
           aria-label="Open Technical Details"
           className="technical-details-trigger"

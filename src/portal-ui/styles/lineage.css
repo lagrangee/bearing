@@ -39,8 +39,19 @@
   gap: var(--space-6);
   padding: var(--space-2) 0 var(--space-10);
 }
+.lineage-identity {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.lineage-object-type {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--muted);
+  font-size: var(--type-tech);
+  font-weight: 600;
+}
 .lineage-header h1 {
-  max-width: 24ch;
+  max-width: none;
   margin-bottom: 0;
   overflow-wrap: anywhere;
 }
@@ -79,7 +90,7 @@
   border-top: 1px solid var(--border);
 }
 .lineage-sections > section {
-  max-width: 850px;
+  max-width: 960px;
   padding: var(--space-8) 0;
   border-bottom: 1px solid var(--border);
   scroll-margin-top: calc(var(--topbar) + var(--space-5));
@@ -90,7 +101,7 @@
 }
 .lineage-sections p,
 .lineage-sections li {
-  max-width: 72ch;
+  max-width: 100%;
   color: var(--muted);
   line-height: 1.65;
   overflow-wrap: anywhere;
@@ -550,7 +561,17 @@
 }
 
 @media (max-width: 820px) {
-  .lineage-header,
+  .lineage-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .lineage-sections > section {
+    max-width: 100%;
+  }
+  .technical-details-trigger {
+    align-self: flex-start;
+  }
   .lineage-relation-grid,
   .matt-map-previews {
     grid-template-columns: 1fr;

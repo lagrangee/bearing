@@ -18,7 +18,7 @@
 .index-section-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--space-2);
   padding: var(--space-3) 0;
   color: var(--muted);
   border-bottom: 1px solid var(--border);
@@ -27,6 +27,7 @@
   font-size: var(--type-ui);
 }
 .index-section-heading span {
+  font-variant-numeric: tabular-nums;
   font-size: var(--type-tech);
 }
 .roadmaps-index .roadmap-index-row {
