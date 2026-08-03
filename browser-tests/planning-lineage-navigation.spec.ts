@@ -231,6 +231,31 @@ const timedFixture = (): ProjectSnapshot => {
   });
 };
 
+const degradedWorkHistoryFixture = (): ProjectSnapshot => {
+  const snapshot = fixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) => observation.binding.nativeScope === ".scratch/portal",
+  );
+  if (portal === undefined || (portal.state !== "available" && portal.state !== "partial")) {
+    throw new Error("Expected the Portal observation.");
+  }
+  const stale = createProviderScopeObservation({
+    ...portal,
+    freshness: { ...portal.freshness, assessment: "stale" },
+  } as never) as typeof portal;
+  return parseRebuiltPlanningLineageFixture({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portal.id ? stale : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === portal.id
+        ? { ...selection, observationId: stale.id, effectiveFreshness: "stale" as const }
+        : selection,
+    ),
+  });
+};
+
 const withoutRequestedGate = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   if (snapshot.gates.validity === "invalid" || snapshot.assets.validity === "invalid") {
     throw new Error("Expected readable Gates and Assets.");
@@ -305,7 +330,7 @@ test("stable durable-subject routes survive direct entry and keep failures scope
     [{ kind: "alignment-check", id: "alignment-check:portal" }, "Confirm the Portal revision"],
     [{ kind: "planning-review", id: "planning-review:sequence" }, "Review the current sequence"],
     [{ kind: "asset", id: "asset:planning-model-evidence" }, "Planning Model Evidence"],
-    [{ kind: "native-scope", id: ".scratch/portal" }, ".scratch/portal"],
+    [{ kind: "native-scope", id: ".scratch/portal" }, "Contributing Work"],
     [{ kind: "native-subject", id: ".scratch/portal/map.md" }, "Portal Validation"],
     [{ kind: "native-subject", id: ".scratch/portal/PRD.md" }, "Portal Validation PRD"],
     [
@@ -345,7 +370,7 @@ test("stable durable-subject routes survive direct entry and keep failures scope
     {
       snapshot,
       scope: { kind: "native-scope" as const, id: ".scratch/portal" },
-      scopeTitle: ".scratch/portal",
+      scopeTitle: "Contributing Work",
       subject: { kind: "native-subject" as const, id: ".scratch/portal/map.md" },
       title: "Portal Validation",
       source: ".scratch/portal/map.md",
@@ -354,7 +379,7 @@ test("stable durable-subject routes survive direct entry and keep failures scope
     {
       snapshot: githubSnapshot,
       scope: mattNativeScopeSubject(githubObservation),
-      scopeTitle: "example/reference issue #101",
+      scopeTitle: "Contributing Work",
       subject: {
         kind: "native-subject" as const,
         id: githubObservation.projection.map.ref,
@@ -468,8 +493,17 @@ test("Source Event Time stays source-precise while browser-relative updates rema
   await expect(accepted).toBeVisible();
   await expect(accepted).not.toContainText(/10:00:00/u);
   await expect(accepted.locator("xpath=following-sibling::small")).toHaveText("5 minutes ago");
-  await expect(history.getByText("2026-07-31T10:00:00.123Z", { exact: true })).toBeAttached();
-  await expect(history.getByText("fractional-second precision", { exact: true })).toBeAttached();
+  await expect(history).not.toContainText("Technical time provenance");
+  await expect(history).not.toContainText("fractional-second precision");
+  await page.getByRole("button", { name: "Open Technical Details" }).click();
+  const timeDetails = page.getByRole("complementary", { name: "Technical Details" });
+  await expect(
+    timeDetails.getByRole("heading", { name: "Source Event Time Provenance", level: 3 }),
+  ).toBeVisible();
+  await expect(timeDetails).toContainText(
+    "Passage accepted: 2026-07-31T10:00:00.123Z · Precision fractional-second",
+  );
+  await page.keyboard.press("Escape");
 
   await page.goto(
     planningLineageSubjectHref("lineage", {
@@ -546,9 +580,7 @@ test("semantic detail owns the reading contract while Technical Details stays tr
   await expect(page.getByText("Establish the model.", { exact: true })).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "Exit Criteria", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Passage", level: 2 })).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Lifecycle and Readiness", level: 2 }),
-  ).toBeVisible();
+  await expect(header.getByText("Gate · Passed · Ready for review", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Contributing Efforts", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Event History", level: 2 })).toHaveCount(0);
 
@@ -804,7 +836,26 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
     id: ".scratch/portal",
   });
   await page.goto(nativeHref);
-  await expect(page.getByRole("heading", { name: ".scratch/portal", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Contributing Work", level: 1 })).toBeVisible();
+  await expect(page.getByText("Work History", { exact: true })).toBeVisible();
+  await expect(page.getByText("For Web Portal Validation", { exact: true })).toBeVisible();
+  await expect(page.getByText(".scratch/portal", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Scope Context and Trust", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Native Work Reading State", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Open Technical Details" }).click();
+  const workHistoryDetails = page.getByRole("dialog", { name: "Technical Details" });
+  await expect(workHistoryDetails.getByText("matt-skills/v1", { exact: true })).toBeVisible();
+  await expect(
+    workHistoryDetails.getByText(".scratch/portal", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(workHistoryDetails.getByText("current", { exact: true })).toBeVisible();
+  await expect(workHistoryDetails.getByText("complete", { exact: true })).toBeVisible();
+  await expect(workHistoryDetails.getByText("Trustworthy", { exact: true })).toBeVisible();
+  await expect(
+    workHistoryDetails.getByRole("heading", { name: "Observation provenance", level: 3 }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(workHistoryDetails).toHaveCount(0);
   const subjectLink = page
     .getByRole("link", { name: "Review the Roadmap journey", exact: true })
     .first();
@@ -848,4 +899,28 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   await expect(page.getByRole("button", { name: "Quick Look Planning Model" })).toHaveCount(0);
   await expect(contributingEfforts).toContainText("Resolved 1");
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("degraded Work History returns recovery to its owning Effort without native refresh", async ({
+  page,
+}) => {
+  await serveSnapshot(page, degradedWorkHistoryFixture());
+  const nativeHref = planningLineageSubjectHref("lineage", {
+    kind: "native-scope",
+    id: ".scratch/portal",
+  });
+  const effortHref = planningLineageSubjectHref("lineage", {
+    kind: "effort",
+    id: "effort:portal",
+  });
+  await page.goto(nativeHref);
+  const attention = page.getByRole("status");
+  await expect(attention).toContainText("Needs attention");
+  const owner = attention.getByRole("link", { name: "Web Portal Validation", exact: true });
+  await expect(owner).toHaveAttribute("href", effortHref);
+  await expect(page.getByRole("button", { name: "Refresh work details" })).toHaveCount(0);
+  await expect(page.getByText("Native Work Reading State", { exact: true })).toHaveCount(0);
+  await owner.click();
+  await expect(page).toHaveURL(effortHref);
+  await expect(page.getByRole("button", { name: "Refresh work details" })).toBeVisible();
 });

@@ -54,6 +54,31 @@ const expectReadableGateMeasure = async (locator: Locator, minimumWidth: number)
   expect(Math.min(...widths)).toBeGreaterThanOrEqual(minimumWidth);
 };
 
+const expectHorizontalHorizonAlignment = async (locator: Locator): Promise<void> => {
+  const alignments = await locator.evaluateAll((horizons) =>
+    horizons.map((horizon) => {
+      const gates = Array.from(horizon.querySelectorAll(".gate-segment"));
+      return {
+        markerTops: gates.map(
+          (gate) => gate.querySelector(".gate-marker")?.getBoundingClientRect().top ?? -1,
+        ),
+        titleTops: gates.map(
+          (gate) => gate.querySelector(".gate-copy strong")?.getBoundingClientRect().top ?? -1,
+        ),
+        statusTops: gates.map(
+          (gate) => gate.querySelector(".gate-copy small")?.getBoundingClientRect().top ?? -1,
+        ),
+      };
+    }),
+  );
+  const spread = (values: readonly number[]) => Math.max(...values) - Math.min(...values);
+  for (const alignment of alignments) {
+    expect(spread(alignment.markerTops)).toBeLessThanOrEqual(1);
+    expect(spread(alignment.titleTops)).toBeLessThanOrEqual(1);
+    expect(spread(alignment.statusTops)).toBeLessThanOrEqual(1);
+  }
+};
+
 const longGateIntent =
   "让维护者完整理解 Gate 的语义目标、退出条件与 Passage ownership, while preserving the full canonical planning meaning across a deliberately long reading line without moving essential content into an inspector.";
 
@@ -486,7 +511,10 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
       await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
     ).toBe(false);
     const indexHorizon = page.locator(".roadmap-index-row .horizon").first();
-    if (width === 1280) await expect(indexHorizon).toHaveCSS("flex-direction", "row");
+    if (width === 1280) {
+      await expect(indexHorizon).toHaveCSS("flex-direction", "row");
+      await expectHorizontalHorizonAlignment(page.locator(".roadmap-index-row .horizon"));
+    }
     if (width === 375) await expect(indexHorizon).toHaveCSS("flex-direction", "column");
     await expectReadableGateMeasure(page.locator(".roadmap-index-row .gate-copy"), 120);
     if (width === 1280) {
@@ -526,7 +554,10 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
       await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
     ).toBe(false);
     const overviewHorizon = page.locator(".roadmap-landscape-item .horizon");
-    if (width === 1280) await expect(overviewHorizon).toHaveCSS("flex-direction", "row");
+    if (width === 1280) {
+      await expect(overviewHorizon).toHaveCSS("flex-direction", "row");
+      await expectHorizontalHorizonAlignment(page.locator(".roadmap-landscape-item .horizon"));
+    }
     if (width === 375) await expect(overviewHorizon).toHaveCSS("flex-direction", "column");
     await expectReadableGateMeasure(page.locator(".roadmap-landscape-item .gate-copy"), 120);
     if (width === 1280 || width === 375) {

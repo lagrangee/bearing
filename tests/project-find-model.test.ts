@@ -127,7 +127,7 @@ test("recalls exact identities and semantic fields with stable typed routes", ()
 
   const identityOnly = index.search(".scratch/portal")[0];
   expect(identityOnly?.subject).toEqual({ kind: "native-scope", id: ".scratch/portal" });
-  expect(identityOnly?.title).toBe("Work Scope");
+  expect(identityOnly?.title).toBe("Contributing Work");
   expect(identityOnly?.excerpt).not.toContain(".scratch/portal");
   expect(index.search("managed project scope")).toHaveLength(0);
 

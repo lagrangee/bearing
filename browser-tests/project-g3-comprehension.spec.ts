@@ -408,7 +408,7 @@ const githubScenarioSnapshot = (): Readonly<{
     snapshot,
     nativeScope: mattNativeScopeSubject(observation),
     nativeSubject: { kind: "native-subject", id: observation.projection.map.ref },
-    nativeScopeTitle: "example/reference issue #101",
+    nativeScopeTitle: "Contributing Work",
     nativeSubjectTitle: "Reference Map",
     standalone: standaloneObservation(
       "github",
@@ -903,7 +903,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       kind: "native-subject",
       id: ".scratch/portal/issues/02-review.md",
     },
-    nativeScopeTitle: ".scratch/portal",
+    nativeScopeTitle: "Contributing Work",
     nativeSubjectTitle: "Review the Roadmap journey",
     nativeScopeEvidence: ".scratch/portal",
     standalone: standaloneObservation("local", ".scratch/standalone"),
@@ -1432,17 +1432,28 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     }
     await uncitedAsset.click();
     if (scenario.name === "Local") {
-      await expect(
-        page.getByText("Owned by Review the Roadmap journey.", { exact: true }),
-      ).toBeVisible();
-      await expect(
-        page.getByText("Produced For: Build the Roadmap journey", { exact: true }),
-      ).toBeVisible();
-      await expect(page.getByText(/\.scratch\/portal\/issues\//u)).toHaveCount(0);
-      const nativeOwner = page
-        .getByLabel("Lineage Context")
-        .getByRole("link", { name: /^Review the Roadmap journey is owned by/u });
+      const nativeOwner = page.getByRole("link", {
+        name: "Review the Roadmap journey",
+        exact: true,
+      });
       await expect(nativeOwner).toBeVisible();
+      await expect(nativeOwner.locator("xpath=..")).toContainText(
+        "Owner: Ticket: Review the Roadmap journey",
+      );
+      await expect(
+        page.getByRole("link", {
+          name: "Build the Roadmap journey",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(
+        page
+          .getByRole("link", { name: "Build the Roadmap journey", exact: true })
+          .locator("xpath=.."),
+      ).toContainText("Produced For: Ticket: Build the Roadmap journey");
+      await expect(page.getByText(/\.scratch\/portal\/issues\//u)).toHaveCount(0);
+      await expect(page.locator("#relation\\.production\\.owner")).toHaveCount(0);
+      await expect(page.locator("#relation\\.production\\.produced-for")).toHaveCount(0);
       await nativeOwner.click();
       await expect(page).toHaveURL(
         `${host.url}${planningLineageSubjectHref(entryId, {

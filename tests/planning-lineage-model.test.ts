@@ -51,10 +51,10 @@ test("builds a Gate-owned route with trustworthy parents, full content, and type
   expect(model.sections.map((section) => section.anchor)).toEqual([
     "gate.intent",
     "gate.exit-criteria",
-    "gate.readiness",
     "gate.passage",
     "native-work.effort-summaries",
   ]);
+  expect(model.headerStatus).toBe("Gate · Passed · Ready for review");
   expect(
     model.sections.find((section) => section.anchor === "native-work.effort-summaries")?.links,
   ).toEqual([
@@ -115,10 +115,8 @@ test("builds one complete Roadmap Outcome Spine with ordered Gates and nested Ef
       },
     ],
   });
-  expect(model.sections.map((section) => section.anchor)).toEqual([
-    "roadmap.intent",
-    "roadmap.focus",
-  ]);
+  expect(model.sections.map((section) => section.anchor)).toEqual(["roadmap.intent"]);
+  expect(model.headerStatus).toBe("Active roadmap");
 });
 
 test("forces the complete Outcome Spine vertical when title content exceeds readable cells", () => {
@@ -161,13 +159,7 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
     ],
     [
       { kind: "asset", id: "asset:planning-model-evidence" },
-      [
-        "asset.identity",
-        "asset.ownership",
-        "asset.lifecycle",
-        "asset.evidence-roles",
-        "asset.content",
-      ],
+      ["asset.identity", "asset.ownership", "asset.lifecycle", "asset.evidence-roles"],
       ["production.owner", "planning-use.cited-by", "passage.used-by"],
     ],
     [
@@ -1190,6 +1182,12 @@ test("keeps Spec, Delivery, Incoming, and native scope semantics independent", (
       "bearing",
     ),
   );
+  expect(scope.subject.title).toBe("Contributing Work");
+  expect(scope.workHistoryOwner).toEqual({
+    title: "Web Portal Validation",
+    href: "/projects/bearing/lineage/effort/effort%3Aportal",
+  });
+  expect(scope.sections).toEqual([]);
   expect(scope.sections.some((section) => section.anchor === "native-scope.subjects")).toBe(false);
   expect(scope.workRegion?.roles.map((role) => role.role)).toEqual([
     "map",
@@ -1206,22 +1204,6 @@ test("keeps Spec, Delivery, Incoming, and native scope semantics independent", (
     "Pass the integration gate",
     "Route a new Portal request",
   ]);
-  const scopeTrust = scope.sections.find((section) => section.anchor === "native-scope.trust");
-  expect(scopeTrust?.body).toContain(
-    "Current means verified at the recorded observation against the confirmed source revision; it does not promise live currency.",
-  );
-  expect(scopeTrust?.times).toContainEqual({
-    key: expect.stringContaining(":verified-at"),
-    label: "Verified at",
-    time: {
-      availability: "available",
-      value: "2026-07-28T00:00:00.000Z",
-      precision: "fractional-second",
-    },
-    mode: "compact",
-    detail: `sha256:${"b".repeat(64)}`,
-  });
-
   expect(
     buildPlanningLineageSubjectModel(
       snapshot,

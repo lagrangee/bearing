@@ -66,7 +66,7 @@ test("renders one route-owned Gate dossier and non-duplicated Lineage Context", 
   expect(html).toContain("Accept the planning model as ready.");
   expect(html).not.toContain('id="gate.event-history"');
   expect(html).not.toContain("Event History");
-  expect(html).toContain("Lifecycle and Readiness");
+  expect(html).toContain('<p class="lineage-header-status">Gate · Passed · Ready for review</p>');
   expect(html).toContain("Contributing Efforts");
   expect(html).not.toContain('id="relation.outcome.contributing-efforts"');
   expect(html).toContain("accepted with evidence");
@@ -93,6 +93,48 @@ test("uses one shared low-noise identity header for Roadmap, Gate, and Effort de
     expect(html).toContain(`<h1>${title}</h1>`);
     expect(html).not.toContain(`<code>${subject.id}</code>`);
   }
+});
+
+test("puts human-readable Roadmap and Gate status under the title and Intent before the spine", () => {
+  const roadmap = render({
+    validity: "valid",
+    value: { kind: "roadmap", id: "roadmap:portal" },
+  });
+  const roadmapHeader = roadmap.match(/<header class="lineage-header"[\s\S]*?<\/header>/u)?.[0];
+  expect(roadmapHeader).toContain('<p class="lineage-header-status">Active roadmap</p>');
+  expect(roadmapHeader).not.toContain("active-horizon");
+  expect(roadmap).not.toContain("Roadmap Lifecycle");
+  expect(roadmap.indexOf('id="roadmap.intent"')).toBeLessThan(
+    roadmap.indexOf('class="outcome-spine"'),
+  );
+
+  const gate = render({
+    validity: "valid",
+    value: { kind: "gate", id: "gate:two" },
+  });
+  const gateHeader = gate.match(/<header class="lineage-header"[\s\S]*?<\/header>/u)?.[0];
+  expect(gateHeader).toContain(
+    '<p class="lineage-header-status">Current gate · Active · Not ready for passage</p>',
+  );
+  expect(gateHeader).not.toContain("horizon focused");
+  expect(gate).not.toContain("Lifecycle and Readiness");
+});
+
+test("uses container-based Roadmap Intent width on Overview and Roadmaps index", async () => {
+  const overviewCss = await readFile(
+    join(process.cwd(), "src/portal-ui/styles/overview.css"),
+    "utf8",
+  );
+  const planningCss = await readFile(
+    join(process.cwd(), "src/portal-ui/styles/planning.css"),
+    "utf8",
+  );
+  expect(overviewCss).toMatch(
+    /\.roadmap-landscape-header p \{[\s\S]*?max-width: min\(960px, 100%\);/u,
+  );
+  expect(planningCss).toMatch(/\.roadmap-index-row > p \{[\s\S]*?max-width: min\(960px, 100%\);/u);
+  expect(overviewCss).not.toMatch(/\.roadmap-landscape-header p \{[\s\S]*?max-width: 78ch;/u);
+  expect(planningCss).not.toMatch(/\.roadmap-index-row > p \{[\s\S]*?max-width: 72ch;/u);
 });
 
 test("gives lineage identity and mixed-language prose container-owned readable width", async () => {
@@ -139,26 +181,96 @@ test("uses container-owned all-or-nothing Outcome Spine layout without truncatio
 });
 
 test("keeps Asset semantics on detail and routes content outside Technical Details", () => {
-  const snapshot = createProjectOverviewFixture();
-  const html = render({
-    validity: "valid",
-    value: { kind: "asset", id: "asset:planning-model-evidence" },
+  const baseSnapshot = createProjectOverviewFixture();
+  if (baseSnapshot.assets.validity === "invalid") throw new Error("Expected Asset fixture.");
+  const snapshot = withLineage({
+    ...baseSnapshot,
+    assets: {
+      ...baseSnapshot.assets,
+      items: baseSnapshot.assets.items.map((asset) =>
+        asset.id === "asset:planning-model-evidence"
+          ? { ...asset, producedFor: "effort:model" }
+          : asset,
+      ),
+    },
   });
+  const html = render(
+    {
+      validity: "valid",
+      value: { kind: "asset", id: "asset:planning-model-evidence" },
+    },
+    { snapshot },
+  );
 
   expect(html).toContain("Asset Identity");
   expect(html).toContain("Kind: verification-report");
   expect(html).toContain("Ownership and Purpose");
-  expect(html).toContain("Owned by Model ready.");
+  const header = html.match(/<header class="lineage-header"[\s\S]*?<\/header>/u)?.[0];
+  expect(header).toBeDefined();
+  expect(header).toContain('class="action action-primary lineage-primary-action"');
+  expect(header).toContain(">View Content</a>");
+  expect(header).toContain('target="_blank"');
+  const ownership = html.match(/<section[^>]*id="asset.ownership"[\s\S]*?<\/section>/u)?.[0];
+  expect(ownership).toBeDefined();
+  expect(ownership).toContain('href="/projects/bearing/lineage/gate/gate%3Aone"');
+  expect(ownership).toContain(
+    'Owner: Gate: <a href="/projects/bearing/lineage/gate/gate%3Aone">Model ready</a>',
+  );
+  expect(ownership).not.toMatch(/<a[^>]*>Owner:/u);
+  expect(ownership).toContain('href="/projects/bearing/lineage/effort/effort%3Amodel"');
+  expect(ownership).toContain(
+    'Produced For: Effort: <a href="/projects/bearing/lineage/effort/effort%3Amodel">Planning Model</a>',
+  );
+  expect(ownership).not.toMatch(/<a[^>]*>Produced For:/u);
   expect(html).toContain("Planning Citation");
   expect(html).toContain("Passage Evidence");
-  expect(html).toContain(">View Content</a>");
+  expect(html).not.toContain('id="asset.content"');
+  expect(html).not.toContain("Read this Asset on its bounded, read-only content surface.");
+  expect(html).not.toContain("Read-only · current-checkout content · isolated window");
+  expect(html).not.toContain('id="relation.production.owner"');
+  expect(html).not.toContain('id="relation.production.produced-for"');
   expect(html).not.toContain(".scratch/evidence/planning-model");
   expect(html).not.toContain("asset:planning-model-evidence · verification-report");
   expect(html).not.toContain("<h2>Provenance</h2>");
   expect(html).not.toContain("generic-agent");
 
-  if (snapshot.assets.validity === "invalid") throw new Error("Expected Asset fixture.");
+  const unavailableOwner = {
+    ...snapshot,
+    lineage: {
+      ...snapshot.lineage,
+      subjects: snapshot.lineage.subjects.map((subject) =>
+        subject.identity.kind === "asset" && subject.identity.id === "asset:planning-model-evidence"
+          ? {
+              ...subject,
+              relations: subject.relations.map((relation) =>
+                relation.key === "production.owner" && relation.state === "present"
+                  ? {
+                      ...relation,
+                      targets: relation.targets.map((target) => ({
+                        ...target,
+                        availability: "unavailable" as const,
+                        note: "The canonical owner is unavailable in this projection.",
+                      })),
+                    }
+                  : relation,
+              ),
+            }
+          : subject,
+      ),
+    },
+  } satisfies ProjectSnapshot;
+  const unavailableOwnerHtml = render(
+    { validity: "valid", value: { kind: "asset", id: "asset:planning-model-evidence" } },
+    { snapshot: unavailableOwner },
+  );
+  const unavailableOwnership = unavailableOwnerHtml.match(
+    /<section[^>]*id="asset.ownership"[\s\S]*?<\/section>/u,
+  )?.[0];
+  expect(unavailableOwnership).toContain("<li>Owner: Gate: Model ready</li>");
+  expect(unavailableOwnership).not.toContain('href="/projects/bearing/lineage/gate/gate%3Aone"');
+
   const assets = snapshot.assets;
+  if (assets.validity === "invalid") throw new Error("Expected rebuilt Asset fixture.");
   const contentState = (availability: "missing" | "unreadable") =>
     withLineage({
       ...snapshot,
@@ -259,6 +371,7 @@ test("renders only available named Source Event Times in Event History", () => {
   )?.[0];
   expect(eventHistory).toBeDefined();
   expect(eventHistory).toContain('id="gate.event-history"');
+  expect(eventHistory).not.toContain("Source-owned chronology");
   expect(eventHistory).toContain("<dt>Passage accepted</dt>");
   expect(eventHistory).not.toContain("<dt>Planned</dt>");
   expect(eventHistory).not.toContain("<dt>Activated</dt>");
@@ -282,7 +395,7 @@ test("renders native Source Event Time, Last updated, and Verified at as distinc
   expect(html).toContain('class="source-event-time compact"');
   expect(html).toContain("data-absolute=");
   expect(html).toContain("<summary>");
-  expect(html).toContain("Technical time provenance");
+  expect(html).not.toContain("Technical time provenance");
   expect(html).toContain(
     "Current means verified at the recorded observation against the confirmed source revision; it does not promise live currency.",
   );
@@ -292,20 +405,24 @@ test("renders native Source Event Time, Last updated, and Verified at as distinc
     validity: "valid",
     value: { kind: "native-scope", id: ".scratch/portal" },
   });
-  expect(scopeHtml).toContain("<dt>Verified at</dt>");
-  expect(scopeHtml).toContain(
-    "Current means verified at the recorded observation against the confirmed source revision; it does not promise live currency.",
-  );
+  expect(scopeHtml).not.toContain("<dt>Verified at</dt>");
+  expect(scopeHtml).not.toContain("Scope Context and Trust");
 });
 
-test("keeps the full role-first Matt-Native Work Region on the native scope route", () => {
+test("renders a quiet human-readable Work History and scopes degraded recovery to the Effort", () => {
   const scopeHtml = render({
     validity: "valid",
     value: { kind: "native-scope", id: ".scratch/portal" },
   });
 
+  const header = scopeHtml.match(/<header class="lineage-header"[\s\S]*?<\/header>/u)?.[0];
+  expect(header).toContain('<span class="lineage-object-type">Work History</span>');
+  expect(header).toContain("<h1>Contributing Work</h1>");
+  expect(header).toContain(
+    '<p class="lineage-header-context">For <a href="/projects/bearing/lineage/effort/effort%3Aportal">Web Portal Validation</a></p>',
+  );
+  expect(header).not.toContain(".scratch/portal");
   expect(scopeHtml).toContain('class="matt-work-region context-bound"');
-  expect(scopeHtml).toContain('id="matt-work-region-title">Contributing Work</h2>');
   expect(scopeHtml).toContain('aria-label="Native Work Frontier views"');
   expect(scopeHtml).toContain('href="#native-work-current">Current');
   expect(scopeHtml).toContain('href="#native-work-history">History');
@@ -321,12 +438,46 @@ test("keeps the full role-first Matt-Native Work Region on the native scope rout
   expect(scopeHtml).toContain("Route a new Portal request");
   expect(scopeHtml).toContain("ready-for-agent");
   expect(scopeHtml).toContain("/lineage/native-subject/");
-  expect(scopeHtml).toContain(">Open work remains</h3>");
-  expect(scopeHtml).toContain("<summary>Why this state?</summary>");
-  expect(scopeHtml).toContain("<summary>Observation details</summary>");
-  expect(scopeHtml).toContain("<dt>Projection State</dt><dd>available</dd>");
-  expect(scopeHtml).toContain("<dt>Provider Completion</dt><dd>incomplete</dd>");
-  expect(scopeHtml).not.toContain("Needs refresh");
+  expect(scopeHtml).not.toContain("Scope Context and Trust");
+  expect(scopeHtml).not.toContain("Matt-native work region");
+  expect(scopeHtml).not.toContain("Native Work Reading State");
+  expect(scopeHtml).not.toContain("Open work remains");
+  expect(scopeHtml).not.toContain("Why this state?");
+  expect(scopeHtml).not.toContain("Observation details");
+  expect(scopeHtml).not.toContain("Refresh details");
+
+  const snapshot = createProjectOverviewFixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) => observation.binding.nativeScope === ".scratch/portal",
+  );
+  if (portal === undefined || (portal.state !== "available" && portal.state !== "partial")) {
+    throw new Error("Expected the Portal observation.");
+  }
+  const stale = createProviderScopeObservation({
+    ...portal,
+    freshness: { ...portal.freshness, assessment: "stale" },
+  } as never) as typeof portal;
+  const degradedSnapshot = withLineage({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portal.id ? stale : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === portal.id
+        ? { ...selection, observationId: stale.id, effectiveFreshness: "stale" as const }
+        : selection,
+    ),
+  });
+  const degraded = render(
+    { validity: "valid", value: { kind: "native-scope", id: ".scratch/portal" } },
+    { snapshot: degradedSnapshot, onRefreshDetails: () => {} },
+  );
+  expect(degraded).toContain('class="work-history-attention"');
+  expect(degraded).toContain("<strong>Needs attention</strong>");
+  expect(degraded).toContain(
+    'Return to <a href="/projects/bearing/lineage/effort/effort%3Aportal">Web Portal Validation</a> to refresh work details.',
+  );
+  expect(degraded).not.toContain("Refresh details");
 
   const anchored = render(
     {
@@ -346,7 +497,7 @@ test("renders Effort status, canonical Intent, concluded-only Outcome, and gover
 
   expect(active).toContain("<dt>Effort lifecycle</dt><dd>Active</dd>");
   expect(active).toContain("<dt>Contributes to</dt>");
-  expect(active).toContain(">Overview proven</a>");
+  expect(active).toContain(">Gate: Overview proven</a>");
   expect(active).toContain('<dd data-health="healthy">Healthy</dd>');
   expect(active).toContain('<section id="effort.intent"><h2>Intent</h2>');
   expect(active).toContain("Deliver the accepted Portal journey.");

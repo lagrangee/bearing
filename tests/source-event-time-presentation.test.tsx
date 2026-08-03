@@ -12,7 +12,7 @@ const instant = {
   precision: "fractional-second",
 } as const;
 
-test("formats ordinary absolute time to local minutes while preserving technical source bytes", () => {
+test("formats ordinary absolute time to local minutes without visible technical provenance", () => {
   expect(formatSourceEventAbsolute(instant, "en-US", "UTC")).toBe(
     "Jul 31, 2026 at 12:09 AM",
   );
@@ -29,9 +29,9 @@ test("formats ordinary absolute time to local minutes while preserving technical
   expect(markup).toContain(">Jul 31, 2026 at 12:09 AM<");
   expect(markup).toContain(">1 minute ago<");
   expect(markup).not.toContain(">Jul 31, 2026, 12:09:10");
-  expect(markup).toContain("<summary>Technical time provenance</summary>");
-  expect(markup).toContain("<code>2026-07-31T08:09:10.123+08:00</code>");
-  expect(markup).toContain("fractional-second precision");
+  expect(markup).toContain('dateTime="2026-07-31T08:09:10.123+08:00"');
+  expect(markup).not.toContain("Technical time provenance");
+  expect(markup).not.toContain("fractional-second precision");
 });
 
 test("keeps date-only source time date-only and never gives it a relative instant", () => {

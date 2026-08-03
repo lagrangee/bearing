@@ -5,8 +5,10 @@ import type {
 } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
-import type { MattNativeEventTime } from "../providers/matt-skills-v1/model";
-import type { MattNativeWorkReadingState } from "../providers/matt-skills-v1/reading-state";
+import type {
+  MattNativeEventTime,
+  MattSemanticSectionAvailability,
+} from "../providers/matt-skills-v1/model";
 import type {
   MattNativeWorkRegionCount,
   MattNativeWorkRegionItem,
@@ -21,6 +23,7 @@ import type {
   PlanningLineageOutcomeSpine,
   PlanningLineageRelation,
   PlanningLineageRelationItem,
+  PlanningLineageSection,
   PlanningLineageTimeFact,
 } from "./planning-lineage-model";
 import {
@@ -49,6 +52,8 @@ const detailObjectType = (kind: string): string | undefined => {
       return "Milestone Gate";
     case "effort":
       return "Effort";
+    case "native-scope":
+      return "Work History";
     default:
       return undefined;
   }
@@ -79,6 +84,47 @@ const technicalDetailsSelection = (
     model.subject.kind === "asset" && snapshot.assets.validity !== "invalid"
       ? snapshot.assets.items.find((candidate) => candidate.id === model.subject.id)
       : undefined;
+  const workHistoryReading =
+    model.subject.kind === "native-scope" ? model.workRegion?.readingState : undefined;
+  const observationProvenance =
+    workHistoryReading === undefined
+      ? []
+      : [
+          `Source revision: ${
+            workHistoryReading.observation.sourceRevision.availability === "available"
+              ? workHistoryReading.observation.sourceRevision.value
+              : "Unavailable"
+          }`,
+          `Provider Observation Time: ${
+            workHistoryReading.observation.observedAt.availability === "available"
+              ? workHistoryReading.observation.observedAt.value
+              : "Unavailable"
+          }`,
+          `Source observed at: ${
+            workHistoryReading.observation.sourceObservedAt.availability === "available"
+              ? workHistoryReading.observation.sourceObservedAt.value
+              : "Unavailable"
+          }`,
+          ...workHistoryReading.observation.coverageDimensions.map(
+            (dimension) =>
+              `Coverage ${dimension.key}: ${dimension.state}${
+                dimension.detail === undefined ? "" : ` · ${dimension.detail}`
+              }`,
+          ),
+          ...workHistoryReading.observation.validators.map(
+            (validator) => `Validator ${validator.kind}: ${validator.value}`,
+          ),
+          ...workHistoryReading.observation.provenance.map((item) => `${item.kind}: ${item.value}`),
+        ];
+  const sourceEventTimeProvenance = model.events.flatMap((event) =>
+    event.time.availability !== "available"
+      ? []
+      : [
+          `${event.label}: ${event.time.value} · Precision ${event.time.precision} · Role ${event.role}${
+            event.decisionReference === undefined ? "" : ` · Decision ${event.decisionReference}`
+          }`,
+        ],
+  );
   const provenance = [
     `Source kind: ${source?.kind ?? "unavailable"}`,
     ...(source?.binding === undefined
@@ -91,6 +137,20 @@ const technicalDetailsSelection = (
     facts: [
       { label: "Stable ID", value: model.subject.id, code: true },
       { label: "Projection", value: model.state },
+      ...(workHistoryReading === undefined
+        ? []
+        : [
+            { label: "Provider", value: "matt-skills/v1" },
+            { label: "Native scope", value: model.subject.id, code: true },
+            { label: "Provider projection", value: workHistoryReading.why.projectionState },
+            { label: "Freshness", value: workHistoryReading.why.freshness },
+            { label: "Coverage", value: workHistoryReading.why.coverage },
+            {
+              label: "Evidence trust",
+              value: workHistoryReading.why.causes.length === 0 ? "Trustworthy" : "Withheld",
+            },
+            { label: "Provider completion", value: workHistoryReading.why.completion },
+          ]),
       ...(asset === undefined
         ? []
         : [
@@ -112,6 +172,12 @@ const technicalDetailsSelection = (
     source,
     sourceHref: model.subject.sourceHref,
     sections: [
+      ...(sourceEventTimeProvenance.length === 0
+        ? []
+        : [{ title: "Source Event Time Provenance", items: sourceEventTimeProvenance }]),
+      ...(observationProvenance.length === 0
+        ? []
+        : [{ title: "Observation provenance", items: observationProvenance }]),
       { title: "Provenance", items: provenance },
       {
         title: "Diagnostics",
@@ -164,6 +230,65 @@ function TimeFacts({ facts }: { readonly facts: readonly PlanningLineageTimeFact
         </div>
       ))}
     </dl>
+  );
+}
+
+function LineageSections({
+  beforeSpine = false,
+  onNavigate,
+  sections,
+  semanticAvailability,
+}: {
+  readonly beforeSpine?: boolean;
+  readonly onNavigate: Navigate;
+  readonly sections: readonly PlanningLineageSection[];
+  readonly semanticAvailability: ReadonlyMap<string, MattSemanticSectionAvailability>;
+}) {
+  return (
+    <div className={`lineage-sections${beforeSpine ? " lineage-sections-before-spine" : ""}`}>
+      {sections.map((section) => (
+        <section
+          data-semantic-availability={semanticAvailability.get(section.anchor)}
+          id={section.anchor}
+          key={section.anchor}
+        >
+          <h2>{section.title}</h2>
+          {section.body === undefined ? null : <p>{section.body}</p>}
+          {section.copy === undefined ? null : (
+            <AssetLocationCopy label={section.copy.label} value={section.copy.value} />
+          )}
+          {section.items === undefined ? null : (
+            <ul>
+              {section.items.map((item) => (
+                <li key={`${section.anchor}:${item}`}>{item}</li>
+              ))}
+            </ul>
+          )}
+          {section.links === undefined ? null : (
+            <ul className="lineage-section-links">
+              {section.links.map((item) => (
+                <li key={`${section.anchor}:${item.href}`}>
+                  {item.prefix}
+                  {item.external ? (
+                    <a href={item.href} rel="noopener noreferrer" target="_blank">
+                      {item.label}
+                    </a>
+                  ) : (
+                    <a href={item.href} onClick={(event) => follow(item.href, event, onNavigate)}>
+                      {item.label}
+                    </a>
+                  )}
+                  {item.detail === undefined ? null : <span> · {item.detail}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {section.times === undefined || section.times.length === 0 ? null : (
+            <TimeFacts facts={section.times} />
+          )}
+        </section>
+      ))}
+    </div>
   );
 }
 
@@ -348,13 +473,13 @@ function EffortStatusGroup({
         <dt>Contributes to</dt>
         <dd>
           {lens.targetGate.href === undefined ? (
-            lens.targetGate.title
+            <>Gate: {lens.targetGate.title}</>
           ) : (
             <a
               href={lens.targetGate.href}
               onClick={(event) => follow(lens.targetGate.href ?? "", event, onNavigate)}
             >
-              {lens.targetGate.title}
+              Gate: {lens.targetGate.title}
             </a>
           )}
         </dd>
@@ -852,143 +977,43 @@ function WorkRegionRole({
   );
 }
 
-function NativeWorkReadingState({ reading }: { readonly reading: MattNativeWorkReadingState }) {
-  const whyFacts = [
-    ["Freshness", reading.why.freshness],
-    ["Coverage", reading.why.coverage],
-    ["Projection State", reading.why.projectionState],
-    ["Provider Completion", reading.why.completion],
-    ["Blocking diagnostics", String(reading.why.blockingDiagnosticCount)],
-  ] as const;
-  return (
-    <section
-      className={`matt-reading-state state-${reading.conclusion.toLowerCase().replaceAll(" ", "-").replaceAll("'", "")}`}
-      aria-labelledby="matt-reading-state-title"
-    >
-      <p className="eyebrow">Native Work Reading State</p>
-      <h3 id="matt-reading-state-title">{reading.conclusion}</h3>
-      <p>{reading.impact}</p>
-      <p>
-        <strong>Available action:</strong> {reading.action}
-      </p>
-      <details>
-        <summary>Why this state?</summary>
-        <dl>
-          {whyFacts.map(([label, value]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd>{value}</dd>
-            </div>
-          ))}
-        </dl>
-        {reading.why.causes.length === 0 ? (
-          <p>All current trust requirements for this conclusion are satisfied.</p>
-        ) : (
-          <ul>
-            {reading.why.causes.map((cause) => (
-              <li key={cause}>{cause}</li>
-            ))}
-          </ul>
-        )}
-      </details>
-      <details>
-        <summary>Observation details</summary>
-        <dl>
-          <div>
-            <dt>Source revision</dt>
-            <dd>
-              {reading.observation.sourceRevision.availability === "available"
-                ? reading.observation.sourceRevision.value
-                : "Unavailable"}
-            </dd>
-          </div>
-          <div>
-            <dt>Provider Observation Time</dt>
-            <dd>
-              {reading.observation.observedAt.availability === "available"
-                ? reading.observation.observedAt.value
-                : "Unavailable"}
-            </dd>
-          </div>
-          <div>
-            <dt>Source observed at</dt>
-            <dd>
-              {reading.observation.sourceObservedAt.availability === "available"
-                ? reading.observation.sourceObservedAt.value
-                : "Unavailable"}
-            </dd>
-          </div>
-        </dl>
-        <h4>Coverage dimensions</h4>
-        {reading.observation.coverageDimensions.length === 0 ? (
-          <p>No coverage dimensions are available.</p>
-        ) : (
-          <ul>
-            {reading.observation.coverageDimensions.map((dimension) => (
-              <li key={dimension.key}>
-                <strong>{dimension.key}</strong>: {dimension.state}
-                {dimension.detail === undefined ? "" : ` · ${dimension.detail}`}
-              </li>
-            ))}
-          </ul>
-        )}
-        <h4>Validators and provenance</h4>
-        <ul>
-          {reading.observation.validators.map((validator) => (
-            <li key={`validator:${validator.kind}:${validator.value}`}>
-              Validator {validator.kind}: {validator.value}
-            </li>
-          ))}
-          {reading.observation.provenance.map((item) => (
-            <li key={`provenance:${item.kind}:${item.value}`}>
-              {item.kind}: {item.value}
-            </li>
-          ))}
-        </ul>
-        <h4>Diagnostics</h4>
-        {reading.observation.diagnostics.length === 0 ? (
-          <p>No diagnostics are recorded for this observation.</p>
-        ) : (
-          <ul>
-            {reading.observation.diagnostics.map((diagnostic) => (
-              <li key={`${diagnostic.origin}:${diagnostic.code}:${diagnostic.target}`}>
-                <strong>{diagnostic.message}</strong>
-                <span>
-                  {diagnostic.origin} · {diagnostic.code} · {diagnostic.impact}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </details>
-    </section>
-  );
-}
-
 function MattNativeWorkRegion({
   entryId,
   onNavigate,
+  owner,
   region,
 }: {
   readonly entryId: string;
   readonly onNavigate: Navigate;
+  readonly owner?: Readonly<{ title: string; href: string }> | undefined;
   readonly region: MattNativeWorkRegionModel;
 }) {
   const current = region.views[0];
   const history = region.views[1];
   const all = region.views[2];
+  const reading = region.readingState;
+  const healthy =
+    region.context.state === "bound" &&
+    reading.why.projectionState === "available" &&
+    reading.why.freshness === "current" &&
+    reading.why.coverage === "complete" &&
+    reading.why.blockingDiagnosticCount === 0;
   return (
     <section
       className={`matt-work-region context-${region.context.state}`}
-      aria-labelledby="matt-work-region-title"
+      aria-label="Contributing Work"
     >
-      <header>
-        <p className="eyebrow">Matt-native work region</p>
-        <h2 id="matt-work-region-title">{region.context.label}</h2>
-        {"detail" in region.context ? <p>{region.context.detail}</p> : null}
-        <NativeWorkReadingState reading={region.readingState} />
-        <p>{workRegionCountLabel(region.total)} observed native subjects.</p>
-      </header>
+      {healthy ? null : (
+        <div className="work-history-attention" role="status">
+          <strong>Needs attention</strong>
+          <p>{reading.impact}</p>
+          {owner === undefined ? null : (
+            <p>
+              Return to <a href={owner.href}>{owner.title}</a> to refresh work details.
+            </p>
+          )}
+        </div>
+      )}
       <nav aria-label="Native Work Frontier views">
         <a href="#native-work-current">Current · {workRegionCountLabel(current.count)}</a>
         <a href="#native-work-history">History · {workRegionCountLabel(history.count)}</a>
@@ -1298,7 +1323,11 @@ export function PlanningLineagePage({
               "planning-use.citations",
               "production.owned-assets",
             ])
-          : new Set<string>();
+          : model.subject.kind === "asset"
+            ? new Set(["production.owner", "production.produced-for"])
+            : model.subject.kind === "native-scope"
+              ? new Set(["native-work.members"])
+              : new Set<string>();
   const contextRelations = model.relations.filter(
     (relation) =>
       !relation.inParentPath &&
@@ -1355,20 +1384,41 @@ export function PlanningLineagePage({
             <span className="lineage-object-type">{objectType}</span>
           )}
           <h1>{model.subject.title}</h1>
+          {model.workHistoryOwner === undefined ? null : (
+            <p className="lineage-header-context">
+              For <a href={model.workHistoryOwner.href}>{model.workHistoryOwner.title}</a>
+            </p>
+          )}
+          {model.headerStatus === undefined ? null : (
+            <p className="lineage-header-status">{model.headerStatus}</p>
+          )}
           {model.effortLens === undefined ? null : (
             <EffortStatusGroup lens={model.effortLens} onNavigate={onNavigate} />
           )}
         </div>
-        <button
-          aria-label="Open Technical Details"
-          className="technical-details-trigger"
-          type="button"
-          onClick={(event) =>
-            onInspect(technicalDetailsSelection(model, snapshot), event.currentTarget)
-          }
-        >
-          Technical Details
-        </button>
+        <div className="lineage-header-actions">
+          {model.primaryAction === undefined ? null : (
+            <a
+              className="action action-primary lineage-primary-action"
+              href={model.primaryAction.href}
+              {...(model.primaryAction.external
+                ? { rel: "noopener noreferrer", target: "_blank" }
+                : {})}
+            >
+              {model.primaryAction.label}
+            </a>
+          )}
+          <button
+            aria-label="Open Technical Details"
+            className="technical-details-trigger"
+            type="button"
+            onClick={(event) =>
+              onInspect(technicalDetailsSelection(model, snapshot), event.currentTarget)
+            }
+          >
+            Technical Details
+          </button>
+        </div>
       </header>
       {effortObservation === undefined ? null : (
         <div className="effort-observation-recovery" role="status">
@@ -1411,7 +1461,8 @@ export function PlanningLineagePage({
           )}
         </div>
       )}
-      {model.nativeInspection === undefined ||
+      {model.subject.kind !== "native-subject" ||
+      model.nativeInspection === undefined ||
       onRefreshDetails === undefined ||
       requestedNativeSubject === undefined ? null : (
         <div className="native-inspection-actions">
@@ -1440,7 +1491,6 @@ export function PlanningLineagePage({
           }
           id={eventHistoryAnchor}
         >
-          <p className="eyebrow">Source-owned chronology</p>
           <h2>Event History</h2>
           <dl>
             {availableEvents.map((event, index) => (
@@ -1457,57 +1507,34 @@ export function PlanningLineagePage({
           </dl>
         </section>
       )}
+      {model.subject.kind !== "roadmap" ? null : (
+        <LineageSections
+          beforeSpine
+          onNavigate={onNavigate}
+          sections={model.sections}
+          semanticAvailability={model.semanticAvailability}
+        />
+      )}
       {model.outcomeSpine === undefined ? null : (
         <OutcomeSpine onNavigate={onNavigate} spine={model.outcomeSpine} />
       )}
       {model.effortLens === undefined ? null : (
         <EffortGovernanceLens lens={model.effortLens} onNavigate={onNavigate} />
       )}
-      <div className="lineage-sections">
-        {model.sections.map((section) => (
-          <section
-            data-semantic-availability={model.semanticAvailability.get(section.anchor)}
-            id={section.anchor}
-            key={section.anchor}
-          >
-            <h2>{section.title}</h2>
-            {section.body === undefined ? null : <p>{section.body}</p>}
-            {section.copy === undefined ? null : (
-              <AssetLocationCopy label={section.copy.label} value={section.copy.value} />
-            )}
-            {section.items === undefined ? null : (
-              <ul>
-                {section.items.map((item) => (
-                  <li key={`${section.anchor}:${item}`}>{item}</li>
-                ))}
-              </ul>
-            )}
-            {section.links === undefined ? null : (
-              <ul className="lineage-section-links">
-                {section.links.map((item) => (
-                  <li key={`${section.anchor}:${item.href}`}>
-                    {item.external ? (
-                      <a href={item.href} rel="noopener noreferrer" target="_blank">
-                        {item.label}
-                      </a>
-                    ) : (
-                      <a href={item.href} onClick={(event) => follow(item.href, event, onNavigate)}>
-                        {item.label}
-                      </a>
-                    )}
-                    <span> · {item.detail}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {section.times === undefined || section.times.length === 0 ? null : (
-              <TimeFacts facts={section.times} />
-            )}
-          </section>
-        ))}
-      </div>
+      {model.subject.kind === "roadmap" ? null : (
+        <LineageSections
+          onNavigate={onNavigate}
+          sections={model.sections}
+          semanticAvailability={model.semanticAvailability}
+        />
+      )}
       {model.workRegion === undefined || model.subject.kind === "effort" ? null : (
-        <MattNativeWorkRegion entryId={entryId} onNavigate={onNavigate} region={model.workRegion} />
+        <MattNativeWorkRegion
+          entryId={entryId}
+          onNavigate={onNavigate}
+          owner={model.workHistoryOwner}
+          region={model.workRegion}
+        />
       )}
       {contextRelations.length === 0 ? null : (
         <section className="lineage-context" aria-labelledby="lineage-context-title">

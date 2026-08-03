@@ -116,7 +116,8 @@ export type PlanningLineageSection = Readonly<{
   links?:
     | readonly Readonly<{
         label: string;
-        detail: string;
+        prefix?: string | undefined;
+        detail?: string | undefined;
         href: string;
         external?: boolean | undefined;
       }>[]
@@ -269,11 +270,25 @@ type ReadablePlanningLineageSubjectModel = Readonly<{
   }>;
   parentPath: readonly PlanningLineageParentCrumb[];
   parentNotice?: string | undefined;
+  headerStatus?: string | undefined;
+  primaryAction?:
+    | Readonly<{
+        label: string;
+        href: string;
+        external?: boolean | undefined;
+      }>
+    | undefined;
   events: readonly PlanningLineageEvent<PlanningLineageEventTime>[];
   sections: readonly PlanningLineageSection[];
   outcomeSpine?: PlanningLineageOutcomeSpine | undefined;
   effortLens?: PlanningLineageEffortLens | undefined;
   workRegion?: MattNativeWorkRegionModel | undefined;
+  workHistoryOwner?:
+    | Readonly<{
+        title: string;
+        href: string;
+      }>
+    | undefined;
   nativeInspection?:
     | Readonly<{
         freshness: "current" | "stale" | "undetermined";
@@ -549,14 +564,7 @@ const contributingEffortsSection = (
 };
 
 const roadmapSections = (roadmap: Roadmap): readonly PlanningLineageSection[] => {
-  return [
-    { anchor: "roadmap.intent", title: "Intent", body: roadmap.intent },
-    {
-      anchor: "roadmap.focus",
-      title: "Roadmap Lifecycle",
-      body: `Lifecycle ${roadmap.lifecycle}; horizon ${roadmap.horizon}.`,
-    },
-  ];
+  return [{ anchor: "roadmap.intent", title: "Intent", body: roadmap.intent }];
 };
 
 const readableTitleUnits = (value: string): number =>
@@ -623,11 +631,6 @@ const gateSections = (
   { anchor: "gate.intent", title: "Intent", body: gate.intent },
   { anchor: "gate.exit-criteria", title: "Exit Criteria", items: gate.exitCriteria },
   {
-    anchor: "gate.readiness",
-    title: "Lifecycle and Readiness",
-    body: `Lifecycle ${gate.lifecycle}; horizon ${gate.horizonState}; readiness ${gate.readiness}.`,
-  },
-  {
     anchor: "gate.passage",
     title: "Passage",
     body:
@@ -640,6 +643,31 @@ const gateSections = (
   },
   contributingEffortsSection(snapshot, gate.effortIds, entryId),
 ];
+
+const sentenceCaseToken = (value: string): string =>
+  value
+    .split("-")
+    .map((part, index) => (index === 0 ? `${part[0]?.toUpperCase()}${part.slice(1)}` : part))
+    .join(" ");
+
+const headerStatusFor = (
+  record: SubjectRecord,
+  subject: PlanningLineageSubject,
+): string | undefined => {
+  if (subject.kind === "roadmap") {
+    return `${sentenceCaseToken((record as Roadmap).lifecycle)} roadmap`;
+  }
+  if (subject.kind !== "gate") return undefined;
+  const gate = record as MilestoneGate;
+  const position = gate.horizonState === "focused" ? "Current gate" : "Gate";
+  const readiness =
+    gate.readiness === "not-ready"
+      ? "Not ready for passage"
+      : gate.readiness === "ready-for-review"
+        ? "Ready for review"
+        : "Readiness unknown";
+  return `${position} · ${sentenceCaseToken(gate.lifecycle)} · ${readiness}`;
+};
 
 const authoritySections = (authority: Authority): readonly PlanningLineageSection[] => [
   { anchor: "authority.scope", title: "Scope", body: authority.scope },
@@ -746,6 +774,7 @@ const assetSections = (
   snapshot: ProjectSnapshot,
   asset: AssetProjection,
   entryId: string,
+  lineage: PlanningLineageSubjectProjection,
 ): readonly PlanningLineageSection[] => {
   const evidenceRoles = asset.evidenceRoles.map(assetEvidenceRoleLabel);
   const ownerTitle = semanticTitleForPlanningReference(snapshot, asset.owner);
@@ -753,6 +782,75 @@ const assetSections = (
     asset.producedFor === undefined
       ? "Not declared"
       : semanticTitleForPlanningReference(snapshot, asset.producedFor);
+  const relationTarget = (key: "production.owner" | "production.produced-for") => {
+    const relation = lineage.relations.find((candidate) => candidate.key === key);
+    return relation?.state === "present" ? relation.targets[0] : undefined;
+  };
+  const objectTypeLabel = (subject: PlanningLineageSubject | undefined): string | undefined => {
+    if (subject === undefined) return undefined;
+    switch (subject.kind) {
+      case "roadmap":
+        return "Roadmap";
+      case "gate":
+        return "Gate";
+      case "effort":
+        return "Effort";
+      case "authority":
+        return "Authority";
+      case "alignment-check":
+        return "Alignment Check";
+      case "planning-review":
+        return "Planning Review";
+      case "asset":
+        return "Asset";
+      case "native-scope":
+        return "Work History";
+      case "native-subject": {
+        const record = mattNativeRecords(snapshot.providerObservations, snapshot.sources).find(
+          (candidate) => candidate.recordKind === "native-object" && candidate.id === subject.id,
+        );
+        if (record?.recordKind !== "native-object") return "Native Work";
+        switch (record.object.kind) {
+          case "map":
+            return "Map";
+          case "spec":
+            return "Spec";
+          case "wayfinder-ticket":
+          case "delivery-ticket":
+            return "Ticket";
+          case "incoming-issue":
+            return "Issue";
+        }
+      }
+    }
+  };
+  const relationText = (
+    relationLabel: string,
+    target: ReturnType<typeof relationTarget>,
+    title: string,
+  ) => {
+    const type = objectTypeLabel(target?.subject);
+    return `${relationLabel}: ${type === undefined ? "" : `${type}: `}${title}`;
+  };
+  const relationLink = (
+    key: "production.owner" | "production.produced-for",
+    label: string,
+    title: string,
+  ) => {
+    const target = relationTarget(key);
+    return target?.availability !== "available" || target.subject === undefined
+      ? undefined
+      : {
+          prefix: `${label}: ${objectTypeLabel(target.subject) ?? "Object"}: `,
+          label: title,
+          href: planningLineageSubjectHref(entryId, target.subject),
+        };
+  };
+  const ownerLink = relationLink("production.owner", "Owner", ownerTitle);
+  const producedForLink =
+    asset.producedFor === undefined
+      ? undefined
+      : relationLink("production.produced-for", "Produced For", producedForTitle);
   return [
     {
       anchor: "asset.identity",
@@ -762,8 +860,25 @@ const assetSections = (
     {
       anchor: "asset.ownership",
       title: "Ownership and Purpose",
-      body: `Owned by ${ownerTitle}.`,
-      items: [`Produced For: ${producedForTitle}`],
+      links: [ownerLink, producedForLink].filter(
+        (link): link is NonNullable<typeof link> => link !== undefined,
+      ),
+      items: [
+        ...(ownerLink === undefined
+          ? [relationText("Owner", relationTarget("production.owner"), ownerTitle)]
+          : []),
+        ...(asset.producedFor === undefined
+          ? ["Produced For: Not declared"]
+          : producedForLink === undefined
+            ? [
+                relationText(
+                  "Produced For",
+                  relationTarget("production.produced-for"),
+                  producedForTitle,
+                ),
+              ]
+            : []),
+      ],
     },
     {
       anchor: "asset.lifecycle",
@@ -784,34 +899,18 @@ const assetSections = (
     },
     ...(asset.kind === "prototype" ||
     asset.contentShape === "directory" ||
-    asset.contentAvailability === "missing"
+    asset.contentAvailability !== "unreadable"
       ? []
       : [
           {
             anchor: "asset.content",
-            title: asset.contentAvailability === "available" ? "Content" : "Content unavailable",
-            body:
-              asset.contentAvailability === "available"
-                ? "Read this Asset on its bounded, read-only content surface."
-                : "The registered content is expected but unreadable.",
-            ...(asset.contentAvailability === "available"
-              ? {
-                  links: [
-                    {
-                      label: "View Content",
-                      detail: "Read-only · current-checkout content · isolated window",
-                      href: assetPreviewHref(entryId, asset.id),
-                      external: true,
-                    },
-                  ],
-                }
-              : {
-                  items: [
-                    "Cause: the current Snapshot reports this registered Asset content as unreadable; exact source details remain in Technical Details.",
-                    "Impact: content reading is unavailable; other Asset semantics remain available.",
-                    "Recovery: open Technical Details to verify the registered source, repair it, then run Sync.",
-                  ],
-                }),
+            title: "Content unavailable",
+            body: "The registered content is expected but unreadable.",
+            items: [
+              "Cause: the current Snapshot reports this registered Asset content as unreadable; exact source details remain in Technical Details.",
+              "Impact: content reading is unavailable; other Asset semantics remain available.",
+              "Recovery: open Technical Details to verify the registered source, repair it, then run Sync.",
+            ],
           },
         ]),
   ];
@@ -915,29 +1014,6 @@ const nativeTrustSections = (
               },
             ],
           }),
-    },
-  ];
-};
-
-const nativeScopeSections = (
-  snapshot: ProjectSnapshot,
-  record: NativeScopeRecord,
-): readonly PlanningLineageSection[] => {
-  const evidence = nativeEvidenceAssessment(snapshot, record.observation);
-  return [
-    {
-      anchor: "native-scope.trust",
-      title: "Scope Context and Trust",
-      body: `${record.observation.provider} · ${record.title}. Projection ${record.observation.state}; freshness ${evidence.freshness}; coverage ${record.observation.coverage.assessment}; completion ${record.observation.completion}; selected evidence ${evidence.frontierEvidence}. Current means verified at the recorded observation against the confirmed source revision; it does not promise live currency.`,
-      times: [
-        {
-          key: `observation:${record.observation.id}:verified-at`,
-          label: "Verified at",
-          time: projectExpectedSourceEventTime(record.observation.observedAt),
-          mode: "compact",
-          detail: record.observation.sourceRevision ?? "Source revision unavailable",
-        },
-      ],
     },
   ];
 };
@@ -1228,7 +1304,7 @@ const nativeSections = (
   snapshot: ProjectSnapshot,
   record: NativeRecord,
 ): readonly PlanningLineageSection[] => {
-  if (record.recordKind === "native-scope") return nativeScopeSections(snapshot, record);
+  if (record.recordKind === "native-scope") return [];
   const objectSections = (() => {
     switch (record.object.kind) {
       case "map":
@@ -1300,7 +1376,7 @@ const sectionsFor = (
     case "planning-review":
       return planningReviewSections(record as PlanningReview);
     case "asset":
-      return assetSections(snapshot, record as AssetProjection, entryId);
+      return assetSections(snapshot, record as AssetProjection, entryId, lineage);
     case "native-scope":
     case "native-subject":
       return nativeSections(snapshot, record as NativeRecord);
@@ -1785,6 +1861,12 @@ export const buildPlanningLineageSubjectModel = (
     ? nativeSourceHref(record as NativeRecord)
     : undefined;
   const workRegion = workRegionFor(snapshot, subject, record, lineage.nativeWorkReadingState);
+  const workHistoryOwner =
+    subject.kind !== "native-scope" || workRegion?.context.effortIds.length !== 1
+      ? undefined
+      : readableEfforts(snapshot).find((effort) => effort.id === workRegion.context.effortIds[0]);
+  const asset = subject.kind === "asset" ? (record as AssetProjection) : undefined;
+  const headerStatus = headerStatusFor(record, subject);
   const inspectionSelection = isNativeSubject(subject)
     ? snapshot.nativeScopeInspections.selections.find((selection) => {
         const observation = (record as NativeRecord).observation;
@@ -1799,11 +1881,24 @@ export const buildPlanningLineageSubjectModel = (
     subject: {
       kind: subject.kind,
       id: subject.id,
-      title: record.title,
+      title: subject.kind === "native-scope" ? "Contributing Work" : record.title,
       source: sourceIndex(snapshot).get(record.source),
       ...(sourceHref === undefined ? {} : { sourceHref }),
     },
     parentPath: parentPathForDisplay(snapshot, entryId, lineage),
+    ...(headerStatus === undefined ? {} : { headerStatus }),
+    ...(asset === undefined ||
+    asset.kind === "prototype" ||
+    asset.contentShape === "directory" ||
+    asset.contentAvailability !== "available"
+      ? {}
+      : {
+          primaryAction: {
+            label: "View Content",
+            href: assetPreviewHref(entryId, asset.id),
+            external: true,
+          },
+        }),
     ...(lineage.parentPath.state === "complete"
       ? {}
       : {
@@ -1820,6 +1915,17 @@ export const buildPlanningLineageSubjectModel = (
       ? { effortLens: effortLensFor(snapshot, record as Effort, workRegion, entryId) }
       : {}),
     ...(workRegion === undefined ? {} : { workRegion }),
+    ...(workHistoryOwner === undefined
+      ? {}
+      : {
+          workHistoryOwner: {
+            title: workHistoryOwner.title,
+            href: planningLineageSubjectHref(entryId, {
+              kind: "effort",
+              id: workHistoryOwner.id,
+            }),
+          },
+        }),
     ...(inspectionSelection === undefined
       ? {}
       : {

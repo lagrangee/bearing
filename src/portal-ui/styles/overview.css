@@ -240,7 +240,7 @@
   letter-spacing: -0.015em;
 }
 .roadmap-landscape-header p {
-  max-width: 78ch;
+  max-width: min(960px, 100%);
   margin-bottom: 0;
   color: var(--muted);
   font-size: var(--type-ui);
@@ -257,7 +257,7 @@
   text-underline-offset: 4px;
 }
 .roadmap-landscape-item .horizon {
-  align-items: flex-start;
+  align-items: stretch;
   padding: var(--space-5) 2px var(--space-3);
 }
 .roadmap-landscape-item .gate-node {

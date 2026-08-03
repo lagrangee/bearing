@@ -94,11 +94,6 @@ export function SourceEventTimeValue({
         <time dateTime={time.value}>{absolute}</time>
         {relative === absolute ? null : <small>{relative}</small>}
       </span>
-      <details>
-        <summary>Technical time provenance</summary>
-        <code>{time.value}</code>
-        <small>{time.precision} precision</small>
-      </details>
     </span>
   );
 }
