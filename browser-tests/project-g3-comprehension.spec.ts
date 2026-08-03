@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
@@ -10,10 +10,13 @@ import {
 } from "../src/planning-lineage-route";
 import type { ProjectSnapshot, ProjectSnapshotInput } from "../src/project-snapshot/contract";
 import { buildMattNativeSourceRecords } from "../src/project-snapshot/native-work-sources";
+import { buildProjectSnapshot } from "../src/project-snapshot/projection";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createSourceRecord } from "../src/project-snapshot/source-records";
+import type { MattProviderFactory } from "../src/provider-observation-acquisition";
 import { encodeGitHubMattNativeScope } from "../src/providers/matt-skills-v1/github";
 import { mattNativeScopeSubject } from "../src/providers/matt-skills-v1/native-subject";
+import { prepareSync } from "../src/sync-plan";
 import { createMattReferenceProjection } from "../tests/fixtures/matt-reference-scenario";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import {
@@ -106,6 +109,7 @@ const withProjectBrief = (snapshot: ProjectSnapshot): ProjectSnapshot => {
 
 const standaloneObservation = (nativeKind: "local" | "github", nativeScope: string) => {
   const projection = createMattReferenceProjection(nativeKind);
+  if (projection.map === undefined) throw new Error("Expected standalone Map projection input.");
   return createProviderScopeObservation({
     provider: "matt-skills/v1",
     binding: { provider: "matt-skills/v1", nativeScope },
@@ -133,6 +137,123 @@ const standaloneObservation = (nativeKind: "local" | "github", nativeScope: stri
       },
     },
   });
+};
+
+const proveGitHubStandaloneExclusion = async (): Promise<void> => {
+  const root = await realpath(await copyPortalProjectFixture("G3 GitHub Standalone Proof"));
+  try {
+    const boundScope = encodeGitHubMattNativeScope({
+      host: "github.com",
+      rootKind: "wayfinder-map",
+      repository: {
+        owner: "example",
+        name: "reference",
+        databaseId: "9001",
+        nodeId: "R_reference",
+      },
+      root: {
+        objectKind: "issue",
+        number: 101,
+        databaseId: "9101",
+        nodeId: "I_reference_1",
+      },
+    });
+    const standaloneTitle = "Unbound Standalone Release Triage";
+    const standalone = standaloneObservation(
+      "github",
+      encodeGitHubMattNativeScope({
+        host: "github.com",
+        rootKind: "wayfinder-map",
+        repository: {
+          owner: "example",
+          name: "standalone",
+          databaseId: "9901",
+          nodeId: "R_standalone",
+        },
+        root: {
+          objectKind: "issue",
+          number: 404,
+          databaseId: "9911",
+          nodeId: "I_standalone_404",
+        },
+      }),
+    );
+    const bound = createProviderScopeObservation({
+      provider: "matt-skills/v1",
+      binding: { provider: "matt-skills/v1", nativeScope: boundScope },
+      observedAt: "2026-08-03T03:00:00.000Z",
+      sourceRevision: "github:bound-revision",
+      sourceObservedAt: "2026-08-03T03:00:00.000Z",
+      validators: [],
+      state: "available",
+      freshness: {
+        assessment: "current",
+        evidence: [{ kind: "github-bound", value: boundScope }],
+      },
+      coverage: {
+        assessment: "complete",
+        dimensions: [{ key: "scope", state: "covered" }],
+      },
+      completion: "incomplete",
+      diagnostics: [],
+      projection: createMattReferenceProjection("github"),
+    });
+    const availableProviderInput = new Map([
+      [boundScope, bound],
+      [standalone.binding.nativeScope, standalone],
+    ]);
+    expect(availableProviderInput.get(standalone.binding.nativeScope)?.projection?.map?.title).toBe(
+      standaloneTitle,
+    );
+    const effortPath = join(root, ".bearing/state/efforts/fixture.md");
+    const effort = await readFile(effortPath, "utf8");
+    await writeFile(
+      effortPath,
+      effort.replace("Native scope: .scratch/work", `Native scope: ${boundScope}`),
+    );
+    await writeFile(
+      join(root, "docs/agents/issue-tracker.md"),
+      '# Issue tracker: GitHub\n\n## Conventions\n\n- Use the `gh` CLI for GitHub tracker reads.\n\n## Pull requests as a triage surface\n\n**PRs as a request surface: no.**\n\n## When a skill says "publish to the issue tracker"\n\nCreate a GitHub issue.\n\n## When a skill says "fetch the relevant ticket"\n\nRun `gh issue view <number> --comments`.\n\n## Wayfinding operations\n\nUse one issue with child issues.\n',
+    );
+    const capturedScopes: string[] = [];
+    const providerFactory: MattProviderFactory = (input) => ({
+      id: "matt-skills/v1",
+      capture: async (binding) => {
+        expect(input.driver).toBe("github-issues");
+        capturedScopes.push(binding.nativeScope);
+        const observation = availableProviderInput.get(binding.nativeScope);
+        if (observation === undefined) throw new Error("Unexpected GitHub binding capture.");
+        return observation;
+      },
+    });
+    const plan = await prepareSync(root, {
+      providerObservationIntent: "initial-baseline",
+      providerFactory,
+    });
+    const snapshot = await buildProjectSnapshot({
+      repoRoot: root,
+      packageVersion: "0.0.0-g3-proof",
+      sitemapFingerprint: plan.fingerprint,
+      diagnostics: plan.diagnostics,
+      advisoryFreshness: plan.advisoryFreshness,
+      decoded: plan.decoded,
+      providerObservations: plan.providerObservations,
+      providerObservationSelections: plan.providerObservationSelections,
+      nativeScopeInspectionObservations: plan.nativeScopeInspectionObservations,
+      nativeScopeInspectionSelections: plan.nativeScopeInspectionSelections,
+      assetContentObservations: plan.assetContentObservations,
+      planningGraph: plan.planningGraph,
+    });
+    expect(capturedScopes).toEqual([boundScope]);
+    expect(plan.providerObservations.map((observation) => observation.id)).toEqual([bound.id]);
+    const serialized = JSON.stringify(snapshot);
+    expect(serialized).not.toContain(standaloneTitle);
+    expect(serialized).not.toContain("example/standalone");
+    expect(JSON.stringify(snapshot.attention)).not.toContain(standaloneTitle);
+    expect(JSON.stringify(snapshot.lineage)).not.toContain(standaloneTitle);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 };
 
 const withPreviewAsset = (snapshot: ProjectSnapshot): ProjectSnapshot => {
@@ -486,6 +607,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
   page,
 }) => {
   if (host === undefined) throw new Error("Ticket 24 built Portal did not start.");
+  await proveGitHubStandaloneExclusion();
   const local: Scenario = {
     name: "Local",
     snapshot: localSnapshot(),
@@ -525,6 +647,26 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     .getByRole("link", { name: /G3 Comprehension Project/u })
     .click();
   await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
+  const actualSnapshotResponse = await page.request.get(
+    `${host.url}/api/v1/projects/${entryId}/snapshot`,
+  );
+  expect(actualSnapshotResponse.ok()).toBe(true);
+  const actualSnapshotBody = JSON.stringify(await actualSnapshotResponse.json());
+  expect(actualSnapshotBody).not.toContain("Unbound Standalone Release Triage");
+  expect(actualSnapshotBody).not.toContain(".scratch/standalone");
+  await expect(page.locator("main")).not.toContainText("Unbound Standalone Release Triage");
+  await expect(page.getByRole("region", { name: "Attention" })).toHaveCount(0);
+  const actualFind = page.getByRole("button", { name: "Find in project" });
+  await actualFind.click();
+  const actualFindDialog = page.getByRole("dialog", { name: "Find in project" });
+  const actualSearchbox = actualFindDialog.getByRole("searchbox", {
+    name: "Search identity, title, or semantic phrase",
+  });
+  await actualSearchbox.fill("Unbound Standalone Release Triage");
+  await expect(actualFindDialog.getByRole("option")).toHaveCount(0);
+  await actualSearchbox.fill(".scratch/standalone");
+  await expect(actualFindDialog.getByRole("option")).toHaveCount(0);
+  await page.keyboard.press("Escape");
   const reconciledNativeHref = planningLineageSubjectHref(entryId, {
     kind: "native-subject",
     id: ".scratch/work/issues/01-verify-isolation.md",
