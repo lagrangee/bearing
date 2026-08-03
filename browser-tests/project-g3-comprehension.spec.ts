@@ -588,6 +588,98 @@ const withInvalidEffortBinding = (snapshot: ProjectSnapshot): ProjectSnapshot =>
   });
 };
 
+const withEmptyCurrentWork = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+  const { observation } = portalObservation(snapshot);
+  const empty = createProviderScopeObservation({
+    ...observation,
+    projection: {
+      ...observation.projection,
+      wayfinderTickets: [],
+      deliveryTickets: [],
+      incomingIssues: [],
+      structuralOrder: [observation.projection.map?.ref, observation.projection.spec?.ref].filter(
+        (reference) => reference !== undefined,
+      ),
+      graph: { parentChild: [], blockedBy: [] },
+    },
+  } as never) as typeof observation;
+  return parseRebuiltPlanningLineageFixture({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((candidate) =>
+      candidate.id === observation.id ? empty : candidate,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === observation.id
+        ? { ...selection, observationId: empty.id }
+        : selection,
+    ),
+  });
+};
+
+const withMixedCurrentWork = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+  const { observation } = portalObservation(snapshot);
+  const blockedTicket = observation.projection.wayfinderTickets.find(
+    (ticket) => ticket.lifecycle.state === "open" && ticket.claim.state === "unclaimed",
+  );
+  const blockerTicket = observation.projection.wayfinderTickets.find(
+    (ticket) => ticket.lifecycle.state === "open" && ticket.claim.state === "claimed",
+  );
+  if (blockedTicket === undefined || blockerTicket === undefined) {
+    throw new Error("Expected reference tickets for the mixed Current Work fixture.");
+  }
+  const mixed = createProviderScopeObservation({
+    ...observation,
+    projection: {
+      ...observation.projection,
+      graph: {
+        ...observation.projection.graph,
+        blockedBy: [
+          ...observation.projection.graph.blockedBy,
+          {
+            blocked: blockedTicket.ref,
+            blocker: blockerTicket.ref,
+            evidence: "matt-contract",
+          },
+        ],
+      },
+    },
+  } as never) as typeof observation;
+  return parseRebuiltPlanningLineageFixture({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((candidate) =>
+      candidate.id === observation.id ? mixed : candidate,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === observation.id
+        ? { ...selection, observationId: mixed.id }
+        : selection,
+    ),
+  });
+};
+
+const withConcludedOpenWork = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected readable Efforts.");
+  return parseRebuiltPlanningLineageFixture({
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === "effort:portal"
+          ? {
+              ...effort,
+              lifecycle: "concluded" as const,
+              conclusion: {
+                disposition: "completed" as const,
+                rationale: "The Effort was concluded while retained native work remains open.",
+                concludedAt: { availability: "unavailable" as const },
+              },
+            }
+          : effort,
+      ),
+    },
+  });
+};
+
 const withRefreshedEffortDetails = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   const { binding, observation } = portalObservation(snapshot);
   const refreshed = createProviderScopeObservation({
@@ -997,6 +1089,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       await page.emulateMedia({ reducedMotion: "no-preference" });
     }
 
+    activeSnapshot = withMixedCurrentWork(scenario.snapshot);
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${host.url}${agentExplanation.optionalPortalLink}`);
     await expect(page).toHaveURL(`${host.url}${roadmapHref}`);
@@ -1004,13 +1097,21 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(page.getByRole("navigation", { name: "Canonical Parent Path" })).toBeVisible();
     const outcomeSpine = page.getByRole("region", { name: "Outcome Spine" });
     await expect(outcomeSpine).toBeVisible();
-    await expect(outcomeSpine.locator(".outcome-spine-gate")).toHaveCount(2);
+    const modelGateLink = outcomeSpine.getByRole("link", { name: "Model ready", exact: true });
+    const overviewGateLink = outcomeSpine.getByRole("link", {
+      name: "Overview proven",
+      exact: true,
+    });
+    await expect(modelGateLink).toBeVisible();
+    await expect(overviewGateLink).toBeVisible();
     await expect(outcomeSpine.getByRole("link", { name: "Planning Model" })).toBeVisible();
     await expect(outcomeSpine.getByRole("link", { name: "Web Portal Validation" })).toBeVisible();
-    const desktopColumns = await outcomeSpine
-      .locator(".outcome-spine-list")
-      .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" "));
-    expect(desktopColumns).toHaveLength(2);
+    const modelGateBox = await modelGateLink.boundingBox();
+    const overviewGateBox = await overviewGateLink.boundingBox();
+    expect(modelGateBox).not.toBeNull();
+    expect(overviewGateBox).not.toBeNull();
+    expect(Math.abs((modelGateBox?.y ?? 0) - (overviewGateBox?.y ?? 0))).toBeLessThan(2);
+    expect(overviewGateBox?.x ?? 0).toBeGreaterThan(modelGateBox?.x ?? 0);
     await page.reload();
     await expect(page).toHaveURL(`${host.url}${roadmapHref}`);
     await expect(page.getByRole("heading", { name: "Portal Evolution", level: 1 })).toBeVisible();
@@ -1049,12 +1150,42 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(page.getByRole("heading", { name: "Planning Basis", level: 2 })).toBeVisible();
     await expect(page.getByText("Map", { exact: true })).toBeVisible();
     await expect(page.getByText("PRD / Spec", { exact: true })).toBeVisible();
+    await expect(page.getByText("Claimed", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Blocked", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Refresh work details" })).toHaveCount(0);
     await expectCalmOrdinarySurface(page);
     const targetGateReturn = page
       .getByRole("link", { name: "Overview proven", exact: true })
       .last();
     await expect(targetGateReturn).toHaveAttribute("href", gateHref);
+    await targetGateReturn.click();
+    await expect(page).toHaveURL(`${host.url}${gateHref}`);
+    await expect(page.getByRole("heading", { name: "Overview proven", level: 1 })).toBeVisible();
+    const gateBreadcrumb = page.getByRole("navigation", { name: "Canonical Parent Path" });
+    await gateBreadcrumb.getByRole("link", { name: "Portal Evolution", exact: true }).click();
+    await expect(page).toHaveURL(`${host.url}${roadmapHref}`);
+    await expect(page.getByRole("heading", { name: "Portal Evolution", level: 1 })).toBeVisible();
+    await page.goto(`${host.url}${effortHref}`);
+
+    activeSnapshot = withEmptyCurrentWork(scenario.snapshot);
+    await page.goto(`${host.url}${effortHref}`);
+    await expect(
+      page.getByText("No nonterminal managed work is established by this observation."),
+    ).toBeVisible();
+
+    activeSnapshot = withConcludedOpenWork(scenario.snapshot);
+    await page.goto(`${host.url}${effortHref}`);
+    await expect(page.getByText("Concluded", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Outcome", level: 2 })).toBeVisible();
+    await expect(
+      page.getByText(
+        "This Effort is concluded, but nonterminal managed work remains in the bound scope.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+
+    activeSnapshot = scenario.snapshot;
 
     const concludedEffortHref = planningLineageSubjectHref(entryId, {
       kind: "effort",
@@ -1141,17 +1272,16 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       activeSnapshot = withLongMixedLineageContent(scenario.snapshot);
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(`${host.url}${roadmapHref}`);
-      await expect(page.locator(".outcome-spine")).toHaveAttribute("data-layout", "vertical");
-      expect(
-        await page
-          .locator(".outcome-spine-list")
-          .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ")),
-      ).toHaveLength(1);
-      await page
-        .getByRole("link", {
-          name: "Overview proven through a deliberately long governance outcome that must reflow without squeezing adjacent Gate columns",
-        })
-        .focus();
+      const longOutcomeLink = page.getByRole("link", {
+        name: "Overview proven through a deliberately long governance outcome that must reflow without squeezing adjacent Gate columns",
+      });
+      const longModelGateLink = page.getByRole("link", { name: "Model ready", exact: true });
+      const longModelGateBox = await longModelGateLink.boundingBox();
+      const longOutcomeBox = await longOutcomeLink.boundingBox();
+      expect(longModelGateBox).not.toBeNull();
+      expect(longOutcomeBox).not.toBeNull();
+      expect(longOutcomeBox?.y ?? 0).toBeGreaterThan(longModelGateBox?.y ?? 0);
+      await longOutcomeLink.focus();
       await page.keyboard.press("Enter");
       await expect(page.getByText("Milestone Gate", { exact: true })).toBeVisible();
       const exitCriteria = page.getByRole("heading", { name: "Exit Criteria", level: 2 });
@@ -1173,17 +1303,26 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
           { exact: true },
         ),
       ).toBeVisible();
-      await expect(page.locator(".effort-status-group")).toHaveCSS("border-top-style", "solid");
+      await expect(page.getByLabel("Effort governance status")).toHaveCSS(
+        "border-top-style",
+        "solid",
+      );
       await expect(page.getByText("Effort", { exact: true }).first()).toBeVisible();
 
       await page.setViewportSize({ width: 375, height: 812 });
       await page.goto(`${host.url}${roadmapHref}`);
       expect(await viewportOverflow(page)).toEqual([]);
-      expect(
-        await page
-          .locator(".outcome-spine-list")
-          .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ")),
-      ).toHaveLength(1);
+      const narrowModelGateBox = await page
+        .getByRole("link", { name: "Model ready", exact: true })
+        .boundingBox();
+      const narrowOutcomeBox = await page
+        .getByRole("link", {
+          name: "Overview proven through a deliberately long governance outcome that must reflow without squeezing adjacent Gate columns",
+        })
+        .boundingBox();
+      expect(narrowModelGateBox).not.toBeNull();
+      expect(narrowOutcomeBox).not.toBeNull();
+      expect(narrowOutcomeBox?.y ?? 0).toBeGreaterThan(narrowModelGateBox?.y ?? 0);
       await page.setViewportSize({ width: 640, height: 900 });
       await page.goto(`${host.url}${effortHref}`);
       await page.locator("body").evaluate((body) => {

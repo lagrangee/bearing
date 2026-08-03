@@ -339,7 +339,7 @@ function EffortStatusGroup({
   readonly onNavigate: Navigate;
 }) {
   return (
-    <dl className="effort-status-group">
+    <dl aria-label="Effort governance status" className="effort-status-group">
       <div>
         <dt>Effort lifecycle</dt>
         <dd>{humanizeWorkState(lens.lifecycle)}</dd>
