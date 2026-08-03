@@ -381,7 +381,9 @@ test("Asset detail distinguishes absent and expected-unreadable content", async 
       assets: {
         ...snapshot.assets,
         items: snapshot.assets.items.map((asset) =>
-          asset.id === "asset:planning-model-evidence" ? { ...asset, contentAvailability } : asset,
+          asset.id === "asset:planning-model-evidence"
+            ? { ...asset, contentAvailability, contentShape: "unavailable" }
+            : asset,
         ),
       },
     });
