@@ -24,6 +24,8 @@ const render = (
     snapshot?: ProjectSnapshot;
     semanticAnchor?: string;
     filteredView?: RequestedPlanningLineageFilteredView;
+    onRefreshDetails?: (subject: { kind: "native-scope" | "native-subject"; id: string }) => void;
+    inspectionOperation?: Readonly<{ state: "idle" | "running" | "failed" }>;
   }> = {},
 ): string =>
   renderToStaticMarkup(
@@ -33,6 +35,12 @@ const render = (
       snapshot: options.snapshot ?? createProjectOverviewFixture(),
       onInspect: () => {},
       onNavigate: () => {},
+      ...(options.onRefreshDetails === undefined
+        ? {}
+        : { onRefreshDetails: options.onRefreshDetails }),
+      ...(options.inspectionOperation === undefined
+        ? {}
+        : { inspectionOperation: options.inspectionOperation }),
       ...(options.semanticAnchor === undefined ? {} : { semanticAnchor: options.semanticAnchor }),
       ...(options.filteredView === undefined ? {} : { filteredView: options.filteredView }),
     }),
@@ -352,6 +360,9 @@ test("renders Effort status, canonical Intent, concluded-only Outcome, and gover
   expect(active).not.toContain("<h2>Outcome</h2>");
   expect(active).not.toContain('class="matt-work-region');
   expect(active).not.toContain('aria-label="Native Work Frontier views"');
+  expect(active).not.toContain("Last verified");
+  expect(active).not.toContain("Refresh work details");
+  expect(active).not.toContain("Managed work coverage");
   const activeCurrentWork = active.match(
     /<section id="native-work-current">[\s\S]*?<\/section>/u,
   )?.[0];
@@ -510,16 +521,104 @@ test("renders first acquisition failure as bound-unresolved with its concrete ca
   });
   const html = render(
     { validity: "valid", value: { kind: "effort", id: "effort:portal" } },
-    { snapshot: failed },
+    { snapshot: failed, onRefreshDetails: () => {} },
   );
 
   expect(html).toContain('<dd data-health="needs-attention">Needs attention</dd>');
   expect(html).toContain("<h2>Current Work</h2>");
-  expect(html).toContain("Work Binding invalid. Cause:");
+  expect(html).toContain("Managed work needs attention. Cause:");
   expect(html).toContain("The provider contract is unsupported.");
   expect(html).toContain("The declared Work Binding does not resolve to a provider observation.");
+  expect(html).toContain("Refresh work details");
+  expect(html).toContain("run exact Targeted Native Reconciliation separately");
   expect(html).not.toContain("No nonterminal managed work is established");
   expect(html).not.toContain('class="matt-work-region');
+});
+
+test("renders one degraded Effort indication and a bound-scope work-details recovery", () => {
+  const snapshot = createProjectOverviewFixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) =>
+      observation.binding.nativeScope === ".scratch/portal" &&
+      (observation.state === "available" || observation.state === "partial"),
+  );
+  if (portal === undefined || (portal.state !== "available" && portal.state !== "partial")) {
+    throw new Error("Expected the Portal observation.");
+  }
+  const stale = createProviderScopeObservation({
+    ...portal,
+    freshness: { ...portal.freshness, assessment: "stale" },
+  } as never) as typeof portal;
+  const candidate = withLineage({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portal.id ? stale : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === portal.id
+        ? { ...selection, observationId: stale.id, effectiveFreshness: "stale" as const }
+        : selection,
+    ),
+  });
+  const html = render(
+    { validity: "valid", value: { kind: "effort", id: "effort:portal" } },
+    {
+      snapshot: candidate,
+      onRefreshDetails: () => {},
+      inspectionOperation: { state: "idle" },
+    },
+  );
+
+  expect(html).toContain(
+    "Managed work details are stale; the last verified projection remains visible.",
+  );
+  expect(html.match(/Managed work details are stale/gu)).toHaveLength(1);
+  expect(html).toContain("<dt>Last verified</dt><dd>2026-07-28T00:00:00.000Z</dd>");
+  expect(html).toContain("Refresh work details");
+  expect(html).toContain("Build the Roadmap journey");
+  expect(html).not.toContain("Source Event Time");
+});
+
+test("keeps degraded refresh feedback truthful for running and failed operations", () => {
+  const snapshot = createProjectOverviewFixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) => observation.binding.nativeScope === ".scratch/portal",
+  );
+  if (portal === undefined) throw new Error("Expected the Portal observation.");
+  const stale = createProviderScopeObservation({
+    ...portal,
+    freshness: { ...portal.freshness, assessment: "stale" },
+  } as never) as typeof portal;
+  const candidate = withLineage({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portal.id ? stale : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === portal.id
+        ? { ...selection, observationId: stale.id, effectiveFreshness: "stale" as const }
+        : selection,
+    ),
+  });
+  const subject = {
+    validity: "valid" as const,
+    value: { kind: "effort" as const, id: "effort:portal" },
+  };
+
+  expect(
+    render(subject, {
+      snapshot: candidate,
+      onRefreshDetails: () => {},
+      inspectionOperation: { state: "running" },
+    }),
+  ).toContain("Refreshing work details");
+  expect(
+    render(subject, {
+      snapshot: candidate,
+      onRefreshDetails: () => {},
+      inspectionOperation: { state: "failed" },
+    }),
+  ).toContain("Latest refresh failed; retained verified work remains visible.");
 });
 
 test("renders provider subject diagnostics beside the affected native content", () => {
@@ -711,7 +810,7 @@ test("renders invalid Effort binding as cause, impact, and recovery rather than 
     { snapshot: invalidBinding },
   );
 
-  expect(html).toContain("Work Binding invalid");
+  expect(html).toContain("Managed work needs attention");
   expect(html).toContain("Cause: this Effort has no declared Work Binding.");
   expect(html).toContain(
     "Impact: native work cannot contribute trusted evidence or Gate readiness.",

@@ -69,6 +69,17 @@ export const buildProjectSnapshot = async (
             : [mattNativeScopeKey(effort.workBinding)],
         ),
   );
+  const inspectableScopeKeys = new Set(
+    planning.efforts.validity === "invalid"
+      ? []
+      : planning.efforts.items.flatMap((effort) =>
+          effort.workBinding === undefined ||
+          (effort.workBindingState.state === "invalid" &&
+            effort.workBindingState.reason !== "unresolved")
+            ? []
+            : [mattNativeScopeKey(effort.workBinding)],
+        ),
+  );
   const lineageObservationByScope = new Map(
     [
       ...(input.nativeScopeInspectionObservations ?? []).filter((observation) =>
@@ -143,10 +154,10 @@ export const buildProjectSnapshot = async (
     providerObservationSelections,
     nativeScopeInspections: {
       observations: (input.nativeScopeInspectionObservations ?? []).filter((observation) =>
-        boundScopeKeys.has(mattNativeScopeKey(observation.binding)),
+        inspectableScopeKeys.has(mattNativeScopeKey(observation.binding)),
       ),
       selections: (input.nativeScopeInspectionSelections ?? []).filter((selection) =>
-        boundScopeKeys.has(mattNativeScopeKey(selection)),
+        inspectableScopeKeys.has(mattNativeScopeKey(selection)),
       ),
     },
     diagnostics: diagnosticProjection.diagnostics,

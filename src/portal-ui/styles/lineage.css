@@ -114,6 +114,33 @@
   margin: 0;
   color: var(--muted);
 }
+.effort-observation-recovery {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: var(--muted);
+  background: var(--surface);
+  border-left: 3px solid var(--warning);
+}
+.effort-observation-recovery p,
+.effort-observation-recovery dl,
+.effort-observation-recovery dd {
+  margin: 0;
+}
+.effort-observation-recovery dl {
+  margin-top: var(--space-2);
+}
+.effort-observation-recovery dt,
+.effort-observation-recovery dd {
+  display: inline;
+}
+.effort-observation-recovery dt::after {
+  content: ": ";
+}
 .lineage-sections {
   border-top: 1px solid var(--border);
 }

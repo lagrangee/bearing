@@ -59,11 +59,22 @@ export function ProjectPage({
   const technicalDetailsScrollRef = useRef(0);
   const view = activation.view;
   const snapshot = snapshotFor(view);
-  const inspectionSubject =
+  const requestedNativeInspectionSubject =
     subject?.validity === "valid" &&
     (subject.value.kind === "native-scope" || subject.value.kind === "native-subject")
       ? subject.value
       : undefined;
+  const effortInspectionBinding =
+    snapshot === undefined || subject?.validity !== "valid" || subject.value.kind !== "effort"
+      ? undefined
+      : snapshot.efforts.validity === "invalid"
+        ? undefined
+        : snapshot.efforts.items.find((effort) => effort.id === subject.value.id)?.workBinding;
+  const inspectionSubject =
+    requestedNativeInspectionSubject ??
+    (effortInspectionBinding === undefined
+      ? undefined
+      : { kind: "native-scope" as const, id: effortInspectionBinding.nativeScope });
   const inspectionSubjectKey =
     inspectionSubject === undefined
       ? undefined
@@ -75,14 +86,15 @@ export function ProjectPage({
   const inspectionAttemptedForSubject =
     inspectionSubjectKey !== undefined && activation.inspection.subjectKey === inspectionSubjectKey;
   const inspectionTarget =
-    snapshot !== undefined && inspectionSubject !== undefined
+    snapshot !== undefined && requestedNativeInspectionSubject !== undefined
       ? mattNativeObservationForSubject(
           [...snapshot.providerObservations, ...snapshot.nativeScopeInspections.observations],
-          inspectionSubject,
+          requestedNativeInspectionSubject,
         )
       : undefined;
-  const inspectionTargetAvailable = inspectionTarget !== undefined;
-  const inspectionTargetBinding = inspectionTarget?.binding;
+  const inspectionTargetAvailable =
+    requestedNativeInspectionSubject !== undefined && inspectionTarget !== undefined;
+  const inspectionTargetBinding = effortInspectionBinding ?? inspectionTarget?.binding;
   const inspectionSelection =
     snapshot === undefined || inspectionTarget === undefined
       ? undefined
@@ -97,11 +109,11 @@ export function ProjectPage({
       : undefined;
   const inspectionDetailPresent =
     snapshot !== undefined &&
-    inspectionSubject !== undefined &&
+    requestedNativeInspectionSubject !== undefined &&
     snapshot.lineage.subjects.some(
       (candidate) =>
-        candidate.identity.kind === inspectionSubject.kind &&
-        candidate.identity.id === inspectionSubject.id,
+        candidate.identity.kind === requestedNativeInspectionSubject.kind &&
+        candidate.identity.id === requestedNativeInspectionSubject.id,
     );
   const routeIdentity =
     section === "lineage" ? JSON.stringify({ subject, filteredView, semanticAnchor }) : section;
@@ -232,7 +244,7 @@ export function ProjectPage({
 
   useEffect(() => {
     if (
-      inspectionSubject === undefined ||
+      requestedNativeInspectionSubject === undefined ||
       inspectionTargetBinding === undefined ||
       inspectionDetailPresent ||
       inspectionSelection !== undefined ||
@@ -241,14 +253,14 @@ export function ProjectPage({
     ) {
       return;
     }
-    activation.inspectNativeScope(inspectionSubject, inspectionTargetBinding, false);
+    activation.inspectNativeScope(requestedNativeInspectionSubject, inspectionTargetBinding, false);
   }, [
     activation,
     inspectionDetailPresent,
     inspectionSelection,
     inspectionAttemptedForSubject,
     inspectionStateForSubject,
-    inspectionSubject,
+    requestedNativeInspectionSubject,
     inspectionTargetBinding,
   ]);
 
@@ -321,13 +333,13 @@ export function ProjectPage({
               ? { subjectKey: inspectionSubjectKey }
               : {}),
           }}
-          {...(inspectionTarget === undefined
+          {...(inspectionTargetBinding === undefined
             ? {}
             : {
                 onRefreshDetails: (nextSubject: {
                   kind: "native-scope" | "native-subject";
                   id: string;
-                }) => activation.inspectNativeScope(nextSubject, inspectionTarget.binding, true),
+                }) => activation.inspectNativeScope(nextSubject, inspectionTargetBinding, true),
               })}
         />
       );

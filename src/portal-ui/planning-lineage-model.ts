@@ -155,6 +155,16 @@ export type PlanningLineageEffortLens = Readonly<{
     href?: string | undefined;
   }>;
   managedWorkHealth: "Healthy" | "Needs attention";
+  managedWorkObservation?:
+    | Readonly<{
+        state: "partial" | "stale" | "unavailable";
+        indication: string;
+        lastVerified?: string | undefined;
+        refreshTarget?: Readonly<{ kind: "native-scope"; id: string }> | undefined;
+        latestRefreshFailed?: boolean | undefined;
+        latestRefreshSucceeded?: boolean | undefined;
+      }>
+    | undefined;
   intent: string;
   outcome?:
     | Readonly<{
@@ -1542,26 +1552,93 @@ const effortLensFor = (
     workRegion.readingState.why.blockingDiagnosticCount === 0
       ? ("Healthy" as const)
       : ("Needs attention" as const);
+  const reading = workRegion?.readingState;
+  const binding = effort.workBinding;
+  const inspectionSelection =
+    binding === undefined
+      ? undefined
+      : snapshot.nativeScopeInspections.selections.find((selection) =>
+          sameMattNativeScope(selection, binding),
+        );
+  const inspectionObservation =
+    binding === undefined || inspectionSelection?.observationId === null
+      ? undefined
+      : snapshot.nativeScopeInspections.observations.find(
+          (observation) =>
+            observation.id === inspectionSelection?.observationId &&
+            sameMattNativeScope(observation.binding, binding),
+        );
+  const inspectionContext =
+    inspectionObservation === undefined
+      ? undefined
+      : mattNativeWorkReadingContextForEffort(
+          readableEfforts(snapshot),
+          effort,
+          inspectionObservation,
+          snapshot.nativeScopeInspections.selections,
+        );
+  const inspectedWorkRegion =
+    inspectionContext === undefined
+      ? undefined
+      : buildMattNativeWorkRegion(
+          inspectionObservation,
+          snapshot.nativeScopeInspections.selections,
+          inspectionContext,
+        );
+  const disposableWorkRegion = inspectedWorkRegion ?? workRegion;
+  const lastVerifiedReading = inspectedWorkRegion?.readingState ?? reading;
+  const managedWorkObservation =
+    managedWorkHealth === "Healthy"
+      ? undefined
+      : {
+          state:
+            workRegion === undefined || workRegion.views[0].count.mode === "unavailable"
+              ? ("unavailable" as const)
+              : reading?.why.freshness === "stale"
+                ? ("stale" as const)
+                : ("partial" as const),
+          indication:
+            workRegion === undefined || workRegion.views[0].count.mode === "unavailable"
+              ? "Managed work details are unavailable for the bound scope."
+              : reading?.why.freshness === "stale"
+                ? "Managed work details are stale; the last verified projection remains visible."
+                : "Managed work coverage is partial; confirmed items remain visible.",
+          ...(lastVerifiedReading?.observation.observedAt.availability === "available"
+            ? { lastVerified: lastVerifiedReading.observation.observedAt.value }
+            : {}),
+          ...(binding !== undefined &&
+          (effort.workBindingState.state === "bound" ||
+            effort.workBindingState.reason === "unresolved")
+            ? { refreshTarget: { kind: "native-scope" as const, id: binding.nativeScope } }
+            : {}),
+          ...(inspectionSelection?.latestAttempt?.outcome === "failed"
+            ? { latestRefreshFailed: true }
+            : {}),
+          ...(inspectionSelection?.latestAttempt?.outcome === "succeeded"
+            ? { latestRefreshSucceeded: true }
+            : {}),
+        };
   const workItems =
-    workRegion?.views[0].items.filter(
+    disposableWorkRegion?.views[0].items.filter(
       (item) => item.role === "wayfinder" || item.role === "delivery" || item.role === "incoming",
     ) ?? [];
-  const binding = effort.workBinding;
-  const observationUnavailable = workRegion?.views[0].count.mode === "unavailable";
+  const observationUnavailable = disposableWorkRegion?.views[0].count.mode === "unavailable";
   const observationCause =
-    workRegion === undefined
+    disposableWorkRegion === undefined
       ? undefined
       : [
-          ...(workRegion.context.state === "attention" ? [workRegion.context.detail] : []),
-          ...workRegion.readingState.observation.diagnostics.map(
+          ...(disposableWorkRegion.context.state === "attention"
+            ? [disposableWorkRegion.context.detail]
+            : []),
+          ...disposableWorkRegion.readingState.observation.diagnostics.map(
             (diagnostic) => diagnostic.message,
           ),
-          ...workRegion.readingState.why.causes,
+          ...disposableWorkRegion.readingState.why.causes,
         ]
           .filter((value, index, values) => values.indexOf(value) === index)
           .join(" ");
   const currentWork =
-    workRegion === undefined || binding === undefined || observationUnavailable
+    disposableWorkRegion === undefined || binding === undefined || observationUnavailable
       ? {
           state: "unavailable" as const,
           cause:
@@ -1570,7 +1647,9 @@ const effortLensFor = (
               : observationCause,
           impact: "native work cannot contribute trusted evidence or Gate readiness.",
           recovery:
-            "declare exactly one supported Work Binding in the canonical Effort record, then Sync.",
+            binding === undefined
+              ? "declare exactly one supported Work Binding in the canonical Effort record, then Sync."
+              : "refresh work details for this exact declared scope; after any Matt transaction, run exact Targeted Native Reconciliation separately.",
         }
       : effort.lifecycle === "concluded" && workItems.length === 0
         ? undefined
@@ -1610,6 +1689,7 @@ const effortLensFor = (
     lifecycle: effort.lifecycle,
     targetGate,
     managedWorkHealth,
+    ...(managedWorkObservation === undefined ? {} : { managedWorkObservation }),
     intent: effort.intent,
     ...(conclusion === undefined
       ? {}

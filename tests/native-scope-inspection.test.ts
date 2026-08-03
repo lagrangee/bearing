@@ -87,7 +87,7 @@ const writeScope = async (root: string, nativeScope: string): Promise<void> => {
   );
 };
 
-test("ordinary Sync retains an unresolved canonical binding route in Lineage and Attention", async () => {
+test("ordinary Sync keeps an unresolved declaration structural without creating a native route", async () => {
   const root = await createValidBearingRepo();
   const plan = await prepareSync(root);
   const snapshot = await buildSnapshotForSyncPlan(root, "0.0.0-test", plan);
@@ -95,37 +95,23 @@ test("ordinary Sync retains an unresolved canonical binding route in Lineage and
     kind: "effort",
     id: "effort:test",
   });
-  expect(effort?.nativeWorkReadingState).toMatchObject({
-    conclusion: "Binding needs attention",
-    binding: {
-      state: "attention",
-      reason: "bound-unresolved",
-      effortIds: ["effort:test"],
-    },
-  });
+  expect(effort?.nativeWorkReadingState).toBeUndefined();
   const bindingRelation = effort?.relations.find(
     (relation) => relation.key === "native-work.binding",
   );
-  expect(
-    bindingRelation?.state === "present" ? bindingRelation.targets[0] : undefined,
-  ).toMatchObject({
-    availability: "unavailable",
-    subject: { kind: "native-scope", id: ".scratch/work" },
+  expect(bindingRelation).toMatchObject({
+    state: "unavailable",
+    reason: "The declared Work Binding does not resolve to a provider observation.",
   });
   expect(
     snapshot.gates.validity === "invalid"
       ? undefined
       : snapshot.gates.items.find((gate) => gate.id === "gate:test")?.readiness,
   ).toBe("unknown");
-  expect(
-    buildProjectOverviewModel(snapshot).attention.some(
-      (item) =>
-        item.nativeSubject?.kind === "native-scope" && item.nativeSubject.id === ".scratch/work",
-    ),
-  ).toBe(true);
+  expect(buildProjectOverviewModel(snapshot).attention).toEqual([]);
 });
 
-test("ordinary Sync canonicalizes a GitHub binding route without provider evidence", async () => {
+test("ordinary Sync does not create a GitHub native route without provider evidence", async () => {
   const root = await createValidBearingRepo();
   const effortPath = join(root, ".bearing/state/efforts/test.md");
   const effort = await readFile(effortPath, "utf8");
@@ -153,7 +139,6 @@ test("ordinary Sync canonicalizes a GitHub binding route without provider eviden
 
   const plan = await prepareSync(root);
   const snapshot = await buildSnapshotForSyncPlan(root, "0.0.0-test", plan);
-  const expectedSubject = { kind: "native-scope", id: "github:R_binding:I_binding" } as const;
   const effortSubject = findPlanningLineageSubjectProjection(snapshot.lineage, {
     kind: "effort",
     id: "effort:test",
@@ -162,16 +147,11 @@ test("ordinary Sync canonicalizes a GitHub binding route without provider eviden
     (relation) => relation.key === "native-work.binding",
   );
 
-  expect(
-    bindingRelation?.state === "present" ? bindingRelation.targets[0]?.subject : undefined,
-  ).toEqual(expectedSubject);
-  expect(
-    buildProjectOverviewModel(snapshot).attention.some(
-      (item) =>
-        item.nativeSubject?.kind === expectedSubject.kind &&
-        item.nativeSubject.id === expectedSubject.id,
-    ),
-  ).toBe(true);
+  expect(bindingRelation).toMatchObject({
+    state: "unavailable",
+    reason: "The declared Work Binding does not resolve to a provider observation.",
+  });
+  expect(buildProjectOverviewModel(snapshot).attention).toEqual([]);
 });
 
 test("an unbound inspection is a zero-intrusion standalone result", async () => {
@@ -360,7 +340,7 @@ Preserve unrelated readiness.
   ]);
 });
 
-test("a subject detail uses canonical identity and fails closed when capture omits that subject", async () => {
+test("an unresolved subject inspection stays disposable and never enrolls a native route", async () => {
   const root = await createValidBearingRepo();
 
   const inspected = await prepareSync(root, {
@@ -383,7 +363,7 @@ test("a subject detail uses canonical identity and fails closed when capture omi
         subject.identity.kind === "native-subject" &&
         subject.identity.id === ".scratch/work/issues/01-finish.md",
     ),
-  ).toBe(true);
+  ).toBe(false);
   await commitSyncPlan(inspected);
 
   const mismatchedCalls = { count: 0, capturedLocators: [] as string[][] };
@@ -478,7 +458,7 @@ test("detail reopen reuses cache, Refresh reacquires, and failure retains prior 
       entryId: "bearing",
       requested: {
         validity: "valid",
-        value: { kind: "native-scope", id: ".scratch/work" },
+        value: { kind: "effort", id: "effort:test" },
       },
       snapshot: retainedSnapshot,
       onInspect: () => {},
@@ -487,9 +467,9 @@ test("detail reopen reuses cache, Refresh reacquires, and failure retains prior 
       onRefreshDetails: () => {},
     }),
   );
-  expect(html).toContain("latest refresh failed");
-  expect(html).toContain("Refresh details");
-  expect(html).toContain("undetermined");
+  expect(html).toContain("Latest refresh failed; retained verified work remains visible.");
+  expect(html).toContain("Refresh work details");
+  expect(html).toContain("2026-07-31T02:05:00.000Z");
 
   const thrown = await prepareSync(root, {
     nativeScopeInspectionIntent: {
@@ -659,18 +639,10 @@ test("inspection detail never becomes bound completion authority", async () => {
     (subject) =>
       subject.identity.kind === "native-scope" && subject.identity.id === ".scratch/work",
   )?.nativeWorkReadingState;
-  expect(effortReading).toMatchObject({
-    conclusion: "Binding needs attention",
-    binding: {
-      state: "attention",
-      reason: "bound-unresolved",
-      effortIds: ["effort:test"],
-    },
-    why: { completion: "undetermined" },
-  });
-  expect(scopeReading).toEqual(effortReading);
+  expect(effortReading).toBeUndefined();
+  expect(scopeReading).toBeUndefined();
   expect(
     plan.planningGraph.contextFor({ kind: "effort", id: "effort:test" }).context
       ?.nativeWorkReadingState,
-  ).toEqual(effortReading);
+  ).toBeUndefined();
 });

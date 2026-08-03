@@ -728,6 +728,7 @@ test("builds an Effort-first governance lens from canonical lifecycle and nonter
     },
   });
   expect(active.effortLens?.outcome).toBeUndefined();
+  expect(active.effortLens?.managedWorkObservation).toBeUndefined();
   const activeCurrentWork = active.effortLens?.currentWork;
   if (activeCurrentWork?.state !== "available") throw new Error("Expected current work.");
   expect(activeCurrentWork.items.map((item) => item.title)).not.toContain("Portal Validation");
@@ -827,6 +828,134 @@ test("keeps an active Effort Current Work section truthful when only planning-ba
 
   expect(model.effortLens?.currentWork).toMatchObject({ state: "available", items: [] });
   expect(model.effortLens?.managedWorkHealth).toBe("Healthy");
+});
+
+test("discloses only degraded Effort observation state with exact bound recovery", () => {
+  const snapshot = fixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) =>
+      observation.binding.nativeScope === ".scratch/portal" &&
+      (observation.state === "available" || observation.state === "partial"),
+  );
+  if (portal === undefined || (portal.state !== "available" && portal.state !== "partial")) {
+    throw new Error("Expected the Portal observation.");
+  }
+  const partial = createProviderScopeObservation({
+    ...portal,
+    state: "partial",
+    coverage: {
+      assessment: "incomplete",
+      dimensions: [{ key: "scope", state: "gap" }],
+    },
+  } as never) as typeof portal;
+  const candidate = withLineage({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portal.id ? partial : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === portal.id
+        ? {
+            ...selection,
+            observationId: partial.id,
+            effectiveFreshness: partial.freshness.assessment,
+          }
+        : selection,
+    ),
+  });
+  const model = readable(
+    buildPlanningLineageSubjectModel(candidate, { kind: "effort", id: "effort:portal" }, "bearing"),
+  );
+
+  expect(model.effortLens?.managedWorkHealth).toBe("Needs attention");
+  expect(model.effortLens?.managedWorkObservation).toEqual({
+    state: "partial",
+    indication: "Managed work coverage is partial; confirmed items remain visible.",
+    lastVerified: "2026-07-28T00:00:00.000Z",
+    refreshTarget: { kind: "native-scope", id: ".scratch/portal" },
+  });
+  expect(model.effortLens?.currentWork?.state).toBe("available");
+  const currentWork = model.effortLens?.currentWork;
+  if (currentWork?.state !== "available") throw new Error("Expected retained current work.");
+  expect(currentWork.items.map((item) => item.title)).toContain("Build the Roadmap journey");
+});
+
+test("uses a refreshed disposable observation only for its exact bound Effort scope", () => {
+  const snapshot = fixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) =>
+      observation.binding.nativeScope === ".scratch/portal" &&
+      (observation.state === "available" || observation.state === "partial"),
+  );
+  if (portal === undefined || (portal.state !== "available" && portal.state !== "partial")) {
+    throw new Error("Expected the Portal observation.");
+  }
+  const stale = createProviderScopeObservation({
+    ...portal,
+    freshness: { ...portal.freshness, assessment: "stale" },
+  } as never) as typeof portal;
+  const refreshed = createProviderScopeObservation({
+    ...portal,
+    observedAt: "2026-08-03T10:00:00.000Z",
+    projection: {
+      ...portal.projection,
+      deliveryTickets: [],
+      structuralOrder: portal.projection.structuralOrder.filter(
+        (reference) => !reference.endsWith("03-gate.md"),
+      ),
+      graph: {
+        ...portal.projection.graph,
+        parentChild: portal.projection.graph.parentChild.filter(
+          (relation) => !relation.child.endsWith("03-gate.md"),
+        ),
+        blockedBy: [],
+      },
+    },
+  } as never) as typeof portal;
+  const candidate = withLineage({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portal.id ? stale : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === portal.id
+        ? { ...selection, observationId: stale.id, effectiveFreshness: "stale" as const }
+        : selection,
+    ),
+    nativeScopeInspections: {
+      observations: [refreshed],
+      selections: [
+        {
+          provider: "matt-skills/v1" as const,
+          nativeScope: ".scratch/portal",
+          observationId: refreshed.id,
+          effectiveFreshness: "current" as const,
+          latestAttempt: {
+            intent: "native-scope-inspection" as const,
+            attemptedAt: "2026-08-03T10:00:00.000Z",
+            outcome: "succeeded" as const,
+            diagnostics: [],
+          },
+        },
+      ],
+    },
+  });
+  const portalModel = readable(
+    buildPlanningLineageSubjectModel(candidate, { kind: "effort", id: "effort:portal" }, "bearing"),
+  );
+  const modelWork = portalModel.effortLens?.currentWork;
+  if (modelWork?.state !== "available") throw new Error("Expected refreshed current work.");
+
+  expect(modelWork.items.map((item) => item.title)).not.toContain("Pass the integration gate");
+  expect(portalModel.effortLens?.managedWorkObservation).toMatchObject({
+    state: "stale",
+    lastVerified: "2026-08-03T10:00:00.000Z",
+    latestRefreshSucceeded: true,
+  });
+  const unrelated = readable(
+    buildPlanningLineageSubjectModel(candidate, { kind: "effort", id: "effort:model" }, "bearing"),
+  );
+  expect(unrelated.effortLens?.managedWorkHealth).toBe("Healthy");
 });
 
 test("builds a bounded Planning Basis and rejects duplicate Map or Spec candidates", () => {
