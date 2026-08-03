@@ -125,6 +125,7 @@ const attentionModel = (
                   ? undefined
                   : efforts.items.find(
                       (effort) =>
+                        effort.workBindingState.state === "bound" &&
                         effort.workBinding !== undefined &&
                         targetWithinNativeScope(diagnostic.target, effort.workBinding.nativeScope),
                     )?.workBinding;

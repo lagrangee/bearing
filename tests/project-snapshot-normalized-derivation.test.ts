@@ -1,10 +1,15 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { buildPlanningGraph } from "../src/planning-graph";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import { buildProjectSnapshot as buildSnapshot } from "../src/project-snapshot/projection";
 import { runSync } from "../src/sync";
 import { createValidBearingRepo, writeFixture } from "./helpers";
-import { buildProjectSnapshotForTest as buildProjectSnapshot } from "./project-snapshot-fixture";
+import {
+  buildProjectSnapshotForTest as buildProjectSnapshot,
+  captureDecodedInputs,
+} from "./project-snapshot-fixture";
 
 const materialize = async (root: string): Promise<ProjectSnapshot> => {
   const sync = await runSync(root);
@@ -41,6 +46,127 @@ test("keeps Effort lifecycle explicit when provider completion is undetermined",
   });
   expect(snapshot.gates).toMatchObject({
     validity: "available",
+    items: [{ id: "gate:test", readiness: "unknown" }],
+  });
+});
+
+test("preserves canonical Effort semantics while binding failures fail closed", async () => {
+  const root = await createValidBearingRepo();
+  const effortPath = join(root, ".bearing/state/efforts/test.md");
+  const source = await readFile(effortPath, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/efforts/test.md",
+    source.replace(
+      /Work binding:\n {2}Provider: matt-skills\/v1\n {2}Native scope: \.scratch\/work\n/u,
+      "",
+    ),
+  );
+
+  const missing = await materialize(root);
+  expect(missing.efforts).toMatchObject({
+    validity: "available",
+    items: [
+      {
+        id: "effort:test",
+        roadmapId: "roadmap:test",
+        targetGateId: "gate:test",
+        lifecycle: "active",
+        workBindingState: { state: "invalid", reason: "missing" },
+      },
+    ],
+  });
+  expect(missing.gates).toMatchObject({
+    validity: "available",
+    items: [{ id: "gate:test", readiness: "unknown" }],
+  });
+  expect(missing.diagnostics).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        code: "effort-work-binding-missing",
+        impact: "blocking",
+        target: ".bearing/state/efforts/test.md",
+      }),
+    ]),
+  );
+});
+
+test("marks a declared Work Binding unresolved without discovering standalone work", async () => {
+  const root = await createValidBearingRepo();
+  const sync = await runSync(root);
+  const captured = await captureDecodedInputs(root, sync.inputs, sync.fingerprint);
+  const planningGraph = await buildPlanningGraph({
+    decoded: captured.decoded,
+    providerObservations: [],
+    diagnostics: sync.diagnostics,
+    fingerprint: sync.fingerprint,
+    assetContentObservations: captured.assetContentObservations,
+  });
+  const snapshot = await buildSnapshot({
+    repoRoot: root,
+    packageVersion: "0.0.0-test",
+    sitemapFingerprint: sync.fingerprint,
+    diagnostics: sync.diagnostics,
+    advisoryFreshness: sync.advisoryFreshness,
+    decoded: captured.decoded,
+    providerObservations: [],
+    providerObservationSelections: [],
+    assetContentObservations: captured.assetContentObservations,
+    planningGraph,
+  });
+
+  expect(snapshot.efforts).toMatchObject({
+    validity: "available",
+    items: [
+      {
+        id: "effort:test",
+        workBinding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
+        workBindingState: { state: "invalid", reason: "unresolved" },
+      },
+    ],
+  });
+  expect(snapshot.providerObservations).toEqual([]);
+  expect(snapshot.gates).toMatchObject({
+    items: [{ id: "gate:test", readiness: "unknown" }],
+  });
+});
+
+test("marks every conflicting Work Binding invalid while retaining one read-only provider capture", async () => {
+  const root = await createValidBearingRepo();
+  const source = await readFile(join(root, ".bearing/state/efforts/test.md"), "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/efforts/conflict.md",
+    source.replace("ID: effort:test", "ID: effort:conflict"),
+  );
+  const gatePath = join(root, ".bearing/state/milestone-gates/test.md");
+  const gate = await readFile(gatePath, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/milestone-gates/test.md",
+    gate.replace("  - effort:test", "  - effort:test\n  - effort:conflict"),
+  );
+
+  const snapshot = await materialize(root);
+  expect(snapshot.efforts).toMatchObject({
+    validity: "available",
+    items: [
+      {
+        id: "effort:conflict",
+        workBindingState: { state: "invalid", reason: "conflicting" },
+      },
+      {
+        id: "effort:test",
+        workBindingState: { state: "invalid", reason: "conflicting" },
+      },
+    ],
+  });
+  expect(
+    snapshot.providerObservations.filter(
+      (observation) => observation.binding.nativeScope === ".scratch/work",
+    ),
+  ).toHaveLength(1);
+  expect(snapshot.gates).toMatchObject({
     items: [{ id: "gate:test", readiness: "unknown" }],
   });
 });

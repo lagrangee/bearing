@@ -1,3 +1,4 @@
+import { sameMattNativeScope } from "../providers/matt-skills-v1/native-subject";
 import {
   projectExpectedSourceEventTime,
   projectOptionalSourceEventTime,
@@ -132,6 +133,31 @@ const effortProjection = (input: Input): BuildResult<Effort>[] =>
     const intent = exactProse(record, ["Intent", "Work"], "Intent");
     if (intent === undefined)
       return { source: record.source, issue: bodyIssue(record, "invalid-effort-body") };
+    const bindingDiagnostic = input.diagnostics.find(
+      (diagnostic) =>
+        diagnostic.target === record.locator && diagnostic.code.startsWith("effort-work-binding-"),
+    );
+    const declaredBinding =
+      data["Work binding"] === undefined
+        ? undefined
+        : {
+            provider: data["Work binding"].Provider,
+            nativeScope: data["Work binding"]["Native scope"],
+          };
+    const workBindingState =
+      bindingDiagnostic?.code === "effort-work-binding-missing"
+        ? ({ state: "invalid", reason: "missing" } as const)
+        : bindingDiagnostic?.code === "effort-work-binding-unparseable"
+          ? ({ state: "invalid", reason: "unparseable" } as const)
+          : bindingDiagnostic?.code === "effort-work-binding-conflict"
+            ? ({ state: "invalid", reason: "conflicting" } as const)
+            : declaredBinding !== undefined &&
+                input.providerObservations !== undefined &&
+                !input.providerObservations.some((observation) =>
+                  sameMattNativeScope(observation.binding, declaredBinding),
+                )
+              ? ({ state: "invalid", reason: "unresolved" } as const)
+              : ({ state: "bound" } as const);
     return {
       source: record.source,
       item: effortSchema.parse({
@@ -163,11 +189,9 @@ const effortProjection = (input: Input): BuildResult<Effort>[] =>
         ...(data["Work binding"] === undefined
           ? {}
           : {
-              workBinding: {
-                provider: data["Work binding"].Provider,
-                nativeScope: data["Work binding"]["Native scope"],
-              },
+              workBinding: declaredBinding,
             }),
+        workBindingState,
       }),
     };
   });

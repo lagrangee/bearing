@@ -37,7 +37,7 @@ export { planningLineageProjectionSchema } from "./schema-planning-lineage";
 export { diagnosticReferenceSchema } from "./schema-primitives";
 export { projectionIssueSchema } from "./schema-projection";
 export { projectSummarySchema } from "./schema-summary";
-export const PROJECT_SNAPSHOT_VERSION = 18 as const;
+export const PROJECT_SNAPSHOT_VERSION = 19 as const;
 const resolutionSchema = z.strictObject({
   acceptedDecision: semanticPlainTextSchema,
   acceptedAt: bearingSourceEventTimeSchema,
@@ -180,12 +180,30 @@ export const effortSchema = z
         nativeScope: z.string().min(1),
       })
       .optional(),
+    workBindingState: z.discriminatedUnion("state", [
+      z.strictObject({ state: z.literal("bound") }),
+      z.strictObject({
+        state: z.literal("invalid"),
+        reason: z.enum(["missing", "unparseable", "unresolved", "conflicting"]),
+      }),
+    ]),
     lifecycle: z.enum(["planned", "active", "concluded"]),
     plannedAt: bearingSourceEventTimeSchema,
     activatedAt: bearingSourceEventTimeSchema.optional(),
     conclusion: effortConclusionSchema.optional(),
   })
   .superRefine((effort, context) => {
+    const declarationRequired =
+      effort.workBindingState.state === "bound" ||
+      effort.workBindingState.reason === "unresolved" ||
+      effort.workBindingState.reason === "conflicting";
+    if (declarationRequired !== (effort.workBinding !== undefined)) {
+      context.addIssue({
+        code: "custom",
+        path: ["workBindingState"],
+        message: "Normalized Work Binding state must match the canonical declaration.",
+      });
+    }
     if (effort.lifecycle === "planned") {
       if (effort.activatedAt !== undefined) {
         context.addIssue({

@@ -1,4 +1,5 @@
 import type { BearingArtifact, DecodedBearingRecordContent } from "../bearing-record-decoder";
+import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
 import type { StructuralDiagnostic } from "../types";
 import { type ParsedCanonicalRecord, parseCanonicalRecord } from "./canonical-record";
 import type { CollectionProjection, ProjectionIssue, SourceRecord } from "./contract";
@@ -8,6 +9,7 @@ export type GovernanceInput = Readonly<{
   records: readonly SnapshotSourceInput[];
   sitemapFingerprint: string;
   diagnostics: readonly StructuralDiagnostic[];
+  providerObservations?: readonly MattSkillsV1ProviderObservation[] | undefined;
 }>;
 export type GovernanceType = "roadmap" | "milestone-gate" | "effort" | "authority";
 export type BuildResult<T> = Readonly<{
@@ -78,7 +80,8 @@ export const parsedFor = (
         (candidate) =>
           candidate.impact === "blocking" &&
           candidate.target === record.locator &&
-          candidate.code !== "duplicate-stable-id",
+          candidate.code !== "duplicate-stable-id" &&
+          !candidate.code.startsWith("effort-work-binding-"),
       );
       return diagnostic === undefined
         ? { item: parsed.value, source: parsed.value.source }

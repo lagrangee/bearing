@@ -14,6 +14,7 @@ import { parseFrontmatter } from "./frontmatter";
 import { type GuidanceBodyResult, parseNextWorkGuidanceBody } from "./guidance-body";
 import type { SourceBinding, SourceRecord } from "./project-snapshot/contract";
 import { createSourceRecord } from "./project-snapshot/source-records";
+import { mattNativeScopeKey } from "./providers/matt-skills-v1/native-subject";
 import { bearingSchema } from "./schema-definitions";
 import type { SyncInputGeneration } from "./sync-input-generation";
 import { deriveTopologyDiagnostics } from "./topology-diagnostics";
@@ -353,6 +354,24 @@ const bodyDiagnostic = (locator: string, message: string): StructuralDiagnostic 
   message,
 });
 
+const EFFORT_WORK_BINDING_DIAGNOSTIC_CODES = new Set([
+  "effort-work-binding-missing",
+  "effort-work-binding-unparseable",
+]);
+
+const effortWorkBindingDiagnostic = (
+  locator: string,
+  reason: "missing" | "unparseable",
+): StructuralDiagnostic => ({
+  code: `effort-work-binding-${reason}`,
+  impact: "blocking",
+  target: locator,
+  message:
+    reason === "missing"
+      ? "Canonical Effort requires exactly one Work Binding."
+      : "Canonical Effort Work Binding does not match the supported provider contract.",
+});
+
 const exactSections = (
   locator: string,
   body: string,
@@ -579,12 +598,23 @@ const decodeRecord = (
   } else {
     const parsed = bearingSchema.safeParse(frontmatter.data);
     if (!parsed.success) {
-      schemaDiagnostics.push({
-        code: "invalid-bearing-schema",
-        impact: "blocking",
-        target: record.locator,
-        message: "Bearing frontmatter does not match its minimum schema.",
-      });
+      const withoutWorkBinding = { ...frontmatter.data };
+      delete withoutWorkBinding["Work binding"];
+      const effortFallback =
+        expectedType === "effort" && frontmatter.data["Type"] === "effort"
+          ? bearingSchema.safeParse(withoutWorkBinding)
+          : undefined;
+      if (effortFallback?.success === true && effortFallback.data.Type === "effort") {
+        data = normalizeBearingArtifact(effortFallback.data);
+        schemaDiagnostics.push(effortWorkBindingDiagnostic(record.locator, "unparseable"));
+      } else {
+        schemaDiagnostics.push({
+          code: "invalid-bearing-schema",
+          impact: "blocking",
+          target: record.locator,
+          message: "Bearing frontmatter does not match its minimum schema.",
+        });
+      }
     } else if (parsed.data.Type !== expectedType) {
       schemaDiagnostics.push({
         code: "unexpected-bearing-type",
@@ -594,6 +624,9 @@ const decodeRecord = (
       });
     } else {
       data = normalizeBearingArtifact(parsed.data);
+      if (data.Type === "effort" && data["Work binding"] === undefined) {
+        schemaDiagnostics.push(effortWorkBindingDiagnostic(record.locator, "missing"));
+      }
     }
   }
   const analyzed = analyzeDecodedBearingArtifact(record.locator, data, decodedContent.content);
@@ -602,9 +635,13 @@ const decodeRecord = (
     ...analyzed.diagnostics,
     ...decodedContent.diagnostics,
   ];
+  const hasFatalBlockingDiagnostic = diagnostics.some(
+    (diagnostic) =>
+      diagnostic.impact === "blocking" &&
+      !EFFORT_WORK_BINDING_DIAGNOSTIC_CODES.has(diagnostic.code),
+  );
   const analysis =
-    expectedType !== "asset-registry" &&
-    diagnostics.some((diagnostic) => diagnostic.impact === "blocking")
+    expectedType !== "asset-registry" && hasFatalBlockingDiagnostic
       ? {
           ...analyzed,
           nodes: [],
@@ -624,7 +661,7 @@ const decodeRecord = (
     assetContent !== undefined &&
     assetContent.assets.length > 0 &&
     assetContent.invalidEntries.length > 0;
-  const blocking = diagnostics.some((diagnostic) => diagnostic.impact === "blocking");
+  const blocking = hasFatalBlockingDiagnostic;
   const trust =
     partialAsset || (!blocking && diagnostics.length > 0)
       ? "partial"
@@ -748,6 +785,35 @@ const singletonDiagnostics = (records: readonly DecodedBearingRecord[]): Structu
   );
 };
 
+const effortWorkBindingConflictDiagnostics = (
+  records: readonly DecodedBearingRecord[],
+): StructuralDiagnostic[] => {
+  const byBinding = groupBy(
+    records.flatMap((record) => {
+      const data = record.data;
+      return data?.Type === "effort" && data["Work binding"] !== undefined
+        ? [{ record, binding: data["Work binding"] }]
+        : [];
+    }),
+    ({ binding }) =>
+      mattNativeScopeKey({
+        provider: binding.Provider,
+        nativeScope: binding["Native scope"],
+      }),
+  );
+  return [...byBinding.values()].flatMap((entries) =>
+    entries.length < 2
+      ? []
+      : entries.map(({ record }) => ({
+          code: "effort-work-binding-conflict",
+          impact: "blocking" as const,
+          target: record.locator,
+          message:
+            "Canonical Effort Work Binding conflicts with another Effort bound to the same stable provider-native identity.",
+        })),
+  );
+};
+
 const referenceDiagnostics = (
   nodes: readonly BearingNode[],
   references: readonly CanonicalReference[],
@@ -807,6 +873,7 @@ export const decodeBearingRecordGeneration = (
     ...records.flatMap((record) => record.diagnostics),
     ...duplicateIdentityDiagnostics(nodes),
     ...singletonDiagnostics(records),
+    ...effortWorkBindingConflictDiagnostics(records),
     ...referenceDiagnostics(nodes, references),
     ...authorityAvailabilityDiagnostics(
       analyses.flatMap((analysis) => analysis.authorityBaselines),

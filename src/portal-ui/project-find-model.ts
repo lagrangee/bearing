@@ -239,6 +239,7 @@ const managedNativeSubjectKeys = (snapshot: ProjectSnapshot): ReadonlySet<string
   const keys = new Set<string>();
   const observations = nativeObservations(snapshot);
   for (const effort of trustedEfforts(snapshot)) {
+    if (effort.workBindingState.state !== "bound") continue;
     const binding = effort.workBinding;
     if (binding === undefined) continue;
     const scopeSubject = mattNativeScopeSubject({ binding });
@@ -312,6 +313,7 @@ const projectFindScopeState = (snapshot: ProjectSnapshot): ProjectFindScopeState
     [snapshot.nativeScopeInspections.observations, snapshot.nativeScopeInspections.selections],
   ] as const;
   for (const effort of trustedEfforts(snapshot)) {
+    if (effort.workBindingState.state !== "bound") continue;
     const binding = effort.workBinding;
     if (binding === undefined) continue;
     let assessment: ReturnType<typeof assessSelectedProviderObservationEvidence> | undefined;

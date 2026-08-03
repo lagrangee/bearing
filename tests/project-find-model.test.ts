@@ -40,7 +40,13 @@ test("excludes native subjects that are not inside an accepted Effort binding", 
     efforts: {
       ...snapshot.efforts,
       items: snapshot.efforts.items.map((effort) =>
-        effort.id === "effort:portal" ? { ...effort, workBinding: undefined } : effort,
+        effort.id === "effort:portal"
+          ? {
+              ...effort,
+              workBinding: undefined,
+              workBindingState: { state: "invalid" as const, reason: "missing" as const },
+            }
+          : effort,
       ),
     },
   });

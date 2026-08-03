@@ -293,6 +293,7 @@ test("derives the direct planned, completed, withdrawn, and superseded readiness
     roadmapId: "roadmap:test",
     targetGateId: "gate:test",
     workBinding: binding,
+    workBindingState: { state: "bound" as const },
   };
   const readiness = (
     lifecycle: "planned" | "active" | "concluded",

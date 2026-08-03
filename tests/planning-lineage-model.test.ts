@@ -488,6 +488,7 @@ test("large relation collections expose truthful coverage and a stable filtered 
         citations: [],
         targetGateId: "gate:one",
         workBinding: undefined,
+        workBindingState: { state: "invalid", reason: "missing" },
       }),
     };
   });

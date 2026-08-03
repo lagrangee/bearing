@@ -348,7 +348,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 18,
+    schemaVersion: 19,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -468,6 +468,7 @@ export const createProjectOverviewFixture = () => {
             provider: "matt-skills/v1",
             nativeScope: ".scratch/model",
           },
+          workBindingState: { state: "bound" },
           lifecycle: "concluded",
           plannedAt: { availability: "unavailable" },
           activatedAt: { availability: "unavailable" },
@@ -490,6 +491,7 @@ export const createProjectOverviewFixture = () => {
             provider: "matt-skills/v1",
             nativeScope: ".scratch/portal",
           },
+          workBindingState: { state: "bound" },
           lifecycle: "active",
           plannedAt: { availability: "unavailable" },
           activatedAt: { availability: "unavailable" },

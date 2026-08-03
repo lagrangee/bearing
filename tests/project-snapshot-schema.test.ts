@@ -69,7 +69,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 18,
+  schemaVersion: 19,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -203,6 +203,39 @@ test("requires generation-bound native scope reading state and rejects obsolete 
     },
   };
   expect(projectSnapshotSchema.safeParse(forged).success).toBe(false);
+});
+
+test("requires an explicit normalized Work Binding state that matches its declaration", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
+  const missingState = {
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort, index) => {
+        if (index !== 0) return effort;
+        const { workBindingState: _state, ...withoutState } = effort;
+        return withoutState;
+      }),
+    },
+  };
+  expect(projectSnapshotSchema.safeParse(missingState).success).toBe(false);
+
+  const inconsistent = {
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort, index) =>
+        index === 0
+          ? {
+              ...effort,
+              workBindingState: { state: "invalid" as const, reason: "missing" as const },
+            }
+          : effort,
+      ),
+    },
+  };
+  expect(projectSnapshotSchema.safeParse(inconsistent).success).toBe(false);
 });
 
 test("rejects unsupported versions and Catalog or repository identity", () => {

@@ -1001,6 +1001,7 @@ export const buildPlanningGraph = async (
   const governance = buildGovernanceProjection({
     records: input.decoded.records,
     sitemapFingerprint: input.fingerprint,
+    providerObservations: input.providerObservations,
     diagnostics: input.diagnostics.filter(
       (diagnostic) =>
         !PLANNING_RELATION_DIAGNOSTIC_CODES.has(diagnostic.code) &&

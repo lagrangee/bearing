@@ -199,6 +199,76 @@ Input fingerprint: ${fingerprint}
   );
 });
 
+test("keeps Effort identity while reporting missing, unparseable, and conflicting Work Bindings", async () => {
+  const root = await createValidBearingRepo();
+  const effortPath = ".bearing/state/efforts/test.md";
+  const source = await Bun.file(`${root}/${effortPath}`).text();
+
+  await writeFixture(
+    root,
+    effortPath,
+    source.replace(
+      /Work binding:\n {2}Provider: matt-skills\/v1\n {2}Native scope: \.scratch\/work\n/u,
+      "",
+    ),
+  );
+  let discovery = await discoverProjectSitemapInputs(root);
+  let decoded = decodeBearingRecordGeneration(
+    await captureSyncInputGeneration(root, discovery.inputs),
+  );
+  expect(decoded.records.find((record) => record.type === "effort")).toMatchObject({
+    trust: "partial",
+    data: { Type: "effort", ID: "effort:test" },
+    diagnostics: [
+      {
+        code: "effort-work-binding-missing",
+        impact: "blocking",
+        target: effortPath,
+      },
+    ],
+  });
+
+  await writeFixture(
+    root,
+    effortPath,
+    source.replace(
+      /Work binding:\n {2}Provider: matt-skills\/v1\n {2}Native scope: \.scratch\/work/u,
+      "Work binding: cannot-parse",
+    ),
+  );
+  discovery = await discoverProjectSitemapInputs(root);
+  decoded = decodeBearingRecordGeneration(await captureSyncInputGeneration(root, discovery.inputs));
+  expect(decoded.records.find((record) => record.type === "effort")).toMatchObject({
+    trust: "partial",
+    data: { Type: "effort", ID: "effort:test" },
+    diagnostics: [
+      {
+        code: "effort-work-binding-unparseable",
+        impact: "blocking",
+        target: effortPath,
+      },
+    ],
+  });
+
+  await writeFixture(root, effortPath, source);
+  await writeFixture(
+    root,
+    ".bearing/state/efforts/duplicate-binding.md",
+    source.replace("ID: effort:test", "ID: effort:duplicate-binding"),
+  );
+  discovery = await discoverProjectSitemapInputs(root);
+  decoded = decodeBearingRecordGeneration(await captureSyncInputGeneration(root, discovery.inputs));
+  expect(
+    decoded.diagnostics.filter((diagnostic) => diagnostic.code === "effort-work-binding-conflict"),
+  ).toEqual([
+    expect.objectContaining({
+      impact: "blocking",
+      target: ".bearing/state/efforts/duplicate-binding.md",
+    }),
+    expect.objectContaining({ impact: "blocking", target: effortPath }),
+  ]);
+});
+
 test("rejects a schema-valid Record whose type does not match its locator", async () => {
   const root = await createValidBearingRepo();
   await addRemainingRecordTypes(root);

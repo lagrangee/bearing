@@ -63,7 +63,9 @@ const normalizedInput = (input: PlanningLineageBuildInput): Input => {
     input.efforts.validity === "invalid"
       ? []
       : input.efforts.items.flatMap((effort) =>
-          effort.workBinding === undefined ? [] : [mattNativeScopeKey(effort.workBinding)],
+          effort.workBindingState.state !== "bound" || effort.workBinding === undefined
+            ? []
+            : [mattNativeScopeKey(effort.workBinding)],
         ),
   );
   const observations = [...input.nativeScopeInspections.observations, ...input.providerObservations]
@@ -439,6 +441,7 @@ const parentPathFor = (
         ? []
         : input.efforts.items.filter(
             (effort) =>
+              effort.workBindingState.state === "bound" &&
               effort.workBinding !== undefined &&
               sameMattNativeScope(effort.workBinding, observation.binding),
           );
@@ -982,9 +985,23 @@ const relationsForGate = (input: Input, gate: GateRecord): PlanningLineageRelati
 
 const workBindingRelation = (input: Input, effort: EffortRecord): PlanningLineageRelation => {
   const binding = effort.workBinding;
-  if (binding === undefined) {
-    return confirmedNone("native-work.binding", "Work Binding", "binds to native scope", "one");
+  if (effort.workBindingState.state === "invalid") {
+    const reason = effort.workBindingState.reason;
+    return unavailableRelation(
+      "native-work.binding",
+      "Work Binding",
+      "binds to native scope",
+      "one",
+      reason === "missing"
+        ? "The canonical Effort has no declared Work Binding."
+        : reason === "unparseable"
+          ? "The canonical Effort Work Binding does not match the supported contract."
+          : reason === "conflicting"
+            ? "Multiple Efforts declare the same stable provider-native identity."
+            : "The declared Work Binding does not resolve to a provider observation.",
+    );
   }
+  if (binding === undefined) throw new TypeError("Bound Effort requires its Work Binding.");
   const matchingEfforts = trusted(input.efforts).filter(
     (candidate) =>
       candidate.workBinding !== undefined && sameMattNativeScope(candidate.workBinding, binding),
@@ -1408,7 +1425,9 @@ const nativeWorkReadingStateFor = (
   const efforts = trusted(input.efforts);
   if (subject.kind === "effort") {
     const effort = record as EffortRecord;
-    if (effort.workBinding === undefined) return undefined;
+    if (effort.workBindingState.state !== "bound" || effort.workBinding === undefined) {
+      return undefined;
+    }
     const binding = effort.workBinding;
     const observation =
       input.boundProviderObservations.find((candidate) =>

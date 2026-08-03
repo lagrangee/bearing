@@ -22,7 +22,12 @@ export type AttentionConsistencySnapshot = Readonly<{
     target: string;
     source?: string | undefined;
   }>[];
-  efforts: Collection<Readonly<{ workBinding?: Readonly<{ nativeScope: string }> | undefined }>>;
+  efforts: Collection<
+    Readonly<{
+      workBinding?: Readonly<{ nativeScope: string }> | undefined;
+      workBindingState: Readonly<{ state: "bound" | "invalid" }>;
+    }>
+  >;
   assets: Collection<Readonly<{ id: string }>>;
   sources: readonly Readonly<{
     reference: string;
@@ -60,7 +65,9 @@ export const validateAttentionConsistency = (
   const managedTargets = [
     ...trustedItems(snapshot.assets).map((asset) => asset.id),
     ...trustedItems(snapshot.efforts).flatMap((effort) =>
-      effort.workBinding === undefined ? [] : [effort.workBinding.nativeScope],
+      effort.workBindingState.state !== "bound" || effort.workBinding === undefined
+        ? []
+        : [effort.workBinding.nativeScope],
     ),
     ...snapshot.sources.flatMap((source) =>
       source.kind === "tracker" && source.binding !== undefined ? [source.displayLocator] : [],

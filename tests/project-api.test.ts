@@ -22,7 +22,7 @@ const assets: PortalAssets = {
     schemaVersion: 1,
     packageVersion: "0.0.0-test",
     interfaceVersion: 1,
-    projectSnapshotVersion: 18,
+    projectSnapshotVersion: 19,
     entry: "index.html",
     buildId: "0".repeat(64),
     assets: [

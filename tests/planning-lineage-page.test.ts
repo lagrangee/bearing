@@ -474,6 +474,41 @@ test("keeps missing, invalid, and unavailable-anchor requests scoped to the requ
   ).toContain("Requested section unavailable");
 });
 
+test("renders invalid Effort binding as cause, impact, and recovery rather than normal absence", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
+  const invalidBinding = withLineage({
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === "effort:model"
+          ? {
+              ...effort,
+              workBinding: undefined,
+              workBindingState: { state: "invalid" as const, reason: "missing" as const },
+            }
+          : effort,
+      ),
+    },
+  });
+  const html = render(
+    { validity: "valid", value: { kind: "effort", id: "effort:model" } },
+    { snapshot: invalidBinding },
+  );
+
+  expect(html).toContain("Work Binding invalid");
+  expect(html).toContain("Cause: this Effort has no declared Work Binding.");
+  expect(html).toContain(
+    "Impact: native work cannot contribute trusted evidence or Gate readiness.",
+  );
+  expect(html).toContain(
+    "Recovery: declare exactly one supported Work Binding in the canonical Effort record, then Sync.",
+  );
+  expect(html).not.toContain("Not bound");
+  expect(html).not.toContain("No Work Binding is declared");
+});
+
 test("renders a stable filtered relation view as owner-derived list state, not a subject", () => {
   const snapshot = createProjectOverviewFixture();
   if (
@@ -506,6 +541,7 @@ test("renders a stable filtered relation view as owner-derived list state, not a
         source: source.reference,
         citations: [],
         workBinding: undefined,
+        workBindingState: { state: "invalid", reason: "missing" },
       }),
     };
   });

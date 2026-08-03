@@ -34,6 +34,7 @@ export const buildProjectSnapshot = async (
     records,
     sitemapFingerprint: input.sitemapFingerprint,
     diagnostics: input.diagnostics,
+    providerObservations: input.providerObservations,
   });
   const roadmapIndex = buildRoadmapIndexProjection(
     {
@@ -63,7 +64,9 @@ export const buildProjectSnapshot = async (
     planning.efforts.validity === "invalid"
       ? []
       : planning.efforts.items.flatMap((effort) =>
-          effort.workBinding === undefined ? [] : [mattNativeScopeKey(effort.workBinding)],
+          effort.workBindingState.state !== "bound" || effort.workBinding === undefined
+            ? []
+            : [mattNativeScopeKey(effort.workBinding)],
         ),
   );
   const lineageObservationByScope = new Map(
@@ -95,7 +98,9 @@ export const buildProjectSnapshot = async (
       ...(planning.efforts.validity === "invalid"
         ? []
         : planning.efforts.items.flatMap((effort) =>
-            effort.workBinding === undefined ? [] : [effort.workBinding.nativeScope],
+            effort.workBindingState.state !== "bound" || effort.workBinding === undefined
+              ? []
+              : [effort.workBinding.nativeScope],
           )),
       ...sources.flatMap((source) =>
         source.kind === "tracker" && source.binding !== undefined ? [source.displayLocator] : [],

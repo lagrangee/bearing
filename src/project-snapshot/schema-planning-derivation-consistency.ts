@@ -33,6 +33,10 @@ type Effort = Readonly<{
   roadmapId: string;
   targetGateId: string;
   workBinding?: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }> | undefined;
+  workBindingState: Readonly<
+    | { state: "bound" }
+    | { state: "invalid"; reason: "missing" | "unparseable" | "unresolved" | "conflicting" }
+  >;
   lifecycle: "planned" | "active" | "concluded";
   conclusion?:
     | Readonly<{

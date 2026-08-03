@@ -501,10 +501,21 @@ const effortSections = (
     {
       anchor: "effort.native-work",
       title: "Work Binding",
-      body:
-        binding === undefined
-          ? "No Work Binding is declared."
-          : `${binding.provider} · ${binding.nativeScope}. ${workTrust ?? "Trust evidence unavailable."}`,
+      body: (() => {
+        if (effort.workBindingState.state === "bound") {
+          if (binding === undefined) throw new TypeError("Bound Effort requires its Work Binding.");
+          return `${binding.provider} · ${binding.nativeScope}. ${workTrust ?? "Trust evidence unavailable."}`;
+        }
+        const cause =
+          effort.workBindingState.reason === "missing"
+            ? "this Effort has no declared Work Binding."
+            : effort.workBindingState.reason === "unparseable"
+              ? "the declared Work Binding does not match the supported provider contract."
+              : effort.workBindingState.reason === "conflicting"
+                ? "another Effort declares the same stable provider-native identity."
+                : "the declared Work Binding does not resolve to a provider observation.";
+        return `Work Binding invalid. Cause: ${cause} Impact: native work cannot contribute trusted evidence or Gate readiness. Recovery: declare exactly one supported Work Binding in the canonical Effort record, then Sync.`;
+      })(),
     },
   ];
 };
@@ -1215,8 +1226,9 @@ const effortWorkRegion = (
   effort: Effort,
   readingState?: MattNativeWorkReadingState | undefined,
 ): MattNativeWorkRegionModel | undefined => {
+  if (effort.workBindingState.state !== "bound") return undefined;
   const binding = effort.workBinding;
-  if (binding === undefined) return undefined;
+  if (binding === undefined) throw new TypeError("Bound Effort requires its Work Binding.");
   const observation =
     snapshot.providerObservations.find((candidate) =>
       sameMattNativeScope(candidate.binding, binding),
