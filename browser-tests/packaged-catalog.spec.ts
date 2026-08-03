@@ -192,7 +192,11 @@ test("a freshly reconciled repository is selectable through the packed installed
     await page.getByRole("link", { name: "Test Roadmap", exact: true }).click();
     await page.getByRole("link", { name: "Test Effort", exact: true }).first().click();
     await expect(page.getByRole("heading", { name: "Test Effort", level: 1 })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Work Binding", level: 2 })).toBeVisible();
+    await expect(
+      page.getByLabel("Effort governance status").getByText("Needs attention", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh work details" })).toBeVisible();
 
     const sync = page.getByRole("button", { name: "Sync", exact: true });
     await expect(sync).toBeEnabled();

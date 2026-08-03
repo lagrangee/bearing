@@ -1210,7 +1210,9 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(
       page.getByText("Managed work coverage is partial", { exact: false }),
     ).toBeVisible();
-    await expect(page.locator('[data-health="needs-attention"]')).toHaveText("Needs attention");
+    await expect(
+      page.getByLabel("Effort governance status").getByText("Needs attention", { exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
     await expect(page.getByRole("button", { name: "Refresh work details" })).toBeVisible();
 
@@ -1333,7 +1335,9 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
         body.style.zoom = "";
       });
       await page.emulateMedia({ reducedMotion: "reduce" });
-      await expect(page.locator('[data-health="needs-attention"]')).toHaveCount(0);
+      await expect(
+        page.getByLabel("Effort governance status").getByText("Needs attention", { exact: true }),
+      ).toHaveCount(0);
       await page.emulateMedia({ reducedMotion: "no-preference" });
       activeSnapshot = scenario.snapshot;
     }
