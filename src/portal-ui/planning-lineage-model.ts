@@ -59,6 +59,7 @@ import {
   planningLineageEventsFor,
   planningLineageRelationEvent,
 } from "./planning-lineage-events";
+import { semanticTitleForPlanningReference } from "./planning-reference-title";
 import { assetPreviewHref } from "./project-route";
 
 const RELATION_PREVIEW_LIMIT = 3;
@@ -610,15 +611,27 @@ const planningReviewSections = (review: PlanningReview): readonly PlanningLineag
 ];
 
 const assetSections = (
+  snapshot: ProjectSnapshot,
   asset: AssetProjection,
   entryId: string,
 ): readonly PlanningLineageSection[] => {
   const evidenceRoles = asset.evidenceRoles.map(assetEvidenceRoleLabel);
+  const ownerTitle = semanticTitleForPlanningReference(snapshot, asset.owner);
+  const producedForTitle =
+    asset.producedFor === undefined
+      ? "Not declared"
+      : semanticTitleForPlanningReference(snapshot, asset.producedFor);
   return [
     {
       anchor: "asset.identity",
       title: "Asset Identity",
-      body: `${asset.id} · ${asset.kind} · content ${asset.contentAvailability}.`,
+      body: `Kind: ${asset.kind}.`,
+    },
+    {
+      anchor: "asset.ownership",
+      title: "Ownership and Purpose",
+      body: `Owned by ${ownerTitle}.`,
+      items: [`Produced For: ${producedForTitle}`],
     },
     {
       anchor: "asset.lifecycle",
@@ -629,20 +642,6 @@ const assetSections = (
         : { items: [`Replacement: ${asset.supersededBy}`] }),
     },
     {
-      anchor: "asset.provenance",
-      title: "Provenance",
-      body: `Producer ${asset.producer.kind} / ${asset.producer.name}.`,
-      copy: { label: "Copy Asset Location", value: asset.displayLocation },
-      items: [
-        `Location: ${asset.displayLocation}`,
-        `Owner: ${asset.owner}`,
-        `Produced For: ${asset.producedFor ?? "Not declared"}`,
-        ...(asset.producer.reference === undefined
-          ? []
-          : [`Producer Reference: ${asset.producer.reference}`]),
-      ],
-    },
-    {
       anchor: "asset.evidence-roles",
       title: "Evidence Roles",
       body:
@@ -651,26 +650,36 @@ const assetSections = (
           : "Only the following explicit Evidence roles are recorded.",
       ...(evidenceRoles.length === 0 ? {} : { items: evidenceRoles }),
     },
-    {
-      anchor: "asset.preview",
-      title: "Preview Availability",
-      body:
-        asset.contentAvailability === "available"
-          ? "Open preview reads current-checkout content and does not claim historical Snapshot bytes."
-          : `Preview is unavailable because Content Availability is ${asset.contentAvailability}.`,
-      ...(asset.contentAvailability === "available"
-        ? {
-            links: [
-              {
-                label: "Open preview",
-                detail: "Current-checkout content · isolated window",
-                href: assetPreviewHref(entryId, asset.id),
-                external: true,
-              },
-            ],
-          }
-        : {}),
-    },
+    ...(asset.kind === "prototype" || asset.contentAvailability === "missing"
+      ? []
+      : [
+          {
+            anchor: "asset.content",
+            title: asset.contentAvailability === "available" ? "Content" : "Content unavailable",
+            body:
+              asset.contentAvailability === "available"
+                ? "Read this Asset on its bounded, read-only content surface."
+                : "The registered content is expected but unreadable.",
+            ...(asset.contentAvailability === "available"
+              ? {
+                  links: [
+                    {
+                      label: "View Content",
+                      detail: "Read-only · current-checkout content · isolated window",
+                      href: assetPreviewHref(entryId, asset.id),
+                      external: true,
+                    },
+                  ],
+                }
+              : {
+                  items: [
+                    "Cause: the current Snapshot reports this registered Asset content as unreadable; exact source details remain in Technical Details.",
+                    "Impact: content reading is unavailable; other Asset semantics remain available.",
+                    "Recovery: open Technical Details to verify the registered source, repair it, then run Sync.",
+                  ],
+                }),
+          },
+        ]),
   ];
 };
 
@@ -1157,7 +1166,7 @@ const sectionsFor = (
     case "planning-review":
       return planningReviewSections(record as PlanningReview);
     case "asset":
-      return assetSections(record as AssetProjection, entryId);
+      return assetSections(snapshot, record as AssetProjection, entryId);
     case "native-scope":
     case "native-subject":
       return nativeSections(snapshot, record as NativeRecord);

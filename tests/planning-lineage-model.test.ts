@@ -100,12 +100,12 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
       { kind: "asset", id: "asset:planning-model-evidence" },
       [
         "asset.identity",
+        "asset.ownership",
         "asset.lifecycle",
-        "asset.provenance",
         "asset.evidence-roles",
-        "asset.preview",
+        "asset.content",
       ],
-      ["production.owner", "production.producer", "planning-use.cited-by", "passage.used-by"],
+      ["production.owner", "planning-use.cited-by", "passage.used-by"],
     ],
     [
       { kind: "alignment-check", id: "alignment-check:portal" },
@@ -168,13 +168,38 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
   expect(
     asset.sections.find((section) => section.anchor === "asset.evidence-roles")?.items,
   ).toEqual(["Planning Citation", "Passage Evidence"]);
-  expect(asset.relations).toContainEqual(
-    expect.objectContaining({
-      key: "production.producer",
-      direction: "was produced by",
-      state: "present",
-    }),
+  expect(asset.relations.map((relation) => relation.key)).not.toContain("production.producer");
+  if (snapshot.assets.validity === "invalid") throw new Error("Expected Assets.");
+  const prototypeSnapshot = withLineage({
+    ...snapshot,
+    assets: {
+      ...snapshot.assets,
+      items: snapshot.assets.items.map((candidate) =>
+        candidate.id === "asset:planning-model-evidence"
+          ? { ...candidate, kind: "prototype" }
+          : candidate,
+      ),
+    },
+  });
+  const prototype = buildPlanningLineageSubjectModel(
+    prototypeSnapshot,
+    { kind: "asset", id: "asset:planning-model-evidence" },
+    "bearing",
   );
+  expect(prototype.state).toBe("available");
+  if (prototype.state !== "available") throw new Error("Expected complete prototype semantics.");
+  expect(prototype.sections.map((section) => section.anchor)).toEqual([
+    "asset.identity",
+    "asset.ownership",
+    "asset.lifecycle",
+    "asset.evidence-roles",
+  ]);
+  expect(
+    findPlanningLineageSubjectProjection(prototypeSnapshot.lineage, {
+      kind: "asset",
+      id: "asset:planning-model-evidence",
+    })?.semanticSections,
+  ).not.toContainEqual(expect.objectContaining({ role: "asset.content" }));
   const check = readable(
     buildPlanningLineageSubjectModel(
       snapshot,

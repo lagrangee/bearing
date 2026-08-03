@@ -73,7 +73,6 @@ export const assetProjectionSchema = z
     owner: planningReferenceSchema,
     producer: producerSchema,
     lifecycleSource: z.enum(["native", "registry"]),
-    previewEntry: displayAssetLocatorSchema.optional(),
     registeredAt: bearingSourceEventTimeSchema,
     producedAt: sourceEventTimeSchema.optional(),
     disposition: z.enum(["available", "superseded", "archived"]).optional(),

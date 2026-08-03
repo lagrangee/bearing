@@ -1,5 +1,5 @@
 import { lstat, readdir } from "node:fs/promises";
-import { dirname, extname, isAbsolute, join, posix, relative, sep } from "node:path";
+import { extname, isAbsolute, join, posix, relative, sep } from "node:path";
 import MarkdownIt from "markdown-it";
 import sanitizeHtml from "sanitize-html";
 import { probeContainedInput } from "../input-boundary";
@@ -18,19 +18,21 @@ export const MAX_ASSET_PREVIEW_BUNDLE_FILES = 128;
 export const MAX_ASSET_PREVIEW_BUNDLE_BYTES = 16 * 1024 * 1024;
 export const MAX_ASSET_PREVIEW_BUNDLE_DEPTH = 8;
 export const ASSET_PREVIEW_CONTENT_SECURITY_POLICY =
-  "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; media-src data:; object-src data:; connect-src 'none'; frame-ancestors 'none'; font-src 'none'; navigate-to 'none'";
+  "sandbox allow-scripts; default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src data:; object-src data:; connect-src 'none'; frame-ancestors 'none'; font-src 'none'";
 
 export type AssetPreviewAvailability =
   | "available"
+  | "not-offered"
+  | "unavailable"
   | "unsupported"
   | "unsafe"
-  | "exceeds-limit"
-  | "preview-entry-missing";
+  | "exceeds-limit";
 
 export type AssetPreviewUnavailableCode =
   | "project-unavailable"
   | "snapshot-unavailable"
   | "asset-not-registered"
+  | "preview-not-offered"
   | "content-missing"
   | "content-unreadable"
   | "stale-registration"
@@ -39,7 +41,7 @@ export type AssetPreviewUnavailableCode =
   | "unsupported-content"
   | "content-exceeds-limit";
 
-export type AssetPreviewSurface = "file" | "bundle-browser" | "prototype" | "bundle-resource";
+export type AssetPreviewSurface = "file" | "bundle-browser" | "bundle-resource";
 
 export type AssetPreviewResolution =
   | Readonly<{
@@ -150,16 +152,32 @@ const safeText = (value: string): string => sanitizeHtml(value, textSanitizerOpt
 
 const safeHtml = (value: string): string => sanitizeHtml(value, sanitizerOptions);
 
-const previewDocument = (title: string, body: string): Buffer =>
+const assetDetailHref = (entryId: string, assetId: string): string =>
+  `/projects/${encodeURIComponent(entryId)}/lineage/asset/${encodeURIComponent(assetId)}`;
+
+const returnToAssetDetailControl = (href: string): string =>
+  `<button type="button" data-bearing-return data-bearing-return-href="${escapeAttribute(href)}" onclick="window.close()">Return to Asset detail</button>`;
+
+export const assetPreviewUnavailableDocument = (
+  entryId: string,
+  assetId: string,
+  result: Extract<AssetPreviewResolution, { kind: "unavailable" }>,
+): string => {
+  const returnControl = returnToAssetDetailControl(assetDetailHref(entryId, assetId));
+  if (result.code === "preview-not-offered") {
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>Preview not offered</title></head><body><header>${returnControl}</header><main><h1>Preview not offered</h1><p>Bearing does not provide content preview or execution for prototype Assets.</p><p>Return to Asset detail to read its semantic information or inspect provenance in Technical Details.</p></main></body></html>`;
+  }
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>Content unavailable</title></head><body><header>${returnControl}<p>View Content · current-checkout content</p></header><main><h1>Content unavailable</h1><p>Cause: ${safeText(result.message)}</p><p>Impact: this Asset content cannot be read on the current content surface.</p><p>Recovery: return to Asset detail, open Technical Details, repair the registered source, then run Sync.</p></main></body></html>`;
+};
+
+const previewDocument = (title: string, body: string, returnHref: string): Buffer =>
   Buffer.from(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>${safeText(title)}</title></head><body><header><p>Asset Preview · current-checkout content</p><p>This is not historical Snapshot bytes; the registered Asset was revalidated against the current checkout.</p></header><main>${body}</main></body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>${safeText(title)}</title></head><body><header>${returnToAssetDetailControl(returnHref)}<p>View Content · current-checkout content</p><p>This is not historical Snapshot bytes; the registered Asset was revalidated against the current checkout.</p></header><main>${body}</main></body></html>`,
     "utf8",
   );
 
 const BUNDLE_BROWSER_CONTENT_SECURITY_POLICY =
-  "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'none'; media-src 'none'; object-src 'none'; connect-src 'none'; frame-ancestors 'none'; navigate-to 'self'";
-const PROTOTYPE_CONTENT_SECURITY_POLICY =
-  "sandbox allow-scripts allow-same-origin; default-src 'none'; base-uri 'self'; form-action 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; font-src 'self' data:; frame-src 'none'; object-src 'none'; connect-src 'none'; frame-ancestors 'none'; navigate-to 'self'";
+  "sandbox allow-scripts; default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; media-src 'none'; object-src 'none'; connect-src 'none'; frame-ancestors 'none'";
 
 type BundleEntry = Readonly<{
   path: string;
@@ -218,34 +236,9 @@ const bundleBrowserDocument = (
           )
           .join("")}</ul>`;
   return Buffer.from(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${BUNDLE_BROWSER_CONTENT_SECURITY_POLICY}"><title>${safeText(title)}</title></head><body><header><p>Asset Bundle Preview · current-checkout content</p><p>This is not historical Snapshot bytes; the registered directory was revalidated against the current checkout.</p><p>Bundle policy ${ASSET_PREVIEW_BUNDLE_POLICY_VERSION} · ${supported.length} supported entries · ${totalBytes} total bytes</p></header><main><h1>${safeText(title)}</h1>${list}</main></body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${BUNDLE_BROWSER_CONTENT_SECURITY_POLICY}"><title>${safeText(title)}</title></head><body><header>${returnToAssetDetailControl(assetDetailHref(entryId, assetId))}<p>View Content · current-checkout content</p><p>This is not historical Snapshot bytes; the registered directory was revalidated against the current checkout.</p><p>Bundle policy ${ASSET_PREVIEW_BUNDLE_POLICY_VERSION} · ${supported.length} supported entries · ${totalBytes} total bytes</p></header><main><h1>${safeText(title)}</h1>${list}</main></body></html>`,
     "utf8",
   );
-};
-
-const prototypeDocument = (
-  bytes: Buffer,
-  entryId: string,
-  assetId: string,
-  entryPath: string,
-): Buffer => {
-  const baseDirectory = dirname(entryPath) === "." ? "" : `${dirname(entryPath)}/`;
-  const baseHref = assetResourceHref(entryId, assetId, baseDirectory);
-  const notice =
-    '<aside data-bearing-preview-notice="current-checkout">Asset Preview · current-checkout live source; not historical Snapshot replay.</aside>';
-  const base = `<base href="${escapeAttribute(baseHref)}">`;
-  let document = bytes.toString("utf8");
-  if (/<head(?:\s[^>]*)?>/iu.test(document)) {
-    document = document.replace(/<head(?:\s[^>]*)?>/iu, (tag) => `${tag}${base}`);
-  } else {
-    document = `${base}${document}`;
-  }
-  if (/<body(?:\s[^>]*)?>/iu.test(document)) {
-    document = document.replace(/<body(?:\s[^>]*)?>/iu, (tag) => `${tag}${notice}`);
-  } else {
-    document = `${notice}${document}`;
-  }
-  return Buffer.from(document, "utf8");
 };
 
 const dataUri = (mediaType: string, bytes: Buffer): string =>
@@ -366,57 +359,6 @@ const isContainedBy = (root: string, target: string): boolean => {
   );
 };
 
-const prototypeResourceType = (
-  locator: string,
-): Readonly<{ contentType: string; mediaType: string }> | undefined => {
-  switch (extname(locator).toLowerCase()) {
-    case ".html":
-    case ".htm":
-      return { contentType: "text/html; charset=utf-8", mediaType: "text/html" };
-    case ".css":
-      return { contentType: "text/css; charset=utf-8", mediaType: "text/css" };
-    case ".js":
-    case ".mjs":
-      return { contentType: "text/javascript; charset=utf-8", mediaType: "text/javascript" };
-    case ".json":
-    case ".map":
-      return { contentType: "application/json; charset=utf-8", mediaType: "application/json" };
-    case ".svg":
-      return { contentType: "image/svg+xml", mediaType: "image/svg+xml" };
-    case ".png":
-      return { contentType: "image/png", mediaType: "image/png" };
-    case ".jpg":
-    case ".jpeg":
-      return { contentType: "image/jpeg", mediaType: "image/jpeg" };
-    case ".gif":
-      return { contentType: "image/gif", mediaType: "image/gif" };
-    case ".avif":
-      return { contentType: "image/avif", mediaType: "image/avif" };
-    case ".webp":
-      return { contentType: "image/webp", mediaType: "image/webp" };
-    case ".mp3":
-      return { contentType: "audio/mpeg", mediaType: "audio/mpeg" };
-    case ".wav":
-      return { contentType: "audio/wav", mediaType: "audio/wav" };
-    case ".ogg":
-      return { contentType: "audio/ogg", mediaType: "audio/ogg" };
-    case ".m4a":
-      return { contentType: "audio/mp4", mediaType: "audio/mp4" };
-    case ".mp4":
-      return { contentType: "video/mp4", mediaType: "video/mp4" };
-    case ".webm":
-      return { contentType: "video/webm", mediaType: "video/webm" };
-    case ".mov":
-      return { contentType: "video/quicktime", mediaType: "video/quicktime" };
-    case ".woff":
-      return { contentType: "font/woff", mediaType: "font/woff" };
-    case ".woff2":
-      return { contentType: "font/woff2", mediaType: "font/woff2" };
-    default:
-      return undefined;
-  }
-};
-
 const unavailable = (
   code: AssetPreviewUnavailableCode,
   message: string,
@@ -445,7 +387,7 @@ const resolveRegisteredAsset = async (
       resolution: unavailable(
         "asset-not-registered",
         "The requested Asset identity is invalid.",
-        "preview-entry-missing",
+        "unavailable",
       ) as UnavailableResolution,
     };
   }
@@ -456,7 +398,7 @@ const resolveRegisteredAsset = async (
       resolution: unavailable(
         "project-unavailable",
         "The registered project is unavailable.",
-        "preview-entry-missing",
+        "unavailable",
       ) as UnavailableResolution,
     };
   }
@@ -467,7 +409,7 @@ const resolveRegisteredAsset = async (
       resolution: unavailable(
         "snapshot-unavailable",
         "The current project generation is unavailable.",
-        "preview-entry-missing",
+        "unavailable",
       ) as UnavailableResolution,
     };
   }
@@ -481,7 +423,7 @@ const resolveRegisteredAsset = async (
       resolution: unavailable(
         "stale-registration",
         "The registered Asset does not have matching current revision evidence.",
-        "preview-entry-missing",
+        "unavailable",
       ) as UnavailableResolution,
     };
   }
@@ -491,7 +433,7 @@ const resolveRegisteredAsset = async (
       resolution: unavailable(
         "snapshot-unavailable",
         "The Asset projection is unavailable.",
-        "preview-entry-missing",
+        "unavailable",
       ) as UnavailableResolution,
     };
   }
@@ -504,7 +446,17 @@ const resolveRegisteredAsset = async (
       resolution: unavailable(
         "asset-not-registered",
         "The requested Asset is not registered in this project.",
-        "preview-entry-missing",
+        "unavailable",
+      ) as UnavailableResolution,
+    };
+  }
+  if (asset.kind === "prototype") {
+    return {
+      kind: "unavailable",
+      resolution: unavailable(
+        "preview-not-offered",
+        "Content preview and execution are not offered for prototype Assets.",
+        "not-offered",
       ) as UnavailableResolution,
     };
   }
@@ -514,7 +466,7 @@ const resolveRegisteredAsset = async (
       resolution: unavailable(
         "content-missing",
         "The registered Asset content is missing.",
-        "preview-entry-missing",
+        "unavailable",
       ) as UnavailableResolution,
     };
   }
@@ -535,7 +487,7 @@ const resolveRegisteredAsset = async (
       resolution: unavailable(
         "content-missing",
         "The registered Asset content is missing.",
-        "preview-entry-missing",
+        "unavailable",
       ) as UnavailableResolution,
     };
   }
@@ -666,34 +618,39 @@ const renderRepresentation = (
   title: string,
   bytes: Buffer,
   representation: PreviewRepresentation,
+  returnHref: string,
 ): Buffer => {
   const value = bytes.toString("utf8");
   switch (representation.kind) {
     case "markdown":
-      return previewDocument(title, safeHtml(markdown.render(value)));
+      return previewDocument(title, safeHtml(markdown.render(value)), returnHref);
     case "html":
-      return previewDocument(title, safeHtml(value));
+      return previewDocument(title, safeHtml(value), returnHref);
     case "text":
-      return previewDocument(title, `<pre>${safeText(value)}</pre>`);
+      return previewDocument(title, `<pre>${safeText(value)}</pre>`, returnHref);
     case "image":
       return previewDocument(
         title,
         `<figure><img alt="${safeText(title)}" src="${dataUri(representation.mediaType, bytes)}"><figcaption>Browser-native image surface</figcaption></figure>`,
+        returnHref,
       );
     case "audio":
       return previewDocument(
         title,
         `<audio controls src="${dataUri(representation.mediaType, bytes)}">Audio preview unavailable in this browser.</audio>`,
+        returnHref,
       );
     case "video":
       return previewDocument(
         title,
         `<video controls src="${dataUri(representation.mediaType, bytes)}">Video preview unavailable in this browser.</video>`,
+        returnHref,
       );
     case "pdf":
       return previewDocument(
         title,
         `<object data="${dataUri(representation.mediaType, bytes)}" type="${representation.mediaType}">PDF preview unavailable in this browser.</object>`,
+        returnHref,
       );
   }
 };
@@ -743,20 +700,10 @@ const readBundleEntry = async (
   }
 };
 
-const prototypeEntryFor = (
-  asset: AssetProjection,
-  inventory: BundleInventory,
-): BundleEntry | undefined => {
-  const requested =
-    asset.previewEntry === undefined
-      ? "index.html"
-      : normalizeBundleRelativePath(asset.previewEntry);
-  if (requested === undefined) return undefined;
-  const entry = inventory.entries.find((candidate) => candidate.path === requested);
-  return entry?.representation?.kind === "html" ? entry : undefined;
-};
-
-const fileResolution = async (context: RegisteredAssetContext): Promise<AssetPreviewResolution> => {
+const fileResolution = async (
+  context: RegisteredAssetContext,
+  entryId: string,
+): Promise<AssetPreviewResolution> => {
   const metadata = await lstat(context.path);
   if (metadata.size > MAX_ASSET_PREVIEW_BYTES) {
     return unavailable(
@@ -782,7 +729,12 @@ const fileResolution = async (context: RegisteredAssetContext): Promise<AssetPre
     });
     return {
       kind: "available",
-      body: renderRepresentation(context.asset.title, bytes, representation),
+      body: renderRepresentation(
+        context.asset.title,
+        bytes,
+        representation,
+        assetDetailHref(entryId, context.asset.id),
+      ),
       contentType: "text/html; charset=utf-8",
       mediaType: representation.mediaType,
       source: "current-checkout",
@@ -806,35 +758,11 @@ export const createAssetPreviewService = (options: {
     async resolve(entryId: string, assetId: string): Promise<AssetPreviewResolution> {
       const registered = await resolveRegisteredAsset(entryId, assetId, options.readCatalog);
       if (registered.kind === "unavailable") return registered.resolution;
-      if (!registered.context.isDirectory) return fileResolution(registered.context);
+      if (!registered.context.isDirectory) return fileResolution(registered.context, entryId);
 
       const inventoryResult = await enumerateBundle(registered.context);
       if (inventoryResult.kind === "unavailable") return inventoryResult.resolution;
       const { inventory } = inventoryResult;
-      if (registered.context.asset.kind === "prototype") {
-        const entry = prototypeEntryFor(registered.context.asset, inventory);
-        if (entry === undefined) {
-          return unavailable(
-            "asset-not-registered",
-            "This prototype has no valid explicit or convention-selected Preview Entry.",
-            "preview-entry-missing",
-          );
-        }
-        const contents = await readBundleEntry(registered.context, inventory, entry);
-        if ("kind" in contents) return contents;
-        return {
-          kind: "available",
-          body: prototypeDocument(contents.bytes, entryId, registered.context.asset.id, entry.path),
-          contentType: "text/html; charset=utf-8",
-          mediaType: "text/html",
-          source: "current-checkout",
-          policyVersion: ASSET_PREVIEW_POLICY_VERSION,
-          surface: "prototype",
-          contentSecurityPolicy: PROTOTYPE_CONTENT_SECURITY_POLICY,
-          bundlePolicyVersion: ASSET_PREVIEW_BUNDLE_POLICY_VERSION,
-          resourcePath: entry.path,
-        };
-      }
       return {
         kind: "available",
         body: bundleBrowserDocument(
@@ -865,7 +793,7 @@ export const createAssetPreviewService = (options: {
         return unavailable(
           "asset-not-registered",
           "A file Asset has no contained bundle resources.",
-          "preview-entry-missing",
+          "unavailable",
         );
       }
       const normalized = normalizeBundleRelativePath(resourcePath);
@@ -873,7 +801,7 @@ export const createAssetPreviewService = (options: {
         return unavailable(
           "asset-not-registered",
           "The requested bundle resource path is invalid.",
-          "preview-entry-missing",
+          "unavailable",
         );
       }
       const inventoryResult = await enumerateBundle(registered.context);
@@ -885,43 +813,8 @@ export const createAssetPreviewService = (options: {
         return unavailable(
           "asset-not-registered",
           "The requested bundle resource is not registered inside this directory.",
-          "preview-entry-missing",
+          "unavailable",
         );
-      }
-      if (registered.context.asset.kind === "prototype") {
-        if (normalized.endsWith("/server.mjs") || normalized === "server.mjs") {
-          return unavailable(
-            "unsafe-content",
-            "Directory runtime entrypoints are never served by Portal Preview.",
-            "unsafe",
-          );
-        }
-        const resourceType = prototypeResourceType(normalized);
-        if (resourceType === undefined) {
-          return unavailable(
-            "unsupported-content",
-            "This prototype resource type is not supported for isolated static preview.",
-            "unsupported",
-          );
-        }
-        const contents = await readBundleEntry(
-          registered.context,
-          inventoryResult.inventory,
-          entry,
-        );
-        if ("kind" in contents) return contents;
-        return {
-          kind: "available",
-          body: contents.bytes,
-          contentType: resourceType.contentType,
-          mediaType: resourceType.mediaType,
-          source: "current-checkout",
-          policyVersion: ASSET_PREVIEW_POLICY_VERSION,
-          surface: "bundle-resource",
-          contentSecurityPolicy: PROTOTYPE_CONTENT_SECURITY_POLICY,
-          bundlePolicyVersion: ASSET_PREVIEW_BUNDLE_POLICY_VERSION,
-          resourcePath: normalized,
-        };
       }
       const representation = entry.representation;
       if (representation === undefined) {
@@ -942,6 +835,7 @@ export const createAssetPreviewService = (options: {
           `${registered.context.asset.title} · ${normalized}`,
           contents.bytes,
           representation,
+          assetDetailHref(entryId, registered.context.asset.id),
         ),
         contentType: "text/html; charset=utf-8",
         mediaType: representation.mediaType,

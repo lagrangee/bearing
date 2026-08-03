@@ -86,7 +86,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 15,
+  schemaVersion: 16,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },

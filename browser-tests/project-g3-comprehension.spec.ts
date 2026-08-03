@@ -105,7 +105,25 @@ const withPreviewAsset = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   return projectSnapshotSchema.parse(withRebuiltPlanningLineage(candidate as ProjectSnapshotInput));
 };
 
-const localSnapshot = (): ProjectSnapshot => withPreviewAsset(createProjectOverviewFixture());
+const localSnapshot = (): ProjectSnapshot => {
+  const snapshot = withPreviewAsset(createProjectOverviewFixture());
+  if (snapshot.assets.validity === "invalid") throw new Error("Expected Assets.");
+  return parseRebuiltPlanningLineageFixture({
+    ...snapshot,
+    assets: {
+      ...snapshot.assets,
+      items: snapshot.assets.items.map((asset) =>
+        asset.id === "asset:fixture-uncited"
+          ? {
+              ...asset,
+              owner: ".scratch/portal/issues/02-review.md",
+              producedFor: ".scratch/portal/issues/01-build.md",
+            }
+          : asset,
+      ),
+    },
+  });
+};
 
 const githubScenarioSnapshot = (): Readonly<{
   snapshot: ProjectSnapshot;
@@ -449,14 +467,10 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await page.goto(`${host.url}/projects/${entryId}/assets`);
     const evidenceFilter = page.getByRole("combobox", { name: "Evidence", exact: true });
     await evidenceFilter.selectOption("cited");
-    const quickLook = page.getByRole("button", { name: "Quick Look Planning Model Evidence" });
-    await quickLook.scrollIntoViewIfNeeded();
-    await quickLook.focus();
-    const scrollBeforeInspector = await page.evaluate(() => window.scrollY);
+    const assetRow = page.getByRole("link", { name: /Planning Model Evidence/u });
+    await assetRow.scrollIntoViewIfNeeded();
+    await assetRow.focus();
     await page.keyboard.press("Enter");
-    const inspector = page.getByRole("complementary", { name: "Selected context" });
-    await expect(inspector).toBeVisible();
-    await inspector.getByRole("link", { name: "Open full detail" }).click();
     await expect(page).toHaveURL(
       `${host.url}${planningLineageSubjectHref(entryId, {
         kind: "asset",
@@ -465,25 +479,57 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     );
     await page.goBack();
     await expect(evidenceFilter).toHaveValue("cited");
-    await expect(quickLook).toBeFocused();
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrollBeforeInspector);
-    await quickLook.press("Enter");
-    await expect(page.getByRole("complementary", { name: "Selected context" })).toBeVisible();
-    await page.reload();
-    await expect(page.getByRole("complementary", { name: "Selected context" })).toHaveCount(0);
 
     await page.getByRole("combobox", { name: "Evidence", exact: true }).selectOption("all");
-    const previewRow = page.getByRole("button", { name: "Quick Look Uncited Fixture Evidence" });
-    await previewRow.click();
-    const previewInspector = page.getByRole("complementary", { name: "Selected context" });
+    const uncitedAsset = page.getByRole("link", { name: /Uncited Fixture Evidence/u });
+    if (scenario.name === "Local") {
+      await expect(uncitedAsset).toHaveAccessibleName(/Review the Roadmap journey/u);
+    }
+    await uncitedAsset.click();
+    if (scenario.name === "Local") {
+      await expect(
+        page.getByText("Owned by Review the Roadmap journey.", { exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Produced For: Build the Roadmap journey", { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByText(/\.scratch\/portal\/issues\//u)).toHaveCount(0);
+      const nativeOwner = page
+        .getByLabel("Lineage Context")
+        .getByRole("link", { name: /^Review the Roadmap journey is owned by/u });
+      await expect(nativeOwner).toBeVisible();
+      await nativeOwner.click();
+      await expect(page).toHaveURL(
+        `${host.url}${planningLineageSubjectHref(entryId, {
+          kind: "native-subject",
+          id: ".scratch/portal/issues/02-review.md",
+        })}`,
+      );
+      await page.goBack();
+    }
     const previewTab = context.waitForEvent("page");
-    await previewInspector.getByRole("link", { name: "Open preview" }).click();
+    await page.getByRole("link", { name: /View Content/u }).click();
     const previewPage = await previewTab;
     await expect(previewPage.getByText("Uncited Fixture Evidence", { exact: false })).toBeVisible();
     await expect(previewPage.getByText("current-checkout content", { exact: false })).toBeVisible();
+    await expect(
+      previewPage.getByRole("button", { name: "Return to Asset detail" }),
+    ).toHaveAttribute(
+      "data-bearing-return-href",
+      planningLineageSubjectHref(entryId, {
+        kind: "asset",
+        id: "asset:fixture-uncited",
+      }),
+    );
     await previewPage.close();
-    await expect(page).toHaveURL(`${host.url}/projects/${entryId}/assets`);
+    await expect(page).toHaveURL(
+      `${host.url}${planningLineageSubjectHref(entryId, {
+        kind: "asset",
+        id: "asset:fixture-uncited",
+      })}`,
+    );
 
+    await page.goto(`${host.url}/projects/${entryId}/assets`);
     await page.setViewportSize({ width: 375, height: 812 });
     expect(
       await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),

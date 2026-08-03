@@ -10,7 +10,6 @@ const render = (snapshot: ProjectSnapshot): string =>
     createElement(AssetsPage, {
       entryId: "bearing",
       snapshot,
-      onInspect: () => {},
       onNavigate: () => {},
     }),
   );
@@ -18,7 +17,6 @@ const render = (snapshot: ProjectSnapshot): string =>
 test("renders the accepted Assets reading surface without embedding Asset content", () => {
   const html = render(createProjectOverviewFixture());
 
-  expect(html).toContain("Project context and evidence");
   expect(html).toContain("<h1>Assets</h1>");
   expect(html).toContain('placeholder="Find an Asset"');
   for (const option of [
@@ -31,9 +29,14 @@ test("renders the accepted Assets reading surface without embedding Asset conten
   ]) {
     expect(html).toContain(option);
   }
-  expect(html).toContain("1 citation");
+  expect(html).toContain("Evidence roles");
+  expect(html).toContain("Planning Citation · Passage Evidence");
   expect(html).toContain("Planning Model Evidence");
-  expect(html).toContain(".scratch/evidence/planning-model");
+  expect(html).toContain("Model ready");
+  expect(html).not.toContain("owner gate:one");
+  expect(html).not.toContain(".scratch/evidence/planning-model");
+  expect(html).not.toContain("Quick Look");
+  expect(html).not.toContain("Showing 1 of 1");
   expect(html).not.toContain("Asset body");
   expect(html).not.toContain("Preview");
 });

@@ -7,25 +7,19 @@ import {
   assetEvidenceFilterContract,
   isAssetEvidenceFilter,
 } from "./asset-evidence-filter";
+import { assetEvidenceRoleLabel } from "./asset-evidence-role-label";
 import { AssetRow } from "./asset-row";
-import { assetLifecycleEvents, latestPlanningLineageEvent } from "./planning-lineage-events";
 import { Action } from "./primitives";
-import { assetInspection, buildProjectAssetsModel, filterAssetRows } from "./project-assets-model";
+import { buildProjectAssetsModel, filterAssetRows } from "./project-assets-model";
 import { readProjectCanvasHistory, updateAssetCanvasFilters } from "./project-canvas-history";
-import type { ProjectInspectorSelection } from "./project-inspector";
-import { assetPreviewHref } from "./project-route";
-
-type Inspect = (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
 
 export function AssetsPage({
   entryId,
   onNavigate,
-  onInspect,
   snapshot,
 }: {
   readonly entryId: string;
   readonly onNavigate: (href: string) => void;
-  readonly onInspect: Inspect;
   readonly snapshot: ProjectSnapshot;
 }) {
   const [query, setQuery] = useState(
@@ -62,14 +56,7 @@ export function AssetsPage({
   return (
     <div className="page assets-page">
       <header className="list-header assets-header">
-        <div>
-          <p className="eyebrow">Project context and evidence</p>
-          <h1>Assets</h1>
-          <p>
-            Native material with lifecycle, ownership, provenance, and Planning Citations kept
-            visible.
-          </p>
-        </div>
+        <h1>Assets</h1>
         <div className="asset-controls">
           <label className="search-field">
             <span>Search</span>
@@ -109,10 +96,12 @@ export function AssetsPage({
           Asset orientation is partial. {partialCopy}
         </p>
       ) : null}
-      <p className="asset-result-count" aria-live="polite" role="status">
-        Showing {visibleRows.length} of {model.rows.length} registered Assets
-        {filterCoverageIncomplete ? " from confirmed evidence facts only" : ""}
-      </p>
+      {filtering ? (
+        <p className="asset-result-count" aria-live="polite" role="status">
+          {visibleRows.length} of {model.rows.length} Assets
+          {filterCoverageIncomplete ? " from confirmed evidence facts only" : ""}
+        </p>
+      ) : null}
       {filterCoverageIncomplete ? (
         <p className="projection-note" role="status">
           {filterContract.incompleteSubject} coverage is incomplete.{" "}
@@ -149,8 +138,7 @@ export function AssetsPage({
           <div className="asset-table-header" aria-hidden="true">
             <span>Asset</span>
             <span>Owner</span>
-            <span>Citations</span>
-            <span>Location</span>
+            <span>Evidence roles</span>
           </div>
           {visibleRows.map((row) => {
             const href = planningLineageSubjectHref(entryId, {
@@ -159,14 +147,10 @@ export function AssetsPage({
             });
             return (
               <AssetRow
-                citations={row.asset.citations.length}
-                contentAvailability={row.asset.contentAvailability}
-                event={latestPlanningLineageEvent(assetLifecycleEvents(row.asset))}
+                evidenceRoles={row.asset.evidenceRoles.map(assetEvidenceRoleLabel)}
                 href={href}
                 key={row.asset.id}
                 kind={row.asset.kind}
-                lifecycleSource={row.asset.lifecycleSource}
-                location={row.asset.displayLocation}
                 onOpen={(event) => {
                   if (
                     event.button !== 0 ||
@@ -179,35 +163,14 @@ export function AssetsPage({
                   event.preventDefault();
                   onNavigate(href);
                 }}
-                onSelect={(trigger) =>
-                  onInspect(
-                    {
-                      ...assetInspection(row),
-                      ...(row.asset.contentAvailability === "available"
-                        ? {
-                            contentAction: {
-                              href: assetPreviewHref(entryId, row.asset.id),
-                              label: "Open preview",
-                            },
-                          }
-                        : {}),
-                      fullDetailHref: href,
-                    },
-                    trigger,
-                  )
-                }
-                owner={row.asset.owner}
+                owner={row.ownerTitle}
                 primaryFocusKey={`asset:${row.asset.id}:primary`}
-                quickLookFocusKey={`asset:${row.asset.id}:quick-look`}
                 title={row.asset.title}
               />
             );
           })}
         </section>
       )}
-      {filtering ? (
-        <p className="asset-filter-note">The canonical row order is preserved.</p>
-      ) : null}
     </div>
   );
 }

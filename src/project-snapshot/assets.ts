@@ -94,7 +94,6 @@ export const buildAssetProjection = async (
         ...(asset.Producer.Reference === undefined ? {} : { reference: asset.Producer.Reference }),
       },
       lifecycleSource: asset["Lifecycle source"],
-      ...(asset["Preview entry"] === undefined ? {} : { previewEntry: asset["Preview entry"] }),
       registeredAt: projectExpectedSourceEventTime(asset["Registered at"]),
       ...(() => {
         const producedAt = projectOptionalSourceEventTime(asset["Produced at"]);

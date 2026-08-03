@@ -281,12 +281,7 @@ export function ProjectPage({
       ) : section === "roadmaps" ? (
         <RoadmapsPage entryId={entryId} onNavigate={navigateFromProject} snapshot={snapshot} />
       ) : section === "assets" ? (
-        <AssetsPage
-          entryId={entryId}
-          onInspect={inspect}
-          onNavigate={navigateFromProject}
-          snapshot={snapshot}
-        />
+        <AssetsPage entryId={entryId} onNavigate={navigateFromProject} snapshot={snapshot} />
       ) : section === "audit" ? (
         <AuditPage entryId={entryId} onInspect={inspect} snapshot={snapshot} />
       ) : subject === undefined ? (

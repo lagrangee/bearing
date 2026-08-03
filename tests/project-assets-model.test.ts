@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  assetInspection,
-  buildProjectAssetsModel,
-  filterAssetRows,
-} from "../src/portal-ui/project-assets-model";
+import { buildProjectAssetsModel, filterAssetRows } from "../src/portal-ui/project-assets-model";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createSourceRecord } from "../src/project-snapshot/source-records";
@@ -63,12 +59,12 @@ test("keeps projected Asset order while all six Evidence filters preserve identi
     "asset:uncited-context",
   ]);
   expect(
-    filterAssetRows(model.rows, "generic-agent", "all", model.evidenceFilterCoverage.all).map(
+    filterAssetRows(model.rows, "verification-report", "all", model.evidenceFilterCoverage.all).map(
       (row) => row.asset.title,
     ),
   ).toEqual(["Planning Model Evidence"]);
   expect(
-    filterAssetRows(model.rows, "asset:uncited-context", "all", model.evidenceFilterCoverage.all),
+    filterAssetRows(model.rows, "Uncited Product Context", "all", model.evidenceFilterCoverage.all),
   ).toHaveLength(1);
   expect(
     filterAssetRows(model.rows, "", "uncited", model.evidenceFilterCoverage.uncited).map(
@@ -256,111 +252,4 @@ test("keeps Citation and Passage filters honest under degraded source coverage",
       unavailablePassage.evidenceFilterCoverage["passage-evidence"],
     ).map((row) => String(row.asset.id)),
   ).toEqual(["asset:planning-model-evidence"]);
-});
-
-test("builds one read-only Asset inspection from explicit projection semantics", () => {
-  const model = buildProjectAssetsModel(twoAssetFixture());
-  if (model.state !== "available") throw new Error("Expected available Assets.");
-  const first = model.rows[0];
-  if (first === undefined) throw new Error("Expected a projected Asset row.");
-  const selection = assetInspection(first);
-
-  expect(selection).toMatchObject({
-    eyebrow: "Asset",
-    title: "Planning Model Evidence",
-    copy: {
-      label: "Copy Asset Location",
-      value: ".scratch/evidence/planning-model",
-    },
-    source: { displayLocator: ".bearing/state/assets.md" },
-  });
-  expect(selection).not.toHaveProperty("handoff");
-  expect(selection).not.toHaveProperty("nativeSourceHandoff");
-  expect(selection.facts).toContainEqual({
-    label: "Stable ID",
-    value: "asset:planning-model-evidence",
-    code: true,
-  });
-  expect(selection.facts).toContainEqual({
-    label: "Producer",
-    value: "executor-profile · generic-agent",
-  });
-  expect(selection.facts).toContainEqual({ label: "Content", value: "Available" });
-  expect(
-    selection.sections?.find((section) => section.title === "Gate Passage evidence"),
-  ).toMatchObject({
-    title: "Gate Passage evidence",
-    items: ["gate:one · Source .bearing/state/milestone-gates/one.md"],
-  });
-  expect(
-    selection.sections?.find((section) => section.title === "Planning Citations")?.items,
-  ).toEqual([expect.stringContaining("effort:model · .bearing/state/efforts/model.md")]);
-
-  const second = model.rows[1];
-  if (second === undefined) throw new Error("Expected the second projected Asset row.");
-  const lifecycle = assetInspection(second);
-  expect(lifecycle.facts).toContainEqual({ label: "Lifecycle", value: "Registry" });
-  expect(lifecycle.facts).toContainEqual({ label: "Disposition", value: "superseded" });
-  expect(lifecycle.facts).toContainEqual({
-    label: "Superseded by",
-    value: "asset:planning-model-evidence",
-    code: true,
-  });
-  expect(lifecycle.facts).toContainEqual({
-    label: "Produced for",
-    value: ".scratch/portal/issues/13-assets.md",
-    code: true,
-  });
-  expect(lifecycle.facts).toContainEqual({ label: "Producer ref", value: "review:42", code: true });
-});
-
-test("keeps explicit missing relation targets visible in Asset inspection", () => {
-  const snapshot = twoAssetFixture();
-  if (snapshot.assets.validity !== "available") throw new Error("Expected Assets fixture.");
-  const first = snapshot.assets.items[0];
-  if (first === undefined) throw new Error("Expected a projected Asset.");
-  const model = buildProjectAssetsModel({
-    ...snapshot,
-    authorities: { validity: "partial", items: [], issues: [] },
-    gates: { validity: "partial", items: [], issues: [] },
-    assets: {
-      validity: "partial",
-      items: [
-        {
-          ...first,
-          evidenceRoles: [
-            ...first.evidenceRoles.filter(
-              (role) => role !== "authority-adoption" && role !== "passage-evidence",
-            ),
-            "authority-adoption",
-            "passage-evidence",
-          ],
-          authorityAdoptions: [
-            {
-              authorityId: "authority:missing",
-              decisionReference: "planning-review:missing",
-              source: first.source,
-            },
-          ],
-          passageEvidence: [{ gateId: "gate:missing", source: first.source }],
-        },
-      ],
-      issues: [],
-    },
-  } as unknown as ProjectSnapshot);
-  if (model.state !== "partial") throw new Error("Expected partial Assets.");
-  const row = model.rows[0];
-  if (row === undefined) throw new Error("Expected a retained Asset row.");
-  const selection = assetInspection(row);
-
-  expect(
-    selection.sections?.find((section) => section.title === "Authority adoption")?.items,
-  ).toEqual([
-    "authority:missing · unavailable in the current Snapshot · Decision planning-review:missing · Source .bearing/state/assets.md",
-  ]);
-  expect(
-    selection.sections?.find((section) => section.title === "Gate Passage evidence")?.items,
-  ).toEqual([
-    "gate:missing · unavailable in the current Snapshot · Source .bearing/state/assets.md",
-  ]);
 });

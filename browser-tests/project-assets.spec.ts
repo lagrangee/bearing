@@ -205,7 +205,7 @@ const expectClosedNarrowNavigation = async (page: Page): Promise<void> => {
     .toEqual({ navigationOutsideViewport: true, overlapsMain: false });
 };
 
-test("Assets keeps stable rows searchable, filterable, inspectable, copy-only, and read-only", async ({
+test("Assets keeps semantic rows searchable, directly navigable, and read-only", async ({
   context,
   page,
 }, testInfo) => {
@@ -232,17 +232,23 @@ test("Assets keeps stable rows searchable, filterable, inspectable, copy-only, a
     "Planning Model Evidence",
     "Uncited Product Context",
   ]);
-  expect(
-    await page
-      .locator(".asset-row-primary")
-      .first()
-      .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length),
-  ).toBe(5);
+  await expect(page.locator(".asset-title small")).toHaveText([
+    "verification-report",
+    "product-design",
+  ]);
+  await expect(page.locator(".asset-owner")).toHaveText(["Model ready", "Web Portal Validation"]);
+  await expect(page.locator(".asset-evidence-summary")).toHaveText([
+    "Planning Citation · Passage Evidence",
+    "Authority Adoption",
+  ]);
+  await expect(page.getByText(".scratch/evidence/planning-model", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Quick Look/u })).toHaveCount(0);
+  await expect(page.getByText("Showing 2 of 2", { exact: false })).toHaveCount(0);
   expect((await page.locator(".asset-row").first().boundingBox())?.height).toBeLessThan(100);
   const search = page.getByPlaceholder("Find an Asset");
   const filter = page.getByRole("combobox", { name: "Evidence", exact: true });
   await focusByTab(page, search);
-  await search.fill("generic-agent");
+  await search.fill("verification-report");
   await expect(page.locator(".asset-row")).toHaveCount(1);
   await search.fill("no such Asset");
   await expect(page.getByRole("heading", { name: "No matching Assets" })).toBeVisible();
@@ -250,7 +256,7 @@ test("Assets keeps stable rows searchable, filterable, inspectable, copy-only, a
   await focusByTab(page, filter);
   await filter.selectOption("uncited");
   await expect(page.locator(".asset-row")).toHaveCount(1);
-  await expect(page.locator(".asset-row .citation-count")).toContainText("0 citations");
+  await expect(page.getByRole("status")).toContainText("1 of 2 Assets");
   await filter.selectOption("cited");
   await expect(page.locator(".asset-row .asset-title strong")).toHaveText([
     "Planning Model Evidence",
@@ -267,66 +273,51 @@ test("Assets keeps stable rows searchable, filterable, inspectable, copy-only, a
   await expect(page.getByRole("heading", { name: "No matching Assets" })).toBeVisible();
   await filter.selectOption("all");
 
-  const row = page.getByRole("button", { name: "Quick Look Planning Model Evidence" });
+  const row = page.getByRole("link", { name: /Planning Model Evidence.+Planning Citation/u });
   await focusByTab(page, row);
+  await minimumTarget(row, 40);
   await page.keyboard.press("Enter");
-  const inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(inspector.getByRole("heading", { name: "Planning Model Evidence" })).toBeVisible();
-  await expect(inspector.getByText("asset:planning-model-evidence", { exact: true })).toBeVisible();
-  await expect(
-    inspector.getByText(/effort:model.+\.bearing\/state\/efforts\/model\.md/u),
-  ).toBeVisible();
-  await expect(
-    inspector
-      .getByRole("heading", { name: "Gate Passage evidence" })
-      .locator("..")
-      .locator("li", { hasText: "gate:one" }),
-  ).toBeVisible();
-  await expect(inspector.getByRole("link", { name: "Open full detail" })).toHaveAttribute(
-    "href",
-    "/projects/assets/lineage/asset/asset%3Aplanning-model-evidence",
-  );
-  await expect(inspector.getByRole("link", { name: "Open preview" })).toHaveAttribute(
-    "target",
-    "_blank",
-  );
-  await expect(inspector.getByRole("link", { name: "Open preview" })).toHaveAttribute(
-    "rel",
-    "noopener noreferrer",
-  );
-  await expect(inspector.getByRole("link", { name: "Open preview" })).toHaveAttribute(
+  await expect(page).toHaveURL(/\/lineage\/asset\/asset%3Aplanning-model-evidence$/u);
+  await expect(page.getByRole("heading", { name: "Planning Model Evidence" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ownership and Purpose" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Evidence Roles" })).toBeVisible();
+  await expect(page.getByText(".scratch/evidence/planning-model", { exact: true })).toHaveCount(0);
+  const citation = page
+    .getByLabel("Lineage Context")
+    .getByRole("link", { name: /^Planning Model is cited by/u });
+  await expect(citation).toBeVisible();
+  await citation.click();
+  await expect(page).toHaveURL(/\/lineage\/effort\/effort%3Amodel$/u);
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "Planning Model Evidence" })).toBeVisible();
+  const viewContent = page.getByRole("link", { name: /View Content/u });
+  await expect(viewContent).toHaveAttribute("target", "_blank");
+  await expect(viewContent).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(viewContent).toHaveAttribute(
     "href",
     "/preview/projects/assets/assets/asset%3Aplanning-model-evidence",
   );
+  await page.getByRole("button", { name: "Open Technical Details" }).click();
+  const inspector = page.getByRole("complementary", { name: "Technical Details" });
+  await expect(inspector.getByText("asset:planning-model-evidence", { exact: true })).toBeVisible();
+  await expect(
+    inspector.getByText(".scratch/evidence/planning-model", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    inspector.getByText("executor-profile / generic-agent", { exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
   const previewPagePromise = context.waitForEvent("page");
-  await inspector.getByRole("link", { name: "Open preview" }).click();
+  await viewContent.click();
   const previewPage = await previewPagePromise;
   await expect.poll(() => previewPage.url()).toContain("/preview/projects/assets/assets/");
   await previewPage.close();
-  await expect(inspector.getByRole("button", { name: /Resume in Agent Surface/u })).toHaveCount(0);
-  await expect(inspector.getByRole("button", { name: /Open native source/u })).toHaveCount(0);
-  await expect(inspector.getByRole("button", { name: /Open in surface/u })).toHaveCount(0);
-  await inspector.getByRole("button", { name: "Copy Asset Location" }).click();
-  await expect(inspector.getByRole("status")).toHaveText("Asset Location copied.");
-  await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(".scratch/evidence/planning-model");
-  const nextRow = page.getByRole("button", { name: "Quick Look Uncited Product Context" });
-  await nextRow.click();
-  await expect(inspector.getByRole("heading", { name: "Uncited Product Context" })).toBeVisible();
-  await expect(inspector.getByRole("status")).toHaveText("");
-  await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(".scratch/evidence/planning-model");
-  await page.keyboard.press("Escape");
-  await expect(nextRow).toBeFocused();
   expect(posts).toEqual([]);
 
   expect((await page.request.get("/api/v1/projects/assets/assets?path=PRODUCT.md")).status()).toBe(
     404,
   );
   expect((await page.request.get("/PRODUCT.md")).status()).toBe(404);
-  await minimumTarget(row, 40);
   await page.screenshot({
     path: await browserArtifactPath(testInfo, "assets-1280.png"),
     fullPage: true,
@@ -336,7 +327,7 @@ test("Assets keeps stable rows searchable, filterable, inspectable, copy-only, a
   expect(pageErrors).toEqual([]);
 });
 
-test("Assets preserves zero citations, keyboard return, and modal focus at review widths", async ({
+test("Assets keeps semantic direct rows and Technical Details keyboard-safe at review widths", async ({
   page,
 }, testInfo) => {
   const snapshot = assetsFixture();
@@ -347,7 +338,10 @@ test("Assets preserves zero citations, keyboard return, and modal focus at revie
     await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
     await expectClosedNarrowNavigation(page);
     await expect(
-      page.getByRole("link", { name: /Uncited Product Context.+0 citations/u }),
+      page.getByRole("link", { name: /Uncited Product Context.+Authority Adoption/u }),
+    ).toBeVisible();
+    await expect(
+      page.locator(".asset-owner").filter({ hasText: "Web Portal Validation" }),
     ).toBeVisible();
     expect(
       await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
@@ -358,45 +352,53 @@ test("Assets preserves zero citations, keyboard return, and modal focus at revie
     });
   }
 
-  const row = page.getByRole("button", { name: "Quick Look Uncited Product Context" });
+  const row = page.getByRole("link", { name: /Uncited Product Context.+Authority Adoption/u });
   await row.focus();
-  await page.keyboard.press("Space");
-  const dialog = page.getByRole("dialog", { name: "Selected context" });
-  const close = dialog.getByRole("button", { name: "Close selected context" });
-  await expect(dialog.getByText("authority:product-design", { exact: true })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Uncited Product Context" })).toBeVisible();
+  await page.getByRole("button", { name: "Open Technical Details" }).press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Technical Details" });
+  const close = dialog.getByRole("button", { name: "Close Technical Details" });
   await expect(close).toBeFocused();
   await expect(page.locator("main")).toHaveAttribute("inert", "");
-  await page.keyboard.press("Tab");
-  const copyLocation = dialog.getByRole("button", { name: "Copy Asset Location" });
-  await expect(copyLocation).toBeFocused();
-  await page.keyboard.press("Tab");
-  const openPreview = dialog.getByRole("link", { name: "Open preview" });
-  await expect(openPreview).toBeFocused();
-  await page.keyboard.press("Tab");
-  const fullDetail = dialog.getByRole("link", { name: "Open full detail" });
-  await expect(fullDetail).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(close).toBeFocused();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.keyboard.press("Escape");
-  await expect(row).toBeFocused();
-  await minimumTarget(row, 44);
+  await expect(page.getByRole("button", { name: "Open Technical Details" })).toBeFocused();
+  await minimumTarget(page.getByRole("button", { name: "Open Technical Details" }), 44);
+});
 
-  const citedRow = page.getByRole("button", { name: "Quick Look Planning Model Evidence" });
-  await citedRow.click();
-  const relationDialog = page.getByRole("dialog", { name: "Selected context" });
-  await relationDialog
-    .getByRole("heading", { name: "Planning Citations" })
-    .locator("..")
-    .locator("li")
-    .scrollIntoViewIfNeeded();
-  expect(
-    await relationDialog.evaluate((element) => element.scrollWidth > element.clientWidth),
-  ).toBe(false);
-  await expect(relationDialog).not.toContainText("Resume in Agent Surface");
-  await expect(relationDialog).not.toContainText("Open native source");
-  await expect(relationDialog).not.toContainText("Open in surface");
-  await page.keyboard.press("Escape");
+test("Asset detail distinguishes absent and expected-unreadable content", async ({ page }) => {
+  let snapshot = assetsFixture();
+  await serveSnapshot(page, () => snapshot);
+  const detailPath = "/projects/assets/lineage/asset/asset%3Aplanning-model-evidence";
+  const withContentAvailability = (contentAvailability: "missing" | "unreadable") => {
+    if (snapshot.assets.validity === "invalid") throw new Error("Expected Assets fixture.");
+    return parseRebuiltPlanningLineageFixture({
+      ...snapshot,
+      assets: {
+        ...snapshot.assets,
+        items: snapshot.assets.items.map((asset) =>
+          asset.id === "asset:planning-model-evidence" ? { ...asset, contentAvailability } : asset,
+        ),
+      },
+    });
+  };
+
+  snapshot = withContentAvailability("missing");
+  await page.goto(detailPath);
+  await expect(page.getByRole("heading", { name: "Planning Model Evidence" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /View Content/u })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Content unavailable" })).toHaveCount(0);
+
+  snapshot = withContentAvailability("unreadable");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Content unavailable" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /View Content/u })).toHaveCount(0);
+  await expect(page.getByText(/^Cause:/u)).toBeVisible();
+  await expect(page.getByText(/^Impact:/u)).toContainText("other Asset semantics remain available");
+  await expect(page.getByText(/^Recovery:/u)).toContainText("Technical Details");
 });
 
 test("Assets distinguishes empty, partial, invalid, and filtered-empty states", async ({

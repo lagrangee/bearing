@@ -490,9 +490,7 @@ test("Source Event Time stays source-precise while browser-relative updates rema
   await expect(gateStateTime.locator("xpath=..")).toHaveText("Passed · Jul 31");
 
   await page.goto("/projects/lineage/assets");
-  await expect(page.locator('.asset-row-primary time[datetime="2026-07-31T09:30:00Z"]')).toHaveText(
-    "35 minutes ago",
-  );
+  await expect(page.locator(".asset-row-primary time")).toHaveCount(0);
 
   await page.goto(
     planningLineageSubjectHref("lineage", {
@@ -659,30 +657,19 @@ test("a same-route Snapshot transition sends an unavailable semantic anchor back
     .toBe(true);
 });
 
-test("Quick Look is transient history and Back restores the filtered canvas", async ({ page }) => {
+test("direct Asset rows preserve the filtered canvas through browser Back", async ({ page }) => {
   await serveSnapshot(page, fixture());
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/projects/lineage/assets");
   const filter = page.getByRole("combobox", { name: "Evidence", exact: true });
   await filter.selectOption("cited");
-  const quickLook = page.getByRole("button", { name: "Quick Look Planning Model Evidence" });
-  await quickLook.scrollIntoViewIfNeeded();
-  await quickLook.focus();
+  const primary = page.locator(
+    '[data-bearing-focus-key="asset:asset:planning-model-evidence:primary"]',
+  );
+  await primary.scrollIntoViewIfNeeded();
+  await primary.focus();
   const before = await page.evaluate(() => window.scrollY);
   await page.keyboard.press("Enter");
-
-  const inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(inspector.getByRole("heading", { name: "Planning Model Evidence" })).toBeVisible();
-  await expect(inspector.getByRole("link", { name: "Open full detail" })).toBeVisible();
-  await page.goBack();
-
-  await expect(inspector).toHaveCount(0);
-  await expect(filter).toHaveValue("cited");
-  await expect(quickLook).toBeFocused();
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(before);
-
-  await quickLook.click();
-  await inspector.getByRole("link", { name: "Open full detail" }).click();
   await expect(page).toHaveURL(
     planningLineageSubjectHref("lineage", {
       kind: "asset",
@@ -695,32 +682,9 @@ test("Quick Look is transient history and Back restores the filtered canvas", as
   await page.goBack();
   await expect(page).toHaveURL(/\/projects\/lineage\/assets$/u);
   await expect(filter).toHaveValue("cited");
-  await expect(quickLook).toBeFocused();
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(before);
-
-  const primary = page.locator(
-    '[data-bearing-focus-key="asset:asset:planning-model-evidence:primary"]',
-  );
-  await primary.scrollIntoViewIfNeeded();
-  await primary.focus();
-  const primaryBefore = await page.evaluate(() => window.scrollY);
-  await primary.click();
-  await expect(page).toHaveURL(
-    planningLineageSubjectHref("lineage", {
-      kind: "asset",
-      id: "asset:planning-model-evidence",
-    }),
-  );
-  await page.goBack();
-  await expect(page).toHaveURL(/\/projects\/lineage\/assets$/u);
-  await expect(filter).toHaveValue("cited");
   await expect(primary).toBeFocused();
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(primaryBefore);
-
-  await page.getByRole("button", { name: "Quick Look Planning Model Evidence" }).click();
-  await expect(page.getByRole("complementary", { name: "Selected context" })).toBeVisible();
-  await page.reload();
-  await expect(page.getByRole("complementary", { name: "Selected context" })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(before);
+  await expect(page.getByRole("button", { name: /Quick Look/u })).toHaveCount(0);
 });
 
 test("direct relation rows restore lineage focus and scroll", async ({ page }) => {
@@ -836,9 +800,17 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Evidence Roles", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ancestor Context", level: 3 })).toBeVisible();
-  const copyLocation = page.getByRole("button", { name: "Copy Asset Location" });
-  await copyLocation.focus();
-  await expect(copyLocation).toBeFocused();
+  await expect(page.getByText(".scratch/evidence/planning-model", { exact: true })).toHaveCount(0);
+  const technicalDetails = page.getByRole("button", { name: "Open Technical Details" });
+  await technicalDetails.focus();
+  await expect(technicalDetails).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(
+    page
+      .getByRole("dialog", { name: "Technical Details" })
+      .getByText(".scratch/evidence/planning-model", { exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
   expect(await viewportOverflow(page)).toEqual([]);
 
   await page.setViewportSize({ width: 375, height: 812 });

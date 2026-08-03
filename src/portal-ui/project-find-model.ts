@@ -549,7 +549,7 @@ const canonicalFields = (
         contentField(snapshot, subject, {
           key: "summary",
           label: "Asset summary",
-          text: join([asset.kind, asset.owner, asset.producer.name, asset.producedFor ?? ""]),
+          text: join([asset.kind, asset.owner, asset.producedFor ?? ""]),
           anchor: "asset.identity",
         }),
       );

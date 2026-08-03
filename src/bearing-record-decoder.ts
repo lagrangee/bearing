@@ -128,7 +128,6 @@ const normalizeAsset = (asset: ParsedAsset): ParsedAsset => ({
   Title: asset.Title,
   Kind: asset.Kind,
   Location: asset.Location,
-  ...(asset["Preview entry"] === undefined ? {} : { "Preview entry": asset["Preview entry"] }),
   Owner: asset.Owner,
   Producer: {
     Kind: asset.Producer.Kind,

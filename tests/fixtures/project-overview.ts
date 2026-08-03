@@ -374,7 +374,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 15,
+    schemaVersion: 16,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {

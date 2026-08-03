@@ -60,6 +60,10 @@ const technicalDetailsSelection = (
       diagnostic.target === source?.displayLocator ||
       diagnostic.source === source?.reference,
   );
+  const asset =
+    model.subject.kind === "asset" && snapshot.assets.validity !== "invalid"
+      ? snapshot.assets.items.find((candidate) => candidate.id === model.subject.id)
+      : undefined;
   const provenance = [
     `Source kind: ${source?.kind ?? "unavailable"}`,
     ...(source?.binding === undefined
@@ -76,6 +80,21 @@ const technicalDetailsSelection = (
     facts: [
       { label: "Stable ID", value: model.subject.id, code: true },
       { label: "Projection", value: model.state },
+      ...(asset === undefined
+        ? []
+        : [
+            { label: "Location", value: asset.displayLocation, code: true },
+            ...(asset.kind === "prototype"
+              ? [{ label: "Preview", value: "Not offered for prototype Assets" }]
+              : []),
+            {
+              label: "Producer",
+              value: `${asset.producer.kind} / ${asset.producer.name}`,
+            },
+            ...(asset.producer.reference === undefined
+              ? []
+              : [{ label: "Producer reference", value: asset.producer.reference, code: true }]),
+          ]),
     ],
     source,
     sourceHref: model.subject.sourceHref,

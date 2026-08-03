@@ -161,7 +161,6 @@ export const assetSchema = z
     Title: requiredPlainTextSchema,
     Kind: requiredPlainTextSchema,
     Location: displayAssetLocatorSchema,
-    "Preview entry": displayAssetLocatorSchema.optional(),
     Owner: planningReferenceSchema,
     Producer: producerSchema,
     "Lifecycle source": z.enum(["native", "registry"]),

@@ -1,6 +1,10 @@
 import type { Context, Hono } from "hono";
 import { normalizeNativeReconciliationRequest } from "../native-reconciliation-contract";
-import { ASSET_PREVIEW_CONTENT_SECURITY_POLICY, type AssetPreviewService } from "./asset-preview";
+import {
+  ASSET_PREVIEW_CONTENT_SECURITY_POLICY,
+  type AssetPreviewService,
+  assetPreviewUnavailableDocument,
+} from "./asset-preview";
 import type { PortalDiagnostic } from "./contract";
 import {
   type ProjectFailureView,
@@ -228,16 +232,21 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
   const previewResponse = (
     context: Context,
     result: Awaited<ReturnType<AssetPreviewService["resolve"]>>,
+    entryId: string,
+    assetId: string,
   ): Response => {
     previewHeaders(context, result);
     if (result.kind === "available") {
       context.header("Content-Type", result.contentType);
       return context.body(new Uint8Array(result.body));
     }
-    context.header("Content-Type", "text/plain; charset=utf-8");
     const status =
-      result.code === "asset-not-registered" || result.code === "project-unavailable" ? 404 : 409;
-    return context.text(`Preview unavailable: ${result.message}`, status);
+      result.code === "asset-not-registered" ||
+      result.code === "project-unavailable" ||
+      result.code === "preview-not-offered"
+        ? 404
+        : 409;
+    return context.html(assetPreviewUnavailableDocument(entryId, assetId, result), status);
   };
 
   app.get("/preview/projects/:entryId/assets/:assetId/resource/*", async (context) => {
@@ -255,7 +264,12 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
       context.req.param("assetId"),
       resourcePath,
     );
-    return previewResponse(context, result);
+    return previewResponse(
+      context,
+      result,
+      context.req.param("entryId"),
+      context.req.param("assetId"),
+    );
   });
 
   app.get("/preview/projects/:entryId/assets/:assetId", async (context) => {
@@ -263,7 +277,12 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
       context.req.param("entryId"),
       context.req.param("assetId"),
     );
-    return previewResponse(context, result);
+    return previewResponse(
+      context,
+      result,
+      context.req.param("entryId"),
+      context.req.param("assetId"),
+    );
   });
 
   app.get("/api/v1/projects/:entryId/snapshot", async (context) => {

@@ -68,6 +68,74 @@ test("renders one route-owned Gate dossier and non-duplicated Lineage Context", 
   expect(html).not.toContain("Resume in Agent Surface");
 });
 
+test("keeps Asset semantics on detail and routes content outside Technical Details", () => {
+  const snapshot = createProjectOverviewFixture();
+  const html = render({
+    validity: "valid",
+    value: { kind: "asset", id: "asset:planning-model-evidence" },
+  });
+
+  expect(html).toContain("Asset Identity");
+  expect(html).toContain("Kind: verification-report");
+  expect(html).toContain("Ownership and Purpose");
+  expect(html).toContain("Owned by Model ready.");
+  expect(html).toContain("Planning Citation");
+  expect(html).toContain("Passage Evidence");
+  expect(html).toContain(">View Content</a>");
+  expect(html).not.toContain(".scratch/evidence/planning-model");
+  expect(html).not.toContain("asset:planning-model-evidence · verification-report");
+  expect(html).not.toContain("<h2>Provenance</h2>");
+  expect(html).not.toContain("generic-agent");
+
+  if (snapshot.assets.validity === "invalid") throw new Error("Expected Asset fixture.");
+  const assets = snapshot.assets;
+  const contentState = (availability: "missing" | "unreadable") =>
+    withLineage({
+      ...snapshot,
+      assets: {
+        ...assets,
+        items: assets.items.map((asset) =>
+          asset.id === "asset:planning-model-evidence"
+            ? { ...asset, contentAvailability: availability }
+            : asset,
+        ),
+      },
+    });
+  const missing = render(
+    { validity: "valid", value: { kind: "asset", id: "asset:planning-model-evidence" } },
+    { snapshot: contentState("missing") },
+  );
+  expect(missing).not.toContain("View Content");
+  expect(missing).not.toContain("Content unavailable");
+
+  const unreadable = render(
+    { validity: "valid", value: { kind: "asset", id: "asset:planning-model-evidence" } },
+    { snapshot: contentState("unreadable") },
+  );
+  expect(unreadable).not.toContain("View Content");
+  expect(unreadable).toContain("Content unavailable");
+  expect(unreadable).toContain(
+    "Impact: content reading is unavailable; other Asset semantics remain available",
+  );
+  expect(unreadable).toContain("Recovery: open Technical Details");
+
+  const prototype = withLineage({
+    ...snapshot,
+    assets: {
+      ...assets,
+      items: assets.items.map((asset) =>
+        asset.id === "asset:planning-model-evidence" ? { ...asset, kind: "prototype" } : asset,
+      ),
+    },
+  });
+  const prototypeHtml = render(
+    { validity: "valid", value: { kind: "asset", id: "asset:planning-model-evidence" } },
+    { snapshot: prototype },
+  );
+  expect(prototypeHtml).not.toContain("View Content");
+  expect(prototypeHtml).not.toContain("Content unavailable");
+});
+
 test("renders only available named Source Event Times in Event History", () => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.gates.validity === "invalid") throw new Error("Expected Gates.");

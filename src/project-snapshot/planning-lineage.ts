@@ -918,15 +918,24 @@ const semanticSectionsFor = (
         ),
       ];
     }
-    case "asset":
+    case "asset": {
+      const asset = record as AssetRecord;
       return [
         section("asset.event-history"),
         section("asset.identity"),
+        section("asset.ownership"),
         section("asset.lifecycle"),
-        section("asset.provenance"),
         section("asset.evidence-roles"),
-        section("asset.preview", "unavailable"),
+        ...(asset.kind === "prototype"
+          ? []
+          : [
+              section(
+                "asset.content",
+                asset.contentAvailability === "missing" ? "confirmed-empty" : "available",
+              ),
+            ]),
       ];
+    }
   }
 };
 
@@ -1095,16 +1104,8 @@ const relationsForReview = (
 ];
 
 const relationsForAsset = (input: Input, asset: AssetRecord): PlanningLineageRelation[] => [
-  directRelation(input, "production.owner", "Owner", "is owned by", "one", [asset.owner]),
-  presentRelation("production.producer", "Producer", "was produced by", "one", [
-    {
-      reference: `producer:${asset.producer.kind}:${asset.producer.name}`,
-      label: `${asset.producer.kind} / ${asset.producer.name}`,
-      availability: "available",
-      ...(asset.producer.reference === undefined
-        ? {}
-        : { note: `Producer reference: ${asset.producer.reference}` }),
-    },
+  presentRelation("production.owner", "Owner", "is owned by", "one", [
+    targetForPlanningOrNativeReference(input, asset.owner),
   ]),
   asset.producedFor === undefined
     ? confirmedNone("production.produced-for", "Produced For", "was produced for", "one")

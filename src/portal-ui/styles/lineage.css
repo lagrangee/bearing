@@ -45,7 +45,7 @@
   overflow-wrap: anywhere;
 }
 .technical-details-trigger {
-  min-height: var(--control-size);
+  min-height: var(--control-touch);
   flex: 0 0 auto;
   padding: 0 var(--space-2);
   color: var(--muted);
