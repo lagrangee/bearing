@@ -17,6 +17,7 @@ let fixtureRoot = "";
 test.beforeAll(async () => {
   fixtureRoot = await realpath(await copyPortalProjectFixture("G3 Preview Project"));
   await mkdir(join(fixtureRoot, "prototypes/demo"), { recursive: true });
+  await mkdir(join(fixtureRoot, "docs/bundle"), { recursive: true });
   await Promise.all([
     writeFile(
       join(fixtureRoot, "prototypes/demo/index.html"),
@@ -35,6 +36,7 @@ test.beforeAll(async () => {
       "<article><h1>G3 reading document</h1><p>Sanitized inert HTML.</p><script>globalThis.__mustNotRun = true</script></article>\n",
     ),
     writeFile(join(fixtureRoot, "docs/payload.bin"), "opaque\n"),
+    writeFile(join(fixtureRoot, "docs/bundle/README.md"), "# Directory member\n"),
   ]);
   const assetsPath = join(fixtureRoot, ".bearing/state/assets.md");
   const assets = await readFile(assetsPath, "utf8");
@@ -43,7 +45,7 @@ test.beforeAll(async () => {
     assets.replace(
       "    Lifecycle source: native\n",
       "    Lifecycle source: native\n" +
-        `  - ID: asset:g3-prototype\n    Title: G3 Prototype\n    Kind: prototype\n    Location: prototypes/demo\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-reading-document\n    Title: G3 Reading Document\n    Kind: document\n    Location: docs/reading.html\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-unsupported\n    Title: G3 Unsupported Content\n    Kind: binary\n    Location: docs/payload.bin\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n`,
+        `  - ID: asset:g3-prototype\n    Title: G3 Prototype\n    Kind: prototype\n    Location: prototypes/demo\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-reading-document\n    Title: G3 Reading Document\n    Kind: document\n    Location: docs/reading.html\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-directory\n    Title: G3 Directory Asset\n    Kind: context\n    Location: docs/bundle\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-unsupported\n    Title: G3 Unsupported Content\n    Kind: binary\n    Location: docs/payload.bin\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n`,
     ),
   );
   await runBuiltBearing(["sync", "--repo", fixtureRoot, "--initialize-provider-observations"]);
@@ -140,6 +142,17 @@ test("prototype stays semantic-only while an ordinary HTML document keeps inert 
     "/projects/g3-preview/lineage/asset/asset%3Ag3-reading-document",
   );
   await documentPage.close();
+
+  await page.goto(`${host.url}/projects/g3-preview/assets`);
+  await page.getByRole("link", { name: /G3 Directory Asset/u }).click();
+  await expect(page.getByRole("link", { name: /View Content/u })).toHaveCount(0);
+  await page.getByRole("button", { name: "Open Technical Details" }).click();
+  await expect(
+    page
+      .getByRole("complementary", { name: "Technical Details" })
+      .getByText("Not offered for directory Assets", { exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
 
   await page.goto(`${host.url}/projects/g3-preview/assets`);
   await page.getByRole("link", { name: /G3 Unsupported Content/u }).click();

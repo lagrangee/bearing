@@ -12,10 +12,12 @@ type InputFileLister = (
 ) => Promise<string[]>;
 
 export type AssetContentAvailability = "available" | "missing" | "unreadable";
+export type AssetContentShape = "file" | "directory" | "unavailable";
 export type AssetContentObservation = Readonly<{
   id: string;
   location: string;
   availability: AssetContentAvailability;
+  shape: AssetContentShape;
 }>;
 export type ResolvedAssetInputs = Readonly<{
   inputs: readonly string[];
@@ -68,8 +70,11 @@ export const resolveAssetInputs = async (
   }
   for (const asset of assets) {
     const isReferenced = referenced.has(asset.ID);
-    const observe = (availability: AssetContentAvailability): void => {
-      observations.push({ id: asset.ID, location: asset.Location, availability });
+    const observe = (
+      availability: AssetContentAvailability,
+      shape: AssetContentShape = "unavailable",
+    ): void => {
+      observations.push({ id: asset.ID, location: asset.Location, availability, shape });
     };
     if (/^[a-z][a-z0-9+.-]*:/iu.test(asset.Location)) {
       observe("unreadable");
@@ -112,12 +117,12 @@ export const resolveAssetInputs = async (
     }
     const metadata = await stat(probe.path);
     if (metadata.isDirectory()) {
-      observe("available");
+      observe("available", "directory");
       if (isReferenced) {
         for (const file of await listFiles(repoRoot, locator, false, diagnostics)) inputs.add(file);
       }
     } else if (metadata.isFile()) {
-      observe("available");
+      observe("available", "file");
       if (isReferenced) inputs.add(locator);
     } else {
       observe("unreadable");

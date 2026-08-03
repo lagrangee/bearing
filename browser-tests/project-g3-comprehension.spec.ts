@@ -285,6 +285,7 @@ const withPreviewAsset = (snapshot: ProjectSnapshot): ProjectSnapshot => {
           registeredAt: { availability: "unavailable" },
           displayLocation: "evidence/uncited.md",
           contentAvailability: "available",
+          contentShape: "file",
         },
       ],
     },

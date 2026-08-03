@@ -348,7 +348,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 17,
+    schemaVersion: 18,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -520,6 +520,7 @@ export const createProjectOverviewFixture = () => {
           registeredAt: { availability: "unavailable" },
           displayLocation: ".scratch/evidence/planning-model",
           contentAvailability: "available",
+          contentShape: "file",
           authorityAdoptions: [],
           passageEvidence: [{ gateId: "gate:one", source: gateOneSource }],
         },

@@ -650,7 +650,9 @@ const assetSections = (
           : "Only the following explicit Evidence roles are recorded.",
       ...(evidenceRoles.length === 0 ? {} : { items: evidenceRoles }),
     },
-    ...(asset.kind === "prototype" || asset.contentAvailability === "missing"
+    ...(asset.kind === "prototype" ||
+    asset.contentShape === "directory" ||
+    asset.contentAvailability === "missing"
       ? []
       : [
           {

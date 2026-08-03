@@ -128,6 +128,7 @@ Reach the boundary.
         lifecycleSource: "registry",
         disposition: "available",
         contentAvailability: "available",
+        contentShape: "file",
         citations: [],
         evidenceRoles: [],
         authorityAdoptions: [],
@@ -277,7 +278,14 @@ Assets:
 
   expect(projected.assets).toMatchObject({
     validity: "available",
-    items: [{ id: "asset:run", displayLocation: "evidence/run", contentAvailability: "available" }],
+    items: [
+      {
+        id: "asset:run",
+        displayLocation: "evidence/run",
+        contentAvailability: "available",
+        contentShape: "directory",
+      },
+    ],
   });
 });
 

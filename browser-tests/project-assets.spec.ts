@@ -126,6 +126,7 @@ const assetsFixture = (): ProjectSnapshot => {
             disposition: "available",
             displayLocation: "PRODUCT.md",
             contentAvailability: "available",
+            contentShape: "file",
           },
         ],
       },

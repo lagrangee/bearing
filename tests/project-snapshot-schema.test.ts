@@ -69,7 +69,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 17,
+  schemaVersion: 18,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -389,6 +389,7 @@ test("keeps execution evidence provenance self-contained in cached Assets", () =
     producedFor: ".scratch/work/issues/01-work.md",
     displayLocation: "evidence/report.md",
     contentAvailability: "available",
+    contentShape: "file",
     evidenceRoles: ["execution-evidence"],
     authorityAdoptions: [],
     passageEvidence: [],
@@ -430,6 +431,7 @@ test("keeps Asset lifecycle source, disposition, and supersession consistent", (
     supersededAt: { availability: "unavailable" },
     displayLocation: "evidence/report.md",
     contentAvailability: "available",
+    contentShape: "file",
     evidenceRoles: [],
     authorityAdoptions: [],
     passageEvidence: [],
@@ -461,6 +463,7 @@ test("rejects duplicate Gate Passage identities in an Asset reverse relation cac
     producedFor: ".scratch/work/issues/01-work.md",
     displayLocation: "evidence/report.md",
     contentAvailability: "available",
+    contentShape: "file",
     evidenceRoles: ["execution-evidence", "passage-evidence"],
     authorityAdoptions: [],
     passageEvidence: [
@@ -500,9 +503,20 @@ test("accepts only repository-relative local Asset Locations", () => {
     disposition: "available",
     displayLocation: "evidence/report.md",
     contentAvailability: "available",
+    contentShape: "file",
   };
 
   expect(assetProjectionSchema.safeParse(baseAsset).success).toBe(true);
+  expect(assetProjectionSchema.safeParse({ ...baseAsset, contentShape: undefined }).success).toBe(
+    false,
+  );
+  expect(
+    assetProjectionSchema.safeParse({
+      ...baseAsset,
+      contentAvailability: "missing",
+      contentShape: "file",
+    }).success,
+  ).toBe(false);
   expect(
     assetProjectionSchema.safeParse({ ...baseAsset, displayLocation: "evidence/reports" }).success,
   ).toBe(true);
@@ -538,6 +552,7 @@ test("keeps Asset Evidence roles explicit, independent, and coexisting", () => {
     producedFor: "effort:test",
     displayLocation: "docs/context",
     contentAvailability: "available",
+    contentShape: "directory",
   };
   expect(assetProjectionSchema.safeParse(contextualAsset).success).toBe(true);
 

@@ -80,7 +80,7 @@ const supersededRoadmapRecord = boundRecord(
 );
 const emptyItems = { validity: "available", items: [] } as const;
 const emptySnapshot = {
-  schemaVersion: 17,
+  schemaVersion: 18,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },

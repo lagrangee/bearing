@@ -96,7 +96,7 @@ test("keeps Asset semantics on detail and routes content outside Technical Detai
         ...assets,
         items: assets.items.map((asset) =>
           asset.id === "asset:planning-model-evidence"
-            ? { ...asset, contentAvailability: availability }
+            ? { ...asset, contentAvailability: availability, contentShape: "unavailable" }
             : asset,
         ),
       },

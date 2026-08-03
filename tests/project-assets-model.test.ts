@@ -38,6 +38,7 @@ const twoAssetFixture = (): ProjectSnapshot => {
             producedFor: ".scratch/portal/issues/13-assets.md",
             displayLocation: "PRODUCT.md",
             contentAvailability: "available",
+            contentShape: "file",
             evidenceRoles: [],
             authorityAdoptions: [],
             passageEvidence: [],

@@ -15,7 +15,7 @@ const source = createSourceReference({
   displayLocator: ".bearing/state/project-summary.md",
 });
 const snapshot = projectSnapshotSchema.parse({
-  schemaVersion: 17,
+  schemaVersion: 18,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: basisFingerprint },
   summary: { validity: "absent" },
@@ -133,7 +133,7 @@ describe("Project Snapshot cache semantics", () => {
     });
   });
 
-  test("rejects the removed Guidance field as an invalid v17 Snapshot", async () => {
+  test("rejects the removed Guidance field as an invalid v18 Snapshot", async () => {
     const root = await createRoot();
     const item = {
       title: "Continue the current Gate",

@@ -82,8 +82,19 @@ export const assetProjectionSchema = z
     producedFor: planningReferenceSchema.optional(),
     displayLocation: displayAssetLocatorSchema,
     contentAvailability: z.enum(["available", "missing", "unreadable"]),
+    contentShape: z.enum(["file", "directory", "unavailable"]),
   })
   .superRefine((asset, context) => {
+    if (
+      (asset.contentAvailability === "available" && asset.contentShape === "unavailable") ||
+      (asset.contentAvailability !== "available" && asset.contentShape !== "unavailable")
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["contentShape"],
+        message: "Asset content shape must match content availability.",
+      });
+    }
     if (asset.kind === "execution-evidence" && asset.producedFor === undefined) {
       context.addIssue({
         code: "custom",

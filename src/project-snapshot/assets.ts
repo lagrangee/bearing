@@ -31,6 +31,13 @@ const contentAvailability = (
 ): "available" | "missing" | "unreadable" =>
   observations.find((observation) => observation.id === id && observation.location === location)
     ?.availability ?? "unreadable";
+const contentShape = (
+  observations: readonly AssetContentObservation[],
+  id: string,
+  location: string,
+): "file" | "directory" | "unavailable" =>
+  observations.find((observation) => observation.id === id && observation.location === location)
+    ?.shape ?? "unavailable";
 const projection = (results: readonly Result[]): CollectionProjection<AssetProjection> => {
   const items = results.flatMap((result) => (result.item === undefined ? [] : [result.item]));
   const issues = results.flatMap((result) => (result.issue === undefined ? [] : [result.issue]));
@@ -110,6 +117,7 @@ export const buildAssetProjection = async (
       ...(asset["Produced for"] === undefined ? {} : { producedFor: asset["Produced for"] }),
       displayLocation: asset.Location,
       contentAvailability: contentAvailability(input.contentObservations, asset.ID, asset.Location),
+      contentShape: contentShape(input.contentObservations, asset.ID, asset.Location),
     });
     results.push(
       projected.success

@@ -82,7 +82,9 @@ const technicalDetailsSelection = (
             { label: "Location", value: asset.displayLocation, code: true },
             ...(asset.kind === "prototype"
               ? [{ label: "Preview", value: "Not offered for prototype Assets" }]
-              : []),
+              : asset.contentShape === "directory"
+                ? [{ label: "Preview", value: "Not offered for directory Assets" }]
+                : []),
             {
               label: "Producer",
               value: `${asset.producer.kind} / ${asset.producer.name}`,

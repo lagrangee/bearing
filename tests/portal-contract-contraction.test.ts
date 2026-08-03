@@ -56,7 +56,7 @@ test("clean-cuts obsolete Portal disclosure and persistent discovery compatibili
 test("exposes only the revised versioned Portal Snapshot contract", () => {
   const snapshot = createProjectOverviewFixture();
 
-  expect(PROJECT_SNAPSHOT_VERSION).toBe(17);
+  expect(PROJECT_SNAPSHOT_VERSION).toBe(18);
   expect("guidance" in snapshot).toBe(false);
   expect(
     projectSnapshotSchema.safeParse({ ...snapshot, guidance: { validity: "absent" } }).success,
