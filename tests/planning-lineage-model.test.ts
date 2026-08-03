@@ -155,7 +155,7 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
   const expectations = [
     [
       { kind: "effort", id: "effort:model" },
-      ["effort.intent", "effort.lifecycle", "effort.native-work"],
+      [],
       ["outcome.roadmap", "outcome.target-gate", "native-work.binding", "planning-use.citations"],
     ],
     [
@@ -213,8 +213,9 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
       state: "present",
     }),
   );
-  const lifecycle = effort.sections.find((section) => section.anchor === "effort.lifecycle");
-  expect(JSON.stringify(lifecycle)).not.toMatch(/planned at|activated at|concluded at|T\d\d:/iu);
+  expect(JSON.stringify(effort.effortLens)).not.toMatch(
+    /planned at|activated at|concluded at|T\d\d:/iu,
+  );
   expect(effort.events.map((event) => event.role)).toEqual([
     "effort.planned",
     "effort.activated",
@@ -695,6 +696,136 @@ test("persists one generation-bound Native Work Reading State for Snapshot and P
   expect(model.state).toBe("available");
   if (model.state !== "available") throw new Error("Expected native scope model.");
   expect(model.workRegion?.readingState).toEqual(scope?.nativeWorkReadingState);
+});
+
+test("builds an Effort-first governance lens from canonical lifecycle and nonterminal bound work", () => {
+  const active = readable(
+    buildPlanningLineageSubjectModel(fixture(), { kind: "effort", id: "effort:portal" }, "bearing"),
+  );
+
+  expect(active.effortLens).toMatchObject({
+    lifecycle: "active",
+    targetGate: {
+      title: "Overview proven",
+      href: "/projects/bearing/lineage/gate/gate%3Atwo",
+    },
+    managedWorkHealth: "Healthy",
+    intent: "Deliver the accepted Portal journey.",
+    currentWork: {
+      state: "available",
+      historyHref: "/projects/bearing/lineage/native-scope/.scratch%2Fportal#native-work-history",
+      items: [
+        { title: "Build the Roadmap journey", status: "Claimed" },
+        { title: "Review the Roadmap journey", status: "Ready" },
+        {
+          title: "Pass the integration gate",
+          status: "Blocked",
+          blockerImpact: "Blocked by unresolved prerequisite work.",
+        },
+        { title: "Route a new Portal request", status: "Ready" },
+      ],
+    },
+  });
+  expect(active.effortLens?.outcome).toBeUndefined();
+  const activeCurrentWork = active.effortLens?.currentWork;
+  if (activeCurrentWork?.state !== "available") throw new Error("Expected current work.");
+  expect(activeCurrentWork.items.map((item) => item.title)).not.toContain("Portal Validation");
+  expect(activeCurrentWork.items.map((item) => item.title)).not.toContain("Portal Validation PRD");
+  expect(active.sections).toEqual([]);
+
+  const concluded = readable(
+    buildPlanningLineageSubjectModel(fixture(), { kind: "effort", id: "effort:model" }, "bearing"),
+  );
+  expect(concluded.effortLens).toMatchObject({
+    lifecycle: "concluded",
+    targetGate: { title: "Model ready" },
+    managedWorkHealth: "Healthy",
+    outcome: {
+      disposition: "completed",
+      rationale: "The governed contribution was explicitly accepted as complete.",
+      concludedAt: { availability: "unavailable" },
+    },
+  });
+  expect(concluded.effortLens?.currentWork).toBeUndefined();
+});
+
+test("warns when a concluded Effort still has nonterminal native work", () => {
+  const snapshot = fixture();
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
+  const concludedWithOpenWork = withLineage({
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === "effort:portal"
+          ? effortSchema.parse({
+              ...effort,
+              lifecycle: "concluded",
+              conclusion: {
+                disposition: "completed",
+                rationale: "The canonical Effort is concluded while provider work remains open.",
+                concludedAt: { availability: "unavailable" },
+              },
+            })
+          : effort,
+      ),
+    },
+  });
+  const model = readable(
+    buildPlanningLineageSubjectModel(
+      concludedWithOpenWork,
+      { kind: "effort", id: "effort:portal" },
+      "bearing",
+    ),
+  );
+
+  expect(model.effortLens?.currentWork).toMatchObject({
+    state: "available",
+    consistencyWarning:
+      "This Effort is concluded, but nonterminal managed work remains in the bound scope.",
+  });
+});
+
+test("keeps an active Effort Current Work section truthful when only planning-basis objects remain", () => {
+  const snapshot = fixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) =>
+      observation.binding.nativeScope === ".scratch/portal" &&
+      (observation.state === "available" || observation.state === "partial"),
+  );
+  if (portal === undefined || (portal.state !== "available" && portal.state !== "partial")) {
+    throw new Error("Expected the Portal observation.");
+  }
+  const emptyCurrent = createProviderScopeObservation({
+    ...portal,
+    projection: {
+      ...portal.projection,
+      wayfinderTickets: [],
+      deliveryTickets: [],
+      incomingIssues: [],
+      structuralOrder: [portal.projection.map?.ref, portal.projection.spec?.ref].filter(
+        (reference) => reference !== undefined,
+      ),
+      graph: { parentChild: [], blockedBy: [] },
+    },
+  } as never) as typeof portal;
+  const candidate = withLineage({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portal.id ? emptyCurrent : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === portal.id
+        ? { ...selection, observationId: emptyCurrent.id }
+        : selection,
+    ),
+  });
+  const model = readable(
+    buildPlanningLineageSubjectModel(candidate, { kind: "effort", id: "effort:portal" }, "bearing"),
+  );
+
+  expect(model.effortLens?.currentWork).toMatchObject({ state: "available", items: [] });
+  expect(model.effortLens?.managedWorkHealth).toBe("Healthy");
 });
 
 test("keeps Spec, Delivery, Incoming, and native scope semantics independent", () => {

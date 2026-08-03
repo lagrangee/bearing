@@ -289,42 +289,35 @@ test("renders native Source Event Time, Last updated, and Verified at as distinc
   );
 });
 
-test("renders one accessible role-first Matt-Native Work Region from Effort and scope routes", () => {
-  const effortHtml = render({
-    validity: "valid",
-    value: { kind: "effort", id: "effort:portal" },
-  });
+test("keeps the full role-first Matt-Native Work Region on the native scope route", () => {
   const scopeHtml = render({
     validity: "valid",
     value: { kind: "native-scope", id: ".scratch/portal" },
   });
 
-  for (const html of [effortHtml, scopeHtml]) {
-    expect(html).toContain('class="matt-work-region context-bound"');
-    expect(html).toContain('id="matt-work-region-title">Contributing Work</h2>');
-    expect(html).toContain('aria-label="Native Work Frontier views"');
-    expect(html).toContain('href="#native-work-current">Current');
-    expect(html).toContain('href="#native-work-history">History');
-    expect(html).toContain('href="#native-work-all">All');
-    expect(html).toContain('id="matt-map-chapter-title"><a');
-    expect(html).toContain(">Portal Validation</a></h3>");
-    expect(html).toContain("Reach the accepted project outcome.");
-    expect(html).toContain("<dt>Fog</dt><dd><strong>2</strong>");
-    expect(html).toContain("Build the Roadmap journey");
-    expect(html).toContain("<dt>Claimant</dt><dd><strong>lago</strong>");
-    expect(html).toContain("Pass the integration gate");
-    expect(html).toContain("Blocked");
-    expect(html).toContain("Route a new Portal request");
-    expect(html).toContain("ready-for-agent");
-    expect(html).toContain("/lineage/native-subject/");
-    expect(html).toContain("<h3");
-    expect(html).toContain(">Open work remains</h3>");
-    expect(html).toContain("<summary>Why this state?</summary>");
-    expect(html).toContain("<summary>Observation details</summary>");
-    expect(html).toContain("<dt>Projection State</dt><dd>available</dd>");
-    expect(html).toContain("<dt>Provider Completion</dt><dd>incomplete</dd>");
-    expect(html).not.toContain("Needs refresh");
-  }
+  expect(scopeHtml).toContain('class="matt-work-region context-bound"');
+  expect(scopeHtml).toContain('id="matt-work-region-title">Contributing Work</h2>');
+  expect(scopeHtml).toContain('aria-label="Native Work Frontier views"');
+  expect(scopeHtml).toContain('href="#native-work-current">Current');
+  expect(scopeHtml).toContain('href="#native-work-history">History');
+  expect(scopeHtml).toContain('href="#native-work-all">All');
+  expect(scopeHtml).toContain('id="matt-map-chapter-title"><a');
+  expect(scopeHtml).toContain(">Portal Validation</a></h3>");
+  expect(scopeHtml).toContain("Reach the accepted project outcome.");
+  expect(scopeHtml).toContain("<dt>Fog</dt><dd><strong>2</strong>");
+  expect(scopeHtml).toContain("Build the Roadmap journey");
+  expect(scopeHtml).toContain("<dt>Claimant</dt><dd><strong>lago</strong>");
+  expect(scopeHtml).toContain("Pass the integration gate");
+  expect(scopeHtml).toContain("Blocked");
+  expect(scopeHtml).toContain("Route a new Portal request");
+  expect(scopeHtml).toContain("ready-for-agent");
+  expect(scopeHtml).toContain("/lineage/native-subject/");
+  expect(scopeHtml).toContain(">Open work remains</h3>");
+  expect(scopeHtml).toContain("<summary>Why this state?</summary>");
+  expect(scopeHtml).toContain("<summary>Observation details</summary>");
+  expect(scopeHtml).toContain("<dt>Projection State</dt><dd>available</dd>");
+  expect(scopeHtml).toContain("<dt>Provider Completion</dt><dd>incomplete</dd>");
+  expect(scopeHtml).not.toContain("Needs refresh");
 
   const anchored = render(
     {
@@ -334,6 +327,94 @@ test("renders one accessible role-first Matt-Native Work Region from Effort and 
     { semanticAnchor: "native-work-current" },
   );
   expect(anchored).not.toContain("Requested section unavailable");
+});
+
+test("renders Effort status, canonical Intent, concluded-only Outcome, and governed Current Work", () => {
+  const active = render({
+    validity: "valid",
+    value: { kind: "effort", id: "effort:portal" },
+  });
+
+  expect(active).toContain("<dt>Effort lifecycle</dt><dd>Active</dd>");
+  expect(active).toContain("<dt>Contributes to</dt>");
+  expect(active).toContain(">Overview proven</a>");
+  expect(active).toContain('<dd data-health="healthy">Healthy</dd>');
+  expect(active).toContain('<section id="effort.intent"><h2>Intent</h2>');
+  expect(active).toContain("Deliver the accepted Portal journey.");
+  expect(active).toContain('<section id="native-work-current">');
+  expect(active).toContain('Build the Roadmap journey</a><span data-work-status="claimed"');
+  expect(active).toContain('Review the Roadmap journey</a><span data-work-status="ready"');
+  expect(active).toContain('Pass the integration gate</a><span data-work-status="blocked"');
+  expect(active).toContain("Blocked by unresolved prerequisite work.");
+  expect(active).toContain('Route a new Portal request</a><span data-work-status="ready"');
+  expect(active).toContain("Full work history</a>");
+  expect(active).not.toContain("<h2>Outcome</h2>");
+  expect(active).not.toContain('class="matt-work-region');
+  expect(active).not.toContain('aria-label="Native Work Frontier views"');
+  expect(active).not.toContain(">Portal Validation</a></h3>");
+  expect(active).not.toContain(">Portal Validation PRD</a>");
+  expect(active).not.toContain(".scratch/portal/issues/02-review.md");
+  expect(active.indexOf("<h1>Web Portal Validation</h1>")).toBeLessThan(
+    active.indexOf("<h2>Intent</h2>"),
+  );
+  expect(active.indexOf("<h2>Intent</h2>")).toBeLessThan(active.indexOf("<h2>Current Work</h2>"));
+
+  const concluded = render({
+    validity: "valid",
+    value: { kind: "effort", id: "effort:model" },
+  });
+  expect(concluded).toContain("<dt>Effort lifecycle</dt><dd>Concluded</dd>");
+  expect(concluded).toContain('<section id="effort.outcome"><h2>Outcome</h2>');
+  expect(concluded).toContain("<dt>Disposition</dt><dd>Completed</dd>");
+  expect(concluded).toContain("The governed contribution was explicitly accepted as complete.");
+  expect(concluded).not.toContain("<dt>Concluded</dt>");
+  expect(concluded).not.toContain("<h2>Current Work</h2>");
+  expect(concluded).not.toContain("Resolve the planning model");
+});
+
+test("renders an explicit empty Current Work state for an active Effort", () => {
+  const snapshot = createProjectOverviewFixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) =>
+      observation.binding.nativeScope === ".scratch/portal" &&
+      (observation.state === "available" || observation.state === "partial"),
+  );
+  if (portal === undefined || (portal.state !== "available" && portal.state !== "partial")) {
+    throw new Error("Expected the Portal observation.");
+  }
+  const emptyCurrent = createProviderScopeObservation({
+    ...portal,
+    projection: {
+      ...portal.projection,
+      wayfinderTickets: [],
+      deliveryTickets: [],
+      incomingIssues: [],
+      structuralOrder: [portal.projection.map?.ref, portal.projection.spec?.ref].filter(
+        (reference) => reference !== undefined,
+      ),
+      graph: { parentChild: [], blockedBy: [] },
+    },
+  } as never) as typeof portal;
+  const candidate = withLineage({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portal.id ? emptyCurrent : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === portal.id
+        ? { ...selection, observationId: emptyCurrent.id }
+        : selection,
+    ),
+  });
+  const html = render(
+    { validity: "valid", value: { kind: "effort", id: "effort:portal" } },
+    { snapshot: candidate },
+  );
+
+  expect(html).toContain("<h2>Current Work</h2>");
+  expect(html).toContain("No nonterminal managed work is established by this observation.");
+  expect(html).not.toContain(">Portal Validation</a></h3>");
+  expect(html).not.toContain(">Portal Validation PRD</a>");
 });
 
 test("renders first acquisition failure as bound-unresolved with its concrete cause", () => {
@@ -371,10 +452,13 @@ test("renders first acquisition failure as bound-unresolved with its concrete ca
     { snapshot: failed },
   );
 
-  expect(html).toContain('class="matt-work-region context-attention"');
-  expect(html).toContain(">Binding needs attention</h3>");
+  expect(html).toContain('<dd data-health="needs-attention">Needs attention</dd>');
+  expect(html).toContain("<h2>Current Work</h2>");
+  expect(html).toContain("Work Binding invalid. Cause:");
   expect(html).toContain("The provider contract is unsupported.");
   expect(html).toContain("The declared Work Binding does not resolve to a provider observation.");
+  expect(html).not.toContain("No nonterminal managed work is established");
+  expect(html).not.toContain('class="matt-work-region');
 });
 
 test("renders provider subject diagnostics beside the affected native content", () => {
@@ -422,12 +506,11 @@ test("renders provider subject diagnostics beside the affected native content", 
   );
 
   expect(html).toContain("Needs attention: The Delivery Answer sources conflict.");
-  expect(html).toContain(
-    "<summary>Protocol detail</summary><code>matt.delivery.answer-conflict</code>",
-  );
+  expect(html).not.toContain("matt.delivery.answer-conflict");
+  expect(html).not.toContain(`${ticket.ref}#answer`);
 });
 
-test("renders scoped Map Destination uncertainty instead of a blank available chapter", () => {
+test("keeps Map detail out of Effort Current Work when its optional semantics are unavailable", () => {
   const snapshot = createProjectOverviewFixture();
   const portal = snapshot.providerObservations.find(
     (observation) =>
@@ -472,9 +555,10 @@ test("renders scoped Map Destination uncertainty instead of a blank available ch
     { snapshot: degraded },
   );
 
-  expect(html).toContain('data-semantic-availability="unavailable"');
-  expect(html).toContain("Destination is unavailable in the selected provider observation.");
-  expect(html).not.toContain('data-semantic-availability="available"></p>');
+  expect(html).toContain("<h2>Current Work</h2>");
+  expect(html).not.toContain("Destination is unavailable in the selected provider observation.");
+  expect(html).not.toContain(">Portal Validation</a></h3>");
+  expect(html).not.toContain("<dt>Fog</dt>");
 });
 
 test("omits confirmed-empty role shells while preserving their native history", () => {

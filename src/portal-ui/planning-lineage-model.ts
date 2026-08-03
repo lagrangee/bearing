@@ -49,6 +49,7 @@ import {
 import {
   buildMattNativeWorkRegion,
   type MattNativeWorkRegionContext,
+  type MattNativeWorkRegionItem,
   type MattNativeWorkRegionModel,
 } from "../providers/matt-skills-v1/work-region";
 import { projectExpectedSourceEventTime } from "../source-event-time";
@@ -147,6 +148,50 @@ export type PlanningLineageOutcomeSpine = Readonly<{
   }>[];
 }>;
 
+export type PlanningLineageEffortLens = Readonly<{
+  lifecycle: Effort["lifecycle"];
+  targetGate: Readonly<{
+    title: string;
+    href?: string | undefined;
+  }>;
+  managedWorkHealth: "Healthy" | "Needs attention";
+  intent: string;
+  outcome?:
+    | Readonly<{
+        disposition: NonNullable<Effort["conclusion"]>["disposition"];
+        rationale: string;
+        concludedAt: MattNativeEventTime;
+        replacementEffort?:
+          | Readonly<{
+              title: string;
+              href?: string | undefined;
+            }>
+          | undefined;
+      }>
+    | undefined;
+  currentWork?:
+    | Readonly<{
+        state: "available";
+        items: readonly Readonly<{
+          reference: string;
+          title: string;
+          href: string;
+          status: "Claimed" | "Ready" | "Blocked" | "Needs attention";
+          blockerImpact?: string | undefined;
+          attention?: string | undefined;
+        }>[];
+        historyHref: string;
+        consistencyWarning?: string | undefined;
+      }>
+    | Readonly<{
+        state: "unavailable";
+        cause: string;
+        impact: string;
+        recovery: string;
+      }>
+    | undefined;
+}>;
+
 export type PlanningLineageParentCrumb = Readonly<{
   label: string;
   href: string;
@@ -167,6 +212,7 @@ type ReadablePlanningLineageSubjectModel = Readonly<{
   events: readonly PlanningLineageEvent<PlanningLineageEventTime>[];
   sections: readonly PlanningLineageSection[];
   outcomeSpine?: PlanningLineageOutcomeSpine | undefined;
+  effortLens?: PlanningLineageEffortLens | undefined;
   workRegion?: MattNativeWorkRegionModel | undefined;
   nativeInspection?:
     | Readonly<{
@@ -534,46 +580,6 @@ const gateSections = (
   },
   contributingEffortsSection(snapshot, gate.effortIds, entryId),
 ];
-
-const effortSections = (
-  effort: Effort,
-  lineage: PlanningLineageSubjectProjection,
-): readonly PlanningLineageSection[] => {
-  const conclusion = effort.conclusion;
-  const binding = effort.workBinding;
-  const workRelation = lineage.relations.find((relation) => relation.key === "native-work.binding");
-  const workTrust = workRelation?.state === "present" ? workRelation.targets[0]?.note : undefined;
-  return [
-    { anchor: "effort.intent", title: "Intent", body: effort.intent },
-    {
-      anchor: "effort.lifecycle",
-      title: "Effort Lifecycle",
-      body: effort.lifecycle,
-      ...(conclusion === undefined
-        ? {}
-        : { items: [`Conclusion: ${conclusion.disposition}`, conclusion.rationale] }),
-    },
-    {
-      anchor: "effort.native-work",
-      title: "Work Binding",
-      body: (() => {
-        if (effort.workBindingState.state === "bound") {
-          if (binding === undefined) throw new TypeError("Bound Effort requires its Work Binding.");
-          return `${binding.provider} · ${binding.nativeScope}. ${workTrust ?? "Trust evidence unavailable."}`;
-        }
-        const cause =
-          effort.workBindingState.reason === "missing"
-            ? "this Effort has no declared Work Binding."
-            : effort.workBindingState.reason === "unparseable"
-              ? "the declared Work Binding does not match the supported provider contract."
-              : effort.workBindingState.reason === "conflicting"
-                ? "another Effort declares the same stable provider-native identity."
-                : "the declared Work Binding does not resolve to a provider observation.";
-        return `Work Binding invalid. Cause: ${cause} Impact: native work cannot contribute trusted evidence or Gate readiness. Recovery: declare exactly one supported Work Binding in the canonical Effort record, then Sync.`;
-      })(),
-    },
-  ];
-};
 
 const authoritySections = (authority: Authority): readonly PlanningLineageSection[] => [
   { anchor: "authority.scope", title: "Scope", body: authority.scope },
@@ -1226,7 +1232,7 @@ const sectionsFor = (
     case "gate":
       return gateSections(snapshot, record as MilestoneGate, entryId);
     case "effort":
-      return effortSections(record as Effort, lineage);
+      return [];
     case "authority":
       return authoritySections(record as Authority);
     case "alignment-check":
@@ -1326,6 +1332,160 @@ const workRegionFor = (
   );
 };
 
+const effortCurrentWorkStatus = (
+  item: MattNativeWorkRegionItem,
+): "Claimed" | "Ready" | "Blocked" | "Needs attention" => {
+  if (item.diagnosticCodes !== undefined || item.frontier === "uncertain") {
+    return "Needs attention";
+  }
+  if (item.frontier === "claimed") return "Claimed";
+  if (item.frontier === "ready") return "Ready";
+  if (item.frontier === "blocked") return "Blocked";
+  if (
+    item.role === "incoming" &&
+    (item.routingState === "ready-for-agent" || item.routingState === "ready-for-human")
+  ) {
+    return "Ready";
+  }
+  return "Needs attention";
+};
+
+const invalidBindingCause = (effort: Effort): string => {
+  if (effort.workBindingState.state === "bound") {
+    return "the declared Work Binding does not resolve to a readable provider observation.";
+  }
+  switch (effort.workBindingState.reason) {
+    case "missing":
+      return "this Effort has no declared Work Binding.";
+    case "unparseable":
+      return "the declared Work Binding does not match the supported provider contract.";
+    case "conflicting":
+      return "another Effort declares the same stable provider-native identity.";
+    case "unresolved":
+      return "the declared Work Binding does not resolve to a provider observation.";
+  }
+};
+
+const effortLensFor = (
+  snapshot: ProjectSnapshot,
+  effort: Effort,
+  workRegion: MattNativeWorkRegionModel | undefined,
+  entryId: string,
+): PlanningLineageEffortLens => {
+  const gate = recordFor(snapshot, { kind: "gate", id: effort.targetGateId });
+  const targetGate =
+    gate === undefined || !("effortIds" in gate)
+      ? { title: "Target Gate unavailable" }
+      : {
+          title: gate.title,
+          href: planningLineageSubjectHref(entryId, { kind: "gate", id: gate.id }),
+        };
+  const conclusion = effort.conclusion;
+  const replacement =
+    conclusion?.replacementEffortId === undefined
+      ? undefined
+      : recordFor(snapshot, { kind: "effort", id: conclusion.replacementEffortId });
+  const managedWorkHealth =
+    workRegion?.readingState.why.projectionState === "available" &&
+    workRegion.readingState.why.freshness === "current" &&
+    workRegion.readingState.why.coverage === "complete" &&
+    workRegion.readingState.why.blockingDiagnosticCount === 0
+      ? ("Healthy" as const)
+      : ("Needs attention" as const);
+  const workItems =
+    workRegion?.views[0].items.filter(
+      (item) => item.role === "wayfinder" || item.role === "delivery" || item.role === "incoming",
+    ) ?? [];
+  const binding = effort.workBinding;
+  const observationUnavailable = workRegion?.views[0].count.mode === "unavailable";
+  const observationCause =
+    workRegion === undefined
+      ? undefined
+      : [
+          ...(workRegion.context.state === "attention" ? [workRegion.context.detail] : []),
+          ...workRegion.readingState.observation.diagnostics.map(
+            (diagnostic) => diagnostic.message,
+          ),
+          ...workRegion.readingState.why.causes,
+        ]
+          .filter((value, index, values) => values.indexOf(value) === index)
+          .join(" ");
+  const currentWork =
+    workRegion === undefined || binding === undefined || observationUnavailable
+      ? {
+          state: "unavailable" as const,
+          cause:
+            observationCause === undefined || observationCause.length === 0
+              ? invalidBindingCause(effort)
+              : observationCause,
+          impact: "native work cannot contribute trusted evidence or Gate readiness.",
+          recovery:
+            "declare exactly one supported Work Binding in the canonical Effort record, then Sync.",
+        }
+      : effort.lifecycle === "concluded" && workItems.length === 0
+        ? undefined
+        : {
+            state: "available" as const,
+            items: workItems.map((item) => ({
+              reference: item.reference,
+              title: item.title,
+              href: planningLineageSubjectHref(entryId, {
+                kind: "native-subject",
+                id: item.reference,
+              }),
+              status: effortCurrentWorkStatus(item),
+              ...(item.frontier === "blocked"
+                ? { blockerImpact: "Blocked by unresolved prerequisite work." }
+                : {}),
+              ...(item.diagnosticMessages === undefined
+                ? {}
+                : { attention: item.diagnosticMessages.join(" ") }),
+            })),
+            historyHref: planningLineageSubjectHref(
+              entryId,
+              { kind: "native-scope", id: binding.nativeScope },
+              "native-work-history",
+            ),
+            ...(effort.lifecycle === "concluded" && workItems.length > 0
+              ? {
+                  consistencyWarning:
+                    "This Effort is concluded, but nonterminal managed work remains in the bound scope.",
+                }
+              : {}),
+          };
+  return {
+    lifecycle: effort.lifecycle,
+    targetGate,
+    managedWorkHealth,
+    intent: effort.intent,
+    ...(conclusion === undefined
+      ? {}
+      : {
+          outcome: {
+            disposition: conclusion.disposition,
+            rationale: conclusion.rationale,
+            concludedAt: conclusion.concludedAt,
+            ...(conclusion.replacementEffortId === undefined
+              ? {}
+              : {
+                  replacementEffort: {
+                    title: replacement?.title ?? "Replacement Effort unavailable",
+                    ...(replacement === undefined
+                      ? {}
+                      : {
+                          href: planningLineageSubjectHref(entryId, {
+                            kind: "effort",
+                            id: replacement.id,
+                          }),
+                        }),
+                  },
+                }),
+          },
+        }),
+    ...(currentWork === undefined ? {} : { currentWork }),
+  };
+};
+
 export const buildPlanningLineageSubjectModel = (
   snapshot: ProjectSnapshot,
   subject: PlanningLineageSubject,
@@ -1413,6 +1573,9 @@ export const buildPlanningLineageSubjectModel = (
     sections: sectionsFor(snapshot, lineage, record, entryId),
     ...(subject.kind === "roadmap"
       ? { outcomeSpine: roadmapOutcomeSpine(snapshot, record as Roadmap, entryId) }
+      : {}),
+    ...(subject.kind === "effort"
+      ? { effortLens: effortLensFor(snapshot, record as Effort, workRegion, entryId) }
       : {}),
     ...(workRegion === undefined ? {} : { workRegion }),
     ...(inspectionSelection === undefined

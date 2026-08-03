@@ -17,6 +17,7 @@ import type {
 import { AssetLocationCopy } from "./asset-location-copy";
 import { Icons } from "./icons";
 import type {
+  PlanningLineageEffortLens,
   PlanningLineageOutcomeSpine,
   PlanningLineageRelation,
   PlanningLineageRelationItem,
@@ -327,6 +328,158 @@ function OutcomeSpine({
         ))}
       </ol>
     </section>
+  );
+}
+
+function EffortStatusGroup({
+  lens,
+  onNavigate,
+}: {
+  readonly lens: PlanningLineageEffortLens;
+  readonly onNavigate: Navigate;
+}) {
+  return (
+    <dl className="effort-status-group">
+      <div>
+        <dt>Effort lifecycle</dt>
+        <dd>{humanizeWorkState(lens.lifecycle)}</dd>
+      </div>
+      <div>
+        <dt>Contributes to</dt>
+        <dd>
+          {lens.targetGate.href === undefined ? (
+            lens.targetGate.title
+          ) : (
+            <a
+              href={lens.targetGate.href}
+              onClick={(event) => follow(lens.targetGate.href ?? "", event, onNavigate)}
+            >
+              {lens.targetGate.title}
+            </a>
+          )}
+        </dd>
+      </div>
+      <div>
+        <dt>Managed Work</dt>
+        <dd data-health={lens.managedWorkHealth.toLowerCase().replaceAll(" ", "-")}>
+          {lens.managedWorkHealth}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function EffortGovernanceLens({
+  lens,
+  onNavigate,
+}: {
+  readonly lens: PlanningLineageEffortLens;
+  readonly onNavigate: Navigate;
+}) {
+  const currentWork = lens.currentWork;
+  return (
+    <div className="effort-governance-lens">
+      <section id="effort.intent">
+        <h2>Intent</h2>
+        <p>{lens.intent}</p>
+      </section>
+      {lens.outcome === undefined ? null : (
+        <section id="effort.outcome">
+          <h2>Outcome</h2>
+          <dl className="effort-outcome-facts">
+            <div>
+              <dt>Disposition</dt>
+              <dd>{humanizeWorkState(lens.outcome.disposition)}</dd>
+            </div>
+            {lens.outcome.concludedAt.availability !== "available" ? null : (
+              <div>
+                <dt>Concluded</dt>
+                <dd>
+                  <PlanningLineageTimeValue
+                    label="Concluded"
+                    mode="detail"
+                    time={lens.outcome.concludedAt}
+                  />
+                </dd>
+              </div>
+            )}
+          </dl>
+          <p>{lens.outcome.rationale}</p>
+          {lens.outcome.replacementEffort === undefined ? null : (
+            <p>
+              Replacement Effort:{" "}
+              {lens.outcome.replacementEffort.href === undefined ? (
+                lens.outcome.replacementEffort.title
+              ) : (
+                <a
+                  href={lens.outcome.replacementEffort.href}
+                  onClick={(event) =>
+                    follow(lens.outcome?.replacementEffort?.href ?? "", event, onNavigate)
+                  }
+                >
+                  {lens.outcome.replacementEffort.title}
+                </a>
+              )}
+            </p>
+          )}
+        </section>
+      )}
+      {currentWork === undefined ? null : (
+        <section id="native-work-current">
+          <div className="effort-current-work-heading">
+            <h2>Current Work</h2>
+            {currentWork.state === "available" ? (
+              <a
+                className="action-quiet"
+                href={currentWork.historyHref}
+                onClick={(event) => follow(currentWork.historyHref, event, onNavigate)}
+              >
+                Full work history
+              </a>
+            ) : null}
+          </div>
+          {currentWork.state === "unavailable" ? (
+            <p className="effort-current-work-unavailable">
+              Work Binding invalid. Cause: {currentWork.cause} Impact: {currentWork.impact}{" "}
+              Recovery: {currentWork.recovery}
+            </p>
+          ) : (
+            <>
+              {currentWork.consistencyWarning === undefined ? null : (
+                <p className="effort-consistency-warning" role="status">
+                  {currentWork.consistencyWarning}
+                </p>
+              )}
+              {currentWork.items.length === 0 ? (
+                <p>No nonterminal managed work is established by this observation.</p>
+              ) : (
+                <ul className="effort-current-work-list">
+                  {currentWork.items.map((item) => (
+                    <li key={item.reference}>
+                      <div>
+                        <a
+                          href={item.href}
+                          onClick={(event) => follow(item.href, event, onNavigate)}
+                        >
+                          {item.title}
+                        </a>
+                        <span data-work-status={item.status.toLowerCase().replaceAll(" ", "-")}>
+                          {item.status}
+                        </span>
+                      </div>
+                      {item.blockerImpact === undefined ? null : <p>{item.blockerImpact}</p>}
+                      {item.attention === undefined ? null : (
+                        <p className="effort-work-attention">Needs attention: {item.attention}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -1029,14 +1182,19 @@ export function PlanningLineagePage({
       ? new Set(["outcome.ordered-gates", "outcome.contributing-efforts"])
       : model.subject.kind === "gate"
         ? new Set(["outcome.contributing-efforts"])
-        : new Set<string>();
+        : model.subject.kind === "effort"
+          ? new Set(["native-work.binding"])
+          : new Set<string>();
   const contextRelations = model.relations.filter(
     (relation) =>
       !relation.inParentPath &&
       !contentOwnedRelationKeys.has(relation.key) &&
       !(model.subject.kind === "roadmap" && relation.state === "confirmed-none"),
   );
-  const availableEvents = model.events.filter((event) => event.time.availability === "available");
+  const availableEvents =
+    model.subject.kind === "effort"
+      ? []
+      : model.events.filter((event) => event.time.availability === "available");
   const eventHistoryAnchor =
     model.subject.kind === "alignment-check" || model.subject.kind === "planning-review"
       ? `${model.subject.kind}.event-time`
@@ -1083,6 +1241,9 @@ export function PlanningLineagePage({
             <span className="lineage-object-type">{objectType}</span>
           )}
           <h1>{model.subject.title}</h1>
+          {model.effortLens === undefined ? null : (
+            <EffortStatusGroup lens={model.effortLens} onNavigate={onNavigate} />
+          )}
         </div>
         <button
           aria-label="Open Technical Details"
@@ -1144,6 +1305,9 @@ export function PlanningLineagePage({
       {model.outcomeSpine === undefined ? null : (
         <OutcomeSpine onNavigate={onNavigate} spine={model.outcomeSpine} />
       )}
+      {model.effortLens === undefined ? null : (
+        <EffortGovernanceLens lens={model.effortLens} onNavigate={onNavigate} />
+      )}
       <div className="lineage-sections">
         {model.sections.map((section) => (
           <section
@@ -1187,7 +1351,7 @@ export function PlanningLineagePage({
           </section>
         ))}
       </div>
-      {model.workRegion === undefined ? null : (
+      {model.workRegion === undefined || model.subject.kind === "effort" ? null : (
         <MattNativeWorkRegion entryId={entryId} onNavigate={onNavigate} region={model.workRegion} />
       )}
       {contextRelations.length === 0 ? null : (
