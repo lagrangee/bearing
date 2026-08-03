@@ -4,7 +4,10 @@ import type {
   RequestedPlanningLineageFilteredView,
   RequestedPlanningLineageSubject,
 } from "../planning-lineage-route";
-import { mattNativeObservationForSubject } from "../providers/matt-skills-v1/native-subject";
+import {
+  mattNativeObservationForSubject,
+  mattNativeScopeSubject,
+} from "../providers/matt-skills-v1/native-subject";
 import { AssetsPage } from "./assets-page";
 import { AuditPage } from "./audit-page";
 import { Icons } from "./icons";
@@ -74,7 +77,10 @@ export function ProjectPage({
     requestedNativeInspectionSubject ??
     (effortInspectionBinding === undefined
       ? undefined
-      : { kind: "native-scope" as const, id: effortInspectionBinding.nativeScope });
+      : {
+          kind: "native-scope" as const,
+          id: mattNativeScopeSubject({ binding: effortInspectionBinding }).id,
+        });
   const inspectionSubjectKey =
     inspectionSubject === undefined
       ? undefined

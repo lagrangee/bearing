@@ -36,6 +36,7 @@ import {
 import {
   type MattNativeSubject,
   mattNativeScopeKey,
+  mattNativeScopeSubject,
   mattNativeSubjectForObject,
   sameMattNativeLocator,
   sameMattNativeScope,
@@ -1609,7 +1610,12 @@ const effortLensFor = (
           ...(binding !== undefined &&
           (effort.workBindingState.state === "bound" ||
             effort.workBindingState.reason === "unresolved")
-            ? { refreshTarget: { kind: "native-scope" as const, id: binding.nativeScope } }
+            ? {
+                refreshTarget: {
+                  kind: "native-scope" as const,
+                  id: mattNativeScopeSubject({ binding }).id,
+                },
+              }
             : {}),
           ...(inspectionSelection?.latestAttempt?.outcome === "failed"
             ? { latestRefreshFailed: true }
