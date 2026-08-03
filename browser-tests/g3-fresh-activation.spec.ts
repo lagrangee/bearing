@@ -19,8 +19,8 @@ type CliResult = Readonly<{
 
 const runDevelopmentCli = async (home: string, args: readonly string[]): Promise<CliResult> =>
   new Promise((resolve, reject) => {
-    const environment = { ...process.env, HOME: home };
-    delete environment.FORCE_COLOR;
+    const environment: NodeJS.ProcessEnv = { ...process.env, HOME: home };
+    delete environment["FORCE_COLOR"];
     const child = spawn("node", ["dist/cli.js", ...args], {
       cwd: process.cwd(),
       env: environment,
