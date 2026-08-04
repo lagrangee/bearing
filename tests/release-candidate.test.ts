@@ -1235,14 +1235,16 @@ test("CI matrix executes the built CLI with each selected Node runtime", async (
   const parsed = parseYaml(workflow) as {
     jobs?: {
       verify?: {
-        strategy?: { matrix?: { "node-version"?: readonly number[] } };
+        strategy?: { matrix?: { "node-version"?: readonly (number | string)[] } };
         steps?: readonly { name?: string; run?: string }[];
       };
-      browser?: { steps?: readonly { uses?: string; with?: { "node-version"?: number } }[] };
+      browser?: {
+        steps?: readonly { uses?: string; with?: { "node-version"?: number | string } }[];
+      };
     };
   };
   const steps = parsed.jobs?.verify?.steps ?? [];
-  expect(parsed.jobs?.verify?.strategy?.matrix?.["node-version"]).toEqual([24, 26]);
+  expect(parsed.jobs?.verify?.strategy?.matrix?.["node-version"]).toEqual(["24.15.0", 26]);
   expect(
     steps.some(
       (step) =>
@@ -1253,7 +1255,7 @@ test("CI matrix executes the built CLI with each selected Node runtime", async (
   const browserNode = (parsed.jobs?.browser?.steps ?? []).find((step) =>
     step.uses?.startsWith("actions/setup-node@"),
   );
-  expect(browserNode?.with?.["node-version"]).toBe(24);
+  expect(browserNode?.with?.["node-version"]).toBe("24.15.0");
 });
 
 test("CI can run manually on the exact dispatched clean-root ref", async () => {
