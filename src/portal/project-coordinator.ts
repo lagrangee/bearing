@@ -7,6 +7,7 @@ export type ProjectOperationMode = "ensure-current" | "force";
 export type ProjectOperation = Readonly<{
   entryId: string;
   mode: ProjectOperationMode;
+  locatorRevision?: string;
   nativeScopeInspectionIntent?: NativeScopeInspectionIntent;
 }>;
 
@@ -21,6 +22,7 @@ export type CoordinatedResult<T> =
 
 type Active<T> = Readonly<{
   mode: ProjectOperationMode;
+  locatorRevision?: string;
   nativeScopeInspectionIntent: NativeScopeInspectionIntent;
   nativeScopeInspectionKey: string;
   promise: Promise<T>;
@@ -86,6 +88,9 @@ export const createProjectCoordinator = <T>(options: {
     );
     state.active = {
       mode: operation.mode,
+      ...(operation.locatorRevision === undefined
+        ? {}
+        : { locatorRevision: operation.locatorRevision }),
       nativeScopeInspectionIntent: operation.nativeScopeInspectionIntent ?? { kind: "none" },
       nativeScopeInspectionKey: nativeScopeInspectionKey(
         operation.nativeScopeInspectionIntent ?? { kind: "none" },
@@ -113,12 +118,13 @@ export const createProjectCoordinator = <T>(options: {
       const inspectionKey = nativeScopeInspectionKey(inspectionIntent);
       if (
         active !== undefined &&
+        active.locatorRevision === operation.locatorRevision &&
         active.nativeScopeInspectionKey === inspectionKey &&
         (operation.mode === "ensure-current" || active.mode === "force")
       ) {
         return completed(active.promise, active.mode, true);
       }
-      const queueKey = `force:${inspectionKey}`;
+      const queueKey = `force:${operation.locatorRevision ?? "unknown"}:${inspectionKey}`;
       const existingQueue = state.queuedForces?.get(queueKey);
       if (existingQueue !== undefined) return completed(existingQueue, "force", true);
       const predecessor = state.queueTail ?? active?.promise;

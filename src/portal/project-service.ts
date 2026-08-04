@@ -1,10 +1,12 @@
 import type { NativeScopeInspectionIntent } from "../native-scope-inspection";
 import type { CatalogReadResult } from "./contract";
+import type { ProjectOperationError } from "./project-contract";
 import {
   createProjectCoordinator,
   type ProjectCoordinator,
   type ProjectOperationMode,
 } from "./project-coordinator";
+import type { AvailableProjectEntry } from "./project-entry";
 import { createProjectEntryResolver } from "./project-entry-resolution";
 import {
   createProjectGenerationGraphHost,
@@ -13,10 +15,6 @@ import {
 } from "./project-generation-graph-host";
 import { projectLocationChangedFailure } from "./project-location-change";
 import {
-  type CapturedProjectOperation,
-  createProjectLocationRecovery,
-} from "./project-location-recovery";
-import {
   createProjectMaterializer,
   type ProjectMaterializationResult,
   type ProjectWriteAuthorizer,
@@ -24,6 +22,7 @@ import {
 import { operationError } from "./project-operation-error";
 import { readCurrentProject } from "./project-read-recovery";
 import type {
+  EntryFailure,
   ProjectReadServiceResult,
   ProjectSyncServiceResult,
 } from "./project-service-contract";
@@ -49,6 +48,21 @@ type Materializer = Readonly<{
     nativeScopeInspectionIntent?: NativeScopeInspectionIntent,
   ): Promise<ProjectMaterializationResult>;
 }>;
+
+type CapturedProjectOperation =
+  | Readonly<{ kind: "entry-failure"; result: EntryFailure }>
+  | Readonly<{
+      kind: "completed";
+      entry: AvailableProjectEntry;
+      result: ProjectMaterializationResult;
+      repoView: ProjectRepoView;
+    }>
+  | Readonly<{
+      kind: "failed";
+      entry: AvailableProjectEntry;
+      error: ProjectOperationError;
+      repoView?: ProjectRepoView;
+    }>;
 
 export type {
   ProjectReadServiceResult,
@@ -78,31 +92,23 @@ export const createProjectService = (options: {
     options.entryResolver ?? createProjectEntryResolver(options.readCatalog);
   const operationExecutorFor = options.operationExecutorFor ?? executeWithWritesDenied;
   const generationGraphs = options.generationGraphs ?? createProjectGenerationGraphHost();
+  const attemptedRoots = new Map<string, string>();
   let coordinator: ProjectCoordinator<CapturedProjectOperation>;
-  const locationRecovery = createProjectLocationRecovery({
-    execute: (entryId, mode, nativeScopeInspectionIntent) =>
-      coordinator.execute({
-        entryId,
-        mode,
-        nativeScopeInspectionIntent,
-      }),
-    status: (entryId) => coordinator.status({ entryId }),
-  });
   coordinator = createProjectCoordinator<CapturedProjectOperation>({
     run: async (operation) => {
       const resolution = await resolveWithLocator(operation.entryId);
       if (resolution.locatorRevision !== undefined) {
-        locationRecovery.observeLocator(operation.entryId, resolution.locatorRevision);
+        attemptedRoots.set(operation.entryId, resolution.locatorRevision);
       }
       const resolved = resolution.result;
       if (resolved.kind !== "available") {
-        return locationRecovery.record(operation.entryId, {
+        return {
           kind: "entry-failure",
           result: resolved,
-        });
+        };
       }
       const entry = resolved.entry;
-      locationRecovery.observeLocator(entry.entryId, entry.repoRoot);
+      attemptedRoots.set(entry.entryId, entry.repoRoot);
       try {
         const result = await operationExecutorFor(entry)(async (authorizeWrites) => {
           const retainedGraph = generationGraphs.forEntry(entry.entryId);
@@ -127,9 +133,6 @@ export const createProjectService = (options: {
               retainedGraph.publish(publication);
             } else {
               const confirmation = await resolveWithLocator(entry.entryId);
-              if (confirmation.locatorRevision !== undefined) {
-                locationRecovery.observeLocator(entry.entryId, confirmation.locatorRevision);
-              }
               if (
                 confirmation.result.kind === "available" &&
                 confirmation.result.entry.repoRoot === entry.repoRoot
@@ -146,7 +149,7 @@ export const createProjectService = (options: {
           result,
           repoView: projectRepoViewFromMaterialization(result),
         } as const;
-        return locationRecovery.record(operation.entryId, captured);
+        return captured;
       } catch (error) {
         const normalizedError =
           error instanceof Error ? error : new Error("Unknown project operation failure.");
@@ -156,18 +159,26 @@ export const createProjectService = (options: {
         } catch {
           repoView = undefined;
         }
-        return locationRecovery.record(operation.entryId, {
+        return {
           kind: "failed",
           entry,
           error: operationError(normalizedError),
           ...(repoView === undefined ? {} : { repoView }),
-        });
+        };
       }
     },
     ...(options.clock === undefined ? {} : { clock: options.clock }),
   });
-  const validationFor = (entryId: string, repoRoot?: string) =>
-    locationRecovery.validation(entryId, repoRoot);
+  const locatorChanged = (entryId: string, repoRoot: string): boolean => {
+    const attempted = attemptedRoots.get(entryId);
+    return attempted !== undefined && attempted !== repoRoot;
+  };
+  const validationFor = (entryId: string, repoRoot?: string) => {
+    const validation = coordinator.status({ entryId });
+    return repoRoot !== undefined && locatorChanged(entryId, repoRoot)
+      ? { ...validation, due: true, cooldownRemainingMs: 0 }
+      : validation;
+  };
 
   return Object.freeze({
     async read(entryId: string): Promise<ProjectReadServiceResult> {
@@ -183,26 +194,18 @@ export const createProjectService = (options: {
       mode: ProjectOperationMode,
       nativeScopeInspectionIntent: NativeScopeInspectionIntent = { kind: "none" },
     ): Promise<ProjectSyncServiceResult> {
-      const recoveryCheckpoint = locationRecovery.checkpoint(entryId);
       try {
-        const initial = await resolve(entryId);
-        const recoveryRoot =
-          initial.kind === "available"
-            ? locationRecovery.rootRequiringRecovery(entryId, mode, initial.entry.repoRoot)
-            : undefined;
-        const coordinated =
-          recoveryRoot === undefined
-            ? await coordinator.execute({
-                entryId,
-                mode,
-                nativeScopeInspectionIntent,
-              })
-            : await locationRecovery.recover(
-                entryId,
-                recoveryRoot,
-                recoveryCheckpoint,
-                nativeScopeInspectionIntent,
-              );
+        const initial = await resolveWithLocator(entryId);
+        const mappingChanged =
+          initial.locatorRevision !== undefined && locatorChanged(entryId, initial.locatorRevision);
+        const coordinated = await coordinator.execute({
+          entryId,
+          mode: mappingChanged && mode === "ensure-current" ? "force" : mode,
+          ...(initial.locatorRevision === undefined
+            ? {}
+            : { locatorRevision: initial.locatorRevision }),
+          nativeScopeInspectionIntent,
+        });
         if (coordinated.kind === "cooldown") {
           const latest = await resolve(entryId);
           if (latest.kind !== "available") return latest;
