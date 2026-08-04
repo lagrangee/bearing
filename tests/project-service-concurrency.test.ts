@@ -172,7 +172,7 @@ test("composes each response from its immutable operation result before releasin
   });
 });
 
-test("re-resolves a relinked Catalog entry before a queued force starts", async () => {
+test("fails an in-flight request after relink while a queued force starts on the new locator", async () => {
   const originalRoot = await realpath(await createValidBearingRepo());
   const queuedRoot = await realpath(await createValidBearingRepo());
   const currentRoot = await realpath(await createValidBearingRepo());
@@ -230,11 +230,13 @@ test("re-resolves a relinked Catalog entry before a queued force starts", async 
   const forced = await forcing;
 
   expect(checked).toMatchObject({
-    kind: "completed",
+    kind: "failed",
     mode: "ensure-current",
-    outcome: "synced",
-    view: {
-      cache: { snapshot: { snapshot: { summary: { value: { title: "Current Snapshot" } } } } },
+    outcome: "failed",
+    error: {
+      code: "input-validation-failed",
+      message:
+        "The registered project location changed while this operation was in flight. Retry against the current repository.",
     },
   });
   expect(materializedRoots).toEqual([originalRoot, currentRoot]);

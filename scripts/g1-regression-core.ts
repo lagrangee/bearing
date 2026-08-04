@@ -9,7 +9,7 @@ export const G1_REGRESSION_CORE = [
     seam: "repository-lifecycle-cli",
     files: [
       "tests/repository-cutover.test.ts",
-      "tests/repo-lifecycle.test.ts",
+      "node-tests/repository-lifecycle.test.ts",
       "tests/repository-recovery.test.ts",
     ],
   },
@@ -32,6 +32,28 @@ export const G1_REGRESSION_CORE = [
 
 export const g1RegressionCoreFiles = (): readonly string[] =>
   G1_REGRESSION_CORE.flatMap((group) => group.files);
+
+export const g1RegressionCoreCommands = (): readonly Readonly<{
+  key: string;
+  command: readonly string[];
+}>[] => [
+  {
+    key: "g1-focused-tests",
+    command: [
+      "bun",
+      "test",
+      ...g1RegressionCoreFiles().filter((file) => file.startsWith("tests/")),
+    ],
+  },
+  {
+    key: "node-catalog-and-lifecycle",
+    command: [
+      "bun",
+      "scripts/run-node-catalog-tests.ts",
+      "node-tests/repository-lifecycle.test.ts",
+    ],
+  },
+];
 
 type RegressionProcess = Readonly<{ exited: Promise<number> }>;
 
@@ -63,17 +85,40 @@ export const runG1RegressionCore = async (
       files,
     })}\n`,
   );
-  const child = runtime.spawn(["bun", "test", ...files]);
-  const exitCode = await child.exited;
+  for (const check of g1RegressionCoreCommands()) {
+    const child = runtime.spawn(check.command);
+    const exitCode = await child.exited;
+    runtime.write(
+      `${JSON.stringify({
+        schemaVersion: 1,
+        kind: "g1-regression-core-check",
+        key: check.key,
+        outcome: exitCode === 0 ? "passed" : "failed",
+        exitCode,
+      })}\n`,
+    );
+    if (exitCode !== 0) {
+      runtime.write(
+        `${JSON.stringify({
+          schemaVersion: 1,
+          kind: "g1-regression-core-result",
+          outcome: "failed",
+          failedCheck: check.key,
+          exitCode,
+        })}\n`,
+      );
+      return exitCode;
+    }
+  }
   runtime.write(
     `${JSON.stringify({
       schemaVersion: 1,
       kind: "g1-regression-core-result",
-      outcome: exitCode === 0 ? "passed" : "failed",
-      exitCode,
+      outcome: "passed",
+      exitCode: 0,
     })}\n`,
   );
-  return exitCode;
+  return 0;
 };
 
 if (import.meta.main) process.exitCode = await runG1RegressionCore();

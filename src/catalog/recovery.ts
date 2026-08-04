@@ -19,7 +19,6 @@ export const readCatalogDocument = async (options: {
 export const resetCatalog = async (options: {
   readonly homeDir: string;
   readonly confirmed: boolean;
-  readonly lockTimeoutMs?: number;
 }): Promise<Readonly<{ outcome: "applied" }>> => {
   if (!options.confirmed) {
     throw new CatalogRecoveryRequiredError("Catalog reset requires explicit confirmation.");

@@ -206,12 +206,6 @@ export const createProjectService = (options: {
         if (coordinated.kind === "cooldown") {
           const latest = await resolve(entryId);
           if (latest.kind !== "available") return latest;
-          const changedRoot = locationRecovery.rootRequiringRecovery(
-            entryId,
-            "ensure-current",
-            latest.entry.repoRoot,
-          );
-          void changedRoot;
           return {
             kind: "cooldown",
             mode: "ensure-current",

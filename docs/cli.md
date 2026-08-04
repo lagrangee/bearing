@@ -173,7 +173,7 @@ Portal runs in the foreground and prints a loopback URL. `BEARING_PORT` can over
 
 ## Catalog
 
-Use `bearing catalog --help` and current command help for rename, forget, remove, relink, repair, and reset operations. Catalog operations can affect user-level project registration; do not run them blindly.
+Use `bearing catalog --help` and current command help for rename, forget, remove, relink, and confirmed reset operations. Reset creates an empty SQLite Catalog; run Setup again to re-register repositories. Catalog operations can affect user-level project registration; do not run them blindly.
 
 ## Package uninstall boundary
 

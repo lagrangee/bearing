@@ -1,4 +1,5 @@
-import { mkdir, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
 import { CatalogBusyError, CatalogRecoveryRequiredError } from "./errors";
@@ -12,7 +13,7 @@ const openDatabase = async (
   options?: ConstructorParameters<typeof DatabaseSync>[1],
 ): Promise<DatabaseSync> => {
   const { DatabaseSync: SqliteDatabase } = await import("node:sqlite");
-  return new SqliteDatabase(path, options);
+  return options === undefined ? new SqliteDatabase(path) : new SqliteDatabase(path, options);
 };
 
 export const catalogDatabasePath = (homeDir: string): string =>
@@ -148,13 +149,16 @@ export const readSqliteCatalogState = async (homeDir: string): Promise<CatalogRe
 
 export const runSqliteCatalogTransaction = async <Result>(options: {
   readonly homeDir: string;
-  readonly timeoutMs?: number;
   readonly mutate: (
     current: CatalogDocument,
   ) => Readonly<{ result: Result; next?: CatalogDocument }>;
 }): Promise<Result> => {
   const directory = join(options.homeDir, ".bearing");
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  try {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+  } catch (error) {
+    return databaseError(error);
+  }
   const path = catalogDatabasePath(options.homeDir);
   let databaseExisted: boolean;
   try {
@@ -167,9 +171,9 @@ export const runSqliteCatalogTransaction = async <Result>(options: {
   let mutationFailed = false;
   try {
     database = await openDatabase(path, {
-      timeout: options.timeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS,
+      timeout: DEFAULT_BUSY_TIMEOUT_MS,
     });
-    configure(database, options.timeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS);
+    configure(database, DEFAULT_BUSY_TIMEOUT_MS);
     database.exec("BEGIN IMMEDIATE");
     began = true;
     const version = database.prepare("PRAGMA user_version").get()?.["user_version"];
@@ -201,14 +205,59 @@ export const runSqliteCatalogTransaction = async <Result>(options: {
   }
 };
 
+const replaceUnavailableCatalog = async (path: string): Promise<void> => {
+  const temporaryPath = `${path}.reset-${randomUUID()}`;
+  let database: DatabaseSync | undefined;
+  let promoted = false;
+  try {
+    database = await openDatabase(temporaryPath);
+    database.exec("BEGIN IMMEDIATE");
+    initializeSchema(database);
+    database.exec("COMMIT");
+    database.close();
+    database = undefined;
+    database = await openDatabase(temporaryPath, { readOnly: true });
+    assertSchema(database);
+    readDocument(database);
+    database.close();
+    database = undefined;
+    await rm(`${path}-journal`, { force: true });
+    await rename(temporaryPath, path);
+    promoted = true;
+  } catch (error) {
+    return databaseError(error);
+  } finally {
+    database?.close();
+    if (!promoted) {
+      await rm(temporaryPath, { force: true });
+      await rm(`${temporaryPath}-journal`, { force: true });
+    }
+  }
+};
+
 export const resetSqliteCatalog = async (homeDir: string): Promise<void> => {
   const directory = join(homeDir, ".bearing");
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  try {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+  } catch (error) {
+    return databaseError(error);
+  }
   const path = catalogDatabasePath(homeDir);
-  await rm(path, { force: true });
-  await rm(`${path}-journal`, { force: true });
-  await runSqliteCatalogTransaction({
-    homeDir,
-    mutate: () => ({ result: undefined }),
-  });
+  let present: boolean;
+  try {
+    present = await exists(path);
+  } catch (error) {
+    return databaseError(error);
+  }
+  if (present) {
+    const state = await readSqliteCatalogState(homeDir);
+    if (state.state === "ready") {
+      await runSqliteCatalogTransaction({
+        homeDir,
+        mutate: () => ({ result: undefined, next: emptyCatalogDocument() }),
+      });
+      return;
+    }
+  }
+  await replaceUnavailableCatalog(path);
 };

@@ -20,7 +20,6 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PACKAGE_NAME = "@lagrangee/bearing";
@@ -112,6 +111,15 @@ export const assertLaneRuntime = (lane, nodeVersion = process.version) => {
   const actualMajor = Number.parseInt(nodeVersion.replace(/^v/u, "").split(".")[0] ?? "", 10);
   if (actualMajor !== expectedMajor) {
     throw new Error(`${lane} requires Node.js ${expectedMajor}; current runtime is ${nodeVersion}.`);
+  }
+  if (
+    lane === "node24" &&
+    new Intl.Collator("en", { numeric: true }).compare(
+      nodeVersion.replace(/^v/u, ""),
+      "24.15.0",
+    ) < 0
+  ) {
+    throw new Error(`node24 requires Node.js 24.15.0 or later; current runtime is ${nodeVersion}.`);
   }
 };
 
@@ -789,6 +797,7 @@ const pathExists = async (target) => {
 };
 
 const readCatalog = async (home) => {
+  const { DatabaseSync } = await import("node:sqlite");
   const database = new DatabaseSync(join(home, ".bearing/catalog.sqlite"), { readOnly: true });
   try {
     return {

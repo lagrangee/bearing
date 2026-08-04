@@ -3,6 +3,7 @@
     "includes": [
       "src/**/*.{ts,tsx,css}",
       "scripts/**/*.ts",
+      "node-tests/**/*.ts",
       "tests/**/*.ts",
       "browser-tests/**/*.ts",
       "playwright.config.ts",

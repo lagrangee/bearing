@@ -6,11 +6,30 @@ import { fileURLToPath } from "node:url";
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = join(projectRoot, "node-tests");
 
+const selectEntrypoints = async (): Promise<string[]> => {
+  const requested = process.argv.slice(2);
+  if (requested.length === 0) {
+    return (await readdir(sourceRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
+      .map((entry) => join(sourceRoot, entry.name))
+      .sort();
+  }
+  const available = new Set(
+    (await readdir(sourceRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
+      .map((entry) => join(sourceRoot, entry.name)),
+  );
+  const selected = requested.map((entrypoint) => resolve(projectRoot, entrypoint));
+  for (const entrypoint of selected) {
+    if (!available.has(entrypoint)) {
+      throw new Error(`Node Catalog test entrypoint is not available: ${entrypoint}`);
+    }
+  }
+  return [...new Set(selected)].sort();
+};
+
 const run = async (): Promise<void> => {
-  const entrypoints = (await readdir(sourceRoot, { withFileTypes: true }))
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
-    .map((entry) => join(sourceRoot, entry.name))
-    .sort();
+  const entrypoints = await selectEntrypoints();
   if (entrypoints.length === 0) throw new Error("Node Catalog test lane has no entrypoints.");
 
   const temporaryRoot = await mkdtemp(join(tmpdir(), "bearing-node-catalog-tests-"));

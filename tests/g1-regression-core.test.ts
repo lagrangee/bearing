@@ -3,6 +3,7 @@ import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   G1_REGRESSION_CORE,
+  g1RegressionCoreCommands,
   g1RegressionCoreFiles,
   runG1RegressionCore,
 } from "../scripts/g1-regression-core";
@@ -23,7 +24,7 @@ describe("G1 deterministic regression core", () => {
         seam: "repository-lifecycle-cli",
         files: [
           "tests/repository-cutover.test.ts",
-          "tests/repo-lifecycle.test.ts",
+          "node-tests/repository-lifecycle.test.ts",
           "tests/repository-recovery.test.ts",
         ],
       },
@@ -67,24 +68,25 @@ describe("G1 deterministic regression core", () => {
       "bun run build && bun scripts/g1-regression-core.ts",
     );
     expect(metadata.scripts["verify"]).toBe(
-      "bun run typecheck && bun run check && bun run build && bun test tests/*.test.ts && bun run test:g2-regression",
+      "bun run typecheck && bun run check && bun run build && bun test tests/*.test.ts && bun run test:catalog-node && bun run test:g2-regression",
     );
   });
 
   test("emits stable envelopes and returns the child failure code", async () => {
     const commands: (readonly string[])[] = [];
     const output: string[] = [];
+    const exitCodes = [0, 23];
     const exitCode = await runG1RegressionCore({
       spawn: (command) => {
         commands.push(command);
-        return { exited: Promise.resolve(23) };
+        return { exited: Promise.resolve(exitCodes[commands.length - 1] ?? 0) };
       },
       write: (line) => output.push(line),
     });
 
-    expect(commands).toEqual([["bun", "test", ...g1RegressionCoreFiles()]]);
+    expect(commands).toEqual(g1RegressionCoreCommands().map((item) => item.command));
     expect(exitCode).toBe(23);
-    expect(output).toHaveLength(2);
+    expect(output).toHaveLength(4);
     expect(JSON.parse(output[0] ?? "{}")).toEqual({
       schemaVersion: 1,
       kind: "g1-regression-core-selection",
@@ -93,8 +95,23 @@ describe("G1 deterministic regression core", () => {
     });
     expect(JSON.parse(output[1] ?? "{}")).toEqual({
       schemaVersion: 1,
+      kind: "g1-regression-core-check",
+      key: "g1-focused-tests",
+      outcome: "passed",
+      exitCode: 0,
+    });
+    expect(JSON.parse(output[2] ?? "{}")).toEqual({
+      schemaVersion: 1,
+      kind: "g1-regression-core-check",
+      key: "node-catalog-and-lifecycle",
+      outcome: "failed",
+      exitCode: 23,
+    });
+    expect(JSON.parse(output[3] ?? "{}")).toEqual({
+      schemaVersion: 1,
       kind: "g1-regression-core-result",
       outcome: "failed",
+      failedCheck: "node-catalog-and-lifecycle",
       exitCode: 23,
     });
   });

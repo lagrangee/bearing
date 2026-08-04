@@ -371,7 +371,10 @@ describe("release smoke arguments", () => {
   });
 
   test("refuses a lane that does not match the selected Node runtime", () => {
-    expect(() => assertLaneRuntime("node24", "v24.11.0")).not.toThrow();
+    expect(() => assertLaneRuntime("node24", "v24.15.0")).not.toThrow();
+    expect(() => assertLaneRuntime("node24", "v24.14.1")).toThrow(
+      "node24 requires Node.js 24.15.0 or later",
+    );
     expect(() => assertLaneRuntime("node26", "v24.11.0")).toThrow("node26 requires Node.js 26");
   });
 });

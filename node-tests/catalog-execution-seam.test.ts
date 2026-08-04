@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import packageMetadata from "../package.json";
 import {
@@ -12,6 +22,9 @@ import {
   BEARING_MANAGED_START,
   BEARING_POINTER,
 } from "../src/agent-surface-entry";
+import { readCatalog } from "../src/catalog/probe";
+import { readCatalogState } from "../src/catalog/recovery";
+import { catalogDatabasePath } from "../src/catalog/sqlite";
 import {
   CatalogBusyError,
   CatalogDuplicateRepositoryError,
@@ -24,9 +37,6 @@ import {
   resetCatalog,
   upsertCatalogEntry,
 } from "../src/catalog/store";
-import { readCatalogState } from "../src/catalog/recovery";
-import { readCatalog } from "../src/catalog/probe";
-import { catalogDatabasePath } from "../src/catalog/sqlite";
 import { installKit } from "../src/installer";
 import { createPortalApp } from "../src/portal/app";
 import {
@@ -74,8 +84,30 @@ if (process.argv[2] === "--catalog-child") {
   process.exit(0);
 }
 
+if (process.argv[2] === "--hold-catalog-writer") {
+  const [, , , databasePath, markerPath, holdMilliseconds] = process.argv;
+  if (databasePath === undefined || markerPath === undefined || holdMilliseconds === undefined) {
+    throw new Error("Catalog writer holder arguments are incomplete.");
+  }
+  const database = new DatabaseSync(databasePath);
+  database.exec("BEGIN IMMEDIATE");
+  await writeFile(markerPath, "held\n");
+  await delay(Number(holdMilliseconds));
+  database.exec("ROLLBACK");
+  database.close();
+  process.exit(0);
+}
+
 test("the built Catalog lane runs on the declared production Node runtime", () => {
   assert.equal(packageMetadata.engines.node, ">=24.15.0");
+  const versionOrder = new Intl.Collator("en", { numeric: true }).compare(
+    process.versions.node,
+    "24.15.0",
+  );
+  assert.ok(
+    versionOrder >= 0,
+    `Node ${process.versions.node} is below the supported runtime floor.`,
+  );
 });
 
 test("the built Catalog lane keeps node:sqlite external and loads the production Catalog graph", async () => {
@@ -116,10 +148,11 @@ test("SQLite Catalog preserves domain CRUD, stable identity, constraints, and mi
     });
     assert.equal(inserted.outcome, "applied");
     assert.equal((await upsertCatalogEntry({ homeDir, repoRoot: firstRoot })).outcome, "no-op");
-    assert.equal((await renameCatalogEntry({ homeDir, entryId: "entry-one", displayName: "One" })).outcome, "applied");
-    await assert.rejects(
-      renameCatalogEntry({ homeDir, entryId: "entry-one", displayName: "   " }),
+    assert.equal(
+      (await renameCatalogEntry({ homeDir, entryId: "entry-one", displayName: "One" })).outcome,
+      "applied",
     );
+    await assert.rejects(renameCatalogEntry({ homeDir, entryId: "entry-one", displayName: "   " }));
     await assert.rejects(
       upsertCatalogEntry({
         homeDir,
@@ -161,13 +194,36 @@ test("SQLite Catalog preserves domain CRUD, stable identity, constraints, and mi
   }
 });
 
+test("Catalog validates mutation inputs before opening a database transaction", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bearing-sqlite-inputs-"));
+  const homeDir = join(root, "home");
+  const repoRoot = join(root, "repo");
+  await makeRepository(repoRoot);
+  try {
+    await assert.rejects(
+      upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "invalid entry id" }),
+    );
+    await assert.rejects(
+      renameCatalogEntry({ homeDir, entryId: "invalid entry id", displayName: "Valid" }),
+    );
+    await assert.rejects(renameCatalogEntry({ homeDir, entryId: "valid-id", displayName: "   " }));
+    await assert.rejects(access(catalogDatabasePath(homeDir)));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SQLite Catalog derives stable display ordering and current availability", async () => {
   const root = await mkdtemp(join(tmpdir(), "bearing-sqlite-probe-"));
   const homeDir = join(root, "home");
   const alphaRoot = join(root, "Project With Spaces");
   const missingRoot = join(root, "missing-later");
   const zuluRoot = join(root, "zulu");
-  await Promise.all([makeRepository(alphaRoot), makeRepository(missingRoot), makeRepository(zuluRoot)]);
+  await Promise.all([
+    makeRepository(alphaRoot),
+    makeRepository(missingRoot),
+    makeRepository(zuluRoot),
+  ]);
   try {
     await upsertCatalogEntry({ homeDir, repoRoot: zuluRoot, createEntryId: () => "zulu" });
     await renameCatalogEntry({ homeDir, entryId: "zulu", displayName: "Zulu Fixture" });
@@ -179,13 +235,15 @@ test("SQLite Catalog derives stable display ordering and current availability", 
 
     const first = await readCatalog({ homeDir });
     const second = await readCatalog({ homeDir });
-    assert.deepEqual(first.entries.map(({ entryId }) => entryId), ["spaced", "missing", "zulu"]);
+    assert.deepEqual(
+      first.entries.map(({ entryId }) => entryId),
+      ["spaced", "missing", "zulu"],
+    );
     assert.deepEqual(second.entries, first.entries);
-    assert.deepEqual(first.entries.map(({ availability }) => availability), [
-      "available",
-      "missing",
-      "available",
-    ]);
+    assert.deepEqual(
+      first.entries.map(({ availability }) => availability),
+      ["available", "missing", "available"],
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -201,13 +259,16 @@ test("SQLite Catalog serializes two real Node writers without losing committed e
     const artifact = new URL(import.meta.url).pathname;
     await Promise.all([
       execFileAsync(process.execPath, [artifact, "--catalog-child", homeDir, firstRoot, "entry-a"]),
-      execFileAsync(process.execPath, [artifact, "--catalog-child", homeDir, secondRoot, "entry-b"]),
+      execFileAsync(process.execPath, [
+        artifact,
+        "--catalog-child",
+        homeDir,
+        secondRoot,
+        "entry-b",
+      ]),
     ]);
     const entries = (await readCatalogDocument({ homeDir })).entries;
-    assert.deepEqual(
-      entries.map((entry) => entry.entryId).sort(),
-      ["entry-a", "entry-b"],
-    );
+    assert.deepEqual(entries.map((entry) => entry.entryId).sort(), ["entry-a", "entry-b"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -257,6 +318,7 @@ test("SQLite Catalog rejects existing incompatible schema, constraints, and open
   const versionHome = join(root, "version-home");
   const constraintHome = join(root, "constraint-home");
   const openHome = join(root, "open-home");
+  const emptyHome = join(root, "empty-home");
   const repoRoot = join(root, "repo");
   await makeRepository(repoRoot);
   try {
@@ -291,6 +353,17 @@ test("SQLite Catalog rejects existing incompatible schema, constraints, and open
       /unavailable/u,
     );
 
+    await mkdir(join(emptyHome, ".bearing"), { recursive: true });
+    new DatabaseSync(catalogDatabasePath(emptyHome)).close();
+    await assert.rejects(
+      upsertCatalogEntry({
+        homeDir: emptyHome,
+        repoRoot,
+        createEntryId: () => "empty-file-entry",
+      }),
+      /unavailable/u,
+    );
+
     await mkdir(catalogDatabasePath(openHome), { recursive: true });
     assert.equal((await readCatalogState({ homeDir: openHome })).state, "failed");
   } finally {
@@ -306,6 +379,17 @@ test("SQLite Catalog fails closed, ignores legacy JSON, and recovers through res
   await writeFile(
     join(homeDir, ".bearing", "catalog.json"),
     JSON.stringify({ version: 1, entries: [{ entryId: "legacy" }] }),
+  );
+  await writeFile(
+    join(homeDir, ".bearing", "catalog.backup.json"),
+    JSON.stringify({ version: 1, entries: [{ entryId: "legacy-backup" }] }),
+  );
+  await mkdir(join(homeDir, ".bearing", "catalog.lock"), { recursive: true });
+  await writeFile(join(homeDir, ".bearing", "catalog.lock", "owner.json"), "legacy owner\n");
+  await mkdir(join(homeDir, ".bearing", "entry-leases", "legacy.lock"), { recursive: true });
+  await writeFile(
+    join(homeDir, ".bearing", "entry-leases", "legacy.lock", "owner.json"),
+    "legacy lease\n",
   );
   try {
     assert.deepEqual(await readCatalogDocument({ homeDir }), { version: 1, entries: [] });
@@ -338,6 +422,59 @@ test("SQLite Catalog fails closed, ignores legacy JSON, and recovers through res
     );
     assert.match(setup.stdout, /Catalog: applied/u);
     assert.equal((await readCatalogDocument({ homeDir })).entries.length, 1);
+    await Promise.all([
+      access(join(homeDir, ".bearing", "catalog.json")),
+      access(join(homeDir, ".bearing", "catalog.backup.json")),
+      access(join(homeDir, ".bearing", "catalog.lock", "owner.json")),
+      access(join(homeDir, ".bearing", "entry-leases", "legacy.lock", "owner.json")),
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("confirmed reset waits for a valid writer and preserves unavailable state on replacement failure", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bearing-sqlite-reset-boundary-"));
+  const homeDir = join(root, "home");
+  const repoRoot = join(root, "repo");
+  const markerPath = join(root, "writer-held");
+  await makeRepository(repoRoot);
+  try {
+    await upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "reset-entry" });
+    const artifact = new URL(import.meta.url).pathname;
+    const holder = execFileAsync(process.execPath, [
+      artifact,
+      "--hold-catalog-writer",
+      catalogDatabasePath(homeDir),
+      markerPath,
+      "300",
+    ]);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        await access(markerPath);
+        break;
+      } catch {
+        if (attempt === 99) throw new Error("Catalog writer holder did not start.");
+        await delay(10);
+      }
+    }
+    const startedAt = Date.now();
+    await resetCatalog({ homeDir, confirmed: true });
+    await holder;
+    assert.ok(Date.now() - startedAt >= 150);
+    assert.deepEqual(await readCatalogDocument({ homeDir }), { version: 1, entries: [] });
+
+    const failedHome = join(root, "failed-home");
+    await mkdir(join(failedHome, ".bearing"), { recursive: true });
+    await writeFile(catalogDatabasePath(failedHome), "not a database");
+    await mkdir(`${catalogDatabasePath(failedHome)}-journal`);
+    await writeFile(
+      join(`${catalogDatabasePath(failedHome)}-journal`, "preserved"),
+      "blocks replacement\n",
+    );
+    await assert.rejects(resetCatalog({ homeDir: failedHome, confirmed: true }), /unavailable/u);
+    assert.equal((await readCatalogState({ homeDir: failedHome })).state, "failed");
+    assert.equal(await readFile(catalogDatabasePath(failedHome), "utf8"), "not a database");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -381,7 +518,10 @@ test("Portal host reads the SQLite Catalog through the Node-owned adapter", asyn
   const portalRoot = join(packageRoot, "dist", "portal");
   const homeDir = join(root, "home");
   await mkdir(portalRoot, { recursive: true });
-  await writeFile(join(packageRoot, "package.json"), JSON.stringify({ version: packageMetadata.version }));
+  await writeFile(
+    join(packageRoot, "package.json"),
+    JSON.stringify({ version: packageMetadata.version }),
+  );
   await writeFile(join(portalRoot, "index.html"), '<!doctype html><div id="root"></div>');
   await writePortalAssetManifest(
     portalRoot,
@@ -445,7 +585,10 @@ test("repository deactivate and purge clean up through the SQLite Catalog domain
 test("the built and shipped CLI exposes only the SQLite Catalog surface", async () => {
   const builtCli = await readFile(join(process.cwd(), "dist", "cli.js"), "utf8");
   assert.match(builtCli, /import\("node:sqlite"\)/u);
-  assert.doesNotMatch(builtCli, /bun:sqlite|catalog\.json|repair-entry-lock|repair-lock/u);
+  assert.doesNotMatch(
+    builtCli,
+    /bun:sqlite|catalog\.json|catalog\.backup|repair-entry-lock|repair-lock|lockTimeoutMs/u,
+  );
 
   const catalogModules = (await readdir(join(process.cwd(), "src", "catalog"))).sort();
   assert.deepEqual(catalogModules, [
@@ -474,5 +617,17 @@ test("the built and shipped CLI exposes only the SQLite Catalog surface", async 
     assert.doesNotMatch(help.stdout, /repair|lease|lock/u);
   } finally {
     await rm(homeDir, { recursive: true, force: true });
+  }
+
+  const shippedGuidance = await Promise.all([
+    readFile(join(process.cwd(), "skills/bearing/references/branches/setup.md"), "utf8"),
+    readFile(join(process.cwd(), "docs/cli.md"), "utf8"),
+    readFile(join(process.cwd(), "docs/cli.zh-CN.md"), "utf8"),
+  ]);
+  for (const document of shippedGuidance) {
+    assert.doesNotMatch(
+      document,
+      /catalog\.json|catalog\.backup|repair-lock|repair-entry-lock|backup repair/u,
+    );
   }
 });

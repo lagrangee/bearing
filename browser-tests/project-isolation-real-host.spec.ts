@@ -236,10 +236,10 @@ test("a real Host recovers and synchronizes one project without disturbing its n
   await page.getByRole("link", { name: /Return to Project Catalog from Alpha Project/u }).click();
   await writeFile(join(homeRoot, ".bearing/catalog.sqlite"), "{malformed\n");
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Catalog is degraded" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Catalog is unavailable" })).toBeVisible();
   const finalCatalogOrder = await orderedNames();
-  expect(finalCatalogOrder).toEqual(catalogOrder);
-  await page.screenshot({ path: join(evidence, "catalog-degraded-backup.png"), fullPage: true });
+  expect(finalCatalogOrder).toEqual([]);
+  await page.screenshot({ path: join(evidence, "catalog-unavailable.png"), fullPage: true });
 
   await Promise.all([
     preserveFixedCache(alphaRoot, join(evidence, "fixture-output/alpha")),
