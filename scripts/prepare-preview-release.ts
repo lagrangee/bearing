@@ -1,5 +1,12 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { parseArgs } from "node:util";
+import { valid as validSemver } from "semver";
+import {
+  markdownCanonicalHeadingTitle,
+  parseMarkdownDocument,
+  queryMarkdownSections,
+} from "../src/markdown-document";
 
 type PreparePreviewReleaseOptions = Readonly<{
   repositoryRoot: string;
@@ -18,7 +25,13 @@ export const preparePreviewRelease = async (
   if (options.expectedPackage !== "@lagrangee/bearing") {
     fail("Public Preview package must be @lagrangee/bearing");
   }
-  if (!/^0\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(options.expectedVersion)) {
+  const parsedVersion = validSemver(options.expectedVersion);
+  if (
+    parsedVersion !== options.expectedVersion ||
+    !options.expectedVersion.startsWith("0.") ||
+    options.expectedVersion.includes("-") ||
+    options.expectedVersion.includes("+")
+  ) {
     fail("Public Preview version must be a stable 0.x semantic version");
   }
 
@@ -33,47 +46,63 @@ export const preparePreviewRelease = async (
   }
 
   const changelog = await readFile(resolve(options.repositoryRoot, "CHANGELOG.md"), "utf8");
-  const lines = changelog.split(/\r?\n/u);
   const expectedHeading = `## ${options.expectedVersion} - Unreleased`;
-  const escapedVersion = options.expectedVersion.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const versionHeading = new RegExp(`^## ${escapedVersion}(?:\\s|$)`, "u");
-  const matchingVersionHeadings = lines.flatMap((line, index) =>
-    versionHeading.test(line) ? [index] : [],
+  const document = parseMarkdownDocument(changelog);
+  const matchingVersionSections = queryMarkdownSections(document, { depth: 2 }).filter(
+    (section) => {
+      const title = markdownCanonicalHeadingTitle(document, section);
+      return title === options.expectedVersion || title?.startsWith(`${options.expectedVersion} `);
+    },
   );
-  if (matchingVersionHeadings.length !== 1) {
+  if (matchingVersionSections.length !== 1) {
     fail(`CHANGELOG must contain exactly one H2 heading for version ${options.expectedVersion}`);
   }
-
-  const headingIndex = matchingVersionHeadings[0] ?? fail("matching CHANGELOG section disappeared");
-  if (lines[headingIndex] !== expectedHeading) {
+  const section = matchingVersionSections[0] ?? fail("matching CHANGELOG section disappeared");
+  if (`## ${markdownCanonicalHeadingTitle(document, section) ?? ""}` !== expectedHeading) {
     fail(`CHANGELOG heading for version ${options.expectedVersion} must be ${expectedHeading}`);
   }
-  const nextHeadingOffset = lines.slice(headingIndex + 1).findIndex((line) => /^## /u.test(line));
-  const sectionEnd = nextHeadingOffset === -1 ? lines.length : headingIndex + 1 + nextHeadingOffset;
-  const releaseNotes = lines
-    .slice(headingIndex + 1, sectionEnd)
-    .join("\n")
-    .trim();
+  const releaseNotes = section.markdown.trim();
   if (releaseNotes.length === 0) fail("matching CHANGELOG section must contain release notes");
 
   await writeFile(options.notesPath, `${releaseNotes}\n`, { flag: "wx" });
   return releaseNotes;
 };
 
-const argument = (name: string): string => {
-  const index = process.argv.indexOf(name);
-  const value = process.argv[index + 1];
-  if (index === -1 || value === undefined || value.length === 0) {
-    return fail(`missing ${name}`);
+const releaseArguments = (): Readonly<{
+  packageName: string;
+  version: string;
+  notes: string;
+}> => {
+  const parsed = parseArgs({
+    args: process.argv.slice(2),
+    strict: true,
+    allowPositionals: false,
+    tokens: true,
+    options: {
+      package: { type: "string" },
+      version: { type: "string" },
+      notes: { type: "string" },
+    },
+  });
+  for (const name of ["package", "version", "notes"] as const) {
+    if (
+      parsed.tokens.filter((token) => token.kind === "option" && token.name === name).length > 1
+    ) {
+      fail(`duplicate --${name}`);
+    }
   }
-  return value;
+  const packageName = parsed.values.package ?? fail("missing --package");
+  const version = parsed.values.version ?? fail("missing --version");
+  const notes = parsed.values.notes ?? fail("missing --notes");
+  return { packageName, version, notes };
 };
 
 if (import.meta.main) {
+  const args = releaseArguments();
   await preparePreviewRelease({
     repositoryRoot: process.cwd(),
-    expectedPackage: argument("--package"),
-    expectedVersion: argument("--version"),
-    notesPath: resolve(argument("--notes")),
+    expectedPackage: args.packageName,
+    expectedVersion: args.version,
+    notesPath: resolve(args.notes),
   });
 }

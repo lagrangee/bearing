@@ -1,4 +1,5 @@
-import { sha256Hex } from "../sha256";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import {
   type SourceReference,
   type SourceReferenceSeed,
@@ -33,6 +34,6 @@ export const createSourceReference = (seed: SourceReferenceSeed): SourceReferenc
     parsed.fragment ?? null,
     parsed.binding === undefined ? null : [parsed.binding.role, parsed.binding.identity],
   ]);
-  const digest = sha256Hex(payload);
+  const digest = bytesToHex(sha256(utf8ToBytes(payload)));
   return sourceReferenceSchema.parse(`source:${digest}`);
 };

@@ -1,7 +1,7 @@
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { readReleaseTarGz } from "./release-archive";
 import { assertCanonicalPackageBoundary, assertPackagedReadmeTargets } from "./release-boundary";
 import { sha256Bytes, sha256File } from "./release-digest";
 import { assertCandidateSourcesMatchCommit } from "./release-source-boundary";
@@ -37,7 +37,8 @@ const fail = (message: string): never => {
   throw new Error(message);
 };
 
-export const canonicalJson = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+export const serializeCandidateJson = (value: unknown): string =>
+  `${JSON.stringify(value, null, 2)}\n`;
 
 const parseJson = async <T>(path: string): Promise<T> => {
   try {
@@ -143,33 +144,19 @@ export const verifyReleaseCandidate = async (
   }
   assertCanonicalPackageBoundary(paths);
 
-  const tarList = spawnSync("tar", ["-tzf", artifactPath], { encoding: "utf8" });
-  if (tarList.status !== 0) fail(`could not list candidate artifact: ${tarList.stderr}`);
-  const tarVerbose = spawnSync("tar", ["-tvzf", artifactPath], { encoding: "utf8" });
-  if (tarVerbose.status !== 0) {
-    fail(`could not inspect candidate artifact headers: ${tarVerbose.stderr}`);
-  }
-  const listedPaths = tarList.stdout.split("\n").filter((path) => path.length > 0);
-  const verboseHeaders = tarVerbose.stdout.split("\n").filter((line) => line.length > 0);
-  if (listedPaths.length !== verboseHeaders.length) {
-    fail("candidate artifact header listing is inconsistent");
-  }
+  const archiveEntries = await readReleaseTarGz(artifactPath);
   const artifactPaths: string[] = [];
-  const tarPermissions = new Map<string, string>();
-  for (const [index, path] of listedPaths.entries()) {
-    const permissionToken =
-      verboseHeaders[index]?.trimStart().split(/\s+/u, 1)[0] ??
-      fail(`could not parse candidate tar header: ${path}`);
-    if (permissionToken.length !== 10) {
-      fail(`could not parse candidate tar header: ${path}`);
-    }
-    if (permissionToken[0] === "d") continue;
-    if (permissionToken[0] !== "-") {
-      const displayPath = path.startsWith("package/") ? path.slice("package/".length) : path;
+  const archiveFiles = new Map<string, (typeof archiveEntries)[number]>();
+  for (const entry of archiveEntries) {
+    if (entry.type === "directory") continue;
+    if (entry.type !== "file") {
+      const displayPath = entry.path.startsWith("package/")
+        ? entry.path.slice("package/".length)
+        : entry.path;
       fail(`candidate file type is not regular: ${displayPath}`);
     }
-    artifactPaths.push(path);
-    tarPermissions.set(path, permissionToken.slice(1));
+    artifactPaths.push(entry.path);
+    archiveFiles.set(entry.path, entry);
   }
   artifactPaths.sort();
   const expectedArtifactPaths = paths.map((path) => `package/${path}`).sort();
@@ -178,52 +165,38 @@ export const verifyReleaseCandidate = async (
   }
   const readmes: string[] = [];
   for (const file of manifest.files) {
-    const permissions =
-      tarPermissions.get(`package/${file.path}`) ??
+    const archived =
+      archiveFiles.get(`package/${file.path}`) ??
       fail(`candidate tar header is missing: ${file.path}`);
-    if (/[sStT]/u.test(permissions)) {
+    if ((archived.mode & ~0o777) !== 0) {
       fail(`candidate file mode contains special permission bits: ${file.path}`);
     }
-    if (!/^[rwx-]{9}$/u.test(permissions)) {
-      fail(`could not parse candidate file mode: ${file.path}`);
-    }
-    let mode = 0;
-    for (const [index, character] of [...permissions].entries()) {
-      if (character !== "-") {
-        if (index % 3 !== 2 || /[xst]/u.test(character)) mode |= 1 << (8 - index);
-      }
-    }
-    if (mode !== file.mode) {
+    if ((archived.mode & 0o777) !== file.mode) {
       fail(`candidate file mode mismatch: ${file.path}`);
     }
-    const extracted = spawnSync("tar", ["-xOf", artifactPath, `package/${file.path}`], {
-      encoding: "buffer",
-      maxBuffer: Math.max(file.size + 1024, 1024 * 1024),
-    });
-    if (extracted.status !== 0) fail(`could not read candidate file ${file.path}`);
-    if (extracted.stdout.byteLength !== file.size)
-      fail(`candidate file size mismatch: ${file.path}`);
+    if (archived.bytes.byteLength !== file.size) fail(`candidate file size mismatch: ${file.path}`);
     if (file.path === "README.md" || file.path === "README.zh-CN.md") {
-      readmes.push(extracted.stdout.toString("utf8"));
+      readmes.push(archived.bytes.toString("utf8"));
     }
   }
   assertPackagedReadmeTargets(paths, readmes);
 
-  const packedMetadata = spawnSync("tar", ["-xOf", artifactPath, "package/package.json"], {
-    encoding: "utf8",
-  });
-  if (packedMetadata.status !== 0)
-    fail(`could not read candidate package metadata: ${packedMetadata.stderr}`);
-  const packageMetadata = JSON.parse(packedMetadata.stdout) as { name?: string; version?: string };
+  const packedMetadata =
+    archiveFiles.get("package/package.json") ?? fail("could not read candidate package metadata");
+  const packageMetadata = JSON.parse(packedMetadata.bytes.toString("utf8")) as {
+    name?: string;
+    version?: string;
+  };
   if (packageMetadata.name !== receipt.packageName) fail("packed package name mismatch");
   if (packageMetadata.version !== receipt.packageVersion) fail("packed package version mismatch");
 
   if (expected.repositoryRoot !== undefined) {
-    assertCandidateSourcesMatchCommit(
+    await assertCandidateSourcesMatchCommit(
       artifactPath,
       paths,
       receipt.sourceCommit,
       expected.repositoryRoot,
+      archiveEntries,
     );
   }
 

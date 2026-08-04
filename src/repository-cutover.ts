@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join, posix, relative, sep } from "node:path";
-import { stringify } from "yaml";
 import { z } from "zod";
 import packageMetadata from "../package.json";
 import {
@@ -16,9 +15,9 @@ import {
   renderExecutionProfile,
   validateExecutorRegistrationSelection,
 } from "./executor-registration";
-import { parseFrontmatter } from "./frontmatter";
 import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans, type InstallTargetWriter, preflightInstallTargets } from "./installer";
+import { parseMarkdownEnvelope, serializeMarkdownDocument } from "./markdown-document";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
 import { validateMattSkillsV1Contract } from "./providers/matt-skills-v1";
 import { displaySourceLocatorSchema } from "./reference-schema";
@@ -110,7 +109,7 @@ const assertLegacySourceSyncClean = async (
   const legacyEffortIds = new Set(
     await Promise.all(
       effortLocators.map(async (locator) => {
-        const parsed = parseFrontmatter(
+        const parsed = parseMarkdownEnvelope(
           (await readContainedFile(root, join(root, locator))).toString("utf8"),
         );
         if (!parsed.ok) throw new Error(`Legacy Effort has invalid frontmatter: ${locator}`);
@@ -557,7 +556,7 @@ const collectPlanningIds = async (
   const gates = new Set<string>();
   for (const locator of await safeFiles(root, ".bearing/state")) {
     if (!locator.endsWith(".md")) continue;
-    const parsed = parseFrontmatter(
+    const parsed = parseMarkdownEnvelope(
       (await readContainedFile(root, join(root, locator))).toString("utf8"),
     );
     if (!parsed.ok) continue;
@@ -584,7 +583,7 @@ const convertEfforts = async (
   const plans: TargetPlan[] = [];
   for (const locator of effortLocators) {
     const source = (await readContainedFile(root, join(root, locator))).toString("utf8");
-    const parsed = parseFrontmatter(source);
+    const parsed = parseMarkdownEnvelope(source);
     if (!parsed.ok) throw new Error(`Legacy Effort has invalid frontmatter: ${locator}`);
     const effort = effortRecordSchema.parse(parsed.data);
     if (ids.has(effort.ID)) throw new Error(`Duplicate Effort identity: ${effort.ID}`);
@@ -607,11 +606,13 @@ const convertEfforts = async (
     if (!validation.success) {
       throw new Error(`Legacy Effort cannot be converted safely: ${locator}`);
     }
-    const frontmatter = stringify(targetRecord, { lineWidth: 0 }).trimEnd();
     const slug = effort.ID.slice("effort:".length);
     plans.push({
       target: join(root, ".bearing/state/efforts", `${slug}.md`),
-      bytes: Buffer.from(`---\n${frontmatter}\n---\n${parsed.body}`, "utf8"),
+      bytes: Buffer.from(
+        serializeMarkdownDocument({ frontmatter: targetRecord, body: parsed.body }),
+        "utf8",
+      ),
       executable: false,
     });
     plans.push({ kind: "delete", target: join(root, locator) });

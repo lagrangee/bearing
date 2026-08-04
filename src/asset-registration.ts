@@ -4,7 +4,6 @@ import { chmod, readFile, realpath, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { stringify } from "yaml";
 import { z } from "zod";
 import packageMetadata from "../package.json";
 import { writeFileAtomically } from "./atomic-write";
@@ -14,9 +13,9 @@ import {
   type ExecutorWritebackSelection,
   resolveExecutorWritebackProfile,
 } from "./executor-registration";
-import { parseFrontmatter } from "./frontmatter";
 import { ensureInstallDirectoryTargets, inspectInstallPath } from "./install-boundary";
 import { applyInstallPlans, type InstallTargetWriter } from "./installer";
+import { parseMarkdownEnvelope, serializeMarkdownDocument } from "./markdown-document";
 import { displaySourceLocatorSchema } from "./reference-schema";
 import { assetSchema, repositoryManifestSchema } from "./schema-definitions";
 import { bearingOwnedEventTimeSchema, sourceOwnedEventTimeValueSchema } from "./source-event-time";
@@ -145,7 +144,7 @@ const parseRegistry = (
   if (snapshot.bytes === undefined) {
     return { registry: { Type: "asset-registry", Assets: [] }, body: REGISTRY_BODY };
   }
-  const parsed = parseFrontmatter(snapshot.bytes.toString("utf8"));
+  const parsed = parseMarkdownEnvelope(snapshot.bytes.toString("utf8"));
   if (!parsed.ok) throw new Error("Asset Registry frontmatter is missing or malformed.");
   return {
     registry: assetRegistrySchema.parse(parsed.data),
@@ -154,8 +153,7 @@ const parseRegistry = (
 };
 
 const serializeRegistry = (registry: z.infer<typeof assetRegistrySchema>, body: string): Buffer => {
-  const frontmatter = stringify(registry, { lineWidth: 0 }).trimEnd();
-  return Buffer.from(`---\n${frontmatter}\n---\n${body}`, "utf8");
+  return Buffer.from(serializeMarkdownDocument({ frontmatter: registry, body }), "utf8");
 };
 
 const assetFromInput = (

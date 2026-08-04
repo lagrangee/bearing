@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import { registerAsset } from "../src/asset-registration";
 import { renderExecutionProfile } from "../src/executor-registration";
-import { parseFrontmatter } from "../src/frontmatter";
+import { parseMarkdownEnvelope } from "../src/markdown-document";
 import { runSync } from "../src/sync";
 import { createValidBearingRepo, makeTemporaryDirectory } from "./helpers";
 
@@ -94,7 +94,9 @@ const runAssetRegistration = async (
 };
 
 const registryAssets = async (root: string): Promise<readonly Record<string, unknown>[]> => {
-  const parsed = parseFrontmatter(await readFile(join(root, ".bearing/state/assets.md"), "utf8"));
+  const parsed = parseMarkdownEnvelope(
+    await readFile(join(root, ".bearing/state/assets.md"), "utf8"),
+  );
   if (!parsed.ok || !Array.isArray(parsed.data["Assets"])) {
     throw new Error("Expected a valid Asset Registry fixture.");
   }

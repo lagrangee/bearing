@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isPlainText } from "../plain-text";
+import { markdownPlainText } from "../markdown-document";
 import { displaySourceLocatorSchema, nonBlankStringSchema } from "../reference-schema";
 
 const brandedStringSchema = <Brand extends string>(pattern: RegExp, brand: Brand) =>
@@ -25,6 +25,8 @@ export const auditFindingIdSchema = brandedStringSchema(
   "AuditFindingId",
 );
 export const nonEmptyStringSchema = nonBlankStringSchema;
-export const semanticPlainTextSchema = nonEmptyStringSchema.refine(isPlainText);
+export const semanticPlainTextSchema = nonEmptyStringSchema.refine(
+  (value) => markdownPlainText(value) !== undefined,
+);
 export { planningReferenceSchema } from "../reference-schema";
 export const semanticFreshnessSchema = z.enum(["current", "stale", "unknown"]);

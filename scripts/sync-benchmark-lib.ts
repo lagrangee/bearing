@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { cpus, freemem, homedir, hostname, platform, release, tmpdir, totalmem } from "node:os";
 import { dirname, join } from "node:path";
-import { sha256Hex } from "../src/sha256";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { runSyncMeasured } from "../src/sync";
 import type { SyncPerformanceMetrics } from "../src/sync-plan";
 import {
@@ -176,12 +177,17 @@ const fixtureFiles = (scale: BenchmarkScale): FixtureFile[] => {
 };
 
 const fixtureDigest = (files: readonly FixtureFile[]): string =>
-  `sha256:${sha256Hex(
-    files
-      .map(
-        (file) => `${file.locator.length}:${file.locator}:${file.content.length}:${file.content}`,
-      )
-      .join(""),
+  `sha256:${bytesToHex(
+    sha256(
+      utf8ToBytes(
+        files
+          .map(
+            (file) =>
+              `${file.locator.length}:${file.locator}:${file.content.length}:${file.content}`,
+          )
+          .join(""),
+      ),
+    ),
   )}`;
 
 export const createBenchmarkFixture = async (

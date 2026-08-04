@@ -458,6 +458,9 @@ describe("Bearing kit installer", () => {
     expect(() => comparePackageVersions("0.1.0-01", "0.1.0")).toThrow(
       "package version is not supported",
     );
+    expect(() => comparePackageVersions("v0.1.0", "0.1.0")).toThrow(
+      "package version is not supported",
+    );
   });
 
   test("requires explicit confirmation before a whole-bundle downgrade", async () => {

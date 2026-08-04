@@ -5,6 +5,7 @@ on:
   pull_request:
     branches: [main, "0.1.1"]
     paths:
+      - .gitleaks.toml
       - package.json
       - package-lock.json
       - scripts/**
@@ -47,12 +48,16 @@ jobs:
         with:
           bun-version: 1.3.8
       - run: npm ci
-      - run: bun run secret:scan
+      - run: bun run public-source:check
       - run: npm audit --audit-level=high
       - run: bun run verify
       - run: bun run license:check
       - run: bun run package:check
       - run: bun scripts/prepare-release-candidate.ts --out release-candidate
+      - name: Scan exact candidate tarball
+        run: |
+          CANDIDATE_ARTIFACT="$(node -e "const receipt=require('./release-candidate/candidate-receipt.json'); process.stdout.write(receipt.artifact.file)")"
+          go run github.com/zricethezav/gitleaks/v8@v8.30.1 dir --redact --config .gitleaks.toml --no-banner --max-archive-depth=1 --max-decode-depth=2 "release-candidate/$CANDIDATE_ARTIFACT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bearing-candidate-${{ github.sha }}

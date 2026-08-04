@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { type ReleaseArchiveEntry, readReleaseTarGz } from "./release-archive";
 import { sha256Bytes } from "./release-digest";
 
 const fail = (message: string): never => {
@@ -16,12 +17,17 @@ const assertRepositoryPath = (path: string): void => {
   }
 };
 
-export const assertCandidateSourcesMatchCommit = (
+export const assertCandidateSourcesMatchCommit = async (
   artifactPath: string,
   packagePaths: readonly string[],
   sourceCommit: string,
   repositoryRoot = process.cwd(),
-): void => {
+  inspectedEntries?: readonly ReleaseArchiveEntry[],
+): Promise<void> => {
+  const entries = inspectedEntries ?? (await readReleaseTarGz(artifactPath));
+  const archiveFiles = new Map(
+    entries.filter((entry) => entry.type === "file").map((entry) => [entry.path, entry.bytes]),
+  );
   const trackedSourcePaths = packagePaths.filter((path) => !path.startsWith("dist/"));
   for (const path of [...new Set(trackedSourcePaths)].sort()) {
     assertRepositoryPath(path);
@@ -32,12 +38,10 @@ export const assertCandidateSourcesMatchCommit = (
     if (committed.status !== 0) {
       fail(`candidate input is not tracked at ${sourceCommit}: ${path}`);
     }
-    const packed = spawnSync("tar", ["-xOf", artifactPath, `package/${path}`], {
-      encoding: "buffer",
-      maxBuffer: Math.max(committed.stdout.byteLength + 1024, 1024 * 1024),
-    });
-    if (packed.status !== 0) fail(`candidate artifact is missing tracked input: ${path}`);
-    if (sha256Bytes(packed.stdout) !== sha256Bytes(committed.stdout)) {
+    const packed =
+      archiveFiles.get(`package/${path}`) ??
+      fail(`candidate artifact is missing tracked input: ${path}`);
+    if (sha256Bytes(packed) !== sha256Bytes(committed.stdout)) {
       fail(`candidate artifact bytes differ from ${sourceCommit}: ${path}`);
     }
   }

@@ -1,6 +1,5 @@
 import { lstat, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { stringify } from "yaml";
 import {
   advisoryBasisInputsFromGeneration,
   deriveAdvisoryFreshnessFromGeneration,
@@ -16,6 +15,7 @@ import { deriveStructuralDiagnosticsFromGeneration } from "./diagnostics";
 import { listFiles } from "./discovery";
 import { fingerprintInputRecords } from "./fingerprint";
 import { retainContainedInputs } from "./input-boundary";
+import { serializeMarkdownDocument } from "./markdown-document";
 import {
   fingerprintNativeScopeInspections,
   type NativeScopeInspectionIntent,
@@ -158,21 +158,21 @@ const serializeReport = (
   fingerprint: string,
   diagnostics: readonly StructuralDiagnostic[],
 ): Buffer => {
-  const frontmatter = stringify(
-    {
-      Type: "bearing-sync-report",
-      Version: 1,
-      Inputs: [...inputs],
-      "Input fingerprint": fingerprint,
-    },
-    { lineWidth: 0 },
-  ).trimEnd();
+  const frontmatter = {
+    Type: "bearing-sync-report",
+    Version: 1,
+    Inputs: [...inputs],
+    "Input fingerprint": fingerprint,
+  };
   const findings =
     diagnostics.length === 0
       ? "No structural diagnostics."
       : diagnostics.map(diagnosticLine).join("\n");
   return Buffer.from(
-    `---\n${frontmatter}\n---\n\n# Bearing Sync Report\n\n## Structural Diagnostics\n\n${findings}\n`,
+    serializeMarkdownDocument({
+      frontmatter,
+      body: `# Bearing Sync Report\n\n## Structural Diagnostics\n\n${findings}\n`,
+    }),
     "utf8",
   );
 };

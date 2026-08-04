@@ -31,12 +31,14 @@ const acceptedLicenses = new Set([
 ]);
 const requiredNoticeMarkers = [
   "Copyright (c) 2022 - present, Yusuke Wada and Hono contributors",
+  "Copyright (c) 2022 Paul Miller",
   "Copyright (c) 2021 - present, Yusuke Wada and Hono contributors",
   "Copyright (c) Meta Platforms, Inc. and affiliates.",
   "Copyright (c) 2024-present VoidZero Inc. & Contributors",
   "Copyright (c) 2025 Colin McDonnell",
   "Copyright (c) Christophe Hurpeau",
   "Copyright (c) 2026 Lucide Icons and Contributors",
+  "Copyright (c) Isaac Z. Schlueter and Contributors",
   "Copyright Eemeli Aro <eemeli@gmail.com>",
   "Copyright (c) 2013-present Cole Bemis",
 ] as const;
