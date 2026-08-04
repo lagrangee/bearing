@@ -553,6 +553,12 @@ test("detects only Bearing-owned private staging and dogfood residue", async () 
   ]);
 });
 
+test("does not report its own public-source policy implementation as residue", async () => {
+  expect(
+    await findPublicSourceResidue(resolve("."), ["scripts/check-public-source-residue.ts"]),
+  ).toEqual([]);
+});
+
 test("rejects an untracked file selected from an allowlisted package subtree", async () => {
   const root = await mkdtemp(join(tmpdir(), "bearing-source-test-"));
   temporaryRoots.push(root);

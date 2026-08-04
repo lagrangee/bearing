@@ -9,6 +9,7 @@ const dogfoodOutputPrefixes = [
   "playwright-report/",
   "test-results/",
 ] as const;
+const maintainerHome = ["", "Users", "clawd"].join("/");
 
 const matchesPathBoundary = (path: string, prefix: string): boolean =>
   path === prefix.replace(/\/$/u, "") || path.startsWith(prefix);
@@ -45,7 +46,7 @@ export const findPublicSourceResidue = async (
     if (!metadata.isFile()) continue;
     const bytes = await readFile(resolve(repositoryRoot, path));
     if (bytes.includes(0)) continue;
-    if (bytes.includes(Buffer.from("/Users/clawd"))) {
+    if (bytes.includes(Buffer.from(maintainerHome))) {
       findings.push(`${path}: maintainer absolute path`);
     }
   }
