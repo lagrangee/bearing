@@ -48,6 +48,10 @@ Review whether this Gate is ready for passage and list evidence and exceptions.
 
 Planning Audit looks for material drift. Next Work Guidance suggests one primary direction and two alternatives. Neither one starts implementation by itself.
 
+## Review Bearing Scope
+
+After Fresh Setup, Bearing may offer one optional Bearing Scope Review. Later reviews run only when you explicitly ask to compare the current managed scope with a transient Work Management inventory. Bearing discards the inventory, recommendations, and dispositions after the review without persisting them. Standalone work enters managed scope only through a follow-up planning change you explicitly accept.
+
 ## Use Portal
 
-Use Portal when visual inspection helps: project brief, roadmap focus, Attention, contributing work, and evidence provenance. Keep mutations in the owning Agent Surface flow.
+Use Portal when visual inspection helps: Project Brief, Project Summary, active Roadmap focus, managed-scope Attention, managed contributing work, and evidence provenance. Standalone native-work inventory does not enter Portal. Keep Next Work Guidance and mutations in the owning Agent Surface flow.
