@@ -28,6 +28,7 @@ const temporaryRoots: string[] = [];
 
 const reviewedActionPins = {
   "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
+  "actions/setup-go": "4a3601121dd01d1626a1e23e37211e3254c1c06c",
   "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",
   "actions/download-artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
   "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
@@ -644,7 +645,7 @@ test("package workflow binds one uploaded candidate to its exact source commit",
           uses?: string;
           name?: string;
           run?: string;
-          with?: Readonly<Record<string, string>>;
+          with?: Readonly<Record<string, string | boolean>>;
         }[];
       };
     };
@@ -658,7 +659,12 @@ test("package workflow binds one uploaded candidate to its exact source commit",
       step.uses === `actions/upload-artifact@${reviewedActionPins["actions/upload-artifact"]}`,
   );
   const scanIndex = steps.findIndex((step) => step.name === "Scan exact candidate tarball");
+  const setupGoIndex = steps.findIndex(
+    (step) => step.uses === `actions/setup-go@${reviewedActionPins["actions/setup-go"]}`,
+  );
   expect(prepareIndex).toBeGreaterThanOrEqual(0);
+  expect(setupGoIndex).toBeGreaterThanOrEqual(0);
+  expect(steps[setupGoIndex]?.with).toEqual({ "go-version": "1.26.5", cache: false });
   expect(scanIndex).toBeGreaterThan(prepareIndex);
   expect(uploadIndex).toBeGreaterThan(prepareIndex);
   expect(uploadIndex).toBeGreaterThan(scanIndex);
@@ -1289,14 +1295,20 @@ test("pins direct Gitleaks revision, PR-range, and exact-candidate lanes", async
       secrets?: {
         steps?: readonly {
           name?: string;
+          uses?: string;
           run?: string;
           if?: string;
           env?: Readonly<Record<string, string>>;
+          with?: Readonly<Record<string, string | boolean>>;
         }[];
       };
     };
   };
   const steps = parsed.jobs?.secrets?.steps ?? [];
+  const setupGo = steps.find(
+    (step) => step.uses === `actions/setup-go@${reviewedActionPins["actions/setup-go"]}`,
+  );
+  expect(setupGo?.with).toEqual({ "go-version": "1.26.5", cache: false });
   expect(steps.some((step) => step.run === "bun run gitleaks:revision")).toBe(true);
   const pullRequestScan = steps.find((step) => step.name === "Scan pull request range");
   expect(pullRequestScan?.if).toBe("github.event_name == 'pull_request'");
