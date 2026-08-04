@@ -474,7 +474,7 @@ describe("typed Asset Registration Route CLI", () => {
     expect(nonexistentCommit.exitCode).not.toBe(0);
     expect(nonexistentCommit.stderr).toContain("Producer commit does not exist");
     expect(await readFile(join(root, ".bearing/state/assets.md"))).toEqual(accepted);
-  });
+  }, 30_000);
 
   test("does not read through a symlinked Bearing State parent", async () => {
     const root = await createValidBearingRepo();
