@@ -70,12 +70,8 @@ const parseItems = (
 
 export const parseNextWorkGuidanceBody = (body: string): GuidanceBodyResult => {
   const document = parseMarkdownDocument(body);
-  const titles = canonicalSections(document, 1);
   const sections = canonicalSections(document, 2);
   if (
-    titles.length !== 1 ||
-    titles[0]?.title !== "Next Work Guidance" ||
-    markdownSectionLead(document, titles[0].section).length > 0 ||
     sections.length !== 2 ||
     sections[0]?.title !== "Primary Recommendation" ||
     sections[1]?.title !== "Alternatives"

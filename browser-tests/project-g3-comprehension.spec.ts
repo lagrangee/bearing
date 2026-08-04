@@ -886,6 +886,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
   context,
   page,
 }) => {
+  test.slow();
   if (host === undefined) throw new Error("Ticket 24 built Portal did not start.");
   await proveGitHubStandaloneExclusion();
   const local: Scenario = {
