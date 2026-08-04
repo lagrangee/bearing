@@ -1,11 +1,11 @@
 import { lstat, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import writeFileAtomic from "write-file-atomic";
 import {
   advisoryBasisInputsFromGeneration,
   deriveAdvisoryFreshnessFromGeneration,
 } from "./advisory-freshness";
 import { type AssetContentObservation, resolveAssetInputs } from "./asset-inputs";
-import { writeFileAtomically } from "./atomic-write";
 import {
   type DecodedBearingRecordGeneration,
   decodeBearingRecordGeneration,
@@ -401,21 +401,19 @@ export const commitSyncPlan = async (
   ) {
     await mkdir(dirname(plan.reportPath), { recursive: true });
     if (plan.providerObservationStoreChanged && options.publishProviderObservations !== false) {
-      await writeFileAtomically(
-        plan.providerObservationStorePath,
-        plan.providerObservationStoreBytes,
-        0o644,
-      );
+      await writeFileAtomic(plan.providerObservationStorePath, plan.providerObservationStoreBytes, {
+        mode: 0o644,
+      });
     }
     if (plan.nativeScopeInspectionStoreChanged && options.publishNativeScopeInspections !== false) {
-      await writeFileAtomically(
+      await writeFileAtomic(
         plan.nativeScopeInspectionStorePath,
         plan.nativeScopeInspectionStoreBytes,
-        0o644,
+        { mode: 0o644 },
       );
     }
-    if (plan.reportChanged) await writeFileAtomically(plan.reportPath, plan.report, 0o644);
-    if (plan.sitemapChanged) await writeFileAtomically(plan.sitemapPath, plan.sitemap, 0o644);
+    if (plan.reportChanged) await writeFileAtomic(plan.reportPath, plan.report, { mode: 0o644 });
+    if (plan.sitemapChanged) await writeFileAtomic(plan.sitemapPath, plan.sitemap, { mode: 0o644 });
   }
   return syncProjectionResultFromPlan(plan);
 };

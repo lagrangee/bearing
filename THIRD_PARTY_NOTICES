@@ -85,12 +85,14 @@ The distributed CLI and Portal bundle code from the following packages. The buil
 - sanitize-html@2.17.0 — MIT
 - semver@7.8.5 — ISC
 - scheduler@0.27.0 — MIT
+- signal-exit@4.1.0 — ISC
 - source-map-js@1.2.1 — BSD-3-Clause
 - uc.micro@2.1.0 — MIT
 - unist-util-is@6.0.1 — MIT
 - unist-util-stringify-position@4.0.0 — MIT
 - unist-util-visit@5.1.0 — MIT
 - unist-util-visit-parents@6.0.2 — MIT
+- write-file-atomic@8.0.0 — ISC
 - yaml@2.9.0 — ISC
 - zod@4.4.3 — MIT
 - zwitch@2.0.4 — MIT
@@ -161,6 +163,10 @@ deep-freeze-es6: Copyright (c) Christophe Hurpeau
 lucide-react: Copyright (c) 2026 Lucide Icons and Contributors
 
 semver: Copyright (c) Isaac Z. Schlueter and Contributors
+
+signal-exit: Copyright (c) 2015-2023 Benjamin Coe, Isaac Z. Schlueter, and Contributors
+
+write-file-atomic: Copyright (c) 2015, Rebecca Turner
 
 yaml: Copyright Eemeli Aro <eemeli@gmail.com>
 

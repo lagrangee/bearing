@@ -39,6 +39,8 @@ const requiredNoticeMarkers = [
   "Copyright (c) Christophe Hurpeau",
   "Copyright (c) 2026 Lucide Icons and Contributors",
   "Copyright (c) Isaac Z. Schlueter and Contributors",
+  "Copyright (c) 2015-2023 Benjamin Coe, Isaac Z. Schlueter, and Contributors",
+  "Copyright (c) 2015, Rebecca Turner",
   "Copyright Eemeli Aro <eemeli@gmail.com>",
   "Copyright (c) 2013-present Cole Bemis",
 ] as const;

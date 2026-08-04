@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { extname, join, posix, relative, sep } from "node:path";
 import { constants, gzipSync } from "node:zlib";
+import writeFileAtomic from "write-file-atomic";
 import { z } from "zod";
-import { writeFileAtomically } from "../atomic-write";
 import { PROJECT_SNAPSHOT_VERSION } from "../project-snapshot/schema";
 
 export const PORTAL_INTERFACE_VERSION = 1 as const;
@@ -140,10 +140,10 @@ export const writePortalAssetManifest = async (
   manifest: PortalAssetManifest,
 ): Promise<void> => {
   const validated = portalAssetManifestSchema.parse(manifest);
-  await writeFileAtomically(
+  await writeFileAtomic(
     join(portalRoot, MANIFEST_NAME),
     Buffer.from(`${JSON.stringify(validated, null, 2)}\n`),
-    0o644,
+    { mode: 0o644 },
   );
 };
 

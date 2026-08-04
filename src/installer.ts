@@ -15,7 +15,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { compare as compareSemver, parse as parseSemver, valid as validSemver } from "semver";
-import { writeFileAtomically } from "./atomic-write";
+import writeFileAtomic from "write-file-atomic";
 import { readCatalogState } from "./catalog/store";
 import {
   ensureInstallDirectoryTargets,
@@ -151,11 +151,9 @@ export const writeInstallTarget = async (plan: TargetPlan, _ordinal: number): Pr
     await symlink(plan.source, plan.target, "dir");
     return;
   }
-  await writeFileAtomically(
-    plan.target,
-    plan.bytes,
-    plan.mode ?? (plan.executable ? 0o755 : 0o644),
-  );
+  await writeFileAtomic(plan.target, plan.bytes, {
+    mode: plan.mode ?? (plan.executable ? 0o755 : 0o644),
+  });
 };
 
 const restoreSnapshots = async (snapshots: readonly Snapshot[]): Promise<void> => {

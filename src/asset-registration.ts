@@ -4,9 +4,9 @@ import { chmod, readFile, realpath, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import writeFileAtomic from "write-file-atomic";
 import { z } from "zod";
 import packageMetadata from "../package.json";
-import { writeFileAtomically } from "./atomic-write";
 import { inspectRepository } from "./catalog/repository-inspection";
 import {
   assertExecutorWritebackSelectionCurrent,
@@ -343,7 +343,7 @@ const restoreRegistry = async (
     await unlink(target);
     return;
   }
-  await writeFileAtomically(target, previous.bytes, previous.mode);
+  await writeFileAtomic(target, previous.bytes, { mode: previous.mode });
   await chmod(target, previous.mode);
 };
 

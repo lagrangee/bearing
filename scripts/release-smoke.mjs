@@ -12,7 +12,6 @@ import {
   readFile,
   readlink,
   realpath,
-  rename,
   rm,
   symlink,
   unlink,
@@ -23,6 +22,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import semver from "semver";
+import writeFileAtomic from "write-file-atomic";
 import { readReleaseTarGz } from "./release-archive.ts";
 import { readmeRelativeTargets } from "./release-boundary.ts";
 
@@ -1062,9 +1062,7 @@ const runFullLane = async ({ candidate, options, roots, environment, cli, packag
 
 const writeEvidence = async (target, receipt) => {
   await mkdir(dirname(target), { recursive: true });
-  const temporary = `${target}.tmp-${process.pid}`;
-  await writeFile(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-  await rename(temporary, target);
+  await writeFileAtomic(target, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
 };
 
 export const runReleaseSmoke = async (options) => {
