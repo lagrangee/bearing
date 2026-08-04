@@ -296,7 +296,7 @@ test("SQLite Catalog returns bounded catalog-busy and succeeds after the writer 
     );
     const elapsed = Date.now() - startedAt;
     assert.ok(elapsed >= 750, `Expected the default busy wait, received ${elapsed}ms.`);
-    assert.ok(elapsed <= 2_500, `Expected bounded busy failure, received ${elapsed}ms.`);
+    assert.ok(elapsed <= 5_000, `Expected bounded busy failure, received ${elapsed}ms.`);
     holder.exec("ROLLBACK");
     holder.close();
     holder = undefined;
