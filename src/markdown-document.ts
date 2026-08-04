@@ -292,16 +292,14 @@ export const serializeMarkdownDocument = (input: {
       "Markdown serialization body must not contain another frontmatter envelope.",
     );
   }
-  const tree: Root = {
+  const envelope: Root = {
     type: "root",
-    children: [
-      { type: "yaml", value: stringify(input.frontmatter, { lineWidth: 0 }).trimEnd() },
-      ...bodyTree.children,
-    ],
+    children: [{ type: "yaml", value: stringify(input.frontmatter, { lineWidth: 0 }).trimEnd() }],
   };
-  return toMarkdown(tree, {
+  const serializedEnvelope = toMarkdown(envelope, {
     extensions: [gfmToMarkdown(), frontmatterToMarkdown(["yaml"])],
   });
+  return `${serializedEnvelope}${input.body}`;
 };
 
 export const queryMarkdownFrontmatter = (
@@ -465,15 +463,14 @@ export const markdownCanonicalHeadingTitle = (
   const { heading } = internals;
   const start = heading.position?.start.offset;
   const end = heading.position?.end.offset;
-  if (
-    start === undefined ||
-    end === undefined ||
-    heading.children.some((child) => child.type !== "text")
-  ) {
+  if (start === undefined || end === undefined) {
     return undefined;
   }
-  const title = mdastToString(heading).trim();
-  return source.slice(start, end) === `${"#".repeat(heading.depth)} ${title}` ? title : undefined;
+  const authored = source.slice(start, end);
+  const prefix = `${"#".repeat(heading.depth)} `;
+  if (!authored.startsWith(prefix)) return undefined;
+  const title = authored.slice(prefix.length);
+  return title.length > 0 && isDomainPlainText(title) ? title : undefined;
 };
 
 export const markdownSectionLead = (
@@ -495,17 +492,50 @@ export const markdownSectionLead = (
     .trimEnd();
 };
 
-const containsReferenceMarkup = (source: string): boolean => {
-  const normalizedSource = source
-    .replaceAll("\r\n", "\n")
-    .replaceAll("\r", "\n")
-    .replace(/(?<!\n)\n(?!\n)/gu, " ");
-  return [source, normalizedSource].some((value) => /!?\[[^\]\n]+\]\[[^\]\n]*\]/u.test(value));
+const PLAIN_TEXT_MARKUP_PATTERNS = [
+  /`/u,
+  /!?(?:\[[^\]\n]*\])\([^\n)]*\)/u,
+  /!?(?:\[[^\]\n]+\])\[[^\]\n]*\]/u,
+  /(?:^|\n)[ \t]{0,3}\[[^\]\n]+\]:[ \t]*\S/u,
+  /\*\*\*(?![\s*])[^*\n]*\S\*\*\*/u,
+  /(?<![\p{L}\p{N}_])___(?![\s_])[^_\n]*\S___(?![\p{L}\p{N}_])/u,
+  /\*\*[^*\n]+\*\*/u,
+  /(?<![\p{L}\p{N}_])__(?![\s_])[^_\n]*\S__(?![\p{L}\p{N}_])/u,
+  /~~[^~\n]+~~/u,
+  /\*(?![\s*])[^*\n]*\S\*/u,
+  /(?<![\p{L}\p{N}_])_(?![\s_])[^_\n]*\S_(?![\p{L}\p{N}_])/u,
+  /<!--/u,
+  /<[!?]/u,
+  /<\?[^>\n]*\?>/u,
+  /<![^>\n]*>/u,
+  /<\/?[A-Za-z][^>\n]*>/u,
+  /(?:^|\n)[ \t]{0,3}<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/]|$)/u,
+  /(?:^|\n)[ \t]*(?:#{1,6}[ \t]+|>|(?:[-+*]|\d+[.)])[ \t]+)/u,
+  /(?:^|\n)[ \t]{0,3}(?:#{1,6}|>|[-+*]|\d+[.)])[ \t]*(?=\n|$)/u,
+  /(?:^|\n)[ \t]{0,3}>[ \t]?\S/u,
+  /(?:^|\n)[ \t]*~~~+/u,
+  /(?:^|\n)[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|={3,})[ \t]*(?=\n|$)/u,
+  /(?:^|\n)[ \t]{0,3}(?:=+|-+)[ \t]*(?=\n|$)/u,
+  /(?:^|\n)[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*(?=\n|$)/u,
+  /(?:^|\n)[ \t]*\|[ \t]*:?-+:?[ \t]*\|[ \t]*(?=\n|$)/u,
+  /(?:^|\n)(?: {4,}|\t+)\S/u,
+] as const;
+
+const isDomainPlainText = (source: string): boolean => {
+  const normalized = source.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  const softWrapped = normalized.replace(/(?<!\n)\n(?!\n)/gu, " ");
+  return [normalized, softWrapped].every((value) =>
+    PLAIN_TEXT_MARKUP_PATTERNS.every((pattern) => !pattern.test(value)),
+  );
 };
 
-const normalizedPlainParagraph = (paragraph: Paragraph): string | undefined => {
-  if (paragraph.children.some((child) => child.type !== "text")) return undefined;
-  const value = mdastToString(paragraph)
+const normalizedPlainParagraph = (source: string, paragraph: Paragraph): string | undefined => {
+  const start = paragraph.position?.start.offset;
+  const end = paragraph.position?.end.offset;
+  if (start === undefined || end === undefined) return undefined;
+  const authored = source.slice(start, end);
+  if (!isDomainPlainText(authored)) return undefined;
+  const value = authored
     .split("\n")
     .map((line) => line.trim())
     .join(" ")
@@ -514,22 +544,20 @@ const normalizedPlainParagraph = (paragraph: Paragraph): string | undefined => {
 };
 
 export const markdownPlainText = (source: string): string | undefined => {
-  if (containsReferenceMarkup(source)) return undefined;
   const tree = internalsFor(parseMarkdownDocument(source)).tree;
   if (tree.children.length === 0 || tree.children.some((node) => node.type !== "paragraph")) {
     return undefined;
   }
   const paragraphs = tree.children.map((node) =>
-    node.type === "paragraph" ? normalizedPlainParagraph(node) : undefined,
+    node.type === "paragraph" ? normalizedPlainParagraph(source, node) : undefined,
   );
-  return paragraphs.some((paragraph) => paragraph === undefined)
-    ? undefined
-    : (paragraphs as string[]).join("\n\n");
+  if (paragraphs.some((paragraph) => paragraph === undefined)) return undefined;
+  const value = (paragraphs as string[]).join("\n\n");
+  return isDomainPlainText(value) ? value : undefined;
 };
 
 export const markdownPlainUnorderedList = (source: string): readonly string[] | undefined => {
   if (source.trim().length === 0) return [];
-  if (containsReferenceMarkup(source)) return undefined;
   const tree = internalsFor(parseMarkdownDocument(source)).tree;
   if (tree.children.length !== 1 || tree.children[0]?.type !== "list") return undefined;
   const list = tree.children[0];
@@ -543,7 +571,7 @@ export const markdownPlainUnorderedList = (source: string): readonly string[] | 
       return undefined;
     }
     if (mdastToString(item.children[0]).includes("\n")) return undefined;
-    return normalizedPlainParagraph(item.children[0]);
+    return normalizedPlainParagraph(source, item.children[0]);
   });
   return items.some((item) => item === undefined) ? undefined : Object.freeze(items as string[]);
 };

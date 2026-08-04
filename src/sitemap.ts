@@ -57,7 +57,7 @@ const serializeProjectSitemap = (
   return Buffer.from(
     serializeMarkdownDocument({
       frontmatter,
-      body: `# Bearing Project Sitemap\n\n${sections.join("\n\n")}\n\n${derived}\n`,
+      body: `\n# Bearing Project Sitemap\n\n${sections.join("\n\n")}\n\n${derived}\n`,
     }),
     "utf8",
   );

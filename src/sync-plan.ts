@@ -171,7 +171,7 @@ const serializeReport = (
   return Buffer.from(
     serializeMarkdownDocument({
       frontmatter,
-      body: `# Bearing Sync Report\n\n## Structural Diagnostics\n\n${findings}\n`,
+      body: `\n# Bearing Sync Report\n\n## Structural Diagnostics\n\n${findings}\n`,
     }),
     "utf8",
   );
@@ -399,6 +399,7 @@ export const commitSyncPlan = async (
     plan.providerObservationStoreChanged ||
     plan.nativeScopeInspectionStoreChanged
   ) {
+    await ensureCacheBoundary(plan.root);
     await mkdir(dirname(plan.reportPath), { recursive: true });
     if (plan.providerObservationStoreChanged && options.publishProviderObservations !== false) {
       await writeFileAtomic(plan.providerObservationStorePath, plan.providerObservationStoreBytes, {
