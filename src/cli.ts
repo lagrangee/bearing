@@ -12,7 +12,7 @@ import { ACTIVATION_ORIGINS, checkBearingActivation } from "./activation-policy"
 import { createPlanningLineageAgentHandoff } from "./agent-planning-lineage-handoff";
 import { registerAsset } from "./asset-registration";
 import { runCatalogCommand } from "./catalog/cli";
-import { readCatalogDocument, withCatalogEntryLeaseStatus } from "./catalog/store";
+import { readCatalogDocument } from "./catalog/store";
 import {
   executorNominationAssessmentSchema,
   resolveExecutorNominations,
@@ -30,14 +30,12 @@ import { createPlanningGraphInstrumentation } from "./planning-graph-instrumenta
 import { parsePortalPort } from "./portal/port";
 import { createProjectMaterializer } from "./portal/project-materializer";
 import { startPortalServer } from "./portal/server";
-import { readProjectSnapshotCache } from "./project-snapshot/cache";
 import { reconcileRepository } from "./reconcile-repository";
 import { deactivateRepository, inspectPurgePlan, purgeRepository } from "./repo-lifecycle";
 import { inspectLegacyCutoverPlan } from "./repository-cutover";
 import { planRepositoryIntegration } from "./repository-integration-plan";
 import { runSync } from "./sync";
 import { commitSyncPlan, prepareSync } from "./sync-plan";
-import { readSyncReceipt } from "./sync-receipt";
 import type { AgentSurface, StructuralDiagnostic } from "./types";
 
 const HELP = `Bearing ${packageMetadata.version}
@@ -50,7 +48,7 @@ Usage:
   bearing deactivate --repo <path>
   bearing purge --repo <path> [--plan] [--confirm-purge --purge-plan-token <sha256> (--recovery-export <path> | --accept-no-recovery-export)]
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [--producer-reference <reference>] [--produced-for <reference>] [--produced-at <date-or-ISO-instant>]
-  bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
+  bearing catalog <rename|forget|remove|relink|reset> [options]
   bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
   bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
   bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]
@@ -476,7 +474,7 @@ const runRepositoryLifecycle = async (
   }
   if (result.catalog.outcome === "failed") {
     process.stderr.write(
-      `Catalog removal failed: ${result.catalog.message}\nCompleted: repository lifecycle apply.\nPending: Project Catalog removal.\nPersistent external effects: the repository lifecycle state is already committed and is not rolled back by Catalog failure.\nResumption point: repair the Catalog if required, then run \`bearing catalog remove --repo ${options.repoRoot}\`.\n`,
+      `Catalog removal failed: ${result.catalog.message}\nCompleted: repository lifecycle apply.\nPending: Project Catalog removal.\nPersistent external effects: the repository lifecycle state is already committed and is not rolled back by Catalog failure.\nResumption point: if the database is unavailable, run confirmed Catalog reset and Setup re-registration; then run \`bearing catalog remove --repo ${options.repoRoot}\`.\n`,
     );
   }
   if (result.outcome === "blocked" || result.outcome === "partial") process.exitCode = 1;
@@ -563,56 +561,19 @@ const runNativeReconciliationCommand = async (args: readonly string[]): Promise<
       "Targeted native reconciliation requires the repository's current Project Catalog entry.",
     );
   }
-  const invocationStartedAt = Date.now();
   const materializer = createProjectMaterializer({
     packageName: packageMetadata.name,
     packageVersion: packageMetadata.version,
   });
-  const coordinated = await withCatalogEntryLeaseStatus(
-    homeDirectory(),
-    entry.entryId,
-    entry.repoRoot,
-    async ({ contended }) => {
-      if (contended) {
-        const [cached, receipt] = await Promise.all([
-          readProjectSnapshotCache(repoRoot),
-          readSyncReceipt(join(repoRoot, ".bearing/cache/sync-receipt.json")),
-        ]);
-        if (
-          cached.kind === "available" &&
-          receipt.kind === "available" &&
-          receipt.receipt.operation?.kind === "native-reconciliation" &&
-          receipt.receipt.operation.requestFingerprint ===
-            assessNativeReconciliation({
-              request,
-              boundSelections: cached.snapshot.providerObservationSelections,
-              inspectionSelections: cached.snapshot.nativeScopeInspections.selections,
-            }).requestFingerprint &&
-          Date.parse(receipt.receipt.completedAt) >= invocationStartedAt
-        ) {
-          return {
-            snapshot: cached.snapshot,
-            snapshotDisposition: "reused" as const,
-            publication: "coalesced" as const,
-          };
-        }
-      }
-      const result = await materializer.run(
-        repoRoot,
-        "force",
-        undefined,
-        undefined,
-        "ordinary-sync",
-        { kind: "reconcile", request },
-      );
-      return {
-        snapshot: result.snapshot,
-        snapshotDisposition: result.snapshotDisposition,
-        publication: result.outcome,
-      };
-    },
-    30_000,
-  );
+  const result = await materializer.run(repoRoot, "force", undefined, undefined, "ordinary-sync", {
+    kind: "reconcile",
+    request,
+  });
+  const coordinated = {
+    snapshot: result.snapshot,
+    snapshotDisposition: result.snapshotDisposition,
+    publication: result.outcome,
+  } as const;
   const reconciliation = assessNativeReconciliation({
     request,
     boundSelections: coordinated.snapshot.providerObservationSelections,
@@ -634,11 +595,7 @@ const runNativeReconciliationCommand = async (args: readonly string[]): Promise<
   const blocked =
     reconciliation.outcome === "failed" ||
     diagnostics.some((diagnostic) => diagnostic.impact === "blocking");
-  const outcome = blocked
-    ? "blocked"
-    : coordinated.publication === "coalesced"
-      ? "coalesced"
-      : "succeeded";
+  const outcome = blocked ? "blocked" : "succeeded";
   process.stdout.write(
     `Input fingerprint: ${coordinated.snapshot.basis.sitemapFingerprint}\nDiagnostics: ${diagnostics.length}\nScoped diagnostics: ${reconciliation.diagnostics.length}\nReconciliation: ${reconciliation.outcome}\nPublication: ${coordinated.publication}\nSnapshot: ${coordinated.snapshotDisposition}\nOutcome: ${outcome}\n`,
   );

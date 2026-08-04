@@ -128,7 +128,7 @@ test("returns the typed Catalog read model without accepting a repository path",
   });
 });
 
-test("keeps last-known-good entries visible when the Catalog is degraded", async () => {
+test("keeps previously trusted entries visible when the Catalog is degraded", async () => {
   // Given a trusted backup after the current Catalog becomes invalid
   const app = createPortalApp({
     assets,
@@ -145,7 +145,7 @@ test("keeps last-known-good entries visible when the Catalog is degraded", async
       ],
       diagnostic: {
         code: "catalog-current-invalid",
-        message: "Project Catalog is using its last-known-good backup; run explicit repair.",
+        message: "Project Catalog is degraded; only previously trusted entries are shown.",
       },
     }),
   });
@@ -160,7 +160,7 @@ test("keeps last-known-good entries visible when the Catalog is degraded", async
     entries: [{ entryId: "entry-bearing", displayName: "Bearing" }],
     diagnostic: {
       code: "catalog-current-invalid",
-      message: "Project Catalog is using its last-known-good backup; run explicit repair.",
+      message: "Project Catalog is degraded; only previously trusted entries are shown.",
     },
   });
 });
@@ -194,7 +194,7 @@ test("does not expose an internal Catalog failure path", async () => {
     assets,
     sessions: { secret: TEST_SESSION_SECRET },
     readCatalog: async () => {
-      throw new Error("Cannot read /Users/private/.bearing/catalog.json");
+      throw new Error("Cannot read /Users/private/.bearing/catalog.sqlite");
     },
   });
 

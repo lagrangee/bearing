@@ -186,106 +186,96 @@ export const createProjectService = (options: {
       const recoveryCheckpoint = locationRecovery.checkpoint(entryId);
       try {
         const initial = await resolve(entryId);
-        let recoveryRoot =
+        const recoveryRoot =
           initial.kind === "available"
             ? locationRecovery.rootRequiringRecovery(entryId, mode, initial.entry.repoRoot)
             : undefined;
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          const coordinated =
-            recoveryRoot === undefined
-              ? await coordinator.execute({
-                  entryId,
-                  mode,
-                  nativeScopeInspectionIntent,
-                })
-              : await locationRecovery.recover(
-                  entryId,
-                  recoveryRoot,
-                  recoveryCheckpoint,
-                  nativeScopeInspectionIntent,
-                );
-          if (coordinated.kind === "cooldown") {
-            const latest = await resolve(entryId);
-            if (latest.kind !== "available") return latest;
-            const changedRoot = locationRecovery.rootRequiringRecovery(
-              entryId,
-              "ensure-current",
-              latest.entry.repoRoot,
-            );
-            if (changedRoot !== undefined && attempt === 0) {
-              recoveryRoot = changedRoot;
-              continue;
-            }
-            return {
-              kind: "cooldown",
-              mode: "ensure-current",
-              outcome: "cooldown",
-              view: await readProjectView(latest.entry, false, options.packageVersion),
-              validation: validationFor(entryId),
-            };
-          }
-          const captured = coordinated.value;
+        const coordinated =
+          recoveryRoot === undefined
+            ? await coordinator.execute({
+                entryId,
+                mode,
+                nativeScopeInspectionIntent,
+              })
+            : await locationRecovery.recover(
+                entryId,
+                recoveryRoot,
+                recoveryCheckpoint,
+                nativeScopeInspectionIntent,
+              );
+        if (coordinated.kind === "cooldown") {
           const latest = await resolve(entryId);
           if (latest.kind !== "available") return latest;
-          const locationChanged =
-            captured.kind === "entry-failure" || latest.entry.repoRoot !== captured.entry.repoRoot;
-          if (locationChanged) {
-            if (attempt === 0) {
-              recoveryRoot = latest.entry.repoRoot;
-              continue;
-            }
-            return {
-              kind: "failed",
-              mode,
-              outcome: "failed",
-              ...(await projectLocationChangedFailure(latest.entry, (entry) =>
-                readProjectView(entry, false, options.packageVersion),
-              )),
-              validation: validationFor(entryId),
-            };
-          }
-          if (captured.kind === "failed") {
-            return {
-              kind: "failed",
-              mode,
-              outcome: "failed",
-              error: captured.error,
-              ...(captured.repoView === undefined
-                ? {}
-                : { view: composeProjectView(latest.entry, captured.repoView) }),
-              validation: validationFor(entryId),
-            };
-          }
-          const result = captured.result;
-          const view = composeProjectView(latest.entry, captured.repoView);
-          const validation = validationFor(entryId);
-          const reconciliation =
-            result.reconciliation === undefined ? {} : { reconciliation: result.reconciliation };
-          if (mode === "ensure-current") {
-            return {
-              kind: "completed",
-              mode,
-              outcome: result.mode === "force" ? "synced" : result.outcome,
-              ...reconciliation,
-              snapshotDisposition: result.snapshotDisposition,
-              view,
-              validation,
-            };
-          }
-          if (result.mode !== "force") {
-            throw new Error("Forced project operation completed with an automatic result.");
-          }
+          const changedRoot = locationRecovery.rootRequiringRecovery(
+            entryId,
+            "ensure-current",
+            latest.entry.repoRoot,
+          );
+          void changedRoot;
+          return {
+            kind: "cooldown",
+            mode: "ensure-current",
+            outcome: "cooldown",
+            view: await readProjectView(latest.entry, false, options.packageVersion),
+            validation: validationFor(entryId),
+          };
+        }
+        const captured = coordinated.value;
+        const latest = await resolve(entryId);
+        if (latest.kind !== "available") return latest;
+        const locationChanged =
+          captured.kind === "entry-failure" || latest.entry.repoRoot !== captured.entry.repoRoot;
+        if (locationChanged) {
+          return {
+            kind: "failed",
+            mode,
+            outcome: "failed",
+            ...(await projectLocationChangedFailure(latest.entry, (entry) =>
+              readProjectView(entry, false, options.packageVersion),
+            )),
+            validation: validationFor(entryId),
+          };
+        }
+        if (captured.kind === "failed") {
+          return {
+            kind: "failed",
+            mode,
+            outcome: "failed",
+            error: captured.error,
+            ...(captured.repoView === undefined
+              ? {}
+              : { view: composeProjectView(latest.entry, captured.repoView) }),
+            validation: validationFor(entryId),
+          };
+        }
+        const result = captured.result;
+        const view = composeProjectView(latest.entry, captured.repoView);
+        const validation = validationFor(entryId);
+        const reconciliation =
+          result.reconciliation === undefined ? {} : { reconciliation: result.reconciliation };
+        if (mode === "ensure-current") {
           return {
             kind: "completed",
             mode,
-            outcome: result.outcome,
+            outcome: result.mode === "force" ? "synced" : result.outcome,
             ...reconciliation,
             snapshotDisposition: result.snapshotDisposition,
             view,
             validation,
           };
         }
-        throw new Error("Project location recovery did not complete.");
+        if (result.mode !== "force") {
+          throw new Error("Forced project operation completed with an automatic result.");
+        }
+        return {
+          kind: "completed",
+          mode,
+          outcome: result.outcome,
+          ...reconciliation,
+          snapshotDisposition: result.snapshotDisposition,
+          view,
+          validation,
+        };
       } catch (error) {
         const normalizedError =
           error instanceof Error ? error : new Error("Unknown project synchronization failure.");

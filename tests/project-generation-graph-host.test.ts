@@ -297,8 +297,8 @@ test("same-entry joined ensure and queued force reuse the retained Graph through
 });
 
 for (const recoveryFailure of [false, true]) {
-  test(`relink during an in-flight materialization ${
-    recoveryFailure ? "retains the prior Graph when recovery fails" : "publishes only recovery"
+  test(`relink during an in-flight materialization suppresses the obsolete publication ${
+    recoveryFailure ? "even when the new root would fail" : "without rerunning the operation"
   }`, async () => {
     const originalRoot = await realpath(await createValidBearingRepo());
     const currentRoot = await realpath(await createValidBearingRepo());
@@ -353,21 +353,70 @@ for (const recoveryFailure of [false, true]) {
     const obsolete = snapshotGraphs.find((event) => event.repoRoot === originalRoot)?.graph;
     if (obsolete === undefined) throw new Error("Expected obsolete in-flight Graph candidate.");
     expect(graphs.published.map((event) => event.graph)).not.toContain(obsolete);
+    expect(activeResult).toMatchObject({ kind: "failed" });
+    expect(snapshotGraphs.map((event) => event.repoRoot)).toEqual([originalRoot, currentRoot]);
     if (recoveryFailure) {
-      expect(activeResult).toMatchObject({ kind: "failed" });
       expect(joinedResult).toMatchObject({ kind: "failed" });
       expect(graphs.published).toHaveLength(0);
       expect(graphs.retained.forEntry("one").current()).toBe(prior);
     } else {
-      expect(activeResult).toMatchObject({ kind: "completed" });
       expect(joinedResult).toMatchObject({ kind: "completed" });
-      const recovered = snapshotGraphs.find((event) => event.repoRoot === currentRoot)?.graph;
-      if (recovered === undefined) throw new Error("Expected recovery Graph candidate.");
-      expect(graphs.published.map((event) => event.graph)).toEqual([recovered]);
-      expect(graphs.retained.forEntry("one").current()).toBe(recovered);
+      const current = snapshotGraphs.find((event) => event.repoRoot === currentRoot)?.graph;
+      if (current === undefined) throw new Error("Expected current-root Graph candidate.");
+      expect(graphs.published.map((event) => event.graph)).toEqual([current]);
+      expect(graphs.retained.forEntry("one").current()).toBe(current);
     }
   });
 }
+
+test("remove during an in-flight materialization suppresses its publication and affects only future operations", async () => {
+  const root = await realpath(await createValidBearingRepo());
+  const graphs = tracedGenerationGraphHost();
+  const buildStarted = deferred<void>();
+  const releaseBuild = deferred<void>();
+  let present = true;
+  let blockBuild = false;
+  let materializerCalls = 0;
+  const materializer = createProjectMaterializer({
+    packageVersion: "0.0.0-test",
+    dependencies: {
+      buildSnapshot: async (input) => {
+        materializerCalls += 1;
+        if (blockBuild) {
+          buildStarted.resolve();
+          await releaseBuild.promise;
+        }
+        return buildProjectSnapshot(input);
+      },
+    },
+  });
+  const service = createProjectService({
+    readCatalog: async () => catalogFor(present ? [{ entryId: "one", repoRoot: root }] : [])(),
+    packageVersion: "0.0.0-test",
+    generationGraphs: graphs.host,
+    materializer,
+    operationExecutorFor: directExecutor,
+  });
+
+  await service.sync("one", "force");
+  const prior = graphs.retained.forEntry("one").current();
+  if (prior === undefined) throw new Error("Expected prior generation Graph.");
+  await writeFixture(root, "CONTEXT.md", "# Obsolete after removal\n");
+  graphs.clearTrace();
+  blockBuild = true;
+
+  const active = service.sync("one", "force");
+  await buildStarted.promise;
+  present = false;
+  releaseBuild.resolve();
+
+  expect(await active).not.toMatchObject({ kind: "completed" });
+  expect(graphs.published).toHaveLength(0);
+  expect(graphs.retained.forEntry("one").current()).toBe(prior);
+  const callsAfterActive = materializerCalls;
+  expect(await service.sync("one", "force")).not.toMatchObject({ kind: "completed" });
+  expect(materializerCalls).toBe(callsAfterActive);
+});
 
 test("cache authorization failure publishes nothing and retry publishes the coherent Graph", async () => {
   const root = await realpath(await createValidBearingRepo());

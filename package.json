@@ -34,14 +34,15 @@
     "benchmark:sync": "bun scripts/benchmark-sync.ts",
     "check": "biome check .",
     "dev:ui": "vite",
-    "test": "bun run build && bun test tests/*.test.ts",
+    "test": "bun run build && bun test tests/*.test.ts && bun run test:catalog-node",
+    "test:catalog-node": "bun scripts/run-node-catalog-tests.ts",
     "test:g1-regression": "bun run build && bun scripts/g1-regression-core.ts",
     "test:g2-regression": "bun run build && bun scripts/g2-regression-core.ts",
     "test:g2-zero-intrusion": "bun run build && bun test tests/zero-intrusion-proof.test.ts tests/github-packaged-product-journey.test.ts tests/github-provider.test.ts tests/github-provider-architecture.test.ts tests/local-markdown-provider-architecture.test.ts",
     "test:g2-local-validation": "bun run build && bun test tests/g2-local-validation-matrix.test.ts tests/local-packaged-product-journey.test.ts tests/sync-benchmark.test.ts tests/inspect-benchmark.test.ts tests/zero-intrusion-proof.test.ts",
     "test:browser": "bun run build && playwright test",
     "typecheck": "tsc --noEmit",
-    "verify": "bun run typecheck && bun run check && bun run build && bun test tests/*.test.ts && bun run test:g2-regression",
+    "verify": "bun run typecheck && bun run check && bun run build && bun test tests/*.test.ts && bun run test:catalog-node && bun run test:g2-regression",
     "prepack": "bun run build",
     "package:check": "bun scripts/check-package-boundary.ts",
     "license:check": "bun scripts/check-dependency-licenses.ts",
@@ -51,7 +52,7 @@
     "release:smoke": "node scripts/release-smoke.mjs"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=24.15.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

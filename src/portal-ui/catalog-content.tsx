@@ -41,8 +41,8 @@ function DegradedDiagnostic({ message }: { readonly message: string }) {
       role="status"
       aria-labelledby="catalog-diagnostic-title"
     >
-      <p className="eyebrow">Catalog recovery</p>
-      <h2 id="catalog-diagnostic-title">Using last-known-good projects</h2>
+      <p className="eyebrow">Catalog availability</p>
+      <h2 id="catalog-diagnostic-title">Catalog is degraded</h2>
       <p>{message}</p>
     </section>
   );
@@ -69,7 +69,7 @@ export function CatalogContent({ onRefresh, state }: CatalogContentProps) {
         case "failed":
           return (
             <EmptyState
-              title="Catalog needs repair"
+              title="Catalog is unavailable"
               detail={
                 state.catalog.diagnostic?.message ?? "No trustworthy Catalog document is available."
               }

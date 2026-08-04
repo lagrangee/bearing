@@ -49,7 +49,7 @@ test("accepts a degraded Catalog v1 envelope with trustworthy entries", () => {
       ],
       diagnostic: {
         code: "catalog-current-invalid",
-        message: "Using the last-known-good Catalog.",
+        message: "Only previously trusted entries are shown.",
       },
       session: { csrfToken: "csrf-token" },
     }).success,

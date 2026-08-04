@@ -114,60 +114,6 @@ test("service can confirm a no-write check without a Catalog ownership executor"
   });
 });
 
-test("bypasses an old-root cooldown and revalidates the relinked repository", async () => {
-  const originalRoot = await realpath(await createValidBearingRepo());
-  const currentRoot = await realpath(await createValidBearingRepo());
-  await runSync(originalRoot, { completedAt: "2026-07-13T12:00:00.000Z" });
-  const baseline = await createProjectMaterializer({ packageVersion: "0.0.0-test" }).run(
-    originalRoot,
-    "ensure-current",
-  );
-  let catalogRoot = originalRoot;
-  let relinkAfterRead = false;
-  const materializations: Array<{ mode: string; repoRoot: string }> = [];
-  const service = createProjectService({
-    readCatalog: async () => {
-      const catalog = await catalogFor(catalogRoot)();
-      if (relinkAfterRead) {
-        relinkAfterRead = false;
-        queueMicrotask(() => {
-          catalogRoot = currentRoot;
-        });
-      }
-      return catalog;
-    },
-    packageVersion: "0.0.0-test",
-    materializer: {
-      run: async (repoRoot, mode) => {
-        materializations.push({ mode, repoRoot });
-        return mode === "force"
-          ? {
-              ...baseline,
-              mode,
-              outcome: "no-op",
-              reconciliation: "no-op",
-            }
-          : baseline;
-      },
-    },
-  });
-  await service.sync("project-1", "ensure-current");
-
-  relinkAfterRead = true;
-  const recovered = await service.sync("project-1", "ensure-current");
-
-  expect(recovered).toMatchObject({
-    kind: "completed",
-    mode: "ensure-current",
-    outcome: "synced",
-    view: { cache: { snapshot: { state: "available" }, retained: false } },
-  });
-  expect(materializations).toEqual([
-    { repoRoot: originalRoot, mode: "ensure-current" },
-    { repoRoot: currentRoot, mode: "force" },
-  ]);
-});
-
 test("composes a cooldown response with the latest same-root alias", async () => {
   const repoRoot = await realpath(await createValidBearingRepo());
   await runSync(repoRoot, { completedAt: "2026-07-13T12:00:00.000Z" });

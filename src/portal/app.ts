@@ -159,7 +159,7 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
           entries: result.entries,
           diagnostic: {
             code: result.diagnostic.code,
-            message: "Project Catalog is using its last-known-good backup; run explicit repair.",
+            message: "Project Catalog is degraded; only previously trusted entries are shown.",
           },
         } satisfies PortalCatalogEnvelope;
         break;

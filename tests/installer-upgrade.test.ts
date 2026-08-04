@@ -13,7 +13,6 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { upsertCatalogEntry } from "../src/catalog/store";
 import {
   applyInstallPlans,
   assertSupportedDowngrade,
@@ -480,34 +479,5 @@ describe("Bearing kit installer", () => {
       confirmDowngrade: true,
     });
     expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe("0.1.0");
-  });
-
-  test("blocks an update when a Catalog repository uses a newer schema", async () => {
-    const homeDir = await makeTemporaryDirectory("bearing-home-");
-    const repoRoot = await makeTemporaryDirectory("bearing-project-");
-    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
-    await writeFile(join(repoRoot, ".bearing-placeholder"), "placeholder\n");
-    await mkdir(join(repoRoot, ".bearing"));
-    const manifestPath = join(repoRoot, ".bearing/manifest.json");
-    await writeFile(
-      manifestPath,
-      `${JSON.stringify({
-        schemaVersion: 1,
-        packageVersion: "0.1.0",
-        status: "active",
-        surfaces: ["agent-skills"],
-        executorProfiles: ["generic-agent"],
-      })}\n`,
-    );
-    await upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "newer-project" });
-    await writeFile(
-      manifestPath,
-      `${JSON.stringify({ schemaVersion: 2, packageVersion: "0.2.0" })}\n`,
-    );
-
-    await expect(
-      installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] }),
-    ).rejects.toThrow("reads repository schema 1 only");
-    expect(JSON.parse(await readFile(manifestPath, "utf8")).schemaVersion).toBe(2);
   });
 });

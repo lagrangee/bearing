@@ -61,7 +61,7 @@ Bearing is probably not a fit yet if:
 | Area | Public Preview support |
 | --- | --- |
 | Platform | macOS |
-| Node.js | Node.js 24 or later; CI verifies Node.js 24 and 26 |
+| Node.js | Node.js 24.15.0 or later; CI verifies Node.js 24 and 26 |
 | Agent Surfaces | Codex is verified. Claude Code is a target surface pending maintainer verification. |
 | Work Management Adapter | Matt-native local Markdown Maps and Tickets |
 | Telemetry | None. Bearing performs no analytics, crash upload, repository upload, or update polling. |

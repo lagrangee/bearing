@@ -463,14 +463,9 @@ const readRepositorySchemaVersion = async (repoRoot: string): Promise<number> =>
 
 const assertCatalogCompatibility = async (homeDir: string): Promise<void> => {
   const state = await readCatalogState({ homeDir });
-  if (state.state === "degraded") {
-    throw new Error(
-      "Bearing update is blocked while the Project Catalog uses its backup. Run `bearing catalog repair` and retry.",
-    );
-  }
   if (state.state === "failed") {
     throw new Error(
-      "Bearing update is blocked because the Project Catalog is unusable. Follow Catalog recovery before retrying.",
+      "Bearing update is blocked because the Project Catalog is unusable. Run confirmed Catalog reset and Setup re-registration before retrying.",
     );
   }
   const incompatible: string[] = [];

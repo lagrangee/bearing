@@ -85,7 +85,7 @@ test("Catalog renders empty and typed failure states", async ({ page }, testInfo
     }),
   );
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Catalog needs repair" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Catalog is unavailable" })).toBeVisible();
   await page.screenshot({
     path: await browserArtifactPath(testInfo, "catalog-failure-1280.png"),
     fullPage: true,

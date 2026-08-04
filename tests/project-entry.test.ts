@@ -31,7 +31,7 @@ test("resolves only a fresh, available Catalog entry to an internal repository r
   });
 });
 
-test("resolves a trustworthy entry retained by degraded Catalog recovery", async () => {
+test("resolves a trustworthy entry retained by a degraded Catalog observation", async () => {
   const repoRoot = await realpath(await createValidBearingRepo());
   const ready = readyCatalog(repoRoot);
   if (ready.state !== "ready") throw new Error("Expected a ready Catalog fixture.");
@@ -43,7 +43,7 @@ test("resolves a trustworthy entry retained by degraded Catalog recovery", async
       entries: ready.entries,
       diagnostic: {
         code: "catalog-current-invalid",
-        message: "Project Catalog is using its last-known-good backup; run explicit repair.",
+        message: "Project Catalog is degraded; only previously trusted entries are shown.",
       },
     }),
   });

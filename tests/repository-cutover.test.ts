@@ -50,6 +50,25 @@ const runSetupCli = async (
   return { stdout, stderr, exitCode };
 };
 
+const runCatalogResetCli = async (
+  homeDir: string,
+): Promise<Readonly<{ stdout: string; stderr: string; exitCode: number }>> => {
+  const child = Bun.spawn(
+    ["node", join(process.cwd(), "dist/cli.js"), "catalog", "reset", "--confirm-empty"],
+    {
+      env: { ...process.env, HOME: homeDir },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  return { stdout, stderr, exitCode };
+};
+
 const legacyEffort = (id = "effort:test", gate = "gate:test"): string => `---
 Type: effort
 Lifecycle: active
@@ -509,7 +528,7 @@ Assets:
   test("replays consumed cutover flags through Active reconciliation after Catalog partial", async () => {
     const repoRoot = await createLegacyRepository();
     const homeDir = await makeTemporaryDirectory("bearing-cutover-home-");
-    await writeFixture(homeDir, ".bearing/catalog.json", "{malformed\n");
+    await writeFixture(homeDir, ".bearing/catalog.sqlite", "not a database\n");
     const confirmationToken = await inspectCliToken(repoRoot, homeDir);
     const cutoverArgs = [
       "--accept-upgrade-direction",
@@ -530,7 +549,8 @@ Assets:
     await access(join(repoRoot, ".bearing/state/efforts/test.md"));
     await access(join(repoRoot, ".bearing/backups", BUNDLE_NAME, "receipt.json"));
 
-    await writeFile(join(homeDir, ".bearing/catalog.json"), '{"version":1,"entries":[]}\n');
+    const reset = await runCatalogResetCli(homeDir);
+    expect(reset.exitCode, reset.stderr).toBe(0);
     const replay = await runSetupCli(repoRoot, homeDir, cutoverArgs);
 
     expect(replay.exitCode, replay.stderr).toBe(0);

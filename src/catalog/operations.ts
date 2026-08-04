@@ -7,6 +7,7 @@ import {
 } from "./errors";
 import type { CatalogDocument, CatalogEntry } from "./model";
 import { parseCatalogDocument, parseCatalogRepositoryRoot } from "./model";
+import { readCatalogDocument } from "./recovery";
 import { inspectRepository, type RepositoryInspection } from "./repository-inspection";
 import { runCatalogTransaction } from "./transaction";
 
@@ -64,11 +65,11 @@ export const upsertCatalogEntry = async (options: {
   readonly lockTimeoutMs?: number;
 }): Promise<CatalogUpsertResult> => {
   const canonicalRoot = await validatedRepositoryRoot(options.repoRoot);
+  await validateRepositoryManifest(canonicalRoot);
   return runCatalogTransaction<CatalogUpsertResult>({
     homeDir: options.homeDir,
     ...(options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs }),
-    mutate: async (current) => {
-      await validateRepositoryManifest(canonicalRoot);
+    mutate: (current) => {
       const existing = current.entries.find((entry) => entry.repoRoot === canonicalRoot);
       if (existing !== undefined) return { result: { outcome: "no-op", entry: existing } };
       const entry = {
@@ -153,11 +154,11 @@ export const removeCatalogEntryByExactIdentity = async (options: {
   readonly lockTimeoutMs?: number;
 }): Promise<CatalogRemovalResult> => {
   const canonicalRoot = parseCatalogRepositoryRoot(options.repoRoot);
+  await options.assertBeforeMutation?.();
   return runCatalogTransaction<CatalogRemovalResult>({
     homeDir: options.homeDir,
     ...(options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs }),
-    mutate: async (current) => {
-      await options.assertBeforeMutation?.();
+    mutate: (current) => {
       const matching = current.entries.find((entry) => entry.repoRoot === canonicalRoot);
       if (options.expectedEntry === undefined) {
         if (matching !== undefined) {
@@ -190,10 +191,13 @@ export const relinkCatalogEntry = async (options: {
   readonly lockTimeoutMs?: number;
 }): Promise<CatalogEntryMutationResult> => {
   const canonicalRoot = await validatedRepositoryRoot(options.newRepoRoot);
+  const before = await readCatalogDocument({ homeDir: options.homeDir });
+  const beforeEntry = entryAt(before, options.entryId);
+  const oldRepositoryWasAvailable = await repositoryIsAvailable(beforeEntry.repoRoot);
   return runCatalogTransaction<CatalogEntryMutationResult>({
     homeDir: options.homeDir,
     ...(options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs }),
-    mutate: async (current) => {
+    mutate: (current) => {
       const existing = entryAt(current, options.entryId);
       if (existing.repoRoot === canonicalRoot) {
         return { result: { outcome: "no-op", entry: existing } };
@@ -201,11 +205,11 @@ export const relinkCatalogEntry = async (options: {
       if (current.entries.some((entry) => entry.repoRoot === canonicalRoot)) {
         throw new CatalogDuplicateRepositoryError();
       }
-      if ((await repositoryIsAvailable(existing.repoRoot)) && options.confirmMove !== true) {
-        throw new CatalogMoveConfirmationRequiredError();
-      }
-      if ((await validatedRepositoryRoot(options.newRepoRoot)) !== canonicalRoot) {
+      if (existing.repoRoot !== beforeEntry.repoRoot) {
         throw new Error("Repository location changed during Catalog relink.");
+      }
+      if (oldRepositoryWasAvailable && options.confirmMove !== true) {
+        throw new CatalogMoveConfirmationRequiredError();
       }
       const entry = { ...existing, repoRoot: canonicalRoot };
       return { result: { outcome: "applied", entry }, next: replaceEntry(current, entry) };

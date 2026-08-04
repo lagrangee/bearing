@@ -20,6 +20,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PACKAGE_NAME = "@lagrangee/bearing";
@@ -787,8 +788,20 @@ const pathExists = async (target) => {
   }
 };
 
-const readCatalog = async (home) =>
-  JSON.parse(await readFile(join(home, ".bearing/catalog.json"), "utf8"));
+const readCatalog = async (home) => {
+  const database = new DatabaseSync(join(home, ".bearing/catalog.sqlite"), { readOnly: true });
+  try {
+    return {
+      entries: database
+        .prepare(
+          "SELECT entry_id AS entryId, repo_root AS repoRoot, display_name AS displayName FROM catalog_entries",
+        )
+        .all(),
+    };
+  } finally {
+    database.close();
+  }
+};
 
 const catalogContains = async (home, repository) => {
   const canonicalRepository = await realpath(repository);

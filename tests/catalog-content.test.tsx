@@ -14,7 +14,7 @@ const renderCatalog = (catalog: PortalCatalogEnvelope): string =>
 
 const session = { csrfToken: "catalog-content-test-token" };
 
-test("renders a scoped degraded diagnostic without hiding last-known-good entries", () => {
+test("renders a scoped degraded diagnostic without hiding trusted entries", () => {
   const markup = renderCatalog({
     version: 1,
     state: "degraded",
@@ -28,12 +28,12 @@ test("renders a scoped degraded diagnostic without hiding last-known-good entrie
     ],
     diagnostic: {
       code: "catalog-current-invalid",
-      message: "Project Catalog is using its last-known-good backup; run explicit repair.",
+      message: "Project Catalog is degraded; only previously trusted entries are shown.",
     },
     session,
   });
 
-  expect(markup).toContain("Using last-known-good projects");
+  expect(markup).toContain("Catalog is degraded");
   expect(markup).toContain("Bearing");
   expect(markup).toContain("Registered projects");
   expect(markup).toContain('href="/projects/entry-bearing"');
@@ -52,7 +52,7 @@ test("keeps an unusable Catalog on the typed maintenance surface", () => {
     session,
   });
 
-  expect(markup).toContain("Catalog needs repair");
+  expect(markup).toContain("Catalog is unavailable");
   expect(markup).toContain("Try again");
   expect(markup).not.toContain("Registered projects");
 });

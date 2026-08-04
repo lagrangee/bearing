@@ -141,7 +141,7 @@ test("GET read failures keep the typed server and browser contract aligned with 
 test("Catalog failure stays inside the sanitized public Project API contract", async () => {
   const privateDiagnostic = {
     code: "catalog-unusable",
-    message: "Catalog failed at /Users/private/.bearing/catalog.json.",
+    message: "Catalog failed at /Users/private/.bearing/catalog.sqlite.",
   };
   const app = appFor(async () => ({ state: "failed", diagnostic: privateDiagnostic }));
 

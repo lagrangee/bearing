@@ -1,21 +1,15 @@
 import { expect, test } from "bun:test";
-import { lstat, readFile, realpath, unlink } from "node:fs/promises";
+import { lstat, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { upsertCatalogEntry, withCatalogEntryLease } from "../src/catalog/store";
 import {
   nativeReconciliationRequestFingerprint,
   nativeReconciliationRequestSchema,
   normalizeNativeReconciliationRequest,
 } from "../src/native-reconciliation-contract";
 import { createProviderScopeObservation } from "../src/native-work-provider";
-import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
-import { readProjectSnapshotCache } from "../src/project-snapshot/cache";
 import { ProviderObservationAcquisitionUnavailableError } from "../src/provider-observation-store";
 import { createGitHubMattProvider } from "../src/providers/matt-skills-v1/github";
 import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
-import { runSync } from "../src/sync";
 import { commitSyncPlan, prepareSync } from "../src/sync-plan";
 import {
   createGitHubMattRepository,
@@ -29,12 +23,7 @@ import {
   githubTriageLocator,
 } from "./fixtures/github-matt-api";
 import { createMattReferenceProjection } from "./fixtures/matt-reference-scenario";
-import {
-  buildSnapshotForSyncPlan,
-  createValidBearingRepo,
-  makeTemporaryDirectory,
-  writeFixture,
-} from "./helpers";
+import { buildSnapshotForSyncPlan, createValidBearingRepo, writeFixture } from "./helpers";
 
 const projectionFor = (nativeScope: string, title: string) => {
   const projection = JSON.parse(
@@ -713,169 +702,4 @@ test("GitHub targeted reconciliation reads one affected subject and its bounded 
     },
   });
   expect(JSON.stringify(invalid)).not.toContain("ghp_secret_value");
-});
-
-test("reconcile-native CLI atomically rematerializes the Project Snapshot instead of requiring a generic follow-up Sync", async () => {
-  const root = await createValidBearingRepo();
-  const homeDir = await makeTemporaryDirectory("bearing-native-reconciliation-home-");
-  await upsertCatalogEntry({
-    homeDir,
-    repoRoot: root,
-    createEntryId: () => "native-reconciliation-project",
-  });
-  await runSync(root, {
-    providerObservationIntent: "initial-baseline",
-    completedAt: "2026-07-31T06:00:00.000Z",
-  });
-  const ticket = ".scratch/work/issues/01-finish.md";
-  await writeFixture(
-    root,
-    ticket,
-    `# Finish through CLI
-
-Type: task
-
-Status: resolved
-
-## Question
-
-Can the fixture finish?
-
-## Answer
-
-Yes, through one targeted command.
-`,
-  );
-  const nativeBytes = await readFile(join(root, ticket));
-  const child = Bun.spawn(
-    [
-      "bun",
-      "src/cli.ts",
-      "reconcile-native",
-      "--repo",
-      root,
-      "--scope",
-      ".scratch/work",
-      "--ref",
-      ticket,
-    ],
-    {
-      cwd: process.cwd(),
-      env: { ...process.env, HOME: homeDir },
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-
-  expect(exitCode).toBe(0);
-  expect(stderr).toBe("");
-  expect(stdout).toContain("Diagnostics: 0");
-  expect(stdout).toContain("Reconciliation: succeeded");
-  expect(stdout).toContain("Publication: applied");
-  expect(stdout).toContain("Snapshot: materialized");
-  expect(stdout).toContain("Outcome: succeeded");
-  const cache = await readProjectSnapshotCache(root);
-  expect(cache.kind).toBe("available");
-  if (cache.kind !== "available") throw new Error("Expected rematerialized Project Snapshot.");
-  const observation = cache.snapshot.providerObservations[0];
-  expect(
-    observation?.state === "available" || observation?.state === "partial"
-      ? observation.projection.wayfinderTickets[0]?.title
-      : undefined,
-  ).toBe("Finish through CLI");
-  const html = renderToStaticMarkup(
-    createElement(PlanningLineagePage, {
-      entryId: "fixture",
-      requested: {
-        validity: "valid",
-        value: { kind: "native-scope", id: ".scratch/work" },
-      },
-      snapshot: cache.snapshot,
-      onInspect: () => {},
-      onNavigate: () => {},
-      onRefreshDetails: () => {},
-    }),
-  );
-  expect(html).toContain("Finish through CLI");
-  expect(await readFile(join(root, ticket))).toEqual(nativeBytes);
-});
-
-test("concurrent duplicate reconcile-native CLI calls share the Catalog entry lease result", async () => {
-  const root = await realpath(await createValidBearingRepo());
-  const homeDir = await makeTemporaryDirectory("bearing-native-reconciliation-home-");
-  const entryId = "native-reconciliation-concurrent";
-  await upsertCatalogEntry({ homeDir, repoRoot: root, createEntryId: () => entryId });
-  await runSync(root, {
-    providerObservationIntent: "initial-baseline",
-    completedAt: "2026-07-31T06:20:00.000Z",
-  });
-  const ticket = ".scratch/work/issues/01-finish.md";
-  await writeFixture(
-    root,
-    ticket,
-    `# Concurrent finish
-
-Type: task
-
-Status: resolved
-
-## Question
-
-Can concurrent duplicates share one result?
-
-## Answer
-
-Yes.
-`,
-  );
-  const args = [
-    "bun",
-    "src/cli.ts",
-    "reconcile-native",
-    "--repo",
-    root,
-    "--scope",
-    ".scratch/work",
-    "--ref",
-    ticket,
-  ];
-  const children = await withCatalogEntryLease(homeDir, entryId, root, async () => {
-    const spawned = [
-      Bun.spawn(args, {
-        cwd: process.cwd(),
-        env: { ...process.env, HOME: homeDir },
-        stdout: "pipe",
-        stderr: "pipe",
-      }),
-      Bun.spawn(args, {
-        cwd: process.cwd(),
-        env: { ...process.env, HOME: homeDir },
-        stdout: "pipe",
-        stderr: "pipe",
-      }),
-    ] as const;
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    return spawned;
-  });
-  const results = await Promise.all(
-    children.map(async (child) => ({
-      exitCode: await child.exited,
-      stdout: await new Response(child.stdout).text(),
-      stderr: await new Response(child.stderr).text(),
-    })),
-  );
-
-  expect(results.map((result) => result.exitCode)).toEqual([0, 0]);
-  expect(results.map((result) => result.stderr)).toEqual(["", ""]);
-  expect(results.map((result) => result.stdout).join("\n")).toContain("Publication: applied");
-  expect(results.map((result) => result.stdout).join("\n")).toContain("Publication: coalesced");
-  const fingerprints = results.map(
-    (result) => result.stdout.match(/^Input fingerprint: (.+)$/mu)?.[1],
-  );
-  expect(fingerprints[0]).toBe(fingerprints[1]);
 });
