@@ -20,7 +20,6 @@ import {
   githubDeliveryIssue as deliveryIssue,
   FixtureGitHubTransport,
   type GitHubFixtureResponse as FixtureResponse,
-  githubCaptureGeneration as generation,
   githubIssue,
   githubIncomingIssue as incomingIssue,
   githubMapIssue as mapIssue,
@@ -59,14 +58,14 @@ describe("GitHub matt-skills/v1 capture", () => {
       triageLocator,
       transport,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("available");
     expect(result.freshness.assessment).toBe("current");
     expect(result.coverage.assessment).toBe("complete");
     expect(result.completion).toBe("incomplete");
     expect(result.diagnostics).toEqual([]);
-    expect(result.freshness.sourceRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(result.sourceRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(result.projection?.map).toBeUndefined();
     expect(result.projection?.wayfinderTickets).toEqual([]);
     expect(result.projection?.deliveryTickets).toEqual([]);
@@ -82,6 +81,16 @@ describe("GitHub matt-skills/v1 capture", () => {
       lifecycle: { state: "open" },
       native: {
         kind: "github",
+        createdAt: {
+          availability: "available",
+          value: "2026-07-01T00:00:00Z",
+          precision: "second",
+        },
+        lastUpdated: {
+          availability: "available",
+          value: "2026-07-02T00:00:00Z",
+          precision: "second",
+        },
         identity: {
           repositoryDatabaseId: "9001",
           repositoryNodeId: "R_reference",
@@ -95,6 +104,9 @@ describe("GitHub matt-skills/v1 capture", () => {
         },
       },
     });
+    expect(result.projection?.structuralOrder.map(String)).toEqual([
+      "github:R_reference:I_reference_9",
+    ]);
     expect(result.projection?.incomingIssues[0]?.native.rawFacets).toEqual(
       expect.arrayContaining([
         {
@@ -114,6 +126,55 @@ describe("GitHub matt-skills/v1 capture", () => {
       transport.requests.filter((request) => request.endpoint.endsWith("/parent")),
     ).toHaveLength(2);
     expect(JSON.stringify(result)).not.toContain("token");
+  });
+
+  test("keeps a missing GitHub closure time unavailable instead of falling back to capture time", async () => {
+    const root = await createRepository();
+    const closed = {
+      ...githubIssue({
+        number: 110,
+        title: "Closed without a source timestamp",
+        body: "Reporter prose.",
+        labels: ["custom-enhancement", "custom-wontfix"],
+        state: "closed",
+        stateReason: "not_planned",
+      }),
+      closed_at: null,
+      updated_at: "2026-07-30T00:00:00Z",
+    };
+    const transport = new FixtureGitHubTransport({
+      "repos/example/reference": {
+        first: response(repository, '"repo-v1"'),
+      },
+      "repos/example/reference/issues/110": {
+        first: response(closed, '"issue-110-v1"'),
+      },
+      "repos/example/reference/issues/110/comments?per_page=100&page=1": {
+        first: response([], '"comments-110-v1"'),
+      },
+      "repos/example/reference/issues/110/dependencies/blocked_by?per_page=100&page=1": {
+        first: response([], '"blocked-110-v1"'),
+      },
+    });
+    const result = await createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      transport,
+      clock: () => new Date("2099-12-31T23:59:59Z"),
+    }).capture({
+      provider: "matt-skills/v1",
+      nativeScope: nativeScopeFor(closed),
+    });
+
+    expect(result.projection?.incomingIssues[0]).toMatchObject({
+      lifecycle: {
+        state: "closed",
+        disposition: "wontfix",
+        closedAt: { availability: "unavailable" },
+      },
+    });
+    expect(JSON.stringify(result.projection)).not.toContain("2099-12-31T23:59:59");
   });
 
   test("uses generation-captured contract and vocabulary after repository files change", async () => {
@@ -169,10 +230,7 @@ describe("GitHub matt-skills/v1 capture", () => {
       capturedDocuments,
       transport,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture(
-      { provider: "matt-skills/v1", nativeScope: nativeScopeFor(incomingIssue) },
-      generation,
-    );
+    }).capture({ provider: "matt-skills/v1", nativeScope: nativeScopeFor(incomingIssue) });
 
     expect(result.state).toBe("available");
     expect(result.diagnostics).toEqual([]);
@@ -241,7 +299,7 @@ describe("GitHub matt-skills/v1 capture", () => {
       triageLocator,
       transport,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("available");
     expect(result.freshness.assessment).toBe("current");
@@ -289,6 +347,11 @@ describe("GitHub matt-skills/v1 capture", () => {
           role: "answer",
           body: "Preserve workflow-specific lifecycle and evidence.",
           nativeIdentity: "IC_301",
+          authoredAt: {
+            availability: "available",
+            value: "2026-07-20T00:00:00Z",
+            precision: "second",
+          },
         },
       },
       comments: [
@@ -297,10 +360,23 @@ describe("GitHub matt-skills/v1 capture", () => {
           body: "This comment is not the Answer.",
           nativeIdentity: "IC_302",
           author: "reviewer",
+          authoredAt: {
+            availability: "available",
+            value: "2026-07-20T00:00:00Z",
+            precision: "second",
+          },
         },
       ],
       lifecycle: { state: "resolved-on-route" },
-      trackerClosure: { state: "closed", disposition: "completed" },
+      trackerClosure: {
+        state: "closed",
+        disposition: "completed",
+        closedAt: {
+          availability: "available",
+          value: "2026-07-20T00:00:00Z",
+          precision: "second",
+        },
+      },
     });
     expect(result.projection?.deliveryTickets[0]).toMatchObject({
       title: "Implement provider capture",
@@ -341,6 +417,85 @@ describe("GitHub matt-skills/v1 capture", () => {
         evidence: "github-native",
       },
     ]);
+  });
+
+  test("keeps tracker closure as an independent native event for closed Map and Spec issues", async () => {
+    const root = await createRepository();
+    const closedMap = {
+      ...mapIssue,
+      state: "closed" as const,
+      state_reason: "completed",
+      closed_at: "2026-07-21T01:02:03Z",
+      closed_by: { login: "closer", id: 92, node_id: "U_closer" },
+    };
+    const closedSpec = {
+      ...specIssue,
+      state: "closed" as const,
+      state_reason: "completed",
+      closed_at: "2026-07-22T04:05:06Z",
+      closed_by: { login: "closer", id: 92, node_id: "U_closer" },
+    };
+    const fixtures: Record<string, FixtureResponse> = {
+      "repos/example/reference": {
+        first: response(repository, '"repo-v1"'),
+      },
+    };
+    for (const issue of [closedMap, closedSpec]) {
+      const issueEndpoint = `repos/example/reference/issues/${issue.number}`;
+      fixtures[issueEndpoint] = {
+        first: response(issue, `"issue-${issue.number}-v1"`),
+      };
+      fixtures[`${issueEndpoint}/comments?per_page=100&page=1`] = {
+        first: response([], `"comments-${issue.number}-v1"`),
+      };
+      fixtures[`${issueEndpoint}/dependencies/blocked_by?per_page=100&page=1`] = {
+        first: response([], `"deps-${issue.number}-v1"`),
+      };
+      fixtures[`${issueEndpoint}/sub_issues?per_page=100&page=1`] = {
+        first: response(
+          issue.number === closedMap.number ? [closedSpec] : [],
+          `"children-${issue.number}-v1"`,
+        ),
+      };
+    }
+
+    const result = await createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      transport: new FixtureGitHubTransport(fixtures),
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    }).capture({
+      provider: "matt-skills/v1",
+      nativeScope: nativeScopeFor(closedMap, "wayfinder-map"),
+    });
+
+    expect(result.projection?.map).toMatchObject({
+      lifecycle: { state: "resolved" },
+      native: {
+        trackerClosure: {
+          state: "closed",
+          closedAt: {
+            availability: "available",
+            value: "2026-07-21T01:02:03Z",
+            precision: "second",
+          },
+        },
+      },
+    });
+    expect(result.projection?.spec).toMatchObject({
+      lifecycle: { state: "ready-for-agent" },
+      native: {
+        trackerClosure: {
+          state: "closed",
+          closedAt: {
+            availability: "available",
+            value: "2026-07-22T04:05:06Z",
+            precision: "second",
+          },
+        },
+      },
+    });
   });
 
   test("keeps scope-external and cross-repository relations as references without aggregation", async () => {
@@ -424,7 +579,7 @@ A bounded delivery.
       triageLocator,
       transport,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("available");
     expect(result.projection?.deliveryTickets).toHaveLength(1);
@@ -513,7 +668,7 @@ A bounded delivery.
       triageLocator,
       transport,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("available");
     expect(result.projection?.graph.parentChild).toEqual([]);
@@ -584,7 +739,7 @@ Expose hierarchy disagreement.
       triageLocator,
       transport: new FixtureGitHubTransport(fixtures),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("partial");
     expect(result.diagnostics.map((item) => item.code)).toContain(
@@ -656,7 +811,7 @@ Do not mistake permission failure for unsupported hierarchy.
       triageLocator,
       transport,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("partial");
     expect(result.freshness.assessment).toBe("undetermined");
@@ -716,7 +871,7 @@ Do not mistake permission failure for unsupported hierarchy.
         triageLocator,
         transport,
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+      }).capture({ provider: "matt-skills/v1", nativeScope });
     };
 
     const eligible = await captureWith(enabledContract);
@@ -768,7 +923,7 @@ Do not mistake permission failure for unsupported hierarchy.
           },
         }),
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+      }).capture({ provider: "matt-skills/v1", nativeScope });
 
     const captures = await Promise.all([
       captureWith(
@@ -848,7 +1003,7 @@ Do not mistake permission failure for unsupported hierarchy.
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope: incomingScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope: incomingScope });
 
     expect(incoming.state).toBe("partial");
     expect(incoming.projection?.incomingIssues[0]?.classification).toEqual({
@@ -882,7 +1037,7 @@ Do not mistake permission failure for unsupported hierarchy.
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope: specScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope: specScope });
 
     expect(spec.state).toBe("available");
     expect(spec.projection?.spec?.lifecycle).toEqual({ state: "draft" });
@@ -915,7 +1070,7 @@ Do not mistake permission failure for unsupported hierarchy.
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope: standaloneScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope: standaloneScope });
     expect(mapping.state).toBe("partial");
     expect(mapping.coverage.assessment).toBe("incomplete");
     expect(mapping.diagnostics.map((item) => item.code)).toContain("matt.github.mapping.ambiguous");
@@ -954,7 +1109,7 @@ Which canonical role owns this issue?
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope: roleScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope: roleScope });
     expect(role.state).toBe("partial");
     expect(role.projection?.wayfinderTickets).toEqual([]);
     expect(role.projection?.incomingIssues).toEqual([]);
@@ -991,7 +1146,7 @@ A role that is not yet structurally complete.
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope: partialScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope: partialScope });
     expect(partial.state).toBe("partial");
     expect(partial.projection?.deliveryTickets).toEqual([]);
     expect(partial.projection?.incomingIssues).toEqual([]);
@@ -1027,7 +1182,7 @@ A role that is not yet structurally complete.
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("partial");
     expect(result.diagnostics.map((item) => item.code)).toContain("matt.github.mapping.ambiguous");
@@ -1118,7 +1273,7 @@ A dependency-aware capture.
         triageLocator,
         transport,
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+      }).capture({ provider: "matt-skills/v1", nativeScope });
     };
 
     const fallback = await captureWith({
@@ -1190,13 +1345,10 @@ Blocked by: #3
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture(
-      {
-        provider: "matt-skills/v1",
-        nativeScope: nativeScopeFor(issueWithFallbackRelations),
-      },
-      generation,
-    );
+    }).capture({
+      provider: "matt-skills/v1",
+      nativeScope: nativeScopeFor(issueWithFallbackRelations),
+    });
 
     expect(result.state).toBe("available");
     expect(result.projection?.graph.parentChild).toEqual([]);
@@ -1261,7 +1413,7 @@ Blocked by: #3
           },
         }),
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture({ provider: "matt-skills/v1", nativeScope: nativeScopeFor(issue) }, generation);
+      }).capture({ provider: "matt-skills/v1", nativeScope: nativeScopeFor(issue) });
     };
 
     const blockedBy = await captureStandalone(
@@ -1332,13 +1484,10 @@ Keep native emptiness authoritative.
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture(
-      {
-        provider: "matt-skills/v1",
-        nativeScope: nativeScopeFor(mapWithExternalFallback, "wayfinder-map"),
-      },
-      generation,
-    );
+    }).capture({
+      provider: "matt-skills/v1",
+      nativeScope: nativeScopeFor(mapWithExternalFallback, "wayfinder-map"),
+    });
     expect(map.state).toBe("partial");
     expect(map.diagnostics.map((item) => item.code)).toContain(
       "matt.github.relation.native-fallback-conflict",
@@ -1437,7 +1586,7 @@ A bounded parent capture.
       triageLocator,
       transport,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("partial");
     expect(result.freshness.assessment).toBe("undetermined");
@@ -1512,7 +1661,7 @@ Which issue belongs to the fallback scope?
       triageLocator,
       transport,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("available");
     expect(result.freshness.assessment).toBe("current");
@@ -1610,7 +1759,7 @@ Blocked by: #3draft
       triageLocator,
       transport: new FixtureGitHubTransport(fixtures),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("available");
     expect(result.projection?.graph.blockedBy).toEqual([]);
@@ -1667,13 +1816,10 @@ Which native parent is authoritative?
       triageLocator,
       transport: new FixtureGitHubTransport(fixtures),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture(
-      {
-        provider: "matt-skills/v1",
-        nativeScope: nativeScopeFor(parentConflictMap, "wayfinder-map"),
-      },
-      generation,
-    );
+    }).capture({
+      provider: "matt-skills/v1",
+      nativeScope: nativeScopeFor(parentConflictMap, "wayfinder-map"),
+    });
 
     expect(result.state).toBe("partial");
     expect(result.diagnostics.map((item) => item.code)).toContain(
@@ -1807,7 +1953,7 @@ Does closure alone prove resolution?
       triageLocator,
       transport: new FixtureGitHubTransport(fixtures),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("partial");
     expect(result.freshness.assessment).toBe("current");
@@ -1917,13 +2063,10 @@ Intervening prose keeps the lists structurally distinct.
           },
         }),
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture(
-        {
-          provider: "matt-skills/v1",
-          nativeScope: nativeScopeFor(map, "wayfinder-map"),
-        },
-        generation,
-      );
+      }).capture({
+        provider: "matt-skills/v1",
+        nativeScope: nativeScopeFor(map, "wayfinder-map"),
+      });
     };
 
     for (const result of [
@@ -1994,7 +2137,7 @@ Which route pointer is canonical?
       triageLocator,
       transport: new FixtureGitHubTransport(fixtures),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(result.state).toBe("partial");
     expect(result.diagnostics.map((item) => item.code)).toContain(
@@ -2053,13 +2196,10 @@ Require one canonical ticket per route entry.
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture(
-      {
-        provider: "matt-skills/v1",
-        nativeScope: nativeScopeFor(ambiguousEntryMap, "wayfinder-map"),
-      },
-      generation,
-    );
+    }).capture({
+      provider: "matt-skills/v1",
+      nativeScope: nativeScopeFor(ambiguousEntryMap, "wayfinder-map"),
+    });
 
     expect(result.state).toBe("partial");
     expect(result.diagnostics.map((item) => item.code)).toContain(
@@ -2104,10 +2244,7 @@ Require one canonical ticket per route entry.
       triageLocator,
       transport,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture(
-      { provider: "matt-skills/v1", nativeScope: nativeScopeFor(incomingIssue) },
-      generation,
-    );
+    }).capture({ provider: "matt-skills/v1", nativeScope: nativeScopeFor(incomingIssue) });
 
     expect(result.state).toBe("available");
     expect(result.freshness.assessment).toBe("current");
@@ -2177,7 +2314,7 @@ Require one canonical ticket per route entry.
         triageLocator,
         transport,
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+      }).capture({ provider: "matt-skills/v1", nativeScope });
     };
 
     const settles = new ChangingTransport(false);
@@ -2237,7 +2374,7 @@ Require one canonical ticket per route entry.
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
     expect(pagination.state).toBe("available");
     expect(
       pagination.projection?.incomingIssues[0]?.content.filter(
@@ -2259,7 +2396,7 @@ Require one canonical ticket per route entry.
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
     expect(auth.state).toBe("invalid");
     expect(auth.freshness.assessment).toBe("undetermined");
     expect(auth.diagnostics.map((item) => item.code)).toContain(
@@ -2292,7 +2429,7 @@ Require one canonical ticket per route entry.
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
     expect(rateLimited.state).toBe("partial");
     expect(rateLimited.freshness.assessment).toBe("undetermined");
     expect(rateLimited.diagnostics.map((item) => item.code)).toContain(
@@ -2329,7 +2466,7 @@ Require one canonical ticket per route entry.
         },
       }),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
     expect(partialPage.state).toBe("partial");
     expect(partialPage.freshness.assessment).toBe("undetermined");
     expect(partialPage.diagnostics.map((item) => item.code)).toEqual(
@@ -2356,7 +2493,7 @@ Require one canonical ticket per route entry.
       triageLocator,
       transport: new NetworkFailureTransport(),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
     expect(network.state).toBe("invalid");
     expect(network.freshness.assessment).toBe("undetermined");
     expect(network.diagnostics.map((item) => item.code)).toContain(
@@ -2398,7 +2535,7 @@ Require one canonical ticket per route entry.
       triageLocator,
       transport,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+    }).capture({ provider: "matt-skills/v1", nativeScope });
 
     expect(capture.state).toBe("partial");
     expect(capture.freshness.assessment).toBe("undetermined");
@@ -2437,7 +2574,7 @@ Require one canonical ticket per route entry.
           },
         }),
         clock: () => times.shift() ?? new Date(end),
-      }).capture({ provider: "matt-skills/v1", nativeScope }, generation);
+      }).capture({ provider: "matt-skills/v1", nativeScope });
     };
 
     const first = await captureWithWindow("2026-07-28T00:00:05.000Z");
@@ -2456,8 +2593,8 @@ Require one canonical ticket per route entry.
         { kind: "conditional-revalidation", value: "stable" },
       ]),
     );
-    expect(first.freshness.sourceRevision).toBe(replay.freshness.sourceRevision);
-    expect(first.freshness.sourceRevision).not.toBe(later.freshness.sourceRevision);
+    expect(first.sourceRevision).toBe(replay.sourceRevision);
+    expect(first.sourceRevision).not.toBe(later.sourceRevision);
   });
 
   test("uses gh api as a bounded read-only transport without exposing credentials", async () => {

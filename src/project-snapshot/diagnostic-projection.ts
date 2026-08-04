@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { StructuralDiagnostic } from "../types";
 import type { AttentionItem, SnapshotDiagnostic } from "./contract";
+import { isManagedAttentionDiagnostic } from "./managed-attention";
 import {
   attentionItemSchema,
   diagnosticReferenceSchema,
@@ -12,6 +13,7 @@ type DiagnosticProjectionInput = Readonly<{
   sitemapFingerprint: string;
   diagnostics: readonly StructuralDiagnostic[];
   sourceLocators: readonly SourceLocator[];
+  managedTargets?: readonly string[] | undefined;
 }>;
 
 const diagnosticReference = (
@@ -65,10 +67,14 @@ export const buildSnapshotDiagnostics = (
     byReference.set(projected.reference, projected);
   }
   const diagnostics = [...byReference.values()];
+  const sources = input.sourceLocators.map((source) =>
+    createSourceRecord(input.sitemapFingerprint, source),
+  );
   return {
     diagnostics,
     attention: diagnostics.flatMap((diagnostic) =>
-      diagnostic.impact === "blocking"
+      diagnostic.impact === "blocking" &&
+      isManagedAttentionDiagnostic(diagnostic, sources, input.managedTargets ?? [])
         ? [
             attentionItemSchema.parse({
               kind: "structural-diagnostic" as const,

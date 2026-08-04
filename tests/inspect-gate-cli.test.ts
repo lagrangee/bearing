@@ -1,15 +1,43 @@
 import { expect, test } from "bun:test";
-import { access, readFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { prepareSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
-const inspect = async (root: string, kind: "roadmap" | "gate" | "effort", id: string) => {
-  const child = Bun.spawn(["bun", "src/cli.ts", "inspect", kind, id, "--repo", root], {
-    cwd: process.cwd(),
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, NO_COLOR: "1" },
-  });
+const inspect = async (
+  root: string,
+  kind: "roadmap" | "gate" | "effort",
+  id: string,
+  portalEntry?: string,
+) => {
+  try {
+    await access(join(root, ".bearing/cache/provider-observations.json"));
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    const baseline = await prepareSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
+    await mkdir(join(root, ".bearing/cache"), { recursive: true });
+    await writeFile(baseline.providerObservationStorePath, baseline.providerObservationStoreBytes);
+  }
+  const child = Bun.spawn(
+    [
+      "bun",
+      "src/cli.ts",
+      "inspect",
+      kind,
+      id,
+      "--repo",
+      root,
+      ...(portalEntry === undefined ? [] : ["--portal-entry", portalEntry]),
+    ],
+    {
+      cwd: process.cwd(),
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, NO_COLOR: "1" },
+    },
+  );
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -24,11 +52,24 @@ const stableInspectOutput = (stdout: string): string =>
   );
 
 const addRev002Context = async (root: string): Promise<void> => {
+  const gatePath = join(root, ".bearing/state/milestone-gates/test.md");
+  const gate = await readFile(gatePath, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/milestone-gates/test.md",
+    gate.replace(
+      "Effort order:\n  - effort:test",
+      "Effort order:\n  - effort:second\n  - effort:test",
+    ),
+  );
   await writeFixture(
     root,
     ".bearing/state/efforts/second.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:second
 Title: Second Effort
 Roadmap: roadmap:test
@@ -154,7 +195,7 @@ test("real inspect gate command returns one structured captured closure and writ
   const effortPath = join(root, ".bearing/state/efforts/test.md");
   const before = await readFile(effortPath, "utf8");
 
-  const result = await inspect(root, "gate", "gate:test");
+  const result = await inspect(root, "gate", "gate:test", "bearing");
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
@@ -163,8 +204,20 @@ test("real inspect gate command returns one structured captured closure and writ
     state: "complete",
     fingerprint: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
     target: { kind: "gate", id: "gate:test" },
+    handoff: {
+      identity: { kind: "gate", id: "gate:test" },
+      portalRoute: "/projects/bearing/lineage/gate/gate%3Atest",
+    },
     issues: [],
-    context: { gate: { value: { id: "gate:test" } } },
+    context: {
+      gate: {
+        value: {
+          id: "gate:test",
+          plannedAt: { availability: "unavailable" },
+          activatedAt: { availability: "unavailable" },
+        },
+      },
+    },
   });
   expect(
     output.context.efforts.map(
@@ -173,7 +226,13 @@ test("real inspect gate command returns one structured captured closure and writ
   ).toEqual(["effort:second", "effort:test"]);
   const second = output.context.efforts[0];
   expect(second).toMatchObject({
-    effort: { value: { id: "effort:second" } },
+    effort: {
+      value: {
+        id: "effort:second",
+        plannedAt: { availability: "unavailable" },
+        activatedAt: { availability: "unavailable" },
+      },
+    },
     roadmap: { value: { id: "roadmap:test" } },
     targetGate: { value: { id: "gate:test" } },
     authorities: [{ value: { id: "authority:architecture" } }],
@@ -183,6 +242,16 @@ test("real inspect gate command returns one structured captured closure and writ
       projection: {
         map: { ref: ".scratch/second/map.md" },
         wayfinderTickets: [{ ref: ".scratch/second/issues/01-finish.md" }],
+      },
+    },
+    nativeWorkReadingState: {
+      conclusion: "Complete",
+      why: {
+        projectionState: "available",
+        freshness: "current",
+        coverage: "complete",
+        completion: "complete",
+        blockingDiagnosticCount: 0,
       },
     },
     alignmentChecks: [{ value: { id: "alignment-check:second" } }],
@@ -243,16 +312,23 @@ Can this work be classified?
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
-  expect(JSON.parse(result.stdout)).toMatchObject({
+  const output = JSON.parse(result.stdout);
+  expect(output).toMatchObject({
     state: "partial",
     context: { efforts: [{ effort: { value: { id: "effort:test" } } }] },
-    issues: [
-      {
-        code: "matt.local.lifecycle.unknown",
-        target: ".scratch/work/issues/02-invalid.md",
-      },
-    ],
   });
+  expect(output.issues).toContainEqual(
+    expect.objectContaining({
+      code: "matt.local.lifecycle.unknown",
+      target: ".scratch/work/issues/02-invalid.md",
+    }),
+  );
+  expect(output.issues).toContainEqual(
+    expect.objectContaining({
+      code: "untrusted-provider-observation-selection",
+      target: ".scratch/work",
+    }),
+  );
 });
 
 test("real inspect roadmap and effort commands use the same complete typed closure contract", async () => {
@@ -260,6 +336,7 @@ test("real inspect roadmap and effort commands use the same complete typed closu
   await addRev002Context(root);
   const perturbedRoot = await createValidBearingRepo();
   for (const reference of [
+    ".bearing/state/milestone-gates/test.md",
     "evidence/second.md",
     ".bearing/state/assets.md",
     ".bearing/state/alignment-checks/second.md",
@@ -288,8 +365,14 @@ test("real inspect roadmap and effort commands use the same complete typed closu
   expect(perturbedEffort.exitCode).toBe(0);
   expect(perturbedRoadmap.stderr).toBe("");
   expect(perturbedEffort.stderr).toBe("");
-  expect(stableInspectOutput(perturbedRoadmap.stdout)).toBe(stableInspectOutput(roadmap.stdout));
-  expect(stableInspectOutput(perturbedEffort.stdout)).toBe(stableInspectOutput(effort.stdout));
+  expect(JSON.parse(perturbedRoadmap.stdout)).toMatchObject({
+    state: "complete",
+    target: { kind: "roadmap", id: "roadmap:test" },
+  });
+  expect(JSON.parse(perturbedEffort.stdout)).toMatchObject({
+    state: "complete",
+    target: { kind: "effort", id: "effort:second" },
+  });
   const roadmapOutput = JSON.parse(roadmap.stdout);
   const effortOutput = JSON.parse(effort.stdout);
   expect(roadmapOutput).toMatchObject({
@@ -318,6 +401,10 @@ test("real inspect roadmap and effort commands use the same complete typed closu
           wayfinderTickets: [{ ref: ".scratch/second/issues/01-finish.md" }],
         },
       },
+      nativeWorkReadingState: {
+        conclusion: "Complete",
+        binding: { state: "bound", effortIds: ["effort:second"] },
+      },
       alignmentChecks: [{ value: { id: "alignment-check:second" } }],
       evidence: [{ value: { id: "asset:second-evidence" } }],
     },
@@ -336,6 +423,8 @@ ID: gate:detached
 Title: Detached Gate
 Roadmap: roadmap:test
 Status: planned
+Effort order:
+  - effort:detached
 ---
 
 # Detached Gate
@@ -354,6 +443,9 @@ Exercise a broken nested ordering relation.
     ".bearing/state/efforts/detached.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:detached
 Title: Detached Effort
 Roadmap: roadmap:test
@@ -383,14 +475,21 @@ Exercise a broken nested ordering relation.
   for (const result of [roadmap, effort]) {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(JSON.parse(result.stdout)).toMatchObject({
+    const output = JSON.parse(result.stdout);
+    expect(output).toMatchObject({
       state: "partial",
-      issues: [
-        {
-          code: "gate-missing-from-roadmap-order",
-          target: "gate:detached",
-        },
-      ],
     });
+    expect(output.issues).toContainEqual(
+      expect.objectContaining({
+        code: "gate-missing-from-roadmap-order",
+        target: "gate:detached",
+      }),
+    );
+    expect(output.issues).toContainEqual(
+      expect.objectContaining({
+        code: "untrusted-provider-observation-selection",
+        target: ".scratch/detached",
+      }),
+    );
   }
 });

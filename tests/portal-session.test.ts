@@ -33,3 +33,21 @@ test("reuses an admitted session without rotating its CSRF token or cookie", () 
     csrfToken: created.csrfToken,
   });
 });
+
+test("does not let a stale duplicate cookie hide the current signed session", () => {
+  const sessions = createPortalSessionManager(secret);
+  const current = sessions.establish(undefined);
+  if (current.cookie === undefined) throw new Error("Expected a new Portal session.");
+  const currentCookie = cookieValue(current.cookie);
+  const staleCookie = "bearing_session=stale.invalid";
+
+  expect(sessions.verify(`${currentCookie}; ${staleCookie}`, current.csrfToken)).toBe(true);
+  expect(sessions.verify(`${staleCookie}; ${currentCookie}`, current.csrfToken)).toBe(true);
+});
+
+test("limits the Portal session cookie to the API authority surface", () => {
+  const sessions = createPortalSessionManager(secret);
+  const created = sessions.establish(undefined);
+  expect(created.cookie).toContain("Path=/api/");
+  expect(created.cookie).not.toContain("Path=/;");
+});

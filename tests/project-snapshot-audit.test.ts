@@ -275,7 +275,9 @@ test("builds findings and de-duplicated Attention through the complete Snapshot 
   await writeFixture(root, AUDIT_LOCATOR, auditRecord(body).source);
   await writeFixture(root, checkRecord("open").locator, checkRecord("open").source);
   await writeFixture(root, reviewRecord("completed").locator, reviewRecord("completed").source);
-  const sync = await runSync(root);
+  const sync = await runSync(root, {
+    providerObservationIntent: "initial-baseline",
+  });
   expect(sync.diagnostics).toEqual([]);
   const snapshot = await buildProjectSnapshot({
     repoRoot: root,

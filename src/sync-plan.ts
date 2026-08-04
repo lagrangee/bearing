@@ -14,12 +14,25 @@ import {
 } from "./bearing-record-decoder";
 import { deriveStructuralDiagnosticsFromGeneration } from "./diagnostics";
 import { listFiles } from "./discovery";
+import { fingerprintInputRecords } from "./fingerprint";
 import { retainContainedInputs } from "./input-boundary";
+import {
+  fingerprintNativeScopeInspections,
+  type NativeScopeInspectionIntent,
+  selectNativeScopeInspections,
+} from "./native-scope-inspection";
 import { resolveRepositoryRoot } from "./path-boundary";
 import { buildPlanningGraph, type PlanningGraph } from "./planning-graph";
 import type { PlanningGraphInstrumentation } from "./planning-graph-instrumentation";
-import { captureProviderGeneration, type MattProviderFactory } from "./provider-capture-generation";
-import type { MattSkillsV1ScopeCapture } from "./providers/matt-skills-v1/capture";
+import type { MattProviderFactory } from "./provider-observation-acquisition";
+import {
+  fingerprintProviderObservationSelection,
+  type ProviderObservationIntent,
+  type ProviderObservationOperation,
+  type ProviderObservationSelection,
+  selectProviderObservations,
+} from "./provider-observation-store";
+import type { MattSkillsV1ProviderObservation } from "./providers/matt-skills-v1/capture";
 import { buildProjectSitemapFromGeneration } from "./sitemap";
 import { discoverProjectSitemapInputs } from "./sitemap-discovery";
 import { captureSyncInputGeneration, extendSyncInputGeneration } from "./sync-input-generation";
@@ -39,7 +52,20 @@ export type SyncPlan = Readonly<{
   diagnostics: readonly StructuralDiagnostic[];
   advisoryFreshness: AdvisoryFreshness;
   decoded: DecodedBearingRecordGeneration;
-  providerCaptures: readonly MattSkillsV1ScopeCapture[];
+  providerObservations: readonly MattSkillsV1ProviderObservation[];
+  providerObservationSelections: readonly ProviderObservationSelection[];
+  providerObservationOperation: ProviderObservationOperation;
+  providerObservationStorePath: string;
+  providerObservationStoreBytes: Buffer;
+  providerObservationStoreChanged: boolean;
+  nativeScopeInspectionObservations: readonly MattSkillsV1ProviderObservation[];
+  nativeScopeInspectionSelections: readonly ProviderObservationSelection[];
+  nativeScopeInspectionOperation: Awaited<
+    ReturnType<typeof selectNativeScopeInspections>
+  >["operation"];
+  nativeScopeInspectionStorePath: string;
+  nativeScopeInspectionStoreBytes: Buffer;
+  nativeScopeInspectionStoreChanged: boolean;
   assetContentObservations: readonly AssetContentObservation[];
   planningGraph: PlanningGraph;
   planningPhaseMs: Readonly<{
@@ -56,7 +82,8 @@ export type SyncPerformanceMetrics = Readonly<{
   bearingRecordCount: number;
   recordDecodeCount: number;
   repositoryRevalidationCount: number;
-  providerCaptureCount: number;
+  providerAcquisitionCount: number;
+  nativeScopeInspectionAcquisitionCount: number;
   phaseMs: Readonly<{
     discovery: number;
     capture: number;
@@ -72,6 +99,10 @@ export type PrepareSyncOptions = Readonly<{
   planningGraphInstrumentation?: PlanningGraphInstrumentation;
   explicitInputs?: readonly string[];
   providerFactory?: MattProviderFactory;
+  providerObservationIntent?: ProviderObservationIntent;
+  providerObservationNow?: () => string;
+  nativeScopeInspectionIntent?: NativeScopeInspectionIntent;
+  nativeScopeInspectionMaximumStoreBytes?: number;
 }>;
 
 const readExisting = async (target: string): Promise<Buffer | undefined> => {
@@ -88,6 +119,8 @@ const ensureCacheBoundary = async (repoRoot: string): Promise<void> => {
   const outputs = [
     join(repoRoot, ".bearing/cache/sync-report.md"),
     join(repoRoot, ".bearing/cache/project-sitemap.md"),
+    join(repoRoot, ".bearing/cache/provider-observations.json"),
+    join(repoRoot, ".bearing/cache/native-scope-inspections.json"),
   ];
   const inspect = async (
     target: string,
@@ -151,6 +184,21 @@ export const prepareSync = async (
   const started = performance.now();
   const root = await resolveRepositoryRoot(repoRoot);
   await ensureCacheBoundary(root);
+  const nativeScopeInspectionIntent = options.nativeScopeInspectionIntent ?? { kind: "none" };
+  const nativeReconciliationRequest =
+    nativeScopeInspectionIntent.kind === "reconcile"
+      ? nativeScopeInspectionIntent.request
+      : undefined;
+  if (
+    nativeReconciliationRequest !== undefined &&
+    options.providerObservationIntent !== undefined &&
+    options.providerObservationIntent !== "ordinary-sync" &&
+    options.providerObservationIntent !== "targeted-reconciliation"
+  ) {
+    throw new TypeError(
+      "Targeted native reconciliation cannot be combined with baseline, recovery or full verification.",
+    );
+  }
   const discovery = await discoverProjectSitemapInputs(root);
   const explicit =
     options.explicitInputs === undefined
@@ -185,30 +233,72 @@ export const prepareSync = async (
     generation.fingerprint,
     generation.records.length,
   );
-  const providerGeneration = await captureProviderGeneration(
+  const providerSelection = await selectProviderObservations({
     generation,
-    providerBasisDecoded,
-    options.providerFactory,
-  );
+    decoded: providerBasisDecoded,
+    intent:
+      nativeReconciliationRequest === undefined
+        ? (options.providerObservationIntent ?? "ordinary-sync")
+        : "targeted-reconciliation",
+    ...(nativeReconciliationRequest === undefined ? {} : { nativeReconciliationRequest }),
+    ...(options.providerFactory === undefined ? {} : { providerFactory: options.providerFactory }),
+    ...(options.providerObservationNow === undefined
+      ? {}
+      : { now: options.providerObservationNow }),
+  });
+  const nativeScopeInspection = await selectNativeScopeInspections({
+    repoRoot: generation.root,
+    generation,
+    intent: nativeScopeInspectionIntent,
+    boundObservations: providerSelection.observations,
+    boundSelections: providerSelection.selections,
+    ...(options.providerFactory === undefined ? {} : { providerFactory: options.providerFactory }),
+    ...(options.providerObservationNow === undefined
+      ? {}
+      : { now: options.providerObservationNow }),
+    ...(options.nativeScopeInspectionMaximumStoreBytes === undefined
+      ? {}
+      : { maximumStoreBytes: options.nativeScopeInspectionMaximumStoreBytes }),
+  });
+  const finalGeneration = fingerprintInputRecords(generation.records, [
+    ...generation.observations,
+    {
+      key: "provider-observation-selection",
+      value: fingerprintProviderObservationSelection(
+        providerSelection.observations,
+        providerSelection.selections,
+      ),
+    },
+    {
+      key: "native-scope-inspection-selection",
+      value: fingerprintNativeScopeInspections(
+        nativeScopeInspection.observations,
+        nativeScopeInspection.selections,
+      ),
+    },
+  ]);
   const decoded = rebaseDecodedBearingRecordGeneration(
     providerBasisDecoded,
-    providerGeneration.fingerprint,
+    finalGeneration.fingerprint,
     generation.records.length,
   );
   const diagnostics = [
     ...deriveStructuralDiagnosticsFromGeneration(decoded, generation.records, discoveryDiagnostics),
-    ...providerGeneration.diagnostics,
+    ...providerSelection.diagnostics,
   ];
   const advisoryFreshness = deriveAdvisoryFreshnessFromGeneration(decoded, generation.records);
   const graphStarted = performance.now();
-  const reusableGraph = options.planningGraph?.fingerprint === providerGeneration.fingerprint;
+  const reusableGraph = options.planningGraph?.fingerprint === finalGeneration.fingerprint;
   const planningGraph = reusableGraph
     ? options.planningGraph
     : await buildPlanningGraph({
         decoded,
-        providerCaptures: providerGeneration.captures,
+        providerObservations: providerSelection.observations,
+        providerObservationSelections: providerSelection.selections,
+        nativeScopeInspectionObservations: nativeScopeInspection.observations,
+        nativeScopeInspectionSelections: nativeScopeInspection.selections,
         diagnostics,
-        fingerprint: providerGeneration.fingerprint,
+        fingerprint: finalGeneration.fingerprint,
         assetContentObservations: assetResolution.observations,
         ...(options.planningGraphInstrumentation === undefined
           ? {}
@@ -217,18 +307,14 @@ export const prepareSync = async (
   const graphBuilt = performance.now();
   const sitemap = buildProjectSitemapFromGeneration(
     decoded,
-    providerGeneration.captures,
-    providerGeneration.inputs,
-    providerGeneration.fingerprint,
+    providerSelection.observations,
+    finalGeneration.inputs,
+    finalGeneration.fingerprint,
     diagnostics,
     advisoryFreshness,
     planningGraph,
   );
-  const report = serializeReport(
-    providerGeneration.inputs,
-    providerGeneration.fingerprint,
-    diagnostics,
-  );
+  const report = serializeReport(finalGeneration.inputs, finalGeneration.fingerprint, diagnostics);
   const outputBuilt = performance.now();
   const reportPath = join(root, ".bearing/cache/sync-report.md");
   const sitemapPath = join(root, ".bearing/cache/project-sitemap.md");
@@ -247,12 +333,23 @@ export const prepareSync = async (
     sitemap,
     reportPath,
     sitemapPath,
-    inputs: providerGeneration.inputs,
-    fingerprint: providerGeneration.fingerprint,
+    inputs: finalGeneration.inputs,
+    fingerprint: finalGeneration.fingerprint,
     diagnostics,
     advisoryFreshness,
     decoded,
-    providerCaptures: providerGeneration.captures,
+    providerObservations: providerSelection.observations,
+    providerObservationSelections: providerSelection.selections,
+    providerObservationOperation: providerSelection.operation,
+    providerObservationStorePath: providerSelection.storePath,
+    providerObservationStoreBytes: providerSelection.storeBytes,
+    providerObservationStoreChanged: providerSelection.storeChanged,
+    nativeScopeInspectionObservations: nativeScopeInspection.observations,
+    nativeScopeInspectionSelections: nativeScopeInspection.selections,
+    nativeScopeInspectionOperation: nativeScopeInspection.operation,
+    nativeScopeInspectionStorePath: nativeScopeInspection.storePath,
+    nativeScopeInspectionStoreBytes: nativeScopeInspection.storeBytes,
+    nativeScopeInspectionStoreChanged: nativeScopeInspection.storeChanged,
     assetContentObservations: assetResolution.observations,
     planningGraph,
     planningPhaseMs: {
@@ -266,7 +363,8 @@ export const prepareSync = async (
       bearingRecordCount: decoded.metrics.bearingRecordCount,
       recordDecodeCount: decoded.metrics.decodeCount,
       repositoryRevalidationCount: operationMetrics.repositoryRevalidationCount,
-      providerCaptureCount: providerGeneration.captureCount,
+      providerAcquisitionCount: providerSelection.operation.acquisitionCount,
+      nativeScopeInspectionAcquisitionCount: nativeScopeInspection.operation.acquisitionCount,
       phaseMs: {
         discovery: discovered - started,
         capture: baseCaptured - discovered + (extended - assetsResolved),
@@ -289,9 +387,33 @@ export const syncProjectionResultFromPlan = (plan: SyncPlan): SyncProjectionResu
   sitemapPath: plan.sitemapPath,
 });
 
-export const commitSyncPlan = async (plan: SyncPlan): Promise<SyncProjectionResult> => {
-  if (plan.changed) {
+export const commitSyncPlan = async (
+  plan: SyncPlan,
+  options: Readonly<{
+    publishProviderObservations?: boolean;
+    publishNativeScopeInspections?: boolean;
+  }> = {},
+): Promise<SyncProjectionResult> => {
+  if (
+    plan.changed ||
+    plan.providerObservationStoreChanged ||
+    plan.nativeScopeInspectionStoreChanged
+  ) {
     await mkdir(dirname(plan.reportPath), { recursive: true });
+    if (plan.providerObservationStoreChanged && options.publishProviderObservations !== false) {
+      await writeFileAtomically(
+        plan.providerObservationStorePath,
+        plan.providerObservationStoreBytes,
+        0o644,
+      );
+    }
+    if (plan.nativeScopeInspectionStoreChanged && options.publishNativeScopeInspections !== false) {
+      await writeFileAtomically(
+        plan.nativeScopeInspectionStorePath,
+        plan.nativeScopeInspectionStoreBytes,
+        0o644,
+      );
+    }
     if (plan.reportChanged) await writeFileAtomically(plan.reportPath, plan.report, 0o644);
     if (plan.sitemapChanged) await writeFileAtomically(plan.sitemapPath, plan.sitemap, 0o644);
   }

@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { bearingSourceEventTimeSchema, sourceEventTimeSchema } from "../source-event-time";
+import { ASSET_EVIDENCE_ROLES, deriveAssetEvidenceRoles } from "./asset-evidence-roles";
 import { uniqueIdentityArraySchema } from "./projection-identity";
 import { titledSourceShape } from "./schema-node";
 import {
@@ -37,28 +39,62 @@ const reverseCitationSchema = z.strictObject({
   source: sourceReferenceSchema,
 });
 
+const reverseAuthorityAdoptionSchema = z.strictObject({
+  authorityId: authorityIdSchema,
+  decisionReference: z.union([checkIdSchema, reviewIdSchema]),
+  source: sourceReferenceSchema,
+});
+
+const reversePassageEvidenceSchema = z.strictObject({
+  gateId: gateIdSchema,
+  source: sourceReferenceSchema,
+});
+
+export const assetEvidenceRoleSchema = z.enum(ASSET_EVIDENCE_ROLES);
+
 export const assetProjectionSchema = z
   .strictObject({
     id: assetIdSchema,
     ...titledSourceShape,
-    citations: z.array(reverseCitationSchema),
+    evidenceRoles: uniqueIdentityArraySchema(assetEvidenceRoleSchema, (role) => role),
+    citations: uniqueIdentityArraySchema(
+      reverseCitationSchema,
+      (citation) => `${citation.citingReference}\0${citation.note}\0${citation.source}`,
+    ),
+    authorityAdoptions: uniqueIdentityArraySchema(
+      reverseAuthorityAdoptionSchema,
+      (adoption) => adoption.authorityId,
+    ),
+    passageEvidence: uniqueIdentityArraySchema(
+      reversePassageEvidenceSchema,
+      (evidence) => evidence.gateId,
+    ),
     kind: semanticPlainTextSchema,
     owner: planningReferenceSchema,
     producer: producerSchema,
     lifecycleSource: z.enum(["native", "registry"]),
+    registeredAt: bearingSourceEventTimeSchema,
+    producedAt: sourceEventTimeSchema.optional(),
     disposition: z.enum(["available", "superseded", "archived"]).optional(),
     supersededBy: assetIdSchema.optional(),
+    supersededAt: bearingSourceEventTimeSchema.optional(),
+    archivedAt: bearingSourceEventTimeSchema.optional(),
     producedFor: planningReferenceSchema.optional(),
     displayLocation: displayAssetLocatorSchema,
     contentAvailability: z.enum(["available", "missing", "unreadable"]),
-    adoptedByAuthorityIds: uniqueIdentityArraySchema(
-      authorityIdSchema,
-      (authorityId) => authorityId,
-    ),
-    gatePassageEvidenceFor: uniqueIdentityArraySchema(gateIdSchema, (gateId) => gateId),
-    citationCount: z.number().int().nonnegative(),
+    contentShape: z.enum(["file", "directory", "unavailable"]),
   })
   .superRefine((asset, context) => {
+    if (
+      (asset.contentAvailability === "available" && asset.contentShape === "unavailable") ||
+      (asset.contentAvailability !== "available" && asset.contentShape !== "unavailable")
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["contentShape"],
+        message: "Asset content shape must match content availability.",
+      });
+    }
     if (asset.kind === "execution-evidence" && asset.producedFor === undefined) {
       context.addIssue({
         code: "custom",
@@ -106,6 +142,38 @@ export const assetProjectionSchema = z
         code: "custom",
         path: ["supersededBy"],
         message: "An Asset cannot supersede itself.",
+      });
+    }
+    if (
+      (asset.lifecycleSource === "registry" && asset.disposition === "superseded") !==
+      (asset.supersededAt !== undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["supersededAt"],
+        message: "Asset supersession time applicability must match registry disposition.",
+      });
+    }
+    if (
+      (asset.lifecycleSource === "registry" && asset.disposition === "archived") !==
+      (asset.archivedAt !== undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["archivedAt"],
+        message: "Asset archive time applicability must match registry disposition.",
+      });
+    }
+    const expectedRoles = deriveAssetEvidenceRoles(asset);
+    if (
+      asset.evidenceRoles.length !== expectedRoles.length ||
+      asset.evidenceRoles.some((role, index) => role !== expectedRoles[index])
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["evidenceRoles"],
+        message:
+          "Asset Evidence Roles must exactly match explicit Execution Evidence, Planning Citation, Authority Adoption, and Passage Evidence facts.",
       });
     }
   });

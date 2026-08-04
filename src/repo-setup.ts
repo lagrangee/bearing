@@ -459,7 +459,14 @@ export const setupRepository = async (
           if (options.executorHomeDir !== undefined) {
             await assertExecutorRegistrationsCurrent(options.executorHomeDir, registrations);
           }
-          const syncPlan = await prepareSync(root);
+          const syncPlan = await prepareSync(root, {
+            providerObservationIntent:
+              integrationPlan.lifecycle.kind === "fresh"
+                ? "initial-baseline"
+                : integrationPlan.lifecycle.kind === "deactivated"
+                  ? "recovery"
+                  : "ordinary-sync",
+          });
           if (syncPlan.diagnostics.length > 0) {
             throw new Error(
               `Fresh Setup validation requires zero Sync diagnostics; found ${syncPlan.diagnostics.length}.`,

@@ -148,7 +148,11 @@ const sameFile = (
   right: Readonly<{ dev: number | bigint; ino: number | bigint }>,
 ): boolean => left.dev === right.dev && left.ino === right.ino;
 
-export const readContainedFile = async (root: string, target: string): Promise<Buffer> => {
+export const readContainedFile = async (
+  root: string,
+  target: string,
+  options: Readonly<{ maximumBytes?: number }> = {},
+): Promise<Buffer> => {
   const resolved = await resolveContainedPath(root, target);
   const before = await lstat(resolved);
   if (!before.isFile() || before.nlink !== 1) {
@@ -157,6 +161,12 @@ export const readContainedFile = async (root: string, target: string): Promise<B
       before.isFile()
         ? `Repository input must be one unlinked regular file: ${target}`
         : `Repository input must be a regular file: ${target}`,
+    );
+  }
+  if (options.maximumBytes !== undefined && before.size > options.maximumBytes) {
+    throw new RepositoryPathBoundaryError(
+      "unsupported-shape",
+      `Repository input exceeds the bounded read limit: ${target}`,
     );
   }
   const handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -176,9 +186,34 @@ export const readContainedFile = async (root: string, target: string): Promise<B
           : `Repository input must be a regular file: ${target}`,
       );
     }
-    const bytes = await handle.readFile();
+    if (options.maximumBytes !== undefined && opened.size > options.maximumBytes) {
+      throw new RepositoryPathBoundaryError(
+        "unsupported-shape",
+        `Repository input exceeds the bounded read limit: ${target}`,
+      );
+    }
+    const maximumBytes = options.maximumBytes;
+    const bytes =
+      maximumBytes === undefined
+        ? await handle.readFile()
+        : await (async () => {
+            const bounded = Buffer.alloc(maximumBytes + 1);
+            const result = await handle.read(bounded, 0, bounded.length, 0);
+            if (result.bytesRead > maximumBytes) {
+              throw new RepositoryPathBoundaryError(
+                "unsupported-shape",
+                `Repository input exceeds the bounded read limit: ${target}`,
+              );
+            }
+            return bounded.subarray(0, result.bytesRead);
+          })();
     const after = await handle.stat();
-    if (!sameFile(opened, after)) {
+    if (
+      !sameFile(opened, after) ||
+      opened.size !== after.size ||
+      opened.mtimeMs !== after.mtimeMs ||
+      opened.ctimeMs !== after.ctimeMs
+    ) {
       throw new RepositoryPathBoundaryError(
         "changed",
         `Repository input changed while it was being read: ${target}`,

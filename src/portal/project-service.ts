@@ -1,3 +1,4 @@
+import type { NativeScopeInspectionIntent } from "../native-scope-inspection";
 import type { CatalogReadResult } from "./contract";
 import {
   createProjectCoordinator,
@@ -44,6 +45,8 @@ type Materializer = Readonly<{
     mode: ProjectOperationMode,
     authorizer?: ProjectWriteAuthorizer,
     generationGraph?: ProjectGenerationGraphAccess,
+    providerObservationIntent?: "ordinary-sync",
+    nativeScopeInspectionIntent?: NativeScopeInspectionIntent,
   ): Promise<ProjectMaterializationResult>;
 }>;
 
@@ -77,7 +80,12 @@ export const createProjectService = (options: {
   const generationGraphs = options.generationGraphs ?? createProjectGenerationGraphHost();
   let coordinator: ProjectCoordinator<CapturedProjectOperation>;
   const locationRecovery = createProjectLocationRecovery({
-    execute: (entryId, mode) => coordinator.execute({ entryId, mode }),
+    execute: (entryId, mode, nativeScopeInspectionIntent) =>
+      coordinator.execute({
+        entryId,
+        mode,
+        nativeScopeInspectionIntent,
+      }),
     status: (entryId) => coordinator.status({ entryId }),
   });
   coordinator = createProjectCoordinator<CapturedProjectOperation>({
@@ -111,6 +119,8 @@ export const createProjectService = (options: {
             operation.mode,
             authorizeWrites,
             operationGraph,
+            "ordinary-sync",
+            operation.nativeScopeInspectionIntent ?? { kind: "none" },
           );
           if (publication !== undefined) {
             if (publication === currentGraph) {
@@ -168,7 +178,11 @@ export const createProjectService = (options: {
         validation: validationFor,
       });
     },
-    async sync(entryId: string, mode: ProjectOperationMode): Promise<ProjectSyncServiceResult> {
+    async sync(
+      entryId: string,
+      mode: ProjectOperationMode,
+      nativeScopeInspectionIntent: NativeScopeInspectionIntent = { kind: "none" },
+    ): Promise<ProjectSyncServiceResult> {
       const recoveryCheckpoint = locationRecovery.checkpoint(entryId);
       try {
         const initial = await resolve(entryId);
@@ -179,8 +193,17 @@ export const createProjectService = (options: {
         for (let attempt = 0; attempt < 2; attempt += 1) {
           const coordinated =
             recoveryRoot === undefined
-              ? await coordinator.execute({ entryId, mode })
-              : await locationRecovery.recover(entryId, recoveryRoot, recoveryCheckpoint);
+              ? await coordinator.execute({
+                  entryId,
+                  mode,
+                  nativeScopeInspectionIntent,
+                })
+              : await locationRecovery.recover(
+                  entryId,
+                  recoveryRoot,
+                  recoveryCheckpoint,
+                  nativeScopeInspectionIntent,
+                );
           if (coordinated.kind === "cooldown") {
             const latest = await resolve(entryId);
             if (latest.kind !== "available") return latest;

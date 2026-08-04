@@ -25,7 +25,7 @@ test("builds deterministic representative and stress fixtures at the declared sc
       expect(measured.metrics.inputReadCount).toBe(measured.metrics.capturedInputCount);
       expect(measured.metrics.recordDecodeCount).toBe(measured.metrics.bearingRecordCount);
       expect(measured.metrics.repositoryRevalidationCount).toBe(0);
-      expect(measured.metrics.providerCaptureCount).toBe(BENCHMARK_SCALES[scale].scopeCount);
+      expect(measured.metrics.providerAcquisitionCount).toBe(0);
       expect(Object.keys(measured.metrics.phaseMs)).toEqual([
         "discovery",
         "capture",
@@ -72,7 +72,7 @@ test("keeps the schema v1 Sync benchmark phase summary unchanged", () => {
           bearingRecords: 30,
           recordDecodes: 30,
           repositoryRevalidations: 0,
-          providerCaptures: 9,
+          providerObservations: 0,
           fingerprint: `sha256:${"b".repeat(64)}`,
           changed: false,
           blockingDiagnostics: 0,
@@ -82,7 +82,7 @@ test("keeps the schema v1 Sync benchmark phase summary unchanged", () => {
   ]);
 
   expect(Object.keys(summary.phases)).toEqual(Object.keys(phaseMs));
-  expect(summary.structural.providerCaptures).toEqual([9]);
+  expect(summary.structural.providerObservations).toEqual([0]);
 });
 
 test("declares the accepted after-only scenario and iteration matrix", () => {

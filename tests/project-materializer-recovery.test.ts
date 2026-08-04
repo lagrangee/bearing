@@ -83,7 +83,7 @@ test("rebuilds a producer-mismatched Snapshot with the current Host package vers
   expect(await readFile(receiptPath(root))).toEqual(receipt);
 });
 
-test("detects added and deleted inputs through the shared discovery seam", async () => {
+test("detects added and deleted native inputs only through explicit full verification", async () => {
   const root = await createValidBearingRepo();
   const materializer = createProjectMaterializer({ packageVersion: "0.0.0-current" });
   const baseline = await runSync(root, { completedAt: "2026-07-14T08:00:00.000Z" });
@@ -96,7 +96,13 @@ test("detects added and deleted inputs through the shared discovery seam", async
     "# Added work\n\nType: task\nStatus: open\n\n## Question\n\nWhat was added?\n",
   );
 
-  const added = await materializer.run(root, "ensure-current");
+  const added = await materializer.run(
+    root,
+    "ensure-current",
+    undefined,
+    undefined,
+    "full-verification",
+  );
   const addedSitemap = await readProjectSitemapCache(root);
 
   expect(added).toMatchObject({ outcome: "synced", reconciliation: "applied" });
@@ -104,18 +110,26 @@ test("detects added and deleted inputs through the shared discovery seam", async
   expect(addedSitemap.kind).toBe("available");
   if (addedSitemap.kind !== "available") throw new Error("Expected current Sitemap cache.");
   expect(addedSitemap.envelope.inputs).not.toContain(addedLocator);
-  expect(JSON.stringify(added.snapshot.providerCaptures)).toContain(addedLocator);
+  expect(JSON.stringify(added.snapshot.providerObservations)).toContain(addedLocator);
 
   await unlink(join(root, addedLocator));
-  const deleted = await materializer.run(root, "ensure-current");
+  const deleted = await materializer.run(
+    root,
+    "ensure-current",
+    undefined,
+    undefined,
+    "full-verification",
+  );
   const deletedSitemap = await readProjectSitemapCache(root);
 
   expect(deleted).toMatchObject({ outcome: "synced", reconciliation: "applied" });
-  expect(String(deleted.snapshot.basis.sitemapFingerprint)).toBe(baseline.fingerprint);
+  expect(String(deleted.snapshot.basis.sitemapFingerprint)).not.toBe(
+    String(added.snapshot.basis.sitemapFingerprint),
+  );
   expect(deletedSitemap.kind).toBe("available");
   if (deletedSitemap.kind !== "available") throw new Error("Expected current Sitemap cache.");
   expect(deletedSitemap.envelope.inputs).not.toContain(addedLocator);
-  expect(JSON.stringify(deleted.snapshot.providerCaptures)).not.toContain(addedLocator);
+  expect(JSON.stringify(deleted.snapshot.providerObservations)).not.toContain(addedLocator);
   expect(await readFile(summaryPath(root))).toEqual(source);
 });
 

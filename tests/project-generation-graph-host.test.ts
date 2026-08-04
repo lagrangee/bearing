@@ -197,6 +197,7 @@ test("failed materialization retains the prior graph until a coherent replacemen
 test("different Catalog entries never share or replace each other's graph", async () => {
   const firstRoot = await realpath(await createValidBearingRepo());
   const secondRoot = await realpath(await createValidBearingRepo());
+  await writeFixture(secondRoot, "CONTEXT.md", "# Distinct second entry\n");
   const trace = emptyTrace();
   const generationGraphs = createProjectGenerationGraphHost();
   const service = createProjectService({
@@ -214,7 +215,7 @@ test("different Catalog entries never share or replace each other's graph", asyn
   const first = generationGraphs.forEntry("one").current();
   const second = generationGraphs.forEntry("two").current();
   if (first === undefined || second === undefined) throw new Error("Expected isolated Graphs.");
-  expect(first.fingerprint).toBe(second.fingerprint);
+  expect(first.fingerprint).not.toBe(second.fingerprint);
   expect(first).not.toBe(second);
 
   await writeFixture(firstRoot, "CONTEXT.md", "# First entry changed\n");

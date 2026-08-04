@@ -1,3 +1,4 @@
+import { projectExpectedSourceEventTime } from "../source-event-time";
 import { type ParsedCanonicalRecord, parseCanonicalRecord } from "./canonical-record";
 import type {
   AlignmentCheck,
@@ -31,6 +32,7 @@ const resolution = (
   value:
     | Readonly<{
         "Accepted decision": string;
+        "Accepted at"?: string | null | undefined;
         Rationale: string;
         "Changed references": readonly string[];
       }>
@@ -41,6 +43,7 @@ const resolution = (
     : {
         resolution: {
           acceptedDecision: value["Accepted decision"],
+          acceptedAt: projectExpectedSourceEventTime(value["Accepted at"]),
           rationale: value.Rationale,
           changedReferences: value["Changed references"],
         },

@@ -19,8 +19,29 @@ export class ProjectResponseError extends Error {
   readonly name = "ProjectResponseError";
 }
 
+export class InvalidProjectSessionError extends ProjectResponseError {}
+
+const isInvalidCsrfResponse = (input: unknown): boolean =>
+  input !== null &&
+  typeof input === "object" &&
+  "code" in input &&
+  input.code === "invalid-csrf-token";
+
 const readJson = async <Output>(response: Response, schema: ZodType<Output>): Promise<Output> => {
-  if (!response.ok) throw new ProjectResponseError(`Project request returned ${response.status}.`);
+  if (!response.ok) {
+    if (response.status === 403) {
+      let input: unknown;
+      try {
+        input = await response.json();
+      } catch {
+        input = undefined;
+      }
+      if (isInvalidCsrfResponse(input)) {
+        throw new InvalidProjectSessionError("Project session is no longer current.");
+      }
+    }
+    throw new ProjectResponseError(`Project request returned ${response.status}.`);
+  }
   const input: unknown = await response.json();
   const parsed = schema.safeParse(input);
   if (!parsed.success) throw new ProjectResponseError("Project response does not match version 1.");
@@ -65,6 +86,29 @@ export const syncProject = async (
         "X-Bearing-CSRF-Token": csrfToken,
       },
       body: JSON.stringify({ version: 1, mode }),
+      signal,
+    }),
+    projectSyncEnvelopeSchema,
+  );
+
+export const inspectNativeScope = async (
+  entryId: string,
+  subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
+  target: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
+  refresh: boolean,
+  csrfToken: string,
+  signal: AbortSignal,
+): Promise<ProjectSyncEnvelope> =>
+  readJson(
+    await window.fetch(`/api/v1/projects/${encodeURIComponent(entryId)}/inspect-native-scope`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Bearing-CSRF-Token": csrfToken,
+      },
+      body: JSON.stringify({ version: 1, subject, target, refresh }),
       signal,
     }),
     projectSyncEnvelopeSchema,

@@ -6,6 +6,9 @@ import { runSync } from "../src/sync";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 import { buildProjectSnapshotForTest as buildProjectSnapshot } from "./project-snapshot-fixture";
 
+const runInitialSync = (root: string) =>
+  runSync(root, { providerObservationIntent: "initial-baseline" });
+
 const writeCurrentGuidance = async (root: string): Promise<void> => {
   const inputs = [".bearing/state/project-summary.md"];
   const fingerprint = await fingerprintFiles(root, inputs);
@@ -59,7 +62,7 @@ Use a whole-project semantic review after the projection is trustworthy.
 test("builds one repository-scoped semantic Snapshot without Catalog identity", async () => {
   const root = await createValidBearingRepo();
   await writeCurrentGuidance(root);
-  const sync = await runSync(root);
+  const sync = await runInitialSync(root);
 
   const snapshot = await buildProjectSnapshot({
     repoRoot: root,
@@ -71,7 +74,7 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   });
 
   expect(snapshot).toMatchObject({
-    schemaVersion: 3,
+    schemaVersion: 19,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapFingerprint: sync.fingerprint },
     summary: {
@@ -86,18 +89,6 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
     gates: { validity: "available", items: [{ id: "gate:test", horizonState: "focused" }] },
     efforts: { validity: "available", items: [{ id: "effort:test" }] },
     audit: { validity: "absent" },
-    guidance: {
-      validity: "available",
-      value: {
-        id: "next-work-guidance:current",
-        semanticFreshness: "current",
-        primary: { title: "Finish the Project Snapshot seam" },
-        alternatives: [
-          { title: "Inspect the current Roadmap horizon" },
-          { title: "Run a Planning Audit after the seam is trustworthy" },
-        ],
-      },
-    },
   });
   expect(snapshot).not.toHaveProperty("entryId");
   expect(snapshot).not.toHaveProperty("repoRoot");
@@ -105,14 +96,71 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   expect(snapshot).toHaveProperty("assets");
   expect(snapshot).toHaveProperty("checks");
   expect(snapshot).toHaveProperty("reviews");
-  expect(snapshot).toHaveProperty("providerCaptures");
+  expect(snapshot).toHaveProperty("providerObservations");
   expect(snapshot).not.toHaveProperty("maps");
   expect(snapshot).not.toHaveProperty("tickets");
+  expect(snapshot).not.toHaveProperty("guidance");
   expect(snapshot.sources.length).toBeGreaterThan(0);
   for (const source of snapshot.sources) {
     expect(source.reference).not.toContain(source.displayLocator);
     expect(source.displayLocator.startsWith("/")).toBe(false);
   }
+});
+
+test("materializes Project Brief independently from Project Summary", async () => {
+  const root = await createValidBearingRepo();
+  await writeFixture(
+    root,
+    ".bearing/state/project-brief.md",
+    `---
+Type: project-brief
+ID: project-brief:current
+Generated at: 2026-08-03T02:03:04Z
+---
+
+# Project Brief
+
+## Project Purpose
+
+Exercise the fixture.
+
+## Current Stage
+
+The project is proving its typed reading boundary.
+
+## Material Achieved State
+
+The canonical planning loop is available.
+`,
+  );
+  const sync = await runInitialSync(root);
+
+  const snapshot = await buildProjectSnapshot({
+    repoRoot: root,
+    packageVersion: "0.0.0-test",
+    inputs: sync.inputs,
+    sitemapFingerprint: sync.fingerprint,
+    diagnostics: sync.diagnostics,
+    advisoryFreshness: sync.advisoryFreshness,
+  });
+
+  expect(snapshot.summary).toMatchObject({ validity: "available" });
+  expect(snapshot.brief).toMatchObject({
+    validity: "available",
+    value: {
+      id: "project-brief:current",
+      generatedAt: "2026-08-03T02:03:04Z",
+      currentStage: "The project is proving its typed reading boundary.",
+    },
+  });
+  if (snapshot.brief.validity !== "available") throw new Error("Expected Project Brief.");
+  expect(snapshot.sources).toContainEqual(
+    expect.objectContaining({
+      kind: "canonical",
+      displayLocator: ".bearing/state/project-brief.md",
+      binding: { role: "project-brief", identity: "project-brief:current" },
+    }),
+  );
 });
 
 test("isolates an invalid Summary while preserving trustworthy Roadmaps", async () => {
@@ -124,7 +172,7 @@ test("isolates an invalid Summary while preserving trustworthy Roadmaps", async 
     ".bearing/state/project-summary.md",
     summary.replace("## Purpose", "## Goal"),
   );
-  const sync = await runSync(root);
+  const sync = await runInitialSync(root);
 
   const snapshot = await buildProjectSnapshot({
     repoRoot: root,
@@ -138,40 +186,6 @@ test("isolates an invalid Summary while preserving trustworthy Roadmaps", async 
   expect(snapshot.summary.validity).toBe("invalid");
   expect(snapshot.roadmaps.validity).toBe("available");
   expect(snapshot.attention.some((item) => item.kind === "structural-diagnostic")).toBe(true);
-});
-
-test("consumes Guidance freshness computed by Sync", async () => {
-  const root = await createValidBearingRepo();
-  await writeCurrentGuidance(root);
-  await writeFixture(root, "CONTEXT.md", "# Changed context\n");
-  const sync = await runSync(root);
-
-  const snapshot = await buildProjectSnapshot({
-    repoRoot: root,
-    packageVersion: "0.0.0-test",
-    inputs: sync.inputs,
-    sitemapFingerprint: sync.fingerprint,
-    diagnostics: sync.diagnostics,
-    advisoryFreshness: sync.advisoryFreshness,
-  });
-
-  expect(snapshot.guidance.validity).toBe("available");
-  if (snapshot.guidance.validity !== "available") throw new Error("Expected Guidance fixture.");
-  expect(snapshot.guidance.value.semanticFreshness).toBe("current");
-
-  await writeFixture(root, ".bearing/state/project-summary.md", "changed after guidance\n");
-  const staleSync = await runSync(root);
-  const stale = await buildProjectSnapshot({
-    repoRoot: root,
-    packageVersion: "0.0.0-test",
-    inputs: staleSync.inputs,
-    sitemapFingerprint: staleSync.fingerprint,
-    diagnostics: staleSync.diagnostics,
-    advisoryFreshness: staleSync.advisoryFreshness,
-  });
-  expect(stale.guidance.validity).toBe("available");
-  if (stale.guidance.validity !== "available") throw new Error("Expected retained Guidance.");
-  expect(stale.guidance.value.semanticFreshness).toBe("stale");
 });
 
 test("projects adversarial native diagnostics without echoing source details into prose", async () => {
@@ -198,7 +212,7 @@ Can the project remain readable?
 
 Type: task
 
-Blocked by: **missing**
+Blocked by: 99 — **missing**
 
 Status: claimed
 
@@ -262,7 +276,7 @@ Input fingerprint: sha256:${"a".repeat(64)}
   );
 
   // When: Sync diagnostics cross the normalized Snapshot boundary.
-  const sync = await runSync(root);
+  const sync = await runInitialSync(root);
   const snapshot = await buildProjectSnapshot({
     repoRoot: root,
     packageVersion: "0.0.0-test",
@@ -282,7 +296,7 @@ Input fingerprint: sha256:${"a".repeat(64)}
     {
       code: "matt.local.relation.broken",
       target: ".scratch/work/issues/03-invalid-blocker.md",
-      message: "Blocked by reference does not uniquely resolve to a ticket: missing.",
+      message: "Blocked by reference does not uniquely resolve to a ticket: 99.",
     },
     {
       code: "matt.local.lifecycle.unknown",
@@ -313,6 +327,7 @@ Input fingerprint: sha256:${"a".repeat(64)}
           item.kind === "structural-diagnostic" &&
           item.diagnosticReference === diagnostic?.reference,
       ),
+      `${code}:${target ?? "no-target"}`,
     ).toBe(true);
   }
   expect(snapshot.checks).toMatchObject({

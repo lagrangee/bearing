@@ -2,9 +2,16 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
-const runSyncCli = async (repoRoot: string) => {
+const runSyncCli = async (repoRoot: string, initializeProviderObservations = false) => {
   const child = Bun.spawn(
-    ["node", join(process.cwd(), "dist/cli.js"), "sync", "--repo", repoRoot],
+    [
+      "node",
+      join(process.cwd(), "dist/cli.js"),
+      "sync",
+      "--repo",
+      repoRoot,
+      ...(initializeProviderObservations ? ["--initialize-provider-observations"] : []),
+    ],
     { stdout: "pipe", stderr: "pipe" },
   );
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -84,7 +91,7 @@ Should this remain claimed?
 `,
     );
 
-    const result = await runSyncCli(repoRoot);
+    const result = await runSyncCli(repoRoot, true);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Diagnostics: 0");

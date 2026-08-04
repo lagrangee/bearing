@@ -1,3 +1,4 @@
+import { sameMattNativeScope } from "../providers/matt-skills-v1/native-subject";
 import type {
   CollectionProjection,
   Effort,
@@ -7,11 +8,26 @@ import type {
   SourceRecord,
 } from "./contract";
 
-export type CompletionCapture = Readonly<{
+export type ContributorCapture = Readonly<{
+  id: string;
   provider: "matt-skills/v1";
   binding: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>;
-  generation: Readonly<{ fingerprint: string }>;
+  state: "available" | "partial" | "absent" | "invalid";
+  freshness: Readonly<{ assessment: "current" | "stale" | "undetermined" }>;
+  coverage: Readonly<{
+    assessment: "complete" | "incomplete";
+    dimensions: readonly Readonly<{
+      state: "covered" | "excluded" | "gap" | "conflict";
+    }>[];
+  }>;
   completion: "incomplete" | "complete" | "undetermined";
+  diagnostics: readonly Readonly<{ impact: "blocking" | "non-blocking" }>[];
+}>;
+export type ContributorObservationSelection = Readonly<{
+  provider: "matt-skills/v1";
+  nativeScope: string;
+  observationId: string | null;
+  effectiveFreshness: "current" | "stale" | "undetermined";
 }>;
 
 export type DerivedCollection<T> =
@@ -29,7 +45,17 @@ type DerivedEffort = Readonly<{
   roadmapId: string;
   targetGateId: string;
   workBinding?: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }> | undefined;
-  derivedState: "active" | "resolved" | "unknown";
+  workBindingState: Readonly<
+    | { state: "bound" }
+    | { state: "invalid"; reason: "missing" | "unparseable" | "unresolved" | "conflicting" }
+  >;
+  lifecycle: "planned" | "active" | "concluded";
+  conclusion?:
+    | Readonly<{
+        disposition: "completed" | "withdrawn" | "superseded";
+        replacementEffortId?: string | undefined;
+      }>
+    | undefined;
 }>;
 
 type DerivedGate = Readonly<{
@@ -55,45 +81,79 @@ const trusted = <T>(collection: DerivedCollection<T>): readonly T[] =>
 
 const captureFor = (
   effort: Pick<DerivedEffort, "workBinding">,
-  captures: readonly CompletionCapture[],
-): CompletionCapture | undefined => {
+  captures: readonly ContributorCapture[],
+): ContributorCapture | undefined => {
   const binding = effort.workBinding;
   if (binding === undefined) return undefined;
-  return captures.find(
-    (capture) =>
-      capture.provider === binding.provider && capture.binding.nativeScope === binding.nativeScope,
-  );
+  return captures.find((capture) => sameMattNativeScope(capture.binding, binding));
 };
 
-export const normalizedEffortState = (
+const hasTrustworthyBindingEvidence = (
   effort: DerivedEffort,
-  captures: readonly CompletionCapture[],
-): DerivedEffort["derivedState"] => {
-  const completion = captureFor(effort, captures)?.completion;
-  if (completion === "complete") return "resolved";
-  if (completion === "incomplete") return "active";
-  return "unknown";
+  captures: readonly ContributorCapture[],
+  selections: readonly ContributorObservationSelection[],
+): boolean => {
+  if (effort.workBindingState.state !== "bound") return false;
+  const capture = captureFor(effort, captures);
+  const selection =
+    capture === undefined
+      ? undefined
+      : selections.find(
+          (candidate) =>
+            sameMattNativeScope(candidate, capture.binding) &&
+            candidate.observationId === capture.id,
+        );
+  return (
+    capture !== undefined &&
+    selection?.effectiveFreshness === "current" &&
+    capture.state === "available" &&
+    capture.freshness.assessment === "current" &&
+    capture.coverage.assessment === "complete" &&
+    capture.coverage.dimensions.every(
+      (dimension) => dimension.state !== "gap" && dimension.state !== "conflict",
+    ) &&
+    capture.diagnostics.every((diagnostic) => diagnostic.impact !== "blocking")
+  );
 };
 
 export const normalizedGateReadiness = (
   gate: DerivedGate,
   efforts: DerivedCollection<DerivedEffort>,
-  captures: readonly CompletionCapture[],
+  captures: readonly ContributorCapture[],
+  selections: readonly ContributorObservationSelection[],
   hasUntrustedContributor = false,
 ): DerivedGate["readiness"] => {
   if (hasUntrustedContributor) return "unknown";
   if (gate.effortIds.length === 0) return "unknown";
   const effortIndex = new Map(trusted(efforts).map((effort) => [effort.id, effort]));
-  const states = gate.effortIds.map((effortId) => {
+  const contributions = gate.effortIds.map((effortId) => {
     const effort = effortIndex.get(effortId);
-    return effort === undefined ||
+    if (
+      effort === undefined ||
       effort.targetGateId !== gate.id ||
-      effort.roadmapId !== gate.roadmapId
-      ? "unknown"
-      : normalizedEffortState(effort, captures);
+      effort.roadmapId !== gate.roadmapId ||
+      !hasTrustworthyBindingEvidence(effort, captures, selections)
+    ) {
+      return "unknown" as const;
+    }
+    if (effort.lifecycle === "planned" || effort.lifecycle === "active") {
+      return "pending" as const;
+    }
+    if (effort.conclusion?.disposition === "completed") return "satisfied" as const;
+    if (
+      effort.conclusion?.disposition === "withdrawn" ||
+      effort.conclusion?.disposition === "superseded"
+    ) {
+      return "excluded" as const;
+    }
+    return "unknown" as const;
   });
-  if (states.some((state) => state === "unknown")) return "unknown";
-  return states.every((state) => state === "resolved") ? "ready-for-review" : "not-ready";
+  if (contributions.some((contribution) => contribution === "unknown")) return "unknown";
+  const current = contributions.filter((contribution) => contribution !== "excluded");
+  if (current.length === 0) return "unknown";
+  return current.every((contribution) => contribution === "satisfied")
+    ? "ready-for-review"
+    : "not-ready";
 };
 
 export const hasUntrustedEffortContributor = (
@@ -158,7 +218,8 @@ type ProjectionInput = Readonly<{
   roadmaps: CollectionProjection<Roadmap>;
   gates: CollectionProjection<MilestoneGate>;
   efforts: CollectionProjection<Effort>;
-  providerCaptures: readonly CompletionCapture[];
+  providerObservations: readonly ContributorCapture[];
+  providerObservationSelections: readonly ContributorObservationSelection[];
   diagnostics: readonly SnapshotDiagnostic[];
   sources: readonly SourceRecord[];
 }>;
@@ -169,38 +230,44 @@ type NormalizedPlanningProjection = Readonly<{
   efforts: CollectionProjection<Effort>;
 }>;
 
-const effortIdsFor = (
-  efforts: CollectionProjection<Effort>,
-  matches: (effort: Effort) => boolean,
-): readonly Effort["id"][] =>
-  trusted(efforts)
-    .filter(matches)
-    .map((effort) => effort.id)
-    .sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)));
+const retainedEffortIds = (efforts: CollectionProjection<Effort>): ReadonlySet<Effort["id"]> =>
+  new Set(trusted(efforts).map((effort) => effort.id));
+
+const retainCanonicalEffortOrder = (
+  effortIds: readonly Effort["id"][],
+  retained: ReadonlySet<Effort["id"]>,
+): readonly Effort["id"][] => effortIds.filter((effortId) => retained.has(effortId));
+
+const roadmapEffortOrder = (
+  roadmap: Roadmap,
+  gates: CollectionProjection<MilestoneGate>,
+): readonly Effort["id"][] => {
+  const gatesById = new Map(trusted(gates).map((gate) => [gate.id, gate]));
+  return roadmap.gateOrder.flatMap((gateId) => gatesById.get(gateId)?.effortIds ?? []);
+};
 
 export const normalizePlanningDerivations = (
   input: ProjectionInput,
 ): NormalizedPlanningProjection => {
-  const efforts = mapCollection(input.efforts, (effort) => ({
-    ...effort,
-    derivedState: normalizedEffortState(effort, input.providerCaptures),
+  const efforts = input.efforts;
+  const retained = retainedEffortIds(efforts);
+  const gatesWithRelations = mapCollection(input.gates, (gate) => ({
+    ...gate,
+    effortIds: retainCanonicalEffortOrder(gate.effortIds, retained),
   }));
   const roadmaps = mapCollection(input.roadmaps, (roadmap) => ({
     ...roadmap,
     horizon: normalizedRoadmapHorizon(roadmap, input.gates),
-    effortIds: effortIdsFor(efforts, (effort) => effort.roadmapId === roadmap.id),
-  }));
-  const gatesWithRelations = mapCollection(input.gates, (gate) => ({
-    ...gate,
-    horizonState: normalizedGateHorizon(gate, roadmaps),
-    effortIds: effortIdsFor(efforts, (effort) => effort.targetGateId === gate.id),
+    effortIds: roadmapEffortOrder(roadmap, gatesWithRelations),
   }));
   const gates = mapCollection(gatesWithRelations, (gate) => ({
     ...gate,
+    horizonState: normalizedGateHorizon(gate, roadmaps),
     readiness: normalizedGateReadiness(
       gate,
       efforts,
-      input.providerCaptures,
+      input.providerObservations,
+      input.providerObservationSelections,
       hasUntrustedEffortContributor(gatesWithRelations, gate.id),
     ),
   }));

@@ -1,4 +1,4 @@
-import type { MattSkillsV1ScopeCapture } from "../../src/providers/matt-skills-v1/capture";
+import type { MattSkillsV1ProviderObservation } from "../../src/providers/matt-skills-v1/capture";
 import type {
   MattScopeProjection,
   MattTrackerClosure,
@@ -56,7 +56,7 @@ const contentSemantic = (
 });
 
 const buildMattReferenceSemanticView = (
-  capture: MattSkillsV1ScopeCapture,
+  capture: MattSkillsV1ProviderObservation,
   aliases: Readonly<Record<string, string>>,
 ) => ({
   capture: {
@@ -165,15 +165,52 @@ export type MattReferenceSemanticView = DeepReadonly<
 >;
 
 export const mattReferenceSemanticView = (
-  capture: MattSkillsV1ScopeCapture,
+  capture: MattSkillsV1ProviderObservation,
   aliases: Readonly<Record<string, string>>,
 ): MattReferenceSemanticView =>
   buildMattReferenceSemanticView(capture, aliases) as MattReferenceSemanticView;
 
+const semanticAvailabilityFor = (
+  sections: readonly Readonly<{ role: string; availability: string }>[],
+) =>
+  Object.fromEntries(sections.map((section) => [section.role, section.availability])) as Readonly<
+    Record<string, string>
+  >;
+
+const buildMattReferenceSemanticAvailabilityView = (
+  capture: MattSkillsV1ProviderObservation,
+  aliases: Readonly<Record<string, string>>,
+) =>
+  Object.fromEntries(
+    [
+      ...(capture.projection?.map === undefined ? [] : [capture.projection.map]),
+      ...(capture.projection?.spec === undefined ? [] : [capture.projection.spec]),
+      ...(capture.projection?.wayfinderTickets ?? []),
+      ...(capture.projection?.deliveryTickets ?? []),
+      ...(capture.projection?.incomingIssues ?? []),
+    ].map((object) => [
+      scenarioAlias(aliases, String(object.ref)),
+      semanticAvailabilityFor(object.semanticSections),
+    ]),
+  );
+
+export type MattReferenceSemanticAvailabilityView = DeepReadonly<
+  ReturnType<typeof buildMattReferenceSemanticAvailabilityView>
+>;
+
+export const mattReferenceSemanticAvailabilityView = (
+  capture: MattSkillsV1ProviderObservation,
+  aliases: Readonly<Record<string, string>>,
+): MattReferenceSemanticAvailabilityView =>
+  buildMattReferenceSemanticAvailabilityView(
+    capture,
+    aliases,
+  ) as MattReferenceSemanticAvailabilityView;
+
 type MattReferenceRole = "map" | "spec" | "wayfinder" | "delivery" | "incoming";
 
 const roleByReference = (
-  capture: MattSkillsV1ScopeCapture,
+  capture: MattSkillsV1ProviderObservation,
 ): ReadonlyMap<string, MattReferenceRole> => {
   const roles = new Map<string, MattReferenceRole>();
   const projection = capture.projection;
@@ -192,7 +229,7 @@ const roleByReference = (
 };
 
 const buildMattReferenceRelationPartition = (
-  capture: MattSkillsV1ScopeCapture,
+  capture: MattSkillsV1ProviderObservation,
   aliases: Readonly<Record<string, string>>,
 ) => {
   const roles = roleByReference(capture);
@@ -243,13 +280,13 @@ export type MattReferenceRelationPartition = DeepReadonly<
 >;
 
 export const mattReferenceRelationPartition = (
-  capture: MattSkillsV1ScopeCapture,
+  capture: MattSkillsV1ProviderObservation,
   aliases: Readonly<Record<string, string>>,
 ): MattReferenceRelationPartition =>
   buildMattReferenceRelationPartition(capture, aliases) as MattReferenceRelationPartition;
 
 const buildMattReferenceEquivalenceView = (
-  capture: MattSkillsV1ScopeCapture,
+  capture: MattSkillsV1ProviderObservation,
   aliases: Readonly<Record<string, string>>,
 ) => {
   const view = buildMattReferenceSemanticView(capture, aliases);
@@ -286,7 +323,7 @@ export type MattReferenceEquivalenceView = DeepReadonly<
 >;
 
 export const mattReferenceEquivalenceView = (
-  capture: MattSkillsV1ScopeCapture,
+  capture: MattSkillsV1ProviderObservation,
   aliases: Readonly<Record<string, string>>,
 ): MattReferenceEquivalenceView =>
   buildMattReferenceEquivalenceView(capture, aliases) as MattReferenceEquivalenceView;

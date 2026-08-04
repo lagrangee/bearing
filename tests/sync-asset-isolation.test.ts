@@ -12,6 +12,9 @@ describe("bearing sync Asset Registry isolation", () => {
       ".bearing/state/efforts/test.md",
       `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: Test Effort
 Roadmap: roadmap:test
@@ -201,6 +204,9 @@ Assets:
 
 const effortWithCitation = (id: string, asset: string, extra = ""): string => `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: ${id}
 Title: ${id}
 Roadmap: roadmap:test

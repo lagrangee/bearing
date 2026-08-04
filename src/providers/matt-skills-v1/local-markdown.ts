@@ -4,6 +4,7 @@ import { fingerprintInputRecords, normalizeLocator } from "../../fingerprint";
 import {
   type MarkdownDocument,
   type MarkdownSection,
+  markdownNarrative,
   parseMarkdownDocument,
   queryMarkdownDocumentTitle,
   queryMarkdownField,
@@ -14,9 +15,11 @@ import {
   queryMarkdownSection,
   queryMarkdownTable,
 } from "../../markdown-document";
+import { affectedReadReferences } from "../../native-reconciliation-contract";
 import {
   type CapturedProviderDocuments,
-  createProviderScopeCapture,
+  createProviderScopeObservation,
+  type NativeWorkReconciliationInput,
   type ProviderDiagnostic,
 } from "../../native-work-provider";
 import {
@@ -28,10 +31,11 @@ import {
 import {
   MATT_SKILLS_V1_PROVIDER_ID,
   type MattSkillsV1Provider,
-  type MattSkillsV1ScopeCapture,
+  type MattSkillsV1ProviderObservation,
 } from "./capture";
 import { retainTrustedLocalProjection } from "./local-markdown-trust";
 import type {
+  MattAuthoredContent,
   MattBlockedByRelation,
   MattContent,
   MattDeliveryTicket,
@@ -46,6 +50,12 @@ import type {
   MattSpec,
   MattWayfinderTicket,
 } from "./model";
+import {
+  MATT_SPEC_SECTION_DEFINITIONS,
+  semanticAvailabilityForItems,
+  semanticAvailabilityForOptionalContent,
+  semanticSection,
+} from "./semantic-sections";
 
 const DEFAULT_MAXIMUM_FILE_BYTES = 1024 * 1024;
 const REQUIRED_TRIAGE_ROLES = [
@@ -56,16 +66,6 @@ const REQUIRED_TRIAGE_ROLES = [
   "wontfix",
 ] as const;
 const WAYFINDER_SUBTYPES = new Set(["research", "prototype", "grilling", "task"]);
-const SPEC_SECTIONS = [
-  ["problem", "Problem Statement"],
-  ["solution", "Solution"],
-  ["user-stories", "User Stories"],
-  ["implementation", "Implementation Decisions"],
-  ["testing", "Testing Decisions"],
-  ["out-of-scope", "Out of Scope"],
-  ["further-notes", "Further Notes"],
-] as const;
-
 type FileStamp = Readonly<{
   dev: string;
   ino: string;
@@ -177,18 +177,16 @@ const diagnostic = (
 const captureWithoutProjection = (
   input: Readonly<{
     binding: Parameters<MattSkillsV1Provider["capture"]>[0];
-    generation: Parameters<MattSkillsV1Provider["capture"]>[1];
     capturedAt: string;
     state: "absent" | "invalid";
     freshness: "current" | "undetermined";
     completion: "incomplete" | "undetermined";
     diagnostics: readonly CaptureDiagnostic[];
   }>,
-): MattSkillsV1ScopeCapture =>
-  createProviderScopeCapture({
+): MattSkillsV1ProviderObservation =>
+  createProviderScopeObservation({
     provider: MATT_SKILLS_V1_PROVIDER_ID,
     binding: input.binding,
-    generation: input.generation,
     state: input.state,
     freshness: {
       assessment: input.freshness,
@@ -225,30 +223,6 @@ const requiredSection = (
     ),
   );
   return undefined;
-};
-
-const sectionListItems = (
-  document: MarkdownDocument,
-  section: MarkdownSection | undefined,
-  target: string,
-  diagnostics: CaptureDiagnostic[],
-  required: boolean,
-): readonly string[] => {
-  if (section === undefined) return [];
-  const result = queryMarkdownList(document, { within: section });
-  if (result.state === "found") return result.value.items.map((item) => item.text);
-  if (result.state === "absent" && !required) {
-    return section.markdown.length === 0 ? [] : [section.markdown];
-  }
-  diagnostics.push(
-    diagnostic(
-      "matt.local.decode.list",
-      "format",
-      target,
-      `Matt list structure is ${result.state}.`,
-    ),
-  );
-  return [];
 };
 
 const fieldValue = (
@@ -321,6 +295,8 @@ const nativeEvidenceFor = (
 ): MattNativeEvidence => ({
   kind: "local",
   identity: { locator: file.locator },
+  createdAt: { availability: "unsupported" },
+  lastUpdated: { availability: "unsupported" },
   sourceAnchors: anchorsFor(file),
   rawFacets: rawFacetsFor(file, extra),
 });
@@ -328,13 +304,14 @@ const nativeEvidenceFor = (
 const contentSection = (
   file: CapturedFile,
   title: string,
-  role: MattContent["role"],
-): MattContent | undefined => {
+  role: MattAuthoredContent["role"],
+): MattAuthoredContent | undefined => {
   const result = queryMarkdownSection(file.document, { title });
   if (result.state !== "found" || result.value.markdown.length === 0) return undefined;
   return {
     role,
     body: result.value.markdown,
+    authoredAt: { availability: "unsupported" },
     ...(role === "answer"
       ? {
           sourceAnchor: {
@@ -352,7 +329,7 @@ const supplementaryContent = (file: CapturedFile): readonly MattContent[] => {
     ["Agent Brief", "agent-brief"],
     ["Triage Notes", "triage-note"],
   ] as const;
-  const content = roles.flatMap(([title, role]) => {
+  const content: MattContent[] = roles.flatMap(([title, role]) => {
     const item = contentSection(file, title, role);
     return item === undefined ? [] : [item];
   });
@@ -369,14 +346,14 @@ const supplementaryContent = (file: CapturedFile): readonly MattContent[] => {
   return content;
 };
 
-type LocalContractLayout = Readonly<{
+export type LocalMattContractLayout = Readonly<{
   specFilename: "spec.md" | "PRD.md";
 }>;
 
-const parseContract = (
+export const parseLocalMattContract = (
   file: MarkdownInput,
   diagnostics: CaptureDiagnostic[],
-): LocalContractLayout | undefined => {
+): LocalMattContractLayout | undefined => {
   const title = queryMarkdownDocumentTitle(file.document);
   const conventions = queryMarkdownSection(file.document, { title: "Conventions" });
   const wayfinding = queryMarkdownSection(file.document, { title: "Wayfinding operations" });
@@ -550,13 +527,41 @@ const issueRole = (file: CapturedFile): IssueRole => {
   return "incoming";
 };
 
-const splitBlockerReferences = (value: string | undefined): readonly string[] =>
-  value === undefined
-    ? []
-    : value
-        .split(",")
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0);
+const NO_BLOCKERS_SENTINEL = "None — can start immediately";
+
+const blockerReferences = (
+  file: CapturedFile,
+  diagnostics: CaptureDiagnostic[],
+): readonly string[] => {
+  const value = fieldValue(file, "Blocked by", diagnostics);
+  if (value === undefined || value === NO_BLOCKERS_SENTINEL) return [];
+  const entries = value.split(",").map((entry) => entry.trim());
+  const references: string[] = [];
+  for (const entry of entries) {
+    const match = /^(\d+)(?:\s+—\s+([^,;]+))?$/u.exec(entry);
+    const numeric = match?.[1];
+    const normalized = numeric === undefined ? undefined : normalizedShortReference(numeric);
+    if (
+      match === null ||
+      numeric === undefined ||
+      normalized === undefined ||
+      Number(normalized) < 1 ||
+      (match[2] !== undefined && match[2].trim().length === 0)
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.relation.blocked-by-format",
+          "format",
+          file.locator,
+          `Blocked by must be "${NO_BLOCKERS_SENTINEL}" or a comma-separated list of ticket numbers with optional em-dash titles.`,
+        ),
+      );
+      return [];
+    }
+    references.push(normalized);
+  }
+  return [...new Set(references)];
+};
 
 const requiredEvidenceLocators = (
   file: CapturedFile,
@@ -616,7 +621,6 @@ const shortReferenceFor = (locator: string): string | undefined => {
 
 const decodeWayfinder = (
   file: CapturedFile,
-  capturedAt: string,
   diagnostics: CaptureDiagnostic[],
 ): MattWayfinderTicket | undefined => {
   const title = titleFor(file, diagnostics);
@@ -644,6 +648,7 @@ const decodeWayfinder = (
       ),
     );
   }
+  const comments = supplementaryContent(file);
   return {
     kind: "wayfinder-ticket",
     ref: objectReference(file.locator),
@@ -664,15 +669,27 @@ const decodeWayfinder = (
             availability: "available",
             content: answer as MattContent & Readonly<{ role: "answer" }>,
           },
-    comments: supplementaryContent(file),
+    comments,
     lifecycle: { state: "open" },
     trackerClosure: resolved
       ? {
           state: "closed",
           disposition: "completed",
-          observedAt: capturedAt,
+          closedAt: { availability: "unsupported" },
         }
       : { state: "open" },
+    semanticSections: [
+      semanticSection(
+        "wayfinder.question",
+        question.value.markdown.trim().length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection("wayfinder.claim", "available"),
+      semanticSection("wayfinder.answer", answer === undefined ? "confirmed-empty" : "available"),
+      semanticSection(
+        "wayfinder.comments",
+        comments.length === 0 ? "confirmed-empty" : "available",
+      ),
+    ],
     native: nativeEvidenceFor(file, [
       { key: "type", values: [type] },
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
@@ -684,7 +701,6 @@ const decodeWayfinder = (
 const decodeDelivery = (
   file: CapturedFile,
   vocabulary: TriageVocabulary | undefined,
-  capturedAt: string,
   diagnostics: CaptureDiagnostic[],
 ): MattDeliveryTicket | undefined => {
   const title = titleFor(file, diagnostics);
@@ -723,14 +739,14 @@ const decodeDelivery = (
     trackerClosure = {
       state: "closed",
       disposition: "completed",
-      observedAt: capturedAt,
+      closedAt: { availability: "unsupported" },
     };
   } else if (semanticStatus === "wontfix") {
     lifecycle = { state: "completion-unavailable", reason: "source-contract-gap" };
     trackerClosure = {
       state: "closed",
       disposition: "wontfix",
-      observedAt: capturedAt,
+      closedAt: { availability: "unsupported" },
     };
   } else if (
     status === undefined ||
@@ -746,6 +762,7 @@ const decodeDelivery = (
       ),
     );
   }
+  const comments = supplementaryContent(file);
   return {
     kind: "delivery-ticket",
     ref: objectReference(file.locator),
@@ -754,7 +771,26 @@ const decodeDelivery = (
     acceptanceCriteria: acceptance.value.items.map((item) => item.text),
     lifecycle,
     trackerClosure,
-    comments: supplementaryContent(file),
+    comments,
+    semanticSections: [
+      semanticSection(
+        "delivery.what-to-build",
+        whatToBuild.trim().length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection(
+        "delivery.acceptance-criteria",
+        acceptance.value.items.length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection(
+        "delivery.completion-evidence",
+        lifecycle.state === "completed"
+          ? "available"
+          : lifecycle.state === "open"
+            ? "confirmed-empty"
+            : "unavailable",
+      ),
+      semanticSection("delivery.comments", comments.length === 0 ? "confirmed-empty" : "available"),
+    ],
     native: nativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
     ]),
@@ -764,7 +800,6 @@ const decodeDelivery = (
 const decodeIncoming = (
   file: CapturedFile,
   vocabulary: TriageVocabulary | undefined,
-  capturedAt: string,
   diagnostics: CaptureDiagnostic[],
 ): MattIncomingIssue | undefined => {
   const title = titleFor(file, diagnostics);
@@ -814,6 +849,18 @@ const decodeIncoming = (
       );
     }
   }
+  const preamble = queryMarkdownPreamble(file.document);
+  const issueBody =
+    preamble.state === "found"
+      ? markdownNarrative(file.document, {
+          within: preamble.value,
+          excludeFields: ["Category", "Status", "Blocked by"],
+        })
+      : "";
+  const content: readonly MattContent[] = [
+    ...(issueBody.length === 0 ? [] : [{ role: "issue-body" as const, body: issueBody }]),
+    ...supplementaryContent(file),
+  ];
   return {
     kind: "incoming-issue",
     ref: objectReference(file.locator),
@@ -824,15 +871,26 @@ const decodeIncoming = (
       ...(nativeCategory === undefined ? {} : { nativeCategory }),
       ...(nativeState === undefined ? {} : { nativeState }),
     },
-    content: supplementaryContent(file),
+    content,
     lifecycle:
       state === "wontfix"
         ? {
             state: "closed",
             disposition: "wontfix",
-            observedAt: capturedAt,
+            closedAt: { availability: "unsupported" },
           }
         : { state: "open" },
+    semanticSections: [
+      semanticSection(
+        "incoming.classification",
+        category === "bug" || category === "enhancement" ? "available" : "unavailable",
+      ),
+      semanticSection("incoming.content", content.length === 0 ? "confirmed-empty" : "available"),
+      semanticSection(
+        "incoming.routing",
+        state === "unknown" || state === "ambiguous" ? "unavailable" : "available",
+      ),
+    ],
     native: nativeEvidenceFor(file, [
       ...(nativeCategory === undefined ? [] : [{ key: "category", values: [nativeCategory] }]),
       ...(nativeState === undefined ? [] : [{ key: "status", values: [nativeState] }]),
@@ -845,15 +903,74 @@ const gistAfterLinkLabel = (text: string, label: string): string => {
   return suffix.startsWith("—") || suffix.startsWith("-") ? suffix.slice(1).trim() : suffix;
 };
 
-const optionalSectionList = (
+type CompatibleSectionResult =
+  | Readonly<{ state: "found"; title: string; section: MarkdownSection }>
+  | Readonly<{ state: "absent" | "ambiguous" }>;
+
+const compatibleSection = (
   file: CapturedFile,
-  title: string,
+  titles: readonly string[],
+  role: string,
   diagnostics: CaptureDiagnostic[],
-): readonly string[] => {
-  const section = queryMarkdownSection(file.document, { title });
-  return section.state === "found"
-    ? sectionListItems(file.document, section.value, file.locator, diagnostics, false)
-    : [];
+): CompatibleSectionResult => {
+  const found: Readonly<{ title: string; section: MarkdownSection }>[] = [];
+  let ambiguous = false;
+  for (const title of titles) {
+    const result = queryMarkdownSection(file.document, { title });
+    if (result.state === "found") found.push({ title, section: result.value });
+    if (result.state === "ambiguous") ambiguous = true;
+  }
+  if (ambiguous || found.length > 1) {
+    diagnostics.push(
+      diagnostic(
+        "matt.local.semantic-section.ambiguous",
+        "format",
+        file.locator,
+        `Provider semantic role ${role} has ambiguous compatible headings.`,
+      ),
+    );
+    return { state: "ambiguous" };
+  }
+  const only = found[0];
+  return only === undefined ? { state: "absent" } : { state: "found", ...only };
+};
+
+const compatibleSectionList = (
+  file: CapturedFile,
+  titles: readonly string[],
+  role: string,
+  diagnostics: CaptureDiagnostic[],
+): Readonly<{
+  values: readonly string[];
+  availability: "available" | "confirmed-empty" | "unavailable";
+}> => {
+  const result = compatibleSection(file, titles, role, diagnostics);
+  if (result.state !== "found") return { values: [], availability: "unavailable" };
+  const list = queryMarkdownList(file.document, { within: result.section });
+  if (list.state === "found") {
+    return {
+      values: list.value.items.map((item) => item.text),
+      availability: list.value.items.length === 0 ? "confirmed-empty" : "available",
+    };
+  }
+  if (list.state === "ambiguous") {
+    diagnostics.push(
+      diagnostic(
+        "matt.local.semantic-section.ambiguous",
+        "format",
+        file.locator,
+        `Provider semantic role ${role} contains ambiguous list content.`,
+      ),
+    );
+  }
+  return {
+    values: [],
+    availability: semanticAvailabilityForItems(
+      "found",
+      0,
+      result.section.markdown.trim().length > 0,
+    ),
+  };
 };
 
 const canonicalMapIssueLocator = (file: CapturedFile, target: string): string | undefined => {
@@ -949,8 +1066,15 @@ const decodeMap = (
   const title = titleFor(file, diagnostics);
   const destination = requiredSection(file.document, "Destination", file.locator, diagnostics);
   if (title === undefined || destination === undefined) return undefined;
-  const notes = optionalSectionList(file, "Notes", diagnostics);
-  const fog = optionalSectionList(file, "Fog", diagnostics);
+  const notesSection = compatibleSectionList(file, ["Notes"], "map.notes", diagnostics);
+  const fogSection = compatibleSectionList(
+    file,
+    ["Not yet specified", "Fog"],
+    "map.fog",
+    diagnostics,
+  );
+  const notes = notesSection.values;
+  const fog = fogSection.values;
   const decisions: MattMap["decisions"][number][] = [];
   for (const entry of mapSectionEntries(file, "Decisions so far", issueByLocator, diagnostics)) {
     decisions.push({
@@ -983,6 +1107,17 @@ const decodeMap = (
       ),
     );
   }
+  const collectionAvailability = (
+    title: string,
+    count: number,
+  ): "available" | "confirmed-empty" | "unavailable" => {
+    const result = queryMarkdownSection(file.document, { title });
+    return semanticAvailabilityForItems(
+      result.state,
+      count,
+      result.state === "found" && result.value.markdown.trim().length > 0 && count === 0,
+    );
+  };
   return {
     kind: "map",
     ref: objectReference(file.locator),
@@ -999,6 +1134,30 @@ const decodeMap = (
             resolutionEvidence: decisions.map((decision) => decision.sourceAnchor),
           }
         : { state: "active" },
+    semanticSections: [
+      semanticSection(
+        "map.destination",
+        destination.markdown.trim().length === 0 ? "confirmed-empty" : "available",
+      ),
+      semanticSection("map.notes", notesSection.availability),
+      semanticSection(
+        "map.decisions",
+        collectionAvailability("Decisions so far", decisions.length),
+      ),
+      semanticSection("map.fog", fogSection.availability),
+      semanticSection(
+        "map.out-of-scope",
+        collectionAvailability("Out of scope", outOfScope.length),
+      ),
+      semanticSection(
+        "map.resolution-evidence",
+        status === "resolved"
+          ? decisions.length === 0
+            ? "unavailable"
+            : "available"
+          : "confirmed-empty",
+      ),
+    ],
     native: nativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
     ]),
@@ -1009,13 +1168,25 @@ const decodeSpec = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): MattS
   const title = titleFor(file, diagnostics);
   const status = fieldValue(file, "Status", diagnostics);
   const sections: MattSpec["sections"][number][] = [];
-  for (const [role, sectionTitle] of SPEC_SECTIONS) {
-    const section = requiredSection(file.document, sectionTitle, file.locator, diagnostics);
-    if (section !== undefined) {
-      sections.push({ role, title: sectionTitle, body: section.markdown });
-    }
+  for (const definition of MATT_SPEC_SECTION_DEFINITIONS) {
+    const result = compatibleSection(
+      file,
+      [definition.title, ...definition.aliases],
+      `spec.${definition.role}`,
+      diagnostics,
+    );
+    const availability =
+      result.state === "found"
+        ? semanticAvailabilityForOptionalContent("found", result.section.markdown.trim().length > 0)
+        : "unavailable";
+    sections.push({
+      role: definition.role,
+      title: result.state === "found" ? result.title : definition.title,
+      body: result.state === "found" ? result.section.markdown : "",
+      availability,
+    });
   }
-  if (title === undefined || sections.length !== SPEC_SECTIONS.length) return undefined;
+  if (title === undefined) return undefined;
   const lifecycle =
     status === "ready-for-agent" || status === "superseded" || status === "draft"
       ? status
@@ -1036,6 +1207,9 @@ const decodeSpec = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): MattS
     title,
     sections,
     lifecycle: { state: lifecycle },
+    semanticSections: sections.map((section) =>
+      semanticSection(`spec.${section.role}`, section.availability),
+    ),
     native: nativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
     ]),
@@ -1112,8 +1286,7 @@ const scopeCompletion = (projection: MattScopeProjection): "complete" | "incompl
 const captureLocalScope = async (
   options: LocalMarkdownMattProviderOptions,
   binding: Parameters<MattSkillsV1Provider["capture"]>[0],
-  generation: Parameters<MattSkillsV1Provider["capture"]>[1],
-): Promise<MattSkillsV1ScopeCapture> => {
+): Promise<MattSkillsV1ProviderObservation> => {
   const capturedAt = (options.clock ?? (() => new Date()))().toISOString();
   const diagnostics: CaptureDiagnostic[] = [];
   const maximumFileBytes = options.maximumFileBytes ?? DEFAULT_MAXIMUM_FILE_BYTES;
@@ -1123,7 +1296,6 @@ const captureLocalScope = async (
   } catch {
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: "invalid",
       freshness: "undetermined",
@@ -1150,7 +1322,6 @@ const captureLocalScope = async (
   } catch {
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: "invalid",
       freshness: "undetermined",
@@ -1298,11 +1469,10 @@ const captureLocalScope = async (
 
   const contractFile = await interpretationTarget(contractLocator);
   const contractLayout =
-    contractFile === undefined ? undefined : parseContract(contractFile, diagnostics);
+    contractFile === undefined ? undefined : parseLocalMattContract(contractFile, diagnostics);
   if (contractLayout === undefined) {
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: "invalid",
       freshness: "undetermined",
@@ -1321,7 +1491,6 @@ const captureLocalScope = async (
     if (!metadata.isDirectory()) {
       return captureWithoutProjection({
         binding,
-        generation,
         capturedAt,
         state: "invalid",
         freshness: "undetermined",
@@ -1350,7 +1519,6 @@ const captureLocalScope = async (
         );
       return captureWithoutProjection({
         binding,
-        generation,
         capturedAt,
         state: configurationInvalid ? "invalid" : "absent",
         freshness: configurationInvalid ? "undetermined" : "current",
@@ -1361,7 +1529,6 @@ const captureLocalScope = async (
     if (!isSystemError(error) && !isRepositoryPathBoundaryError(error)) throw error;
     return captureWithoutProjection({
       binding,
-      generation,
       capturedAt,
       state: "invalid",
       freshness: "undetermined",
@@ -1495,19 +1662,16 @@ const captureLocalScope = async (
         ),
       );
     }
-    const wayfinder =
-      role === "wayfinder" ? decodeWayfinder(file, capturedAt, diagnostics) : undefined;
+    const wayfinder = role === "wayfinder" ? decodeWayfinder(file, diagnostics) : undefined;
     const delivery =
-      role === "delivery" ? decodeDelivery(file, vocabulary, capturedAt, diagnostics) : undefined;
+      role === "delivery" ? decodeDelivery(file, vocabulary, diagnostics) : undefined;
     const incoming =
-      role === "incoming" ? decodeIncoming(file, vocabulary, capturedAt, diagnostics) : undefined;
+      role === "incoming" ? decodeIncoming(file, vocabulary, diagnostics) : undefined;
     const decoded: DecodedIssue = {
       file,
       shortReference,
       role,
-      blockerReferences: splitBlockerReferences(fieldValue(file, "Blocked by", diagnostics)).map(
-        normalizedShortReference,
-      ),
+      blockerReferences: blockerReferences(file, diagnostics),
       ...(wayfinder === undefined ? {} : { wayfinder }),
       ...(delivery === undefined ? {} : { delivery }),
       ...(incoming === undefined ? {} : { incoming }),
@@ -1694,6 +1858,14 @@ const captureLocalScope = async (
     wayfinderTickets: resolvedWayfinder,
     deliveryTickets,
     incomingIssues,
+    structuralOrder: [
+      ...(mapProjection === undefined ? [] : [mapProjection.ref]),
+      ...(specProjection === undefined ? [] : [specProjection.ref]),
+      ...decodedIssues.flatMap((issue) => {
+        const projected = issue.wayfinder ?? issue.delivery ?? issue.incoming;
+        return projected === undefined ? [] : [projected.ref];
+      }),
+    ],
     graph: { parentChild, blockedBy },
   };
   const unstableIssueLocators = new Set(
@@ -1732,10 +1904,9 @@ const captureLocalScope = async (
   const completion =
     state === "available" && freshness === "current" ? scopeCompletion(projection) : "undetermined";
 
-  return createProviderScopeCapture({
+  return createProviderScopeObservation({
     provider: MATT_SKILLS_V1_PROVIDER_ID,
     binding,
-    generation,
     state,
     freshness: {
       assessment: freshness,
@@ -1772,9 +1943,476 @@ const captureLocalScope = async (
   });
 };
 
+const emptyProjection = (): MattScopeProjection => ({
+  wayfinderTickets: [],
+  deliveryTickets: [],
+  incomingIssues: [],
+  structuralOrder: [],
+  graph: { parentChild: [], blockedBy: [] },
+});
+
+const localObjectLocator = (
+  object: MattWayfinderTicket | MattDeliveryTicket | MattIncomingIssue,
+): string => (object.native.kind === "local" ? object.native.identity.locator : String(object.ref));
+
+const localReconciliationProjection = async (
+  options: LocalMarkdownMattProviderOptions,
+  input: NativeWorkReconciliationInput<"matt-skills/v1", MattScopeProjection>,
+): Promise<MattSkillsV1ProviderObservation> => {
+  const capturedAt = (options.clock ?? (() => new Date()))().toISOString();
+  const diagnostics: CaptureDiagnostic[] = [];
+  const priorProjection = input.prior?.projection ?? emptyProjection();
+  const partialBasis =
+    input.prior === undefined ||
+    !input.prior.coverage.dimensions.some(
+      (dimension) =>
+        (dimension.key === "scope-membership" || dimension.key === "scope-membership-basis") &&
+        dimension.state === "covered",
+    );
+  let root: string;
+  let scopeLocator: string;
+  let contractLocator: string;
+  let triageLocator: string;
+  try {
+    root = await resolveRepositoryRoot(options.repoRoot);
+    scopeLocator = normalizeLocator(input.binding.nativeScope);
+    contractLocator = normalizeLocator(options.contractLocator);
+    triageLocator = normalizeLocator(
+      options.triageLocator ?? posix.join(posix.dirname(contractLocator), "triage-labels.md"),
+    );
+  } catch {
+    return captureWithoutProjection({
+      binding: input.binding,
+      capturedAt,
+      state: "invalid",
+      freshness: "undetermined",
+      completion: "undetermined",
+      diagnostics: [
+        diagnostic(
+          "matt.local.reconciliation.scope-invalid",
+          "identity",
+          input.binding.nativeScope,
+          "Targeted Local reconciliation requires one valid repository-contained native scope.",
+        ),
+      ],
+    });
+  }
+
+  const interpretationTarget = (locator: string): MarkdownInput | undefined => {
+    const captured = options.capturedDocuments?.get(locator);
+    if (captured === undefined) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.reconciliation.interpretation-unavailable",
+          "contract",
+          locator,
+          "Generation-captured provider interpretation input is unavailable.",
+        ),
+      );
+      return undefined;
+    }
+    try {
+      const source = new TextDecoder("utf-8", { fatal: true }).decode(captured.bytes);
+      return {
+        locator,
+        bytes: captured.bytes,
+        source,
+        document: parseMarkdownDocument(source),
+      };
+    } catch {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.input.encoding",
+          "format",
+          locator,
+          "Local Markdown interpretation input is not valid UTF-8.",
+        ),
+      );
+      return undefined;
+    }
+  };
+  const contractFile = interpretationTarget(contractLocator);
+  const contractLayout =
+    contractFile === undefined ? undefined : parseLocalMattContract(contractFile, diagnostics);
+  const triageFile = interpretationTarget(triageLocator);
+  const vocabulary =
+    triageFile === undefined ? undefined : parseTriageVocabulary(triageFile, diagnostics);
+  if (contractLayout === undefined) {
+    return captureWithoutProjection({
+      binding: input.binding,
+      capturedAt,
+      state: "invalid",
+      freshness: "undetermined",
+      completion: "undetermined",
+      diagnostics,
+    });
+  }
+
+  const mapLocator = normalizeLocator(posix.join(scopeLocator, "map.md"));
+  const specLocator = normalizeLocator(posix.join(scopeLocator, contractLayout.specFilename));
+  const issuesLocator = normalizeLocator(posix.join(scopeLocator, "issues"));
+  const readReferences = affectedReadReferences(input.affected);
+  const targetLocators: string[] = [];
+  for (const reference of readReferences) {
+    let locator: string;
+    try {
+      locator = normalizeLocator(reference);
+    } catch {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.reconciliation.reference-invalid",
+          "identity",
+          scopeLocator,
+          "Affected Local native reference is not one normalized repository-relative locator.",
+        ),
+      );
+      continue;
+    }
+    if (
+      locator !== mapLocator &&
+      locator !== specLocator &&
+      !(posix.dirname(locator) === issuesLocator && locator.endsWith(".md"))
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.reconciliation.reference-outside-scope",
+          "identity",
+          scopeLocator,
+          "Affected Local native reference is outside the contract-defined scope slots.",
+        ),
+      );
+      continue;
+    }
+    targetLocators.push(locator);
+  }
+
+  const maximumFileBytes = options.maximumFileBytes ?? DEFAULT_MAXIMUM_FILE_BYTES;
+  const capturedFiles = new Map<string, CapturedFile>();
+  const missingLocators = new Set<string>();
+  let concurrentMutation = false;
+  for (const locator of [...new Set(targetLocators)].sort(utf8Compare)) {
+    try {
+      const contained = await resolveContainedPath(root, resolve(root, locator));
+      const before = await stampFor(contained);
+      if (BigInt(before.size) > BigInt(maximumFileBytes)) {
+        diagnostics.push(
+          diagnostic(
+            "matt.local.input.too-large",
+            "source",
+            locator,
+            `Local Markdown input exceeds ${maximumFileBytes} bytes.`,
+          ),
+        );
+        continue;
+      }
+      const bytes = await readContainedFile(root, contained);
+      await options.onCaptureEvent?.({ kind: "content-read", locator });
+      const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      const after = await stampFor(contained);
+      await options.onCaptureEvent?.({ kind: "metadata-verified", locator });
+      if (!sameStamp(before, after)) {
+        concurrentMutation = true;
+        continue;
+      }
+      capturedFiles.set(locator, {
+        locator,
+        bytes,
+        source,
+        document: parseMarkdownDocument(source),
+        stamp: before,
+      });
+    } catch (error) {
+      if (isSystemError(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
+        missingLocators.add(locator);
+        continue;
+      }
+      if (error instanceof TypeError) {
+        diagnostics.push(
+          diagnostic(
+            "matt.local.input.encoding",
+            "format",
+            locator,
+            "Local Markdown input is not valid UTF-8.",
+          ),
+        );
+        continue;
+      }
+      if (!isSystemError(error) && !isRepositoryPathBoundaryError(error)) throw error;
+      diagnostics.push(
+        diagnostic(
+          "matt.local.input.unsafe",
+          "source",
+          locator,
+          "Targeted Local input failed containment, symlink, file-type or identity safety.",
+        ),
+      );
+    }
+  }
+  if (concurrentMutation) {
+    diagnostics.push(
+      diagnostic(
+        "matt.local.concurrent-mutation",
+        "concurrency",
+        scopeLocator,
+        "Affected Local native work changed during targeted reconciliation.",
+      ),
+    );
+  }
+
+  const changedIssues: DecodedIssue[] = [];
+  for (const file of capturedFiles.values()) {
+    if (file.locator === mapLocator || file.locator === specLocator) continue;
+    const shortReference = shortReferenceFor(file.locator);
+    if (shortReference === undefined) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.identity.invalid-reference",
+          "identity",
+          file.locator,
+          "Affected issue filename does not contain one canonical numeric short reference.",
+        ),
+      );
+      continue;
+    }
+    const role = issueRole(file);
+    if (role === "ambiguous") {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.role.ambiguous",
+          "format",
+          file.locator,
+          "Affected issue contains partial or conflicting Wayfinder and Delivery role evidence.",
+        ),
+      );
+    }
+    const wayfinder = role === "wayfinder" ? decodeWayfinder(file, diagnostics) : undefined;
+    const delivery =
+      role === "delivery" ? decodeDelivery(file, vocabulary, diagnostics) : undefined;
+    const incoming =
+      role === "incoming" ? decodeIncoming(file, vocabulary, diagnostics) : undefined;
+    const changed: DecodedIssue = {
+      file,
+      shortReference,
+      role,
+      blockerReferences: blockerReferences(file, diagnostics),
+      ...(wayfinder === undefined ? {} : { wayfinder }),
+      ...(delivery === undefined ? {} : { delivery }),
+      ...(incoming === undefined ? {} : { incoming }),
+    };
+    changedIssues.push(changed);
+  }
+
+  const changedRefs = new Set([
+    ...changedIssues.map((issue) => issue.file.locator),
+    ...missingLocators,
+  ]);
+  const mergedWayfinder = [
+    ...priorProjection.wayfinderTickets.filter(
+      (ticket) => !changedRefs.has(localObjectLocator(ticket)),
+    ),
+    ...changedIssues.flatMap((issue) => (issue.wayfinder === undefined ? [] : [issue.wayfinder])),
+  ].sort((left, right) => utf8Compare(localObjectLocator(left), localObjectLocator(right)));
+  const mergedDelivery = [
+    ...priorProjection.deliveryTickets.filter(
+      (ticket) => !changedRefs.has(localObjectLocator(ticket)),
+    ),
+    ...changedIssues.flatMap((issue) => (issue.delivery === undefined ? [] : [issue.delivery])),
+  ].sort((left, right) => utf8Compare(localObjectLocator(left), localObjectLocator(right)));
+  const mergedIncoming = [
+    ...priorProjection.incomingIssues.filter(
+      (issue) => !changedRefs.has(localObjectLocator(issue)),
+    ),
+    ...changedIssues.flatMap((issue) => (issue.incoming === undefined ? [] : [issue.incoming])),
+  ].sort((left, right) => utf8Compare(localObjectLocator(left), localObjectLocator(right)));
+  const allIssues = [...mergedWayfinder, ...mergedDelivery, ...mergedIncoming];
+  const issueByLocator = new Map<string, DecodedIssue>();
+  for (const object of allIssues) {
+    const locator = localObjectLocator(object);
+    const changed = changedIssues.find((candidate) => candidate.file.locator === locator);
+    issueByLocator.set(
+      locator,
+      changed ?? {
+        file: {
+          locator,
+          bytes: Buffer.alloc(0),
+          source: "",
+          document: parseMarkdownDocument(""),
+          stamp: { dev: "", ino: "", mode: "", size: "", mtimeNs: "", ctimeNs: "" },
+        },
+        shortReference: shortReferenceFor(locator) ?? locator,
+        role:
+          object.kind === "wayfinder-ticket"
+            ? "wayfinder"
+            : object.kind === "delivery-ticket"
+              ? "delivery"
+              : "incoming",
+        blockerReferences: [],
+        ...(object.kind === "wayfinder-ticket" ? { wayfinder: object } : {}),
+        ...(object.kind === "delivery-ticket" ? { delivery: object } : {}),
+        ...(object.kind === "incoming-issue" ? { incoming: object } : {}),
+      },
+    );
+  }
+
+  const mapFile = capturedFiles.get(mapLocator);
+  const specFile = capturedFiles.get(specLocator);
+  const mapProjection = missingLocators.has(mapLocator)
+    ? undefined
+    : mapFile === undefined
+      ? priorProjection.map
+      : decodeMap(mapFile, issueByLocator, diagnostics);
+  const specProjection = missingLocators.has(specLocator)
+    ? undefined
+    : specFile === undefined
+      ? priorProjection.spec
+      : decodeSpec(specFile, diagnostics);
+  const wayfinderTickets = mergedWayfinder.map((ticket) =>
+    lifecycleWithMapEvidence(ticket, mapProjection, diagnostics),
+  );
+  const parentChild: MattParentChildRelation[] = [
+    ...(mapProjection === undefined
+      ? []
+      : wayfinderTickets.map((ticket) => ({
+          parent: mapProjection.ref,
+          child: ticket.ref,
+          evidence: "matt-contract" as const,
+        }))),
+    ...(specProjection === undefined
+      ? []
+      : mergedDelivery.map((ticket) => ({
+          parent: specProjection.ref,
+          child: ticket.ref,
+          evidence: "matt-contract" as const,
+        }))),
+  ];
+
+  const rebuiltBlockedRefs = new Set(changedIssues.map((issue) => issue.file.locator));
+  const currentTicketRefs = new Set([
+    ...wayfinderTickets.map((ticket) => ticket.ref),
+    ...mergedDelivery.map((ticket) => ticket.ref),
+  ]);
+  const byShortReference = new Map(
+    allIssues.flatMap((object) => {
+      const short = shortReferenceFor(localObjectLocator(object));
+      return short === undefined ? [] : [[short, object] as const];
+    }),
+  );
+  const blockedBy: MattBlockedByRelation[] = priorProjection.graph.blockedBy.filter(
+    (relation) =>
+      !rebuiltBlockedRefs.has(String(relation.blocked)) &&
+      currentTicketRefs.has(relation.blocked) &&
+      currentTicketRefs.has(relation.blocker),
+  );
+  for (const issue of changedIssues) {
+    const blocked = issue.wayfinder?.ref ?? issue.delivery?.ref;
+    for (const reference of issue.blockerReferences) {
+      const blocker = byShortReference.get(reference);
+      if (
+        blocked === undefined ||
+        (blocker?.kind !== "wayfinder-ticket" && blocker?.kind !== "delivery-ticket")
+      ) {
+        diagnostics.push(
+          diagnostic(
+            "matt.local.relation.broken",
+            "identity",
+            issue.file.locator,
+            `Affected Blocked by reference does not uniquely resolve to a ticket: ${reference}.`,
+          ),
+        );
+        continue;
+      }
+      blockedBy.push({ blocked, blocker: blocker.ref, evidence: "matt-contract" });
+    }
+  }
+
+  const objectsByLocator = [...wayfinderTickets, ...mergedDelivery, ...mergedIncoming].sort(
+    (left, right) => utf8Compare(localObjectLocator(left), localObjectLocator(right)),
+  );
+  const projection: MattScopeProjection = {
+    ...(mapProjection === undefined ? {} : { map: mapProjection }),
+    ...(specProjection === undefined ? {} : { spec: specProjection }),
+    wayfinderTickets,
+    deliveryTickets: mergedDelivery,
+    incomingIssues: mergedIncoming,
+    structuralOrder: [
+      ...(mapProjection === undefined ? [] : [mapProjection.ref]),
+      ...(specProjection === undefined ? [] : [specProjection.ref]),
+      ...objectsByLocator.map((object) => object.ref),
+    ],
+    graph: {
+      parentChild,
+      blockedBy: [
+        ...new Map(
+          blockedBy.map((relation) => [`${relation.blocked}\0${relation.blocker}`, relation]),
+        ).values(),
+      ],
+    },
+  };
+  const blocking = diagnostics.some((item) => item.impact === "blocking");
+  const current = !blocking && !concurrentMutation;
+  const state = partialBasis || blocking ? "partial" : "available";
+  const coverageComplete = !partialBasis && current;
+  return createProviderScopeObservation({
+    provider: MATT_SKILLS_V1_PROVIDER_ID,
+    binding: input.binding,
+    state,
+    freshness: {
+      assessment: current ? "current" : "undetermined",
+      capturedAt,
+      sourceObservedAt: capturedAt,
+      evidence: [
+        { kind: "local-scope", value: scopeLocator },
+        ...(input.prior === undefined
+          ? []
+          : [{ kind: "reconciliation-basis", value: input.prior.id }]),
+        { kind: "affected-reference-count", value: String(readReferences.length) },
+        { kind: "content-read-count", value: String(capturedFiles.size) },
+        { kind: "absence-read-count", value: String(missingLocators.size) },
+        { kind: "metadata-verification", value: current ? "stable" : "changed-or-invalid" },
+      ],
+    },
+    coverage: {
+      assessment: coverageComplete ? "complete" : "incomplete",
+      dimensions: [
+        { key: "contract", state: contractLayout === undefined ? "gap" : "covered" },
+        { key: "vocabulary", state: vocabulary?.complete === true ? "covered" : "gap" },
+        {
+          key: "affected-subjects-and-relations",
+          state: current ? "covered" : "gap",
+        },
+        {
+          key: "scope-membership-basis",
+          state: partialBasis ? "excluded" : "covered",
+          ...(partialBasis
+            ? { detail: "No prior full-scope observation was available; completion is excluded." }
+            : {}),
+        },
+      ],
+    },
+    completion:
+      coverageComplete && state === "available" ? scopeCompletion(projection) : "undetermined",
+    diagnostics: [
+      ...diagnostics,
+      ...(partialBasis
+        ? [
+            diagnostic(
+              "matt.local.reconciliation.partial-basis",
+              "acquisition",
+              scopeLocator,
+              "Targeted detail was observed without a prior full-scope basis; completion remains unavailable.",
+              "non-blocking",
+            ),
+          ]
+        : []),
+    ],
+    projection,
+  });
+};
+
 export const createLocalMarkdownMattProvider = (
   options: LocalMarkdownMattProviderOptions,
 ): MattSkillsV1Provider => ({
   id: MATT_SKILLS_V1_PROVIDER_ID,
-  capture: (binding, generation) => captureLocalScope(options, binding, generation),
+  capture: (binding) => captureLocalScope(options, binding),
+  reconcile: (input) => localReconciliationProjection(options, input),
 });

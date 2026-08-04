@@ -411,13 +411,10 @@ describe("release smoke frozen source binding", () => {
       repoRoot: repository,
       contractLocator: "docs/agents/issue-tracker.md",
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture(
-      {
-        provider: "matt-skills/v1",
-        nativeScope: ".scratch/release-smoke",
-      },
-      { fingerprint: "sha256:release-smoke-seed" },
-    );
+    }).capture({
+      provider: "matt-skills/v1",
+      nativeScope: ".scratch/release-smoke",
+    });
     expect(capture).toMatchObject({
       state: "available",
       freshness: { assessment: "current" },

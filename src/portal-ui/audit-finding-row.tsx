@@ -1,52 +1,65 @@
 import { Icons } from "./icons";
 import { decisionKindLabel, type ProjectAuditFindingRow } from "./project-audit-model";
 
-export function AuditFindingRow({
-  onSelect,
-  row,
-}: {
-  readonly onSelect: (trigger: HTMLButtonElement) => void;
-  readonly row: ProjectAuditFindingRow;
-}) {
+const rowContent = (row: ProjectAuditFindingRow) => {
   const affectedCount = row.finding.affectedReferences.length;
-  const pathLabel =
-    row.promotion === undefined ? "Advisory finding" : decisionKindLabel(row.promotion.kind);
-  const decision =
-    row.promotion === undefined
-      ? "No promoted decision path"
-      : row.promotion.available
-        ? `${row.promotion.title} · ${row.promotion.status}`
-        : `${row.promotion.id} · unavailable`;
+  const promotion = row.promotion;
+  const targetLabel =
+    promotion === undefined
+      ? "No decision target"
+      : promotion.available
+        ? `${promotion.title} · ${promotion.status}`
+        : `${decisionKindLabel(promotion.kind)} unavailable · ${promotion.id}`;
   return (
-    <button
-      aria-label={`${row.finding.title}, ${pathLabel}, ${affectedCount} affected ${
-        affectedCount === 1 ? "reference" : "references"
-      }, ${decision}`}
-      className="audit-finding-row"
-      onClick={(event) => onSelect(event.currentTarget)}
-      type="button"
-    >
-      <span className={`audit-path-mark${row.promotion === undefined ? "" : " is-promoted"}`}>
-        {row.promotion === undefined ? (
-          <Icons.audit aria-hidden="true" />
-        ) : (
-          <Icons.arrow aria-hidden="true" />
-        )}
-      </span>
+    <>
       <span className="audit-finding-copy">
-        <small className="audit-finding-path-label">{pathLabel}</small>
         <strong className="audit-finding-title">{row.finding.title}</strong>
         <span className="audit-finding-summary">{row.finding.summary}</span>
       </span>
-      <span className="audit-finding-relations">
-        <span className="audit-finding-count">
-          {affectedCount} affected {affectedCount === 1 ? "reference" : "references"}
-        </span>
-        <small className="audit-finding-decision">{decision}</small>
-      </span>
+      <dl className="audit-finding-facts">
+        <div>
+          <dt>Scope</dt>
+          <dd>
+            <strong>
+              {affectedCount} affected {affectedCount === 1 ? "reference" : "references"}
+            </strong>
+            <span>{row.finding.affectedReferences.join(" · ")}</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Impact</dt>
+          <dd>{row.finding.consequence}</dd>
+        </div>
+        <div>
+          <dt>Target</dt>
+          <dd>{targetLabel}</dd>
+        </div>
+      </dl>
+    </>
+  );
+};
+
+export function AuditFindingRow({
+  href,
+  row,
+}: {
+  readonly href: string | undefined;
+  readonly row: ProjectAuditFindingRow;
+}) {
+  const affectedCount = row.finding.affectedReferences.length;
+  const label = `${row.finding.title}, ${affectedCount} affected ${
+    affectedCount === 1 ? "reference" : "references"
+  }`;
+  return href === undefined ? (
+    <article aria-label={label} className="audit-finding-row">
+      {rowContent(row)}
+    </article>
+  ) : (
+    <a aria-label={label} className="audit-finding-row is-linked" href={href}>
+      {rowContent(row)}
       <span className="row-arrow" aria-hidden="true">
         <Icons.arrow />
       </span>
-    </button>
+    </a>
   );
 }

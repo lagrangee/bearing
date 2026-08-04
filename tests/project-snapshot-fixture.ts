@@ -4,11 +4,10 @@ import {
   rebaseDecodedBearingRecordGeneration,
 } from "../src/bearing-record-decoder";
 import { listFiles } from "../src/discovery";
-import { rebaseProviderScopeCaptureGeneration } from "../src/native-work-provider";
 import { buildPlanningGraph } from "../src/planning-graph";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
 import type { ProjectSnapshotBuildInput } from "../src/project-snapshot/projection-input";
-import { captureProviderGeneration } from "../src/provider-capture-generation";
+import { acquireProviderObservations } from "../src/provider-observation-acquisition";
 import { captureSyncInputGeneration } from "../src/sync-input-generation";
 import type { StructuralDiagnostic } from "../src/types";
 
@@ -36,25 +35,23 @@ export const captureDecodedInputs = async (
 ) => {
   const generation = await captureSyncInputGeneration(repoRoot, inputs);
   const initial = decodeBearingRecordGeneration(generation);
-  const providerGeneration = await captureProviderGeneration(generation, initial);
+  const acquisition = await acquireProviderObservations(generation, initial);
   const decoded =
     fingerprint === undefined
-      ? rebaseDecodedBearingRecordGeneration(
-          initial,
-          providerGeneration.fingerprint,
-          generation.records.length,
-        )
+      ? initial
       : rebaseDecodedBearingRecordGeneration(initial, fingerprint, generation.records.length);
   const diagnostics: StructuralDiagnostic[] = [];
   const assets = await resolveAssetInputs(repoRoot, decoded, diagnostics, listFiles);
   return {
     decoded,
-    providerCaptures:
-      fingerprint === undefined
-        ? providerGeneration.captures
-        : providerGeneration.captures.map((capture) =>
-            rebaseProviderScopeCaptureGeneration(capture, fingerprint),
-          ),
+    providerObservations: acquisition.observations,
+    providerObservationSelections: acquisition.observations.map((observation) => ({
+      provider: observation.provider,
+      nativeScope: observation.binding.nativeScope,
+      observationId: observation.id,
+      effectiveFreshness: observation.freshness.assessment,
+      latestAttempt: null,
+    })),
     assetContentObservations: assets.observations,
   };
 };
@@ -72,7 +69,11 @@ export const captureDecodedSourceInputs = async (input: {
 
 type LegacySnapshotFixtureInput = Omit<
   ProjectSnapshotBuildInput,
-  "decoded" | "providerCaptures" | "assetContentObservations" | "planningGraph"
+  | "decoded"
+  | "providerObservations"
+  | "providerObservationSelections"
+  | "assetContentObservations"
+  | "planningGraph"
 > &
   Readonly<{
     inputs: readonly string[];
@@ -89,7 +90,7 @@ export const buildProjectSnapshotForTest = async (input: LegacySnapshotFixtureIn
     input.assetContentObservations ?? captured.assetContentObservations;
   const planningGraph = await buildPlanningGraph({
     decoded: captured.decoded,
-    providerCaptures: captured.providerCaptures,
+    providerObservations: captured.providerObservations,
     diagnostics: input.diagnostics,
     fingerprint: input.sitemapFingerprint,
     assetContentObservations,
@@ -101,6 +102,7 @@ export const buildProjectSnapshotForTest = async (input: LegacySnapshotFixtureIn
     diagnostics: input.diagnostics,
     advisoryFreshness: input.advisoryFreshness,
     ...captured,
+    providerObservationSelections: captured.providerObservationSelections,
     assetContentObservations,
     planningGraph,
   });

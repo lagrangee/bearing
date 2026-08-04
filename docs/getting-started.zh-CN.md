@@ -20,6 +20,11 @@ npx @lagrangee/bearing
 
 普通安装使用无参数 wizard。它会在写入前预览 managed targets，安装用户级 CLI 和 skill assets；不会自动初始化所有仓库。
 
+用户级 Bearing skill 在任何仓库中都保留显式 Bearing 或 Setup 入口。普通 repository work
+只有在 Setup 写入该仓库的 managed Agent Surface pointer，且 package-owned 只读检查确认
+manifest 为 Active 后，才会自动激活 Bearing。Fresh 与 Deactivated 仓库会继续普通工作，
+不会调用 Bearing。
+
 ## 启用一个仓库
 
 在目标仓库中，让 agent 执行：

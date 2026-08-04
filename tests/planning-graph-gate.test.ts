@@ -1,17 +1,36 @@
 import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { createProviderScopeObservation } from "../src/native-work-provider";
 import { buildPlanningGraph } from "../src/planning-graph";
 import { prepareSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
+
+const prepareBaseline = (root: string) =>
+  prepareSync(root, { providerObservationIntent: "initial-baseline" });
 
 const addSecondEffort = async (
   root: string,
   authorities: readonly string[] = [],
 ): Promise<void> => {
+  const gatePath = join(root, ".bearing/state/milestone-gates/test.md");
+  const gate = await readFile(gatePath, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/milestone-gates/test.md",
+    gate.replace(
+      "Effort order:\n  - effort:test",
+      "Effort order:\n  - effort:second\n  - effort:test",
+    ),
+  );
   await writeFixture(
     root,
     ".bearing/state/efforts/second.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:second
 Title: Second Effort
 Roadmap: roadmap:test
@@ -138,7 +157,7 @@ test("Gate closure returns every inbound Effort with native, governance, evidenc
   await addSecondEffort(root, ["authority:architecture"]);
   await addGovernanceContext(root);
 
-  const plan = await prepareSync(root);
+  const plan = await prepareBaseline(root);
   const result = plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" });
 
   expect(result.state).toBe("complete");
@@ -180,7 +199,7 @@ test("Gate closure returns every inbound Effort with native, governance, evidenc
 
   const reversed = await buildPlanningGraph({
     decoded: { ...plan.decoded, records: [...plan.decoded.records].reverse() },
-    providerCaptures: [...plan.providerCaptures].reverse(),
+    providerObservations: [...plan.providerObservations].reverse(),
     diagnostics: [...plan.diagnostics].reverse(),
     fingerprint: plan.fingerprint,
     assetContentObservations: [...plan.assetContentObservations].reverse(),
@@ -192,7 +211,7 @@ test("Gate closure retains trustworthy siblings and reports a missing required r
   const root = await createValidBearingRepo();
   await addSecondEffort(root, ["authority:missing"]);
 
-  const result = (await prepareSync(root)).planningGraph.contextFor({
+  const result = (await prepareBaseline(root)).planningGraph.contextFor({
     kind: "gate",
     id: "gate:test",
   });
@@ -211,7 +230,7 @@ test("Gate closure retains trustworthy siblings and reports a missing required r
 });
 
 test("Gate closure rejects unknown and wrong-kind Stable IDs without fallback", async () => {
-  const plan = await prepareSync(await createValidBearingRepo());
+  const plan = await prepareBaseline(await createValidBearingRepo());
 
   expect(plan.planningGraph.contextFor({ kind: "gate", id: "gate:missing" })).toMatchObject({
     state: "invalid",
@@ -231,6 +250,9 @@ test("Gate closure isolates duplicate Effort identities without dropping trustwo
     ".bearing/state/efforts/duplicate.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:second
 Title: Duplicate Second Effort
 Roadmap: roadmap:test
@@ -254,7 +276,7 @@ Remain ambiguous.
 `,
   );
 
-  const result = (await prepareSync(root)).planningGraph.contextFor({
+  const result = (await prepareBaseline(root)).planningGraph.contextFor({
     kind: "gate",
     id: "gate:test",
   });
@@ -271,10 +293,10 @@ Remain ambiguous.
 });
 
 test("Gate closure exposes the same immutable provider capture used by Sync", async () => {
-  const plan = await prepareSync(await createValidBearingRepo());
+  const plan = await prepareBaseline(await createValidBearingRepo());
   const graph = await buildPlanningGraph({
     decoded: plan.decoded,
-    providerCaptures: plan.providerCaptures,
+    providerObservations: plan.providerObservations,
     diagnostics: plan.diagnostics,
     fingerprint: plan.fingerprint,
     assetContentObservations: plan.assetContentObservations,
@@ -284,7 +306,7 @@ test("Gate closure exposes the same immutable provider capture used by Sync", as
 
   expect(result.state).toBe("complete");
   if (result.state === "invalid") throw new Error("Expected complete Gate context.");
-  expect(result.context.efforts[0]?.providerCapture).toBe(plan.providerCaptures[0]);
+  expect(result.context.efforts[0]?.providerCapture).toBe(plan.providerObservations[0]);
 });
 
 test("invalid Gate closure includes only issues belonging to the requested Gate", async () => {
@@ -295,6 +317,7 @@ ID: ${id}
 Title: ${title}
 Roadmap: roadmap:test
 Status: active
+Effort order: ${id === "gate:test" ? "\n  - effort:test" : "[]"}
 ---
 
 # ${title}
@@ -323,7 +346,7 @@ Exercise issue isolation.
     duplicateGate("gate:other", "Other Gate Two"),
   );
 
-  const result = (await prepareSync(root)).planningGraph.contextFor({
+  const result = (await prepareBaseline(root)).planningGraph.contextFor({
     kind: "gate",
     id: "gate:test",
   });
@@ -344,6 +367,9 @@ test("Gate closure scopes an untrustworthy canonical Effort contributor without 
     ".bearing/state/efforts/uncertain.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:uncertain
 Title: Uncertain Effort
 Roadmap: roadmap:test
@@ -379,7 +405,7 @@ Status: unsupported
 `,
   );
 
-  const result = (await prepareSync(root)).planningGraph.contextFor({
+  const result = (await prepareBaseline(root)).planningGraph.contextFor({
     kind: "gate",
     id: "gate:test",
   });
@@ -408,30 +434,38 @@ Status: unsupported
 });
 
 test("Gate closure exposes diagnostics from its bound provider capture", async () => {
-  const plan = await prepareSync(await createValidBearingRepo());
-  const capture = plan.providerCaptures[0];
+  const plan = await prepareBaseline(await createValidBearingRepo());
+  const capture = plan.providerObservations[0];
   if (capture === undefined || capture.state !== "available") {
     throw new Error("Expected an available provider capture.");
   }
-  const graph = await buildPlanningGraph({
-    decoded: plan.decoded,
-    providerCaptures: [
+  const degraded = createProviderScopeObservation({
+    provider: capture.provider,
+    binding: capture.binding,
+    observedAt: capture.observedAt,
+    ...(capture.sourceRevision === undefined ? {} : { sourceRevision: capture.sourceRevision }),
+    ...(capture.sourceObservedAt === undefined
+      ? {}
+      : { sourceObservedAt: capture.sourceObservedAt }),
+    validators: capture.validators,
+    state: "partial",
+    freshness: capture.freshness,
+    coverage: { ...capture.coverage, assessment: "incomplete" },
+    completion: "undetermined",
+    diagnostics: [
       {
-        ...capture,
-        state: "partial",
-        coverage: { ...capture.coverage, assessment: "incomplete" },
-        completion: "undetermined",
-        diagnostics: [
-          {
-            code: "matt.local.scope.invalid",
-            class: "format",
-            impact: "blocking",
-            target: capture.binding.nativeScope,
-            message: "Provider scope is structurally uncertain.",
-          },
-        ],
+        code: "matt.local.scope.invalid",
+        class: "format",
+        impact: "blocking",
+        target: capture.binding.nativeScope,
+        message: "Provider scope is structurally uncertain.",
       },
     ],
+    projection: capture.projection,
+  });
+  const graph = await buildPlanningGraph({
+    decoded: plan.decoded,
+    providerObservations: [degraded],
     diagnostics: plan.diagnostics,
     fingerprint: plan.fingerprint,
     assetContentObservations: plan.assetContentObservations,

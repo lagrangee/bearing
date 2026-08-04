@@ -1,8 +1,14 @@
 import { expect, test } from "bun:test";
+import { createProviderScopeObservation } from "../src/native-work-provider";
+import type { AssetProjection } from "../src/project-snapshot/contract";
+import { buildMattNativeSourceRecords } from "../src/project-snapshot/native-work-sources";
+import { buildPlanningLineageProjection } from "../src/project-snapshot/planning-lineage";
 import {
   assetProjectionSchema,
   gateSchema,
+  projectBriefSchema,
   projectSnapshotSchema,
+  projectSummarySchema,
 } from "../src/project-snapshot/schema";
 import {
   createSourceReference,
@@ -10,6 +16,7 @@ import {
   type SourceKind,
 } from "../src/project-snapshot/source-reference";
 import { displayAssetLocatorSchema } from "../src/reference-schema";
+import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
 const BASIS = `sha256:${"a".repeat(64)}`;
 const boundRecord = (
@@ -52,23 +59,6 @@ const auditRecord = boundRecord(
   "planning-audit",
   "planning-audit:current",
 );
-const guidanceRecord = boundRecord(
-  "canonical",
-  ".bearing/state/next-work-guidance.md",
-  "next-work-guidance",
-  "next-work-guidance:current",
-);
-const guidanceItemRecord = (fragment: string) =>
-  boundRecord(
-    "canonical",
-    ".bearing/state/next-work-guidance.md",
-    "guidance-item",
-    `next-work-guidance:current#${fragment}`,
-    fragment,
-  );
-const primaryRecord = guidanceItemRecord("primary");
-const firstAlternativeRecord = guidanceItemRecord("alternative-1");
-const secondAlternativeRecord = guidanceItemRecord("alternative-2");
 const assetRecord = boundRecord(
   "asset",
   ".bearing/state/assets.md",
@@ -79,10 +69,11 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 3,
+  schemaVersion: 19,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
+  brief: { validity: "absent" },
   roadmapIndex: { validity: "absent" },
   roadmaps: availableItems,
   gates: availableItems,
@@ -91,31 +82,24 @@ const validSnapshot = {
   assets: availableItems,
   checks: availableItems,
   reviews: availableItems,
+  lineage: { subjects: [] },
   audit: { validity: "absent" },
-  guidance: { validity: "absent" },
-  providerCaptures: [],
+  providerObservations: [],
+  providerObservationSelections: [],
+  nativeScopeInspections: { observations: [], selections: [] },
   diagnostics: [],
   attention: [],
-  sources: [
-    summaryRecord,
-    roadmapRecord,
-    auditRecord,
-    guidanceRecord,
-    primaryRecord,
-    firstAlternativeRecord,
-    secondAlternativeRecord,
-    assetRecord,
-  ],
+  sources: [summaryRecord, roadmapRecord, auditRecord, assetRecord],
 };
-const providerCapture = {
+const providerCapture = createProviderScopeObservation({
   provider: "matt-skills/v1",
   binding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
-  generation: { fingerprint: BASIS },
+  observedAt: "2026-07-28T12:00:00.000Z",
+  sourceRevision: `sha256:${"b".repeat(64)}`,
+  validators: [],
   state: "available",
   freshness: {
     assessment: "current",
-    capturedAt: "2026-07-28T12:00:00.000Z",
-    sourceRevision: `sha256:${"b".repeat(64)}`,
     evidence: [{ kind: "local-scope", value: ".scratch/work" }],
   },
   coverage: {
@@ -128,44 +112,17 @@ const providerCapture = {
     wayfinderTickets: [],
     deliveryTickets: [],
     incomingIssues: [],
+    structuralOrder: [],
     graph: { parentChild: [], blockedBy: [] },
   },
+});
+const providerSelection = {
+  provider: providerCapture.provider,
+  nativeScope: providerCapture.binding.nativeScope,
+  observationId: providerCapture.id,
+  effectiveFreshness: providerCapture.freshness.assessment,
+  latestAttempt: null,
 } as const;
-const guidanceItem = {
-  title: "Complete Snapshot",
-  rationale: "Unlock every reading path.",
-  supportingReferences: ["gate:overview"],
-  source: primaryRecord.reference,
-};
-const guidance = {
-  validity: "available",
-  value: {
-    id: "next-work-guidance:current",
-    generatedAt: "2026-07-13T20:00:00+0800",
-    semanticFreshness: "current",
-    semanticCoverage: "complete",
-    basedOnAuditId: "planning-audit:current",
-    primary: guidanceItem,
-    alternatives: [
-      { ...guidanceItem, source: firstAlternativeRecord.reference },
-      { ...guidanceItem, title: "Inspect Assets", source: secondAlternativeRecord.reference },
-    ],
-    source: guidanceRecord.reference,
-  },
-};
-const audit = {
-  validity: "available",
-  value: {
-    id: "planning-audit:current",
-    generatedAt: "2026-07-13T19:59:00+0800",
-    semanticFreshness: "current",
-    coverage: "complete",
-    skippedTargets: [],
-    findings: [],
-    source: auditRecord.reference,
-  },
-};
-
 test("parses a repository-scoped Snapshot with the complete domain breadth", () => {
   const parsed = projectSnapshotSchema.safeParse(validSnapshot);
   expect(parsed.success).toBe(true);
@@ -175,6 +132,7 @@ test("parses a repository-scoped Snapshot with the complete domain breadth", () 
     "producer",
     "basis",
     "summary",
+    "brief",
     "roadmapIndex",
     "roadmaps",
     "gates",
@@ -183,13 +141,101 @@ test("parses a repository-scoped Snapshot with the complete domain breadth", () 
     "assets",
     "checks",
     "reviews",
+    "lineage",
     "audit",
-    "guidance",
-    "providerCaptures",
+    "providerObservations",
+    "providerObservationSelections",
+    "nativeScopeInspections",
     "diagnostics",
     "attention",
     "sources",
   ]);
+});
+
+test("requires generation-bound native scope reading state and rejects obsolete vocabulary", () => {
+  const snapshot = createProjectOverviewFixture();
+  const missing = {
+    ...snapshot,
+    lineage: {
+      subjects: snapshot.lineage.subjects.map((subject) => {
+        if (subject.identity.kind !== "native-scope") return subject;
+        const { nativeWorkReadingState: _readingState, ...withoutReadingState } = subject;
+        return withoutReadingState;
+      }),
+    },
+  };
+  expect(projectSnapshotSchema.safeParse(missing).success).toBe(false);
+
+  const obsolete = {
+    ...snapshot,
+    lineage: {
+      subjects: snapshot.lineage.subjects.map((subject) =>
+        subject.identity.kind === "native-scope" && subject.nativeWorkReadingState !== undefined
+          ? {
+              ...subject,
+              nativeWorkReadingState: {
+                ...subject.nativeWorkReadingState,
+                conclusion: "Needs refresh",
+              },
+            }
+          : subject,
+      ),
+    },
+  };
+  expect(projectSnapshotSchema.safeParse(obsolete).success).toBe(false);
+
+  const forged = {
+    ...snapshot,
+    lineage: {
+      subjects: snapshot.lineage.subjects.map((subject) =>
+        subject.identity.kind === "native-scope" &&
+        subject.identity.id === ".scratch/portal" &&
+        subject.nativeWorkReadingState !== undefined
+          ? {
+              ...subject,
+              nativeWorkReadingState: {
+                ...subject.nativeWorkReadingState,
+                conclusion: "Complete" as const,
+              },
+            }
+          : subject,
+      ),
+    },
+  };
+  expect(projectSnapshotSchema.safeParse(forged).success).toBe(false);
+});
+
+test("requires an explicit normalized Work Binding state that matches its declaration", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
+  const missingState = {
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort, index) => {
+        if (index !== 0) return effort;
+        const { workBindingState: _state, ...withoutState } = effort;
+        return withoutState;
+      }),
+    },
+  };
+  expect(projectSnapshotSchema.safeParse(missingState).success).toBe(false);
+
+  const inconsistent = {
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort, index) =>
+        index === 0
+          ? {
+              ...effort,
+              workBindingState: { state: "invalid" as const, reason: "missing" as const },
+            }
+          : effort,
+      ),
+    },
+  };
+  expect(projectSnapshotSchema.safeParse(inconsistent).success).toBe(false);
 });
 
 test("rejects unsupported versions and Catalog or repository identity", () => {
@@ -216,7 +262,7 @@ test("rejects extras and impossible projection variants at nested boundaries", (
   expect(projectSnapshotSchema.safeParse(emptyPartial).success).toBe(false);
 });
 
-test("rejects false-complete or generation-mismatched provider captures", () => {
+test("rejects false-complete, content-tampered, or unresolved provider observations", () => {
   const falseCompleteCaptures = [
     { ...providerCapture, state: "partial", completion: "complete" },
     {
@@ -250,26 +296,48 @@ test("rejects false-complete or generation-mismatched provider captures", () => 
     expect(
       projectSnapshotSchema.safeParse({
         ...validSnapshot,
-        providerCaptures: [capture],
+        providerObservations: [capture],
+        providerObservationSelections: [providerSelection],
       }).success,
     ).toBe(false);
   }
   expect(
     projectSnapshotSchema.safeParse({
       ...validSnapshot,
-      providerCaptures: [
+      providerObservations: [
         {
           ...providerCapture,
-          generation: { fingerprint: `sha256:${"c".repeat(64)}` },
+          sourceRevision: `sha256:${"c".repeat(64)}`,
         },
       ],
+      providerObservationSelections: [providerSelection],
     }).success,
   ).toBe(false);
   expect(
     projectSnapshotSchema.safeParse({
       ...validSnapshot,
-      providerCaptures: [providerCapture],
+      providerObservations: [providerCapture],
+      providerObservationSelections: [
+        { ...providerSelection, observationId: `provider-observation:sha256:${"c".repeat(64)}` },
+      ],
     }).success,
+  ).toBe(false);
+  expect(
+    projectSnapshotSchema.safeParse(
+      (() => {
+        const sources = [
+          ...validSnapshot.sources,
+          ...buildMattNativeSourceRecords([providerCapture], BASIS),
+        ];
+        const candidate = {
+          ...validSnapshot,
+          providerObservations: [providerCapture],
+          providerObservationSelections: [providerSelection],
+          sources,
+        };
+        return { ...candidate, lineage: buildPlanningLineageProjection(candidate) };
+      })(),
+    ).success,
   ).toBe(true);
 });
 
@@ -305,60 +373,37 @@ test("accepts only explicit BCP-47 metadata for Project Summary parts", () => {
   expect(invalid.success).toBe(false);
 });
 
-test("requires one primary and permits zero to two Guidance alternatives", () => {
-  expect(projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance }).success).toBe(true);
-  const noAlternatives = {
-    ...guidance,
-    value: { ...guidance.value, alternatives: [] },
+test("keeps Summary and Brief time provenance UTC and independently optional", () => {
+  const summary = {
+    id: "project-summary:current",
+    title: "Project Summary",
+    source,
+    purpose: "Keep the project oriented.",
+    currentDesign: "Use explicit governance boundaries.",
+    boundaries: [],
+    futureCandidates: [],
+    materialRevisions: [],
   };
-  const oneAlternative = {
-    ...guidance,
-    value: {
-      ...guidance.value,
-      alternatives: [{ ...guidanceItem, source: firstAlternativeRecord.reference }],
-    },
-  };
-  expect(
-    projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance: noAlternatives }).success,
-  ).toBe(true);
-  expect(
-    projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance: oneAlternative }).success,
-  ).toBe(true);
-  const threeAlternatives = {
-    ...guidance,
-    value: {
-      ...guidance.value,
-      alternatives: [guidanceItem, guidanceItem, guidanceItem],
-    },
-  };
-  expect(
-    projectSnapshotSchema.safeParse({
-      ...validSnapshot,
-      audit,
-      guidance: threeAlternatives,
-    }).success,
-  ).toBe(false);
-});
-
-test("keeps Guidance coverage and Audit basis structurally consistent", () => {
-  // Given: a valid complete Guidance projection and two impossible cache variants.
-  const withoutAuditBasis = {
-    ...guidance,
-    value: { ...guidance.value, basedOnAuditId: undefined },
-  };
-  const absentWithAuditBasis = {
-    ...guidance,
-    value: { ...guidance.value, semanticCoverage: "absent" },
+  const brief = {
+    id: "project-brief:current",
+    title: "Project Brief",
+    source,
+    generatedAt: "2026-08-03T02:03:04Z",
+    projectPurpose: "Keep the project oriented.",
+    currentStage: "Validate the revised reading contract.",
+    materialAchievedState: "The typed planning boundary is established.",
   };
 
-  // When / Then: the normalized cache schema enforces the same invariant as canonical source.
+  expect(projectSummarySchema.safeParse(summary).success).toBe(true);
   expect(
-    projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance: withoutAuditBasis })
-      .success,
+    projectSummarySchema.safeParse({ ...summary, updatedAt: "2026-08-03T01:02:03Z" }).success,
+  ).toBe(true);
+  expect(
+    projectSummarySchema.safeParse({ ...summary, updatedAt: "2026-08-03T09:02:03+08:00" }).success,
   ).toBe(false);
+  expect(projectBriefSchema.safeParse(brief).success).toBe(true);
   expect(
-    projectSnapshotSchema.safeParse({ ...validSnapshot, audit, guidance: absentWithAuditBasis })
-      .success,
+    projectBriefSchema.safeParse({ ...brief, generatedAt: "2026-08-03T10:03:04+08:00" }).success,
   ).toBe(false);
 });
 
@@ -373,16 +418,22 @@ test("keeps execution evidence provenance self-contained in cached Assets", () =
     owner: "effort:test",
     producer: { kind: "executor-profile", name: "generic-agent" },
     lifecycleSource: "native",
+    registeredAt: { availability: "unavailable" },
     producedFor: ".scratch/work/issues/01-work.md",
     displayLocation: "evidence/report.md",
     contentAvailability: "available",
-    adoptedByAuthorityIds: [],
-    gatePassageEvidenceFor: [],
-    citationCount: 0,
+    contentShape: "file",
+    evidenceRoles: ["execution-evidence"],
+    authorityAdoptions: [],
+    passageEvidence: [],
   };
   const withAsset = (value: object) => ({
     ...validSnapshot,
     assets: { validity: "available", items: [value] },
+    lineage: buildPlanningLineageProjection({
+      ...validSnapshot,
+      assets: { validity: "available", items: [value as AssetProjection] },
+    }),
   });
 
   // When / Then: missing work provenance or the wrong Producer kind is rejected from cache.
@@ -407,13 +458,16 @@ test("keeps Asset lifecycle source, disposition, and supersession consistent", (
     owner: "effort:test",
     producer: { kind: "agent", name: "fixture" },
     lifecycleSource: "registry",
+    registeredAt: { availability: "unavailable" },
     disposition: "superseded",
     supersededBy: "asset:replacement",
+    supersededAt: { availability: "unavailable" },
     displayLocation: "evidence/report.md",
     contentAvailability: "available",
-    adoptedByAuthorityIds: [],
-    gatePassageEvidenceFor: [],
-    citationCount: 0,
+    contentShape: "file",
+    evidenceRoles: [],
+    authorityAdoptions: [],
+    passageEvidence: [],
   };
 
   expect(assetProjectionSchema.safeParse(asset).success).toBe(true);
@@ -438,12 +492,17 @@ test("rejects duplicate Gate Passage identities in an Asset reverse relation cac
     owner: "effort:test",
     producer: { kind: "executor-profile", name: "generic-agent" },
     lifecycleSource: "native",
+    registeredAt: { availability: "unavailable" },
     producedFor: ".scratch/work/issues/01-work.md",
     displayLocation: "evidence/report.md",
     contentAvailability: "available",
-    adoptedByAuthorityIds: [],
-    gatePassageEvidenceFor: ["gate:one", "gate:one"],
-    citationCount: 0,
+    contentShape: "file",
+    evidenceRoles: ["execution-evidence", "passage-evidence"],
+    authorityAdoptions: [],
+    passageEvidence: [
+      { gateId: "gate:one", source: assetRecord.reference },
+      { gateId: "gate:one", source: assetRecord.reference },
+    ],
   };
 
   expect(assetProjectionSchema.safeParse(asset).success).toBe(false);
@@ -458,6 +517,122 @@ test("rejects absolute and traversing display locators", () => {
     false,
   );
   expect(projectSnapshotSchema.safeParse(withLocator("../secret.md")).success).toBe(false);
+});
+
+test("accepts only repository-relative local Asset Locations", () => {
+  const baseAsset = {
+    id: "asset:local",
+    title: "Local context",
+    source: assetRecord.reference,
+    evidenceRoles: [],
+    citations: [],
+    authorityAdoptions: [],
+    passageEvidence: [],
+    kind: "project-context",
+    owner: "effort:test",
+    producer: { kind: "planning-skill", name: "fixture" },
+    lifecycleSource: "registry",
+    registeredAt: { availability: "unavailable" },
+    disposition: "available",
+    displayLocation: "evidence/report.md",
+    contentAvailability: "available",
+    contentShape: "file",
+  };
+
+  expect(assetProjectionSchema.safeParse(baseAsset).success).toBe(true);
+  expect(assetProjectionSchema.safeParse({ ...baseAsset, contentShape: undefined }).success).toBe(
+    false,
+  );
+  expect(
+    assetProjectionSchema.safeParse({
+      ...baseAsset,
+      contentAvailability: "missing",
+      contentShape: "file",
+    }).success,
+  ).toBe(false);
+  expect(
+    assetProjectionSchema.safeParse({ ...baseAsset, displayLocation: "evidence/reports" }).success,
+  ).toBe(true);
+  for (const displayLocation of [
+    "/tmp/report.md",
+    "../report.md",
+    "https://example.test/report.md",
+    "source:0123456789abcdef",
+  ]) {
+    expect(assetProjectionSchema.safeParse({ ...baseAsset, displayLocation }).success).toBe(false);
+  }
+});
+
+test("keeps Asset Evidence roles explicit, independent, and coexisting", () => {
+  const contextualAsset = {
+    id: "asset:context",
+    title: "Context without evidence",
+    source: assetRecord.reference,
+    evidenceRoles: [],
+    citations: [],
+    authorityAdoptions: [],
+    passageEvidence: [],
+    kind: "project-context",
+    owner: "gate:one",
+    producer: {
+      kind: "planning-skill",
+      name: "fixture",
+      reference: "planning-review:context",
+    },
+    lifecycleSource: "registry",
+    registeredAt: { availability: "unavailable" },
+    disposition: "available",
+    producedFor: "effort:test",
+    displayLocation: "docs/context",
+    contentAvailability: "available",
+    contentShape: "directory",
+  };
+  expect(assetProjectionSchema.safeParse(contextualAsset).success).toBe(true);
+
+  const allRoles = {
+    ...contextualAsset,
+    kind: "execution-evidence",
+    producer: {
+      kind: "executor-profile",
+      name: "generic-agent",
+      reference: "executor:generic",
+    },
+    evidenceRoles: [
+      "execution-evidence",
+      "planning-citation",
+      "authority-adoption",
+      "passage-evidence",
+    ],
+    citations: [
+      {
+        assetId: "asset:context",
+        note: "Direct planning use.",
+        citingReference: "effort:test",
+        source: assetRecord.reference,
+      },
+    ],
+    authorityAdoptions: [
+      {
+        authorityId: "authority:design",
+        decisionReference: "planning-review:adopt-design",
+        source: assetRecord.reference,
+      },
+    ],
+    passageEvidence: [{ gateId: "gate:one", source: assetRecord.reference }],
+  };
+  expect(assetProjectionSchema.safeParse(allRoles).success).toBe(true);
+  expect(
+    assetProjectionSchema.safeParse({
+      ...contextualAsset,
+      evidenceRoles: ["planning-citation"],
+    }).success,
+  ).toBe(false);
+  expect(
+    assetProjectionSchema.safeParse({
+      ...allRoles,
+      evidenceRoles: ["execution-evidence", "planning-citation", "passage-evidence"],
+    }).success,
+  ).toBe(false);
 });
 
 test("rejects a NUL byte in Source and Asset display locators", () => {
@@ -503,7 +678,7 @@ test("requires a partial collection to retain at least one trustworthy member", 
   const retainedPartial = {
     ...validSnapshot,
     roadmaps: {
-      validity: "partial",
+      validity: "partial" as const,
       items: [
         {
           id: "roadmap:test",
@@ -511,19 +686,24 @@ test("requires a partial collection to retain at least one trustworthy member", 
           source: roadmapRecord.reference,
           citations: [],
           intent: "Retain the trustworthy horizon.",
-          lifecycle: "active",
+          lifecycle: "active" as const,
+          startedAt: { availability: "unavailable" as const },
           focusedGateId: null,
           gateOrder: [],
-          horizon: "unknown",
+          horizon: "unknown" as const,
           effortIds: [],
         },
       ],
       issues: [issue],
     },
   };
+  const retainedPartialWithLineage = {
+    ...retainedPartial,
+    lineage: buildPlanningLineageProjection(retainedPartial),
+  };
 
   expect(projectSnapshotSchema.safeParse(emptyPartial).success).toBe(false);
-  expect(projectSnapshotSchema.safeParse(retainedPartial).success).toBe(true);
+  expect(projectSnapshotSchema.safeParse(retainedPartialWithLineage).success).toBe(true);
 });
 
 test("preserves the complete accepted Gate Passage decision", () => {
@@ -536,11 +716,14 @@ test("preserves the complete accepted Gate Passage decision", () => {
     exitCriteria: ["The reading path is proven."],
     roadmapId: "roadmap:portal",
     lifecycle: "passed",
+    plannedAt: { availability: "unavailable" },
+    activatedAt: { availability: "unavailable" },
     readiness: "ready-for-review",
     horizonState: "passed",
     effortIds: [],
     passage: {
       acceptedDecision: "Pass the Gate.",
+      acceptedAt: { availability: "unavailable" },
       rationale: "The accepted evidence is complete.",
       evidenceAssetIds: [],
       exceptions: [],

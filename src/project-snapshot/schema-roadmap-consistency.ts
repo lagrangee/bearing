@@ -23,6 +23,13 @@ type Effort = Readonly<{
   id: string;
   roadmapId: string;
   targetGateId: string;
+  lifecycle: "planned" | "active" | "concluded";
+  conclusion?:
+    | Readonly<{
+        disposition: "completed" | "withdrawn" | "superseded";
+        replacementEffortId?: string | undefined;
+      }>
+    | undefined;
 }>;
 
 export type RoadmapConsistencySnapshot = Readonly<{
@@ -114,7 +121,20 @@ const validateRoadmaps = (snapshot: RoadmapConsistencySnapshot, context: Refinem
     const ownedEffortIds = efforts
       .filter((effort) => effort.roadmapId === roadmap.id)
       .map((effort) => effort.id);
-    if (!validRelationSet(snapshot.efforts, roadmap.effortIds, ownedEffortIds)) {
+    const retainedOwnedGateIds = new Set(
+      gates.filter((gate) => gate.roadmapId === roadmap.id).map((gate) => gate.id),
+    );
+    const orderableEffortIds = efforts
+      .filter(
+        (effort) =>
+          effort.roadmapId === roadmap.id && retainedOwnedGateIds.has(effort.targetGateId),
+      )
+      .map((effort) => effort.id);
+    const validEffortOrder =
+      complete(snapshot.efforts) && complete(snapshot.gates)
+        ? sameSet(roadmap.effortIds, ownedEffortIds)
+        : coversRetained(roadmap.effortIds, orderableEffortIds);
+    if (!validEffortOrder) {
       addIssue(
         context,
         ["roadmaps", "items", position, "effortIds"],
@@ -162,6 +182,7 @@ const validateGates = (snapshot: RoadmapConsistencySnapshot, context: Refinement
 const validateEfforts = (snapshot: RoadmapConsistencySnapshot, context: RefinementCtx): void => {
   const roadmaps = byId(trusted(snapshot.roadmaps), (roadmap) => roadmap.id);
   const gates = byId(trusted(snapshot.gates), (gate) => gate.id);
+  const efforts = byId(trusted(snapshot.efforts), (effort) => effort.id);
   for (const [position, effort] of trusted(snapshot.efforts).entries()) {
     const roadmap = roadmaps.get(effort.roadmapId);
     const gate = gates.get(effort.targetGateId);
@@ -184,6 +205,43 @@ const validateEfforts = (snapshot: RoadmapConsistencySnapshot, context: Refineme
         ["efforts", "items", position, "targetGateId"],
         "An Effort Target Gate must belong to the Effort Roadmap.",
       );
+    }
+    const replacementId = effort.conclusion?.replacementEffortId;
+    if (replacementId === undefined) continue;
+    const replacement = efforts.get(replacementId);
+    if (replacement === undefined && complete(snapshot.efforts)) {
+      addIssue(
+        context,
+        ["efforts", "items", position, "conclusion", "replacementEffortId"],
+        "A superseded Effort replacement must resolve.",
+      );
+      continue;
+    }
+    if (
+      replacement !== undefined &&
+      (replacement.id === effort.id ||
+        replacement.roadmapId !== effort.roadmapId ||
+        replacement.targetGateId !== effort.targetGateId)
+    ) {
+      addIssue(
+        context,
+        ["efforts", "items", position, "conclusion", "replacementEffortId"],
+        "A superseded Effort replacement must be a different Effort in the same Roadmap and Target Gate.",
+      );
+    }
+    const seen = new Set([effort.id]);
+    let nextReplacementId: string | undefined = replacementId;
+    while (nextReplacementId !== undefined && efforts.has(nextReplacementId)) {
+      if (seen.has(nextReplacementId)) {
+        addIssue(
+          context,
+          ["efforts", "items", position, "conclusion", "replacementEffortId"],
+          "An Effort supersession chain cannot form a cycle.",
+        );
+        break;
+      }
+      seen.add(nextReplacementId);
+      nextReplacementId = efforts.get(nextReplacementId)?.conclusion?.replacementEffortId;
     }
   }
 };

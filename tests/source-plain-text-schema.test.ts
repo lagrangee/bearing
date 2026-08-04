@@ -24,6 +24,7 @@ test("canonical source schemas reject formatting in Overview-facing titles and c
     Title: "`Formatted Gate`",
     Roadmap: "roadmap:test",
     Status: "active",
+    "Effort order": [],
   };
   const citedRoadmap = {
     ...roadmap,
@@ -56,6 +57,11 @@ test("canonical source schemas reject formatting in Overview-facing titles and c
   );
   expect(bearingSchema.safeParse(roadmap).success).toBe(false);
   expect(bearingSchema.safeParse(gate).success).toBe(false);
+  const { "Effort order": _effortOrder, ...gateWithoutEffortOrder } = {
+    ...gate,
+    Title: "Plain Gate",
+  };
+  expect(bearingSchema.safeParse(gateWithoutEffortOrder).success).toBe(false);
   expect(bearingSchema.safeParse(citedRoadmap).success).toBe(false);
   expect(bearingSchema.safeParse(effort).success).toBe(false);
   expect(bearingSchema.safeParse(authority).success).toBe(false);
@@ -69,6 +75,7 @@ test("Gate Passage and decision schemas reject formatted normalized prose", () =
     Title: "Test Gate",
     Roadmap: "roadmap:test",
     Status: "passed",
+    "Effort order": [],
     Passage: {
       "Accepted decision": "Pass the Gate.",
       Rationale: "Use [the evidence][evidence].",

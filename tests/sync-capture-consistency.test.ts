@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
-import type { MattProviderFactory } from "../src/provider-capture-generation";
+import type { MattProviderFactory } from "../src/provider-observation-acquisition";
 import {
   createLocalMarkdownMattProvider,
   type LocalMarkdownCaptureEvent,
@@ -16,10 +16,12 @@ import {
   writeFixture,
 } from "./helpers";
 
-test("commits the captured generation when a source changes after prepare", async () => {
+test("commits one observation and leaves later native edits for explicit verification", async () => {
   const root = await createValidBearingRepo();
   const ticket = ".scratch/work/issues/01-finish.md";
-  const plan = await prepareSync(root);
+  const plan = await prepareSync(root, {
+    providerObservationIntent: "initial-baseline",
+  });
 
   await writeFixture(
     root,
@@ -33,8 +35,14 @@ test("commits the captured generation when a source changes after prepare", asyn
   expect(committed).not.toContain("| claimed |");
 
   const next = await prepareSync(root);
-  expect(next.sitemap.toString("utf8")).toContain(`\`${ticket}\` | Finish | open |`);
-  expect(next.fingerprint).not.toBe(plan.fingerprint);
+  expect(next.sitemap.toString("utf8")).toContain(`\`${ticket}\` | Finish | resolved-on-route |`);
+  expect(next.fingerprint).toBe(plan.fingerprint);
+
+  const verified = await prepareSync(root, {
+    providerObservationIntent: "full-verification",
+  });
+  expect(verified.sitemap.toString("utf8")).toContain(`\`${ticket}\` | Finish | open |`);
+  expect(verified.fingerprint).not.toBe(plan.fingerprint);
 });
 
 test("materializes report, Sitemap, Snapshot, and Receipt from one captured generation", async () => {
@@ -149,19 +157,22 @@ test("uses generation-captured interpretation documents without a second provide
     });
     return {
       id: provider.id,
-      capture: async (binding, generation) => {
+      capture: async (binding) => {
         if (!mutated) {
           mutated = true;
           await writeFixture(root, triageLocator, "# Changed after the Sync input generation\n");
         }
-        return provider.capture(binding, generation);
+        return provider.capture(binding);
       },
     };
   };
 
-  const captured = await prepareSync(root, { providerFactory });
+  const captured = await prepareSync(root, {
+    providerObservationIntent: "initial-baseline",
+    providerFactory,
+  });
   expect(captured.diagnostics).toEqual([]);
-  expect(captured.providerCaptures[0]).toMatchObject({
+  expect(captured.providerObservations[0]).toMatchObject({
     state: "available",
     freshness: { assessment: "current" },
   });
@@ -172,7 +183,9 @@ test("uses generation-captured interpretation documents without a second provide
     events.filter((event) => event.kind === "content-read").map((event) => event.locator),
   ).not.toContain(triageLocator);
 
-  const next = await prepareSync(root);
+  const next = await prepareSync(root, {
+    providerObservationIntent: "full-verification",
+  });
   expect(next.fingerprint).not.toBe(captured.fingerprint);
   expect(next.diagnostics).toContainEqual(
     expect.objectContaining({

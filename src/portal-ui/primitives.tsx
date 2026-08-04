@@ -73,11 +73,17 @@ export function EmptyState({
   );
 }
 
-export function LoadingState() {
+export function LoadingState({
+  title = "Checking registered projects",
+  detail,
+}: Readonly<{ title?: string; detail?: string }>) {
   return (
     <div className="catalog-loading" role="status" aria-live="polite">
       <span className="spinner" aria-hidden="true" />
-      <span>Checking registered projects</span>
+      <span>
+        {title}
+        {detail === undefined ? null : <small>{detail}</small>}
+      </span>
     </div>
   );
 }

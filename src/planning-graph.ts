@@ -2,6 +2,8 @@ import type { AssetContentObservation } from "./asset-inputs";
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
 import { deepFreeze } from "./immutable";
 import type { PlanningGraphInstrumentation } from "./planning-graph-instrumentation";
+import { collectAssetDirectEvidence } from "./project-snapshot/asset-direct-evidence";
+import { rebuildAssetReverseRelations } from "./project-snapshot/asset-reverse-relations";
 import { buildAssetProjection } from "./project-snapshot/assets";
 import type {
   AlignmentCheck,
@@ -10,8 +12,11 @@ import type {
   CollectionProjection,
   Effort,
   MilestoneGate,
+  PlanningLineageProjection,
+  PlanningReview,
   ProjectionIssue,
-  ProviderScopeCapture,
+  ProjectSnapshotInput,
+  ProviderScopeObservation,
   Roadmap,
   SnapshotDiagnostic,
   SourceRecord,
@@ -19,10 +24,22 @@ import type {
 import { buildDecisionProjection } from "./project-snapshot/decisions";
 import { buildSnapshotDiagnostics } from "./project-snapshot/diagnostic-projection";
 import { buildGovernanceProjection } from "./project-snapshot/governance";
+import { buildMattNativeSourceRecords } from "./project-snapshot/native-work-sources";
 import { normalizePlanningDerivations } from "./project-snapshot/normalized-planning-derivation";
-import { createSourceRecord, mergeSourceRecords } from "./project-snapshot/source-records";
-import type { MattSkillsV1ScopeCapture } from "./providers/matt-skills-v1/capture";
-import { mattObjectLocator, mattObjects } from "./providers/matt-skills-v1/projection";
+import { buildPlanningLineageProjection } from "./project-snapshot/planning-lineage";
+import { mergeSourceRecords } from "./project-snapshot/source-records";
+import {
+  assessSelectedProviderObservationEvidence,
+  type ProviderObservationSelection,
+} from "./provider-observation-contract";
+import type { MattSkillsV1ProviderObservation } from "./providers/matt-skills-v1/capture";
+import {
+  mattNativeScopeKey,
+  sameMattNativeLocator,
+  sameMattNativeScope,
+} from "./providers/matt-skills-v1/native-subject";
+import { mattObjects } from "./providers/matt-skills-v1/projection";
+import type { MattNativeWorkReadingState } from "./providers/matt-skills-v1/reading-state";
 import type { StructuralDiagnostic } from "./types";
 
 export type PlanningGraphIssue = Readonly<{
@@ -40,7 +57,8 @@ export type PlanningGraphEffortContext = Readonly<{
   roadmap?: PlanningGraphValue<Roadmap>;
   targetGate?: PlanningGraphValue<MilestoneGate>;
   authorities: readonly PlanningGraphValue<Authority>[];
-  providerCapture?: ProviderScopeCapture;
+  providerCapture?: ProviderScopeObservation;
+  nativeWorkReadingState?: MattNativeWorkReadingState;
   alignmentChecks: readonly PlanningGraphValue<AlignmentCheck>[];
   evidence: readonly PlanningGraphValue<AssetProjection>[];
 }>;
@@ -68,10 +86,17 @@ export type PlanningTarget =
   | Readonly<{ kind: "gate"; id: string }>
   | Readonly<{ kind: "effort"; id: string }>;
 
+export type PlanningGraphProjectOrientation = Readonly<{
+  summary: ProjectSnapshotInput["summary"];
+  brief: ProjectSnapshotInput["brief"];
+  sources: readonly SourceRecord[];
+}>;
+
 type InvalidContextResult<Target extends PlanningTarget> = Readonly<{
   fingerprint: string;
   state: "invalid";
   target: Target;
+  projectOrientation: PlanningGraphProjectOrientation;
   context?: undefined;
   issues: readonly PlanningGraphIssue[];
 }>;
@@ -81,6 +106,7 @@ type PlanningContextResultFor<Target extends PlanningTarget, Context> =
       fingerprint: string;
       state: "complete" | "partial";
       target: Target;
+      projectOrientation: PlanningGraphProjectOrientation;
       context: Context;
       issues: readonly PlanningGraphIssue[];
     }>
@@ -102,7 +128,10 @@ export type PlanningContextResult = RoadmapContextResult | GateContextResult | E
 
 export type PlanningGraphBuildInput = Readonly<{
   decoded: DecodedBearingRecordGeneration;
-  providerCaptures: readonly MattSkillsV1ScopeCapture[];
+  providerObservations: readonly MattSkillsV1ProviderObservation[];
+  providerObservationSelections?: readonly ProviderObservationSelection[];
+  nativeScopeInspectionObservations?: readonly MattSkillsV1ProviderObservation[];
+  nativeScopeInspectionSelections?: readonly ProviderObservationSelection[];
   diagnostics: readonly StructuralDiagnostic[];
   fingerprint: string;
   assetContentObservations: readonly AssetContentObservation[];
@@ -113,12 +142,14 @@ export type PlanningGraphProjection = Readonly<{
   roadmaps: CollectionProjection<Roadmap>;
   gates: CollectionProjection<MilestoneGate>;
   efforts: CollectionProjection<Effort>;
-  providerCaptures: readonly ProviderScopeCapture[];
+  providerObservations: readonly ProviderScopeObservation[];
+  providerObservationSelections: readonly ProviderObservationSelection[];
 }>;
 
 export interface PlanningGraph {
   readonly fingerprint: string;
   planningProjection(): PlanningGraphProjection;
+  lineageProjection(): PlanningLineageProjection;
   contextFor(target: Extract<PlanningTarget, { kind: "roadmap" }>): RoadmapContextResult;
   contextFor(target: Readonly<{ kind: "gate"; id: string }>): GateContextResult;
   contextFor(target: Extract<PlanningTarget, { kind: "effort" }>): EffortContextResult;
@@ -126,13 +157,17 @@ export interface PlanningGraph {
 }
 
 type GraphCollections = Readonly<{
+  summary: ProjectSnapshotInput["summary"];
+  brief: ProjectSnapshotInput["brief"];
   roadmaps: CollectionProjection<Roadmap>;
   gates: CollectionProjection<MilestoneGate>;
   efforts: CollectionProjection<Effort>;
   authorities: CollectionProjection<Authority>;
   assets: CollectionProjection<AssetProjection>;
   checks: CollectionProjection<AlignmentCheck>;
-  providerCaptures: readonly ProviderScopeCapture[];
+  reviews: CollectionProjection<PlanningReview>;
+  providerObservations: readonly ProviderScopeObservation[];
+  providerObservationSelections: readonly ProviderObservationSelection[];
 }>;
 
 type PlanningProjectionInput = PlanningGraphProjection &
@@ -163,23 +198,6 @@ const trusted = <T>(collection: CollectionProjection<T>): readonly T[] =>
 
 const issues = <T>(collection: CollectionProjection<T>): readonly ProjectionIssue[] =>
   collection.validity === "available" ? [] : collection.issues;
-
-const trackerSources = (
-  captures: readonly MattSkillsV1ScopeCapture[],
-  fingerprint: string,
-): readonly SourceRecord[] =>
-  captures.flatMap((capture) =>
-    mattObjects(capture).map((object) =>
-      createSourceRecord(fingerprint, {
-        kind: "tracker",
-        locator: mattObjectLocator(object),
-        binding: {
-          role: object.kind,
-          identity: object.ref,
-        },
-      }),
-    ),
-  );
 
 const issueKey = (issue: PlanningGraphIssue): string =>
   `${issue.code}\u0000${issue.target}\u0000${issue.source ?? ""}\u0000${issue.message}`;
@@ -328,11 +346,16 @@ const buildPlanningProjection = (input: PlanningProjectionInput): PlanningGraphP
     roadmaps: isolatedRoadmaps,
     gates: isolatedGates,
     efforts: isolatedEfforts,
-    providerCaptures: input.providerCaptures,
+    providerObservations: input.providerObservations,
+    providerObservationSelections: input.providerObservationSelections,
     diagnostics: input.diagnostics,
     sources: input.sources,
   });
-  return { ...normalized, providerCaptures: input.providerCaptures };
+  return {
+    ...normalized,
+    providerObservations: input.providerObservations,
+    providerObservationSelections: input.providerObservationSelections,
+  };
 };
 
 const overlayNormalizedItems = <T extends { id: string }>(
@@ -351,6 +374,8 @@ class ImmutablePlanningGraph implements PlanningGraph {
   readonly fingerprint: string;
   readonly #collections: GraphCollections;
   readonly #planningProjection: PlanningGraphProjection;
+  readonly #lineageProjection: PlanningLineageProjection;
+  readonly #projectOrientation: PlanningGraphProjectOrientation;
   readonly #sources: readonly SourceRecord[];
   readonly #sourceByReference: ReadonlyMap<string, SourceRecord>;
   readonly #knownKinds: ReadonlyMap<string, ReadonlySet<string>>;
@@ -364,6 +389,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
     fingerprint: string,
     collections: GraphCollections,
     planningProjection: PlanningGraphProjection,
+    lineageProjection: PlanningLineageProjection,
     sources: readonly SourceRecord[],
     knownKinds: ReadonlyMap<string, ReadonlySet<string>>,
     knownSources: ReadonlyMap<string, ReadonlySet<string>>,
@@ -375,6 +401,27 @@ class ImmutablePlanningGraph implements PlanningGraph {
     this.fingerprint = fingerprint;
     this.#collections = deepFreeze(collections);
     this.#planningProjection = deepFreeze(planningProjection);
+    this.#lineageProjection = deepFreeze(lineageProjection);
+    const orientationSourceReferences = new Set(
+      [
+        ...(collections.summary.validity === "partial" || collections.summary.validity === "invalid"
+          ? collections.summary.issues
+          : []),
+        ...(collections.brief.validity === "partial" || collections.brief.validity === "invalid"
+          ? collections.brief.issues
+          : []),
+      ].flatMap((issue) => (issue.source === undefined ? [] : [issue.source])),
+    );
+    this.#projectOrientation = deepFreeze({
+      summary: collections.summary,
+      brief: collections.brief,
+      sources: sources.filter(
+        (source) =>
+          source.binding?.role === "project-summary" ||
+          source.binding?.role === "project-brief" ||
+          orientationSourceReferences.has(source.reference),
+      ),
+    });
     this.#sources = deepFreeze([...sources]);
     this.#sourceByReference = new Map(sources.map((source) => [source.reference, source]));
     this.#knownKinds = knownKinds;
@@ -388,6 +435,10 @@ class ImmutablePlanningGraph implements PlanningGraph {
 
   planningProjection(): PlanningGraphProjection {
     return this.#planningProjection;
+  }
+
+  lineageProjection(): PlanningLineageProjection {
+    return this.#lineageProjection;
   }
 
   #scopedIssues<T>(id: string, collection: CollectionProjection<T>): readonly ProjectionIssue[] {
@@ -413,6 +464,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       fingerprint: this.fingerprint,
       state: "invalid" as const,
       target,
+      projectOrientation: this.#projectOrientation,
       issues: stableIssues([
         relationIssue(
           wrongKind
@@ -534,14 +586,25 @@ class ImmutablePlanningGraph implements PlanningGraph {
         closureIssues.push(...this.#scopedIssues(authorityId, this.#collections.authorities));
       } else authorityValues.push(valueWithSource(authority, sourceByReference));
     }
+    const workBinding = effort.workBinding;
     const providerCapture =
-      effort.workBinding === undefined
+      workBinding === undefined
         ? undefined
-        : this.#collections.providerCaptures.find(
-            (capture) =>
-              capture.provider === effort.workBinding?.provider &&
-              capture.binding.nativeScope === effort.workBinding.nativeScope,
+        : (this.#collections.providerObservations.find((capture) =>
+            sameMattNativeScope(capture.binding, workBinding),
+          ) ??
+          this.#collections.providerObservations.find((capture) =>
+            sameMattNativeLocator(capture.binding, workBinding),
+          ));
+    const providerSelection =
+      workBinding === undefined
+        ? undefined
+        : this.#collections.providerObservationSelections.find((selection) =>
+            sameMattNativeScope(selection, workBinding),
           );
+    const nativeWorkReadingState = this.#lineageProjection.subjects.find(
+      (subject) => subject.identity.kind === "effort" && subject.identity.id === effort.id,
+    )?.nativeWorkReadingState;
     if (effort.workBinding !== undefined && providerCapture === undefined) {
       closureIssues.push(
         relationIssue(
@@ -556,6 +619,21 @@ class ImmutablePlanningGraph implements PlanningGraph {
       closureIssues.push(
         ...providerCapture.diagnostics.map((item) =>
           relationIssue(item.code, item.target, item.message),
+        ),
+      );
+    }
+    if (
+      effort.workBinding !== undefined &&
+      (providerCapture === undefined ||
+        assessSelectedProviderObservationEvidence(providerCapture, providerSelection)
+          .frontierEvidence !== "trustworthy")
+    ) {
+      closureIssues.push(
+        relationIssue(
+          "untrusted-provider-observation-selection",
+          effort.workBinding.nativeScope,
+          "The Effort's selected provider observation is unavailable, conflicted, or not currently trustworthy.",
+          effort.source,
         ),
       );
     }
@@ -630,6 +708,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       ...(gate === undefined ? {} : { targetGate: valueWithSource(gate, sourceByReference) }),
       authorities: authorityValues,
       ...(providerCapture === undefined ? {} : { providerCapture }),
+      ...(nativeWorkReadingState === undefined ? {} : { nativeWorkReadingState }),
       alignmentChecks: checks.map((check) => valueWithSource(check, sourceByReference)),
       evidence: evidence.map((asset) => valueWithSource(asset, sourceByReference)),
     };
@@ -742,18 +821,29 @@ class ImmutablePlanningGraph implements PlanningGraph {
         );
     }
     this.#attachContributorIssues(closureIssues);
-    const effortContexts = trusted(this.#collections.efforts)
-      .filter((effort) => effort.roadmapId === roadmap.id)
-      .sort((left, right) => compareUtf8(left.id, right.id))
+    const effortsById = new Map(
+      trusted(this.#collections.efforts).map((effort) => [effort.id, effort]),
+    );
+    const effortContexts = roadmap.effortIds
+      .flatMap((effortId) => {
+        const effort = effortsById.get(effortId);
+        return effort === undefined || effort.roadmapId !== roadmap.id ? [] : [effort];
+      })
       .flatMap((effort) => {
         const context = this.#buildEffortContext(effort, closureIssues);
         return context === undefined ? [] : [context];
       });
+    const orderedEffortIds = new Set(roadmap.effortIds);
+    for (const effort of trusted(this.#collections.efforts)) {
+      if (effort.roadmapId !== roadmap.id || orderedEffortIds.has(effort.id)) continue;
+      this.#buildEffortContext(effort, closureIssues);
+    }
     const finalIssues = stableIssues(closureIssues);
     return deepFreeze({
       fingerprint: this.fingerprint,
       state: finalIssues.length === 0 ? ("complete" as const) : ("partial" as const),
       target,
+      projectOrientation: this.#projectOrientation,
       context: {
         roadmap: valueWithSource(roadmap, this.#sourceByReference),
         gates: orderedGates.map((gate) => valueWithSource(gate, this.#sourceByReference)),
@@ -803,9 +893,14 @@ class ImmutablePlanningGraph implements PlanningGraph {
         ),
       );
     this.#attachContributorIssues(closureIssues);
-    const effortContexts = trusted(this.#collections.efforts)
-      .filter((effort) => effort.targetGateId === gate.id)
-      .sort((left, right) => compareUtf8(left.id, right.id))
+    const effortsById = new Map(
+      trusted(this.#collections.efforts).map((effort) => [effort.id, effort]),
+    );
+    const effortContexts = gate.effortIds
+      .flatMap((effortId) => {
+        const effort = effortsById.get(effortId);
+        return effort === undefined || effort.targetGateId !== gate.id ? [] : [effort];
+      })
       .flatMap((effort) => {
         const context = this.#buildEffortContext(effort, closureIssues);
         return context === undefined ? [] : [context];
@@ -815,6 +910,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       fingerprint: this.fingerprint,
       state: finalIssues.length === 0 ? ("complete" as const) : ("partial" as const),
       target,
+      projectOrientation: this.#projectOrientation,
       context: {
         gate: valueWithSource(gate, this.#sourceByReference),
         ...(roadmap === undefined
@@ -846,6 +942,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       fingerprint: this.fingerprint,
       state: finalIssues.length === 0 ? ("complete" as const) : ("partial" as const),
       target,
+      projectOrientation: this.#projectOrientation,
       context: {
         ...context,
         sources: this.#sourceClosure([effort.source], [context], finalIssues),
@@ -859,20 +956,58 @@ export const buildPlanningGraph = async (
   input: PlanningGraphBuildInput,
 ): Promise<PlanningGraph> => {
   input.instrumentation?.recordBuild();
+  const providerObservationSelections =
+    input.providerObservationSelections ??
+    input.providerObservations.map((observation) => ({
+      provider: observation.provider,
+      nativeScope: observation.binding.nativeScope,
+      observationId: observation.id,
+      effectiveFreshness: observation.freshness.assessment,
+      latestAttempt: null,
+    }));
+  const lineageObservationByScope = new Map<string, MattSkillsV1ProviderObservation>();
+  const boundScopeKeys = new Set(
+    input.decoded.records.flatMap((record) => {
+      const data = record.data;
+      if (data?.Type !== "effort" || data["Work binding"] === undefined) return [];
+      return [
+        mattNativeScopeKey({
+          provider: data["Work binding"].Provider,
+          nativeScope: data["Work binding"]["Native scope"],
+        }),
+      ];
+    }),
+  );
+  for (const observation of input.nativeScopeInspectionObservations ?? []) {
+    const key = mattNativeScopeKey(observation.binding);
+    if (boundScopeKeys.has(key)) lineageObservationByScope.set(key, observation);
+  }
+  for (const observation of input.providerObservations) {
+    lineageObservationByScope.set(mattNativeScopeKey(observation.binding), observation);
+  }
+  const lineageObservations = [...lineageObservationByScope.values()].sort((left, right) =>
+    mattNativeScopeKey(left.binding).localeCompare(mattNativeScopeKey(right.binding), "en"),
+  );
   const effortLocators = new Set(
     input.decoded.records
       .filter((record) => record.type === "effort")
       .map((record) => record.locator),
   );
+  const gateLocators = new Set(
+    input.decoded.records
+      .filter((record) => record.type === "milestone-gate")
+      .map((record) => record.locator),
+  );
   const governance = buildGovernanceProjection({
     records: input.decoded.records,
     sitemapFingerprint: input.fingerprint,
+    providerObservations: input.providerObservations,
     diagnostics: input.diagnostics.filter(
       (diagnostic) =>
         !PLANNING_RELATION_DIAGNOSTIC_CODES.has(diagnostic.code) &&
         !(
           diagnostic.code === "ambiguous-canonical-reference" &&
-          effortLocators.has(diagnostic.target)
+          (effortLocators.has(diagnostic.target) || gateLocators.has(diagnostic.target))
         ),
     ),
   });
@@ -889,7 +1024,7 @@ export const buildPlanningGraph = async (
     governance.sources,
     assets.sources,
     decisions.sources,
-    trackerSources(input.providerCaptures, input.fingerprint),
+    buildMattNativeSourceRecords(lineageObservations, input.fingerprint),
   ]);
   const assetSourceByIdentity = new Map(
     sources.flatMap((source) =>
@@ -926,8 +1061,47 @@ export const buildPlanningGraph = async (
     roadmaps: governance.roadmaps,
     gates: governance.gates,
     efforts: governance.efforts,
-    providerCaptures: input.providerCaptures,
+    providerObservations: input.providerObservations,
+    providerObservationSelections,
     diagnostics: diagnosticProjection.diagnostics,
+    sources,
+  });
+  const rebuiltAssets = rebuildAssetReverseRelations(assets.assets, {
+    roadmaps: planningProjection.roadmaps,
+    gates: planningProjection.gates,
+    efforts: planningProjection.efforts,
+    authorities: governance.authorities,
+    checks: decisions.checks,
+    reviews: decisions.reviews,
+    directEvidence: collectAssetDirectEvidence(input.decoded.records),
+  });
+  const graphCollections: GraphCollections = {
+    summary: governance.summary,
+    brief: governance.brief,
+    roadmaps: overlayNormalizedItems(governance.roadmaps, planningProjection.roadmaps),
+    gates: overlayNormalizedItems(governance.gates, planningProjection.gates),
+    efforts: overlayNormalizedItems(governance.efforts, planningProjection.efforts),
+    authorities: governance.authorities,
+    assets: rebuiltAssets,
+    checks: decisions.checks,
+    reviews: decisions.reviews,
+    providerObservations: input.providerObservations,
+    providerObservationSelections,
+  };
+  const lineageProjection = buildPlanningLineageProjection({
+    roadmaps: planningProjection.roadmaps,
+    gates: planningProjection.gates,
+    efforts: planningProjection.efforts,
+    authorities: governance.authorities,
+    assets: rebuiltAssets,
+    checks: decisions.checks,
+    reviews: decisions.reviews,
+    providerObservations: input.providerObservations,
+    providerObservationSelections,
+    nativeScopeInspections: {
+      observations: input.nativeScopeInspectionObservations ?? [],
+      selections: input.nativeScopeInspectionSelections ?? [],
+    },
     sources,
   });
   const knownKinds = new Map<string, Set<string>>();
@@ -949,16 +1123,9 @@ export const buildPlanningGraph = async (
   }
   return new ImmutablePlanningGraph(
     input.fingerprint,
-    {
-      roadmaps: overlayNormalizedItems(governance.roadmaps, planningProjection.roadmaps),
-      gates: overlayNormalizedItems(governance.gates, planningProjection.gates),
-      efforts: overlayNormalizedItems(governance.efforts, planningProjection.efforts),
-      authorities: governance.authorities,
-      assets: assets.assets,
-      checks: decisions.checks,
-      providerCaptures: input.providerCaptures,
-    },
+    graphCollections,
     planningProjection,
+    lineageProjection,
     sources,
     knownKinds,
     knownSources,

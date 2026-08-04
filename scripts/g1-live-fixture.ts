@@ -607,6 +607,8 @@ ID: gate:g1-fixture
 Title: G1 Fixture Gate
 Roadmap: roadmap:g1-fixture
 Status: active
+Effort order:
+  - effort:g1-fixture
 Citations: []
 ---
 
@@ -623,6 +625,9 @@ Reach the named validation boundary.
 
 const effort = `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:g1-fixture
 Title: G1 Fixture Effort
 Roadmap: roadmap:g1-fixture

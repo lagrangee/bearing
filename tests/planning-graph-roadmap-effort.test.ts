@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import { buildPlanningGraph } from "../src/planning-graph";
-import { prepareSync } from "../src/sync-plan";
+import { prepareSync as prepareBearingSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
+
+const prepareSync = (root: string) =>
+  prepareBearingSync(root, { providerObservationIntent: "initial-baseline" });
 
 const addRoadmapEffortContext = async (root: string): Promise<void> => {
   await writeFixture(
@@ -34,6 +37,8 @@ ID: gate:first
 Title: First Gate
 Roadmap: roadmap:test
 Status: planned
+Effort order:
+  - effort:optional
 ---
 
 # First Gate
@@ -52,6 +57,9 @@ Represent the first boundary.
     ".bearing/state/efforts/test.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: Test Effort
 Roadmap: roadmap:test
@@ -80,6 +88,9 @@ Exercise the full Effort context.
     ".bearing/state/efforts/optional.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:optional
 Title: Optional Native Work
 Roadmap: roadmap:test
@@ -162,14 +173,86 @@ Assets:
   await writeFixture(root, "evidence/test.md", "verified\n");
 };
 
-test("Roadmap closure preserves canonical Gate order, focus, and all nested contributors", async () => {
+test("uses explicit Gate Effort order instead of lexical identity or event time", async () => {
+  const root = await createValidBearingRepo();
+  const gatePath = ".bearing/state/milestone-gates/test.md";
+  await writeFixture(
+    root,
+    gatePath,
+    `---
+Type: milestone-gate
+ID: gate:test
+Title: Test Gate
+Roadmap: roadmap:test
+Status: active
+Effort order:
+  - effort:test
+  - effort:alpha
+---
+
+# Milestone Gate: Test
+
+## Intent
+
+Reach the fixture boundary.
+
+## Exit Criteria
+
+- All fixture work resolves.
+`,
+  );
+  await writeFixture(
+    root,
+    ".bearing/state/efforts/alpha.md",
+    `---
+Type: effort
+ID: effort:alpha
+Title: Earlier Timestamp
+Roadmap: roadmap:test
+Target gate: gate:test
+Authorities: []
+Citations: []
+Lifecycle: planned
+Planned at: 2020-01-01T00:00:00Z
+---
+
+# Effort: Earlier Timestamp
+
+## Intent
+
+Prove canonical order outranks identity and time.
+
+## Work
+
+- None.
+`,
+  );
+
+  const graph = (await prepareSync(root)).planningGraph;
+  const gate = graph.contextFor({ kind: "gate", id: "gate:test" });
+  const roadmap = graph.contextFor({ kind: "roadmap", id: "roadmap:test" });
+
+  if (gate.state === "invalid" || roadmap.state === "invalid") {
+    throw new Error("Expected trustworthy planning contexts.");
+  }
+  expect(gate.context.efforts.map(({ effort }) => String(effort.value.id))).toEqual([
+    "effort:test",
+    "effort:alpha",
+  ]);
+  expect(roadmap.context.efforts.map(({ effort }) => String(effort.value.id))).toEqual([
+    "effort:test",
+    "effort:alpha",
+  ]);
+});
+
+test("Roadmap closure preserves canonical order while exposing an unresolved bound contributor", async () => {
   const root = await createValidBearingRepo();
   await addRoadmapEffortContext(root);
   const plan = await prepareSync(root);
 
   const result = plan.planningGraph.contextFor({ kind: "roadmap", id: "roadmap:test" });
 
-  expect(result.state).toBe("complete");
+  expect(result.state).toBe("partial");
   if (result.state === "invalid") throw new Error("Expected Roadmap context.");
   expect(result.fingerprint).toBe(plan.fingerprint);
   expect(result.context.gates.map(({ value }) => String(value.id))).toEqual([
@@ -188,7 +271,8 @@ test("Roadmap closure preserves canonical Gate order, focus, and all nested cont
 
   const reversed = await buildPlanningGraph({
     decoded: { ...plan.decoded, records: [...plan.decoded.records].reverse() },
-    providerCaptures: [...plan.providerCaptures].reverse(),
+    providerObservations: [...plan.providerObservations].reverse(),
+    providerObservationSelections: [...plan.providerObservationSelections].reverse(),
     diagnostics: [...plan.diagnostics].reverse(),
     fingerprint: plan.fingerprint,
     assetContentObservations: [...plan.assetContentObservations].reverse(),
@@ -196,7 +280,7 @@ test("Roadmap closure preserves canonical Gate order, focus, and all nested cont
   expect(reversed.contextFor({ kind: "roadmap", id: "roadmap:test" })).toEqual(result);
 });
 
-test("Effort closure returns full nested context and treats optional absences as complete", async () => {
+test("Effort closure returns full nested context and fails a bound absent scope closed", async () => {
   const root = await createValidBearingRepo();
   await addRoadmapEffortContext(root);
   const graph = (await prepareSync(root)).planningGraph;
@@ -217,6 +301,17 @@ test("Effort closure returns full nested context and treats optional absences as
   expect(capture.projection.wayfinderTickets.map((ticket) => String(ticket.ref))).toEqual([
     ".scratch/work/issues/01-finish.md",
   ]);
+  expect(complete.context.nativeWorkReadingState).toMatchObject({
+    conclusion: "Complete",
+    binding: { state: "bound", effortIds: ["effort:test"] },
+    why: {
+      projectionState: "available",
+      freshness: "current",
+      coverage: "complete",
+      completion: "complete",
+      blockingDiagnosticCount: 0,
+    },
+  });
   expect(complete.context.alignmentChecks.map(({ value }) => String(value.id))).toEqual([
     "alignment-check:test-effort",
   ]);
@@ -226,14 +321,83 @@ test("Effort closure returns full nested context and treats optional absences as
   expect(complete.context.sources.length).toBeGreaterThan(0);
 
   const optional = graph.contextFor({ kind: "effort", id: "effort:optional" });
-  expect(optional.state).toBe("complete");
+  expect(optional.state).toBe("partial");
   if (optional.state === "invalid") throw new Error("Expected optional Effort context.");
   expect(optional.context.providerCapture).toMatchObject({
     state: "absent",
     completion: "incomplete",
     binding: { nativeScope: ".scratch/optional" },
   });
+  expect(optional.context.nativeWorkReadingState).toMatchObject({
+    conclusion: "Can't verify",
+    why: {
+      projectionState: "absent",
+      completion: "incomplete",
+    },
+  });
   expect(optional.context.evidence).toEqual([]);
+  expect(optional.issues).toContainEqual(
+    expect.objectContaining({
+      code: "untrusted-provider-observation-selection",
+      target: ".scratch/optional",
+    }),
+  );
+});
+
+test("Effort closure keeps a first provider acquisition failure structural without native reading", async () => {
+  const root = await createValidBearingRepo();
+  await addRoadmapEffortContext(root);
+  const plan = await prepareSync(root);
+  const nativeScope = ".scratch/work";
+  const graph = await buildPlanningGraph({
+    decoded: plan.decoded,
+    providerObservations: plan.providerObservations.filter(
+      (observation) => observation.binding.nativeScope !== nativeScope,
+    ),
+    providerObservationSelections: plan.providerObservationSelections.map((selection) =>
+      selection.nativeScope === nativeScope
+        ? {
+            ...selection,
+            observationId: null,
+            effectiveFreshness: "undetermined" as const,
+            latestAttempt: {
+              intent: "initial-baseline" as const,
+              attemptedAt: "2026-07-31T07:00:00Z",
+              outcome: "failed" as const,
+              diagnostics: [
+                {
+                  code: "provider.contract.unsupported",
+                  impact: "blocking" as const,
+                  target: nativeScope,
+                  message: "The provider contract is unsupported.",
+                },
+              ],
+            },
+          }
+        : selection,
+    ),
+    diagnostics: plan.diagnostics,
+    fingerprint: plan.fingerprint,
+    assetContentObservations: plan.assetContentObservations,
+  });
+
+  const result = graph.contextFor({ kind: "effort", id: "effort:test" });
+  expect(result.state).toBe("partial");
+  if (result.state === "invalid") throw new Error("Expected partial Effort context.");
+  expect(result.context.providerCapture).toBeUndefined();
+  expect(result.context.nativeWorkReadingState).toBeUndefined();
+  expect(result.issues).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        code: "missing-provider-capture",
+        target: nativeScope,
+      }),
+      expect.objectContaining({
+        code: "untrusted-provider-observation-selection",
+        target: nativeScope,
+      }),
+    ]),
+  );
 });
 
 test("Effort closure retains the Effort when its required Target Gate is broken", async () => {
@@ -243,6 +407,9 @@ test("Effort closure retains the Effort when its required Target Gate is broken"
     ".bearing/state/efforts/broken.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:broken
 Title: Broken Target Effort
 Roadmap: roadmap:test
@@ -303,6 +470,9 @@ test("Effort closure excludes unscopable native work from an unrelated invalid E
     ".bearing/state/efforts/uncertain.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:uncertain
 Title: Uncertain Effort
 Roadmap: roadmap:test
@@ -346,6 +516,8 @@ ID: gate:detached
 Title: Detached Gate
 Roadmap: roadmap:test
 Status: planned
+Effort order:
+  - effort:detached
 ---
 
 # Detached Gate
@@ -364,6 +536,9 @@ Exercise a broken nested ordering relation.
     ".bearing/state/efforts/detached.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:detached
 Title: Detached Effort
 Roadmap: roadmap:test
@@ -409,6 +584,9 @@ test("Effort closure reports missing and invalid cited Assets in the Effort scop
     ".bearing/state/efforts/test.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: Test Effort
 Roadmap: roadmap:test

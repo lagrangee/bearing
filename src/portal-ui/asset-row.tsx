@@ -1,56 +1,47 @@
+import type { MouseEvent } from "react";
 import { Icons } from "./icons";
 
 export function AssetRow({
-  citations,
-  contentAvailability,
+  evidenceRoles,
+  href,
   kind,
-  lifecycleSource,
-  location,
-  onSelect,
+  onOpen,
   owner,
+  primaryFocusKey,
   title,
 }: {
-  readonly citations: number;
-  readonly contentAvailability?: "available" | "missing" | "unreadable";
+  readonly evidenceRoles: readonly string[];
+  readonly href: string;
   readonly kind: string;
-  readonly lifecycleSource?: "native" | "registry";
-  readonly location: string;
-  readonly onSelect?: ((trigger: HTMLButtonElement) => void) | undefined;
-  readonly owner?: string;
+  readonly onOpen: (event: MouseEvent<HTMLAnchorElement>) => void;
+  readonly owner: string;
+  readonly primaryFocusKey?: string | undefined;
   readonly title: string;
 }) {
-  const citationLabel = `${citations} ${citations === 1 ? "citation" : "citations"}`;
-  const lifecycleLabel = lifecycleSource === undefined ? "lifecycle unavailable" : lifecycleSource;
-  const availabilityLabel =
-    contentAvailability === undefined ? "content availability unavailable" : contentAvailability;
+  const evidenceSummary =
+    evidenceRoles.length === 0 ? "No explicit evidence role" : evidenceRoles.join(" · ");
   return (
-    <button
-      aria-label={`${title}, ${kind}, ${lifecycleLabel}, ${availabilityLabel}, ${owner ?? "owner unavailable"}, ${citationLabel}, ${location}`}
-      className="asset-row"
-      onClick={(event) => onSelect?.(event.currentTarget)}
-      type="button"
-    >
-      <span className="asset-title">
-        <Icons.asset aria-hidden="true" />
-        <span>
-          <strong>{title}</strong>
-          <small>
-            {kind}
-            {lifecycleSource === undefined ? null : <> · {lifecycleSource}</>}
-            {contentAvailability === undefined ? null : <> · {contentAvailability}</>}
-          </small>
-          <code className="asset-mobile-location">{location}</code>
+    <div className="asset-row">
+      <a
+        aria-label={`${title}, ${kind}, owner ${owner}, ${evidenceSummary}`}
+        className="asset-row-primary"
+        data-bearing-focus-key={primaryFocusKey}
+        href={href}
+        onClick={onOpen}
+      >
+        <span className="asset-title">
+          <Icons.asset aria-hidden="true" />
+          <span>
+            <strong>{title}</strong>
+            <small>{kind}</small>
+          </span>
         </span>
-      </span>
-      <span className="asset-owner">{owner ?? "Unavailable"}</span>
-      <span className="citation-count">
-        <strong>{citations}</strong>
-        <small>{citations === 1 ? " citation" : " citations"}</small>
-      </span>
-      <code className="asset-location">{location}</code>
-      <span className="row-arrow" aria-hidden="true">
-        <Icons.arrow />
-      </span>
-    </button>
+        <span className="asset-owner">{owner}</span>
+        <span className="asset-evidence-summary">{evidenceSummary}</span>
+        <span className="row-arrow" aria-hidden="true">
+          <Icons.arrow />
+        </span>
+      </a>
+    </div>
   );
 }

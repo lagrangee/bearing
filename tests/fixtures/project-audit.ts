@@ -1,3 +1,4 @@
+import { buildAdvisoryProjection } from "../../src/project-snapshot/advisory";
 import {
   createAuditFindingId,
   INVALID_AUDIT_FINDING_CODE,
@@ -6,8 +7,11 @@ import {
   UNAVAILABLE_AUDIT_PROMOTION_MESSAGE,
 } from "../../src/project-snapshot/audit-findings";
 import type { ProjectSnapshot } from "../../src/project-snapshot/contract";
+import { buildDecisionProjection } from "../../src/project-snapshot/decisions";
 import { projectSnapshotSchema } from "../../src/project-snapshot/schema";
 import { createSourceRecord } from "../../src/project-snapshot/source-records";
+import { withRebuiltPlanningLineage } from "../planning-lineage-fixture";
+import { decodeSourceFixtures } from "../project-snapshot-fixture";
 import { createProjectOverviewFixture } from "./project-overview";
 
 const AUDIT_LOCATOR = ".bearing/state/planning-audit.md";
@@ -61,13 +65,12 @@ export const createProjectAuditFixture = (): ProjectSnapshot => {
         ],
       },
     },
-    guidance: { validity: "absent" },
     sources: [...snapshot.sources, findingSource, evidenceSource],
   });
 };
 
 const withAudit = (snapshot: ProjectSnapshot, audit: ProjectSnapshot["audit"]): ProjectSnapshot =>
-  projectSnapshotSchema.parse({ ...snapshot, audit, guidance: { validity: "absent" } });
+  projectSnapshotSchema.parse({ ...snapshot, audit });
 
 export const createAbsentProjectAuditFixture = (): ProjectSnapshot =>
   withAudit(createProjectOverviewFixture(), { validity: "absent" });
@@ -109,25 +112,27 @@ export const createUnavailableAuditPromotionFixture = (): ProjectSnapshot => {
   if (snapshot.audit.validity !== "available") throw new Error("Expected Audit fixture.");
   const finding = snapshot.audit.value.findings[0];
   if (finding === undefined) throw new Error("Expected one Audit finding.");
-  return projectSnapshotSchema.parse({
-    ...snapshot,
-    checks: { validity: "available", items: [] },
-    audit: {
-      validity: "partial",
-      value: snapshot.audit.value,
-      issues: [
-        {
-          code: UNAVAILABLE_AUDIT_PROMOTION_CODE,
-          target: `${AUDIT_LOCATOR}#${AUDIT_FINDING_FRAGMENT}`,
-          message: UNAVAILABLE_AUDIT_PROMOTION_MESSAGE,
-          source: finding.source,
-        },
-      ],
-    },
-    attention: snapshot.attention.filter(
-      (item) => !(item.kind === "alignment-check" && item.id === "alignment-check:portal"),
-    ),
-  });
+  return projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      checks: { validity: "available", items: [] },
+      audit: {
+        validity: "partial",
+        value: snapshot.audit.value,
+        issues: [
+          {
+            code: UNAVAILABLE_AUDIT_PROMOTION_CODE,
+            target: `${AUDIT_LOCATOR}#${AUDIT_FINDING_FRAGMENT}`,
+            message: UNAVAILABLE_AUDIT_PROMOTION_MESSAGE,
+            source: finding.source,
+          },
+        ],
+      },
+      attention: snapshot.attention.filter(
+        (item) => !(item.kind === "alignment-check" && item.id === "alignment-check:portal"),
+      ),
+    }),
+  );
 };
 
 export const createInvalidProjectAuditFixture = (): ProjectSnapshot => {
@@ -140,6 +145,53 @@ export const createInvalidProjectAuditFixture = (): ProjectSnapshot => {
         target: AUDIT_LOCATOR,
         message: "Planning Audit cannot be normalized.",
       },
+    ],
+  });
+};
+
+export const createMissingGeneratedTimeAuditFixture = (): ProjectSnapshot => {
+  const snapshot = createProjectAuditFixture();
+  const records = decodeSourceFixtures(
+    [
+      {
+        locator: AUDIT_LOCATOR,
+        source: `---
+Type: planning-audit
+ID: planning-audit:current
+Inputs: []
+Input fingerprint: sha256:${"a".repeat(64)}
+Coverage: complete
+Skipped targets: []
+---
+
+# Planning Audit
+
+## Findings
+
+No material findings.
+`,
+      },
+    ],
+    snapshot.basis.sitemapFingerprint,
+  );
+  const decisions = buildDecisionProjection({
+    records,
+    sitemapFingerprint: snapshot.basis.sitemapFingerprint,
+  });
+  const advisory = buildAdvisoryProjection({
+    records,
+    sitemapFingerprint: snapshot.basis.sitemapFingerprint,
+    advisoryFreshness: {},
+    checks: decisions.checks,
+    reviews: decisions.reviews,
+  });
+  const projectedReferences = new Set(advisory.sources.map((source) => source.reference));
+  return projectSnapshotSchema.parse({
+    ...snapshot,
+    audit: advisory.audit,
+    sources: [
+      ...snapshot.sources.filter((source) => !projectedReferences.has(source.reference)),
+      ...advisory.sources,
     ],
   });
 };

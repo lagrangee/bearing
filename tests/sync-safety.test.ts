@@ -30,6 +30,16 @@ describe("bearing sync", () => {
     expect((await lstat(reportPath)).isSymbolicLink()).toBe(false);
   });
 
+  test("does not inspect or mutate the removed Native Scope Discovery cache path", async () => {
+    const root = await createValidBearingRepo();
+    const removedPath = join(root, ".bearing/cache/native-scope-discovery.json");
+    await mkdir(removedPath, { recursive: true });
+
+    await runSync(root);
+
+    expect((await lstat(removedPath)).isDirectory()).toBe(true);
+  });
+
   test("rejects a repository root that does not exist", async () => {
     const parent = await createValidBearingRepo();
     await expect(runSync(join(parent, "missing"))).rejects.toThrow(
@@ -60,7 +70,9 @@ describe("bearing sync", () => {
     await rm(join(root, ".scratch"), { recursive: true });
     await symlink(outside, join(root, ".scratch"));
 
-    const result = await runSync(root);
+    const result = await runSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
 
     expect(
       result.diagnostics.filter(
@@ -83,7 +95,9 @@ describe("bearing sync", () => {
     await rm(target);
     await link(foreign, target);
 
-    const result = await runSync(root);
+    const result = await runSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(result.inputs).not.toContain(locator);
@@ -113,6 +127,9 @@ describe("bearing sync", () => {
       ".bearing/state/efforts/test.md",
       `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: Test Effort
 Roadmap: roadmap:test
@@ -175,6 +192,9 @@ Assets:
       ".bearing/state/efforts/test.md",
       `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: Test Effort
 Roadmap: roadmap:test
@@ -270,7 +290,9 @@ Assets:
     await rm(join(root, ".scratch"), { recursive: true });
     await writeFile(join(root, ".scratch"), "not a directory\n");
 
-    const result = await runSync(root);
+    const result = await runSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(result.diagnostics).toContainEqual({
@@ -296,6 +318,6 @@ Assets:
       target: ".bearing/state/efforts/broken.md",
       message: "Repository input must be a file.",
     });
-    expect(sitemap).toContain("`effort:test` | Test Effort | resolved");
+    expect(sitemap).toContain("`effort:test` | Test Effort | active");
   });
 });

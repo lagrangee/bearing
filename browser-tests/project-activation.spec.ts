@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "../tests/planning-lineage-fixture";
 
 const completedAt = "2026-07-13T20:00:00+08:00";
 
@@ -7,13 +8,13 @@ const projectView = (entryId = "overview", clearAttention = false) => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.summary.validity !== "available") throw new Error("Expected Summary fixture.");
   const projectedSnapshot = clearAttention
-    ? {
+    ? withRebuiltPlanningLineage({
         ...snapshot,
         checks: { validity: "available" as const, items: [] },
         reviews: { validity: "available" as const, items: [] },
         diagnostics: [],
         attention: [],
-      }
+      })
     : snapshot;
   return {
     project: { entryId, displayName: `${entryId} project`, availability: "available" },
@@ -64,7 +65,24 @@ const forcedEnvelope = () => ({
   validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
 });
 
-test("project switch remounts activation and clears project-scoped inspector state", async ({
+test("the entry module establishes an API session before project activation", async ({ page }) => {
+  const requests: string[] = [];
+  await page.route("**/api/v1/bootstrap", (route) => {
+    requests.push("bootstrap");
+    return route.fulfill({ json: { version: 1, state: "ready" } });
+  });
+  await page.route("**/api/v1/projects/overview/snapshot", (route) => {
+    requests.push("snapshot");
+    return route.fulfill({ json: readyEnvelope() });
+  });
+
+  await page.goto("/projects/overview");
+
+  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  expect(requests).toEqual(["bootstrap", "snapshot"]);
+});
+
+test("project switch remounts activation without a transient diagnostic disclosure", async ({
   page,
 }) => {
   const entries: string[] = [];
@@ -78,8 +96,10 @@ test("project switch remounts activation and clears project-scoped inspector sta
   await expect(
     page.getByRole("link", { name: /Return to Project Catalog from first project/u }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "View Project Summary" }).click();
-  await expect(page.getByRole("complementary", { name: "Selected context" })).toBeVisible();
+  await expect(
+    page.getByText("Project Summary has one malformed section.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Technical Details" })).toHaveCount(0);
 
   await page.evaluate(() => {
     window.history.pushState({}, "", "/projects/second");
@@ -89,7 +109,7 @@ test("project switch remounts activation and clears project-scoped inspector sta
   await expect(
     page.getByRole("link", { name: /Return to Project Catalog from second project/u }),
   ).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "Selected context" })).toHaveCount(0);
+  await expect(page.getByRole("complementary", { name: "Technical Details" })).toHaveCount(0);
   expect(entries).toEqual(["first", "second"]);
 });
 
@@ -111,16 +131,83 @@ test("reload, reconnect, browser return, and inactive interaction reactivate cac
     await expect.poll(() => reads).toBeGreaterThan(before);
   };
   await expectReadAfter(() => page.evaluate(() => window.dispatchEvent(new Event("online"))));
-  await expectReadAfter(() => page.evaluate(() => window.dispatchEvent(new Event("focus"))));
   await expectReadAfter(() =>
-    page.evaluate(() => {
-      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
-      document.dispatchEvent(new Event("visibilitychange"));
-    }),
+    (async () => {
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await page.clock.fastForward(300_001);
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          value: "visible",
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+    })(),
   );
   await expectReadAfter(() => page.reload());
   await page.clock.fastForward(300_001);
   await expectReadAfter(() => page.locator("main").click({ position: { x: 4, y: 4 } }));
+});
+
+test("visible-only focus does not reactivate project validation", async ({ page }) => {
+  let reads = 0;
+  const bodies: string[] = [];
+  await page.route("**/api/v1/projects/overview/snapshot", (route) => {
+    reads += 1;
+    return route.fulfill({ json: readyEnvelope("overview", reads > 1) });
+  });
+  await page.route("**/api/v1/projects/overview/sync", (route) => {
+    bodies.push(route.request().postData() ?? "");
+    return route.fulfill({ json: automaticEnvelope("checked") });
+  });
+  await page.goto("/projects/overview");
+  await expect.poll(() => reads).toBe(1);
+
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.waitForTimeout(100);
+
+  expect(reads).toBe(1);
+  expect(bodies).toEqual([]);
+  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  await expect(page.locator("main")).toHaveAttribute("aria-hidden", "false");
+  expect(await page.locator("main").getAttribute("inert")).toBeNull();
+});
+
+test("brief annotation-like visibility cycle does not reactivate project validation", async ({
+  page,
+}) => {
+  let reads = 0;
+  const bodies: string[] = [];
+  await page.clock.install({ time: new Date("2026-07-13T20:00:00+08:00") });
+  await page.route("**/api/v1/projects/overview/snapshot", (route) => {
+    reads += 1;
+    return route.fulfill({ json: readyEnvelope("overview", reads > 1) });
+  });
+  await page.route("**/api/v1/projects/overview/sync", (route) => {
+    bodies.push(route.request().postData() ?? "");
+    return route.fulfill({ json: automaticEnvelope("checked") });
+  });
+  await page.goto("/projects/overview");
+  await expect.poll(() => reads).toBe(1);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(1_000);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForTimeout(100);
+
+  expect(reads).toBe(1);
+  expect(bodies).toEqual([]);
+  await expect(page.locator("main")).toHaveAttribute("aria-hidden", "false");
+  expect(await page.locator("main").getAttribute("inert")).toBeNull();
 });
 
 test("the first explicit Sync after inactivity forces reconciliation without an automatic check", async ({
@@ -156,6 +243,7 @@ test("the first explicit Sync after inactivity forces reconciliation without an 
 test("a browser-return click on Sync forces reconciliation before automatic activation", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
   let reads = 0;
   let returnReadCompleted = false;
   let releaseReturnRead = () => {};
@@ -183,12 +271,18 @@ test("a browser-return click on Sync forces reconciliation before automatic acti
   const sync = page.getByRole("button", { name: "Sync", exact: true });
   const box = await sync.boundingBox();
   if (box === null) throw new Error("Expected the Sync button to have a bounding box.");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
   await page.clock.fastForward(300_001);
-
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(page.locator(".project-operation")).toHaveText("Checking");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.locator(".topbar-sync")).toHaveText("Checking");
   await expect(page.locator(".topbar-sync")).toBeEnabled();
-  await expect(page.locator(".topbar-sync svg")).not.toHaveClass(/is-spinning/u);
+  await expect(page.locator(".topbar-sync svg")).toHaveClass(/is-spinning/u);
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 
   await expect.poll(() => bodies).toEqual([JSON.stringify({ version: 1, mode: "force" })]);
@@ -200,6 +294,7 @@ test("a browser-return click on Sync forces reconciliation before automatic acti
 test("a malformed Sync response retains the GET cache and Retry forces reconciliation", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
   const bodies: string[] = [];
   await page.route("**/api/v1/projects/overview/snapshot", (route) =>
     route.fulfill({ json: readyEnvelope("overview", true) }),
@@ -215,7 +310,14 @@ test("a malformed Sync response retains the GET cache and Retry forces reconcili
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
   const banner = page.getByRole("alert");
   await expect(banner).toContainText("Cached project content remains visible");
-  await banner.getByRole("button", { name: "Retry", exact: true }).click();
+  const retry = page.locator(".topbar-sync");
+  await expect(retry).toHaveText("Retry");
+  await expect(retry).toHaveAttribute("aria-describedby", "sync-failure-detail");
+  await expect(banner).toHaveAttribute("id", "sync-failure-detail");
+  expect(
+    await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
+  ).toBe(false);
+  await retry.click();
   await expect(banner).toHaveCount(0);
   expect(bodies).toEqual([
     JSON.stringify({ version: 1, mode: "ensure-current" }),
@@ -223,9 +325,70 @@ test("a malformed Sync response retains the GET cache and Retry forces reconcili
   ]);
 });
 
+test("a viewless load failure exposes one Retry on the narrow Sync control", async ({ page }) => {
+  let reads = 0;
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.route("**/api/v1/projects/overview/snapshot", (route) => {
+    reads += 1;
+    return reads === 1
+      ? route.fulfill({ status: 503, json: { message: "untrusted upstream detail" } })
+      : route.fulfill({ json: readyEnvelope("overview", false, true) });
+  });
+  await page.goto("/projects/overview");
+
+  await expect(page.getByRole("heading", { name: "Project could not be loaded" })).toBeVisible();
+  const retry = page.getByRole("button", { name: "Retry", exact: true });
+  const failure = page.locator(".sync-control").getByRole("alert");
+  await expect(retry).toHaveCount(1);
+  await expect(retry).toHaveAttribute("aria-describedby", "sync-failure-detail");
+  await expect(failure).toHaveAttribute("id", "sync-failure-detail");
+  await expect(failure).toHaveText("Project currency could not be checked.");
+  await expect(
+    page.getByText("Project currency could not be checked.", { exact: true }),
+  ).toHaveCount(1);
+  await expect(page.getByText("untrusted upstream detail")).toHaveCount(0);
+  await retry.click();
+  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  expect(reads).toBe(2);
+});
+
+test("an invalid CSRF session is refreshed once before the automatic check fails", async ({
+  page,
+}) => {
+  let reads = 0;
+  const csrfTokens: string[] = [];
+  await page.route("**/api/v1/projects/overview/snapshot", (route) => {
+    reads += 1;
+    return route.fulfill({
+      json: {
+        ...readyEnvelope("overview", true),
+        session: { csrfToken: reads === 1 ? "csrf-stale" : "csrf-current" },
+      },
+    });
+  });
+  await page.route("**/api/v1/projects/overview/sync", (route) => {
+    csrfTokens.push(route.request().headers()["x-bearing-csrf-token"] ?? "");
+    return csrfTokens.length === 1
+      ? route.fulfill({
+          status: 403,
+          json: { code: "invalid-csrf-token", message: "CSRF check failed." },
+        })
+      : route.fulfill({ json: automaticEnvelope("checked") });
+  });
+
+  await page.goto("/projects/overview");
+
+  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".topbar-sync")).toHaveText("Sync");
+  expect(reads).toBe(2);
+  expect(csrfTokens).toEqual(["csrf-stale", "csrf-current"]);
+});
+
 test("a typed Sync failure without a view retains the GET cache and exposes Retry", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
   const bodies: string[] = [];
   await page.route("**/api/v1/projects/overview/snapshot", (route) =>
     route.fulfill({ json: readyEnvelope("overview", true) }),
@@ -254,8 +417,9 @@ test("a typed Sync failure without a view retains the GET cache and exposes Retr
 
   const banner = page.getByRole("alert");
   await expect(banner).toContainText("Cached project content remains visible");
+  await expect(page.locator(".topbar-sync")).toHaveText("Retry");
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
-  await banner.getByRole("button", { name: "Retry", exact: true }).click();
+  await page.locator(".topbar-sync").click();
   await expect(banner).toHaveCount(0);
   expect(bodies).toEqual([
     JSON.stringify({ version: 1, mode: "ensure-current" }),
@@ -263,7 +427,10 @@ test("a typed Sync failure without a view retains the GET cache and exposes Retr
   ]);
 });
 
-test("topbar exposes healthy and unavailable Attention truth", async ({ page }) => {
+test("healthy topbar stays quiet while unavailable project truth remains in content", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
   let unavailable = false;
   await page.route("**/api/v1/projects/overview/snapshot", (route) =>
     route.fulfill({
@@ -283,19 +450,20 @@ test("topbar exposes healthy and unavailable Attention truth", async ({ page }) 
     }),
   );
   await page.goto("/projects/overview");
-  await expect(page.locator(".attention-clear")).toContainText("AttentionClear");
-  await expect(page.locator(".project-operation")).toHaveText("Checked recently");
+  await expect(page.locator(".topbar-sync")).toHaveText("Sync");
   await expect(page.getByRole("region", { name: "Attention" })).toHaveCount(0);
 
   unavailable = true;
   await page.reload();
-  await expect(page.locator(".attention-unavailable")).toContainText("AttentionUnavailable");
+  await expect(page.locator(".topbar-sync")).toHaveText("Unavailable");
+  await expect(page.locator(".topbar-sync")).toBeDisabled();
   await expect(page.getByRole("heading", { name: "Project is unavailable" })).toBeVisible();
 });
 
-test("refresh and reconciliation states remain visible, then confirmations clear", async ({
+test("refresh and reconciliation feedback stays on the Sync control then becomes quiet", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
   await page.route("**/api/v1/projects/overview/snapshot", (route) =>
     route.fulfill({ json: readyEnvelope("overview", true) }),
   );
@@ -307,11 +475,12 @@ test("refresh and reconciliation states remain visible, then confirmations clear
   });
   await page.goto("/projects/overview");
 
-  await expect(page.locator(".project-operation")).toHaveText("Refreshing view");
+  await expect(page.locator(".topbar-sync")).toHaveText("Refreshing");
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
-  await expect(page.locator(".project-operation")).toHaveText("Up to date");
+  await expect(page.locator(".topbar-sync")).toHaveText("Sync");
   await page.getByRole("button", { name: "Sync" }).click();
-  await expect(page.locator(".project-operation")).toHaveText("Syncing");
-  await expect(page.locator(".project-operation")).toHaveText("Updated");
-  await expect(page.locator(".project-operation")).toHaveCount(0, { timeout: 3_000 });
+  await expect(page.locator(".topbar-sync")).toHaveText("Syncing");
+  await expect(page.locator(".topbar-sync")).toHaveText("Updated");
+  await expect(page.locator(".topbar-sync")).toHaveText("Sync", { timeout: 3_000 });
+  await expect(page.getByText(/Last synced|Synced Jul|Synced Never/u)).toHaveCount(0);
 });

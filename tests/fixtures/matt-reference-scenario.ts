@@ -1,4 +1,4 @@
-import { createProviderScopeCapture } from "../../src/native-work-provider";
+import { createProviderScopeObservation } from "../../src/native-work-provider";
 import type { MattSkillsV1Provider } from "../../src/providers/matt-skills-v1/capture";
 import type {
   MattNativeEvidence,
@@ -12,6 +12,12 @@ type NativeKind = "local" | "github";
 const ref = (value: string): MattObjectReference => value as MattObjectReference;
 const scenarioRef = (nativeKind: NativeKind, role: string): MattObjectReference =>
   ref(`${nativeKind}:opaque:${role}`);
+const availableSections = (...roles: readonly string[]) =>
+  roles.map((role) => ({ role, availability: "available" as const }));
+const nativeTime = (nativeKind: NativeKind, value: string) =>
+  nativeKind === "local"
+    ? ({ availability: "unsupported" } as const)
+    : ({ availability: "available", value, precision: "second" } as const);
 
 const nativeEvidence = (
   nativeKind: NativeKind,
@@ -24,6 +30,8 @@ const nativeEvidence = (
         identity: {
           locator: `.scratch/reference/${role}-${ordinal}.md`,
         },
+        createdAt: { availability: "unsupported" },
+        lastUpdated: { availability: "unsupported" },
         sourceAnchors: [
           {
             kind: "source",
@@ -45,6 +53,12 @@ const nativeEvidence = (
           owner: "example",
           repository: "reference",
         },
+        createdAt: nativeTime(nativeKind, `2026-07-${String(ordinal).padStart(2, "0")}T00:00:00Z`),
+        lastUpdated: nativeTime(
+          nativeKind,
+          `2026-07-${String(ordinal).padStart(2, "0")}T12:00:00Z`,
+        ),
+        trackerClosure: { state: "open" },
         sourceAnchors: [
           {
             kind: "source",
@@ -96,6 +110,16 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         },
       ],
       lifecycle: { state: "active" },
+      semanticSections: [
+        ...availableSections(
+          "map.destination",
+          "map.notes",
+          "map.decisions",
+          "map.fog",
+          "map.out-of-scope",
+        ),
+        { role: "map.resolution-evidence", availability: "confirmed-empty" },
+      ],
       native: nativeEvidence(nativeKind, "map", 1),
     },
     spec: {
@@ -107,39 +131,55 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           role: "problem",
           title: "Problem Statement",
           body: "Local and GitHub must preserve the same accepted semantics.",
+          availability: "available",
         },
         {
           role: "solution",
           title: "Solution",
           body: "Capture one concrete Matt scope through a versioned provider seam.",
+          availability: "available",
         },
         {
           role: "user-stories",
           title: "User Stories",
           body: "A consumer can distinguish workflow truth without native identity coupling.",
+          availability: "available",
         },
         {
           role: "implementation",
           title: "Implementation Decisions",
           body: "Keep provider-specific projection behind a provider-neutral wrapper.",
+          availability: "available",
         },
         {
           role: "testing",
           title: "Testing Decisions",
           body: "Compare public provider captures through a test-owned oracle.",
+          availability: "available",
         },
         {
           role: "out-of-scope",
           title: "Out of Scope",
           body: "Do not build a generic tracker ontology.",
+          availability: "available",
         },
         {
           role: "further-notes",
           title: "Further Notes",
           body: "Opaque relation references are capture-local.",
+          availability: "available",
         },
       ],
       lifecycle: { state: "ready-for-agent" },
+      semanticSections: availableSections(
+        "spec.problem",
+        "spec.solution",
+        "spec.user-stories",
+        "spec.implementation",
+        "spec.testing",
+        "spec.out-of-scope",
+        "spec.further-notes",
+      ),
       native: nativeEvidence(nativeKind, "spec", 2),
     },
     wayfinderTickets: [
@@ -159,6 +199,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
               kind: "answer",
               target: nativeKind === "local" ? "research.md#answer" : "comment:answer-1",
             },
+            authoredAt: nativeTime(nativeKind, "2026-07-03T10:00:00Z"),
           },
         },
         comments: [
@@ -166,6 +207,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
             role: "ordinary-comment",
             body: "This comment is not the Answer.",
             nativeIdentity: nativeKind === "local" ? "comment:local-1" : "comment:github-1",
+            authoredAt: nativeTime(nativeKind, "2026-07-03T11:00:00Z"),
           },
         ],
         lifecycle: {
@@ -178,8 +220,14 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         trackerClosure: {
           state: "closed",
           disposition: "completed",
-          observedAt: "2026-07-01T00:00:00Z",
+          closedAt: nativeTime(nativeKind, "2026-07-01T00:00:00Z"),
         },
+        semanticSections: availableSections(
+          "wayfinder.question",
+          "wayfinder.claim",
+          "wayfinder.answer",
+          "wayfinder.comments",
+        ),
         native: nativeEvidence(nativeKind, "research", 3),
       },
       {
@@ -193,6 +241,11 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         comments: [],
         lifecycle: { state: "open" },
         trackerClosure: { state: "open" },
+        semanticSections: [
+          ...availableSections("wayfinder.question", "wayfinder.claim"),
+          { role: "wayfinder.answer", availability: "unavailable" },
+          { role: "wayfinder.comments", availability: "confirmed-empty" },
+        ],
         native: nativeEvidence(nativeKind, "prototype", 4),
       },
       {
@@ -214,8 +267,13 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         trackerClosure: {
           state: "closed",
           disposition: "wontfix",
-          observedAt: "2026-07-02T00:00:00Z",
+          closedAt: nativeTime(nativeKind, "2026-07-02T00:00:00Z"),
         },
+        semanticSections: [
+          ...availableSections("wayfinder.question", "wayfinder.claim"),
+          { role: "wayfinder.answer", availability: "confirmed-empty" },
+          { role: "wayfinder.comments", availability: "confirmed-empty" },
+        ],
         native: nativeEvidence(nativeKind, "grilling", 5),
       },
       {
@@ -230,10 +288,15 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           {
             role: "agent-brief",
             body: "Write only the accepted resolution.",
+            authoredAt: nativeTime(nativeKind, "2026-07-06T10:00:00Z"),
           },
         ],
         lifecycle: { state: "open" },
         trackerClosure: { state: "open" },
+        semanticSections: [
+          ...availableSections("wayfinder.question", "wayfinder.claim", "wayfinder.comments"),
+          { role: "wayfinder.answer", availability: "unavailable" },
+        ],
         native: nativeEvidence(nativeKind, "task", 6),
       },
     ],
@@ -253,8 +316,15 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           {
             role: "triage-note",
             body: "Delivery completion is not tracker closure.",
+            authoredAt: nativeTime(nativeKind, "2026-07-07T10:00:00Z"),
           },
         ],
+        semanticSections: availableSections(
+          "delivery.what-to-build",
+          "delivery.acceptance-criteria",
+          "delivery.completion-evidence",
+          "delivery.comments",
+        ),
         native: nativeEvidence(nativeKind, "delivery", 7),
       },
       {
@@ -267,9 +337,14 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         trackerClosure: {
           state: "closed",
           disposition: "completed",
-          observedAt: "2026-07-03T00:00:00Z",
+          closedAt: nativeTime(nativeKind, "2026-07-03T00:00:00Z"),
         },
         comments: [],
+        semanticSections: [
+          ...availableSections("delivery.what-to-build", "delivery.acceptance-criteria"),
+          { role: "delivery.completion-evidence", availability: "unavailable" },
+          { role: "delivery.comments", availability: "confirmed-empty" },
+        ],
         native: nativeEvidence(nativeKind, "delivery", 8),
       },
     ],
@@ -295,8 +370,24 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           },
         ],
         lifecycle: { state: "open" },
+        semanticSections: availableSections(
+          "incoming.classification",
+          "incoming.content",
+          "incoming.routing",
+        ),
         native: nativeEvidence(nativeKind, "incoming", 9),
       },
+    ],
+    structuralOrder: [
+      mapRef,
+      specRef,
+      researchRef,
+      prototypeRef,
+      grillingRef,
+      taskRef,
+      deliveryOneRef,
+      deliveryTwoRef,
+      incomingRef,
     ],
     graph: {
       parentChild: [
@@ -331,11 +422,10 @@ export const createMattReferenceAliases = (
 
 export const createMattReferenceProvider = (nativeKind: NativeKind): MattSkillsV1Provider => ({
   id: "matt-skills/v1",
-  capture: async (binding, generation) =>
-    createProviderScopeCapture({
+  capture: async (binding) =>
+    createProviderScopeObservation({
       provider: "matt-skills/v1",
       binding,
-      generation,
       state: "partial",
       freshness: {
         assessment: "current",

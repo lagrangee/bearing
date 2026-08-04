@@ -20,6 +20,11 @@ npx @lagrangee/bearing
 
 Use the no-argument wizard for normal installation. It previews managed targets before writing. It installs user-level CLI and skill assets; it does not initialize every repository automatically.
 
+The user-level Bearing skill remains available for an explicit Bearing or Setup request in any
+repository. Ordinary repository work activates it automatically only after Setup has installed the
+repository's managed Agent Surface pointer and the package-owned read-only check confirms an
+Active manifest. Fresh and deactivated repositories continue ordinary work without Bearing.
+
 ## Enable one repository
 
 In your target repository, ask your agent:

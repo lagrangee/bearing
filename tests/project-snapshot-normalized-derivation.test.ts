@@ -1,11 +1,15 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { buildRoadmapDetailModel } from "../src/portal-ui/project-roadmap-model";
+import { buildPlanningGraph } from "../src/planning-graph";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import { buildProjectSnapshot as buildSnapshot } from "../src/project-snapshot/projection";
 import { runSync } from "../src/sync";
 import { createValidBearingRepo, writeFixture } from "./helpers";
-import { buildProjectSnapshotForTest as buildProjectSnapshot } from "./project-snapshot-fixture";
+import {
+  buildProjectSnapshotForTest as buildProjectSnapshot,
+  captureDecodedInputs,
+} from "./project-snapshot-fixture";
 
 const materialize = async (root: string): Promise<ProjectSnapshot> => {
   const sync = await runSync(root);
@@ -19,7 +23,7 @@ const materialize = async (root: string): Promise<ProjectSnapshot> => {
   });
 };
 
-test("derives Effort and Gate truth from the final provider capture", async () => {
+test("keeps Effort lifecycle explicit when provider completion is undetermined", async () => {
   const root = await createValidBearingRepo();
   const path = join(root, ".scratch/work/map.md");
   const source = await readFile(path, "utf8");
@@ -31,17 +35,138 @@ test("derives Effort and Gate truth from the final provider capture", async () =
 
   const snapshot = await materialize(root);
 
-  const capture = snapshot.providerCaptures.find(
+  const capture = snapshot.providerObservations.find(
     (candidate) => candidate.binding.nativeScope === ".scratch/work",
   );
   expect(capture).toBeDefined();
   expect(capture?.completion).toBe("undetermined");
   expect(snapshot.efforts).toMatchObject({
     validity: "available",
-    items: [{ id: "effort:test", derivedState: "unknown" }],
+    items: [{ id: "effort:test", lifecycle: "active" }],
   });
   expect(snapshot.gates).toMatchObject({
     validity: "available",
+    items: [{ id: "gate:test", readiness: "unknown" }],
+  });
+});
+
+test("preserves canonical Effort semantics while binding failures fail closed", async () => {
+  const root = await createValidBearingRepo();
+  const effortPath = join(root, ".bearing/state/efforts/test.md");
+  const source = await readFile(effortPath, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/efforts/test.md",
+    source.replace(
+      /Work binding:\n {2}Provider: matt-skills\/v1\n {2}Native scope: \.scratch\/work\n/u,
+      "",
+    ),
+  );
+
+  const missing = await materialize(root);
+  expect(missing.efforts).toMatchObject({
+    validity: "available",
+    items: [
+      {
+        id: "effort:test",
+        roadmapId: "roadmap:test",
+        targetGateId: "gate:test",
+        lifecycle: "active",
+        workBindingState: { state: "invalid", reason: "missing" },
+      },
+    ],
+  });
+  expect(missing.gates).toMatchObject({
+    validity: "available",
+    items: [{ id: "gate:test", readiness: "unknown" }],
+  });
+  expect(missing.diagnostics).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        code: "effort-work-binding-missing",
+        impact: "blocking",
+        target: ".bearing/state/efforts/test.md",
+      }),
+    ]),
+  );
+});
+
+test("marks a declared Work Binding unresolved without discovering standalone work", async () => {
+  const root = await createValidBearingRepo();
+  const sync = await runSync(root);
+  const captured = await captureDecodedInputs(root, sync.inputs, sync.fingerprint);
+  const planningGraph = await buildPlanningGraph({
+    decoded: captured.decoded,
+    providerObservations: [],
+    diagnostics: sync.diagnostics,
+    fingerprint: sync.fingerprint,
+    assetContentObservations: captured.assetContentObservations,
+  });
+  const snapshot = await buildSnapshot({
+    repoRoot: root,
+    packageVersion: "0.0.0-test",
+    sitemapFingerprint: sync.fingerprint,
+    diagnostics: sync.diagnostics,
+    advisoryFreshness: sync.advisoryFreshness,
+    decoded: captured.decoded,
+    providerObservations: [],
+    providerObservationSelections: [],
+    assetContentObservations: captured.assetContentObservations,
+    planningGraph,
+  });
+
+  expect(snapshot.efforts).toMatchObject({
+    validity: "available",
+    items: [
+      {
+        id: "effort:test",
+        workBinding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
+        workBindingState: { state: "invalid", reason: "unresolved" },
+      },
+    ],
+  });
+  expect(snapshot.providerObservations).toEqual([]);
+  expect(snapshot.gates).toMatchObject({
+    items: [{ id: "gate:test", readiness: "unknown" }],
+  });
+});
+
+test("marks every conflicting Work Binding invalid while retaining one read-only provider capture", async () => {
+  const root = await createValidBearingRepo();
+  const source = await readFile(join(root, ".bearing/state/efforts/test.md"), "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/efforts/conflict.md",
+    source.replace("ID: effort:test", "ID: effort:conflict"),
+  );
+  const gatePath = join(root, ".bearing/state/milestone-gates/test.md");
+  const gate = await readFile(gatePath, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/milestone-gates/test.md",
+    gate.replace("  - effort:test", "  - effort:test\n  - effort:conflict"),
+  );
+
+  const snapshot = await materialize(root);
+  expect(snapshot.efforts).toMatchObject({
+    validity: "available",
+    items: [
+      {
+        id: "effort:conflict",
+        workBindingState: { state: "invalid", reason: "conflicting" },
+      },
+      {
+        id: "effort:test",
+        workBindingState: { state: "invalid", reason: "conflicting" },
+      },
+    ],
+  });
+  expect(
+    snapshot.providerObservations.filter(
+      (observation) => observation.binding.nativeScope === ".scratch/work",
+    ),
+  ).toHaveLength(1);
+  expect(snapshot.gates).toMatchObject({
     items: [{ id: "gate:test", readiness: "unknown" }],
   });
 });
@@ -122,7 +247,6 @@ test("isolates duplicate Efforts before rebuilding exact reverse planning relati
       { code: "untrusted-effort-contributor", target: "gate:test" },
     ],
   });
-  expect(buildRoadmapDetailModel(snapshot, "roadmap:test").state).toBe("partial");
 });
 
 test("scopes an invalid canonical Effort contributor to only its declared Gate", async () => {
@@ -140,12 +264,12 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
   await writeFixture(
     root,
     ".bearing/state/milestone-gates/other.md",
-    `---\nType: milestone-gate\nID: gate:other\nTitle: Other Gate\nRoadmap: roadmap:other\nStatus: active\n---\n\n# Milestone Gate: Other\n\n## Intent\n\nPreserve exact sibling readiness.\n\n## Exit Criteria\n\n- Resolve the sibling work.\n`,
+    `---\nType: milestone-gate\nID: gate:other\nTitle: Other Gate\nRoadmap: roadmap:other\nStatus: active\nEffort order:\n  - effort:other\n---\n\n# Milestone Gate: Other\n\n## Intent\n\nPreserve exact sibling readiness.\n\n## Exit Criteria\n\n- Resolve the sibling work.\n`,
   );
   await writeFixture(
     root,
     ".bearing/state/efforts/other.md",
-    `---\nType: effort\nID: effort:other\nTitle: Other Effort\nRoadmap: roadmap:other\nTarget gate: gate:other\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/other\n---\n\n# Effort: Other\n\n## Intent\n\nProve scoped contributor isolation.\n\n## Work\n\n- [Map](map.md)\n`,
+    `---\nType: effort\nID: effort:other\nTitle: Other Effort\nRoadmap: roadmap:other\nTarget gate: gate:other\nAuthorities: []\nCitations: []\nLifecycle: concluded\nPlanned at: null\nActivated at: null\nConclusion:\n  Disposition: completed\n  Rationale: The other contribution was explicitly accepted as complete.\n  Concluded at: null\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/other\n---\n\n# Effort: Other\n\n## Intent\n\nProve scoped contributor isolation.\n\n## Work\n\n- [Map](map.md)\n`,
   );
   await writeFixture(
     root,
@@ -160,7 +284,7 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
   await writeFixture(
     root,
     ".bearing/state/efforts/broken.md",
-    `---\nType: effort\nID: effort:broken\nTitle: Broken Contributor\nRoadmap: roadmap:test\nTarget gate: gate:test\nAuthorities: []\nCitations: []\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/broken\n---\n\n# Effort: Broken\n\n## Intent\n\nThis contributor has no Work section.\n`,
+    `---\nType: effort\nID: effort:broken\nTitle: Broken Contributor\nRoadmap: roadmap:test\nTarget gate: gate:test\nAuthorities: []\nCitations: []\nLifecycle: active\nPlanned at: null\nActivated at: null\nWork binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/broken\n---\n\n# Effort: Broken\n\n## Intent\n\nThis contributor has no Work section.\n`,
   );
 
   const snapshot = await materialize(root);
@@ -185,6 +309,4 @@ test("scopes an invalid canonical Effort contributor to only its declared Gate",
     ],
     issues: [{ code: "untrusted-effort-contributor", target: "gate:test" }],
   });
-  expect(buildRoadmapDetailModel(snapshot, "roadmap:test").state).toBe("partial");
-  expect(buildRoadmapDetailModel(snapshot, "roadmap:other").state).toBe("available");
 });

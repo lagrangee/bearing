@@ -285,7 +285,8 @@ test("applies the accepted browser security policy to every Portal response surf
   for (const response of responses) {
     expect(response.headers.get("content-security-policy")).toBe(
       "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; " +
-        "form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self'; " +
+        "form-action 'self'; script-src 'self'; style-src 'self'; " +
+        "style-src-elem 'self' 'unsafe-inline'; style-src-attr 'none'; img-src 'self'; " +
         "font-src 'self'; connect-src 'self'",
     );
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
@@ -307,12 +308,47 @@ test("serves only the frozen manifest assets and uses index.html for SPA navigat
     // When a client requests an asset and a client-side route
     const assetResponse = await app.request("http://127.0.0.1:4178/app.js");
     const routeResponse = await app.request("http://127.0.0.1:4178/projects/entry-bearing");
+    const nativeRouteResponse = await app.request(
+      "http://127.0.0.1:4178/projects/entry-bearing/lineage/native-subject/.scratch%2Fscope%2Fmap.md",
+    );
+    const missingAssetResponse = await app.request("http://127.0.0.1:4178/missing.js");
     // Then only startup bytes are served and navigation falls back to the fixed entrypoint
     expect(await assetResponse.text()).toBe(APP_JAVASCRIPT);
     expect(await routeResponse.text()).toBe(INDEX_HTML);
+    expect(await nativeRouteResponse.text()).toBe(INDEX_HTML);
+    expect(missingAssetResponse.status).toBe(404);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("bootstraps the API-scoped Portal session before concurrent API reads", async () => {
+  const app = createReadyApp();
+
+  const entrypoint = await app.request(`${LOCAL_ORIGIN}/projects/entry-bearing`);
+  const bootstrap = await app.request(`${LOCAL_ORIGIN}/api/v1/bootstrap`);
+  const cookie = bootstrap.headers.get("set-cookie");
+  if (cookie === null) throw new Error("Expected the bootstrap script to establish a session.");
+  const requestCookie = cookie.split(";", 1)[0] ?? cookie;
+  const [catalog, project] = await Promise.all([
+    app.request(`${LOCAL_ORIGIN}/api/v1/catalog`, { headers: { Cookie: requestCookie } }),
+    app.request(`${LOCAL_ORIGIN}/api/v1/projects/entry-bearing/snapshot`, {
+      headers: { Cookie: requestCookie },
+    }),
+  ]);
+
+  expect(entrypoint.headers.get("set-cookie")).toBeNull();
+  expect(bootstrap.headers.get("cache-control")).toBe("no-store");
+  expect(bootstrap.status).toBe(200);
+  expect(await bootstrap.json()).toEqual({ version: 1, state: "ready" });
+  expect(cookie).toContain("bearing_session=");
+  expect(cookie).toContain("HttpOnly");
+  expect(cookie).toContain("SameSite=Strict");
+  expect(catalog.headers.get("set-cookie")).toBeNull();
+  expect(project.headers.get("set-cookie")).toBeNull();
+  expect(catalog.headers.get("x-bearing-csrf-token")).toBe(
+    project.headers.get("x-bearing-csrf-token"),
+  );
 });
 
 test("serves an immutable fixed asset as gzip when the client accepts it", async () => {

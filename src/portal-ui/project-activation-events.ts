@@ -6,6 +6,18 @@ export const interactionNeedsActivation = (
   thresholdMs = PROJECT_INACTIVITY_MS,
 ): boolean => currentActivityAt - lastActivityAt >= thresholdMs;
 
+export const visibilityReturnNeedsActivation = (
+  previous: DocumentVisibilityState,
+  current: DocumentVisibilityState,
+  hiddenAt: number | undefined,
+  currentActivityAt: number,
+  thresholdMs = PROJECT_INACTIVITY_MS,
+): boolean =>
+  previous === "hidden" &&
+  current === "visible" &&
+  hiddenAt !== undefined &&
+  interactionNeedsActivation(hiddenAt, currentActivityAt, thresholdMs);
+
 export const manualActionOwnsActivation = (event: Event): boolean =>
   event.target instanceof Element &&
   event.target.closest('[data-project-activation-action="manual"]') !== null;

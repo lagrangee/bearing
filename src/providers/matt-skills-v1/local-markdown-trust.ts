@@ -78,6 +78,9 @@ export const retainTrustedLocalProjection = (input: {
     wayfinderTickets,
     deliveryTickets,
     incomingIssues,
+    structuralOrder: input.observed.structuralOrder.filter((reference) =>
+      trustedReferences.has(reference),
+    ),
     graph: {
       parentChild: input.issuesMembershipChanged
         ? []

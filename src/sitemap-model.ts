@@ -3,9 +3,10 @@ import type {
   DecodedBearingRecord,
   DecodedBearingRecordGeneration,
 } from "./bearing-record-decoder";
-import { assessProviderCaptureEvidence } from "./native-work-provider";
 import type { PlanningGraphProjection } from "./planning-graph";
-import type { MattSkillsV1ScopeCapture } from "./providers/matt-skills-v1/capture";
+import { assessSelectedProviderObservationEvidence } from "./provider-observation-contract";
+import type { MattSkillsV1ProviderObservation } from "./providers/matt-skills-v1/capture";
+import { mattNativeScopeKey, sameMattNativeScope } from "./providers/matt-skills-v1/native-subject";
 import {
   mattObjectLocator,
   mattObjectState,
@@ -35,6 +36,7 @@ export type ProjectSitemapModel = Readonly<{
 
 const SECTION_BY_TYPE: Readonly<Record<BearingRecordType, string | undefined>> = {
   "project-summary": "Project Summaries",
+  "project-brief": "Project Briefs",
   "roadmap-index": undefined,
   roadmap: "Roadmaps",
   "milestone-gate": "Milestone Gates",
@@ -49,6 +51,7 @@ const SECTION_BY_TYPE: Readonly<Record<BearingRecordType, string | undefined>> =
 
 const DEFAULT_TITLE: Readonly<Record<BearingRecordType, string>> = {
   "project-summary": "Invalid Project Summary",
+  "project-brief": "Project Brief",
   "roadmap-index": "Invalid Roadmap Index",
   roadmap: "Invalid Roadmap",
   "milestone-gate": "Invalid Milestone Gate",
@@ -121,6 +124,7 @@ const bearingNodes = (
   });
   switch (data.Type) {
     case "project-summary":
+    case "project-brief":
       return [base(data.ID)];
     case "roadmap": {
       const node = base(data.ID);
@@ -132,6 +136,8 @@ const bearingNodes = (
     case "milestone-gate": {
       const node = base(data.ID);
       node.links.push({ label: "roadmap", target: data.Roadmap });
+      for (const effort of data["Effort order"])
+        node.links.push({ label: "effort", target: effort });
       return [node];
     }
     case "effort": {
@@ -177,36 +183,31 @@ const bearingNodes = (
 
 export const buildProjectSitemapModelFromGeneration = (
   decoded: DecodedBearingRecordGeneration,
-  providerCaptures: readonly MattSkillsV1ScopeCapture[],
+  providerObservations: readonly MattSkillsV1ProviderObservation[],
   diagnostics: readonly StructuralDiagnostic[],
   advisoryFreshness: AdvisoryFreshness,
   planning: PlanningGraphProjection,
 ): ProjectSitemapModel => {
   const nodes = decoded.records.flatMap((record) => bearingNodes(record, advisoryFreshness));
-  const effortByBinding = new Map(
-    (planning.efforts.validity === "invalid" ? [] : planning.efforts.items).flatMap((effort) =>
-      effort.workBinding === undefined
-        ? []
-        : [
-            [
-              `${effort.workBinding.provider}\0${effort.workBinding.nativeScope}`,
-              effort.id,
-            ] as const,
-          ],
-    ),
-  );
+  const effortsByBinding = new Map<string, string[]>();
+  for (const effort of planning.efforts.validity === "invalid" ? [] : planning.efforts.items) {
+    if (effort.workBinding === undefined) continue;
+    const key = mattNativeScopeKey(effort.workBinding);
+    effortsByBinding.set(key, [...(effortsByBinding.get(key) ?? []), effort.id]);
+  }
   const effortNodes = new Map(
     nodes.filter((node) => node.type === "Efforts").map((node) => [node.reference, node]),
   );
   for (const effort of planning.efforts.validity === "invalid" ? [] : planning.efforts.items) {
     const binding = effort.workBinding;
     if (binding === undefined) continue;
-    const capture = providerCaptures.find(
-      (candidate) =>
-        candidate.provider === binding.provider &&
-        candidate.binding.nativeScope === binding.nativeScope,
+    const capture = providerObservations.find((candidate) =>
+      sameMattNativeScope(candidate.binding, binding),
     );
-    const assessment = assessProviderCaptureEvidence(capture);
+    const selection = planning.providerObservationSelections.find((candidate) =>
+      sameMattNativeScope(candidate, binding),
+    );
+    const assessment = assessSelectedProviderObservationEvidence(capture, selection);
     effortNodes
       .get(effort.id)
       ?.annotations.push(
@@ -218,11 +219,13 @@ export const buildProjectSitemapModelFromGeneration = (
         `provider-frontier-evidence=${assessment.frontierEvidence}`,
       );
   }
-  for (const capture of providerCaptures) {
-    const effortId = effortByBinding.get(`${capture.provider}\0${capture.binding.nativeScope}`);
+  for (const capture of providerObservations) {
+    const effortIds = effortsByBinding.get(mattNativeScopeKey(capture.binding)) ?? [];
     for (const object of mattObjects(capture)) {
-      const links: SitemapLink[] =
-        effortId === undefined ? [] : [{ label: "effort", target: effortId }];
+      const links: SitemapLink[] = effortIds.map((effortId) => ({
+        label: "effort",
+        target: effortId,
+      }));
       if (capture.state === "available" || capture.state === "partial") {
         for (const relation of capture.projection.graph.blockedBy) {
           if (relation.blocked === object.ref) {

@@ -20,17 +20,13 @@ export const displaySourceLocatorSchema = z
     }
   });
 
-const externalAssetLocatorSchema = z
-  .string()
-  .regex(/^[a-z][a-z0-9+.-]*:\/\/\S+$/u)
-  .refine((locator) => !locator.includes("\0"), {
-    message: "External Asset locators cannot contain NUL bytes.",
-  });
-
-export const displayAssetLocatorSchema = z.union([
-  displaySourceLocatorSchema,
-  externalAssetLocatorSchema,
-]);
+export const displayAssetLocatorSchema = displaySourceLocatorSchema.refine(
+  (locator) => !locator.includes(":"),
+  {
+    message:
+      "Asset Locations must be repository-relative local paths, not URLs or opaque references.",
+  },
+);
 
 const trackerReferenceLocatorSchema = displaySourceLocatorSchema.refine(
   (locator) => !locator.includes(":"),

@@ -12,6 +12,9 @@ describe("bearing sync", () => {
       ".bearing/state/efforts/test.md",
       `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: Test Effort
 Roadmap: roadmap:test
@@ -194,7 +197,9 @@ What follows the completed fixture?
 `,
     );
 
-    const result = await runSync(root);
+    const result = await runSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(sitemap).toContain("`authority:product-design` | Product Design | current");

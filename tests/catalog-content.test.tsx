@@ -8,9 +8,7 @@ const renderCatalog = (catalog: PortalCatalogEnvelope): string =>
   renderToStaticMarkup(
     createElement(CatalogContent, {
       state: { kind: "loaded", catalog },
-      selectedId: null,
       onRefresh: () => {},
-      onSelect: () => {},
     }),
   );
 
@@ -38,6 +36,7 @@ test("renders a scoped degraded diagnostic without hiding last-known-good entrie
   expect(markup).toContain("Using last-known-good projects");
   expect(markup).toContain("Bearing");
   expect(markup).toContain("Registered projects");
+  expect(markup).toContain('href="/projects/entry-bearing"');
   expect(markup).not.toContain("Try again");
 });
 

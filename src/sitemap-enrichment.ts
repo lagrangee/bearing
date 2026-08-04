@@ -14,7 +14,7 @@ export const enrichSitemapNodes = (
     );
     for (const node of nodes.filter((candidate) => candidate.type === "Efforts")) {
       const effort = efforts.get(node.reference);
-      if (effort !== undefined) node.state = effort.derivedState;
+      if (effort !== undefined) node.state = effort.lifecycle;
     }
   }
   const citationCounts = new Map<string, number>();

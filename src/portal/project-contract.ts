@@ -12,6 +12,8 @@ export type {
   SnapshotCacheView,
 } from "../portal-project-wire";
 export {
+  projectNativeReconciliationRequestSchema,
+  projectNativeScopeInspectionRequestSchema,
   projectOperationErrorSchema,
   projectSnapshotEnvelopeSchema,
   projectSyncEnvelopeSchema,

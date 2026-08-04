@@ -1,4 +1,10 @@
 import type { Context, Hono } from "hono";
+import { normalizeNativeReconciliationRequest } from "../native-reconciliation-contract";
+import {
+  ASSET_PREVIEW_CONTENT_SECURITY_POLICY,
+  type AssetPreviewService,
+  assetPreviewUnavailableDocument,
+} from "./asset-preview";
 import type { PortalDiagnostic } from "./contract";
 import {
   type ProjectFailureView,
@@ -6,6 +12,8 @@ import {
   type ProjectSnapshotApiResponse,
   type ProjectSyncApiResponse,
   type ProjectSyncRequest,
+  projectNativeReconciliationRequestSchema,
+  projectNativeScopeInspectionRequestSchema,
   projectSyncRequestSchema,
 } from "./project-contract";
 import type { ProjectService } from "./project-service";
@@ -16,6 +24,7 @@ import type {
 import type { PortalSessionManager } from "./session";
 
 type RouteOptions = Readonly<{
+  assetPreview: AssetPreviewService;
   projects: ProjectService;
   sessions: PortalSessionManager;
 }>;
@@ -189,6 +198,64 @@ const syncResponse = (
 };
 
 export const registerProjectRoutes = (app: Hono, options: RouteOptions): void => {
+  const previewHeaders = (
+    context: Context,
+    result: Awaited<ReturnType<AssetPreviewService["resolve"]>>,
+  ): void => {
+    context.header("Cache-Control", "no-store");
+    context.header(
+      "Content-Security-Policy",
+      result.kind === "available"
+        ? result.contentSecurityPolicy
+        : ASSET_PREVIEW_CONTENT_SECURITY_POLICY,
+    );
+    context.header("Cross-Origin-Opener-Policy", "same-origin");
+    context.header("Cross-Origin-Resource-Policy", "same-origin");
+    context.header("Referrer-Policy", "no-referrer");
+    context.header("X-Content-Type-Options", "nosniff");
+    context.header("X-Frame-Options", "DENY");
+    if (result.kind === "available") {
+      context.header("X-Bearing-Preview-Policy", String(result.policyVersion));
+      context.header("X-Bearing-Preview-Source", result.source);
+      context.header("X-Bearing-Preview-Surface", result.surface);
+    } else {
+      context.header("X-Bearing-Preview-Availability", result.availability);
+    }
+  };
+
+  const previewResponse = (
+    context: Context,
+    result: Awaited<ReturnType<AssetPreviewService["resolve"]>>,
+    entryId: string,
+    assetId: string,
+  ): Response => {
+    previewHeaders(context, result);
+    if (result.kind === "available") {
+      context.header("Content-Type", result.contentType);
+      return context.body(new Uint8Array(result.body));
+    }
+    const status =
+      result.code === "asset-not-registered" ||
+      result.code === "project-unavailable" ||
+      result.code === "preview-not-offered"
+        ? 404
+        : 409;
+    return context.html(assetPreviewUnavailableDocument(entryId, assetId, result), status);
+  };
+
+  app.get("/preview/projects/:entryId/assets/:assetId", async (context) => {
+    const result = await options.assetPreview.resolve(
+      context.req.param("entryId"),
+      context.req.param("assetId"),
+    );
+    return previewResponse(
+      context,
+      result,
+      context.req.param("entryId"),
+      context.req.param("assetId"),
+    );
+  });
+
   app.get("/api/v1/projects/:entryId/snapshot", async (context) => {
     noStore(context);
     const session = establishSession(context, options.sessions);
@@ -245,6 +312,88 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
       context,
       await options.projects.sync(context.req.param("entryId"), parsed.data.mode),
       parsed.data.mode,
+    );
+  });
+
+  app.post("/api/v1/projects/:entryId/inspect-native-scope", async (context) => {
+    noStore(context);
+    if (
+      !options.sessions.verify(
+        context.req.header("cookie"),
+        context.req.header("x-bearing-csrf-token"),
+      )
+    ) {
+      return context.json({ code: "invalid-csrf-token", message: "CSRF check failed." }, 403);
+    }
+    const mediaType = context.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    if (mediaType !== "application/json") {
+      return context.json(
+        { code: "unsupported-media-type", message: "Expected application/json." },
+        415,
+      );
+    }
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ code: "invalid-request", message: "Request body is not JSON." }, 400);
+    }
+    const parsed = projectNativeScopeInspectionRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        { code: "invalid-request", message: "Native Scope Inspection request is invalid." },
+        400,
+      );
+    }
+    return syncResponse(
+      context,
+      await options.projects.sync(context.req.param("entryId"), "force", {
+        kind: "inspect",
+        subject: parsed.data.subject,
+        target: parsed.data.target,
+        refresh: parsed.data.refresh,
+      }),
+      "force",
+    );
+  });
+
+  app.post("/api/v1/projects/:entryId/reconcile-native", async (context) => {
+    noStore(context);
+    if (
+      !options.sessions.verify(
+        context.req.header("cookie"),
+        context.req.header("x-bearing-csrf-token"),
+      )
+    ) {
+      return context.json({ code: "invalid-csrf-token", message: "CSRF check failed." }, 403);
+    }
+    const mediaType = context.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    if (mediaType !== "application/json") {
+      return context.json(
+        { code: "unsupported-media-type", message: "Expected application/json." },
+        415,
+      );
+    }
+    let input: unknown;
+    try {
+      input = await context.req.json();
+    } catch {
+      return context.json({ code: "invalid-request", message: "Request body is not JSON." }, 400);
+    }
+    const parsed = projectNativeReconciliationRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        { code: "invalid-request", message: "Native reconciliation request is invalid." },
+        400,
+      );
+    }
+    return syncResponse(
+      context,
+      await options.projects.sync(context.req.param("entryId"), "force", {
+        kind: "reconcile",
+        request: normalizeNativeReconciliationRequest(parsed.data),
+      }),
+      "force",
     );
   });
 };

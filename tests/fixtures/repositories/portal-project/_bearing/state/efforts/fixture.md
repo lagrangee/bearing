@@ -1,5 +1,8 @@
 ---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:fixture
 Title: Fixture Work
 Roadmap: roadmap:fixture

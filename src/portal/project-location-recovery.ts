@@ -1,3 +1,4 @@
+import type { NativeScopeInspectionIntent } from "../native-scope-inspection";
 import type { ProjectOperationError } from "./project-contract";
 import type { CoordinatedResult, ProjectOperationMode } from "./project-coordinator";
 import type { AvailableProjectEntry } from "./project-entry";
@@ -23,6 +24,7 @@ export type CapturedProjectOperation =
 type Execute = (
   entryId: string,
   mode: ProjectOperationMode,
+  nativeScopeInspectionIntent: NativeScopeInspectionIntent,
 ) => Promise<CoordinatedResult<CapturedProjectOperation>>;
 
 type Validation = Readonly<{
@@ -91,9 +93,11 @@ export const createProjectLocationRecovery = (options: {
     entryId: string,
     repoRoot: string,
     afterSequence: number,
+    nativeScopeInspectionIntent: NativeScopeInspectionIntent = { kind: "none" },
   ): Promise<CoordinatedResult<CapturedProjectOperation>> => {
     const recent = recentForces.get(entryId);
     if (
+      nativeScopeInspectionIntent.kind === "none" &&
       recent !== undefined &&
       recent.sequence > afterSequence &&
       recent.sequence === checkpoint(entryId) &&
@@ -106,21 +110,23 @@ export const createProjectLocationRecovery = (options: {
         joined: true,
       });
     }
-    const key = `${entryId}\0${repoRoot}`;
+    const key = `${entryId}\0${repoRoot}\0${JSON.stringify(nativeScopeInspectionIntent)}`;
     const existing = recoveries.get(key);
     if (existing !== undefined && existing.generation > afterSequence) return existing.promise;
     const generation = advance(entryId);
-    const running = options.execute(entryId, "ensure-current").then((settled) => {
-      if (
-        settled.kind === "completed" &&
-        settled.value.kind === "completed" &&
-        settled.value.entry.repoRoot === repoRoot &&
-        settled.value.result.mode === "force"
-      ) {
-        return settled;
-      }
-      return options.execute(entryId, "force");
-    });
+    const running = options
+      .execute(entryId, "ensure-current", nativeScopeInspectionIntent)
+      .then((settled) => {
+        if (
+          settled.kind === "completed" &&
+          settled.value.kind === "completed" &&
+          settled.value.entry.repoRoot === repoRoot &&
+          settled.value.result.mode === "force"
+        ) {
+          return settled;
+        }
+        return options.execute(entryId, "force", nativeScopeInspectionIntent);
+      });
     let promise: Promise<CoordinatedResult<CapturedProjectOperation>>;
     const settle = <Value>(continuation: () => Value): Value => {
       if (recoveries.get(key)?.promise === promise) recoveries.delete(key);

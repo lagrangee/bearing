@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
 const relationIssue = {
   code: "isolated-relation-source",
@@ -17,7 +18,7 @@ const terminalRoadmapSnapshot = () => {
   ) {
     throw new Error("Expected complete planning fixture.");
   }
-  return {
+  return withRebuiltPlanningLineage({
     ...snapshot,
     roadmapIndex: {
       validity: "available" as const,
@@ -34,6 +35,7 @@ const terminalRoadmapSnapshot = () => {
           ? {
               ...roadmap,
               lifecycle: "completed" as const,
+              completedAt: { availability: "unavailable" as const },
               focusedGateId: null,
               horizon: "exhausted" as const,
             }
@@ -46,12 +48,15 @@ const terminalRoadmapSnapshot = () => {
         gate.id === "gate:two" ? { ...gate, horizonState: "unknown" as const } : gate,
       ),
     },
-  };
+  });
 };
 
 test("requires terminal cached Roadmaps to clear their focused Gate", () => {
   const terminal = terminalRoadmapSnapshot();
   expect(projectSnapshotSchema.safeParse(terminal).success).toBe(true);
+  if (terminal.roadmaps.validity === "invalid" || terminal.gates.validity === "invalid") {
+    throw new Error("Expected readable terminal planning collections.");
+  }
 
   const focused = {
     ...terminal,
@@ -169,7 +174,8 @@ test("partial relation collections allow unresolved extras while remaining exact
             ...snapshot.assets,
             items: snapshot.assets.items.map((asset) => ({
               ...asset,
-              gatePassageEvidenceFor: [],
+              evidenceRoles: asset.evidenceRoles.filter((role) => role !== "passage-evidence"),
+              passageEvidence: [],
             })),
           }
         : snapshot.assets,
@@ -188,8 +194,10 @@ test("partial relation collections allow unresolved extras while remaining exact
       issues: [relationIssue],
     },
   };
-  expect(projectSnapshotSchema.safeParse(partialGates).success).toBe(true);
-  expect(projectSnapshotSchema.safeParse(partial).success).toBe(true);
+  expect(projectSnapshotSchema.safeParse(withRebuiltPlanningLineage(partialGates)).success).toBe(
+    true,
+  );
+  expect(projectSnapshotSchema.safeParse(withRebuiltPlanningLineage(partial)).success).toBe(true);
 
   expect(
     projectSnapshotSchema.safeParse({

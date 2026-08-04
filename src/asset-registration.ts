@@ -19,6 +19,7 @@ import { ensureInstallDirectoryTargets, inspectInstallPath } from "./install-bou
 import { applyInstallPlans, type InstallTargetWriter } from "./installer";
 import { displaySourceLocatorSchema } from "./reference-schema";
 import { assetSchema, repositoryManifestSchema } from "./schema-definitions";
+import { bearingOwnedEventTimeSchema, sourceOwnedEventTimeValueSchema } from "./source-event-time";
 import { prepareSync } from "./sync-plan";
 import { buildSyncTransactionTargets } from "./sync-transaction";
 
@@ -65,6 +66,7 @@ const registrationInputSchema = z
       .regex(/^(agent-skills|claude):([a-z0-9]+(?:-[a-z0-9]+)*)$/u)
       .optional(),
     producedFor: z.string().optional(),
+    producedAt: sourceOwnedEventTimeValueSchema.optional(),
   })
   .superRefine((input, context) => {
     if (
@@ -158,6 +160,7 @@ const serializeRegistry = (registry: z.infer<typeof assetRegistrySchema>, body: 
 
 const assetFromInput = (
   input: z.infer<typeof registrationInputSchema>,
+  registeredAt?: string,
 ): z.infer<typeof assetSchema> =>
   assetSchema.parse({
     ID: input.id,
@@ -171,11 +174,29 @@ const assetFromInput = (
       ...(input.producer.reference === undefined ? {} : { Reference: input.producer.reference }),
     },
     "Lifecycle source": "native",
+    ...(registeredAt === undefined ? {} : { "Registered at": registeredAt }),
     ...(input.producedFor === undefined ? {} : { "Produced for": input.producedFor }),
+    ...(input.producedAt === undefined ? {} : { "Produced at": input.producedAt }),
   });
 
-const equalMetadata = (left: unknown, right: unknown): boolean =>
-  JSON.stringify(left) === JSON.stringify(right);
+const registrationOwnedMetadata = (asset: z.infer<typeof assetSchema>) => ({
+  ID: asset.ID,
+  Title: asset.Title,
+  Kind: asset.Kind,
+  Location: asset.Location,
+  Owner: asset.Owner,
+  Producer: asset.Producer,
+  "Lifecycle source": asset["Lifecycle source"],
+  ...(asset["Produced for"] === undefined ? {} : { "Produced for": asset["Produced for"] }),
+  ...(asset["Produced at"] === undefined ? {} : { "Produced at": asset["Produced at"] }),
+});
+
+const equalRegistrationMetadata = (
+  left: z.infer<typeof assetSchema>,
+  right: z.infer<typeof assetSchema>,
+): boolean =>
+  JSON.stringify(registrationOwnedMetadata(left)) ===
+  JSON.stringify(registrationOwnedMetadata(right));
 
 const assertSafeSingleLinkFile = async (
   root: string,
@@ -333,6 +354,7 @@ export const registerAsset = async (
   hooks: Readonly<{
     beforeRegistrySnapshot?: () => Promise<void>;
     writeSyncTarget?: InstallTargetWriter;
+    now?: () => Date;
   }> = {},
 ): Promise<AssetRegistrationResult> => {
   const input = registrationInputSchema.parse(rawInput);
@@ -363,22 +385,30 @@ export const registerAsset = async (
   }
   const previous = await inspectRegistry(registryPath);
   const current = parseRegistry(previous);
-  const asset = assetFromInput(input);
-  const existing = current.registry.Assets.find((candidate) => candidate.ID === asset.ID);
+  const registrationCandidate = assetFromInput(input);
+  const existing = current.registry.Assets.find(
+    (candidate) => candidate.ID === registrationCandidate.ID,
+  );
   if (existing !== undefined) {
-    if (equalMetadata(existing, asset)) {
+    if (equalRegistrationMetadata(existing, registrationCandidate)) {
       if (writebackProfile !== undefined) {
         await assertExecutorWritebackSelectionCurrent(root, writebackProfile);
       }
       return {
         outcome: "no-op",
-        assetId: asset.ID,
+        assetId: registrationCandidate.ID,
         ...(writebackProfile === undefined ? {} : { writebackProfile }),
       };
     }
-    throw new Error(`Asset ${asset.ID} is already registered with different metadata.`);
+    throw new Error(
+      `Asset ${registrationCandidate.ID} is already registered with different metadata.`,
+    );
   }
 
+  const registeredAt = bearingOwnedEventTimeSchema
+    .unwrap()
+    .parse((hooks.now?.() ?? new Date()).toISOString());
+  const asset = assetFromInput(input, registeredAt);
   const proposedRegistry = assetRegistrySchema.parse({
     Type: "asset-registry",
     Assets: [...current.registry.Assets, asset],

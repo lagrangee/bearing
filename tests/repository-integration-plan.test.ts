@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { access, mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { BEARING_POINTER } from "../src/agent-surface-entry";
 import {
   type ExecutorNominationAssessment,
   resolveExecutorNomination,
@@ -924,6 +925,7 @@ Example only; do not configure \`${contractLocator}\` here.
     expect(
       JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8")),
     ).toMatchObject({ status: "active" });
+    expect(await readFile(join(repoRoot, "AGENTS.md"), "utf8")).toContain(BEARING_POINTER);
     expect(await readFile(join(repoRoot, ".bearing/state/accepted.md"), "utf8")).toBe(
       "accepted truth\n",
     );

@@ -3,11 +3,14 @@ import { readFile } from "node:fs/promises";
 import { runSync } from "../src/sync";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
+const runInitialSync = (root: string) =>
+  runSync(root, { providerObservationIntent: "initial-baseline" });
+
 describe("bearing sync", () => {
   test("writes byte-stable report and sitemap projections and ignores cache changes", async () => {
     const root = await createValidBearingRepo();
 
-    const first = await runSync(root);
+    const first = await runInitialSync(root);
     const firstBytes = await readFile(first.reportPath);
     const firstSitemap = await readFile(first.sitemapPath);
     await writeFixture(root, ".bearing/cache/noise.txt", "disposable\n");
@@ -27,26 +30,61 @@ describe("bearing sync", () => {
   test("projects each addressable planning and native work object into the sitemap", async () => {
     const root = await createValidBearingRepo();
 
-    const result = await runSync(root);
+    const result = await runInitialSync(root);
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(sitemap).toContain("# Bearing Project Sitemap");
     expect(sitemap).toContain("`project-summary:current` | Test Project | current");
     expect(sitemap).toContain("`roadmap:test` | Test Roadmap | active");
     expect(sitemap).toContain("`gate:test` | Test Gate | active");
-    expect(sitemap).toContain("`effort:test` | Test Effort | resolved");
+    expect(sitemap).toContain("`effort:test` | Test Effort | active");
     expect(sitemap).toContain("`.scratch/work/map.md` | Wayfinder Map: Test | resolved");
     expect(sitemap).toContain("`.scratch/work/issues/01-finish.md` | Finish | resolved-on-route");
     expect(sitemap).toContain("roadmap: `roadmap:test`");
     expect(sitemap).toContain("target-gate: `gate:test`");
     expect(sitemap).toContain("source: `.bearing/state/roadmaps/test.md`");
-    expect(sitemap).toContain("Gate readiness: `gate:test` = ready-for-review");
+    expect(sitemap).toContain("Gate readiness: `gate:test` = not-ready");
     expect(sitemap).toContain("Attention: 0 blocking diagnostic(s)");
+  });
+
+  test("projects an authored Brief as its own valid singleton", async () => {
+    const root = await createValidBearingRepo();
+    await writeFixture(
+      root,
+      ".bearing/state/project-brief.md",
+      `---
+Type: project-brief
+ID: project-brief:current
+Generated at: 2026-08-03T02:03:04Z
+---
+
+# Project Brief
+
+## Project Purpose
+
+Exercise the fixture.
+
+## Current Stage
+
+The project is proving its typed reading boundary.
+
+## Material Achieved State
+
+The canonical planning loop is available.
+`,
+    );
+
+    const result = await runInitialSync(root);
+    const sitemap = await readFile(result.sitemapPath, "utf8");
+
+    expect(result.inputs).toContain(".bearing/state/project-brief.md");
+    expect(sitemap).toContain("`project-brief:current` | Project Brief | current");
+    expect(sitemap).not.toContain("Invalid Project Brief");
   });
 
   test("reconciles a direct canonical edit into the sitemap", async () => {
     const root = await createValidBearingRepo();
-    const first = await runSync(root);
+    const first = await runInitialSync(root);
     const firstSitemap = await readFile(first.sitemapPath, "utf8");
     await writeFixture(
       root,
@@ -80,7 +118,7 @@ Prove reconciliation.
   test("uses the manifest and Project Summary without repository-local Bearing package inputs", async () => {
     const root = await createValidBearingRepo();
 
-    const result = await runSync(root);
+    const result = await runInitialSync(root);
 
     expect(result.inputs).toContain(".bearing/manifest.json");
     expect(result.inputs).toContain(".bearing/state/project-summary.md");
@@ -98,6 +136,9 @@ Prove reconciliation.
       ".scratch/legacy/effort.md",
       `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:legacy
 Title: Legacy Effort
 Roadmap: roadmap:test
@@ -110,7 +151,7 @@ Citations: []
 `,
     );
 
-    const result = await runSync(root);
+    const result = await runInitialSync(root);
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(result.inputs).not.toContain(".scratch/legacy/effort.md");
@@ -129,6 +170,7 @@ ID: gate:terminal
 Title: Terminal Gate
 Roadmap: roadmap:test
 Status: superseded
+Effort order: []
 ---
 
 # Milestone Gate: Terminal
@@ -143,7 +185,7 @@ Preserve historical context.
 `,
     );
 
-    const result = await runSync(root);
+    const result = await runInitialSync(root);
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(sitemap).toContain("`gate:terminal` | Terminal Gate | superseded");

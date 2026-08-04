@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   createLocalMarkdownMattProvider,
@@ -11,8 +11,6 @@ const contractLocator = "docs/agents/issue-tracker.md";
 const triageLocator = "docs/agents/triage-labels.md";
 const nativeScope = ".scratch/reference";
 const binding = { provider: "matt-skills/v1" as const, nativeScope };
-const generation = { fingerprint: "sha256:test-generation" };
-
 const contract = `# Issue tracker: Local Markdown
 
 Issues and PRDs for this repo live as markdown files in \`.scratch/\`.
@@ -23,6 +21,7 @@ Issues and PRDs for this repo live as markdown files in \`.scratch/\`.
 - The PRD is \`.scratch/<feature-slug>/PRD.md\`
 - Implementation issues are \`.scratch/<feature-slug>/issues/<NN>-<slug>.md\`, numbered from \`01\`
 - Triage state is recorded as a \`Status:\` line near the top of each issue file (see \`triage-labels.md\` for the role strings)
+- New tickets use \`Blocked by: None — can start immediately\` when unblocked; otherwise they use comma-separated numeric ticket IDs, optionally followed by a spaced em-dash title. Historical omission is readable as unblocked; semicolons and undeclared prose are invalid.
 - Comments and conversation history append to the bottom of the file under a \`## Comments\` heading
 
 ## Wayfinding operations
@@ -226,6 +225,7 @@ const capture = async (
   options: Readonly<{
     onCaptureEvent?: (event: LocalMarkdownCaptureEvent) => void | Promise<void>;
     maximumFileBytes?: number;
+    clock?: () => Date;
   }> = {},
 ) =>
   createLocalMarkdownMattProvider({
@@ -234,7 +234,7 @@ const capture = async (
     triageLocator,
     clock: () => new Date("2026-07-28T00:00:00Z"),
     ...options,
-  }).capture(binding, generation);
+  }).capture(binding);
 
 const snapshotNativeBytes = async (root: string): Promise<Readonly<Record<string, string>>> => {
   const result: Record<string, string> = {};
@@ -269,11 +269,15 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     expect(result.coverage.assessment).toBe("complete");
     expect(result.completion).toBe("incomplete");
     expect(result.diagnostics).toEqual([]);
-    expect(result.freshness.sourceRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(result.sourceRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(result.projection?.map).toMatchObject({
       title: "Wayfinder Map: Reference",
       destination: "Prove one complete Matt-native semantic scope.",
       lifecycle: { state: "resolved" },
+      native: {
+        createdAt: { availability: "unsupported" },
+        lastUpdated: { availability: "unsupported" },
+      },
     });
     expect(result.projection?.map?.decisions[0]).toMatchObject({
       gist: "Use the versioned capture seam.",
@@ -308,9 +312,12 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     ]);
     expect(result.projection?.wayfinderTickets[0]).toMatchObject({
       claim: { state: "unclaimed" },
-      answer: { availability: "available" },
+      answer: {
+        availability: "available",
+        content: { authoredAt: { availability: "unsupported" } },
+      },
       lifecycle: { state: "resolved-on-route" },
-      trackerClosure: { state: "closed" },
+      trackerClosure: { state: "closed", closedAt: { availability: "unsupported" } },
     });
     expect(result.projection?.wayfinderTickets[1]).toMatchObject({
       claim: { state: "claimed", claimant: "lago" },
@@ -325,6 +332,16 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       ],
       lifecycle: { state: "completed" },
     });
+    expect(result.projection?.structuralOrder.map(String)).toEqual([
+      `${nativeScope}/map.md`,
+      `${nativeScope}/PRD.md`,
+      `${nativeScope}/issues/01-research.md`,
+      `${nativeScope}/issues/02-prototype.md`,
+      `${nativeScope}/issues/03-grilling.md`,
+      `${nativeScope}/issues/04-task.md`,
+      `${nativeScope}/issues/05-delivery.md`,
+      `${nativeScope}/issues/06-incoming.md`,
+    ]);
     expect(result.projection?.incomingIssues[0]).toMatchObject({
       classification: {
         category: "enhancement",
@@ -376,6 +393,152 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     expect(Object.isFrozen(result.projection)).toBe(true);
   });
 
+  test("captures canonical Matt-kit blocker syntax and rejects undeclared dialects", async () => {
+    const root = await writeReferenceRepository();
+    await writeFixture(
+      root,
+      `${nativeScope}/issues/02-prototype.md`,
+      wayfinder({
+        number: "02",
+        slug: "prototype",
+        type: "prototype",
+        status: "claimed",
+        question: "Does one capture preserve all axes?",
+        blockedBy: "None — can start immediately",
+      })[1],
+    );
+    await writeFixture(
+      root,
+      `${nativeScope}/issues/04-task.md`,
+      wayfinder({
+        number: "04",
+        slug: "task",
+        type: "task",
+        status: "claimed",
+        question: "Can the decision be written durably?",
+        blockedBy: "01 — research, 03 — grilling",
+      })[1],
+    );
+
+    const canonical = await capture(root);
+
+    expect(canonical.state).toBe("available");
+    expect(canonical.diagnostics).toEqual([]);
+    expect(
+      canonical.projection?.graph.blockedBy.map((relation) => [
+        String(relation.blocked),
+        String(relation.blocker),
+      ]),
+    ).toEqual([
+      [`${nativeScope}/issues/04-task.md`, `${nativeScope}/issues/01-research.md`],
+      [`${nativeScope}/issues/04-task.md`, `${nativeScope}/issues/03-grilling.md`],
+      [`${nativeScope}/issues/05-delivery.md`, `${nativeScope}/issues/01-research.md`],
+    ]);
+
+    for (const malformed of ["01; 03", "01 because it must finish", "01 trailing garbage"]) {
+      await writeFixture(
+        root,
+        `${nativeScope}/issues/04-task.md`,
+        wayfinder({
+          number: "04",
+          slug: "task",
+          type: "task",
+          status: "claimed",
+          question: "Can the decision be written durably?",
+          blockedBy: malformed,
+        })[1],
+      );
+      const invalid = await capture(root);
+      expect(invalid.state, malformed).toBe("partial");
+      expect(
+        invalid.diagnostics.map((diagnostic) => diagnostic.code),
+        malformed,
+      ).toContain("matt.local.relation.blocked-by-format");
+      expect(
+        invalid.projection?.graph.blockedBy.some(
+          (relation) => String(relation.blocked) === `${nativeScope}/issues/04-task.md`,
+        ),
+        malformed,
+      ).toBe(false);
+    }
+  });
+
+  test("targeted reconciliation applies the same canonical blocker grammar", async () => {
+    const root = await writeReferenceRepository();
+    const capturedDocuments = new Map(
+      await Promise.all(
+        [contractLocator, triageLocator].map(async (locator) => {
+          const bytes = await readFile(join(root, locator));
+          return [locator, { locator, source: bytes.toString("utf8"), bytes }] as const;
+        }),
+      ),
+    );
+    const provider = createLocalMarkdownMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      capturedDocuments,
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    });
+    const issue = `${nativeScope}/issues/04-task.md`;
+    const issueOne = `${nativeScope}/issues/01-research.md`;
+    const issueThree = `${nativeScope}/issues/03-grilling.md`;
+    let prior = await provider.capture(binding);
+
+    const reconcile = async (blockedBy: string | undefined) => {
+      await writeFixture(
+        root,
+        issue,
+        wayfinder({
+          number: "04",
+          slug: "task",
+          type: "task",
+          status: "claimed",
+          question: "Can the decision be written durably?",
+          ...(blockedBy === undefined ? {} : { blockedBy }),
+        })[1],
+      );
+      const next = await provider.reconcile?.({
+        binding,
+        prior,
+        affected: {
+          subjects: [issue],
+          relations: [
+            { kind: "blocked-by", source: issue, target: issueOne },
+            { kind: "blocked-by", source: issue, target: issueThree },
+          ],
+        },
+      });
+      if (next === undefined) throw new Error("Expected Local targeted reconciliation.");
+      prior = next;
+      return next;
+    };
+
+    const multiple = await reconcile("01, 03 — grilling");
+    expect(
+      multiple.projection?.graph.blockedBy.filter((relation) => String(relation.blocked) === issue),
+    ).toHaveLength(2);
+
+    for (const empty of ["None — can start immediately", undefined] as const) {
+      const result = await reconcile(empty);
+      expect(
+        result.projection?.graph.blockedBy.filter((relation) => String(relation.blocked) === issue),
+      ).toEqual([]);
+      expect(result.diagnostics).toEqual([]);
+    }
+
+    const malformed = await reconcile("01; 03");
+    expect(malformed.state).toBe("partial");
+    expect(malformed.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "matt.local.relation.blocked-by-format",
+    );
+    expect(
+      malformed.projection?.graph.blockedBy.filter(
+        (relation) => String(relation.blocked) === issue,
+      ),
+    ).toEqual([]);
+  });
+
   test("captures a Status-absent Wayfinder ticket as open and unclaimed", async () => {
     const root = await writeReferenceRepository();
     const locator = `${nativeScope}/issues/02-prototype.md`;
@@ -391,6 +554,26 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       lifecycle: { state: "open" },
       trackerClosure: { state: "open" },
     });
+  });
+
+  test("uses Local metadata only as a bounded capture hint, never as native event time", async () => {
+    const root = await writeReferenceRepository();
+    await utimes(
+      join(root, nativeScope, "map.md"),
+      new Date("2040-01-02T03:04:05Z"),
+      new Date("2040-01-02T03:04:05Z"),
+    );
+
+    const result = await capture(root, {
+      clock: () => new Date("2099-12-31T23:59:59Z"),
+    });
+
+    expect(result.projection?.map?.native).toMatchObject({
+      createdAt: { availability: "unsupported" },
+      lastUpdated: { availability: "unsupported" },
+    });
+    expect(JSON.stringify(result.projection)).not.toContain("2040-01-02");
+    expect(JSON.stringify(result.projection)).not.toContain("2099-12-31");
   });
 
   test("treats absent optional Map and Spec plus untriaged Incoming as fully acquired", async () => {
@@ -426,6 +609,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       wayfinderTickets: [],
       deliveryTickets: [],
       incomingIssues: [],
+      structuralOrder: [],
       graph: { parentChild: [], blockedBy: [] },
     });
   });
@@ -673,7 +857,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       contractLocator,
       triageLocator,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ ...binding, nativeScope: "../outside" }, generation);
+    }).capture({ ...binding, nativeScope: "../outside" });
     expect(outsideResult).toMatchObject({
       state: "invalid",
       freshness: { assessment: "undetermined" },
@@ -687,7 +871,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       contractLocator,
       triageLocator,
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture(binding, generation);
+    }).capture(binding);
     expect(unavailableResult.state).toBe("invalid");
     expect(unavailableResult.diagnostics[0]?.code).toBe("matt.local.repository.unavailable");
 

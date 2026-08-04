@@ -4,6 +4,8 @@ ID: gate:fixture
 Title: Fixture Gate
 Roadmap: roadmap:fixture
 Status: active
+Effort order:
+  - effort:fixture
 ---
 
 # Milestone Gate: Fixture

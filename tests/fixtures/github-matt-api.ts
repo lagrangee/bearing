@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { MattProviderFactory } from "../../src/provider-capture-generation";
+import type { MattProviderFactory } from "../../src/provider-observation-acquisition";
 import {
   createGitHubMattProvider,
   encodeGitHubMattNativeScope,
@@ -110,6 +110,9 @@ export const writeStandardGitHubMattProductRepository = async (
     ".bearing/state/efforts/test.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: ${effort.title}
 Roadmap: roadmap:test

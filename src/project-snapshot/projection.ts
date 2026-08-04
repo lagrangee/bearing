@@ -1,33 +1,30 @@
-import { mattObjectLocator, mattObjects } from "../providers/matt-skills-v1/projection";
+import { mattNativeScopeKey } from "../providers/matt-skills-v1/native-subject";
 import { buildAdvisoryProjection } from "./advisory";
+import { collectAssetDirectEvidence } from "./asset-direct-evidence";
 import { rebuildAssetReverseRelations } from "./asset-reverse-relations";
 import { buildAssetProjection } from "./assets";
-import type { ProjectSnapshot, SourceRecord } from "./contract";
+import type { ProjectSnapshot } from "./contract";
 import { buildDecisionProjection } from "./decisions";
 import { buildSnapshotDiagnostics } from "./diagnostic-projection";
 import { buildGovernanceProjection } from "./governance";
 import { buildRoadmapIndexProjection } from "./governance-index";
+import { buildMattNativeSourceRecords } from "./native-work-sources";
 import type { ProjectSnapshotBuildInput } from "./projection-input";
 import { PROJECT_SNAPSHOT_VERSION, projectSnapshotSchema } from "./schema";
-import { createSourceRecord, mergeSourceRecords } from "./source-records";
-
-const trackerSources = (
-  captures: ProjectSnapshotBuildInput["providerCaptures"],
-  sitemapFingerprint: string,
-): readonly SourceRecord[] =>
-  captures.flatMap((capture) =>
-    mattObjects(capture).map((object) =>
-      createSourceRecord(sitemapFingerprint, {
-        kind: "tracker",
-        locator: mattObjectLocator(object),
-        binding: { role: object.kind, identity: object.ref },
-      }),
-    ),
-  );
+import { mergeSourceRecords } from "./source-records";
 
 export const buildProjectSnapshot = async (
   input: ProjectSnapshotBuildInput,
 ): Promise<ProjectSnapshot> => {
+  const providerObservationSelections =
+    input.providerObservationSelections ??
+    input.providerObservations.map((observation) => ({
+      provider: observation.provider,
+      nativeScope: observation.binding.nativeScope,
+      observationId: observation.id,
+      effectiveFreshness: observation.freshness.assessment,
+      latestAttempt: null,
+    }));
   const records = input.decoded.records;
   if (input.planningGraph.fingerprint !== input.sitemapFingerprint) {
     throw new Error("Project Snapshot Planning Graph fingerprint does not match its basis.");
@@ -37,6 +34,7 @@ export const buildProjectSnapshot = async (
     records,
     sitemapFingerprint: input.sitemapFingerprint,
     diagnostics: input.diagnostics,
+    providerObservations: input.providerObservations,
   });
   const roadmapIndex = buildRoadmapIndexProjection(
     {
@@ -62,16 +60,64 @@ export const buildProjectSnapshot = async (
     checks: decisions.checks,
     reviews: decisions.reviews,
   });
+  const boundScopeKeys = new Set(
+    planning.efforts.validity === "invalid"
+      ? []
+      : planning.efforts.items.flatMap((effort) =>
+          effort.workBindingState.state !== "bound" || effort.workBinding === undefined
+            ? []
+            : [mattNativeScopeKey(effort.workBinding)],
+        ),
+  );
+  const inspectableScopeKeys = new Set(
+    planning.efforts.validity === "invalid"
+      ? []
+      : planning.efforts.items.flatMap((effort) =>
+          effort.workBinding === undefined ||
+          (effort.workBindingState.state === "invalid" &&
+            effort.workBindingState.reason !== "unresolved")
+            ? []
+            : [mattNativeScopeKey(effort.workBinding)],
+        ),
+  );
+  const lineageObservationByScope = new Map(
+    [
+      ...(input.nativeScopeInspectionObservations ?? []).filter((observation) =>
+        boundScopeKeys.has(mattNativeScopeKey(observation.binding)),
+      ),
+      ...input.providerObservations,
+    ].map((observation) => [mattNativeScopeKey(observation.binding), observation]),
+  );
   const sources = mergeSourceRecords([
     governance.sources,
     assetProjection.sources,
     decisions.sources,
     advisory.sources,
-    trackerSources(input.providerCaptures, input.sitemapFingerprint),
+    buildMattNativeSourceRecords([...lineageObservationByScope.values()], input.sitemapFingerprint),
   ]);
+  const portalDiagnostics = input.diagnostics.filter(
+    (diagnostic) =>
+      diagnostic.target !== ".bearing/state/next-work-guidance.md" &&
+      !diagnostic.target.startsWith(".bearing/state/next-work-guidance.md#"),
+  );
   const diagnosticProjection = buildSnapshotDiagnostics({
     sitemapFingerprint: input.sitemapFingerprint,
-    diagnostics: input.diagnostics,
+    managedTargets: [
+      ...(assetProjection.assets.validity === "invalid"
+        ? []
+        : assetProjection.assets.items.map((asset) => asset.id)),
+      ...(planning.efforts.validity === "invalid"
+        ? []
+        : planning.efforts.items.flatMap((effort) =>
+            effort.workBindingState.state !== "bound" || effort.workBinding === undefined
+              ? []
+              : [effort.workBinding.nativeScope],
+          )),
+      ...sources.flatMap((source) =>
+        source.kind === "tracker" && source.binding !== undefined ? [source.displayLocator] : [],
+      ),
+    ],
+    diagnostics: portalDiagnostics,
     sourceLocators: sources.map((source) => ({
       kind: source.kind,
       locator: source.displayLocator,
@@ -86,12 +132,14 @@ export const buildProjectSnapshot = async (
     authorities: governance.authorities,
     checks: decisions.checks,
     reviews: decisions.reviews,
+    directEvidence: collectAssetDirectEvidence(records),
   });
   return projectSnapshotSchema.parse({
     schemaVersion: PROJECT_SNAPSHOT_VERSION,
     producer: { packageVersion: input.packageVersion },
     basis: { sitemapVersion: 1, sitemapFingerprint: input.sitemapFingerprint },
     summary: governance.summary,
+    brief: governance.brief,
     roadmapIndex,
     roadmaps: planning.roadmaps,
     gates: planning.gates,
@@ -100,9 +148,18 @@ export const buildProjectSnapshot = async (
     assets,
     checks: decisions.checks,
     reviews: decisions.reviews,
+    lineage: input.planningGraph.lineageProjection(),
     audit: advisory.audit,
-    guidance: advisory.guidance,
-    providerCaptures: input.providerCaptures,
+    providerObservations: input.providerObservations,
+    providerObservationSelections,
+    nativeScopeInspections: {
+      observations: (input.nativeScopeInspectionObservations ?? []).filter((observation) =>
+        inspectableScopeKeys.has(mattNativeScopeKey(observation.binding)),
+      ),
+      selections: (input.nativeScopeInspectionSelections ?? []).filter((selection) =>
+        inspectableScopeKeys.has(mattNativeScopeKey(selection)),
+      ),
+    },
     diagnostics: diagnosticProjection.diagnostics,
     attention: [...diagnosticProjection.attention, ...decisions.attention],
     sources,

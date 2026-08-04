@@ -151,23 +151,18 @@ test("a freshly reconciled repository is selectable through the packed installed
     }
 
     const catalog = page.getByRole("list", { name: "Registered Bearing projects" });
-    const entry = catalog.getByRole("button", {
+    const entry = catalog.getByRole("link", {
       name: new RegExp(`^${basename(repoRoot)} .* Available$`),
     });
     await expect(entry).toBeVisible();
-    await entry.focus();
-    await page.keyboard.press("Enter");
-    const inspector = page.getByRole("complementary", { name: "Selected context" });
-    await expect(inspector).toBeVisible();
-    const openProject = inspector.getByRole("link", { name: "Open project" });
-    await expect(openProject).toHaveAttribute("href", /^\/projects\/[^/]+$/u);
+    await expect(entry).toHaveAttribute("href", /^\/projects\/[^/]+$/u);
 
     const snapshotResponsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&
         /\/api\/v1\/projects\/[^/]+\/snapshot$/u.test(new URL(response.url()).pathname),
     );
-    await openProject.click();
+    await entry.click();
     const snapshotResponse = await snapshotResponsePromise;
     expect(snapshotResponse.status()).toBe(200);
     expect(await snapshotResponse.json()).toMatchObject({ state: "ready" });
@@ -195,8 +190,13 @@ test("a freshly reconciled repository is selectable through the packed installed
 
     await projectNavigation.getByRole("link", { name: "Roadmaps", exact: true }).click();
     await page.getByRole("link", { name: "Test Roadmap", exact: true }).click();
-    await page.getByRole("button", { name: /^Test Effort,/u }).click();
-    await expect(page.getByText("Finish", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Test Effort", exact: true }).first().click();
+    await expect(page.getByRole("heading", { name: "Test Effort", level: 1 })).toBeVisible();
+    await expect(
+      page.getByLabel("Effort governance status").getByText("Needs attention", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh work details" })).toBeVisible();
 
     const sync = page.getByRole("button", { name: "Sync", exact: true });
     await expect(sync).toBeEnabled();
@@ -213,7 +213,7 @@ test("a freshly reconciled repository is selectable through the packed installed
     const syncResponse = await syncResponsePromise;
     expect(syncResponse.status()).toBe(200);
     expect(await syncResponse.json()).toMatchObject({ state: "completed", mode: "force" });
-    await expect(page.locator(".project-operation")).toContainText(/Up to date|Updated/u);
+    await expect(page.locator(".topbar-sync")).toContainText(/Sync|Updated/u);
 
     await page.screenshot({
       path: join(evidence, "installed-product-overview-1280.png"),

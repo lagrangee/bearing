@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { findPlanningLineageSubjectProjection } from "../src/project-snapshot/planning-lineage";
 import { runSync } from "../src/sync";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 import { buildProjectSnapshotForTest as buildProjectSnapshot } from "./project-snapshot-fixture";
@@ -15,12 +16,25 @@ const materialize = async (root: string) => {
   });
 };
 
-const authority = (id: string, citationNote: string, body: string): string => `---
+const authority = (
+  id: string,
+  citationNote: string,
+  body: string,
+  adoptionDecision?: string,
+): string => `---
 Type: authority
 ID: ${id}
 Title: ${id}
 Baseline:
   - asset:design
+${
+  adoptionDecision === undefined
+    ? ""
+    : `Adoptions:
+  - Asset: asset:design
+    Decision: ${adoptionDecision}
+`
+}
 Citations:
   - Asset: asset:design
     Note: ${citationNote}
@@ -31,7 +45,7 @@ Citations:
 ${body}
 `;
 
-test("builds Asset reverse relations from only trustworthy projected members", async () => {
+test("builds Asset reverse relations without substituting baseline membership for Adoption", async () => {
   const root = await createValidBearingRepo();
   await writeFixture(root, "evidence/design.md", "accepted design\n");
   await writeFixture(
@@ -79,6 +93,7 @@ The registered design.`,
       `## Current Baseline
 
 This body omits the required Scope section.`,
+      "planning-review:adopt-isolated",
     ),
   );
 
@@ -91,8 +106,13 @@ This body omits the required Scope section.`,
   if (snapshot.authorities.validity === "invalid") {
     throw new Error("Expected the trustworthy Authority member.");
   }
-  const authoritySource = snapshot.authorities.items[0]?.source;
-  if (authoritySource === undefined) throw new Error("Expected the Authority Source Reference.");
+  const trustedSource = snapshot.authorities.items[0]?.source;
+  const isolatedSource = snapshot.sources.find(
+    (source) => source.binding?.identity === "authority:isolated",
+  )?.reference;
+  if (trustedSource === undefined || isolatedSource === undefined) {
+    throw new Error("Expected both Authority Source References.");
+  }
   expect(snapshot.assets).toMatchObject({
     validity: "available",
     items: [
@@ -101,20 +121,48 @@ This body omits the required Scope section.`,
         citations: [
           {
             assetId: "asset:design",
+            note: "Isolated authority citation.",
+            citingReference: "authority:isolated",
+            source: isolatedSource,
+          },
+          {
+            assetId: "asset:design",
             note: "Trusted authority citation.",
             citingReference: "authority:trusted",
-            source: authoritySource,
+            source: trustedSource,
           },
         ],
-        citationCount: 1,
-        adoptedByAuthorityIds: ["authority:trusted"],
-        gatePassageEvidenceFor: [],
+        evidenceRoles: ["planning-citation", "authority-adoption"],
+        authorityAdoptions: [
+          {
+            authorityId: "authority:isolated",
+            decisionReference: "planning-review:adopt-isolated",
+            source: isolatedSource,
+          },
+        ],
+        passageEvidence: [],
+      },
+    ],
+  });
+  const assetLineage = findPlanningLineageSubjectProjection(snapshot.lineage, {
+    kind: "asset",
+    id: "asset:design",
+  });
+  expect(
+    assetLineage?.relations.find((relation) => relation.key === "adoption.used-by"),
+  ).toMatchObject({
+    state: "present",
+    targets: [
+      {
+        reference: "authority:isolated",
+        availability: "unavailable",
+        note: expect.stringContaining("Referenced subject unavailable"),
       },
     ],
   });
 });
 
-test("excludes Citation and Passage caches from an isolated Gate", async () => {
+test("retains direct Citation and Passage evidence when its Gate projection is isolated", async () => {
   const root = await createValidBearingRepo();
   await writeFixture(root, "evidence/gate.md", "gate evidence\n");
   await writeFixture(
@@ -146,6 +194,8 @@ ID: gate:test
 Title: Test Gate
 Roadmap: roadmap:test
 Status: active
+Effort order:
+  - effort:test
 Citations:
   - Asset: asset:gate
     Note: Isolated Gate citation.
@@ -168,16 +218,43 @@ Passage:
   const snapshot = await materialize(root);
 
   expect(snapshot.gates.validity).toBe("invalid");
+  const gateSource = snapshot.sources.find(
+    (source) => source.binding?.identity === "gate:test",
+  )?.reference;
+  if (gateSource === undefined) throw new Error("Expected the isolated Gate Source Reference.");
   expect(snapshot.assets).toMatchObject({
     validity: "available",
     items: [
       {
         id: "asset:gate",
-        citations: [],
-        citationCount: 0,
-        adoptedByAuthorityIds: [],
-        gatePassageEvidenceFor: [],
+        citations: [
+          {
+            assetId: "asset:gate",
+            note: "Isolated Gate citation.",
+            citingReference: "gate:test",
+            source: gateSource,
+          },
+        ],
+        evidenceRoles: ["planning-citation", "passage-evidence"],
+        authorityAdoptions: [],
+        passageEvidence: [{ gateId: "gate:test", source: gateSource }],
       },
     ],
   });
+  const assetLineage = findPlanningLineageSubjectProjection(snapshot.lineage, {
+    kind: "asset",
+    id: "asset:gate",
+  });
+  for (const key of ["planning-use.cited-by", "passage.used-by"] as const) {
+    expect(assetLineage?.relations.find((relation) => relation.key === key)).toMatchObject({
+      state: "present",
+      targets: [
+        {
+          reference: "gate:test",
+          availability: "unavailable",
+          note: expect.stringContaining("Referenced subject unavailable"),
+        },
+      ],
+    });
+  }
 });

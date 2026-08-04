@@ -5,6 +5,7 @@ import { readProjectSnapshotCache } from "../src/project-snapshot/cache";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import { makeTemporaryDirectory } from "./helpers";
+import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
 const issue = {
   code: "invalid-roadmap",
@@ -25,14 +26,16 @@ test("requires a partial collection to retain at least one trustworthy member", 
   if (roadmap === undefined) throw new Error("Expected one Roadmap in the validity fixture.");
 
   // When: partial collections with and without a trustworthy member cross the schema boundary.
-  const retained = projectSnapshotSchema.safeParse({
-    ...snapshot,
-    roadmapIndex: {
-      ...snapshot.roadmapIndex,
-      value: { ...snapshot.roadmapIndex.value, activeRoadmapIds: [roadmap.id] },
-    },
-    roadmaps: { validity: "partial", items: [roadmap], issues: [issue] },
-  });
+  const retained = projectSnapshotSchema.safeParse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      roadmapIndex: {
+        ...snapshot.roadmapIndex,
+        value: { ...snapshot.roadmapIndex.value, activeRoadmapIds: [roadmap.id] },
+      },
+      roadmaps: { validity: "partial", items: [roadmap], issues: [issue] },
+    }),
+  );
   const empty = projectSnapshotSchema.safeParse({
     ...snapshot,
     roadmaps: { validity: "partial", items: [], issues: [issue] },

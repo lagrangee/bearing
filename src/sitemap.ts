@@ -1,13 +1,14 @@
 import { stringify } from "yaml";
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
 import type { PlanningGraph } from "./planning-graph";
-import type { MattSkillsV1ScopeCapture } from "./providers/matt-skills-v1/capture";
+import type { MattSkillsV1ProviderObservation } from "./providers/matt-skills-v1/capture";
 import type { SitemapNode } from "./sitemap-model";
 import { buildProjectSitemapModelFromGeneration, type ProjectSitemapModel } from "./sitemap-model";
 import type { AdvisoryFreshness, StructuralDiagnostic } from "./types";
 
 const SECTION_ORDER = [
   "Project Summaries",
+  "Project Briefs",
   "Roadmaps",
   "Milestone Gates",
   "Efforts",
@@ -64,7 +65,7 @@ const serializeProjectSitemap = (
 
 export const buildProjectSitemapFromGeneration = (
   decoded: DecodedBearingRecordGeneration,
-  providerCaptures: readonly MattSkillsV1ScopeCapture[],
+  providerObservations: readonly MattSkillsV1ProviderObservation[],
   inputs: readonly string[],
   fingerprint: string,
   diagnostics: readonly StructuralDiagnostic[],
@@ -74,7 +75,7 @@ export const buildProjectSitemapFromGeneration = (
   serializeProjectSitemap(
     buildProjectSitemapModelFromGeneration(
       decoded,
-      providerCaptures,
+      providerObservations,
       diagnostics,
       advisoryFreshness,
       planningGraph.planningProjection(),

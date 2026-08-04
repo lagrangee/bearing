@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { PortalCatalogEnvelope } from "../portal-catalog-wire";
+import { createAssetPreviewService } from "./asset-preview";
 import { type PortalAssets, PROJECT_SNAPSHOT_VERSION } from "./assets";
 import type { CatalogReadResult } from "./contract";
 import { registerProjectRoutes } from "./project-routes";
@@ -32,6 +33,8 @@ const PORTAL_CONTENT_SECURITY_POLICY = [
   "form-action 'self'",
   "script-src 'self'",
   "style-src 'self'",
+  "style-src-elem 'self' 'unsafe-inline'",
+  "style-src-attr 'none'",
   "img-src 'self'",
   "font-src 'self'",
   "connect-src 'self'",
@@ -42,7 +45,7 @@ const assetPath = (pathname: string): string => (pathname === "/" ? "/index.html
 const isSpaRoute = (pathname: string): boolean =>
   !pathname.startsWith("/api/") &&
   pathname !== "/healthz" &&
-  !pathname.split("/").at(-1)?.includes(".");
+  (pathname.startsWith("/projects/") || !pathname.split("/").at(-1)?.includes("."));
 
 const encodingQuality = (parameters: readonly string[]): number => {
   const quality = parameters
@@ -79,6 +82,7 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
         ? {}
         : { operationExecutorFor: options.operationExecutorFor }),
     });
+  const assetPreview = createAssetPreviewService({ readCatalog: options.readCatalog });
 
   app.onError((_error, context) => {
     if (new URL(context.req.url).pathname.startsWith("/api/")) {
@@ -113,6 +117,13 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
   );
 
   app.get("/favicon.ico", (context) => context.body(null, 204));
+
+  app.get("/api/v1/bootstrap", (context) => {
+    context.header("Cache-Control", "no-store");
+    const session = sessions.establish(context.req.header("cookie"));
+    if (session.cookie !== undefined) context.header("Set-Cookie", session.cookie);
+    return context.json({ version: 1, state: "ready" });
+  });
 
   app.get("/api/v1/catalog", async (context) => {
     context.header("Cache-Control", "no-store");
@@ -167,7 +178,7 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     return context.json(response);
   });
 
-  registerProjectRoutes(app, { projects, sessions });
+  registerProjectRoutes(app, { assetPreview, projects, sessions });
 
   app.all("/api/*", (context) =>
     context.json({ code: "not-found", message: "No such Portal product action." }, 404),

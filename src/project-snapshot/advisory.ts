@@ -1,11 +1,9 @@
 import type { AdvisoryFreshness } from "../types";
-import { classifyGuidanceAuditRelation } from "./advisory-relation";
 import { projectAuditFindings } from "./audit-findings";
 import { type ParsedCanonicalRecord, parseCanonicalRecord } from "./canonical-record";
 import type {
   AlignmentCheck,
   CollectionProjection,
-  NextWorkGuidance,
   PlanningAudit,
   PlanningReview,
   ProjectionIssue,
@@ -13,8 +11,7 @@ import type {
   SourceRecord,
 } from "./contract";
 import type { SnapshotSourceInput } from "./projection-input";
-import { nextWorkGuidanceSchema, planningAuditSchema } from "./schema";
-import { createSourceRecord } from "./source-records";
+import { planningAuditSchema } from "./schema";
 
 type Input = Readonly<{
   records: readonly SnapshotSourceInput[];
@@ -25,14 +22,11 @@ type Input = Readonly<{
 }>;
 type AdvisoryProjection = Readonly<{
   audit: SingletonProjection<PlanningAudit>;
-  guidance: SingletonProjection<NextWorkGuidance>;
   sources: readonly SourceRecord[];
 }>;
 
-const recordFor = (
-  input: Input,
-  type: "planning-audit" | "next-work-guidance",
-): SnapshotSourceInput | undefined => input.records.find((record) => record.type === type);
+const recordFor = (input: Input, type: "planning-audit"): SnapshotSourceInput | undefined =>
+  input.records.find((record) => record.type === type);
 const invalid = <T>(issue: ProjectionIssue): SingletonProjection<T> => ({
   validity: "invalid",
   issues: [issue],
@@ -100,114 +94,10 @@ const auditProjection = (
   };
 };
 
-const guidanceProjection = (
-  input: Input,
-  audit: SingletonProjection<PlanningAudit>,
-): Readonly<{
-  projection: SingletonProjection<NextWorkGuidance>;
-  sources: readonly SourceRecord[];
-}> => {
-  const record = recordFor(input, "next-work-guidance");
-  if (record === undefined) return { projection: { validity: "absent" }, sources: [] };
-  const parsed = parseCanonicalRecord(record);
-  if (!parsed.ok) return { projection: invalid(parsed.issue), sources: [parsed.source] };
-  if (parsed.value.data.Type !== "next-work-guidance") {
-    return {
-      projection: invalid(bodyIssue(parsed.value, "invalid-next-work-guidance")),
-      sources: [parsed.value.source],
-    };
-  }
-  const body = parsed.value.content;
-  if (body.kind !== "next-work-guidance" || !body.result.ok) {
-    return {
-      projection: invalid(bodyIssue(parsed.value, "invalid-next-work-guidance-body")),
-      sources: [parsed.value.source],
-    };
-  }
-  const itemSources = [
-    "primary",
-    ...body.result.value.alternatives.map((_, index) => `alternative-${index + 1}`),
-  ].map((fragment) =>
-    createSourceRecord(input.sitemapFingerprint, {
-      kind: "canonical",
-      locator: parsed.value.locator,
-      fragment,
-      binding: {
-        role: "guidance-item",
-        identity: `${parsed.value.data.ID}#${fragment}`,
-      },
-    }),
-  );
-  const primarySource = itemSources[0];
-  if (primarySource === undefined) {
-    return {
-      projection: invalid(bodyIssue(parsed.value, "invalid-next-work-guidance-body")),
-      sources: [parsed.value.source],
-    };
-  }
-  const item = (value: (typeof body.result.value.alternatives)[number], source: SourceRecord) => ({
-    title: value.title,
-    rationale: value.rationale,
-    supportingReferences: value.supportingReferences,
-    source: source.reference,
-  });
-  const alternatives = body.result.value.alternatives.flatMap((value, index) => {
-    const source = itemSources[index + 1];
-    return source === undefined ? [] : [item(value, source)];
-  });
-  if (alternatives.length !== body.result.value.alternatives.length) {
-    return {
-      projection: invalid(bodyIssue(parsed.value, "invalid-next-work-guidance-body")),
-      sources: [parsed.value.source],
-    };
-  }
-  const projected = nextWorkGuidanceSchema.safeParse({
-    id: parsed.value.data.ID,
-    generatedAt: parsed.value.data["Generated at"],
-    semanticFreshness: input.advisoryFreshness[parsed.value.data.ID] ?? "unknown",
-    semanticCoverage: parsed.value.data["Semantic coverage"],
-    ...(parsed.value.data["Based on audit"] === undefined
-      ? {}
-      : { basedOnAuditId: parsed.value.data["Based on audit"] }),
-    primary: item(body.result.value.primary, primarySource),
-    alternatives,
-    source: parsed.value.source.reference,
-  });
-  if (!projected.success) {
-    return {
-      projection: invalid(bodyIssue(parsed.value, "invalid-next-work-guidance-projection")),
-      sources: [parsed.value.source, ...itemSources],
-    };
-  }
-  const relationProblem = classifyGuidanceAuditRelation(projected.data, audit);
-  if (relationProblem === undefined) {
-    return {
-      projection: { validity: "available", value: projected.data },
-      sources: [parsed.value.source, ...itemSources],
-    };
-  }
-  return {
-    projection: {
-      validity: "partial",
-      value: projected.data,
-      issues: [
-        {
-          ...relationProblem,
-          target: parsed.value.locator,
-          source: parsed.value.source.reference,
-        },
-      ],
-    },
-    sources: [parsed.value.source, ...itemSources],
-  };
-};
-
 export const buildAdvisoryProjection = (input: Input): AdvisoryProjection => {
   const audit = auditProjection(input);
-  const guidance = guidanceProjection(input, audit.projection);
   return {
     audit: audit.projection,
-    guidance: guidance.projection,
-    sources: [...audit.sources, ...guidance.sources],
+    sources: audit.sources,
   };
 };

@@ -17,15 +17,23 @@ sharedContracts:
   - key: executor-continuation
     reference: skills/bearing/references/shared/executor-continuation.md
     loading: on-direct-executor
+  - key: project-brief-refresh
+    reference: skills/bearing/references/shared/project-brief-refresh.md
+    loading: branch-declared
+  - key: governance-disposition
+    reference: skills/bearing/references/shared/governance-disposition.md
+    loading: on-native-handling-or-scope-review
 publicSharedContracts:
   - typed-inspection
   - artifact-registration
   - executor-continuation
+  - governance-disposition
 branches:
   - key: setup
     reference: skills/bearing/references/branches/setup.md
     sharedContracts:
       - planning-transaction
+      - governance-disposition
   - key: summary
     reference: skills/bearing/references/branches/summary.md
     sharedContracts:
@@ -34,8 +42,19 @@ branches:
     reference: skills/bearing/references/branches/roadmap.md
     sharedContracts:
       - planning-transaction
+      - project-brief-refresh
   - key: milestone-gate
     reference: skills/bearing/references/branches/milestone-gate.md
+    sharedContracts:
+      - planning-transaction
+      - project-brief-refresh
+  - key: effort-lifecycle
+    reference: skills/bearing/references/branches/effort-lifecycle.md
+    sharedContracts:
+      - planning-transaction
+      - project-brief-refresh
+  - key: asset-lifecycle
+    reference: skills/bearing/references/branches/asset-lifecycle.md
     sharedContracts:
       - planning-transaction
   - key: alignment-check

@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { catalogAvailabilitySchema } from "./catalog/availability";
+import { nativeReconciliationRequestSchema } from "./native-reconciliation-contract";
+import {
+  nativeScopeInspectionSubjectSchema,
+  nativeSubjectIdSchema,
+} from "./planning-lineage-route";
 import { projectSnapshotSchema } from "./project-snapshot/schema";
 import { syncReceiptSchema } from "./sync-receipt-schema";
 
@@ -67,6 +72,18 @@ export const projectSyncRequestSchema = z.strictObject({
   version: z.literal(1),
   mode: z.enum(["ensure-current", "force"]),
 });
+
+export const projectNativeScopeInspectionRequestSchema = z.strictObject({
+  version: z.literal(1),
+  subject: nativeScopeInspectionSubjectSchema,
+  target: z.strictObject({
+    provider: z.literal("matt-skills/v1"),
+    nativeScope: nativeSubjectIdSchema,
+  }),
+  refresh: z.boolean(),
+});
+
+export const projectNativeReconciliationRequestSchema = nativeReconciliationRequestSchema;
 
 export const projectSnapshotEnvelopeSchema = z.discriminatedUnion("state", [
   z.strictObject({

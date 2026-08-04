@@ -18,7 +18,10 @@ export const buildSnapshotForSyncPlan = (root: string, packageVersion: string, p
     diagnostics: plan.diagnostics,
     advisoryFreshness: plan.advisoryFreshness,
     decoded: plan.decoded,
-    providerCaptures: plan.providerCaptures,
+    providerObservations: plan.providerObservations,
+    providerObservationSelections: plan.providerObservationSelections,
+    nativeScopeInspectionObservations: plan.nativeScopeInspectionObservations,
+    nativeScopeInspectionSelections: plan.nativeScopeInspectionSelections,
     assetContentObservations: plan.assetContentObservations,
     planningGraph: plan.planningGraph,
   });
@@ -221,6 +224,8 @@ ID: gate:test
 Title: Test Gate
 Roadmap: roadmap:test
 Status: active
+Effort order:
+  - effort:test
 ---
 
 # Milestone Gate: Test
@@ -256,6 +261,9 @@ Roadmap: roadmap:test
 Target gate: gate:test
 Authorities: []
 Citations: []
+Lifecycle: active
+Planned at: null
+Activated at: null
 Work binding:
   Provider: matt-skills/v1
   Native scope: .scratch/work

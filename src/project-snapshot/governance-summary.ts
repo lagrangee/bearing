@@ -1,27 +1,16 @@
-import { parseCanonicalRecord } from "./canonical-record";
 import type { ProjectSnapshotInput } from "./contract";
-import { bodyIssue, type GovernanceInput } from "./governance-common";
+import { bodyIssue, type GovernanceInput, projectOrientationRecord } from "./governance-common";
 import { projectSummarySchema } from "./schema";
 
 export const buildSummaryProjection = (input: GovernanceInput): ProjectSnapshotInput["summary"] => {
-  const record = input.records.find((candidate) => candidate.type === "project-summary");
-  if (record === undefined) return { validity: "absent" };
-  const parsed = parseCanonicalRecord(record);
-  if (!parsed.ok) return { validity: "invalid", issues: [parsed.issue] };
-  if (parsed.value.data.Type !== "project-summary") {
-    return { validity: "invalid", issues: [bodyIssue(parsed.value, "invalid-project-summary")] };
-  }
-  if (parsed.value.content.kind !== "sections") {
-    return {
-      validity: "invalid",
-      issues: [bodyIssue(parsed.value, "invalid-project-summary-body")],
-    };
-  }
-  const purpose = parsed.value.content.values["Purpose"];
-  const currentDesign = parsed.value.content.values["Current Design"];
-  const boundaries = parsed.value.content.values["Boundaries"];
-  const futureCandidates = parsed.value.content.values["Future Candidates"];
-  const materialRevisions = parsed.value.content.values["Material Revisions"];
+  const parsed = projectOrientationRecord(input, "project-summary");
+  if (parsed.validity !== "available") return parsed;
+  const { record } = parsed;
+  const purpose = record.content.values["Purpose"];
+  const currentDesign = record.content.values["Current Design"];
+  const boundaries = record.content.values["Boundaries"];
+  const futureCandidates = record.content.values["Future Candidates"];
+  const materialRevisions = record.content.values["Material Revisions"];
   if (
     typeof purpose !== "string" ||
     typeof currentDesign !== "string" ||
@@ -31,27 +20,28 @@ export const buildSummaryProjection = (input: GovernanceInput): ProjectSnapshotI
   ) {
     return {
       validity: "invalid",
-      issues: [bodyIssue(parsed.value, "invalid-project-summary-body")],
+      issues: [bodyIssue(record, "invalid-project-summary-body")],
     };
   }
   return {
     validity: "available",
     value: projectSummarySchema.parse({
-      id: parsed.value.data.ID,
-      title: parsed.value.data.Title,
-      source: parsed.value.source.reference,
+      id: record.data.ID,
+      title: record.data.Title,
+      source: record.source.reference,
       purpose,
       currentDesign,
-      ...(parsed.value.data.Languages === undefined
+      ...(record.data["Updated at"] === undefined ? {} : { updatedAt: record.data["Updated at"] }),
+      ...(record.data.Languages === undefined
         ? {}
         : {
             languages: {
-              ...(parsed.value.data.Languages.Purpose === undefined
+              ...(record.data.Languages.Purpose === undefined
                 ? {}
-                : { purpose: parsed.value.data.Languages.Purpose }),
-              ...(parsed.value.data.Languages["Current Design"] === undefined
+                : { purpose: record.data.Languages.Purpose }),
+              ...(record.data.Languages["Current Design"] === undefined
                 ? {}
-                : { currentDesign: parsed.value.data.Languages["Current Design"] }),
+                : { currentDesign: record.data.Languages["Current Design"] }),
             },
           }),
       boundaries,

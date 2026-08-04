@@ -1,8 +1,13 @@
+import { nativeReconciliationRequestFingerprint } from "../native-reconciliation-contract";
+import type { NativeScopeInspectionIntent } from "../native-scope-inspection";
+import { mattNativeBindingDefinitionKey } from "../providers/matt-skills-v1/native-subject";
+
 export type ProjectOperationMode = "ensure-current" | "force";
 
 export type ProjectOperation = Readonly<{
   entryId: string;
   mode: ProjectOperationMode;
+  nativeScopeInspectionIntent?: NativeScopeInspectionIntent;
 }>;
 
 export type CoordinatedResult<T> =
@@ -14,12 +19,27 @@ export type CoordinatedResult<T> =
       joined: boolean;
     }>;
 
-type Active<T> = Readonly<{ mode: ProjectOperationMode; promise: Promise<T> }>;
+type Active<T> = Readonly<{
+  mode: ProjectOperationMode;
+  nativeScopeInspectionIntent: NativeScopeInspectionIntent;
+  nativeScopeInspectionKey: string;
+  promise: Promise<T>;
+}>;
 type ProjectState<T> = {
   lastAttemptAt?: number;
   active?: Active<T>;
-  queuedForce?: Promise<T>;
+  queuedForces?: Map<string, Promise<T>>;
+  queueTail?: Promise<unknown>;
 };
+
+const nativeScopeInspectionKey = (intent: NativeScopeInspectionIntent): string =>
+  intent.kind === "none"
+    ? "none"
+    : intent.kind === "reconcile"
+      ? `${mattNativeBindingDefinitionKey(intent.request.binding)}\0reconcile\0${nativeReconciliationRequestFingerprint(
+          intent.request,
+        )}`
+      : `${mattNativeBindingDefinitionKey(intent.target)}\0${intent.refresh ? "refresh" : "reuse"}`;
 
 export type ProjectCoordinator<T> = Readonly<{
   execute(operation: ProjectOperation): Promise<CoordinatedResult<T>>;
@@ -51,7 +71,7 @@ export const createProjectCoordinator = <T>(options: {
   };
   const begin = (state: ProjectState<T>, operation: ProjectOperation): Promise<T> => {
     state.lastAttemptAt = clock();
-    const running = options.run({ entryId: operation.entryId, mode: operation.mode });
+    const running = options.run(operation);
     let promise: Promise<T>;
     const clear = <Value>(continuation: () => Value): Value => {
       if (state.active?.promise === promise) delete state.active;
@@ -64,7 +84,14 @@ export const createProjectCoordinator = <T>(options: {
           throw error;
         }),
     );
-    state.active = { mode: operation.mode, promise };
+    state.active = {
+      mode: operation.mode,
+      nativeScopeInspectionIntent: operation.nativeScopeInspectionIntent ?? { kind: "none" },
+      nativeScopeInspectionKey: nativeScopeInspectionKey(
+        operation.nativeScopeInspectionIntent ?? { kind: "none" },
+      ),
+      promise,
+    };
     return promise;
   };
   const completed = async (
@@ -82,19 +109,39 @@ export const createProjectCoordinator = <T>(options: {
     execute(operation): Promise<CoordinatedResult<T>> {
       const state = stateFor(operation.entryId);
       const active = state.active;
-      if (active !== undefined) {
-        if (operation.mode === "ensure-current" || active.mode === "force") {
-          return completed(active.promise, active.mode, true);
-        }
-        const existingQueue = state.queuedForce;
-        if (existingQueue !== undefined) return completed(existingQueue, "force", true);
-        const pending = active.promise.then(
-          () => begin(state, { ...operation, mode: "force" }),
-          () => begin(state, { ...operation, mode: "force" }),
+      const inspectionIntent = operation.nativeScopeInspectionIntent ?? { kind: "none" };
+      const inspectionKey = nativeScopeInspectionKey(inspectionIntent);
+      if (
+        active !== undefined &&
+        active.nativeScopeInspectionKey === inspectionKey &&
+        (operation.mode === "ensure-current" || active.mode === "force")
+      ) {
+        return completed(active.promise, active.mode, true);
+      }
+      const queueKey = `force:${inspectionKey}`;
+      const existingQueue = state.queuedForces?.get(queueKey);
+      if (existingQueue !== undefined) return completed(existingQueue, "force", true);
+      const predecessor = state.queueTail ?? active?.promise;
+      if (predecessor !== undefined) {
+        const queues = state.queuedForces ?? new Map<string, Promise<T>>();
+        state.queuedForces = queues;
+        const pending = predecessor.then(
+          () =>
+            begin(state, {
+              ...operation,
+              mode: "force",
+              nativeScopeInspectionIntent: inspectionIntent,
+            }),
+          () =>
+            begin(state, {
+              ...operation,
+              mode: "force",
+              nativeScopeInspectionIntent: inspectionIntent,
+            }),
         );
         let queued: Promise<T>;
         const clearQueue = <Value>(continuation: () => Value): Value => {
-          if (state.queuedForce === queued) delete state.queuedForce;
+          if (queues.get(queueKey) === queued) queues.delete(queueKey);
           return continuation();
         };
         queued = pending.then(
@@ -104,10 +151,17 @@ export const createProjectCoordinator = <T>(options: {
               throw error;
             }),
         );
-        state.queuedForce = queued;
+        queues.set(queueKey, queued);
+        const tail = queued.then(
+          () => undefined,
+          () => undefined,
+        );
+        state.queueTail = tail;
+        void tail.then(() => {
+          if (state.queueTail === tail) delete state.queueTail;
+        });
         return completed(queued, "force", false);
       }
-      if (state.queuedForce !== undefined) return completed(state.queuedForce, "force", true);
       const cooldownRemainingMs = remainingFor(state);
       if (operation.mode === "ensure-current" && cooldownRemainingMs > 0) {
         return Promise.resolve({ kind: "cooldown", cooldownRemainingMs });
@@ -120,7 +174,7 @@ export const createProjectCoordinator = <T>(options: {
       return {
         due: cooldownRemainingMs === 0,
         cooldownRemainingMs,
-        inFlight: state.active !== undefined || state.queuedForce !== undefined,
+        inFlight: state.active !== undefined || (state.queuedForces?.size ?? 0) > 0,
       };
     },
   };

@@ -1,9 +1,10 @@
 import type { RefinementCtx } from "zod";
+import { sameMattNativeBindingDefinition } from "../providers/matt-skills-v1/native-subject";
 import {
-  type CompletionCapture,
+  type ContributorCapture,
+  type ContributorObservationSelection,
   type DerivedCollection,
   hasUntrustedEffortContributor,
-  normalizedEffortState,
   normalizedGateHorizon,
   normalizedGateReadiness,
   normalizedRoadmapHorizon,
@@ -32,7 +33,17 @@ type Effort = Readonly<{
   roadmapId: string;
   targetGateId: string;
   workBinding?: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }> | undefined;
-  derivedState: "active" | "resolved" | "unknown";
+  workBindingState: Readonly<
+    | { state: "bound" }
+    | { state: "invalid"; reason: "missing" | "unparseable" | "unresolved" | "conflicting" }
+  >;
+  lifecycle: "planned" | "active" | "concluded";
+  conclusion?:
+    | Readonly<{
+        disposition: "completed" | "withdrawn" | "superseded";
+        replacementEffortId?: string | undefined;
+      }>
+    | undefined;
 }>;
 
 export type PlanningDerivationConsistencySnapshot = Readonly<{
@@ -40,7 +51,8 @@ export type PlanningDerivationConsistencySnapshot = Readonly<{
   roadmaps: DerivedCollection<Roadmap>;
   gates: DerivedCollection<Gate>;
   efforts: DerivedCollection<Effort>;
-  providerCaptures: readonly CompletionCapture[];
+  providerObservations: readonly ContributorCapture[];
+  providerObservationSelections: readonly ContributorObservationSelection[];
   diagnostics: readonly Readonly<{
     reference: string;
     code: string;
@@ -61,24 +73,31 @@ export const validatePlanningDerivationConsistency = (
   snapshot: PlanningDerivationConsistencySnapshot,
   context: RefinementCtx,
 ): void => {
-  for (const [position, capture] of snapshot.providerCaptures.entries()) {
-    if (
-      "generation" in capture &&
-      capture.generation.fingerprint !== snapshot.basis.sitemapFingerprint
-    ) {
+  for (const [position, observation] of snapshot.providerObservations.entries()) {
+    const selection = snapshot.providerObservationSelections.find((candidate) =>
+      sameMattNativeBindingDefinition(candidate, observation.binding),
+    );
+    if (selection?.observationId !== observation.id) {
       addIssue(
         context,
-        ["providerCaptures", position, "generation", "fingerprint"],
-        "Provider capture generation must match the Project Snapshot basis.",
+        ["providerObservations", position, "id"],
+        "Every Project Snapshot provider observation must be its scope's exact selected observation.",
       );
     }
   }
-  for (const [position, effort] of trusted(snapshot.efforts).entries()) {
-    if (effort.derivedState !== normalizedEffortState(effort, snapshot.providerCaptures)) {
+  for (const [position, selection] of snapshot.providerObservationSelections.entries()) {
+    if (
+      selection.observationId !== null &&
+      !snapshot.providerObservations.some(
+        (observation) =>
+          observation.id === selection.observationId &&
+          sameMattNativeBindingDefinition(observation.binding, selection),
+      )
+    ) {
       addIssue(
         context,
-        ["efforts", "items", position, "derivedState"],
-        "Effort state must match its provider completion assessment.",
+        ["providerObservationSelections", position, "observationId"],
+        "Every non-empty provider observation selection must resolve inside the Project Snapshot.",
       );
     }
   }
@@ -104,14 +123,15 @@ export const validatePlanningDerivationConsistency = (
       normalizedGateReadiness(
         gate,
         snapshot.efforts,
-        snapshot.providerCaptures,
+        snapshot.providerObservations,
+        snapshot.providerObservationSelections,
         hasUntrustedEffortContributor(snapshot.gates, gate.id),
       )
     ) {
       addIssue(
         context,
         ["gates", "items", position, "readiness"],
-        "Gate Readiness must match provider-assessed contributor completion.",
+        "Gate Readiness must match explicit Effort lifecycle and trustworthy contributor bindings.",
       );
     }
   }

@@ -107,7 +107,40 @@ const assertLegacySourceSyncClean = async (
   root: string,
   effortLocators: readonly string[],
 ): Promise<void> => {
-  const sourceSync = await prepareSync(root, { explicitInputs: effortLocators });
+  const legacyEffortIds = new Set(
+    await Promise.all(
+      effortLocators.map(async (locator) => {
+        const parsed = parseFrontmatter(
+          (await readContainedFile(root, join(root, locator))).toString("utf8"),
+        );
+        if (!parsed.ok) throw new Error(`Legacy Effort has invalid frontmatter: ${locator}`);
+        return effortRecordSchema.parse(parsed.data).ID;
+      }),
+    ),
+  );
+  const sourceSync = await prepareSync(root, {
+    explicitInputs: effortLocators,
+    providerObservationIntent: "initial-baseline",
+  });
+  const declaredIds = new Set(
+    sourceSync.decoded.records.flatMap((record) =>
+      record.diagnostics.some((diagnostic) => diagnostic.impact === "blocking")
+        ? []
+        : record.analysis.nodes.map((node) => node.id),
+    ),
+  );
+  const expectedLegacyReferenceSources = new Set(
+    sourceSync.decoded.records.flatMap((record) => {
+      const unresolved = record.analysis.references.filter(
+        (reference) => !declaredIds.has(reference.target),
+      );
+      return unresolved.length > 0 &&
+        unresolved.every((reference) => legacyEffortIds.has(reference.target))
+        ? [record.locator]
+        : [];
+    }),
+  );
+  const legacyEffortLocatorSet = new Set(effortLocators);
   const diagnostics = sourceSync.diagnostics.filter(
     (diagnostic) =>
       !(
@@ -117,6 +150,14 @@ const assertLegacySourceSyncClean = async (
       !(
         diagnostic.code === "missing-provider-configuration" &&
         diagnostic.target === ".bearing/provider.json"
+      ) &&
+      !(
+        diagnostic.code === "effort-work-binding-missing" &&
+        legacyEffortLocatorSet.has(diagnostic.target)
+      ) &&
+      !(
+        diagnostic.code === "broken-canonical-reference" &&
+        expectedLegacyReferenceSources.has(diagnostic.target)
       ),
   );
   if (diagnostics.length > 0) {
@@ -848,7 +889,9 @@ export const cutOverLegacyRepository = async (
       await verifyRecoveryBundle(root, bundleRoot);
     },
     async () => {
-      const sync = await prepareSync(root);
+      const sync = await prepareSync(root, {
+        providerObservationIntent: "recovery",
+      });
       if (sync.diagnostics.length > 0) {
         throw new Error(
           `Cutover target validation requires zero Sync diagnostics; found ${sync.diagnostics

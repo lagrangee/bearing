@@ -1,5 +1,12 @@
 import type { RefinementCtx } from "zod";
 import { expectedBearingType } from "../artifact-model";
+import {
+  mattNativeScopeLocator,
+  mattNativeScopeSubject,
+  mattNativeSubjectForObject,
+} from "../providers/matt-skills-v1/native-subject";
+import { mattObjectLocator, mattObjects } from "../providers/matt-skills-v1/projection";
+import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import type { SourceBindingRole, SourceKind } from "./source-schema";
 
 type Collection<T> =
@@ -11,11 +18,6 @@ type Singleton<T> =
   | Readonly<{ validity: "partial"; value: T; issues?: readonly unknown[] }>
   | Readonly<{ validity: "absent" | "invalid" }>;
 type IdentifiedSource = Readonly<{ id: string; source: string }>;
-type Guidance = IdentifiedSource &
-  Readonly<{
-    primary: Readonly<{ source: string }>;
-    alternatives: readonly Readonly<{ source: string }>[];
-  }>;
 type SourceRecord = Readonly<{
   reference: string;
   kind: SourceKind;
@@ -26,6 +28,7 @@ type SourceRecord = Readonly<{
 
 export type SourceBindingConsistencySnapshot = Readonly<{
   summary: Singleton<IdentifiedSource>;
+  brief: Singleton<IdentifiedSource>;
   roadmapIndex: Singleton<Readonly<{ source: string }>>;
   roadmaps: Collection<IdentifiedSource>;
   gates: Collection<IdentifiedSource>;
@@ -35,7 +38,7 @@ export type SourceBindingConsistencySnapshot = Readonly<{
   checks: Collection<IdentifiedSource>;
   reviews: Collection<IdentifiedSource>;
   audit: Singleton<IdentifiedSource>;
-  guidance: Singleton<Guidance>;
+  providerObservations: readonly unknown[];
   sources: readonly SourceRecord[];
 }>;
 
@@ -106,6 +109,67 @@ const validateCanonicalCollection = (
   }
 };
 
+const validateNativeSources = (
+  snapshot: SourceBindingConsistencySnapshot,
+  index: ReadonlyMap<string, SourceRecord>,
+  context: RefinementCtx,
+): void => {
+  const sourcesByBinding = new Map<string, SourceRecord[]>();
+  for (const source of snapshot.sources) {
+    if (source.binding === undefined) continue;
+    const key = `${source.binding.role}\0${source.binding.identity}`;
+    const candidates = sourcesByBinding.get(key) ?? [];
+    candidates.push(source);
+    sourcesByBinding.set(key, candidates);
+  }
+  const validateNativeSource = (
+    role: SourceBindingRole,
+    identity: string,
+    locator: string,
+    path: readonly (string | number)[],
+  ): void => {
+    const candidates = sourcesByBinding.get(`${role}\0${identity}`) ?? [];
+    if (candidates.length !== 1) {
+      addIssue(context, path);
+      return;
+    }
+    const source = candidates[0];
+    if (source === undefined) {
+      addIssue(context, path);
+      return;
+    }
+    validateBinding(
+      index,
+      source.reference,
+      { kind: "tracker", role, identity, locator },
+      path,
+      context,
+    );
+  };
+
+  for (const [observationPosition, input] of snapshot.providerObservations.entries()) {
+    const parsed = mattSkillsV1ProviderObservationSchema.safeParse(input);
+    if (!parsed.success) continue;
+    const observation = parsed.data;
+    const scope = mattNativeScopeSubject(observation);
+    validateNativeSource("native-scope", scope.id, mattNativeScopeLocator(observation), [
+      "providerObservations",
+      observationPosition,
+      "binding",
+    ]);
+    for (const [objectPosition, object] of mattObjects(observation).entries()) {
+      const subject = mattNativeSubjectForObject(object);
+      validateNativeSource(object.kind, subject.id, mattObjectLocator(object), [
+        "providerObservations",
+        observationPosition,
+        "projection",
+        object.kind,
+        objectPosition,
+      ]);
+    }
+  }
+};
+
 export const validateSourceBindingConsistency = (
   snapshot: SourceBindingConsistencySnapshot,
   context: RefinementCtx,
@@ -123,6 +187,21 @@ export const validateSourceBindingConsistency = (
         bearingType: "project-summary",
       },
       ["summary", "value"],
+      context,
+    );
+  }
+  const brief = trustedValue(snapshot.brief);
+  if (brief !== undefined) {
+    validateBinding(
+      index,
+      brief.source,
+      {
+        kind: "canonical",
+        role: "project-brief",
+        identity: brief.id,
+        bearingType: "project-brief",
+      },
+      ["brief", "value"],
       context,
     );
   }
@@ -181,39 +260,5 @@ export const validateSourceBindingConsistency = (
       context,
     );
   }
-  const guidance = trustedValue(snapshot.guidance);
-  if (guidance === undefined) return;
-  validateBinding(
-    index,
-    guidance.source,
-    {
-      kind: "canonical",
-      role: "next-work-guidance",
-      identity: guidance.id,
-      bearingType: "next-work-guidance",
-    },
-    ["guidance", "value"],
-    context,
-  );
-  const items = [guidance.primary, ...guidance.alternatives];
-  for (const [position, item] of items.entries()) {
-    const fragment = position === 0 ? "primary" : `alternative-${position}`;
-    const path =
-      position === 0
-        ? (["guidance", "value", "primary"] as const)
-        : (["guidance", "value", "alternatives", position - 1] as const);
-    validateBinding(
-      index,
-      item.source,
-      {
-        kind: "canonical",
-        role: "guidance-item",
-        identity: `${guidance.id}#${fragment}`,
-        bearingType: "next-work-guidance",
-        fragment,
-      },
-      path,
-      context,
-    );
-  }
+  validateNativeSources(snapshot, index, context);
 };

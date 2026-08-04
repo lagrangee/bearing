@@ -1,11 +1,13 @@
 import type { MouseEvent } from "react";
+import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
-import type { ProjectInspectorSelection } from "./project-inspector";
-import { gateInspection } from "./project-roadmap-inspection";
+import {
+  gateLifecycleEvents,
+  latestPlanningLineageEvent,
+  roadmapLifecycleEvents,
+} from "./planning-lineage-events";
 import { buildRoadmapIndexModel } from "./project-roadmap-model";
 import { type Gate, RoadmapIndexRow } from "./roadmap-primitives";
-
-type Inspect = (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
 
 const groupTitle = (lifecycle: "active" | "completed" | "superseded"): string =>
   lifecycle === "active" ? "Active" : lifecycle === "completed" ? "Completed" : "Superseded";
@@ -23,12 +25,10 @@ const openLink = (
 
 export function RoadmapsIndex({
   entryId,
-  onInspect,
   onNavigate,
   snapshot,
 }: {
   readonly entryId: string;
-  readonly onInspect: Inspect;
   readonly onNavigate: (href: string) => void;
   readonly snapshot: ProjectSnapshot;
 }) {
@@ -36,7 +36,6 @@ export function RoadmapsIndex({
   if (model.state === "invalid") {
     return (
       <div className="page roadmaps-index scoped-state">
-        <p className="eyebrow">Peer outcome horizons</p>
         <h1>Roadmaps unavailable</h1>
         <p>
           The current Roadmap Index cannot be trusted ({model.issueCount} source issue
@@ -48,7 +47,6 @@ export function RoadmapsIndex({
   if (model.state === "absent") {
     return (
       <div className="page roadmaps-index scoped-state">
-        <p className="eyebrow">Peer outcome horizons</p>
         <h1>Roadmaps</h1>
         <p>No canonical Roadmap Index is available in the current Snapshot.</p>
       </div>
@@ -60,12 +58,7 @@ export function RoadmapsIndex({
   return (
     <div className="page roadmaps-index">
       <header className="list-header">
-        <p className="eyebrow">Peer outcome horizons</p>
         <h1>Roadmaps</h1>
-        <p>
-          Each Roadmap carries an independently governed Gate sequence. Open one to inspect its
-          contracts, contributing work, and evidence.
-        </p>
       </header>
       {model.state === "partial" ? (
         <p className="projection-note" role="status">
@@ -90,15 +83,20 @@ export function RoadmapsIndex({
             </p>
           )}
           {group.items.map((item) => {
-            const href = `/projects/${encodeURIComponent(entryId)}/roadmaps/${encodeURIComponent(
-              item.roadmap.id,
-            )}`;
-            const gateIndex = new Map(item.gates.map((entry) => [String(entry.gate.id), entry]));
+            const href = planningLineageSubjectHref(entryId, {
+              kind: "roadmap",
+              id: item.roadmap.id,
+            });
             const gates: Gate[] = item.gates.map((entry) => ({
               id: entry.gate.id,
+              href: planningLineageSubjectHref(entryId, {
+                kind: "gate",
+                id: entry.gate.id,
+              }),
               label: `G${entry.ordinal}`,
               state: entry.gate.horizonState,
               title: entry.gate.title,
+              event: latestPlanningLineageEvent(gateLifecycleEvents(entry.gate)),
             }));
             return (
               <div key={item.roadmap.id}>
@@ -107,16 +105,9 @@ export function RoadmapsIndex({
                   href={href}
                   horizon={item.roadmap.horizon}
                   intent={item.roadmap.intent}
+                  event={latestPlanningLineageEvent(roadmapLifecycleEvents(item.roadmap))}
                   onOpen={(event) => openLink(href, event, onNavigate)}
-                  onSelectGate={(gate, trigger) => {
-                    const selected = gateIndex.get(gate.id);
-                    if (selected !== undefined) {
-                      onInspect(
-                        gateInspection(selected, item.roadmap.title, item.roadmap.gateOrder.length),
-                        trigger,
-                      );
-                    }
-                  }}
+                  onOpenGate={(gate, event) => openLink(gate.href, event, onNavigate)}
                   title={item.roadmap.title}
                 />
                 {item.missingGateIds.length === 0 ? null : (

@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { OverviewAttention } from "../src/portal-ui/overview-attention";
 import { buildProjectOverviewModel } from "../src/portal-ui/project-overview-model";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
 const snapshotFixture = createProjectOverviewFixture;
 
@@ -9,10 +13,9 @@ test("projects Overview in accepted semantic order without re-sorting planning t
   const model = buildProjectOverviewModel(snapshotFixture());
 
   expect(model.summary.state).toBe("available");
-  expect(model.guidance.state).toBe("available");
-  expect(model.guidance.state === "available" && model.guidance.value.semanticFreshness).toBe(
-    "stale",
-  );
+  expect(model.brief.state).toBe("absent");
+  expect("guidance" in model).toBe(false);
+  expect("discoveredWork" in model).toBe(false);
   expect(model.roadmaps.state).toBe("available");
   if (model.roadmaps.state !== "available") throw new Error("Expected Roadmaps.");
   expect(model.roadmaps.activeCount).toBe(2);
@@ -41,9 +44,30 @@ test("resolves Attention and provenance only from typed Snapshot references", ()
     "Review the current sequence",
   ]);
   expect(model.summary.source?.displayLocator).toBe(".bearing/state/project-summary.md");
-  expect(model.guidance.source?.displayLocator).toBe(".bearing/state/next-work-guidance.md");
-  if (model.guidance.state !== "available") throw new Error("Expected Guidance.");
-  expect(model.sources.get(model.guidance.value.primary.source)?.fragment).toBe("primary");
+});
+
+test("consumes normalized managed Attention without a second UI scope derivation", () => {
+  const snapshot = snapshotFixture();
+  const model = buildProjectOverviewModel(snapshot);
+
+  expect(model.attention).toHaveLength(snapshot.attention.length);
+  expect(model.attention.map((item) => item.key)).toEqual(
+    snapshot.attention.map((item) =>
+      item.kind === "structural-diagnostic" ? item.diagnosticReference : item.id,
+    ),
+  );
+});
+
+test("renders no healthy-state Attention placeholder when the normalized queue is empty", () => {
+  const html = renderToStaticMarkup(
+    createElement(OverviewAttention, {
+      attention: [],
+      entryId: "bearing",
+      onNavigate: () => {},
+    }),
+  );
+
+  expect(html).toBe("");
 });
 
 test("renders retained members from a trustworthy partial Roadmap projection", () => {
@@ -61,15 +85,17 @@ test("renders retained members from a trustworthy partial Roadmap projection", (
     target: "roadmap:second",
     message: "One Roadmap is unavailable.",
   };
-  const partial = projectSnapshotSchema.parse({
-    ...snapshot,
-    roadmapIndex: {
-      validity: "partial",
-      value: { ...snapshot.roadmapIndex.value, activeRoadmapIds: ["roadmap:portal"] },
-      issues: [issue],
-    },
-    roadmaps: { validity: "partial", items: [portalRoadmap], issues: [issue] },
-  });
+  const partial = projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      roadmapIndex: {
+        validity: "partial",
+        value: { ...snapshot.roadmapIndex.value, activeRoadmapIds: ["roadmap:portal"] },
+        issues: [issue],
+      },
+      roadmaps: { validity: "partial", items: [portalRoadmap], issues: [issue] },
+    }),
+  );
   const model = buildProjectOverviewModel(partial);
 
   expect(model.roadmaps).toMatchObject({ state: "partial", activeCount: 1 });

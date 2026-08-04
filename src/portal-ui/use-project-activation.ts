@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   createDeferredActivation,
   interactionNeedsActivation,
   manualActionOwnsActivation,
+  visibilityReturnNeedsActivation,
 } from "./project-activation-events";
 import {
   type ActivationAction,
@@ -13,6 +14,8 @@ import {
   visibleProjectView,
 } from "./project-activation-state";
 import {
+  InvalidProjectSessionError,
+  inspectNativeScope,
   type ProjectOperationError,
   type ProjectView,
   readProjectSnapshot,
@@ -32,10 +35,25 @@ export type ProjectActivation = Readonly<{
   view?: ProjectView;
   forceSync: () => void;
   retry: () => void;
+  inspection: Readonly<{
+    state: "idle" | "running" | "failed";
+    subjectKey?: string | undefined;
+  }>;
+  inspectNativeScope: (
+    subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
+    target: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
+    refresh: boolean,
+  ) => void;
 }>;
 
 export const useProjectActivation = (entryId: string): ProjectActivation => {
   const [state, dispatch] = useReducer(projectActivationReducer, { kind: "loading-cache" });
+  const [inspection, setInspection] = useState<
+    Readonly<{
+      state: "idle" | "running" | "failed";
+      subjectKey?: string | undefined;
+    }>
+  >({ state: "idle" });
   const stateRef = useRef(state);
   const stateEntryIdRef = useRef(entryId);
   const csrfTokenRef = useRef<string | undefined>(undefined);
@@ -89,6 +107,25 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
     [],
   );
 
+  const withSessionRecovery = useCallback(
+    async function withSessionRecovery<Result>(
+      csrfToken: string,
+      signal: AbortSignal,
+      run: (currentCsrfToken: string, currentSignal: AbortSignal) => Promise<Result>,
+    ): Promise<Result> {
+      try {
+        return await run(csrfToken, signal);
+      } catch (error) {
+        if (!(error instanceof InvalidProjectSessionError)) throw error;
+        const envelope = await readProjectSnapshot(entryId, signal);
+        const currentCsrfToken = envelope.session.csrfToken;
+        csrfTokenRef.current = currentCsrfToken;
+        return run(currentCsrfToken, signal);
+      }
+    },
+    [entryId],
+  );
+
   const activate = useCallback(async () => {
     if (busyRequestRef.current !== undefined) return;
     stateEntryIdRef.current = entryId;
@@ -122,7 +159,9 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       }
       dispatch({ type: "checking", view: envelope.view });
       const result = await withController((signal) =>
-        syncProject(entryId, "ensure-current", envelope.session.csrfToken, signal),
+        withSessionRecovery(envelope.session.csrfToken, signal, (currentCsrfToken, currentSignal) =>
+          syncProject(entryId, "ensure-current", currentCsrfToken, currentSignal),
+        ),
       );
       applySyncResult(requestId, result);
     } catch (error) {
@@ -137,7 +176,7 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
       if (automaticRequestRef.current === requestId) automaticRequestRef.current = undefined;
     }
-  }, [applySyncResult, dispatchCurrent, entryId, withController]);
+  }, [applySyncResult, dispatchCurrent, entryId, withController, withSessionRecovery]);
 
   const forceSync = useCallback(() => {
     const csrfToken = csrfTokenRef.current;
@@ -158,7 +197,11 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
     const candidate = visibleProjectView(stateRef.current);
     const cached = candidate?.project.entryId === entryId ? candidate : undefined;
     dispatch(cached === undefined ? { type: "syncing" } : { type: "syncing", view: cached });
-    void withController((signal) => syncProject(entryId, "force", csrfToken, signal))
+    void withController((signal) =>
+      withSessionRecovery(csrfToken, signal, (currentCsrfToken, currentSignal) =>
+        syncProject(entryId, "force", currentCsrfToken, currentSignal),
+      ),
+    )
       .then((result) => applySyncResult(requestId, result))
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -172,10 +215,67 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       .finally(() => {
         if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
       });
-  }, [applySyncResult, dispatchCurrent, entryId, withController]);
+  }, [applySyncResult, dispatchCurrent, entryId, withController, withSessionRecovery]);
+
+  const inspectScope = useCallback(
+    (
+      subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
+      target: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
+      refresh: boolean,
+    ) => {
+      const csrfToken = csrfTokenRef.current;
+      const subjectKey = `${subject.kind}:${subject.id}`;
+      if (csrfToken === undefined || inspection.state === "running") return;
+      const requestId = ++requestIdRef.current;
+      busyRequestRef.current = requestId;
+      automaticRequestRef.current = undefined;
+      const candidate = visibleProjectView(stateRef.current);
+      const cached = candidate?.project.entryId === entryId ? candidate : undefined;
+      setInspection({ state: "running", subjectKey });
+      void withController((signal) =>
+        withSessionRecovery(csrfToken, signal, (currentCsrfToken, currentSignal) =>
+          inspectNativeScope(entryId, subject, target, refresh, currentCsrfToken, currentSignal),
+        ),
+      )
+        .then((result) => {
+          applySyncResult(requestId, result);
+          setInspection(
+            result.state === "failed"
+              ? { state: "failed", subjectKey }
+              : { state: "idle", subjectKey },
+          );
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            setInspection({ state: "idle" });
+            return;
+          }
+          setInspection({ state: "failed", subjectKey });
+          if (cached !== undefined) {
+            dispatchCurrent(requestId, {
+              type: "settled",
+              confirmation: "checked-recently",
+              view: cached,
+            });
+          }
+        })
+        .finally(() => {
+          if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
+        });
+    },
+    [
+      applySyncResult,
+      dispatchCurrent,
+      entryId,
+      inspection.state,
+      withController,
+      withSessionRecovery,
+    ],
+  );
 
   useEffect(() => {
     csrfTokenRef.current = undefined;
+    setInspection({ state: "idle" });
     void activate();
     return () => {
       requestIdRef.current += 1;
@@ -191,12 +291,27 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
 
   useEffect(() => {
     let lastActivityAt = Date.now();
+    let previousVisibilityState = document.visibilityState;
+    let hiddenAt = previousVisibilityState === "hidden" ? Date.now() : undefined;
     const deferredActivation = createDeferredActivation(() => void activate());
     const queueActivation = () => {
       if (busyRequestRef.current === undefined) deferredActivation.schedule();
     };
-    const visible = () => {
-      if (document.visibilityState === "visible") queueActivation();
+    const visibilityChanged = () => {
+      const currentActivityAt = Date.now();
+      const currentVisibilityState = document.visibilityState;
+      if (previousVisibilityState !== "hidden" && currentVisibilityState === "hidden") {
+        hiddenAt = currentActivityAt;
+      }
+      const shouldActivate = visibilityReturnNeedsActivation(
+        previousVisibilityState,
+        currentVisibilityState,
+        hiddenAt,
+        currentActivityAt,
+      );
+      previousVisibilityState = currentVisibilityState;
+      if (currentVisibilityState === "visible") hiddenAt = undefined;
+      if (shouldActivate) queueActivation();
     };
     const interaction = (event: PointerEvent | KeyboardEvent) => {
       const currentActivityAt = Date.now();
@@ -209,14 +324,12 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
       if (shouldActivate) queueActivation();
     };
     window.addEventListener("online", queueActivation);
-    window.addEventListener("focus", queueActivation);
-    document.addEventListener("visibilitychange", visible);
+    document.addEventListener("visibilitychange", visibilityChanged);
     window.addEventListener("pointerdown", interaction, true);
     window.addEventListener("keydown", interaction, true);
     return () => {
       window.removeEventListener("online", queueActivation);
-      window.removeEventListener("focus", queueActivation);
-      document.removeEventListener("visibilitychange", visible);
+      document.removeEventListener("visibilitychange", visibilityChanged);
       window.removeEventListener("pointerdown", interaction, true);
       window.removeEventListener("keydown", interaction, true);
       deferredActivation.cancel();
@@ -236,6 +349,19 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
   const candidate = visibleProjectView(scopedState);
   const view = candidate?.project.entryId === entryId ? candidate : undefined;
   return view === undefined
-    ? { state: scopedState, forceSync, retry }
-    : { state: scopedState, view, forceSync, retry };
+    ? {
+        state: scopedState,
+        forceSync,
+        retry,
+        inspection,
+        inspectNativeScope: inspectScope,
+      }
+    : {
+        state: scopedState,
+        view,
+        forceSync,
+        retry,
+        inspection,
+        inspectNativeScope: inspectScope,
+      };
 };

@@ -8,8 +8,11 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import packageMetadata from "../package.json";
+import { ACTIVATION_ORIGINS, checkBearingActivation } from "./activation-policy";
+import { createPlanningLineageAgentHandoff } from "./agent-planning-lineage-handoff";
 import { registerAsset } from "./asset-registration";
 import { runCatalogCommand } from "./catalog/cli";
+import { readCatalogDocument, withCatalogEntryLeaseStatus } from "./catalog/store";
 import {
   executorNominationAssessmentSchema,
   resolveExecutorNominations,
@@ -17,16 +20,25 @@ import {
 } from "./executor-registration";
 import { writeInspectBenchmarkMetrics } from "./inspect-benchmark";
 import { installKit } from "./installer";
+import { assessNativeReconciliation } from "./native-reconciliation-assessment";
+import {
+  nativeWorkAffectedRelationSchema,
+  normalizeNativeReconciliationRequest,
+} from "./native-reconciliation-contract";
+import { resolveRepositoryRoot } from "./path-boundary";
 import { createPlanningGraphInstrumentation } from "./planning-graph-instrumentation";
 import { parsePortalPort } from "./portal/port";
+import { createProjectMaterializer } from "./portal/project-materializer";
 import { startPortalServer } from "./portal/server";
+import { readProjectSnapshotCache } from "./project-snapshot/cache";
 import { reconcileRepository } from "./reconcile-repository";
 import { deactivateRepository, inspectPurgePlan, purgeRepository } from "./repo-lifecycle";
 import { inspectLegacyCutoverPlan } from "./repository-cutover";
 import { planRepositoryIntegration } from "./repository-integration-plan";
 import { runSync } from "./sync";
 import { commitSyncPlan, prepareSync } from "./sync-plan";
-import type { AgentSurface } from "./types";
+import { readSyncReceipt } from "./sync-receipt";
+import type { AgentSurface, StructuralDiagnostic } from "./types";
 
 const HELP = `Bearing ${packageMetadata.version}
 
@@ -34,12 +46,14 @@ Usage:
   bearing
   bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
   bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>] [--confirm-repair] [--confirm-reactivate] [--accept-upgrade-direction --confirm-cutover --cutover-at <ISO-8601> --cutover-plan-token <sha256>] [--plan]
+  bearing activation check --origin <model-invoked|explicit> [--repo <path>]
   bearing deactivate --repo <path>
   bearing purge --repo <path> [--plan] [--confirm-purge --purge-plan-token <sha256> (--recovery-export <path> | --accept-no-recovery-export)]
-  bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [options]
+  bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [--producer-reference <reference>] [--produced-for <reference>] [--produced-at <date-or-ISO-instant>]
   bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
-  bearing sync [--repo <path>]
-  bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>]
+  bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
+  bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
+  bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]
   bearing portal [--port <1-65535>]
   bearing --help
   bearing --version
@@ -48,11 +62,13 @@ Commands:
   <none>   Run the install/update wizard for the detected local Agent Surfaces.
   install  Install the global bundle, CLI, and skills for selected Agent Surfaces.
   setup    Enable Bearing in one repository without copying package-owned contracts or skills into it.
+  activation  Check read-only repository eligibility and routing before Bearing activation.
   deactivate  Remove repository enablement and managed pointers; preserve state and native work.
   purge    Remove only the repository .bearing namespace and managed pointers after confirmation.
   asset    Register factual durable-output metadata in the repository Asset Registry.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
   sync     Rebuild deterministic diagnostics and the Project Sitemap under .bearing/cache/.
+  reconcile-native  Re-observe only the native subjects and relations affected by one completed Matt transaction.
   inspect  Return one generation-scoped planning context closure.
   portal   Run the foreground loopback Portal Host and compiled browser Module.
 
@@ -61,6 +77,7 @@ Environment:
 `;
 
 const surfaceSchema = z.array(z.enum(["agent-skills", "claude"])).min(1);
+const activationOriginSchema = z.enum(ACTIVATION_ORIGINS);
 
 const packageRoot = (): string => {
   const adjacent = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -270,6 +287,25 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
   }
 };
 
+const runActivationCheck = async (args: readonly string[]): Promise<void> => {
+  const [subcommand, ...values] = args;
+  if (subcommand !== "check") {
+    throw new Error("Activation requires the `check` subcommand.");
+  }
+  const parsed = parseArgs({
+    args: values,
+    options: {
+      origin: { type: "string" },
+      repo: { type: "string" },
+    },
+    allowPositionals: false,
+    strict: true,
+  });
+  const origin = activationOriginSchema.parse(parsed.values.origin);
+  const result = await checkBearingActivation(parsed.values.repo ?? process.cwd(), origin);
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+};
+
 const runInstall = async (args: readonly string[]): Promise<void> => {
   const parsed = parseArgs({
     args: [...args],
@@ -307,6 +343,7 @@ const runAssetCommand = async (args: readonly string[]): Promise<void> => {
       "producer-reference": { type: "string" },
       "executor-capability": { type: "string" },
       "produced-for": { type: "string" },
+      "produced-at": { type: "string" },
     },
     allowPositionals: true,
     strict: true,
@@ -369,6 +406,9 @@ const runAssetCommand = async (args: readonly string[]): Promise<void> => {
     ...(parsed.values["produced-for"] === undefined
       ? {}
       : { producedFor: parsed.values["produced-for"] }),
+    ...(parsed.values["produced-at"] === undefined
+      ? {}
+      : { producedAt: parsed.values["produced-at"] }),
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 };
@@ -445,17 +485,167 @@ const runRepositoryLifecycle = async (
 const runSyncCommand = async (args: readonly string[]): Promise<void> => {
   const parsed = parseArgs({
     args: [...args],
-    options: { repo: { type: "string" } },
+    options: {
+      repo: { type: "string" },
+      "initialize-provider-observations": { type: "boolean" },
+      "recover-provider-observations": { type: "boolean" },
+      "full-provider-verification": { type: "boolean" },
+    },
     allowPositionals: false,
     strict: true,
   });
-  const result = await runSync(resolve(parsed.values.repo ?? process.cwd()));
+  const providerIntentCount = [
+    parsed.values["initialize-provider-observations"],
+    parsed.values["recover-provider-observations"],
+    parsed.values["full-provider-verification"],
+  ].filter((value) => value === true).length;
+  if (providerIntentCount > 1) {
+    throw new Error(
+      "Choose exactly one provider observation baseline, recovery, or full verification intent.",
+    );
+  }
+  const providerObservationIntent =
+    parsed.values["initialize-provider-observations"] === true
+      ? ("initial-baseline" as const)
+      : parsed.values["recover-provider-observations"] === true
+        ? ("recovery" as const)
+        : parsed.values["full-provider-verification"] === true
+          ? ("full-verification" as const)
+          : ("ordinary-sync" as const);
+  const result = await runSync(resolve(parsed.values.repo ?? process.cwd()), {
+    providerObservationIntent,
+  });
   process.stdout.write(
-    `Report: ${result.reportPath}\nSitemap: ${result.sitemapPath}\nInput fingerprint: ${result.fingerprint}\nDiagnostics: ${result.diagnostics.length}\nOutcome: ${result.changed ? "applied" : "no-op"}\n`,
+    `Report: ${result.reportPath}\nSitemap: ${result.sitemapPath}\nInput fingerprint: ${result.fingerprint}\nDiagnostics: ${result.diagnostics.length}\nProvider observations: ${result.providerObservationOperation.intent}/${result.providerObservationOperation.outcome} (${result.providerObservationOperation.acquisitionCount} acquisitions)\nNative scope inspection: ${result.nativeScopeInspectionOperation.intent.kind}/${result.nativeScopeInspectionOperation.outcome} (${result.nativeScopeInspectionOperation.acquisitionCount} acquisitions)\nOutcome: ${result.changed ? "applied" : "no-op"}\n`,
   );
   if (result.diagnostics.some((diagnostic) => diagnostic.impact === "blocking")) {
     process.exitCode = 1;
   }
+};
+
+const runNativeReconciliationCommand = async (args: readonly string[]): Promise<void> => {
+  const parsed = parseArgs({
+    args: [...args],
+    options: {
+      repo: { type: "string" },
+      scope: { type: "string" },
+      ref: { type: "string", multiple: true },
+      relation: { type: "string", multiple: true },
+    },
+    allowPositionals: false,
+    strict: true,
+  });
+  const nativeScope = parsed.values.scope;
+  if (nativeScope === undefined) {
+    throw new Error("Targeted native reconciliation requires --scope <opaque-native-scope>.");
+  }
+  const relations = (parsed.values.relation ?? []).map((encoded) => {
+    let value: unknown;
+    try {
+      value = JSON.parse(encoded);
+    } catch (error) {
+      throw new Error("Every --relation value must be one JSON relation object.", {
+        cause: error,
+      });
+    }
+    return nativeWorkAffectedRelationSchema.parse(value);
+  });
+  const request = normalizeNativeReconciliationRequest({
+    binding: { provider: "matt-skills/v1", nativeScope },
+    subjects: parsed.values.ref ?? [],
+    relations,
+  });
+  const repoRoot = await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd()));
+  const catalog = await readCatalogDocument({ homeDir: homeDirectory() });
+  const entry = catalog.entries.find((candidate) => candidate.repoRoot === repoRoot);
+  if (entry === undefined) {
+    throw new Error(
+      "Targeted native reconciliation requires the repository's current Project Catalog entry.",
+    );
+  }
+  const invocationStartedAt = Date.now();
+  const materializer = createProjectMaterializer({
+    packageName: packageMetadata.name,
+    packageVersion: packageMetadata.version,
+  });
+  const coordinated = await withCatalogEntryLeaseStatus(
+    homeDirectory(),
+    entry.entryId,
+    entry.repoRoot,
+    async ({ contended }) => {
+      if (contended) {
+        const [cached, receipt] = await Promise.all([
+          readProjectSnapshotCache(repoRoot),
+          readSyncReceipt(join(repoRoot, ".bearing/cache/sync-receipt.json")),
+        ]);
+        if (
+          cached.kind === "available" &&
+          receipt.kind === "available" &&
+          receipt.receipt.operation?.kind === "native-reconciliation" &&
+          receipt.receipt.operation.requestFingerprint ===
+            assessNativeReconciliation({
+              request,
+              boundSelections: cached.snapshot.providerObservationSelections,
+              inspectionSelections: cached.snapshot.nativeScopeInspections.selections,
+            }).requestFingerprint &&
+          Date.parse(receipt.receipt.completedAt) >= invocationStartedAt
+        ) {
+          return {
+            snapshot: cached.snapshot,
+            snapshotDisposition: "reused" as const,
+            publication: "coalesced" as const,
+          };
+        }
+      }
+      const result = await materializer.run(
+        repoRoot,
+        "force",
+        undefined,
+        undefined,
+        "ordinary-sync",
+        { kind: "reconcile", request },
+      );
+      return {
+        snapshot: result.snapshot,
+        snapshotDisposition: result.snapshotDisposition,
+        publication: result.outcome,
+      };
+    },
+    30_000,
+  );
+  const reconciliation = assessNativeReconciliation({
+    request,
+    boundSelections: coordinated.snapshot.providerObservationSelections,
+    inspectionSelections: coordinated.snapshot.nativeScopeInspections.selections,
+  });
+  const diagnostics: StructuralDiagnostic[] = [
+    ...coordinated.snapshot.diagnostics,
+    ...reconciliation.diagnostics,
+  ].filter(
+    (diagnostic, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          candidate.code === diagnostic.code &&
+          candidate.impact === diagnostic.impact &&
+          candidate.target === diagnostic.target &&
+          candidate.message === diagnostic.message,
+      ) === index,
+  );
+  const blocked =
+    reconciliation.outcome === "failed" ||
+    diagnostics.some((diagnostic) => diagnostic.impact === "blocking");
+  const outcome = blocked
+    ? "blocked"
+    : coordinated.publication === "coalesced"
+      ? "coalesced"
+      : "succeeded";
+  process.stdout.write(
+    `Input fingerprint: ${coordinated.snapshot.basis.sitemapFingerprint}\nDiagnostics: ${diagnostics.length}\nScoped diagnostics: ${reconciliation.diagnostics.length}\nReconciliation: ${reconciliation.outcome}\nPublication: ${coordinated.publication}\nSnapshot: ${coordinated.snapshotDisposition}\nOutcome: ${outcome}\n`,
+  );
+  for (const diagnostic of reconciliation.diagnostics) {
+    process.stdout.write(`- ${diagnostic.code} [${diagnostic.target}]: ${diagnostic.message}\n`);
+  }
+  if (blocked) process.exitCode = 1;
 };
 
 const runInspectCommand = async (args: readonly string[]): Promise<void> => {
@@ -464,6 +654,7 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
     options: {
       repo: { type: "string" },
       "benchmark-metrics-file": { type: "string" },
+      "portal-entry": { type: "string" },
     },
     allowPositionals: true,
     strict: true,
@@ -474,7 +665,9 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
     id === undefined ||
     extra.length > 0
   ) {
-    throw new Error("Usage: bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>]");
+    throw new Error(
+      "Usage: bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]",
+    );
   }
   const repoRoot = resolve(parsed.values.repo ?? process.cwd());
   const metricsFile = parsed.values["benchmark-metrics-file"];
@@ -489,7 +682,15 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
   const closureCompleted = performance.now();
   await commitSyncPlan(plan);
   const outputStarted = performance.now();
-  const output = `${JSON.stringify(result, null, 2)}\n`;
+  const portalEntry = parsed.values["portal-entry"];
+  const outputValue =
+    portalEntry === undefined
+      ? result
+      : {
+          ...result,
+          handoff: createPlanningLineageAgentHandoff(portalEntry, { kind, id }),
+        };
+  const output = `${JSON.stringify(outputValue, null, 2)}\n`;
   const outputCompleted = performance.now();
   process.stdout.write(output);
   if (metricsFile !== undefined && instrumentation !== undefined) {
@@ -516,7 +717,7 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
         capturedInputs: plan.metrics.capturedInputCount,
         bearingRecords: plan.metrics.bearingRecordCount,
         recordDecodes: plan.metrics.recordDecodeCount,
-        providerCaptures: plan.metrics.providerCaptureCount,
+        providerObservations: plan.metrics.providerAcquisitionCount,
         planningGraphBuilds: observed.planningGraphBuilds,
         rootClosures: observed.rootClosures,
         repositoryRevalidations: plan.metrics.repositoryRevalidationCount,
@@ -565,6 +766,10 @@ const main = async (): Promise<void> => {
     await runSetup(args);
     return;
   }
+  if (command === "activation") {
+    await runActivationCheck(args);
+    return;
+  }
   if (command === "deactivate" || command === "purge") {
     await runRepositoryLifecycle(command, args);
     return;
@@ -579,6 +784,10 @@ const main = async (): Promise<void> => {
   }
   if (command === "sync") {
     await runSyncCommand(args);
+    return;
+  }
+  if (command === "reconcile-native") {
+    await runNativeReconciliationCommand(args);
     return;
   }
   if (command === "inspect") {

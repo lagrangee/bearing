@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { MattSkillsV1ScopeCapture } from "../providers/matt-skills-v1/capture";
+import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
 import {
   type alignmentCheckSchema,
   type assetProjectionSchema,
@@ -8,17 +8,22 @@ import {
   type authoritySchema,
   type effortSchema,
   type gateSchema,
-  type guidanceItemSchema,
-  type nextWorkGuidanceSchema,
   PROJECT_SNAPSHOT_VERSION,
   type planningAuditSchema,
   type planningReviewSchema,
+  type projectBriefSchema,
   type projectionIssueSchema,
   type projectSnapshotSchema,
   type projectSummarySchema,
   type roadmapSchema,
   type structuralDiagnosticSchema,
 } from "./schema";
+import type { nativeScopeInspectionProjectionSchema } from "./schema-native-scope-inspection";
+import type {
+  planningLineageProjectionSchema,
+  planningLineageRelationSchema,
+  planningLineageSubjectProjectionSchema,
+} from "./schema-planning-lineage";
 import type { roadmapIndexSchema } from "./schema-roadmap-index";
 import type { sourceRecordSchema } from "./source-schema";
 
@@ -53,6 +58,7 @@ export type CollectionProjection<T> =
     }>
   | Readonly<{ validity: "invalid"; issues: readonly ProjectionIssue[] }>;
 export type ProjectSummary = DeepReadonly<z.infer<typeof projectSummarySchema>>;
+export type ProjectBrief = DeepReadonly<z.infer<typeof projectBriefSchema>>;
 export type RoadmapIndex = DeepReadonly<z.infer<typeof roadmapIndexSchema>>;
 export type Roadmap = DeepReadonly<z.infer<typeof roadmapSchema>>;
 export type MilestoneGate = DeepReadonly<z.infer<typeof gateSchema>>;
@@ -63,9 +69,17 @@ export type AlignmentCheck = DeepReadonly<z.infer<typeof alignmentCheckSchema>>;
 export type PlanningReview = DeepReadonly<z.infer<typeof planningReviewSchema>>;
 export type AuditFinding = DeepReadonly<z.infer<typeof auditFindingSchema>>;
 export type PlanningAudit = DeepReadonly<z.infer<typeof planningAuditSchema>>;
-export type GuidanceItem = DeepReadonly<z.infer<typeof guidanceItemSchema>>;
-export type NextWorkGuidance = DeepReadonly<z.infer<typeof nextWorkGuidanceSchema>>;
-export type ProviderScopeCapture = DeepReadonly<MattSkillsV1ScopeCapture>;
+export type PlanningLineageProjection = DeepReadonly<
+  z.infer<typeof planningLineageProjectionSchema>
+>;
+export type PlanningLineageRelation = DeepReadonly<z.infer<typeof planningLineageRelationSchema>>;
+export type PlanningLineageSubjectProjection = DeepReadonly<
+  z.infer<typeof planningLineageSubjectProjectionSchema>
+>;
+export type ProviderScopeObservation = DeepReadonly<MattSkillsV1ProviderObservation>;
+export type NativeScopeInspectionProjection = DeepReadonly<
+  z.infer<typeof nativeScopeInspectionProjectionSchema>
+>;
 export type SnapshotDiagnostic = DeepReadonly<z.infer<typeof structuralDiagnosticSchema>>;
 export type AttentionItem = DeepReadonly<z.infer<typeof attentionItemSchema>>;
 export type SourceRecord = DeepReadonly<z.infer<typeof sourceRecordSchema>>;

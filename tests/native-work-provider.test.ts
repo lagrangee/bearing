@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-  assessProviderCaptureEvidence,
-  createProviderScopeCapture,
+  assessProviderObservationEvidence,
+  createProviderScopeObservation,
   type ProviderConfiguration,
   type WorkBinding,
 } from "../src/native-work-provider";
@@ -24,21 +24,16 @@ const binding: WorkBinding<"matt-skills/v1"> = {
   nativeScope: "scope:reference",
 };
 
-const generation = {
-  fingerprint: "sha256:reference-generation",
-};
-
 describe("NativeWorkProvider capture contract", () => {
   test("returns one deeply immutable scope capture through the public semantic seam", async () => {
     let calls = 0;
     const provider: MattSkillsV1Provider = {
       id: "matt-skills/v1",
-      capture: async (requestedBinding, requestedGeneration) => {
+      capture: async (requestedBinding) => {
         calls += 1;
-        return createProviderScopeCapture({
+        return createProviderScopeObservation({
           provider: "matt-skills/v1",
           binding: requestedBinding,
-          generation: requestedGeneration,
           state: "partial",
           freshness: {
             assessment: "current",
@@ -72,12 +67,13 @@ describe("NativeWorkProvider capture contract", () => {
       },
     };
 
-    const capture = await provider.capture(binding, generation);
+    const capture = await provider.capture(binding);
 
     expect(calls).toBe(1);
     expect(capture.provider).toBe(provider.id);
     expect(capture.binding).toEqual(binding);
-    expect(capture.generation).toEqual(generation);
+    expect(capture).not.toHaveProperty("generation");
+    expect(capture.id).toMatch(/^provider-observation:sha256:[a-f0-9]{64}$/);
     expect(capture.state).toBe("partial");
     expect(capture.freshness.assessment).toBe("current");
     expect(capture.coverage.assessment).toBe("incomplete");
@@ -98,10 +94,9 @@ describe("NativeWorkProvider capture contract", () => {
   });
 
   test("keeps state, freshness and completion independent while forbidding false completion", () => {
-    const staleAvailable = createProviderScopeCapture({
+    const staleAvailable = createProviderScopeObservation({
       provider: "matt-skills/v1",
       binding,
-      generation,
       state: "available",
       freshness: {
         assessment: "stale",
@@ -121,10 +116,9 @@ describe("NativeWorkProvider capture contract", () => {
     expect(staleAvailable.coverage.assessment).toBe("complete");
     expect(staleAvailable.completion).toBe("incomplete");
 
-    const absent = createProviderScopeCapture({
+    const absent = createProviderScopeObservation({
       provider: "matt-skills/v1",
       binding,
-      generation,
       state: "absent",
       freshness: {
         assessment: "current",
@@ -143,10 +137,9 @@ describe("NativeWorkProvider capture contract", () => {
     expect(absent.completion).toBe("incomplete");
 
     expect(() =>
-      createProviderScopeCapture({
+      createProviderScopeObservation({
         provider: "matt-skills/v1",
         binding,
-        generation,
         state: "partial",
         freshness: {
           assessment: "current",
@@ -161,10 +154,9 @@ describe("NativeWorkProvider capture contract", () => {
     ).toThrow("complete");
 
     expect(() =>
-      createProviderScopeCapture({
+      createProviderScopeObservation({
         provider: "matt-skills/v1",
         binding,
-        generation,
         state: "available",
         freshness: {
           assessment: "current",
@@ -182,10 +174,9 @@ describe("NativeWorkProvider capture contract", () => {
     ).toThrow("gaps");
 
     expect(() =>
-      createProviderScopeCapture({
+      createProviderScopeObservation({
         provider: "matt-skills/v1",
         binding,
-        generation,
         state: "available",
         freshness: {
           assessment: "current",
@@ -223,7 +214,7 @@ describe("NativeWorkProvider capture contract", () => {
       diagnostics: [],
     };
 
-    expect(assessProviderCaptureEvidence(available)).toEqual({
+    expect(assessProviderObservationEvidence(available)).toEqual({
       projectionState: "available",
       freshness: "current",
       coverage: "complete",
@@ -252,10 +243,10 @@ describe("NativeWorkProvider capture contract", () => {
       },
     ];
     for (const capture of degraded) {
-      expect(assessProviderCaptureEvidence(capture).frontierEvidence).toBe("withheld");
+      expect(assessProviderObservationEvidence(capture).frontierEvidence).toBe("withheld");
     }
 
-    expect(assessProviderCaptureEvidence(undefined)).toEqual({
+    expect(assessProviderObservationEvidence(undefined)).toEqual({
       projectionState: "missing",
       freshness: "undetermined",
       coverage: "undetermined",
@@ -266,10 +257,9 @@ describe("NativeWorkProvider capture contract", () => {
   });
 
   test("delegates deep immutability of validated structural data to the package boundary", () => {
-    const capture = createProviderScopeCapture({
+    const capture = createProviderScopeObservation({
       provider: "matt-skills/v1",
       binding,
-      generation,
       state: "available",
       freshness: {
         assessment: "current",
@@ -298,10 +288,9 @@ describe("NativeWorkProvider capture contract", () => {
 
   test("rejects provider values outside the string-keyed structural contract", () => {
     const createCaptureWithProjection = (projection: unknown) =>
-      createProviderScopeCapture({
+      createProviderScopeObservation({
         provider: "matt-skills/v1",
         binding,
-        generation,
         state: "available",
         freshness: {
           assessment: "current",
@@ -330,10 +319,9 @@ describe("NativeWorkProvider capture contract", () => {
     expect(() => createCaptureWithProjection(undefined)).toThrow("require one projection");
 
     expect(() =>
-      createProviderScopeCapture({
+      createProviderScopeObservation({
         provider: "matt-skills/v1",
         binding,
-        generation,
         state: "invalid",
         freshness: {
           assessment: "undetermined",
@@ -361,11 +349,10 @@ describe("NativeWorkProvider capture contract", () => {
     ] as const) {
       const provider: MattSkillsV1Provider = {
         id: "matt-skills/v1",
-        capture: async (requestedBinding, requestedGeneration) =>
-          createProviderScopeCapture({
+        capture: async (requestedBinding) =>
+          createProviderScopeObservation({
             provider: "matt-skills/v1",
             binding: requestedBinding,
-            generation: requestedGeneration,
             state: "invalid",
             freshness: {
               assessment: "undetermined",
@@ -395,7 +382,7 @@ describe("NativeWorkProvider capture contract", () => {
           }),
       };
 
-      await expect(provider.capture(binding, generation)).resolves.toMatchObject({
+      await expect(provider.capture(binding)).resolves.toMatchObject({
         state: "invalid",
         freshness: { assessment: "undetermined" },
         coverage: { assessment: "incomplete" },
@@ -415,14 +402,14 @@ describe("Matt reference scenario oracle", () => {
   test("compares capture-level accepted semantics while ignoring provider-native identity", async () => {
     const localProvider = createMattReferenceProvider("local");
     const githubProvider = createMattReferenceProvider("github");
-    const local = await localProvider.capture(
-      { provider: "matt-skills/v1", nativeScope: "local:reference" },
-      generation,
-    );
-    const github = await githubProvider.capture(
-      { provider: "matt-skills/v1", nativeScope: "github:reference" },
-      generation,
-    );
+    const local = await localProvider.capture({
+      provider: "matt-skills/v1",
+      nativeScope: "local:reference",
+    });
+    const github = await githubProvider.capture({
+      provider: "matt-skills/v1",
+      nativeScope: "github:reference",
+    });
 
     expect(local).not.toEqual(github);
     expect(local.projection?.map?.ref).not.toBe(github.projection?.map?.ref);

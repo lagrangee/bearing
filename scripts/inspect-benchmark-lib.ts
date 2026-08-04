@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Readable } from "node:stream";
 import type { InspectBenchmarkMetrics } from "../src/inspect-benchmark";
 import type { PlanningTarget } from "../src/planning-graph";
+import { runSyncMeasured } from "../src/sync";
 import {
   BENCHMARK_SCALES,
   type BenchmarkScale,
@@ -81,9 +82,9 @@ export const assertInspectBenchmarkStructure = (
   ) {
     throw new Error("Structural assertion failed: every Bearing Record must be decoded once.");
   }
-  if (structural.providerCaptures !== specification.scopeCount) {
+  if (structural.providerObservations !== 0) {
     throw new Error(
-      "Structural assertion failed: every bound provider scope must be captured once.",
+      "Structural assertion failed: ordinary Inspect must not acquire provider scopes.",
     );
   }
   if (structural.planningGraphBuilds !== 1) {
@@ -216,6 +217,11 @@ export const runInspectBenchmarkWorker = async (options: {
   const warmupIterations = options.warmupIterations ?? INSPECT_BENCHMARK_ITERATIONS.warmup;
   const measuredIterations = options.measuredIterations ?? INSPECT_BENCHMARK_ITERATIONS.measured;
   try {
+    await runSyncMeasured(fixture.root, {
+      packageVersion: "0.0.0-benchmark",
+      completedAt: "2026-07-18T00:00:00.000Z",
+      providerObservationIntent: "initial-baseline",
+    });
     for (let iteration = 0; iteration < warmupIterations; iteration += 1) {
       for (const target of INSPECT_BENCHMARK_TARGETS) {
         options.onSample?.({ stage: "warmup", iteration, target, state: "started" });
@@ -304,7 +310,9 @@ const summarize = (samples: readonly InspectBenchmarkSample[]) => {
       capturedInputs: [...new Set(samples.map((sample) => sample.structural.capturedInputs))],
       bearingRecords: [...new Set(samples.map((sample) => sample.structural.bearingRecords))],
       recordDecodes: [...new Set(samples.map((sample) => sample.structural.recordDecodes))],
-      providerCaptures: [...new Set(samples.map((sample) => sample.structural.providerCaptures))],
+      providerObservations: [
+        ...new Set(samples.map((sample) => sample.structural.providerObservations)),
+      ],
       planningGraphBuilds: [
         ...new Set(samples.map((sample) => sample.structural.planningGraphBuilds)),
       ],

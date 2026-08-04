@@ -25,7 +25,7 @@ test("the fixed repository fixture materializes healthy semantics without changi
   expect(result.snapshot.audit).toEqual({ validity: "absent" });
   expect(result.snapshot.assets).toMatchObject({
     validity: "available",
-    items: [{ id: "asset:fixture-uncited", citationCount: 0 }],
+    items: [{ id: "asset:fixture-uncited", citations: [], evidenceRoles: [] }],
   });
   expect(await readRepositorySourceBytes(root)).toEqual(before);
 });
@@ -40,7 +40,7 @@ test("one invalid canonical member stays scoped beside trustworthy fixture seman
   expect(result.snapshot.audit).toEqual({ validity: "absent" });
   expect(result.snapshot.assets).toMatchObject({
     validity: "partial",
-    items: [{ id: "asset:fixture-uncited", citationCount: 0 }],
+    items: [{ id: "asset:fixture-uncited", citations: [], evidenceRoles: [] }],
     issues: [{ code: "invalid-asset-schema", target: ".bearing/state/assets.md#asset:broken" }],
   });
   expect(result.snapshot.diagnostics).toContainEqual(

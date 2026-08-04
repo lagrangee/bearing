@@ -3,7 +3,7 @@ import { readFile, rm } from "node:fs/promises";
 import { withBearingManagedPointer } from "../src/agent-surface-entry";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
-import type { MattProviderFactory } from "../src/provider-capture-generation";
+import type { MattProviderFactory } from "../src/provider-observation-acquisition";
 import {
   GitHubReadError,
   type GitHubReadRequest,
@@ -43,9 +43,9 @@ const instrumentedProviderFactory = (
     const provider = createProvider(input);
     return {
       id: provider.id,
-      capture: async (binding, generation) => {
+      capture: async (binding) => {
         captureCalls += 1;
-        return provider.capture(binding, generation);
+        return provider.capture(binding);
       },
     };
   };
@@ -119,9 +119,12 @@ test("standard GitHub Setup feeds one immutable provider capture through every p
     const transport = new FixtureGitHubTransport(fixtures);
     const instrumented = instrumentedProviderFactory(transport);
 
-    const plan = await prepareSync(root, { providerFactory: instrumented.providerFactory });
+    const plan = await prepareSync(root, {
+      providerObservationIntent: "full-verification",
+      providerFactory: instrumented.providerFactory,
+    });
     expect(instrumented.captureCalls()).toBe(1);
-    expect(plan.metrics.providerCaptureCount).toBe(1);
+    expect(plan.metrics.providerAcquisitionCount).toBe(1);
     expect(plan.diagnostics).toEqual([]);
     expect(plan.inputs).toEqual(
       expect.arrayContaining([
@@ -131,8 +134,8 @@ test("standard GitHub Setup feeds one immutable provider capture through every p
         githubTriageLocator,
       ]),
     );
-    const capture = plan.providerCaptures[0];
-    expect(capture?.generation.fingerprint).toBe(plan.fingerprint);
+    const capture = plan.providerObservations[0];
+    expect(capture?.id).toMatch(/^provider-observation:sha256:[a-f0-9]{64}$/);
     expect(capture).toMatchObject({
       state: "available",
       freshness: { assessment: "current" },
@@ -262,7 +265,7 @@ test("standard GitHub Setup feeds one immutable provider capture through every p
     expect(inspect.state).toBe("complete");
     if (inspect.state === "invalid") throw new Error("Expected typed Effort Inspect context.");
     expect(inspect.context.providerCapture).toBe(capture);
-    expect(inspect.context.effort.value.derivedState).toBe("active");
+    expect(inspect.context.effort.value.lifecycle).toBe("active");
     expect(plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" })).toMatchObject({
       state: "complete",
       context: { gate: { value: { readiness: "not-ready" } } },
@@ -270,24 +273,22 @@ test("standard GitHub Setup feeds one immutable provider capture through every p
     expect(plan.sitemap.toString("utf8")).toContain("github/example/reference/issues/4");
 
     const snapshot = await buildSnapshotForSyncPlan(root, PACKAGE_VERSION, plan);
-    expect(snapshot.providerCaptures[0]).toEqual(capture);
-    expect(snapshot.providerCaptures[0]?.generation.fingerprint).toBe(
-      String(snapshot.basis.sitemapFingerprint),
-    );
+    expect(snapshot.providerObservations[0]).toEqual(capture);
+    expect(snapshot.providerObservationSelections[0]?.observationId).toBe(capture?.id);
     let portalSawGenerationCapture = false;
     const materializer = createProjectMaterializer({
       packageVersion: PACKAGE_VERSION,
       dependencies: {
         prepare: async () => plan,
         buildSnapshot: async (input) => {
-          portalSawGenerationCapture = input.providerCaptures === plan.providerCaptures;
+          portalSawGenerationCapture = input.providerObservations === plan.providerObservations;
           return buildProjectSnapshot(input);
         },
       },
     });
     const portal = await materializer.run(root, "ensure-current");
     expect(portalSawGenerationCapture).toBe(true);
-    expect(portal.snapshot.providerCaptures[0]).toEqual(capture);
+    expect(portal.snapshot.providerObservations[0]).toEqual(capture);
     expect(transport.requests).toHaveLength(requestCountAfterSync);
 
     const serializedProductState = [
@@ -425,6 +426,7 @@ for (const scenario of degradationScenarios) {
 
       const preparation = await captureConsoleLogs(() =>
         prepareSync(root, {
+          providerObservationIntent: "full-verification",
           providerFactory: instrumented.providerFactory,
         }),
       );
@@ -433,14 +435,14 @@ for (const scenario of degradationScenarios) {
       if (scenario.expectedFirstEndpoint !== undefined) {
         expect(requests[0]?.endpoint).toBe(scenario.expectedFirstEndpoint);
       }
-      const capture = plan.providerCaptures[0];
+      const capture = plan.providerObservations[0];
       expect(capture).toMatchObject({
         state: scenario.expectedState,
         freshness: { assessment: "undetermined" },
         coverage: { assessment: "incomplete" },
       });
       expect(capture?.completion).not.toBe("complete");
-      expect(capture?.generation.fingerprint).toBe(plan.fingerprint);
+      expect(capture?.id).toMatch(/^provider-observation:sha256:[a-f0-9]{64}$/);
       expect(capture?.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
         expect.arrayContaining(scenario.expectedDiagnosticCodes),
       );
@@ -455,7 +457,7 @@ for (const scenario of degradationScenarios) {
       expect(inspect.state).toBe("partial");
       if (inspect.state === "invalid") throw new Error("Expected typed Effort Inspect context.");
       expect(inspect.context.providerCapture).toBe(capture);
-      expect(inspect.context.effort.value.derivedState).not.toBe("resolved");
+      expect(inspect.context.effort.value.lifecycle).toBe("active");
       const gateInspect = plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" });
       expect(gateInspect.state).toBe("partial");
       if (gateInspect.state === "invalid") throw new Error("Expected typed Gate Inspect context.");
@@ -466,7 +468,7 @@ for (const scenario of degradationScenarios) {
       expect(plan.sitemap.toString("utf8")).toMatch(/[1-9][0-9]* blocking diagnostic\(s\)/u);
 
       const snapshot = await buildSnapshotForSyncPlan(root, PACKAGE_VERSION, plan);
-      expect(snapshot.providerCaptures[0]).toEqual(capture);
+      expect(snapshot.providerObservations[0]).toEqual(capture);
       const requestCountAfterSync = requests.length;
       const materialization = await captureConsoleLogs(() =>
         createProjectMaterializer({
@@ -478,7 +480,7 @@ for (const scenario of degradationScenarios) {
         }).run(root, "ensure-current"),
       );
       const portal = materialization.result;
-      expect(portal.snapshot.providerCaptures[0]).toEqual(capture);
+      expect(portal.snapshot.providerObservations[0]).toEqual(capture);
       expect(requests).toHaveLength(requestCountAfterSync);
 
       const persistedPaths = [

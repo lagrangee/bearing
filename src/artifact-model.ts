@@ -13,6 +13,7 @@ export type GateTopology = Readonly<{
   locator: string;
   lifecycle: "planned" | "active" | "passed" | "superseded";
   roadmap: string;
+  effortOrder: readonly string[];
 }>;
 export type EffortTopology = Readonly<{
   id: string;
@@ -35,12 +36,13 @@ export type ArtifactAnalysis = Readonly<{
 }>;
 
 export const isBearingStableIdReference = (value: string): boolean =>
-  /^(?:roadmap|gate|effort|authority|asset|planning-audit|alignment-check|planning-review|next-work-guidance|project-summary):[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(
+  /^(?:roadmap|gate|effort|authority|asset|planning-audit|alignment-check|planning-review|next-work-guidance|project-summary|project-brief):[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(
     value,
   );
 
 export const expectedBearingType = (locator: string): string | undefined => {
   if (locator === ".bearing/state/project-summary.md") return "project-summary";
+  if (locator === ".bearing/state/project-brief.md") return "project-brief";
   if (locator === ".bearing/state/roadmap-index.md") return "roadmap-index";
   if (locator === ".bearing/state/assets.md") return "asset-registry";
   if (/^\.bearing\/state\/efforts\/[^/]+\.md$/u.test(locator)) return "effort";

@@ -1,98 +1,45 @@
 import { type RefObject, useEffect, useState } from "react";
 import { Icons } from "./icons";
 import { Action } from "./primitives";
-import type { ActivationState } from "./project-activation-state";
+import type { ActivationState, ProjectConfirmation } from "./project-activation-state";
 
-type OperationStatus = Readonly<{
-  busy: boolean;
-  label: string;
-  tone: "current" | "success" | "error" | "muted";
-}>;
-
-const confirmationLabel = (confirmation: "up-to-date" | "updated" | "checked-recently") => {
-  switch (confirmation) {
-    case "up-to-date":
-      return "Up to date";
-    case "updated":
-      return "Updated";
-    case "checked-recently":
-      return "Checked recently";
-  }
-};
-
-const operationStatus = (state: ActivationState): OperationStatus => {
-  switch (state.kind) {
-    case "loading-cache":
-      return { busy: true, label: "Loading cache", tone: "current" };
-    case "checking":
-      return { busy: true, label: "Checking", tone: "current" };
-    case "refreshing":
-      return { busy: true, label: "Refreshing view", tone: "current" };
-    case "syncing":
-      return { busy: true, label: "Syncing", tone: "current" };
-    case "settled":
-      return { busy: false, label: confirmationLabel(state.confirmation), tone: "success" };
-    case "failed":
-      return {
-        busy: false,
-        label: state.operation === "sync" ? "Sync failed" : "Check failed",
-        tone: "error",
-      };
-    case "unavailable":
-      return { busy: false, label: "Unavailable", tone: "muted" };
-  }
-};
-
-function OperationLabel({ operation }: { readonly operation: OperationStatus }) {
-  return (
-    <span
-      className={`project-operation operation-${operation.tone}`}
-      role="status"
-      aria-live="polite"
-    >
-      {operation.busy ? <span className="spinner" aria-hidden="true" /> : null}
-      {operation.label}
-    </span>
-  );
-}
-
-function TimedConfirmation({ operation }: { readonly operation: OperationStatus }) {
-  const [visible, setVisible] = useState(true);
+function SettledSyncLabel({ confirmation }: { readonly confirmation: ProjectConfirmation }) {
+  const [visible, setVisible] = useState(confirmation === "updated");
   useEffect(() => {
+    if (!visible) return undefined;
     const timer = window.setTimeout(() => setVisible(false), 1_600);
     return () => window.clearTimeout(timer);
-  }, []);
-  return visible ? <OperationLabel operation={operation} /> : null;
+  }, [visible]);
+  return visible ? "Updated" : "Sync";
 }
 
-type LastSyncLabel = Readonly<{ date: string; time: string; full: string }>;
-const LAST_SYNC_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-});
-const LAST_SYNC_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-
-const formatLastSync = (completedAt: string | undefined): LastSyncLabel => {
-  if (completedAt === undefined) return { date: "", time: "Never", full: "Never" };
-  const date = new Date(completedAt);
-  if (Number.isNaN(date.getTime())) {
-    return { date: "", time: "Unavailable", full: "Unavailable" };
+const syncPresentation = (state: ActivationState) => {
+  switch (state.kind) {
+    case "loading-cache":
+      return { busy: true, disabled: true, label: "Loading" } as const;
+    case "checking":
+      return { busy: true, disabled: false, label: "Checking" } as const;
+    case "refreshing":
+      return { busy: true, disabled: true, label: "Refreshing" } as const;
+    case "syncing":
+      return { busy: true, disabled: true, label: "Syncing" } as const;
+    case "failed":
+      return { busy: false, disabled: false, label: "Retry" } as const;
+    case "unavailable":
+      return { busy: false, disabled: true, label: "Unavailable" } as const;
+    case "settled":
+      return { busy: false, disabled: false, label: undefined } as const;
   }
-  const dateLabel = LAST_SYNC_DATE_FORMATTER.format(date);
-  const time = LAST_SYNC_TIME_FORMATTER.format(date);
-  return { date: `${dateLabel}, `, time, full: `${dateLabel}, ${time}` };
 };
 
 export function ProjectTopbar({
   attentionCount,
-  lastSyncedAt,
+  findDisabled,
+  findRef,
   menuRef,
   navOpen,
   onOpenNavigation,
+  onOpenFind,
   onSync,
   projectLabel,
   projectTitle,
@@ -100,29 +47,25 @@ export function ProjectTopbar({
   suspended,
 }: {
   readonly attentionCount: number | undefined;
-  readonly lastSyncedAt?: string | undefined;
+  readonly findDisabled: boolean;
+  readonly findRef: RefObject<HTMLButtonElement | null>;
   readonly menuRef: RefObject<HTMLButtonElement | null>;
   readonly navOpen: boolean;
   readonly onOpenNavigation: () => void;
+  readonly onOpenFind: () => void;
   readonly onSync: () => void;
   readonly projectLabel: string;
   readonly projectTitle: string;
   readonly state: ActivationState;
   readonly suspended: boolean;
 }) {
-  const operation = operationStatus(state);
-  const lastSync = formatLastSync(lastSyncedAt);
+  const sync = syncPresentation(state);
   const syncLabel =
-    state.kind === "refreshing"
-      ? "Refreshing"
-      : state.kind === "syncing"
-        ? "Syncing"
-        : state.kind === "failed"
-          ? "Retry"
-          : "Sync";
-  const syncRunning = state.kind === "refreshing" || state.kind === "syncing";
-  const syncDisabled =
-    state.kind === "loading-cache" || syncRunning || state.kind === "unavailable";
+    state.kind === "settled" ? (
+      <SettledSyncLabel key={state.confirmation} confirmation={state.confirmation} />
+    ) : (
+      sync.label
+    );
   return (
     <header className="topbar" inert={suspended} aria-hidden={suspended}>
       <button
@@ -149,56 +92,47 @@ export function ProjectTopbar({
         <strong>{projectTitle}</strong>
         <Icons.chevron aria-hidden="true" />
       </a>
-      <div className={`topbar-status${operation.busy ? " is-busy" : ""}`}>
-        {attentionCount === undefined ? (
-          <span className="attention-compact attention-unavailable">
-            <Icons.unavailable aria-hidden="true" />
-            <span>
-              <small>Attention</small>
-              <strong>Unavailable</strong>
-            </span>
-          </span>
-        ) : attentionCount === 0 ? (
-          <span className="attention-compact attention-clear">
-            <Icons.check aria-hidden="true" />
-            <span>
-              <small>Attention</small>
-              <strong>Clear</strong>
-            </span>
-          </span>
-        ) : (
-          <a className="attention-compact attention-present" href="#attention-queue">
+      <strong className="project-title-narrow">{projectTitle}</strong>
+      <div className={`topbar-status${sync.busy ? " is-busy" : ""}`}>
+        {attentionCount !== undefined && attentionCount > 0 ? (
+          <a
+            className="attention-compact attention-present"
+            href="#attention-queue"
+            aria-label={`${attentionCount} items need attention`}
+          >
             <Icons.attention aria-hidden="true" />
-            <span>
-              <small>Attention</small>
-              <strong>{attentionCount}</strong>
-            </span>
+            <strong>{attentionCount}</strong>
           </a>
-        )}
-        {operation.tone === "success" ? (
-          <TimedConfirmation key={operation.label} operation={operation} />
-        ) : (
-          <OperationLabel operation={operation} />
-        )}
-        <span className="updated-time" title={`Last successful Sync: ${lastSync.full}`}>
-          <span className="updated-label">Last synced </span>
-          <span className="updated-label-compact">Synced </span>
-          <strong>
-            <span className="updated-date">{lastSync.date}</span>
-            {lastSync.time}
-          </strong>
-        </span>
+        ) : null}
         <Action
-          className="topbar-sync"
-          tone="primary"
-          data-project-activation-action="manual"
-          disabled={syncDisabled}
-          onClick={onSync}
-          aria-label={state.kind === "failed" ? "Retry project synchronization" : syncLabel}
+          ref={findRef}
+          className="topbar-find"
+          disabled={findDisabled}
+          onClick={onOpenFind}
+          aria-label="Find in project"
         >
-          <Icons.refresh className={syncRunning ? "is-spinning" : ""} />
-          <span>{syncLabel}</span>
+          <Icons.search />
+          <span>Find</span>
         </Action>
+        <div className="sync-control">
+          <Action
+            className="topbar-sync"
+            tone={state.kind === "failed" ? "quiet" : "primary"}
+            data-project-activation-action="manual"
+            disabled={sync.disabled}
+            onClick={onSync}
+            aria-describedby={state.kind === "failed" ? "sync-failure-detail" : undefined}
+          >
+            <Icons.refresh className={sync.busy ? "is-spinning" : ""} />
+            <span aria-live="polite">{syncLabel}</span>
+          </Action>
+          {state.kind === "failed" ? (
+            <span id="sync-failure-detail" className="sync-failure-detail" role="alert">
+              {state.error.message}
+              {state.view === undefined ? null : " Cached project content remains visible."}
+            </span>
+          ) : null}
+        </div>
       </div>
     </header>
   );

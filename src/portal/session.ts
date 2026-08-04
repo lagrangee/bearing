@@ -7,13 +7,15 @@ type SessionRecord = Readonly<{ csrfToken: string }>;
 
 const encoded = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
 
-const parseCookies = (header: string | undefined): Readonly<Record<string, string>> =>
-  Object.fromEntries(
-    (header ?? "")
-      .split(";")
-      .map((part) => part.trim().split("=", 2))
-      .filter((pair): pair is [string, string] => pair.length === 2 && pair[0] !== undefined),
-  );
+const cookieValues = (header: string | undefined, name: string): readonly string[] =>
+  (header ?? "")
+    .split(";")
+    .map((part) => part.trim().split("=", 2))
+    .filter(
+      (pair): pair is [string, string] =>
+        pair.length === 2 && pair[0] === name && pair[1] !== undefined,
+    )
+    .map((pair) => pair[1]);
 
 export type EstablishedSession = Readonly<{
   csrfToken: string;
@@ -31,16 +33,15 @@ export const createPortalSessionManager = (secret: string): PortalSessionManager
   const sessions = new Map<string, SessionRecord>();
   const signature = (id: string): string =>
     createHmac("sha256", secret).update(id).digest("base64url");
-  const decode = (cookieHeader: string | undefined): string | undefined => {
-    const value = parseCookies(cookieHeader)[COOKIE_NAME];
-    if (value === undefined) return undefined;
-    const [id, observed] = value.split(".", 2);
-    if (id === undefined || observed === undefined) return undefined;
-    const expected = signature(id);
-    const left = Buffer.from(observed);
-    const right = Buffer.from(expected);
-    return left.length === right.length && timingSafeEqual(left, right) ? id : undefined;
-  };
+  const decode = (cookieHeader: string | undefined): readonly string[] =>
+    cookieValues(cookieHeader, COOKIE_NAME).flatMap((value) => {
+      const [id, observed] = value.split(".", 2);
+      if (id === undefined || observed === undefined) return [];
+      const expected = signature(id);
+      const left = Buffer.from(observed);
+      const right = Buffer.from(expected);
+      return left.length === right.length && timingSafeEqual(left, right) ? [id] : [];
+    });
   const create = (): Readonly<{ id: string; record: SessionRecord }> => {
     if (sessions.size >= MAX_SESSIONS) {
       const oldest = sessions.keys().next().value;
@@ -54,23 +55,26 @@ export const createPortalSessionManager = (secret: string): PortalSessionManager
 
   return Object.freeze({
     establish(cookieHeader: string | undefined): EstablishedSession {
-      const id = decode(cookieHeader);
-      const existing = id === undefined ? undefined : sessions.get(id);
-      if (id !== undefined && existing !== undefined) return { csrfToken: existing.csrfToken };
+      for (const id of decode(cookieHeader)) {
+        const existing = sessions.get(id);
+        if (existing !== undefined) return { csrfToken: existing.csrfToken };
+      }
       const created = create();
       return {
         csrfToken: created.record.csrfToken,
-        cookie: `${COOKIE_NAME}=${created.id}.${signature(created.id)}; Path=/; HttpOnly; SameSite=Strict`,
+        cookie: `${COOKIE_NAME}=${created.id}.${signature(created.id)}; Path=/api/; HttpOnly; SameSite=Strict`,
       };
     },
     verify(cookieHeader: string | undefined, csrfToken: string | undefined): boolean {
-      const id = decode(cookieHeader);
-      if (id === undefined || csrfToken === undefined) return false;
-      const expected = sessions.get(id)?.csrfToken;
-      if (expected === undefined) return false;
+      if (csrfToken === undefined) return false;
       const left = Buffer.from(csrfToken);
-      const right = Buffer.from(expected);
-      return left.length === right.length && timingSafeEqual(left, right);
+      for (const id of decode(cookieHeader)) {
+        const expected = sessions.get(id)?.csrfToken;
+        if (expected === undefined) continue;
+        const right = Buffer.from(expected);
+        if (left.length === right.length && timingSafeEqual(left, right)) return true;
+      }
+      return false;
     },
   });
 };

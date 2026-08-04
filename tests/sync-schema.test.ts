@@ -23,7 +23,9 @@ Only one section exists.
 `,
     );
 
-    const result = await runSync(root);
+    const result = await runSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
 
     expect(result.diagnostics).toContainEqual({
       code: "missing-required-section",
@@ -38,10 +40,12 @@ Only one section exists.
     await writeFixture(
       root,
       ".bearing/state/efforts/broken.md",
-      "---\nType: effort\nID: [unterminated\n---\n\n# Broken\n",
+      "---\nType: effort\nLifecycle: active\nPlanned at: null\nActivated at: null\nID: [unterminated\n---\n\n# Broken\n",
     );
 
-    const result = await runSync(root);
+    const result = await runSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
 
     expect(result.inputs).toContain(".bearing/state/roadmaps/test.md");
     expect(result.diagnostics).toContainEqual({
@@ -104,12 +108,14 @@ Should this have been claimed?
 `,
     );
 
-    const result = await prepareSync(root);
+    const result = await prepareSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
 
     expect(result.diagnostics.filter((item) => item.code === "duplicate-stable-id")).toHaveLength(
       2,
     );
-    const capture = result.providerCaptures[0];
+    const capture = result.providerObservations[0];
     if (capture === undefined || (capture.state !== "available" && capture.state !== "partial")) {
       throw new Error("Expected a provider capture.");
     }
@@ -155,7 +161,9 @@ This ID is invalid.
 `,
     );
 
-    const result = await runSync(root);
+    const result = await runSync(root, {
+      providerObservationIntent: "initial-baseline",
+    });
     const sitemap = await Bun.file(result.sitemapPath).text();
 
     expect(result.diagnostics).toContainEqual({

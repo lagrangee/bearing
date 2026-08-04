@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createGitHubMattProvider } from "../src/providers/matt-skills-v1/github";
 import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
 import type { MattScopeProjection } from "../src/providers/matt-skills-v1/model";
+import { mattSkillsV1ProviderObservationSchema } from "../src/providers/matt-skills-v1/schema";
 import {
   createGitHubMattRepository,
   githubContractLocator,
@@ -14,7 +15,6 @@ import {
   expectedMattEquivalenceSemantics,
   githubRequestBudget,
   mattEquivalenceAliases,
-  mattEquivalenceGeneration,
   mattEquivalenceGitHubObjectCount,
   mattEquivalenceGitHubScope,
   mattEquivalenceLocalContractLocator,
@@ -25,7 +25,63 @@ import {
 import {
   mattReferenceEquivalenceView,
   mattReferenceRelationPartition,
+  mattReferenceSemanticAvailabilityView,
 } from "./helpers/matt-reference-oracle";
+
+const expectedSemanticAvailability = {
+  map: {
+    "map.destination": "available",
+    "map.notes": "available",
+    "map.decisions": "available",
+    "map.fog": "available",
+    "map.out-of-scope": "available",
+    "map.resolution-evidence": "confirmed-empty",
+  },
+  spec: {
+    "spec.problem": "available",
+    "spec.solution": "available",
+    "spec.user-stories": "available",
+    "spec.implementation": "available",
+    "spec.testing": "available",
+    "spec.out-of-scope": "available",
+    "spec.further-notes": "available",
+  },
+  research: {
+    "wayfinder.question": "available",
+    "wayfinder.claim": "available",
+    "wayfinder.answer": "available",
+    "wayfinder.comments": "available",
+  },
+  prototype: {
+    "wayfinder.question": "available",
+    "wayfinder.claim": "available",
+    "wayfinder.answer": "confirmed-empty",
+    "wayfinder.comments": "confirmed-empty",
+  },
+  grilling: {
+    "wayfinder.question": "available",
+    "wayfinder.claim": "available",
+    "wayfinder.answer": "confirmed-empty",
+    "wayfinder.comments": "confirmed-empty",
+  },
+  task: {
+    "wayfinder.question": "available",
+    "wayfinder.claim": "available",
+    "wayfinder.answer": "confirmed-empty",
+    "wayfinder.comments": "confirmed-empty",
+  },
+  "delivery-one": {
+    "delivery.what-to-build": "available",
+    "delivery.acceptance-criteria": "available",
+    "delivery.completion-evidence": "confirmed-empty",
+    "delivery.comments": "confirmed-empty",
+  },
+  "incoming-enhancement": {
+    "incoming.classification": "available",
+    "incoming.content": "available",
+    "incoming.routing": "available",
+  },
+} as const;
 
 const projectionObjects = (
   projection: MattScopeProjection | undefined,
@@ -63,6 +119,162 @@ const snapshotTree = async (
 };
 
 describe("Matt Local/GitHub semantic equivalence", () => {
+  test("derives empty semantic availability through both production adapters", async () => {
+    const localRoot = await writeMattEquivalenceLocalRepository();
+    const githubRoot = await createGitHubMattRepository();
+    try {
+      const localQuestion = join(localRoot, mattEquivalenceLocalScope, "issues/03-research.md");
+      await Bun.write(
+        localQuestion,
+        (await readFile(localQuestion, "utf8")).replace(
+          "## Question\n\nWhich semantics are durable?",
+          "## Question\n\n",
+        ),
+      );
+      const local = await createLocalMarkdownMattProvider({
+        repoRoot: localRoot,
+        contractLocator: mattEquivalenceLocalContractLocator,
+        triageLocator: mattEquivalenceTriageLocator,
+        clock: () => new Date("2026-07-28T00:00:00Z"),
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope });
+      const github = await createGitHubMattProvider({
+        repoRoot: githubRoot,
+        contractLocator: githubContractLocator,
+        triageLocator: githubTriageLocator,
+        transport: createMattEquivalenceGitHubTransport({
+          researchBody: "## Question\n\n",
+          deliveryBody: `## What to build
+
+## Acceptance criteria
+
+- [ ] Return independent state, freshness and completion.
+- [ ] Keep the capture immutable.
+`,
+        }),
+        clock: () => new Date("2026-07-28T00:00:00Z"),
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope });
+
+      expect(mattSkillsV1ProviderObservationSchema.safeParse(local).success).toBe(true);
+      expect(mattSkillsV1ProviderObservationSchema.safeParse(github).success).toBe(true);
+      if (
+        (local.state !== "available" && local.state !== "partial") ||
+        (github.state !== "available" && github.state !== "partial")
+      ) {
+        throw new Error("Expected readable production adapter projections.");
+      }
+      expect(
+        local.projection.wayfinderTickets
+          .find((ticket) => ticket.title === "Research the semantic contract")
+          ?.semanticSections.find((section) => section.role === "wayfinder.question"),
+      ).toEqual({ role: "wayfinder.question", availability: "confirmed-empty" });
+      expect(
+        github.projection.wayfinderTickets
+          .find((ticket) => ticket.title === "Research the semantic contract")
+          ?.semanticSections.find((section) => section.role === "wayfinder.question"),
+      ).toEqual({ role: "wayfinder.question", availability: "confirmed-empty" });
+      expect(
+        github.projection.deliveryTickets[0]?.semanticSections.find(
+          (section) => section.role === "delivery.what-to-build",
+        ),
+      ).toEqual({ role: "delivery.what-to-build", availability: "confirmed-empty" });
+    } finally {
+      await Promise.all([
+        rm(localRoot, { recursive: true, force: true }),
+        rm(githubRoot, { recursive: true, force: true }),
+      ]);
+    }
+  });
+
+  test("derives unsupported comment semantics from the production GitHub adapter capability", async () => {
+    const githubRoot = await createGitHubMattRepository();
+    try {
+      const github = await createGitHubMattProvider({
+        repoRoot: githubRoot,
+        contractLocator: githubContractLocator,
+        triageLocator: githubTriageLocator,
+        transport: createMattEquivalenceGitHubTransport({
+          unsupportedCommentsFor: [3],
+        }),
+        clock: () => new Date("2026-07-28T00:00:00Z"),
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope });
+
+      expect(mattSkillsV1ProviderObservationSchema.safeParse(github).success).toBe(true);
+      if (github.state !== "available" && github.state !== "partial") {
+        throw new Error("Expected a readable GitHub projection with scoped capability loss.");
+      }
+      const research = github.projection.wayfinderTickets.find(
+        (ticket) => ticket.title === "Research the semantic contract",
+      );
+      expect(research?.answer).toEqual({
+        availability: "unavailable",
+        reason: "source-contract-gap",
+      });
+      expect(research?.semanticSections).toEqual(
+        expect.arrayContaining([
+          { role: "wayfinder.answer", availability: "unsupported" },
+          { role: "wayfinder.comments", availability: "unsupported" },
+        ]),
+      );
+    } finally {
+      await rm(githubRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves ordinary Incoming prose as semantic issue content through both production adapters", async () => {
+    const localRoot = await writeMattEquivalenceLocalRepository();
+    const githubRoot = await createGitHubMattRepository();
+    const issueBody = "Customer cannot finish the workflow after choosing the advanced option.";
+    try {
+      await Bun.write(
+        join(localRoot, mattEquivalenceLocalScope, "issues/08-incoming.md"),
+        `# Support a custom-mapped enhancement
+
+Category: custom-enhancement
+
+Status: custom-ready
+
+${issueBody}
+`,
+      );
+      const local = await createLocalMarkdownMattProvider({
+        repoRoot: localRoot,
+        contractLocator: mattEquivalenceLocalContractLocator,
+        triageLocator: mattEquivalenceTriageLocator,
+        clock: () => new Date("2026-07-28T00:00:00Z"),
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope });
+      const github = await createGitHubMattProvider({
+        repoRoot: githubRoot,
+        contractLocator: githubContractLocator,
+        triageLocator: githubTriageLocator,
+        transport: createMattEquivalenceGitHubTransport({ incomingBody: issueBody }),
+        clock: () => new Date("2026-07-28T00:00:00Z"),
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope });
+
+      expect(mattSkillsV1ProviderObservationSchema.safeParse(local).success).toBe(true);
+      expect(mattSkillsV1ProviderObservationSchema.safeParse(github).success).toBe(true);
+      if (
+        (local.state !== "available" && local.state !== "partial") ||
+        (github.state !== "available" && github.state !== "partial")
+      ) {
+        throw new Error("Expected readable production adapter projections.");
+      }
+      for (const incoming of [
+        local.projection.incomingIssues[0],
+        github.projection.incomingIssues[0],
+      ]) {
+        expect(incoming?.content).toEqual([{ role: "issue-body", body: issueBody }]);
+        expect(
+          incoming?.semanticSections.find((section) => section.role === "incoming.content"),
+        ).toEqual({ role: "incoming.content", availability: "available" });
+      }
+    } finally {
+      await Promise.all([
+        rm(localRoot, { recursive: true, force: true }),
+        rm(githubRoot, { recursive: true, force: true }),
+      ]);
+    }
+  });
+
   test("projects one reference scenario through both production adapters and a test-owned oracle", async () => {
     const localRoot = await writeMattEquivalenceLocalRepository();
     const githubRoot = await createGitHubMattRepository();
@@ -77,10 +289,7 @@ describe("Matt Local/GitHub semantic equivalence", () => {
         onCaptureEvent: (event) => {
           if (event.kind === "content-read") localEvents.push(event.locator);
         },
-      }).capture(
-        { provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope },
-        mattEquivalenceGeneration,
-      );
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope });
 
       const githubBefore = await Promise.all(
         [githubContractLocator, githubTriageLocator].map((locator) =>
@@ -94,10 +303,7 @@ describe("Matt Local/GitHub semantic equivalence", () => {
         triageLocator: githubTriageLocator,
         transport,
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture(
-        { provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope },
-        mattEquivalenceGeneration,
-      );
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope });
 
       expect(local).not.toEqual(github);
       const localAliases = mattEquivalenceAliases("local");
@@ -107,6 +313,12 @@ describe("Matt Local/GitHub semantic equivalence", () => {
       expect(localView).toEqual(expectedMattEquivalenceSemantics);
       expect(githubView).toEqual(expectedMattEquivalenceSemantics);
       expect(localView).toEqual(githubView);
+      expect(mattReferenceSemanticAvailabilityView(local, localAliases)).toEqual(
+        expectedSemanticAvailability,
+      );
+      expect(mattReferenceSemanticAvailabilityView(github, githubAliases)).toEqual(
+        expectedSemanticAvailability,
+      );
 
       const localRelations = mattReferenceRelationPartition(local, localAliases);
       const githubRelations = mattReferenceRelationPartition(github, githubAliases);
@@ -183,10 +395,7 @@ describe("Matt Local/GitHub semantic equivalence", () => {
         contractLocator: mattEquivalenceLocalContractLocator,
         triageLocator: mattEquivalenceTriageLocator,
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture(
-        { provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope },
-        mattEquivalenceGeneration,
-      );
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope });
       const transport = createMattEquivalenceGitHubTransport();
       const github = await createGitHubMattProvider({
         repoRoot: githubRoot,
@@ -194,10 +403,7 @@ describe("Matt Local/GitHub semantic equivalence", () => {
         triageLocator: githubTriageLocator,
         transport,
         clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture(
-        { provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope },
-        mattEquivalenceGeneration,
-      );
+      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope });
 
       const localObjects = projectionObjects(local.projection);
       const githubObjects = projectionObjects(github.projection);

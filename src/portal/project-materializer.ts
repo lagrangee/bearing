@@ -1,8 +1,11 @@
 import { join } from "node:path";
 import packageMetadata from "../../package.json";
+import { assessNativeReconciliation } from "../native-reconciliation-assessment";
+import type { NativeScopeInspectionIntent } from "../native-scope-inspection";
 import { readProjectSnapshotCache } from "../project-snapshot/cache";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import { buildProjectSnapshot } from "../project-snapshot/projection";
+import type { ProviderObservationIntent } from "../provider-observation-store";
 import { commitSyncPlan, prepareSync, type SyncPlan } from "../sync-plan";
 import { createSyncReceipt, readSyncReceipt, type SyncReceipt } from "../sync-receipt";
 import { commitProjectCache } from "./project-cache-transaction";
@@ -123,20 +126,41 @@ export const createProjectMaterializer = (options: {
           diagnostics: plan.diagnostics,
           advisoryFreshness: plan.advisoryFreshness,
           decoded: plan.decoded,
-          providerCaptures: plan.providerCaptures,
+          providerObservations: plan.providerObservations,
+          providerObservationSelections: plan.providerObservationSelections,
+          nativeScopeInspectionObservations: plan.nativeScopeInspectionObservations,
+          nativeScopeInspectionSelections: plan.nativeScopeInspectionSelections,
           assetContentObservations: plan.assetContentObservations,
           planningGraph: plan.planningGraph,
         }),
     );
     return snapshot;
   };
-  const createReceiptFor = (plan: SyncPlan): SyncReceipt =>
-    createSyncReceipt({
+  const createReceiptFor = (plan: SyncPlan): SyncReceipt => {
+    const intent = plan.nativeScopeInspectionOperation.intent;
+    const operation =
+      intent.kind === "reconcile"
+        ? (() => {
+            const assessment = assessNativeReconciliation({
+              request: intent.request,
+              boundSelections: plan.providerObservationSelections,
+              inspectionSelections: plan.nativeScopeInspectionSelections,
+            });
+            return {
+              kind: "native-reconciliation" as const,
+              requestFingerprint: assessment.requestFingerprint,
+              outcome: assessment.outcome,
+            };
+          })()
+        : ({ kind: "sync" } as const);
+    return createSyncReceipt({
       producer: { packageName, packageVersion: options.packageVersion },
       completedAt: now(),
       sitemap: { version: 1, fingerprint: plan.fingerprint },
       reconciliation: plan.changed ? "applied" : "no-op",
+      operation,
     });
+  };
   const executeWrite = async (
     executor: ProjectWriteAuthorizer | undefined,
     writePhase: ProjectWritePhase,
@@ -150,6 +174,23 @@ export const createProjectMaterializer = (options: {
         : executor(writePhase, () => phase(errorCode, errorMessage, operation)),
     );
   };
+  const executeCoherentWrite = async (
+    executor: ProjectWriteAuthorizer | undefined,
+    operation: () => Promise<void>,
+  ): Promise<void> =>
+    phase("input-validation-failed", "Project write authorization failed.", async () => {
+      const authorizedCache = () =>
+        executor === undefined
+          ? operation()
+          : executor("cache", () =>
+              phase("snapshot-write-failed", "Project cache commit failed.", operation),
+            );
+      if (executor === undefined) {
+        await phase("snapshot-write-failed", "Project cache commit failed.", operation);
+        return;
+      }
+      await executor("sync", authorizedCache);
+    });
 
   return Object.freeze({
     async run(
@@ -157,6 +198,8 @@ export const createProjectMaterializer = (options: {
       mode: ProjectOperationMode,
       writeExecutor?: ProjectWriteAuthorizer,
       generationGraph?: ProjectGenerationGraphAccess,
+      providerObservationIntent: ProviderObservationIntent = "ordinary-sync",
+      nativeScopeInspectionIntent: NativeScopeInspectionIntent = { kind: "none" },
     ): Promise<ProjectMaterializationResult> {
       const currentGraph = generationGraph?.current();
       const initial = await phase(
@@ -165,6 +208,8 @@ export const createProjectMaterializer = (options: {
         async () =>
           dependencies.prepare(repoRoot, {
             ...(currentGraph === undefined ? {} : { planningGraph: currentGraph }),
+            providerObservationIntent,
+            nativeScopeInspectionIntent,
           }),
       );
       const complete = (result: ProjectMaterializationResult): ProjectMaterializationResult => {
@@ -202,6 +247,20 @@ export const createProjectMaterializer = (options: {
             await dependencies.commitCache({
               repoRoot,
               snapshot,
+              ...(initial.providerObservationStoreChanged
+                ? {
+                    providerObservationStore: {
+                      bytes: initial.providerObservationStoreBytes,
+                    },
+                  }
+                : {}),
+              ...(initial.nativeScopeInspectionStoreChanged
+                ? {
+                    nativeScopeInspectionStore: {
+                      bytes: initial.nativeScopeInspectionStoreBytes,
+                    },
+                  }
+                : {}),
               ...(receipt === undefined ? {} : { receipt }),
             });
           },
@@ -215,30 +274,40 @@ export const createProjectMaterializer = (options: {
         });
       }
 
-      await executeWrite(
-        writeExecutor,
-        "sync",
-        "sync-failed",
-        "Project reconciliation failed.",
-        async () => {
-          await dependencies.commit(plan);
-        },
-      );
       const receipt = createReceiptFor(plan);
       const snapshotDisposition = snapshot === reusable ? "reused" : "materialized";
-      await executeWrite(
-        writeExecutor,
-        "cache",
-        "snapshot-write-failed",
-        "Project cache commit failed.",
-        async () => {
-          await dependencies.commitCache({
-            repoRoot,
-            ...(snapshotDisposition === "materialized" ? { snapshot } : {}),
-            receipt,
-          });
-        },
-      );
+      await executeCoherentWrite(writeExecutor, async () => {
+        await dependencies.commitCache({
+          repoRoot,
+          sync: {
+            reportPath: plan.reportPath,
+            sitemapPath: plan.sitemapPath,
+            commit: () =>
+              phase("sync-failed", "Project reconciliation failed.", async () =>
+                dependencies.commit(plan, {
+                  publishProviderObservations: false,
+                  publishNativeScopeInspections: false,
+                }),
+              ),
+          },
+          ...(plan.providerObservationStoreChanged
+            ? {
+                providerObservationStore: {
+                  bytes: plan.providerObservationStoreBytes,
+                },
+              }
+            : {}),
+          ...(plan.nativeScopeInspectionStoreChanged
+            ? {
+                nativeScopeInspectionStore: {
+                  bytes: plan.nativeScopeInspectionStoreBytes,
+                },
+              }
+            : {}),
+          ...(snapshotDisposition === "materialized" ? { snapshot } : {}),
+          receipt,
+        });
+      });
       const common: ProjectMaterializationBase = {
         reconciliation: receipt.reconciliation,
         snapshotDisposition,

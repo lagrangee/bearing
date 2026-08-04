@@ -1,4 +1,8 @@
-export { withCatalogEntryLease } from "./entry-lease";
+export {
+  type CatalogEntryLeaseStatus,
+  withCatalogEntryLease,
+  withCatalogEntryLeaseStatus,
+} from "./entry-lease";
 export {
   type CatalogEntryLockRepairResult,
   repairCatalogEntryLock,

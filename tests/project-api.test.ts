@@ -22,7 +22,7 @@ const assets: PortalAssets = {
     schemaVersion: 1,
     packageVersion: "0.0.0-test",
     interfaceVersion: 1,
-    projectSnapshotVersion: 3,
+    projectSnapshotVersion: 19,
     entry: "index.html",
     buildId: "0".repeat(64),
     assets: [
@@ -77,7 +77,10 @@ const establish = async (app: ReturnType<typeof createPortalApp>) => {
 test("direct project GET establishes a session and remains strictly cache-only", async () => {
   const root = await realpath(await createValidBearingRepo());
   try {
-    await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+    await runSync(root, {
+      completedAt: "2026-07-13T12:00:00.000Z",
+      providerObservationIntent: "initial-baseline",
+    });
     const app = appFor(catalogFor(root));
 
     const { response } = await establish(app);
@@ -274,7 +277,10 @@ test("unexpected project request exceptions stay typed and do not disclose inter
 test("POST rejects missing CSRF and malformed input before project work", async () => {
   const root = await realpath(await createValidBearingRepo());
   try {
-    await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+    await runSync(root, {
+      completedAt: "2026-07-13T12:00:00.000Z",
+      providerObservationIntent: "initial-baseline",
+    });
     const app = appFor(catalogFor(root));
 
     const missingCsrf = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/sync`, {
@@ -283,6 +289,15 @@ test("POST rejects missing CSRF and malformed input before project work", async 
       body: JSON.stringify({ version: 1, mode: "ensure-current" }),
     });
     expect(missingCsrf.status).toBe(403);
+    const removedDiscovery = await app.request(
+      `${ORIGIN}/api/v1/projects/${PROJECT_ID}/discover-native-scopes`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1 }),
+      },
+    );
+    expect(removedDiscovery.status).toBe(404);
     await expect(access(join(root, ".bearing/cache/project-snapshot.json"))).rejects.toThrow();
 
     const { cookie, csrfToken } = await establish(app);
@@ -359,10 +374,203 @@ test("POST rejects cross-session, forged-cookie, and cross-site browser authorit
   expect(syncCalls).toBe(0);
 });
 
+test("native scope inspection route validates authority and forwards one typed target intent", async () => {
+  const root = await realpath(await createValidBearingRepo());
+  const validation = { due: true, cooldownRemainingMs: 0, inFlight: false };
+  const calls: unknown[][] = [];
+  const projects: ProjectService = {
+    read: async () => ({ kind: "ready", view: emptyView, validation }),
+    sync: async (...args) => {
+      calls.push(args);
+      return {
+        kind: "failed",
+        mode: args[1],
+        outcome: "failed",
+        error: { code: "request-failed", message: "Portal request failed." },
+        validation,
+      };
+    },
+  };
+  const app = appFor(catalogFor(root), projects);
+  const { cookie, csrfToken } = await establish(app);
+  const endpoint = `${ORIGIN}/api/v1/projects/${PROJECT_ID}/inspect-native-scope`;
+  const request = (body: unknown, token = csrfToken) =>
+    app.request(endpoint, {
+      method: "POST",
+      headers: {
+        Cookie: cookie,
+        "Content-Type": "application/json",
+        "X-Bearing-CSRF-Token": token,
+      },
+      body: JSON.stringify(body),
+    });
+
+  expect(
+    (
+      await request(
+        {
+          version: 1,
+          subject: { kind: "native-scope", id: ".scratch/unbound" },
+          target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+          refresh: false,
+        },
+        "invalid",
+      )
+    ).status,
+  ).toBe(403);
+  expect(
+    (
+      await request({
+        version: 1,
+        subject: { kind: "effort", id: "effort:test" },
+        target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+        refresh: false,
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await request({
+        version: 1,
+        subject: { kind: "native-scope", id: ".scratch/unbound\nforged" },
+        target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+        refresh: false,
+      })
+    ).status,
+  ).toBe(400);
+  expect(calls).toEqual([]);
+
+  const response = await request({
+    version: 1,
+    subject: { kind: "native-subject", id: ".scratch/unbound/issues/01-work.md" },
+    target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+    refresh: true,
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    version: 1,
+    state: "failed",
+    mode: "force",
+  });
+  expect(calls).toEqual([
+    [
+      PROJECT_ID,
+      "force",
+      {
+        kind: "inspect",
+        subject: {
+          kind: "native-subject",
+          id: ".scratch/unbound/issues/01-work.md",
+        },
+        target: { provider: "matt-skills/v1", nativeScope: ".scratch/unbound" },
+        refresh: true,
+      },
+    ],
+  ]);
+});
+
+test("targeted native reconciliation route validates a bounded read set and forwards no mutation authority", async () => {
+  const root = await realpath(await createValidBearingRepo());
+  const validation = { due: true, cooldownRemainingMs: 0, inFlight: false };
+  const calls: unknown[][] = [];
+  const projects: ProjectService = {
+    read: async () => ({ kind: "ready", view: emptyView, validation }),
+    sync: async (...args) => {
+      calls.push(args);
+      return {
+        kind: "failed",
+        mode: args[1],
+        outcome: "failed",
+        error: { code: "request-failed", message: "Portal request failed." },
+        validation,
+      };
+    },
+  };
+  const app = appFor(catalogFor(root), projects);
+  const { cookie, csrfToken } = await establish(app);
+  const endpoint = `${ORIGIN}/api/v1/projects/${PROJECT_ID}/reconcile-native`;
+  const request = (body: unknown, token = csrfToken) =>
+    app.request(endpoint, {
+      method: "POST",
+      headers: {
+        Cookie: cookie,
+        "Content-Type": "application/json",
+        "X-Bearing-CSRF-Token": token,
+      },
+      body: JSON.stringify(body),
+    });
+  const body = {
+    schemaVersion: 1,
+    binding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
+    subjects: [
+      ".scratch/work/issues/02-follow-up.md",
+      ".scratch/work/issues/01-finish.md",
+      ".scratch/work/issues/02-follow-up.md",
+    ],
+    relations: [
+      {
+        kind: "blocked-by",
+        source: ".scratch/work/issues/02-follow-up.md",
+        target: ".scratch/work/issues/01-finish.md",
+      },
+      {
+        kind: "blocked-by",
+        source: ".scratch/work/issues/02-follow-up.md",
+        target: ".scratch/work/issues/01-finish.md",
+      },
+    ],
+  } as const;
+
+  expect((await request(body, "invalid")).status).toBe(403);
+  expect(
+    (
+      await request({
+        ...body,
+        subjects: [],
+        relations: [],
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await request({
+        ...body,
+        mutation: { close: true },
+      })
+    ).status,
+  ).toBe(400);
+  expect(calls).toEqual([]);
+
+  const response = await request(body);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    version: 1,
+    state: "failed",
+    mode: "force",
+  });
+  expect(calls).toEqual([
+    [
+      PROJECT_ID,
+      "force",
+      {
+        kind: "reconcile",
+        request: {
+          ...body,
+          subjects: [".scratch/work/issues/01-finish.md", ".scratch/work/issues/02-follow-up.md"],
+          relations: [body.relations[0]],
+        },
+      },
+    ],
+  ]);
+});
+
 test("ensure-current, cooldown, and force return complete typed project views", async () => {
   const root = await realpath(await createValidBearingRepo());
   try {
-    await runSync(root, { completedAt: "2026-07-13T12:00:00.000Z" });
+    await runSync(root, {
+      completedAt: "2026-07-13T12:00:00.000Z",
+      providerObservationIntent: "initial-baseline",
+    });
     const app = appFor(catalogFor(root));
     const { cookie, csrfToken } = await establish(app);
     const headers = {
@@ -418,7 +626,7 @@ test("ensure-current, cooldown, and force return complete typed project views", 
             id: "effort:test",
             roadmapId: "roadmap:test",
             targetGateId: "gate:test",
-            derivedState: "resolved",
+            lifecycle: "active",
             workBinding: {
               provider: "matt-skills/v1",
               nativeScope: ".scratch/work",
@@ -426,7 +634,7 @@ test("ensure-current, cooldown, and force return complete typed project views", 
           },
         ],
       },
-      providerCaptures: [
+      providerObservations: [
         {
           provider: "matt-skills/v1",
           binding: { nativeScope: ".scratch/work" },
@@ -439,6 +647,23 @@ test("ensure-current, cooldown, and force return complete typed project views", 
         },
       ],
     });
+
+    const removedDiscovery = await app.request(
+      `${ORIGIN}/api/v1/projects/${PROJECT_ID}/discover-native-scopes`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ version: 1 }),
+      },
+    );
+    expect(removedDiscovery.status).toBe(404);
+    expect("nativeScopeDiscovery" in ensuredBody.view.cache.snapshot.snapshot).toBe(false);
+    expect(
+      await access(join(root, ".bearing/cache/native-scope-discovery.json")).then(
+        () => true,
+        () => false,
+      ),
+    ).toBe(false);
 
     expect(await (await sync("ensure-current")).json()).toMatchObject({
       state: "cooldown",

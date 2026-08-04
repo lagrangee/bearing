@@ -18,7 +18,7 @@
 .index-section-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--space-2);
   padding: var(--space-3) 0;
   color: var(--muted);
   border-bottom: 1px solid var(--border);
@@ -27,6 +27,7 @@
   font-size: var(--type-ui);
 }
 .index-section-heading span {
+  font-variant-numeric: tabular-nums;
   font-size: var(--type-tech);
 }
 .roadmaps-index .roadmap-index-row {
@@ -96,6 +97,7 @@
   white-space: nowrap;
 }
 .roadmap-detail-horizon {
+  container: roadmap-horizon / inline-size;
   padding: var(--space-8) 0 var(--space-10);
   border-top: 1px solid var(--border);
 }
@@ -154,18 +156,6 @@
 .evidence-section {
   padding: var(--space-8) 0 var(--space-10);
   border-top: 1px solid var(--border);
-}
-.effort-table {
-  border-top: 1px solid var(--border);
-}
-.roadmap-efforts .effort-row {
-  min-height: 72px;
-}
-.effort-resolved .effort-title i {
-  background: var(--success);
-}
-.effort-unknown .effort-title i {
-  background: var(--muted);
 }
 .source-list {
   border-top: 1px solid var(--border);
@@ -244,12 +234,5 @@
   }
   .contract-criteria {
     padding: var(--space-4);
-  }
-  .roadmap-efforts .effort-row {
-    grid-template-columns: minmax(0, 1fr) 86px 16px;
-    min-height: var(--control-touch);
-  }
-  .roadmap-efforts .effort-frontier {
-    padding-left: 0;
   }
 }

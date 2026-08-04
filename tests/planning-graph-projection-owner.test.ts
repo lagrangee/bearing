@@ -5,18 +5,21 @@ import type {
   CollectionProjection,
   Effort,
   MilestoneGate,
-  ProviderScopeCapture,
+  ProviderScopeObservation,
   Roadmap,
 } from "../src/project-snapshot/contract";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
-import { prepareSync } from "../src/sync-plan";
+import { prepareSync as prepareBearingSync } from "../src/sync-plan";
 import { createValidBearingRepo, writeFixture } from "./helpers";
+
+const prepareSync = (root: string) =>
+  prepareBearingSync(root, { providerObservationIntent: "initial-baseline" });
 
 type SharedPlanningProjection = Readonly<{
   roadmaps: CollectionProjection<Roadmap>;
   gates: CollectionProjection<MilestoneGate>;
   efforts: CollectionProjection<Effort>;
-  providerCaptures: readonly ProviderScopeCapture[];
+  providerObservations: readonly ProviderScopeObservation[];
 }>;
 
 const sharedProjection = (graph: unknown): SharedPlanningProjection => {
@@ -36,7 +39,8 @@ const snapshotFor = async (root: string) => {
     diagnostics: plan.diagnostics,
     advisoryFreshness: plan.advisoryFreshness,
     decoded: plan.decoded,
-    providerCaptures: plan.providerCaptures,
+    providerObservations: plan.providerObservations,
+    providerObservationSelections: plan.providerObservationSelections,
     assetContentObservations: plan.assetContentObservations,
     planningGraph: plan.planningGraph,
   });
@@ -57,7 +61,7 @@ test("one generation Planning Graph owns Snapshot relations and inspect agreemen
   expect(snapshot.roadmaps).toEqual(projection.roadmaps);
   expect(snapshot.gates).toEqual(projection.gates);
   expect(snapshot.efforts).toEqual(projection.efforts);
-  expect(snapshot.providerCaptures).toEqual(projection.providerCaptures);
+  expect(snapshot.providerObservations).toEqual(projection.providerObservations);
 
   const roadmap = plan.planningGraph.contextFor({ kind: "roadmap", id: "roadmap:test" });
   const gate = plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" });
@@ -81,6 +85,102 @@ test("one generation Planning Graph owns Snapshot relations and inspect agreemen
   expect(snapshot.efforts.items[0]).toMatchObject(effort.context.effort.value);
 });
 
+test("typed inspect carries distinct Summary and Brief orientation states", async () => {
+  const root = await createValidBearingRepo();
+  const legacy = await prepareSync(root);
+  const legacyInspect = legacy.planningGraph.contextFor({ kind: "effort", id: "effort:test" });
+
+  expect(legacyInspect.projectOrientation.summary).toMatchObject({
+    validity: "available",
+    value: { id: "project-summary:current" },
+  });
+  if (legacyInspect.projectOrientation.summary.validity !== "available") {
+    throw new Error("Expected Project Summary orientation.");
+  }
+  expect(legacyInspect.projectOrientation.summary.value.updatedAt).toBeUndefined();
+  expect(legacyInspect.projectOrientation.brief).toEqual({ validity: "absent" });
+
+  const summaryPath = join(root, ".bearing/state/project-summary.md");
+  const summary = await readFile(summaryPath, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/project-summary.md",
+    summary.replace("Title: Test Project", "Title: Test Project\nUpdated at: 2026-08-03T01:02:03Z"),
+  );
+  await writeFixture(
+    root,
+    ".bearing/state/project-brief.md",
+    `---
+Type: project-brief
+ID: project-brief:current
+Generated at: 2026-08-03T02:03:04Z
+---
+
+# Project Brief
+
+## Project Purpose
+
+Exercise the fixture.
+
+## Current Stage
+
+The project is proving typed inspection.
+
+## Material Achieved State
+
+The planning closure and orientation are independently readable.
+`,
+  );
+
+  const current = await prepareSync(root);
+  const currentInspect = current.planningGraph.contextFor({ kind: "gate", id: "gate:test" });
+  expect(currentInspect.projectOrientation).toMatchObject({
+    summary: { validity: "available", value: { updatedAt: "2026-08-03T01:02:03Z" } },
+    brief: { validity: "available", value: { generatedAt: "2026-08-03T02:03:04Z" } },
+  });
+  expect(
+    currentInspect.projectOrientation.sources
+      .map((source) => source.binding?.role)
+      .sort((left, right) => String(left).localeCompare(String(right), "en")),
+  ).toEqual(["project-brief", "project-summary"]);
+});
+
+test("typed inspect retains the exact Brief source when invalid metadata removes its binding", async () => {
+  const root = await createValidBearingRepo();
+  await writeFixture(
+    root,
+    ".bearing/state/project-brief.md",
+    `---
+Type: project-brief
+ID: project-brief:current
+Generated at: not-a-utc-instant
+---
+
+# Project Brief
+
+## Project Purpose
+
+Exercise invalid provenance.
+
+## Current Stage
+
+The Brief metadata is invalid.
+
+## Material Achieved State
+
+The exact captured source must remain inspectable.
+`,
+  );
+
+  const current = await prepareSync(root);
+  const inspect = current.planningGraph.contextFor({ kind: "effort", id: "effort:test" });
+
+  expect(inspect.projectOrientation.brief.validity).toBe("invalid");
+  expect(inspect.projectOrientation.sources).toContainEqual(
+    expect.objectContaining({ displayLocator: ".bearing/state/project-brief.md" }),
+  );
+});
+
 test("shared graph projection isolates an invalid contributor consistently", async () => {
   const root = await createValidBearingRepo();
   const effort = await readFile(join(root, ".bearing/state/efforts/test.md"), "utf8");
@@ -102,7 +202,7 @@ test("shared graph projection isolates an invalid contributor consistently", asy
   expect(gate.issues.filter((issue) => issue.code === "untrusted-effort-contributor")).toHaveLength(
     2,
   );
-  expect(projection.providerCaptures).toEqual(plan.providerCaptures);
+  expect(projection.providerObservations).toEqual(plan.providerObservations);
   const sitemap = plan.sitemap.toString("utf8");
   const mapLine = sitemap.split("\n").find((line) => line.startsWith("- `.scratch/work/map.md`"));
   const ticketLine = sitemap
@@ -127,6 +227,7 @@ ID: gate:unrelated
 Title: Unrelated duplicate
 Roadmap: roadmap:test
 Status: planned
+Effort order: []
 ---
 
 # Milestone Gate: Unrelated duplicate
@@ -200,9 +301,9 @@ test("Sitemap consumes graph states but remains a compact sibling without revers
   const roadmapLine = sitemap.split("\n").find((line) => line.startsWith("- `roadmap:test`"));
   const gateLine = sitemap.split("\n").find((line) => line.startsWith("- `gate:test`"));
 
-  expect(sitemap).toContain("Gate readiness: `gate:test` = ready-for-review");
+  expect(sitemap).toContain("Gate readiness: `gate:test` = not-ready");
   expect(roadmapLine).not.toContain("effort");
-  expect(gateLine).not.toContain("effort");
+  expect(gateLine).toContain("effort: `effort:test`");
   for (const forbidden of [
     "contributing-effort",
     "contributor-count",

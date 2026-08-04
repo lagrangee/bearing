@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
 const relationIssue = {
   code: "isolated-roadmap-source",
@@ -33,6 +34,7 @@ test("derives an exhausted active Roadmap from a terminal ordered Gate horizon",
               horizonState: "passed" as const,
               passage: {
                 acceptedDecision: "Pass the final declared Gate.",
+                acceptedAt: { availability: "unavailable" as const },
                 rationale: "The declared outcome horizon is exhausted.",
                 evidenceAssetIds: [],
                 exceptions: [],
@@ -43,7 +45,7 @@ test("derives an exhausted active Roadmap from a terminal ordered Gate horizon",
     },
   };
 
-  expect(projectSnapshotSchema.safeParse(exhausted).success).toBe(true);
+  expect(projectSnapshotSchema.safeParse(withRebuiltPlanningLineage(exhausted)).success).toBe(true);
   expect(
     projectSnapshotSchema.safeParse({
       ...exhausted,
@@ -78,7 +80,7 @@ test("keeps terminal Gate Horizon truth exact when its Roadmap is isolated", () 
     },
   };
 
-  expect(projectSnapshotSchema.safeParse(isolated).success).toBe(true);
+  expect(projectSnapshotSchema.safeParse(withRebuiltPlanningLineage(isolated)).success).toBe(true);
   expect(
     projectSnapshotSchema.safeParse({
       ...isolated,

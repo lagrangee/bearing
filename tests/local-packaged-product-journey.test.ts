@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
-import type { MattProviderFactory } from "../src/provider-capture-generation";
+import type { MattProviderFactory } from "../src/provider-observation-acquisition";
 import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
 import { setupRepository } from "../src/repo-setup";
 import { prepareSync } from "../src/sync-plan";
@@ -91,6 +91,8 @@ ID: gate:journey
 Title: Journey complete
 Roadmap: roadmap:journey
 Status: active
+Effort order:
+  - effort:journey
 ---
 
 # Milestone Gate: Journey complete
@@ -109,6 +111,9 @@ Review the completed packaged journey.
     ".bearing/state/efforts/journey.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:journey
 Title: Local Matt delivery
 Roadmap: roadmap:journey
@@ -345,21 +350,24 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
       });
       return {
         id: provider.id,
-        capture: async (binding, generation) => {
+        capture: async (binding) => {
           captureCalls += 1;
-          return provider.capture(binding, generation);
+          return provider.capture(binding);
         },
       };
     };
 
-    const decisionPlan = await prepareSync(root, { providerFactory });
+    const decisionPlan = await prepareSync(root, {
+      providerObservationIntent: "full-verification",
+      providerFactory,
+    });
     expect(decisionPlan.diagnostics).toEqual([]);
     expect(captureCalls).toBe(1);
-    expect(decisionPlan.metrics.providerCaptureCount).toBe(1);
+    expect(decisionPlan.metrics.providerAcquisitionCount).toBe(1);
     expect(decisionPlan.inputs).not.toContain(".scratch/journey/map.md");
     expect(decisionPlan.inputs).not.toContain(".scratch/journey/issues/03-deliver.md");
-    const decisionCapture = decisionPlan.providerCaptures[0];
-    expect(decisionCapture?.generation.fingerprint).toBe(decisionPlan.fingerprint);
+    const decisionCapture = decisionPlan.providerObservations[0];
+    expect(decisionCapture?.id).toMatch(/^provider-observation:sha256:[a-f0-9]{64}$/);
     expect(decisionCapture).toMatchObject({
       state: "available",
       completion: "incomplete",
@@ -385,7 +393,7 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
     expect(decisionEffort.state).toBe("complete");
     if (decisionEffort.state === "invalid") throw new Error("Expected Effort context.");
     expect(decisionEffort.context.providerCapture).toBe(decisionCapture);
-    expect(decisionEffort.context.effort.value.derivedState).toBe("active");
+    expect(decisionEffort.context.effort.value.lifecycle).toBe("active");
     expect(
       decisionPlan.planningGraph.contextFor({ kind: "gate", id: "gate:journey" }),
     ).toMatchObject({
@@ -395,13 +403,16 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
 
     await writeDeliveryComplete(root);
     captureCalls = 0;
-    const completedPlan = await prepareSync(root, { providerFactory });
+    const completedPlan = await prepareSync(root, {
+      providerObservationIntent: "full-verification",
+      providerFactory,
+    });
     expect(completedPlan.diagnostics).toEqual([]);
     expect(captureCalls).toBe(1);
-    expect(completedPlan.metrics.providerCaptureCount).toBe(1);
+    expect(completedPlan.metrics.providerAcquisitionCount).toBe(1);
     expect(completedPlan.fingerprint).not.toBe(decisionPlan.fingerprint);
-    const completedCapture = completedPlan.providerCaptures[0];
-    expect(completedCapture?.generation.fingerprint).toBe(completedPlan.fingerprint);
+    const completedCapture = completedPlan.providerObservations[0];
+    expect(completedCapture?.id).not.toBe(decisionCapture?.id);
     expect(completedCapture).toMatchObject({
       state: "available",
       completion: "complete",
@@ -418,12 +429,12 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
     expect(inspect.state).toBe("complete");
     if (inspect.state === "invalid") throw new Error("Expected Effort context.");
     expect(inspect.context.providerCapture).toBe(completedCapture);
-    expect(inspect.context.effort.value.derivedState).toBe("resolved");
+    expect(inspect.context.effort.value.lifecycle).toBe("active");
     expect(
       completedPlan.planningGraph.contextFor({ kind: "gate", id: "gate:journey" }),
     ).toMatchObject({
       state: "complete",
-      context: { gate: { value: { readiness: "ready-for-review" } } },
+      context: { gate: { value: { readiness: "not-ready" } } },
     });
     const sitemap = completedPlan.sitemap.toString("utf8");
     expect(sitemap).toContain(
@@ -434,10 +445,8 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
     );
 
     const snapshot = await buildSnapshotForSyncPlan(root, PACKAGE_VERSION, completedPlan);
-    expect(snapshot.providerCaptures).toEqual(completedPlan.providerCaptures);
-    expect(snapshot.providerCaptures[0]?.generation.fingerprint).toBe(
-      String(snapshot.basis.sitemapFingerprint),
-    );
+    expect(snapshot.providerObservations).toEqual(completedPlan.providerObservations);
+    expect(snapshot.providerObservationSelections[0]?.observationId).toBe(completedCapture?.id);
     expect("maps" in snapshot).toBe(false);
     expect("tickets" in snapshot).toBe(false);
     expect("nativeRecords" in completedPlan).toBe(false);
@@ -451,14 +460,15 @@ test("fresh packaged Local journey uses one generation-bound capture through Por
       dependencies: {
         prepare: async () => completedPlan,
         buildSnapshot: async (input) => {
-          portalSawGenerationCapture = input.providerCaptures === completedPlan.providerCaptures;
+          portalSawGenerationCapture =
+            input.providerObservations === completedPlan.providerObservations;
           return buildProjectSnapshot(input);
         },
       },
     });
     const portal = await materializer.run(root, "ensure-current");
     expect(portalSawGenerationCapture).toBe(true);
-    expect(portal.snapshot.providerCaptures).toEqual(completedPlan.providerCaptures);
+    expect(portal.snapshot.providerObservations).toEqual(completedPlan.providerObservations);
     expect(String(portal.snapshot.basis.sitemapFingerprint)).toBe(completedPlan.fingerprint);
 
     const stablePlan = await prepareSync(root, { providerFactory });

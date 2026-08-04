@@ -10,6 +10,9 @@ test("projects Asset provenance before trustworthy reverse relations are rebuilt
     ".bearing/state/efforts/test.md",
     `---
 Type: effort
+Lifecycle: active
+Planned at: null
+Activated at: null
 ID: effort:test
 Title: Test Effort
 Roadmap: roadmap:test
@@ -88,6 +91,8 @@ ID: gate:test
 Title: Test Gate
 Roadmap: roadmap:test
 Status: active
+Effort order:
+  - effort:test
 Passage:
   Accepted decision: Keep the evidence attached.
   Rationale: It demonstrates the relation.
@@ -123,10 +128,11 @@ Reach the boundary.
         lifecycleSource: "registry",
         disposition: "available",
         contentAvailability: "available",
+        contentShape: "file",
         citations: [],
-        adoptedByAuthorityIds: [],
-        gatePassageEvidenceFor: [],
-        citationCount: 0,
+        evidenceRoles: [],
+        authorityAdoptions: [],
+        passageEvidence: [],
       },
     ],
   });
@@ -272,11 +278,18 @@ Assets:
 
   expect(projected.assets).toMatchObject({
     validity: "available",
-    items: [{ id: "asset:run", displayLocation: "evidence/run", contentAvailability: "available" }],
+    items: [
+      {
+        id: "asset:run",
+        displayLocation: "evidence/run",
+        contentAvailability: "available",
+        contentShape: "directory",
+      },
+    ],
   });
 });
 
-test("keeps an external Asset locator display-only and reports its content as unreadable", async () => {
+test("rejects an external Asset locator before it can become local provenance", async () => {
   const root = await createValidBearingRepo();
   await writeFixture(
     root,
@@ -307,12 +320,11 @@ Assets:
   });
 
   expect(projected.assets).toMatchObject({
-    validity: "available",
-    items: [
+    validity: "invalid",
+    issues: [
       {
-        id: "asset:external",
-        displayLocation: "https://example.test/evidence/report",
-        contentAvailability: "unreadable",
+        code: "invalid-asset-schema",
+        target: ".bearing/state/assets.md",
       },
     ],
   });

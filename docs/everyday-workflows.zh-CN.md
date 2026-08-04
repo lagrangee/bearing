@@ -48,6 +48,10 @@ Review 这个 Gate 是否 ready for passage，并列出 evidence 与 exceptions�
 
 Planning Audit 查找实质 drift。Next Work Guidance 给出一个主方向和两个 alternatives。它们本身都不会启动实现。
 
+## 检查 Bearing Scope
+
+Fresh Setup 完成后，Bearing 可以提供一次可选的 Bearing Scope Review。后续只有在你显式要求比较当前 managed scope 与临时 Work Management inventory 时才运行。Review 完成后，Bearing 会丢弃 inventory、recommendation 和 disposition，不会持久化这些数据。只有通过你显式接受的后续 planning change，standalone work 才会进入 managed scope。
+
 ## 使用 Portal
 
-当你需要视觉化检查 project brief、roadmap focus、Attention、contributing work 和 evidence provenance 时使用 Portal。mutation 仍应留在所属 Agent Surface flow 中。
+当你需要视觉化检查 Project Brief、Project Summary、active Roadmap focus、managed-scope Attention、managed contributing work 和 evidence provenance 时使用 Portal。Standalone native-work inventory 不进入 Portal。Next Work Guidance 与 mutation 仍应留在所属 Agent Surface flow 中。

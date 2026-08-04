@@ -5,13 +5,6 @@
   justify-content: space-between;
   gap: var(--space-8);
 }
-.assets-header > div:first-child {
-  max-width: 640px;
-}
-.assets-header > div:first-child > p:last-child {
-  margin-bottom: 0;
-  color: var(--muted);
-}
 .asset-controls {
   display: grid;
   width: min(100%, 420px);
@@ -41,42 +34,52 @@
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
-.asset-result-count,
-.asset-filter-note {
+.asset-result-count {
   color: var(--muted);
   font-size: var(--type-tech);
 }
 .asset-result-count {
   margin-bottom: var(--space-3);
 }
-.asset-filter-note {
-  margin-top: var(--space-3);
-}
 .asset-table {
   border-top: 1px solid var(--border);
 }
 .asset-table-header,
-.assets-page .asset-row {
+.assets-page .asset-row-primary {
   display: grid;
-  grid-template-columns:
-    minmax(220px, 1.4fr) minmax(130px, 0.72fr) 78px minmax(180px, 1fr)
-    var(--icon-lg);
+  grid-template-columns: minmax(220px, 1.25fr) minmax(150px, 0.65fr) minmax(220px, 1fr) var(
+      --icon-lg
+    );
   align-items: center;
   gap: var(--space-5);
 }
 .asset-table-header {
-  padding: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   color: var(--muted);
   background: var(--surface);
   font-size: var(--type-micro);
 }
 .assets-page .asset-row {
+  display: block;
+  width: auto;
   min-height: 68px;
-  padding: var(--space-3);
+  padding: 0;
   border: 0;
   border-bottom: 1px solid var(--border);
   background: var(--canvas);
   color: var(--muted);
+  cursor: default;
+}
+.assets-page .asset-row-primary {
+  min-width: 0;
+  min-height: 68px;
+  padding: var(--space-3);
+  color: inherit;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
 }
 .assets-page .asset-row:hover {
   background: var(--surface);
@@ -97,8 +100,7 @@
   min-width: 0;
 }
 .asset-title strong,
-.asset-title small,
-.asset-mobile-location {
+.asset-title small {
   display: block;
 }
 .asset-title strong {
@@ -106,39 +108,22 @@
   line-height: 1.4;
   text-wrap: pretty;
 }
-.asset-title small,
-.asset-mobile-location {
+.asset-title small {
   color: var(--muted);
   font-size: var(--type-micro);
 }
-.asset-mobile-location {
-  display: none;
-  margin-top: var(--space-1);
-  overflow-wrap: anywhere;
-}
 .asset-owner,
-.asset-location {
+.asset-evidence-summary {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 .asset-owner {
   font-size: var(--type-tech);
 }
-.asset-location {
-  font-size: var(--type-micro);
-}
-.citation-count {
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-.citation-count strong,
-.citation-count small {
-  display: inline;
-}
-.citation-count small {
-  display: none;
+.asset-evidence-summary {
   color: var(--muted);
-  font-weight: 400;
+  font-size: var(--type-tech);
+  line-height: 1.35;
 }
 .row-arrow {
   display: grid;
@@ -162,9 +147,6 @@
 .asset-empty .action {
   margin-top: var(--space-2);
 }
-.inspector-enter + .inspector-enter {
-  margin-top: var(--space-2);
-}
 @media (max-width: 900px) {
   .assets-header {
     align-items: stretch;
@@ -176,23 +158,9 @@
   .asset-table-header {
     display: none;
   }
-  .assets-page .asset-row {
-    grid-template-columns: minmax(0, 1fr) auto var(--icon-lg);
+  .assets-page .asset-row-primary {
+    grid-template-columns: minmax(0, 1fr) minmax(120px, 0.55fr) minmax(150px, 0.8fr) var(--icon-lg);
     gap: var(--space-3);
-  }
-  .assets-page .asset-owner,
-  .assets-page .asset-location {
-    display: none;
-  }
-  .assets-page .asset-mobile-location {
-    display: block;
-  }
-  .assets-page .asset-row > .citation-count {
-    display: block;
-    white-space: nowrap;
-  }
-  .assets-page .citation-count small {
-    display: inline;
   }
 }
 
@@ -204,12 +172,19 @@
   .asset-filter-field select {
     min-height: var(--control-touch);
   }
-  .assets-page .asset-row {
-    grid-template-columns: minmax(0, 1fr) auto 18px;
+  .assets-page .asset-row-primary {
+    grid-template-columns: minmax(0, 1fr) 18px;
     gap: var(--space-2);
     min-height: var(--control-touch);
   }
-  .assets-page .asset-row > .citation-count {
-    display: block;
+  .assets-page .asset-evidence-summary {
+    grid-column: 1;
+  }
+  .assets-page .asset-owner {
+    grid-column: 1;
+  }
+  .assets-page .row-arrow {
+    grid-column: 2;
+    grid-row: 1;
   }
 }

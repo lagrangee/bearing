@@ -43,6 +43,19 @@ release 对应的 verified backup；否则 downgrade 会 fail closed。
 
 ## 启用一个仓库
 
+普通 repository request 在加载 global skill 前，managed Agent Surface pointer 会运行
+package-owned 只读 activation check：
+
+```bash
+bearing activation check --origin model-invoked --repo .
+```
+
+只有 Active manifest 的 versioned JSON disposition 是 `invoke-bearing`。Fresh 与
+Deactivated 返回 `continue-without-bearing`；Invalid 或 Unsupported 返回
+`stop-for-explicit-entry`。显式 Bearing 入口使用 `--origin explicit`，并根据同一次 lifecycle
+inspection 进入普通 Bearing work、Setup、reactivation 或 recovery。该检查不读取 Catalog 或
+planning projection，也不产生写入。
+
 ```bash
 bearing setup --repo . --surface agent-skills \
   --provider-contract docs/agents/issue-tracker.md \
@@ -131,7 +144,9 @@ special type 都会 fail closed。
 bearing sync --repo .
 ```
 
-Sync 会在 cache 下重建 deterministic diagnostics 与 Project Sitemap projection。
+普通 Sync 会在 cache 下重建 deterministic diagnostics 与 Project Sitemap projection，并复用
+由显式 Work Bindings 选择的最新 immutable provider observations。它不会发现 standalone work，
+也不会扩张 Bearing Scope。
 
 ## Inspect
 

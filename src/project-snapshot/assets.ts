@@ -1,4 +1,9 @@
 import type { AssetContentObservation } from "../asset-inputs";
+import {
+  projectExpectedSourceEventTime,
+  projectOptionalSourceEventTime,
+} from "../source-event-time";
+import { deriveAssetEvidenceRoles } from "./asset-evidence-roles";
 import type {
   AssetProjection,
   CollectionProjection,
@@ -26,6 +31,13 @@ const contentAvailability = (
 ): "available" | "missing" | "unreadable" =>
   observations.find((observation) => observation.id === id && observation.location === location)
     ?.availability ?? "unreadable";
+const contentShape = (
+  observations: readonly AssetContentObservation[],
+  id: string,
+  location: string,
+): "file" | "directory" | "unavailable" =>
+  observations.find((observation) => observation.id === id && observation.location === location)
+    ?.shape ?? "unavailable";
 const projection = (results: readonly Result[]): CollectionProjection<AssetProjection> => {
   const items = results.flatMap((result) => (result.item === undefined ? [] : [result.item]));
   const issues = results.flatMap((result) => (result.issue === undefined ? [] : [result.issue]));
@@ -72,7 +84,15 @@ export const buildAssetProjection = async (
       id: asset.ID,
       title: asset.Title,
       source: source.reference,
+      evidenceRoles: deriveAssetEvidenceRoles({
+        kind: asset.Kind,
+        citations: [],
+        authorityAdoptions: [],
+        passageEvidence: [],
+      }),
       citations: [],
+      authorityAdoptions: [],
+      passageEvidence: [],
       kind: asset.Kind,
       owner: asset.Owner,
       producer: {
@@ -81,14 +101,23 @@ export const buildAssetProjection = async (
         ...(asset.Producer.Reference === undefined ? {} : { reference: asset.Producer.Reference }),
       },
       lifecycleSource: asset["Lifecycle source"],
+      registeredAt: projectExpectedSourceEventTime(asset["Registered at"]),
+      ...(() => {
+        const producedAt = projectOptionalSourceEventTime(asset["Produced at"]);
+        return producedAt === undefined ? {} : { producedAt };
+      })(),
       ...(asset.Disposition === undefined ? {} : { disposition: asset.Disposition }),
       ...(asset["Superseded by"] === undefined ? {} : { supersededBy: asset["Superseded by"] }),
+      ...(asset["Lifecycle source"] === "registry" && asset.Disposition === "superseded"
+        ? { supersededAt: projectExpectedSourceEventTime(asset["Superseded at"]) }
+        : {}),
+      ...(asset["Lifecycle source"] === "registry" && asset.Disposition === "archived"
+        ? { archivedAt: projectExpectedSourceEventTime(asset["Archived at"]) }
+        : {}),
       ...(asset["Produced for"] === undefined ? {} : { producedFor: asset["Produced for"] }),
       displayLocation: asset.Location,
       contentAvailability: contentAvailability(input.contentObservations, asset.ID, asset.Location),
-      adoptedByAuthorityIds: [],
-      gatePassageEvidenceFor: [],
-      citationCount: 0,
+      contentShape: contentShape(input.contentObservations, asset.ID, asset.Location),
     });
     results.push(
       projected.success

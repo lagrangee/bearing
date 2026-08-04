@@ -37,6 +37,8 @@ ID: gate:test
 Title: Test Gate
 Roadmap: roadmap:test
 Status: passed
+Effort order:
+  - effort:test
 Passage:
   Accepted decision: Pass the test Gate.
   Rationale: The evidence is sufficient.
@@ -121,6 +123,8 @@ ID: gate:test
 Title: Test Gate
 Roadmap: roadmap:test
 Status: passed
+Effort order:
+  - effort:test
 Passage:
   Accepted decision: Pass the test Gate.
   Rationale: The evidence is sufficient.
