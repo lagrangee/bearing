@@ -651,6 +651,9 @@ test("package workflow binds one uploaded candidate to its exact source commit",
     };
   };
   const steps = parsed.jobs?.candidate?.steps ?? [];
+  const checkoutIndex = steps.findIndex(
+    (step) => step.uses === `actions/checkout@${reviewedActionPins["actions/checkout"]}`,
+  );
   const prepareIndex = steps.findIndex(
     (step) => step.run === "bun scripts/prepare-release-candidate.ts --out release-candidate",
   );
@@ -663,6 +666,12 @@ test("package workflow binds one uploaded candidate to its exact source commit",
     (step) => step.uses === `actions/setup-go@${reviewedActionPins["actions/setup-go"]}`,
   );
   expect(prepareIndex).toBeGreaterThanOrEqual(0);
+  expect(checkoutIndex).toBeGreaterThanOrEqual(0);
+  const sourceCommitExpression = [
+    "$",
+    "{{ github.event.pull_request.head.sha || github.sha }}",
+  ].join("");
+  expect(steps[checkoutIndex]?.with).toMatchObject({ ref: sourceCommitExpression });
   expect(setupGoIndex).toBeGreaterThanOrEqual(0);
   expect(steps[setupGoIndex]?.with).toEqual({ "go-version": "1.26.5", cache: false });
   expect(scanIndex).toBeGreaterThan(prepareIndex);
@@ -676,7 +685,7 @@ test("package workflow binds one uploaded candidate to its exact source commit",
   expect(candidateScan).toContain("--max-archive-depth=1");
   expect(candidateScan).toContain('"release-candidate/$CANDIDATE_ARTIFACT"');
   expect(steps[uploadIndex]?.with).toMatchObject({
-    name: ["bearing-candidate-$", "{{ github.sha }}"].join(""),
+    name: `bearing-candidate-${sourceCommitExpression}`,
     path: "release-candidate/",
     "if-no-files-found": "error",
   });
