@@ -8,6 +8,7 @@ import {
   runBuiltBearing,
   startBuiltPortal,
   stopBuiltPortal,
+  writeCatalogFixture,
 } from "./real-host-test-support";
 
 let host: RunningTestPortal | undefined;
@@ -52,16 +53,8 @@ test.beforeAll(async () => {
 
   homeRoot = await mkdtemp(join(tmpdir(), "bearing-g3-preview-browser-home-"));
   await mkdir(join(homeRoot, ".bearing"), { recursive: true });
-  const catalog = {
-    version: 1,
-    entries: [{ entryId: "g3-preview", repoRoot: fixtureRoot, displayName: "G3 Preview Project" }],
-  };
-  await Promise.all([
-    writeFile(join(homeRoot, ".bearing/catalog.json"), `${JSON.stringify(catalog, null, 2)}\n`),
-    writeFile(
-      join(homeRoot, ".bearing/catalog.backup.json"),
-      `${JSON.stringify(catalog, null, 2)}\n`,
-    ),
+  await writeCatalogFixture(homeRoot, [
+    { entryId: "g3-preview", repoRoot: fixtureRoot, displayName: "G3 Preview Project" },
   ]);
   host = await startBuiltPortal(homeRoot);
 });

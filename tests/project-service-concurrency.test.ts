@@ -53,9 +53,7 @@ test("maps an automatic caller joining active force back to automatic outcome ta
   );
   const pending = deferred<ProjectMaterializationResult>();
   const started = deferred<void>();
-  const automaticResolved = deferred<void>();
   let materializerCalls = 0;
-  let publicResolves = 0;
   const available = () => ({
     kind: "available" as const,
     entry: { entryId: "project-1", displayName: "Fixture", repoRoot: root },
@@ -64,11 +62,7 @@ test("maps an automatic caller joining active force back to automatic outcome ta
     readCatalog: catalogFor(root),
     packageVersion: "0.0.0-test",
     entryResolver: {
-      resolve: async () => {
-        publicResolves += 1;
-        if (publicResolves === 2) automaticResolved.resolve();
-        return available();
-      },
+      resolve: async () => available(),
       resolveWithLocator: async () => ({ result: available(), locatorRevision: root }),
     },
     materializer: {
@@ -83,7 +77,6 @@ test("maps an automatic caller joining active force back to automatic outcome ta
   const forced = service.sync("project-1", "force");
   await started.promise;
   const automatic = service.sync("project-1", "ensure-current");
-  await automaticResolved.promise;
   await nextTurn();
   pending.resolve(forcedResult(baseline));
 
@@ -172,7 +165,7 @@ test("composes each response from its immutable operation result before releasin
   });
 });
 
-test("re-resolves a relinked Catalog entry before a queued force starts", async () => {
+test("fails an in-flight request after relink while a queued force starts on the new locator", async () => {
   const originalRoot = await realpath(await createValidBearingRepo());
   const queuedRoot = await realpath(await createValidBearingRepo());
   const currentRoot = await realpath(await createValidBearingRepo());
@@ -230,11 +223,13 @@ test("re-resolves a relinked Catalog entry before a queued force starts", async 
   const forced = await forcing;
 
   expect(checked).toMatchObject({
-    kind: "completed",
+    kind: "failed",
     mode: "ensure-current",
-    outcome: "synced",
-    view: {
-      cache: { snapshot: { snapshot: { summary: { value: { title: "Current Snapshot" } } } } },
+    outcome: "failed",
+    error: {
+      code: "input-validation-failed",
+      message:
+        "The registered project location changed while this operation was in flight. Retry against the current repository.",
     },
   });
   expect(materializedRoots).toEqual([originalRoot, currentRoot]);

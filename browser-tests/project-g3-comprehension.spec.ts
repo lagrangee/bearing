@@ -32,6 +32,7 @@ import {
   runHarnessCommand,
   startBuiltPortal,
   stopBuiltPortal,
+  writeCatalogFixture,
 } from "./real-host-test-support";
 
 const entryId = "g3-comprehension";
@@ -842,16 +843,8 @@ test.beforeAll(async () => {
       "# Unbound Standalone Release Triage\n\nType: task\n\nStatus: ready\n\n## Question\n\nCan native work remain outside Bearing Scope?\n",
     ),
   ]);
-  const catalog = {
-    version: 1,
-    entries: [{ entryId, repoRoot: fixtureRoot, displayName: "G3 Comprehension Project" }],
-  };
-  await Promise.all([
-    writeFile(join(homeRoot, ".bearing/catalog.json"), `${JSON.stringify(catalog, null, 2)}\n`),
-    writeFile(
-      join(homeRoot, ".bearing/catalog.backup.json"),
-      `${JSON.stringify(catalog, null, 2)}\n`,
-    ),
+  await writeCatalogFixture(homeRoot, [
+    { entryId, repoRoot: fixtureRoot, displayName: "G3 Comprehension Project" },
   ]);
   const commandEnvironment: NodeJS.ProcessEnv = { ...process.env, HOME: homeRoot };
   delete commandEnvironment["FORCE_COLOR"];
@@ -893,6 +886,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
   context,
   page,
 }) => {
+  test.slow();
   if (host === undefined) throw new Error("Ticket 24 built Portal did not start.");
   await proveGitHubStandaloneExclusion();
   const local: Scenario = {

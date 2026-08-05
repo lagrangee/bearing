@@ -1,12 +1,11 @@
 import { lstat, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { stringify } from "yaml";
+import writeFileAtomic from "write-file-atomic";
 import {
   advisoryBasisInputsFromGeneration,
   deriveAdvisoryFreshnessFromGeneration,
 } from "./advisory-freshness";
 import { type AssetContentObservation, resolveAssetInputs } from "./asset-inputs";
-import { writeFileAtomically } from "./atomic-write";
 import {
   type DecodedBearingRecordGeneration,
   decodeBearingRecordGeneration,
@@ -16,6 +15,7 @@ import { deriveStructuralDiagnosticsFromGeneration } from "./diagnostics";
 import { listFiles } from "./discovery";
 import { fingerprintInputRecords } from "./fingerprint";
 import { retainContainedInputs } from "./input-boundary";
+import { serializeMarkdownDocument } from "./markdown-document";
 import {
   fingerprintNativeScopeInspections,
   type NativeScopeInspectionIntent,
@@ -158,21 +158,21 @@ const serializeReport = (
   fingerprint: string,
   diagnostics: readonly StructuralDiagnostic[],
 ): Buffer => {
-  const frontmatter = stringify(
-    {
-      Type: "bearing-sync-report",
-      Version: 1,
-      Inputs: [...inputs],
-      "Input fingerprint": fingerprint,
-    },
-    { lineWidth: 0 },
-  ).trimEnd();
+  const frontmatter = {
+    Type: "bearing-sync-report",
+    Version: 1,
+    Inputs: [...inputs],
+    "Input fingerprint": fingerprint,
+  };
   const findings =
     diagnostics.length === 0
       ? "No structural diagnostics."
       : diagnostics.map(diagnosticLine).join("\n");
   return Buffer.from(
-    `---\n${frontmatter}\n---\n\n# Bearing Sync Report\n\n## Structural Diagnostics\n\n${findings}\n`,
+    serializeMarkdownDocument({
+      frontmatter,
+      body: `\n# Bearing Sync Report\n\n## Structural Diagnostics\n\n${findings}\n`,
+    }),
     "utf8",
   );
 };
@@ -399,23 +399,22 @@ export const commitSyncPlan = async (
     plan.providerObservationStoreChanged ||
     plan.nativeScopeInspectionStoreChanged
   ) {
+    await ensureCacheBoundary(plan.root);
     await mkdir(dirname(plan.reportPath), { recursive: true });
     if (plan.providerObservationStoreChanged && options.publishProviderObservations !== false) {
-      await writeFileAtomically(
-        plan.providerObservationStorePath,
-        plan.providerObservationStoreBytes,
-        0o644,
-      );
+      await writeFileAtomic(plan.providerObservationStorePath, plan.providerObservationStoreBytes, {
+        mode: 0o644,
+      });
     }
     if (plan.nativeScopeInspectionStoreChanged && options.publishNativeScopeInspections !== false) {
-      await writeFileAtomically(
+      await writeFileAtomic(
         plan.nativeScopeInspectionStorePath,
         plan.nativeScopeInspectionStoreBytes,
-        0o644,
+        { mode: 0o644 },
       );
     }
-    if (plan.reportChanged) await writeFileAtomically(plan.reportPath, plan.report, 0o644);
-    if (plan.sitemapChanged) await writeFileAtomically(plan.sitemapPath, plan.sitemap, 0o644);
+    if (plan.reportChanged) await writeFileAtomic(plan.reportPath, plan.report, { mode: 0o644 });
+    if (plan.sitemapChanged) await writeFileAtomic(plan.sitemapPath, plan.sitemap, { mode: 0o644 });
   }
   return syncProjectionResultFromPlan(plan);
 };

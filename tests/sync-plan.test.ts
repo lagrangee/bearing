@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { commitSyncPlan, prepareSync } from "../src/sync-plan";
-import { createValidBearingRepo } from "./helpers";
+import { createValidBearingRepo, makeTemporaryDirectory } from "./helpers";
 
 const exists = async (target: string): Promise<boolean> => {
   try {
@@ -28,6 +28,22 @@ test("prepares deterministic Sync outputs without writing, then commits them", a
   expect(await exists(report)).toBe(true);
   expect(await exists(sitemap)).toBe(true);
   expect((await prepareSync(root)).changed).toBe(false);
+});
+
+test("revalidates cache outputs before committing a prepared Sync plan", async () => {
+  const root = await createValidBearingRepo();
+  const outside = await makeTemporaryDirectory("bearing-sync-commit-boundary-");
+  const outsideFile = join(outside, "outside.md");
+  const report = join(root, ".bearing/cache/sync-report.md");
+  const plan = await prepareSync(root);
+  await mkdir(join(root, ".bearing/cache"), { recursive: true });
+  await writeFile(outsideFile, "outside bytes\n");
+  await symlink(outsideFile, report);
+
+  await expect(commitSyncPlan(plan)).rejects.toThrow(
+    "Bearing cache boundary cannot be a symbolic link",
+  );
+  expect(await readFile(outsideFile, "utf8")).toBe("outside bytes\n");
 });
 
 test("detects changed discovery diagnostics even when the input fingerprint is unchanged", async () => {

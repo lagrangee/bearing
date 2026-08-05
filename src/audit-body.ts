@@ -1,4 +1,13 @@
-import { isPlainText } from "./plain-text";
+import {
+  type MarkdownDocument,
+  type MarkdownSection,
+  markdownCanonicalHeadingTitle,
+  markdownInlineCodeUnorderedList,
+  markdownPlainText,
+  markdownSectionLead,
+  parseMarkdownDocument,
+  queryMarkdownSections,
+} from "./markdown-document";
 import { displaySourceLocatorSchema, planningReferenceSchema } from "./reference-schema";
 
 export type AuditFindingPromotion =
@@ -36,94 +45,81 @@ export type PlanningAuditBodyResult =
       invalidFindings: readonly InvalidAuditFinding[];
     }>;
 
-const trimBlankLines = (lines: readonly string[]): readonly string[] => {
-  let start = 0;
-  let end = lines.length;
-  while (start < end && lines[start]?.trim().length === 0) start += 1;
-  while (end > start && lines[end - 1]?.trim().length === 0) end -= 1;
-  return lines.slice(start, end);
-};
-
-const parseProse = (lines: readonly string[]): string | undefined => {
-  const trimmed = trimBlankLines(lines);
-  if (
-    trimmed.length === 0 ||
-    trimmed.some((line) => /^(?:severity|priority|risk):(?:\s|$)/iu.test(line.trim())) ||
-    !isPlainText(trimmed.join("\n"))
-  ) {
-    return undefined;
-  }
-  const paragraphs: string[] = [];
-  let current: string[] = [];
-  const flush = (): void => {
-    if (current.length === 0) return;
-    paragraphs.push(current.map((line) => line.trim()).join(" "));
-    current = [];
-  };
-  for (const line of trimmed) {
-    if (line.trim().length === 0) flush();
-    else current.push(line);
-  }
-  flush();
-  const normalized = paragraphs.join("\n\n");
-  return normalized.length > 0 && isPlainText(normalized) ? normalized : undefined;
-};
+const canonicalSections = (
+  document: MarkdownDocument,
+  depth: 1 | 2 | 3 | 4 | 5 | 6,
+  within?: MarkdownSection,
+): readonly Readonly<{ title: string; section: MarkdownSection }>[] =>
+  queryMarkdownSections(document, { depth, ...(within === undefined ? {} : { within }) }).flatMap(
+    (section) => {
+      const title = markdownCanonicalHeadingTitle(document, section);
+      return title === undefined ? [] : [{ title, section }];
+    },
+  );
 
 const parseList = (
-  lines: readonly string[],
+  source: string,
   schema: typeof planningReferenceSchema | typeof displaySourceLocatorSchema,
 ): readonly string[] | undefined => {
-  const entries = trimBlankLines(lines)
-    .filter((line) => line.trim().length > 0)
-    .map((line) => /^- `([^`]+)`$/u.exec(line)?.[1]);
-  if (entries.some((entry) => entry === undefined)) return undefined;
+  const entries = markdownInlineCodeUnorderedList(source);
   const parsed = schema.array().min(1).safeParse(entries);
   if (!parsed.success || new Set(parsed.data).size !== parsed.data.length) return undefined;
   return parsed.data;
 };
 
-const parsePromotion = (lines: readonly string[]): AuditFindingPromotion | undefined => {
-  const content = trimBlankLines(lines);
-  if (content.length !== 1) return undefined;
-  const line = content[0] ?? "";
-  const check = /^Alignment Check: `(alignment-check:[a-z0-9]+(?:-[a-z0-9]+)*)`$/u.exec(line)?.[1];
+const parsePromotion = (source: string): AuditFindingPromotion | undefined => {
+  const content = source.trim();
+  if (content.length === 0 || content.includes("\n")) return undefined;
+  const check = /^Alignment Check: `(alignment-check:[a-z0-9]+(?:-[a-z0-9]+)*)`$/u.exec(
+    content,
+  )?.[1];
   if (check !== undefined) return { kind: "alignment-check", target: check };
-  const review = /^Planning Review: `(planning-review:[a-z0-9]+(?:-[a-z0-9]+)*)`$/u.exec(line)?.[1];
+  const review = /^Planning Review: `(planning-review:[a-z0-9]+(?:-[a-z0-9]+)*)`$/u.exec(
+    content,
+  )?.[1];
   return review === undefined ? undefined : { kind: "planning-review", target: review };
 };
 
-const parseFinding = (lines: readonly string[], ordinal: number): AuditBodyFinding | undefined => {
-  const fragmentLines = trimBlankLines(lines);
-  const title = /^### ([^#\s].*)$/u.exec(fragmentLines[0] ?? "")?.[1];
-  if (title === undefined || !isPlainText(title)) return undefined;
-  const headings = fragmentLines.flatMap((line, index) =>
-    /^####(?:\s|$)/u.test(line) ? [{ title: line, index }] : [],
-  );
+const parsePlainParagraph = (source: string): string | undefined => {
+  const value = markdownPlainText(source);
+  return value === undefined || value.includes("\n\n") ? undefined : value;
+};
+
+const parseFinding = (
+  document: MarkdownDocument,
+  section: MarkdownSection,
+  title: string,
+  ordinal: number,
+): AuditBodyFinding | undefined => {
+  const headings = canonicalSections(document, 4, section);
   const expected = [
-    "#### Affected References",
-    "#### Evidence Sources",
-    "#### Consequence",
-    "#### Confidence Boundary",
+    "Affected References",
+    "Evidence Sources",
+    "Consequence",
+    "Confidence Boundary",
   ];
   const hasPromotion = headings.length === expected.length + 1;
-  if (headings.length !== expected.length && !hasPromotion) return undefined;
   if (
-    headings.slice(0, expected.length).some((heading, index) => heading.title !== expected[index])
+    (headings.length !== expected.length && !hasPromotion) ||
+    headings
+      .slice(0, expected.length)
+      .some((heading, index) => heading.title !== expected[index]) ||
+    (hasPromotion && headings[4]?.title !== "Promotion")
   ) {
     return undefined;
   }
-  if (hasPromotion && headings[4]?.title !== "#### Promotion") return undefined;
-  const at = (index: number): readonly string[] => {
-    const start = headings[index]?.index;
-    if (start === undefined) return [];
-    return fragmentLines.slice(start + 1, headings[index + 1]?.index ?? fragmentLines.length);
-  };
-  const summary = parseProse(fragmentLines.slice(1, headings[0]?.index));
-  const affectedReferences = parseList(at(0), planningReferenceSchema);
-  const evidenceSources = parseList(at(1), displaySourceLocatorSchema);
-  const consequence = parseProse(at(2));
-  const confidenceBoundary = parseProse(at(3));
-  const promotion = hasPromotion ? parsePromotion(at(4)) : undefined;
+  const summary = parsePlainParagraph(markdownSectionLead(document, section));
+  const affectedReferences = parseList(
+    headings[0]?.section.markdown ?? "",
+    planningReferenceSchema,
+  );
+  const evidenceSources = parseList(
+    headings[1]?.section.markdown ?? "",
+    displaySourceLocatorSchema,
+  );
+  const consequence = markdownPlainText(headings[2]?.section.markdown ?? "");
+  const confidenceBoundary = markdownPlainText(headings[3]?.section.markdown ?? "");
+  const promotion = hasPromotion ? parsePromotion(headings[4]?.section.markdown ?? "") : undefined;
   if (
     summary === undefined ||
     affectedReferences === undefined ||
@@ -148,38 +144,36 @@ const parseFinding = (lines: readonly string[], ordinal: number): AuditBodyFindi
 };
 
 export const parsePlanningAuditBody = (body: string): PlanningAuditBodyResult => {
-  const lines = trimBlankLines(body.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n"));
-  const topHeadings = lines.flatMap((line, index) =>
-    /^#{1,2}(?:\s|$)/u.test(line) ? [{ title: line, index }] : [],
-  );
+  const document = parseMarkdownDocument(body);
+  const titles = canonicalSections(document, 1);
+  const topSections = canonicalSections(document, 2);
   if (
-    topHeadings.length !== 2 ||
-    topHeadings[0]?.title !== "# Planning Audit" ||
-    topHeadings[0].index !== 0 ||
-    topHeadings[1]?.title !== "## Findings" ||
-    trimBlankLines(lines.slice(1, topHeadings[1].index)).length !== 0
+    titles.length !== 1 ||
+    titles[0]?.title !== "Planning Audit" ||
+    markdownSectionLead(document, titles[0].section).length > 0 ||
+    topSections.length !== 1 ||
+    topSections[0]?.title !== "Findings"
   ) {
     return { ok: false, reason: "invalid-structure", invalidFindings: [] };
   }
-  const content = trimBlankLines(lines.slice(topHeadings[1].index + 1));
-  if (content.length === 1 && content[0] === "No material findings.") {
-    return { ok: true, value: { findings: [], invalidFindings: [] } };
+  const findingsSection = topSections[0].section;
+  const findingHeadings = canonicalSections(document, 3, findingsSection);
+  const lead = markdownPlainText(markdownSectionLead(document, findingsSection));
+  if (findingHeadings.length === 0) {
+    return lead === "No material findings."
+      ? { ok: true, value: { findings: [], invalidFindings: [] } }
+      : { ok: false, reason: "invalid-structure", invalidFindings: [] };
   }
-  const starts = content.flatMap((line, index) => (/^###(?:\s|$)/u.test(line) ? [index] : []));
-  if (starts.length === 0 || starts[0] !== 0 || content.includes("No material findings.")) {
+  if (markdownSectionLead(document, findingsSection).length > 0) {
     return { ok: false, reason: "invalid-structure", invalidFindings: [] };
   }
   const findings: AuditBodyFinding[] = [];
   const invalidFindings: InvalidAuditFinding[] = [];
-  for (const [index, start] of starts.entries()) {
-    const fragmentLines = content.slice(start, starts[index + 1] ?? content.length);
-    const finding = parseFinding(fragmentLines, index + 1);
-    if (finding === undefined) {
-      invalidFindings.push({
-        ordinal: index + 1,
-        fragment: `finding-${index + 1}`,
-      });
-    } else findings.push(finding);
+  for (const [index, heading] of findingHeadings.entries()) {
+    const ordinal = index + 1;
+    const finding = parseFinding(document, heading.section, heading.title, ordinal);
+    if (finding === undefined) invalidFindings.push({ ordinal, fragment: `finding-${ordinal}` });
+    else findings.push(finding);
   }
   if (findings.length === 0) {
     return { ok: false, reason: "all-findings-invalid", invalidFindings };

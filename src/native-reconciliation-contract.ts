@@ -1,7 +1,8 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { z } from "zod";
 import type { NativeWorkAffectedRelation, NativeWorkAffectedSet } from "./native-work-provider";
 import type { MattSkillsV1WorkBinding } from "./providers/matt-skills-v1/capture";
-import { sha256Hex } from "./sha256";
 
 const MAXIMUM_AFFECTED_SUBJECTS = 256;
 const MAXIMUM_AFFECTED_RELATIONS = 512;
@@ -107,9 +108,8 @@ export const nativeReconciliationRequestFingerprint = (
   request: NativeReconciliationRequest,
 ): string => {
   const normalized = normalizeNativeReconciliationRequest(request);
-  return `sha256:${sha256Hex(
-    `bearing-native-reconciliation-request-v1\n${JSON.stringify(normalized)}`,
-  )}`;
+  const payload = `bearing-native-reconciliation-request-v1\n${JSON.stringify(normalized)}`;
+  return `sha256:${bytesToHex(sha256(utf8ToBytes(payload)))}`;
 };
 
 export const affectedReadReferences = (affected: NativeWorkAffectedSet): readonly string[] =>

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   markdownDocumentBody,
   parseMarkdownDocument,
+  parseMarkdownEnvelope,
   queryMarkdownDocumentTitle,
   queryMarkdownField,
   queryMarkdownFrontmatter,
@@ -386,6 +387,17 @@ Status: evidence-only
     expect(queryMarkdownLinks(document)).toEqual([
       { label: "evidence", target: "https://example.com/evidence" },
     ]);
+  });
+
+  test("preserves an existing Markdown body byte-for-byte while replacing its envelope", () => {
+    for (const body of ["", "plain\n", "\r\n# Registry\r\n\r\n- item\r\n\r\n1) ordered\r\n"]) {
+      const source = serializeMarkdownDocument({ frontmatter: { status: "ready" }, body });
+      const parsed = parseMarkdownEnvelope(source);
+
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) throw new Error("Expected serialized Markdown envelope.");
+      expect(parsed.body).toBe(body);
+    }
   });
 
   test("exposes the body without reparsing the frontmatter envelope", () => {

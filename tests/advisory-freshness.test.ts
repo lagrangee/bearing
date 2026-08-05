@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { fingerprintFiles } from "../src/fingerprint";
-import { parseFrontmatter } from "../src/frontmatter";
+import { parseMarkdownEnvelope } from "../src/markdown-document";
 import { runSync } from "../src/sync";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
@@ -102,7 +102,7 @@ test("Sync computes and persists advisory freshness independently", async () => 
     "planning-audit:current": "stale",
     "next-work-guidance:current": "current",
   });
-  const sitemap = parseFrontmatter(await readFile(mixed.sitemapPath, "utf8"));
+  const sitemap = parseMarkdownEnvelope(await readFile(mixed.sitemapPath, "utf8"));
   expect(sitemap.ok).toBe(true);
   if (!sitemap.ok) throw new Error("Expected a valid Sitemap envelope.");
   expect(sitemap.data["Advisory freshness"]).toEqual(mixed.advisoryFreshness);

@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
+import { parseCatalogEntryId } from "./entry-id";
 import {
   CatalogDuplicateRepositoryError,
   CatalogEntryNotFoundError,
   CatalogMoveConfirmationRequiredError,
 } from "./errors";
 import type { CatalogDocument, CatalogEntry } from "./model";
-import { parseCatalogDocument, parseCatalogRepositoryRoot } from "./model";
+import { catalogEntrySchema, parseCatalogDocument, parseCatalogRepositoryRoot } from "./model";
+import { readCatalogDocument } from "./recovery";
 import { inspectRepository, type RepositoryInspection } from "./repository-inspection";
 import { runCatalogTransaction } from "./transaction";
 
@@ -61,23 +63,24 @@ export const upsertCatalogEntry = async (options: {
   readonly homeDir: string;
   readonly repoRoot: string;
   readonly createEntryId?: () => string;
-  readonly lockTimeoutMs?: number;
 }): Promise<CatalogUpsertResult> => {
   const canonicalRoot = await validatedRepositoryRoot(options.repoRoot);
+  await validateRepositoryManifest(canonicalRoot);
+  const candidateEntry = catalogEntrySchema.parse({
+    entryId: parseCatalogEntryId((options.createEntryId ?? randomUUID)()),
+    repoRoot: canonicalRoot,
+    displayName: basename(canonicalRoot),
+  });
   return runCatalogTransaction<CatalogUpsertResult>({
     homeDir: options.homeDir,
-    ...(options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs }),
-    mutate: async (current) => {
-      await validateRepositoryManifest(canonicalRoot);
+    mutate: (current) => {
       const existing = current.entries.find((entry) => entry.repoRoot === canonicalRoot);
       if (existing !== undefined) return { result: { outcome: "no-op", entry: existing } };
-      const entry = {
-        entryId: (options.createEntryId ?? randomUUID)(),
-        repoRoot: canonicalRoot,
-        displayName: basename(canonicalRoot),
-      };
-      const next = parseCatalogDocument({ version: 1, entries: [...current.entries, entry] });
-      return { result: { outcome: "applied", entry }, next };
+      const next = parseCatalogDocument({
+        version: 1,
+        entries: [...current.entries, candidateEntry],
+      });
+      return { result: { outcome: "applied", entry: candidateEntry }, next };
     },
   });
 };
@@ -91,33 +94,33 @@ export const renameCatalogEntry = async (options: {
   readonly homeDir: string;
   readonly entryId: string;
   readonly displayName: string;
-  readonly lockTimeoutMs?: number;
-}): Promise<CatalogEntryMutationResult> =>
-  runCatalogTransaction<CatalogEntryMutationResult>({
+}): Promise<CatalogEntryMutationResult> => {
+  const entryId = parseCatalogEntryId(options.entryId);
+  const displayName = catalogEntrySchema.shape.displayName.parse(options.displayName);
+  return runCatalogTransaction<CatalogEntryMutationResult>({
     homeDir: options.homeDir,
-    ...(options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs }),
     mutate: (current) => {
-      const existing = entryAt(current, options.entryId);
-      const replacement = { ...existing, displayName: options.displayName };
+      const existing = entryAt(current, entryId);
+      const replacement = { ...existing, displayName };
       const next = replaceEntry(current, replacement);
-      const entry = entryAt(next, options.entryId);
+      const entry = entryAt(next, entryId);
       return entry.displayName === existing.displayName
         ? { result: { outcome: "no-op", entry } }
         : { result: { outcome: "applied", entry }, next };
     },
   });
+};
 
 export type CatalogRemovalResult =
   | Readonly<{ outcome: "applied"; removedEntry: CatalogEntry }>
   | Readonly<{ outcome: "no-op" }>;
 
 const removeCatalogEntry = async (
-  options: Readonly<{ homeDir: string; lockTimeoutMs?: number }>,
+  options: Readonly<{ homeDir: string }>,
   matches: (entry: CatalogEntry) => boolean,
 ): Promise<CatalogRemovalResult> =>
   runCatalogTransaction<CatalogRemovalResult>({
     homeDir: options.homeDir,
-    ...(options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs }),
     mutate: (current) => {
       const removedEntry = current.entries.find(matches);
       if (removedEntry === undefined) return { result: { outcome: "no-op" } };
@@ -132,14 +135,14 @@ const removeCatalogEntry = async (
 export const forgetCatalogEntry = async (options: {
   readonly homeDir: string;
   readonly entryId: string;
-  readonly lockTimeoutMs?: number;
-}): Promise<CatalogRemovalResult> =>
-  removeCatalogEntry(options, (entry) => entry.entryId === options.entryId);
+}): Promise<CatalogRemovalResult> => {
+  const entryId = parseCatalogEntryId(options.entryId);
+  return removeCatalogEntry(options, (entry) => entry.entryId === entryId);
+};
 
 export const removeCatalogEntryByRepoRoot = async (options: {
   readonly homeDir: string;
   readonly repoRoot: string;
-  readonly lockTimeoutMs?: number;
 }): Promise<CatalogRemovalResult> => {
   const canonicalRoot = parseCatalogRepositoryRoot(options.repoRoot);
   return removeCatalogEntry(options, (entry) => entry.repoRoot === canonicalRoot);
@@ -150,16 +153,18 @@ export const removeCatalogEntryByExactIdentity = async (options: {
   readonly repoRoot: string;
   readonly expectedEntry?: CatalogEntry;
   readonly assertBeforeMutation?: () => Promise<void>;
-  readonly lockTimeoutMs?: number;
 }): Promise<CatalogRemovalResult> => {
   const canonicalRoot = parseCatalogRepositoryRoot(options.repoRoot);
+  const expectedEntry =
+    options.expectedEntry === undefined
+      ? undefined
+      : catalogEntrySchema.parse(options.expectedEntry);
+  await options.assertBeforeMutation?.();
   return runCatalogTransaction<CatalogRemovalResult>({
     homeDir: options.homeDir,
-    ...(options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs }),
-    mutate: async (current) => {
-      await options.assertBeforeMutation?.();
+    mutate: (current) => {
       const matching = current.entries.find((entry) => entry.repoRoot === canonicalRoot);
-      if (options.expectedEntry === undefined) {
+      if (expectedEntry === undefined) {
         if (matching !== undefined) {
           throw new Error(
             "Project Catalog gained an unreviewed matching entry after Purge confirmation.",
@@ -168,7 +173,7 @@ export const removeCatalogEntryByExactIdentity = async (options: {
         return { result: { outcome: "no-op" } };
       }
       if (matching === undefined) return { result: { outcome: "no-op" } };
-      if (JSON.stringify(matching) !== JSON.stringify(options.expectedEntry)) {
+      if (JSON.stringify(matching) !== JSON.stringify(expectedEntry)) {
         throw new Error(
           "Project Catalog matching entry identity changed after Purge confirmation.",
         );
@@ -187,25 +192,27 @@ export const relinkCatalogEntry = async (options: {
   readonly entryId: string;
   readonly newRepoRoot: string;
   readonly confirmMove?: boolean;
-  readonly lockTimeoutMs?: number;
 }): Promise<CatalogEntryMutationResult> => {
+  const entryId = parseCatalogEntryId(options.entryId);
   const canonicalRoot = await validatedRepositoryRoot(options.newRepoRoot);
+  const before = await readCatalogDocument({ homeDir: options.homeDir });
+  const beforeEntry = entryAt(before, entryId);
+  const oldRepositoryWasAvailable = await repositoryIsAvailable(beforeEntry.repoRoot);
   return runCatalogTransaction<CatalogEntryMutationResult>({
     homeDir: options.homeDir,
-    ...(options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs }),
-    mutate: async (current) => {
-      const existing = entryAt(current, options.entryId);
+    mutate: (current) => {
+      const existing = entryAt(current, entryId);
       if (existing.repoRoot === canonicalRoot) {
         return { result: { outcome: "no-op", entry: existing } };
       }
       if (current.entries.some((entry) => entry.repoRoot === canonicalRoot)) {
         throw new CatalogDuplicateRepositoryError();
       }
-      if ((await repositoryIsAvailable(existing.repoRoot)) && options.confirmMove !== true) {
-        throw new CatalogMoveConfirmationRequiredError();
-      }
-      if ((await validatedRepositoryRoot(options.newRepoRoot)) !== canonicalRoot) {
+      if (existing.repoRoot !== beforeEntry.repoRoot) {
         throw new Error("Repository location changed during Catalog relink.");
+      }
+      if (oldRepositoryWasAvailable && options.confirmMove !== true) {
+        throw new CatalogMoveConfirmationRequiredError();
       }
       const entry = { ...existing, repoRoot: canonicalRoot };
       return { result: { outcome: "applied", entry }, next: replaceEntry(current, entry) };

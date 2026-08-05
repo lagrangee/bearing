@@ -1,4 +1,6 @@
 import { join } from "node:path";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import stableStringify from "safe-stable-stringify";
 import { z } from "zod";
 import type { NativeReconciliationRequest } from "./native-reconciliation-contract";
@@ -20,7 +22,6 @@ import {
 } from "./providers/matt-skills-v1/native-subject";
 import { mattObjects } from "./providers/matt-skills-v1/projection";
 import { mattSkillsV1ProviderObservationSchema } from "./providers/matt-skills-v1/schema";
-import { sha256Hex } from "./sha256";
 import type { SyncInputGeneration } from "./sync-input-generation";
 import type { StructuralDiagnostic } from "./types";
 import { readValidatedJsonCache, serializeValidatedJson } from "./validated-json-cache";
@@ -137,7 +138,7 @@ const bindingFingerprint = (
 ): string => {
   const serialized = stableStringify(binding);
   if (serialized === undefined) throw new TypeError("Native scope binding is not serializable.");
-  return `sha256:${sha256Hex(serialized)}`;
+  return `sha256:${bytesToHex(sha256(utf8ToBytes(serialized)))}`;
 };
 
 const observationFor = (

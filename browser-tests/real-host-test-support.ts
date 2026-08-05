@@ -3,6 +3,32 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+
+export const writeCatalogFixture = async (
+  homeDir: string,
+  entries: readonly Readonly<{ entryId: string; repoRoot: string; displayName: string }>[],
+): Promise<void> => {
+  const directory = join(homeDir, ".bearing");
+  await mkdir(directory, { recursive: true });
+  const database = new DatabaseSync(join(directory, "catalog.sqlite"));
+  try {
+    database.exec(`
+      CREATE TABLE catalog_entries (
+        entry_id TEXT PRIMARY KEY NOT NULL,
+        repo_root TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL CHECK (length(trim(display_name)) > 0)
+      ) STRICT;
+      PRAGMA user_version = 1;
+    `);
+    const insert = database.prepare(
+      "INSERT INTO catalog_entries(entry_id, repo_root, display_name) VALUES (?, ?, ?)",
+    );
+    for (const entry of entries) insert.run(entry.entryId, entry.repoRoot, entry.displayName);
+  } finally {
+    database.close();
+  }
+};
 
 const outputs = [
   "project-sitemap.md",

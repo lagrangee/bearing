@@ -17,27 +17,6 @@ const requiredBoundaryPackages = [
 const rawBoundaryPackages = ["micromark", "unist"] as const;
 const boundaryPackages = [...requiredBoundaryPackages, ...rawBoundaryPackages] as const;
 
-const approvedStructuralOwners = new Set([
-  "src/asset-registration.ts",
-  "src/audit-body.ts",
-  "src/bearing-record-decoder.ts",
-  "src/bearing-record-sections.ts",
-  "src/executor-registration.ts",
-  "src/guidance-body.ts",
-  "src/repository-cutover.ts",
-  "src/sitemap.ts",
-  "src/sync-plan.ts",
-]);
-
-const claimsMarkdownStructureOwnership = (source: string): boolean =>
-  [
-    /(?:^|[^#])#{1,6}(?: |\\s)/u,
-    /(?:["'`]|\b(?:n|r)n)---(?:["'`]|\n|\\[nr])/u,
-    /["'`](?:Blocked by|Category|Status|Type|What to build):/u,
-    /const\s+\w+\s*=\s*["']#["']\.repeat\(/u,
-    /new RegExp\(`\^\$\{(?:marker|name)\}(?: |:)/u,
-  ].some((pattern) => pattern.test(source));
-
 const sourceFiles = async (): Promise<readonly string[]> => {
   const glob = new Bun.Glob("src/**/*.{ts,tsx}");
   return [...glob.scanSync({ cwd: process.cwd(), onlyFiles: true })].sort();
@@ -77,39 +56,27 @@ test("keeps the raw mdast and micromark stack inside one Bearing-owned boundary"
   expect(declaration).not.toMatch(/\b(?:mdast|micromark|unist|Mdast|RootContent)\b/u);
 });
 
-test("freezes approved readers while blocking new parallel structural parsers", async () => {
-  expect(
-    claimsMarkdownStructureOwnership(
-      'source.split("\\n").find((line) => line.slice(0, 3) === "## ")',
-    ),
-  ).toBe(true);
-  expect(
-    claimsMarkdownStructureOwnership(
-      'const heading = "## "; source.split("\\n").find((line) => line.startsWith(heading))',
-    ),
-  ).toBe(true);
-
+test("removes compatibility readers and keeps domain decoders on the shared boundary", async () => {
   const files = await sourceFiles();
-  for (const owner of approvedStructuralOwners) {
-    expect(files).toContain(owner);
-  }
+  expect(files).not.toContain("src/frontmatter.ts");
+  expect(files).not.toContain("src/plain-text.ts");
 
-  const detected = new Set<string>();
   for (const file of files) {
-    if (file === sharedModule) continue;
     const source = await readFile(file, "utf8");
-    if (claimsMarkdownStructureOwnership(source)) {
-      detected.add(file);
-      expect(
-        approvedStructuralOwners.has(file),
-        `${file} claims Markdown heading, section, field, or frontmatter structure outside the shared boundary`,
-      ).toBe(true);
-    }
+    expect(source, `${file} imports a removed Markdown compatibility module`).not.toMatch(
+      /from ["'](?:\.\.\/)*\.?\/?(?:frontmatter|plain-text)["']/u,
+    );
   }
 
-  for (const owner of approvedStructuralOwners) {
-    expect(detected.has(owner), `${owner} is an explicit structural parsing responsibility`).toBe(
-      true,
+  for (const file of [
+    "src/audit-body.ts",
+    "src/guidance-body.ts",
+    "src/bearing-record-sections.ts",
+  ]) {
+    const source = await readFile(file, "utf8");
+    expect(source).toMatch(/from ["']\.\/markdown-document["']/u);
+    expect(source, `${file} still line-parses Markdown structure`).not.toMatch(
+      /split\(["']\\n["']\)|\^#{1,6}|#"\.repeat|new RegExp\([^)]*#|\^-[ ]/u,
     );
   }
 });

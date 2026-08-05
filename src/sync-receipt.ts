@@ -1,6 +1,6 @@
 import { lstat, readFile } from "node:fs/promises";
+import writeFileAtomic from "write-file-atomic";
 import { z } from "zod";
-import { writeFileAtomically } from "./atomic-write";
 import {
   SYNC_RECEIPT_SCHEMA_VERSION,
   type SyncReceipt,
@@ -117,5 +117,5 @@ export const writeSyncReceipt = async (target: string, receipt: SyncReceipt): Pr
       return assertNever(targetState);
   }
   const bytes = Buffer.from(`${JSON.stringify(receipt, null, 2)}\n`, "utf8");
-  await writeFileAtomically(target, bytes, mode);
+  await writeFileAtomic(target, bytes, { mode });
 };

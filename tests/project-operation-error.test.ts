@@ -1,11 +1,6 @@
 import { expect, test } from "bun:test";
 import { realpath } from "node:fs/promises";
-import {
-  CatalogEntryOwnershipError,
-  CatalogLockError,
-  CatalogLockRecoveryError,
-  CatalogRecoveryRequiredError,
-} from "../src/catalog/errors";
+import { CatalogBusyError, CatalogRecoveryRequiredError } from "../src/catalog/errors";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
 import { operationError } from "../src/portal/project-operation-error";
 import { createProjectService } from "../src/portal/project-service";
@@ -26,23 +21,14 @@ const catalogFor = (repoRoot: string) => async () => ({
 
 const catalogValidationFailures = [
   {
-    name: "busy Catalog lock",
-    create: () => new CatalogLockError(),
-  },
-  {
-    name: "indeterminate Catalog lock",
-    create: () =>
-      new CatalogLockRecoveryError(undefined, "/private/internal/repair-entry-lock-command"),
-  },
-  {
-    name: "changed Catalog ownership",
-    create: () => new CatalogEntryOwnershipError(),
+    name: "busy Catalog transaction",
+    create: () => new CatalogBusyError(),
   },
   {
     name: "Catalog recovery requirement",
     create: () =>
       new CatalogRecoveryRequiredError(
-        "Sensitive degraded Catalog detail at /private/internal/catalog.json.",
+        "Sensitive degraded Catalog detail at /private/internal/catalog.sqlite.",
       ),
   },
 ] as const;
@@ -51,7 +37,7 @@ test("normalizes Catalog recovery admission without exposing its detail", () => 
   expect(
     operationError(
       new CatalogRecoveryRequiredError(
-        "Sensitive degraded Catalog detail at /private/internal/catalog.json.",
+        "Sensitive degraded Catalog detail at /private/internal/catalog.sqlite.",
       ),
     ),
   ).toEqual({

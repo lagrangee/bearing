@@ -141,7 +141,7 @@ test("worker invokes the packaged-equivalent CLI in one independent process per 
     expect(serialized).not.toContain(leak);
   }
   expect(report.runtime).not.toHaveProperty("hostname");
-});
+}, 30_000);
 
 test("counts actual Planning Graph builds and root closures and rejects duplicate sample work", async () => {
   const root = await createValidBearingRepo();

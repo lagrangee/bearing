@@ -168,7 +168,7 @@ Portal 前台运行并打印 loopback URL。安装版本支持时，可用 `BEAR
 
 ## Catalog
 
-对 rename、forget、remove、relink、repair、reset 等操作，使用 `bearing catalog --help` 和当前命令 help。Catalog 操作会影响用户级 project registration；不要盲目执行。
+对 rename、forget、remove、relink 与需明确确认的 reset 等操作，使用 `bearing catalog --help` 和当前命令 help。Reset 会创建空的 SQLite Catalog；随后需再次运行 Setup 注册 repository。Catalog 操作会影响用户级 project registration；不要盲目执行。
 
 ## Package uninstall 边界
 

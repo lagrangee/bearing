@@ -1,5 +1,5 @@
-import { stringify } from "yaml";
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
+import { serializeMarkdownDocument } from "./markdown-document";
 import type { PlanningGraph } from "./planning-graph";
 import type { MattSkillsV1ProviderObservation } from "./providers/matt-skills-v1/capture";
 import type { SitemapNode } from "./sitemap-model";
@@ -37,16 +37,13 @@ const serializeProjectSitemap = (
   fingerprint: string,
   advisoryFreshness: AdvisoryFreshness,
 ): Buffer => {
-  const frontmatter = stringify(
-    {
-      Type: "project-sitemap",
-      Version: 1,
-      Inputs: [...inputs],
-      "Input fingerprint": fingerprint,
-      "Advisory freshness": advisoryFreshness,
-    },
-    { lineWidth: 0 },
-  ).trimEnd();
+  const frontmatter = {
+    Type: "project-sitemap",
+    Version: 1,
+    Inputs: [...inputs],
+    "Input fingerprint": fingerprint,
+    "Advisory freshness": advisoryFreshness,
+  };
   const sections = SECTION_ORDER.map((section) => {
     const lines = model.nodes.filter((node) => node.type === section).map(nodeLine);
     return `## ${section}\n\n${lines.length === 0 ? "- None." : lines.join("\n")}`;
@@ -58,7 +55,10 @@ const serializeProjectSitemap = (
     ...model.readiness,
   ].join("\n");
   return Buffer.from(
-    `---\n${frontmatter}\n---\n\n# Bearing Project Sitemap\n\n${sections.join("\n\n")}\n\n${derived}\n`,
+    serializeMarkdownDocument({
+      frontmatter,
+      body: `\n# Bearing Project Sitemap\n\n${sections.join("\n\n")}\n\n${derived}\n`,
+    }),
     "utf8",
   );
 };

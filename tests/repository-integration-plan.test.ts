@@ -727,7 +727,7 @@ Example only; do not configure \`${contractLocator}\` here.
     const homeDir = await makeTemporaryDirectory("bearing-setup-catalog-partial-home-");
     const contractLocator = await writeMattProviderFixture(repoRoot);
     await mkdir(join(homeDir, ".bearing"), { recursive: true });
-    await writeFile(join(homeDir, ".bearing/catalog.json"), "{ invalid\n");
+    await writeFile(join(homeDir, ".bearing/catalog.sqlite"), "not a database\n");
 
     const result = await runSetupCli(repoRoot, homeDir, ["--provider-contract", contractLocator]);
 
@@ -942,7 +942,7 @@ Example only; do not configure \`${contractLocator}\` here.
     expect(
       (await runSetupCli(repoRoot, homeDir, ["--provider-contract", contractLocator])).exitCode,
     ).toBe(0);
-    await writeFile(join(homeDir, ".bearing/catalog.json"), "{ invalid\n");
+    await writeFile(join(homeDir, ".bearing/catalog.sqlite"), "not a database\n");
 
     const result = await runLifecycleCli(repoRoot, homeDir, "deactivate");
 

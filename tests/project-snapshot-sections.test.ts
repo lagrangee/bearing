@@ -85,6 +85,14 @@ test("plain-text decoders reject inline Markdown and HTML without rewriting it",
   expect(parsePlainText("Use 2 * 3 * 4, A --> B, and foo__bar__baz identifiers.")).toBe(
     "Use 2 * 3 * 4, A --> B, and foo__bar__baz identifiers.",
   );
+  expect(parsePlainText("See https://example.test/reference for context.")).toBe(
+    "See https://example.test/reference for context.",
+  );
+  expect(parseUnorderedList("- See https://example.test/reference for context.")).toEqual([
+    "See https://example.test/reference for context.",
+  ]);
+  expect(parsePlainText("Show \\*escaped emphasis*.")).toBeUndefined();
+  expect(parseUnorderedList("- Show \\*escaped emphasis*.")).toBeUndefined();
 });
 
 test("plain-text decoders reject reference and block markup while preserving ordinary literals", () => {

@@ -1,5 +1,6 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import type { AuditBodyFinding, InvalidAuditFinding } from "../audit-body";
-import { sha256Hex } from "../sha256";
 import type {
   AlignmentCheck,
   CollectionProjection,
@@ -25,7 +26,9 @@ export const createAuditFindingId = (
   fragment: string,
 ) =>
   auditFindingIdSchema.parse(
-    `audit-finding:${sha256Hex(JSON.stringify([sitemapFingerprint, auditLocator, fragment]))}`,
+    `audit-finding:${bytesToHex(
+      sha256(utf8ToBytes(JSON.stringify([sitemapFingerprint, auditLocator, fragment]))),
+    )}`,
   );
 
 type Decisions = Readonly<{

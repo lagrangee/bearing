@@ -1,7 +1,7 @@
 import type { Stats } from "node:fs";
 import { lstat, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { writeFileAtomically } from "../atomic-write";
+import writeFileAtomic from "write-file-atomic";
 import { writeProjectSnapshotCache } from "../project-snapshot/cache";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import type { SyncReceipt } from "../sync-receipt";
@@ -45,7 +45,7 @@ const capture = async (target: string): Promise<FileCapture> => {
 };
 const restore = async (target: string, prior: FileCapture): Promise<void> => {
   if (prior.kind === "available") {
-    await writeFileAtomically(target, prior.bytes, prior.mode);
+    await writeFileAtomic(target, prior.bytes, { mode: prior.mode });
     return;
   }
   try {
@@ -74,8 +74,12 @@ export const commitProjectCache = async (
   const inspectionPath = join(input.repoRoot, ".bearing/cache/native-scope-inspections.json");
   const snapshotPath = join(input.repoRoot, ".bearing/cache/project-snapshot.json");
   const receiptPath = join(input.repoRoot, ".bearing/cache/sync-receipt.json");
-  const writeObservation = dependencies.writeProviderObservationStore ?? writeFileAtomically;
-  const writeInspection = dependencies.writeNativeScopeInspectionStore ?? writeFileAtomically;
+  const writeObservation =
+    dependencies.writeProviderObservationStore ??
+    ((target: string, bytes: Buffer, mode: number) => writeFileAtomic(target, bytes, { mode }));
+  const writeInspection =
+    dependencies.writeNativeScopeInspectionStore ??
+    ((target: string, bytes: Buffer, mode: number) => writeFileAtomic(target, bytes, { mode }));
   const writeSnapshot = dependencies.writeSnapshot ?? writeProjectSnapshotCache;
   const writeReceipt = dependencies.writeReceipt ?? writeSyncReceipt;
   const priorReport = input.sync === undefined ? undefined : await capture(input.sync.reportPath);

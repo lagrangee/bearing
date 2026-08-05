@@ -1,7 +1,8 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import stableStringify from "safe-stable-stringify";
 import { z } from "zod";
 import { deepFreeze } from "./immutable";
-import { sha256Hex } from "./sha256";
 
 export type ProviderStructuralValue =
   | string
@@ -250,7 +251,7 @@ type ProviderScopeObservationInput<
 export const providerObservationIdentityFor = (observation: ProviderStructuralValue): string => {
   const source = stableStringify(observation);
   if (source === undefined) throw new TypeError("Provider observation could not be serialized.");
-  return `provider-observation:sha256:${sha256Hex(source)}`;
+  return `provider-observation:sha256:${bytesToHex(sha256(utf8ToBytes(source)))}`;
 };
 
 export const createProviderScopeObservation = <

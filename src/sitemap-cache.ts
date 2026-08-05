@@ -2,7 +2,7 @@ import type { Stats } from "node:fs";
 import { lstat, readFile } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { z } from "zod";
-import { parseFrontmatter } from "./frontmatter";
+import { parseMarkdownEnvelope } from "./markdown-document";
 import type { AdvisoryFreshness } from "./types";
 
 const SUPPORTED_SITEMAP_VERSION = 1;
@@ -149,7 +149,7 @@ export const readProjectSitemapCache = async (
   } catch {
     return malformed("unreadable-cache-file");
   }
-  const frontmatter = parseFrontmatter(source);
+  const frontmatter = parseMarkdownEnvelope(source);
   if (!frontmatter.ok) {
     return malformed(frontmatter.reason === "missing" ? "missing-frontmatter" : "invalid-envelope");
   }

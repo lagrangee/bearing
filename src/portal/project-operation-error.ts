@@ -1,18 +1,10 @@
-import {
-  CatalogEntryOwnershipError,
-  CatalogLockError,
-  CatalogLockRecoveryError,
-  CatalogRecoveryRequiredError,
-} from "../catalog/errors";
+import { CatalogBusyError, CatalogRecoveryRequiredError } from "../catalog/errors";
 import type { ProjectOperationError } from "./project-contract";
 import { ProjectMaterializerError } from "./project-materializer";
 
 export const operationError = (error: unknown): ProjectOperationError => {
   const catalogValidationFailed =
-    error instanceof CatalogLockError ||
-    error instanceof CatalogLockRecoveryError ||
-    error instanceof CatalogEntryOwnershipError ||
-    error instanceof CatalogRecoveryRequiredError;
+    error instanceof CatalogBusyError || error instanceof CatalogRecoveryRequiredError;
   const code =
     error instanceof ProjectMaterializerError
       ? error.code

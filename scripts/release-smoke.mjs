@@ -12,15 +12,19 @@ import {
   readFile,
   readlink,
   realpath,
-  rename,
   rm,
   symlink,
   unlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
+import semver from "semver";
+import writeFileAtomic from "write-file-atomic";
+import { readReleaseTarGz } from "./release-archive.ts";
+import { readmeRelativeTargets } from "./release-boundary.ts";
 
 const PACKAGE_NAME = "@lagrangee/bearing";
 const SUPPORTED_LANES = Object.freeze({ node24: 24, node26: 26 });
@@ -30,7 +34,6 @@ export const RELEASE_SMOKE_SEED = join(PROJECT_ROOT, "tests/fixtures/release-smo
 const HARNESS_LOCATOR = "scripts/release-smoke.mjs";
 const SEED_LOCATOR = "tests/fixtures/release-smoke-seed";
 const GIT = "/usr/bin/git";
-const TAR = "/usr/bin/tar";
 const GIT_ENVIRONMENT = Object.freeze({
   HOME: tmpdir(),
   PATH: "/usr/bin:/bin",
@@ -52,30 +55,46 @@ The node24 lane runs the deterministic exact-tarball release journey. The node26
 the lighter packaged-runtime compatibility check. Evidence is written only when requested.
 `;
 
-const optionValue = (args, index, name) => {
-  const value = args[index + 1];
-  if (value === undefined || value.startsWith("--")) throw new Error(`${name} requires a value.`);
-  return value;
-};
-
 export const parseReleaseSmokeArgs = (args) => {
-  const options = {};
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index];
-    if (argument === "--help" || argument === "-h") return { help: true };
-    if (argument === "--lane") options.lane = optionValue(args, index++, argument);
-    else if (argument === "--source-commit") {
-      options.sourceCommit = optionValue(args, index++, argument);
+  const parsed = parseArgs({
+    args,
+    strict: true,
+    allowPositionals: false,
+    tokens: true,
+    options: {
+      help: { type: "boolean", short: "h" },
+      lane: { type: "string" },
+      "source-commit": { type: "string" },
+      "candidate-receipt": { type: "string" },
+      tarball: { type: "string" },
+      sha256: { type: "string" },
+      version: { type: "string" },
+      evidence: { type: "string" },
+    },
+  });
+  if (parsed.values.help === true) return { help: true };
+  for (const name of [
+    "lane",
+    "source-commit",
+    "candidate-receipt",
+    "tarball",
+    "sha256",
+    "version",
+    "evidence",
+  ]) {
+    if (parsed.tokens.filter((token) => token.kind === "option" && token.name === name).length > 1) {
+      throw new Error(`--${name} may be provided only once.`);
     }
-    else if (argument === "--candidate-receipt") {
-      options.candidateReceipt = optionValue(args, index++, argument);
-    }
-    else if (argument === "--tarball") options.tarball = optionValue(args, index++, argument);
-    else if (argument === "--sha256") options.sha256 = optionValue(args, index++, argument);
-    else if (argument === "--version") options.version = optionValue(args, index++, argument);
-    else if (argument === "--evidence") options.evidence = optionValue(args, index++, argument);
-    else throw new Error(`Unknown argument: ${argument}`);
   }
+  const options = {
+    lane: parsed.values.lane,
+    sourceCommit: parsed.values["source-commit"],
+    candidateReceipt: parsed.values["candidate-receipt"],
+    tarball: parsed.values.tarball,
+    sha256: parsed.values.sha256,
+    version: parsed.values.version,
+    evidence: parsed.values.evidence,
+  };
 
   if (!(options.lane in SUPPORTED_LANES)) {
     throw new Error("--lane must be node24 or node26.");
@@ -96,7 +115,12 @@ export const parseReleaseSmokeArgs = (args) => {
   if (typeof options.sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(options.sha256)) {
     throw new Error("--sha256 must be a lowercase 64-character SHA-256 digest.");
   }
-  if (typeof options.version !== "string" || !/^0\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/u.test(options.version)) {
+  if (
+    typeof options.version !== "string" ||
+    semver.valid(options.version) !== options.version ||
+    !options.version.startsWith("0.") ||
+    options.version.includes("+")
+  ) {
     throw new Error("--version must be an explicit 0.x package version.");
   }
   if (options.evidence !== undefined && !isAbsolute(options.evidence)) {
@@ -108,9 +132,12 @@ export const parseReleaseSmokeArgs = (args) => {
 export const assertLaneRuntime = (lane, nodeVersion = process.version) => {
   const expectedMajor = SUPPORTED_LANES[lane];
   if (expectedMajor === undefined) throw new Error(`Unknown release smoke lane: ${lane}.`);
-  const actualMajor = Number.parseInt(nodeVersion.replace(/^v/u, "").split(".")[0] ?? "", 10);
-  if (actualMajor !== expectedMajor) {
+  const runtimeVersion = semver.parse(nodeVersion);
+  if (runtimeVersion === null || runtimeVersion.major !== expectedMajor) {
     throw new Error(`${lane} requires Node.js ${expectedMajor}; current runtime is ${nodeVersion}.`);
+  }
+  if (lane === "node24" && semver.lt(runtimeVersion, "24.15.0")) {
+    throw new Error(`node24 requires Node.js 24.15.0 or later; current runtime is ${nodeVersion}.`);
   }
 };
 
@@ -188,32 +215,6 @@ const candidatePackagePath = (value, label) => {
     throw new Error(`${label} is unsafe: ${JSON.stringify(path)}.`);
   }
   return path;
-};
-
-const tarPermissionToken = (header, path) => {
-  const permissionToken = header.trimStart().split(/\s+/u, 1)[0];
-  if (permissionToken === undefined || permissionToken.length !== 10) {
-    throw new Error(`Could not parse candidate tar header: ${path}.`);
-  }
-  return permissionToken;
-};
-
-const tarHeaderMode = (permissionToken, path) => {
-  if (permissionToken[0] !== "-") {
-    throw new Error(`Candidate file type is not regular: ${path}.`);
-  }
-  const permissions = permissionToken.slice(1);
-  if (/[sStT]/u.test(permissions)) {
-    throw new Error(`Candidate file has forbidden special permission bits: ${path}.`);
-  }
-  if (!/^[rwx-]{9}$/u.test(permissions)) {
-    throw new Error(`Could not parse candidate file mode: ${path}.`);
-  }
-  let mode = 0;
-  for (const [index, character] of [...permissions].entries()) {
-    if (character !== "-") mode |= 1 << (8 - index);
-  }
-  return mode;
 };
 
 const parseCandidateJson = (bytes, label) => {
@@ -348,47 +349,24 @@ export const validateCandidateReceiptIdentity = async (
     throw new Error("Candidate manifest paths must be unique and sorted.");
   }
 
-  const commandOptions = { cwd: dirname(candidate.path), env: GIT_ENVIRONMENT };
-  const [tarList, verboseTarList] = await Promise.all([
-    expectCommand(
-    "list exact candidate artifact",
-    TAR,
-    ["-tzf", candidate.path],
-    commandOptions,
-    ),
-    expectCommand(
-      "inspect exact candidate artifact headers",
-      TAR,
-      ["-tvzf", candidate.path],
-      commandOptions,
-    ),
-  ]);
-  const listedEntries = tarList.stdout
-    .split("\n")
-    .filter((path) => path.length > 0);
-  const verboseEntries = verboseTarList.stdout.split("\n").filter((line) => line.length > 0);
-  if (listedEntries.length !== verboseEntries.length) {
-    throw new Error("Candidate tar path and header listings do not describe the same entries.");
-  }
-  const artifactHeaders = new Map();
+  const archiveEntries = await readReleaseTarGz(candidate.path);
+  const artifactEntries = new Map();
   const artifactPaths = [];
-  for (const [index, archivePath] of listedEntries.entries()) {
-    const permissionToken = tarPermissionToken(verboseEntries[index], archivePath);
-    const type = permissionToken[0];
-    if (type === "d") {
-      if (!archivePath.endsWith("/")) {
-        throw new Error(`Candidate directory entry must end in a slash: ${archivePath}.`);
+  for (const entry of archiveEntries) {
+    if (entry.type === "directory") {
+      if (!entry.path.endsWith("/")) {
+        throw new Error(`Candidate directory entry must end in a slash: ${entry.path}.`);
       }
       continue;
     }
-    if (type !== "-") {
-      throw new Error(`Candidate archive entry type is not allowed: ${archivePath}.`);
+    if (entry.type !== "file") {
+      throw new Error(`Candidate archive entry type is not allowed: ${entry.path}.`);
     }
-    if (archivePath.endsWith("/")) {
-      throw new Error(`Candidate non-directory entry has a trailing slash: ${archivePath}.`);
+    if (entry.path.endsWith("/")) {
+      throw new Error(`Candidate non-directory entry has a trailing slash: ${entry.path}.`);
     }
-    artifactPaths.push(archivePath);
-    artifactHeaders.set(archivePath, permissionToken);
+    artifactPaths.push(entry.path);
+    artifactEntries.set(entry.path, entry);
   }
   artifactPaths.sort();
   const expectedArtifactPaths = paths.map((path) => `package/${path}`).sort();
@@ -399,20 +377,17 @@ export const validateCandidateReceiptIdentity = async (
   const canonicalRepository = await realpath(repositoryRoot);
   for (const file of files) {
     const archivePath = `package/${file.path}`;
-    const permissionToken = artifactHeaders.get(archivePath);
-    if (permissionToken === undefined) {
+    const archived = artifactEntries.get(archivePath);
+    if (archived === undefined) {
       throw new Error(`Could not inspect candidate tar header: ${file.path}.`);
     }
-    if (tarHeaderMode(permissionToken, file.path) !== file.mode) {
+    if ((archived.mode & ~0o777) !== 0) {
+      throw new Error(`Candidate file has forbidden special permission bits: ${file.path}.`);
+    }
+    if ((archived.mode & 0o777) !== file.mode) {
       throw new Error(`Candidate file mode mismatch: ${file.path}.`);
     }
-    const extracted = await expectCommand(
-      `read candidate file ${file.path}`,
-      TAR,
-      ["-xOf", candidate.path, archivePath],
-      commandOptions,
-    );
-    if (extracted.stdoutBytes.byteLength !== file.size) {
+    if (archived.bytes.byteLength !== file.size) {
       throw new Error(`Candidate file size mismatch: ${file.path}.`);
     }
     if (!file.path.startsWith("dist/")) {
@@ -424,23 +399,18 @@ export const validateCandidateReceiptIdentity = async (
           cause: error,
         });
       }
-      if (!extracted.stdoutBytes.equals(committed.stdoutBytes)) {
+      if (!archived.bytes.equals(committed.stdoutBytes)) {
         throw new Error(`Candidate artifact bytes differ from ${sourceCommit}: ${file.path}.`);
       }
     }
   }
 
+  const packedMetadataEntry = artifactEntries.get("package/package.json");
+  if (packedMetadataEntry === undefined) {
+    throw new Error("Candidate package metadata is absent from the exact tarball.");
+  }
   const packedMetadata = candidateObject(
-    JSON.parse(
-      (
-        await expectCommand(
-          "read candidate package metadata",
-          TAR,
-          ["-xOf", candidate.path, "package/package.json"],
-          commandOptions,
-        )
-      ).stdout,
-    ),
+    JSON.parse(packedMetadataEntry.bytes.toString("utf8")),
     "Candidate package metadata",
   );
   if (packedMetadata.name !== PACKAGE_NAME || packedMetadata.version !== packageVersion) {
@@ -742,25 +712,8 @@ export const checkPackagedDocumentation = async (packageRoot) => {
   if (metadata.bugs?.url !== "https://github.com/lagrangee/bearing/issues") {
     throw new Error("Packaged metadata does not expose the canonical feedback route.");
   }
-  const targets = readmes.flatMap(({ source }) =>
-    [...source.matchAll(/\[[^\]]*\]\(([^)]+)\)/gu)]
-      .map((match) => match[1]?.trim())
-      .filter((target) => target !== undefined),
-  );
-  for (const target of targets) {
-    if (
-      target.startsWith("#") ||
-      /^(?:https?:|mailto:)/iu.test(target) ||
-      target.startsWith("//")
-    ) {
-      continue;
-    }
-    const withoutFragment = target.split("#", 1)[0]?.split("?", 1)[0] ?? "";
-    if (withoutFragment.length === 0) continue;
-    const locator = posix.normalize(withoutFragment);
-    if (posix.isAbsolute(locator) || locator === ".." || locator.startsWith("../")) {
-      throw new Error(`Packaged README has an unsafe relative target: ${target}.`);
-    }
+  const targets = readmes.flatMap(({ source }) => readmeRelativeTargets(source));
+  for (const locator of targets) {
     const linked = join(packageRoot, ...locator.split("/"));
     const linkedMetadata = await lstat(linked).catch((error) => {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") {
@@ -787,8 +740,21 @@ const pathExists = async (target) => {
   }
 };
 
-const readCatalog = async (home) =>
-  JSON.parse(await readFile(join(home, ".bearing/catalog.json"), "utf8"));
+const readCatalog = async (home) => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const database = new DatabaseSync(join(home, ".bearing/catalog.sqlite"), { readOnly: true });
+  try {
+    return {
+      entries: database
+        .prepare(
+          "SELECT entry_id AS entryId, repo_root AS repoRoot, display_name AS displayName FROM catalog_entries",
+        )
+        .all(),
+    };
+  } finally {
+    database.close();
+  }
+};
 
 const catalogContains = async (home, repository) => {
   const canonicalRepository = await realpath(repository);
@@ -1096,9 +1062,7 @@ const runFullLane = async ({ candidate, options, roots, environment, cli, packag
 
 const writeEvidence = async (target, receipt) => {
   await mkdir(dirname(target), { recursive: true });
-  const temporary = `${target}.tmp-${process.pid}`;
-  await writeFile(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-  await rename(temporary, target);
+  await writeFileAtomic(target, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
 };
 
 export const runReleaseSmoke = async (options) => {

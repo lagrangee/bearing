@@ -1,4 +1,9 @@
 import { isAbsolute, relative, resolve } from "node:path";
+import {
+  parseMarkdownDocument,
+  queryMarkdownList,
+  queryMarkdownSection,
+} from "../src/markdown-document";
 
 export type BundleDependency = Readonly<{
   name: string;
@@ -15,8 +20,6 @@ export type BundleDependencyMetadata = Readonly<{
   }>;
   packages: readonly BundleDependency[];
 }>;
-
-const inventoryHeading = "## Bundled dependency inventory";
 
 const virtualModuleLocators: ReadonlyMap<string, string> = new Map([
   ["\0rolldown/runtime.js", "node_modules/rolldown/runtime.js"],
@@ -48,17 +51,14 @@ export const expectedNoticeInventory = (metadata: BundleDependencyMetadata): rea
     .sort();
 
 export const readNoticeInventory = (notices: string): readonly string[] => {
-  const start = notices.indexOf(`${inventoryHeading}\n`);
-  if (start === -1) return [];
-  const bodyStart = start + inventoryHeading.length + 1;
-  const remainder = notices.slice(bodyStart);
-  const nextHeading = remainder.indexOf("\n## ");
-  const body = nextHeading === -1 ? remainder : remainder.slice(0, nextHeading);
-  return body
-    .split("\n")
-    .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2))
-    .sort();
+  const document = parseMarkdownDocument(notices);
+  const inventory = queryMarkdownSection(document, {
+    title: "Bundled dependency inventory",
+    depth: 2,
+  });
+  if (inventory.state !== "found") return [];
+  const list = queryMarkdownList(document, { within: inventory.value, ordered: false });
+  return list.state === "found" ? list.value.items.map((item) => item.text).sort() : [];
 };
 
 export const findBundleNoticeMismatches = (

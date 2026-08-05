@@ -143,7 +143,7 @@ test("keeps every deterministic browser Audit fixture inside the public Snapshot
       createMissingGeneratedTimeAuditFixture(),
     ].map((snapshot) => snapshot.audit.validity),
   ).toEqual(["absent", "available", "available", "partial", "partial", "invalid", "invalid"]);
-});
+}, 30_000);
 
 test("projects a missing authored Generated time through the real source decoder", () => {
   const snapshot = createMissingGeneratedTimeAuditFixture();

@@ -42,8 +42,8 @@ const fail = (message: string): never => {
 if (packageMetadata.name !== "@lagrangee/bearing") fail("package name must be @lagrangee/bearing");
 if (packageMetadata.license !== "MIT") fail("package license must be MIT");
 if (packageMetadata.author !== "lagrangee") fail("package author must be lagrangee");
-if (packageMetadata.engines?.node !== ">=24") {
-  fail("package engines.node must be >=24");
+if (packageMetadata.engines?.node !== ">=24.15.0") {
+  fail("package engines.node must be >=24.15.0");
 }
 if (JSON.stringify(packageMetadata.bin) !== JSON.stringify({ bearing: "dist/cli.js" })) {
   fail("package bin must expose only bearing -> dist/cli.js");

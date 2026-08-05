@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readReleaseTarGz } from "../scripts/release-archive";
 import { writeStandardMattLocalRepository, writeValidBearingState } from "./helpers";
 
 type CommandResult = Readonly<{
@@ -72,21 +73,20 @@ test("the packed CLI runs through offline local npm exec", async () => {
       throw new Error(`npm pack did not return a tarball name: ${packed.stderr}`);
     }
     const tarball = join(packDirectory, filename);
-    const listing = await run(["tar", "-tzf", tarball], {});
-    expect(listing.exitCode).toBe(0);
-    const packedAssetManifest = await run(
-      ["tar", "-xOf", tarball, "package/dist/portal/asset-manifest.json"],
-      {},
+    const archiveEntries = await readReleaseTarGz(tarball);
+    const archiveFiles = new Map(
+      archiveEntries.filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]),
     );
-    expect(packedAssetManifest.exitCode).toBe(0);
-    const assetManifest = JSON.parse(packedAssetManifest.stdout) as {
+    const packedAssetManifest = archiveFiles.get("package/dist/portal/asset-manifest.json");
+    if (packedAssetManifest === undefined) throw new Error("Packed Portal manifest is absent.");
+    const assetManifest = JSON.parse(packedAssetManifest.bytes.toString("utf8")) as {
       readonly assets: readonly Readonly<{ path: string }>[];
     };
     const portalFiles = [
       "package/dist/portal/asset-manifest.json",
       ...assetManifest.assets.map((asset) => `package/dist/portal/${asset.path}`),
     ];
-    expect(listing.stdout.trim().split("\n").sort()).toEqual(
+    expect([...archiveFiles.keys()].sort()).toEqual(
       [
         "package/CHANGELOG.md",
         "package/CODE_OF_CONDUCT.md",

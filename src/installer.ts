@@ -14,7 +14,8 @@ import {
   unlink,
 } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import { writeFileAtomically } from "./atomic-write";
+import { compare as compareSemver, parse as parseSemver, valid as validSemver } from "semver";
+import writeFileAtomic from "write-file-atomic";
 import { readCatalogState } from "./catalog/store";
 import {
   ensureInstallDirectoryTargets,
@@ -150,11 +151,9 @@ export const writeInstallTarget = async (plan: TargetPlan, _ordinal: number): Pr
     await symlink(plan.source, plan.target, "dir");
     return;
   }
-  await writeFileAtomically(
-    plan.target,
-    plan.bytes,
-    plan.mode ?? (plan.executable ? 0o755 : 0o644),
-  );
+  await writeFileAtomic(plan.target, plan.bytes, {
+    mode: plan.mode ?? (plan.executable ? 0o755 : 0o644),
+  });
 };
 
 const restoreSnapshots = async (snapshots: readonly Snapshot[]): Promise<void> => {
@@ -327,30 +326,13 @@ const packageVersionAt = async (root: string): Promise<string> => {
   return parsePackageVersion(await readFile(target, "utf8"), target);
 };
 
-type ParsedVersion = Readonly<{
-  major: bigint;
-  minor: bigint;
-  patch: bigint;
-  prerelease: readonly string[];
-}>;
-
-const parseVersion = (version: string): ParsedVersion => {
-  const match =
-    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.exec(
-      version,
-    );
-  if (match === null) throw new Error(`Bearing package version is not supported: ${version}`);
-  const major = match[1];
-  const minor = match[2];
-  const patch = match[3];
-  if (major === undefined || minor === undefined || patch === undefined) {
+const parseVersion = (version: string): NonNullable<ReturnType<typeof parseSemver>> => {
+  if (validSemver(version) !== version) {
     throw new Error(`Bearing package version is not supported: ${version}`);
   }
-  const prerelease = match[4]?.split(".") ?? [];
-  if (prerelease.some((identifier) => /^0\d+$/u.test(identifier))) {
-    throw new Error(`Bearing package version is not supported: ${version}`);
-  }
-  return { major: BigInt(major), minor: BigInt(minor), patch: BigInt(patch), prerelease };
+  const parsed = parseSemver(version);
+  if (parsed === null) throw new Error(`Bearing package version is not supported: ${version}`);
+  return parsed;
 };
 
 const installedPackageVersionAt = async (root: string): Promise<string | undefined> => {
@@ -370,37 +352,24 @@ const installedPackageVersionAt = async (root: string): Promise<string | undefin
   return version;
 };
 
-const comparePrereleaseIdentifiers = (left: string, right: string): number => {
-  const leftNumeric = /^\d+$/u.test(left);
-  const rightNumeric = /^\d+$/u.test(right);
-  if (leftNumeric && rightNumeric) {
-    const leftNumber = BigInt(left);
-    const rightNumber = BigInt(right);
-    return leftNumber === rightNumber ? 0 : leftNumber < rightNumber ? -1 : 1;
-  }
-  if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
-  return left === right ? 0 : left < right ? -1 : 1;
-};
-
 export const comparePackageVersions = (left: string, right: string): number => {
-  const a = parseVersion(left);
-  const b = parseVersion(right);
-  for (const key of ["major", "minor", "patch"] as const) {
-    if (a[key] !== b[key]) return a[key] < b[key] ? -1 : 1;
-  }
-  if (a.prerelease.length === 0 || b.prerelease.length === 0) {
-    if (a.prerelease.length === b.prerelease.length) return 0;
-    return a.prerelease.length === 0 ? 1 : -1;
-  }
-  const length = Math.max(a.prerelease.length, b.prerelease.length);
-  for (let index = 0; index < length; index += 1) {
-    const leftIdentifier = a.prerelease[index];
-    const rightIdentifier = b.prerelease[index];
-    if (leftIdentifier === undefined || rightIdentifier === undefined) {
-      return leftIdentifier === undefined ? -1 : 1;
+  const leftVersion = parseVersion(left);
+  const rightVersion = parseVersion(right);
+  const comparison = compareSemver(leftVersion, rightVersion);
+  if (comparison !== 0) return comparison;
+
+  // Accepted Build Exception: semver@7.8.5 coerces oversized numeric prerelease
+  // identifiers to Number during comparison. Delete this fallback when upstream
+  // preserves their exact SemVer precedence.
+  for (let index = 0; index < leftVersion.prerelease.length; index += 1) {
+    const leftIdentifier = String(leftVersion.prerelease[index]);
+    const rightIdentifier = String(rightVersion.prerelease[index]);
+    if (leftIdentifier === rightIdentifier) continue;
+    if (!/^\d+$/u.test(leftIdentifier) || !/^\d+$/u.test(rightIdentifier)) return 0;
+    if (leftIdentifier.length !== rightIdentifier.length) {
+      return leftIdentifier.length < rightIdentifier.length ? -1 : 1;
     }
-    const comparison = comparePrereleaseIdentifiers(leftIdentifier, rightIdentifier);
-    if (comparison !== 0) return comparison;
+    return leftIdentifier < rightIdentifier ? -1 : 1;
   }
   return 0;
 };
@@ -418,7 +387,7 @@ export const assertSupportedDowngrade = (
       `Downgrade from Bearing ${installedVersion} to ${candidateVersion} crosses a major-version boundary and is unsupported. Use the release-specific migration and verified backup path.`,
     );
   }
-  if (installed.minor - candidate.minor > 1n) {
+  if (installed.minor - candidate.minor > 1) {
     throw new Error(
       `Downgrade from Bearing ${installedVersion} to ${candidateVersion} skips multiple minor versions and is unsupported. Downgrade through each documented minor and restore its verified backup when required.`,
     );
@@ -463,14 +432,9 @@ const readRepositorySchemaVersion = async (repoRoot: string): Promise<number> =>
 
 const assertCatalogCompatibility = async (homeDir: string): Promise<void> => {
   const state = await readCatalogState({ homeDir });
-  if (state.state === "degraded") {
-    throw new Error(
-      "Bearing update is blocked while the Project Catalog uses its backup. Run `bearing catalog repair` and retry.",
-    );
-  }
   if (state.state === "failed") {
     throw new Error(
-      "Bearing update is blocked because the Project Catalog is unusable. Follow Catalog recovery before retrying.",
+      "Bearing update is blocked because the Project Catalog is unusable. Run confirmed Catalog reset and Setup re-registration before retrying.",
     );
   }
   const incompatible: string[] = [];

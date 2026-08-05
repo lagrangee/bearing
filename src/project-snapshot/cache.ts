@@ -1,8 +1,8 @@
 import type { Stats } from "node:fs";
 import { lstat, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import writeFileAtomic from "write-file-atomic";
 import { z } from "zod";
-import { writeFileAtomically } from "../atomic-write";
 import type { ProjectSnapshot } from "./contract";
 import { PROJECT_SNAPSHOT_VERSION, projectSnapshotSchema } from "./schema";
 
@@ -188,5 +188,5 @@ export const writeProjectSnapshotCache = async (
   if (targetState.kind === "unsafe") throw new ProjectSnapshotCacheTargetError(target);
   const mode = targetState.kind === "regular-file" ? targetState.mode & 0o777 : 0o644;
   const bytes = Buffer.from(`${JSON.stringify(validated, null, 2)}\n`, "utf8");
-  await writeFileAtomically(target, bytes, mode);
+  await writeFileAtomic(target, bytes, { mode });
 };

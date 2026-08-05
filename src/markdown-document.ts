@@ -71,6 +71,14 @@ export type MarkdownQueryResult<Value> =
       matches: number;
     }>;
 
+export type MarkdownEnvelopeResult =
+  | Readonly<{
+      ok: true;
+      data: Readonly<Record<string, unknown>>;
+      body: string;
+    }>
+  | Readonly<{ ok: false; reason: "missing" | "malformed" }>;
+
 type DocumentInternals = Readonly<{
   source: string;
   tree: Root;
@@ -78,6 +86,7 @@ type DocumentInternals = Readonly<{
 
 type SectionInternals = Readonly<{
   document: MarkdownDocument;
+  heading: MdastHeading;
   nodes: readonly RootContent[];
 }>;
 
@@ -250,6 +259,18 @@ export const parseMarkdownDocument = (source: string): MarkdownDocument => {
   return document;
 };
 
+export const parseMarkdownEnvelope = (source: string): MarkdownEnvelopeResult => {
+  const document = parseMarkdownDocument(source);
+  const frontmatter = queryMarkdownFrontmatter(document);
+  if (frontmatter.state === "absent") return { ok: false, reason: "missing" };
+  if (frontmatter.state === "ambiguous") return { ok: false, reason: "malformed" };
+  return {
+    ok: true,
+    data: frontmatter.value,
+    body: markdownDocumentBody(document),
+  };
+};
+
 export const markdownDocumentBody = (document: MarkdownDocument): string => {
   const { source, tree } = internalsFor(document);
   const envelope = tree.children[0];
@@ -271,16 +292,14 @@ export const serializeMarkdownDocument = (input: {
       "Markdown serialization body must not contain another frontmatter envelope.",
     );
   }
-  const tree: Root = {
+  const envelope: Root = {
     type: "root",
-    children: [
-      { type: "yaml", value: stringify(input.frontmatter).trimEnd() },
-      ...bodyTree.children,
-    ],
+    children: [{ type: "yaml", value: stringify(input.frontmatter, { lineWidth: 0 }).trimEnd() }],
   };
-  return toMarkdown(tree, {
+  const serializedEnvelope = toMarkdown(envelope, {
     extensions: [gfmToMarkdown(), frontmatterToMarkdown(["yaml"])],
   });
+  return `${serializedEnvelope}${input.body}`;
 };
 
 export const queryMarkdownFrontmatter = (
@@ -356,8 +375,41 @@ export const queryMarkdownPreamble = (
         ? ""
         : source.slice(contentStart, contentEnd).trim(),
   });
-  sectionInternals.set(section, { document, nodes });
+  sectionInternals.set(section, { document, heading: title.node, nodes });
   return found(section);
+};
+
+const sectionFromMatch = (
+  document: MarkdownDocument,
+  match: Readonly<{
+    node: MdastHeading;
+    value: MarkdownHeading;
+    index: number;
+    scopeNodes: readonly RootContent[];
+  }>,
+  within?: MarkdownSection,
+): MarkdownSection => {
+  const { source } = internalsFor(document);
+  const nextHeadingIndex = match.scopeNodes.findIndex(
+    (node, index) =>
+      index > match.index && node.type === "heading" && node.depth <= match.node.depth,
+  );
+  const endIndex = nextHeadingIndex === -1 ? match.scopeNodes.length : nextHeadingIndex;
+  const nodes = match.scopeNodes.slice(match.index + 1, endIndex);
+  const contentStart = match.node.position?.end.offset;
+  const containingSectionEnd =
+    within === undefined
+      ? source.length
+      : sectionInternals.get(within)?.nodes.at(-1)?.position?.end.offset;
+  const contentEnd =
+    match.scopeNodes[endIndex]?.position?.start.offset ?? containingSectionEnd ?? source.length;
+  const markdown =
+    contentStart === undefined || contentEnd === undefined
+      ? ""
+      : source.slice(contentStart, contentEnd).trim();
+  const section: MarkdownSection = Object.freeze({ heading: match.value, markdown });
+  sectionInternals.set(section, { document, heading: match.node, nodes });
+  return section;
 };
 
 export const queryMarkdownSection = (
@@ -373,32 +425,175 @@ export const queryMarkdownSection = (
   if (matches.length > 1)
     return { state: "ambiguous", reason: "duplicate", matches: matches.length };
   const match = matches[0];
-  if (match === undefined) return { state: "absent" };
+  return match === undefined
+    ? { state: "absent" }
+    : found(sectionFromMatch(document, match, query.within));
+};
 
-  const { source } = internalsFor(document);
-  const nextHeadingIndex = match.scopeNodes.findIndex(
-    (node, index) =>
-      index > match.index && node.type === "heading" && node.depth <= match.node.depth,
+export const queryMarkdownSections = (
+  document: MarkdownDocument,
+  query: Readonly<{ depth?: MarkdownHeadingDepth; within?: MarkdownSection }> = {},
+): readonly MarkdownSection[] => {
+  const scopeNodes = nodesWithin(document, query.within);
+  return Object.freeze(
+    scopeNodes.flatMap((node, index) => {
+      if (node.type !== "heading" || (query.depth !== undefined && node.depth !== query.depth)) {
+        return [];
+      }
+      return [
+        sectionFromMatch(
+          document,
+          { node, value: headingValue(node), index, scopeNodes },
+          query.within,
+        ),
+      ];
+    }),
   );
-  const endIndex = nextHeadingIndex === -1 ? match.scopeNodes.length : nextHeadingIndex;
-  const nodes = match.scopeNodes.slice(match.index + 1, endIndex);
-  const contentStart = match.node.position?.end.offset;
-  const containingSectionEnd =
-    query.within === undefined
-      ? source.length
-      : sectionInternals.get(query.within)?.nodes.at(-1)?.position?.end.offset;
-  const contentEnd =
-    match.scopeNodes[endIndex]?.position?.start.offset ?? containingSectionEnd ?? source.length;
-  const markdown =
-    contentStart === undefined || contentEnd === undefined
-      ? ""
-      : source.slice(contentStart, contentEnd).trim();
-  const section: MarkdownSection = Object.freeze({
-    heading: match.value,
-    markdown,
+};
+
+export const markdownCanonicalHeadingTitle = (
+  document: MarkdownDocument,
+  section: MarkdownSection,
+): string | undefined => {
+  const internals = sectionInternals.get(section);
+  if (internals?.document !== document) {
+    throw new TypeError("Markdown heading queries require a section from the same document.");
+  }
+  const { source } = internalsFor(document);
+  const { heading } = internals;
+  const start = heading.position?.start.offset;
+  const end = heading.position?.end.offset;
+  if (start === undefined || end === undefined) {
+    return undefined;
+  }
+  const authored = source.slice(start, end);
+  const prefix = `${"#".repeat(heading.depth)} `;
+  if (!authored.startsWith(prefix)) return undefined;
+  const title = authored.slice(prefix.length);
+  return title.length > 0 && isDomainPlainText(title) ? title : undefined;
+};
+
+export const markdownSectionLead = (
+  document: MarkdownDocument,
+  section: MarkdownSection,
+): string => {
+  const internals = sectionInternals.get(section);
+  if (internals?.document !== document) {
+    throw new TypeError("Markdown section queries require a section from the same document.");
+  }
+  const firstHeading = internals.nodes.find((node) => node.type === "heading");
+  const { source } = internalsFor(document);
+  const start = internals.heading.position?.end.offset;
+  const end = firstHeading?.position?.start.offset ?? internals.nodes.at(-1)?.position?.end.offset;
+  if (start === undefined || end === undefined) return "";
+  return source
+    .slice(start, end)
+    .replace(/^(?:[ \t]*(?:\r\n|\n|\r))+/u, "")
+    .trimEnd();
+};
+
+const PLAIN_TEXT_MARKUP_PATTERNS = [
+  /`/u,
+  /!?(?:\[[^\]\n]*\])\([^\n)]*\)/u,
+  /!?(?:\[[^\]\n]+\])\[[^\]\n]*\]/u,
+  /(?:^|\n)[ \t]{0,3}\[[^\]\n]+\]:[ \t]*\S/u,
+  /\*\*\*(?![\s*])[^*\n]*\S\*\*\*/u,
+  /(?<![\p{L}\p{N}_])___(?![\s_])[^_\n]*\S___(?![\p{L}\p{N}_])/u,
+  /\*\*[^*\n]+\*\*/u,
+  /(?<![\p{L}\p{N}_])__(?![\s_])[^_\n]*\S__(?![\p{L}\p{N}_])/u,
+  /~~[^~\n]+~~/u,
+  /\*(?![\s*])[^*\n]*\S\*/u,
+  /(?<![\p{L}\p{N}_])_(?![\s_])[^_\n]*\S_(?![\p{L}\p{N}_])/u,
+  /<!--/u,
+  /<[!?]/u,
+  /<\?[^>\n]*\?>/u,
+  /<![^>\n]*>/u,
+  /<\/?[A-Za-z][^>\n]*>/u,
+  /(?:^|\n)[ \t]{0,3}<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/]|$)/u,
+  /(?:^|\n)[ \t]*(?:#{1,6}[ \t]+|>|(?:[-+*]|\d+[.)])[ \t]+)/u,
+  /(?:^|\n)[ \t]{0,3}(?:#{1,6}|>|[-+*]|\d+[.)])[ \t]*(?=\n|$)/u,
+  /(?:^|\n)[ \t]{0,3}>[ \t]?\S/u,
+  /(?:^|\n)[ \t]*~~~+/u,
+  /(?:^|\n)[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|={3,})[ \t]*(?=\n|$)/u,
+  /(?:^|\n)[ \t]{0,3}(?:=+|-+)[ \t]*(?=\n|$)/u,
+  /(?:^|\n)[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*(?=\n|$)/u,
+  /(?:^|\n)[ \t]*\|[ \t]*:?-+:?[ \t]*\|[ \t]*(?=\n|$)/u,
+  /(?:^|\n)(?: {4,}|\t+)\S/u,
+] as const;
+
+const isDomainPlainText = (source: string): boolean => {
+  const normalized = source.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  const softWrapped = normalized.replace(/(?<!\n)\n(?!\n)/gu, " ");
+  return [normalized, softWrapped].every((value) =>
+    PLAIN_TEXT_MARKUP_PATTERNS.every((pattern) => !pattern.test(value)),
+  );
+};
+
+const normalizedPlainParagraph = (source: string, paragraph: Paragraph): string | undefined => {
+  const start = paragraph.position?.start.offset;
+  const end = paragraph.position?.end.offset;
+  if (start === undefined || end === undefined) return undefined;
+  const authored = source.slice(start, end);
+  if (!isDomainPlainText(authored)) return undefined;
+  const value = authored
+    .split("\n")
+    .map((line) => line.trim())
+    .join(" ")
+    .trim();
+  return value.length === 0 ? undefined : value;
+};
+
+export const markdownPlainText = (source: string): string | undefined => {
+  const tree = internalsFor(parseMarkdownDocument(source)).tree;
+  if (tree.children.length === 0 || tree.children.some((node) => node.type !== "paragraph")) {
+    return undefined;
+  }
+  const paragraphs = tree.children.map((node) =>
+    node.type === "paragraph" ? normalizedPlainParagraph(source, node) : undefined,
+  );
+  if (paragraphs.some((paragraph) => paragraph === undefined)) return undefined;
+  const value = (paragraphs as string[]).join("\n\n");
+  return isDomainPlainText(value) ? value : undefined;
+};
+
+export const markdownPlainUnorderedList = (source: string): readonly string[] | undefined => {
+  if (source.trim().length === 0) return [];
+  const tree = internalsFor(parseMarkdownDocument(source)).tree;
+  if (tree.children.length !== 1 || tree.children[0]?.type !== "list") return undefined;
+  const list = tree.children[0];
+  if (list.ordered === true) return undefined;
+  const items = list.children.map((item) => {
+    if (
+      (item.checked !== null && item.checked !== undefined) ||
+      item.children.length !== 1 ||
+      item.children[0]?.type !== "paragraph"
+    ) {
+      return undefined;
+    }
+    if (mdastToString(item.children[0]).includes("\n")) return undefined;
+    return normalizedPlainParagraph(source, item.children[0]);
   });
-  sectionInternals.set(section, { document, nodes });
-  return found(section);
+  return items.some((item) => item === undefined) ? undefined : Object.freeze(items as string[]);
+};
+
+export const markdownInlineCodeUnorderedList = (source: string): readonly string[] | undefined => {
+  const tree = internalsFor(parseMarkdownDocument(source)).tree;
+  if (tree.children.length !== 1 || tree.children[0]?.type !== "list") return undefined;
+  const list = tree.children[0];
+  if (list.ordered === true) return undefined;
+  const items = list.children.map((item) => {
+    if (
+      (item.checked !== null && item.checked !== undefined) ||
+      item.children.length !== 1 ||
+      item.children[0]?.type !== "paragraph" ||
+      item.children[0].children.length !== 1 ||
+      item.children[0].children[0]?.type !== "inlineCode"
+    ) {
+      return undefined;
+    }
+    return item.children[0].children[0].value;
+  });
+  return items.some((item) => item === undefined) ? undefined : Object.freeze(items as string[]);
 };
 
 export const queryMarkdownField = (

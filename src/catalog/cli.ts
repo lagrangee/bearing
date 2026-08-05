@@ -7,9 +7,6 @@ import {
   relinkCatalogEntry,
   removeCatalogEntryByRepoRoot,
   renameCatalogEntry,
-  repairCatalog,
-  repairCatalogEntryLock,
-  repairCatalogLock,
   resetCatalog,
 } from "./store";
 
@@ -18,14 +15,11 @@ export const CATALOG_HELP = `Usage:
   bearing catalog forget --entry <entry-id>
   bearing catalog remove --repo <path>
   bearing catalog relink --entry <entry-id> --repo <path> [--confirm-move]
-  bearing catalog repair
-  bearing catalog repair-lock --confirm-abandoned
-  bearing catalog repair-entry-lock --entry <entry-id> --confirm-abandoned
   bearing catalog reset --confirm-empty
 
 Catalog commands mutate only the user-level Project Catalog. Repository lifecycle remains
-orchestrated by bearing-setup. Repair restores a backup; repair-lock removes only a confirmed,
-identity-revalidated abandoned lock. Relink never moves a repository, and reset never scans.
+orchestrated by bearing-setup. Relink never moves a repository, and reset never scans or restores
+registrations; run Setup again after reset.
 `;
 
 const requiredString = (value: string | undefined, option: string): string =>
@@ -100,43 +94,12 @@ const runRelink = async (homeDir: string, args: readonly string[]): Promise<stri
   );
 };
 
-const runRepair = async (homeDir: string, args: readonly string[]): Promise<string> => {
-  parseOptions(args, {});
-  const result = await repairCatalog({ homeDir });
-  return `Outcome: ${result.outcome}\n`;
-};
-
 const runReset = async (homeDir: string, args: readonly string[]): Promise<string> => {
   const values = parseOptions(args, { "confirm-empty": { type: "boolean" } });
   if (values["confirm-empty"] !== true) {
     throw new Error("Catalog reset requires --confirm-empty.");
   }
   const result = await resetCatalog({ homeDir, confirmed: true });
-  return `Outcome: ${result.outcome}\n`;
-};
-
-const runRepairLock = async (homeDir: string, args: readonly string[]): Promise<string> => {
-  const values = parseOptions(args, { "confirm-abandoned": { type: "boolean" } });
-  if (values["confirm-abandoned"] !== true) {
-    throw new Error("Catalog lock repair requires --confirm-abandoned.");
-  }
-  const result = await repairCatalogLock({ homeDir, confirmed: true });
-  return `Outcome: ${result.outcome}\n`;
-};
-
-const runRepairEntryLock = async (homeDir: string, args: readonly string[]): Promise<string> => {
-  const values = parseOptions(args, {
-    entry: { type: "string" },
-    "confirm-abandoned": { type: "boolean" },
-  });
-  if (values["confirm-abandoned"] !== true) {
-    throw new Error("Catalog entry lock repair requires --confirm-abandoned.");
-  }
-  const result = await repairCatalogEntryLock({
-    homeDir,
-    entryId: requiredString(values["entry"] as string | undefined, "--entry"),
-    confirmed: true,
-  });
   return `Outcome: ${result.outcome}\n`;
 };
 
@@ -150,9 +113,6 @@ export const runCatalogCommand = async (
   if (command === "forget") return runForget(homeDir, rest);
   if (command === "remove") return runRemove(homeDir, rest);
   if (command === "relink") return runRelink(homeDir, rest);
-  if (command === "repair") return runRepair(homeDir, rest);
-  if (command === "repair-lock") return runRepairLock(homeDir, rest);
-  if (command === "repair-entry-lock") return runRepairEntryLock(homeDir, rest);
   if (command === "reset") return runReset(homeDir, rest);
   throw new Error("Unknown Catalog command. Run bearing catalog --help.");
 };

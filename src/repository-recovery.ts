@@ -33,7 +33,7 @@ export type RepositoryRecoveryChoice = Readonly<{
     | "restore-bundle"
     | "explicit-object-disposition"
     | "owner-repair"
-    | "catalog-identity-repair"
+    | "catalog-reset-and-reregister"
     | "purge";
   owner: "package-manager" | "bearing-setup" | "matt-skills" | "agent-surface" | "user";
   order: number;
@@ -339,26 +339,17 @@ const dependencyBlockers = async (
     try {
       const state = await readCatalogState({ homeDir });
       if (state.state === "ready") return blockers;
-      const degraded = state.state === "degraded";
       blockers.push({
         cause: "catalog-conflict",
-        impact: degraded
-          ? "The Project Catalog is using a trustworthy backup instead of its current document."
-          : "The Project Catalog has no trustworthy current or backup identity view.",
-        trustworthyInputs: [
-          ".bearing/manifest.json",
-          ".bearing/state",
-          ...(degraded ? ["$HOME/.bearing/catalog.backup.json"] : []),
-        ],
-        unsafeInputs: ["$HOME/.bearing/catalog.json"],
+        impact: "The Project Catalog database has no trustworthy identity view.",
+        trustworthyInputs: [".bearing/manifest.json", ".bearing/state"],
+        unsafeInputs: ["$HOME/.bearing/catalog.sqlite"],
         recoveryChoices: [
           choice(
-            "catalog-identity-repair",
+            "catalog-reset-and-reregister",
             "bearing-setup",
             1,
-            degraded
-              ? "Repair the trustworthy Catalog backup through the explicit Catalog recovery flow."
-              : "Explicitly confirm an empty Catalog reset or recover exact project identities through the Catalog owner.",
+            "Explicitly confirm an empty Catalog reset, then recover exact project identities through Setup.",
             "Project Catalog operational state only; repository bytes remain unchanged.",
           ),
         ],
@@ -368,13 +359,13 @@ const dependencyBlockers = async (
         cause: "catalog-conflict",
         impact: "The Project Catalog location is unsafe and has no usable identity view.",
         trustworthyInputs: [".bearing/manifest.json", ".bearing/state"],
-        unsafeInputs: ["$HOME/.bearing/catalog.json"],
+        unsafeInputs: ["$HOME/.bearing/catalog.sqlite"],
         recoveryChoices: [
           choice(
-            "catalog-identity-repair",
+            "catalog-reset-and-reregister",
             "bearing-setup",
             1,
-            "Repair the Catalog location through its owner, then explicitly recover exact identities.",
+            "Reset the Catalog through its owner, then explicitly recover exact identities through Setup.",
             "Project Catalog operational state only; repository bytes remain unchanged.",
           ),
         ],
@@ -778,16 +769,14 @@ export const preparePurge = async (options: {
     const catalog = await readCatalogState({ homeDir: options.homeDir });
     if (catalog.state !== "ready") {
       blockers.push(
-        catalog.state === "degraded"
-          ? "The Project Catalog is degraded; repair its trustworthy backup before Purge."
-          : "The Project Catalog requires owner repair before a matching-entry Purge inventory is trustworthy.",
+        "The Project Catalog requires an explicit reset and Setup re-registration before a matching-entry Purge inventory is trustworthy.",
       );
     } else {
       catalogEntry = catalog.document.entries.find((entry) => entry.repoRoot === root);
     }
   } catch {
     blockers.push(
-      "The Project Catalog requires owner repair before a matching-entry Purge inventory is trustworthy.",
+      "The Project Catalog requires an explicit reset and Setup re-registration before a matching-entry Purge inventory is trustworthy.",
     );
   }
   const confirmationToken = confirmationTokenFor(

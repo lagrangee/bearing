@@ -1,12 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { readCatalog } from "../src/catalog/probe";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
 import { readProjectSnapshotCache } from "../src/project-snapshot/cache";
 import { runSync } from "../src/sync";
 import { copyPortalProjectFixture, readRepositorySourceBytes } from "./fixtures/repository-fixture";
-import { makeTemporaryDirectory } from "./helpers";
 
 const materializer = () =>
   createProjectMaterializer({
@@ -97,41 +95,6 @@ test("missing, malformed, unsupported, and behind Snapshot caches recover per re
     expect(await readProjectSnapshotCache(root)).toMatchObject({ kind: "available" });
   }
   expect(String(recoveredBehind.snapshot.basis.sitemapFingerprint)).toBe(behindSync.fingerprint);
-});
-
-test("Catalog ordering stays stable with a whitespace path and an unavailable neighbor", async () => {
-  const spacedRoot = await realpath(await copyPortalProjectFixture("Project With Spaces"));
-  const zuluRoot = await realpath(await copyPortalProjectFixture("zulu-project"));
-  const missingRoot = join(await realpath(await makeTemporaryDirectory("missing-parent-")), "gone");
-  const homeDir = await makeTemporaryDirectory("catalog-home-");
-  await mkdir(join(homeDir, ".bearing"), { recursive: true });
-  await writeFile(
-    join(homeDir, ".bearing/catalog.json"),
-    `${JSON.stringify(
-      {
-        version: 1,
-        entries: [
-          { entryId: "zulu", repoRoot: zuluRoot, displayName: "Zulu Fixture" },
-          { entryId: "missing", repoRoot: missingRoot, displayName: "Bravo Missing" },
-          { entryId: "spaced", repoRoot: spacedRoot, displayName: "Alpha Fixture" },
-        ],
-      },
-      null,
-      2,
-    )}\n`,
-  );
-
-  const first = await readCatalog({ homeDir });
-  const second = await readCatalog({ homeDir });
-
-  expect(first.entries.map(({ entryId }) => entryId)).toEqual(["spaced", "missing", "zulu"]);
-  expect(second.entries).toEqual(first.entries);
-  expect(first.entries.map(({ availability }) => availability)).toEqual([
-    "available",
-    "missing",
-    "available",
-  ]);
-  expect(first.entries[0]?.repoRoot).toContain("Project With Spaces");
 });
 
 test("one project Sync or cache failure cannot mutate a trustworthy neighbor", async () => {

@@ -10,8 +10,8 @@ import { type ParsedAsset, parseAssetRegistry } from "./asset-records";
 import { type PlanningAuditBodyResult, parsePlanningAuditBody } from "./audit-body";
 import { analyzeDecodedBearingArtifact } from "./bearing-record-analysis";
 import { parseExactSections, parsePlainText, parseUnorderedList } from "./bearing-record-sections";
-import { parseFrontmatter } from "./frontmatter";
 import { type GuidanceBodyResult, parseNextWorkGuidanceBody } from "./guidance-body";
+import { parseMarkdownEnvelope } from "./markdown-document";
 import type { SourceBinding, SourceRecord } from "./project-snapshot/contract";
 import { createSourceRecord } from "./project-snapshot/source-records";
 import { mattNativeScopeKey } from "./providers/matt-skills-v1/native-subject";
@@ -557,7 +557,7 @@ const decodeRecord = (
 ): DecodedBearingRecord | undefined => {
   const expectedType = expectedBearingType(record.locator) as BearingRecordType | undefined;
   if (expectedType === undefined) return undefined;
-  const frontmatter = parseFrontmatter(record.source);
+  const frontmatter = parseMarkdownEnvelope(record.source);
   if (!frontmatter.ok) {
     const diagnostic = invalidFrontmatter(record.locator, frontmatter.reason);
     return {

@@ -61,7 +61,7 @@ Bearing 目前可能不适合你，如果：
 | 范围 | Public Preview 支持 |
 | --- | --- |
 | 平台 | macOS |
-| Node.js | Node.js 24 及以上；CI 验证 Node.js 24 与 26 |
+| Node.js | Node.js 24.15.0 及以上；CI 验证 Node.js 24.15.0 与 26 |
 | Agent Surfaces | Codex 已验证。Claude Code 是目标 surface，仍等待维护者验证。 |
 | Work Management Adapter | Matt-native 本地 Markdown Maps 与 Tickets |
 | Telemetry | 无。Bearing 不做 analytics、crash upload、repository upload 或 update polling。 |

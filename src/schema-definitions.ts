@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isPlanningAuditCoverageConsistent } from "./audit-coverage";
 import { languageTagSchema } from "./language-tag";
-import { isPlainText } from "./plain-text";
+import { markdownPlainText } from "./markdown-document";
 import { decodeGitHubMattNativeScope } from "./providers/matt-skills-v1/github-native-scope";
 import {
   displayAssetLocatorSchema,
@@ -28,7 +28,7 @@ const requiredBearingOwnedEventTimeSchema = bearingOwnedEventTimeSchema.unwrap()
 const PLANNING_AUDIT_INPUT = ".bearing/state/planning-audit.md";
 const requiredPlainTextSchema = z
   .string()
-  .refine((value) => value.trim().length > 0 && isPlainText(value), {
+  .refine((value) => value.trim().length > 0 && markdownPlainText(value) !== undefined, {
     message: "Semantic text must be non-empty plain UTF-8 text.",
   });
 const mattNativeScopeSchema = z.union([

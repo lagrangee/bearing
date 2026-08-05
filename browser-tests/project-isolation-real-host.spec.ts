@@ -13,6 +13,7 @@ import {
   runBuiltBearing,
   startBuiltPortal,
   stopBuiltPortal,
+  writeCatalogFixture,
 } from "./real-host-test-support";
 
 let evidence = join(process.cwd(), "test-results/portal-isolation-evidence");
@@ -95,21 +96,10 @@ test.beforeAll(async ({ browserName }, testInfo) => {
   recoverySources = await readRepositorySourceBytes(recoveryRoot);
 
   await mkdir(join(homeRoot, ".bearing"), { recursive: true });
-  const catalogDocument = `${JSON.stringify(
-    {
-      version: 1,
-      entries: [
-        { entryId: "zulu-recovery", repoRoot: recoveryRoot, displayName: "Zulu Recovery" },
-        { entryId: "missing-neighbor", repoRoot: missingRoot, displayName: "Bravo Unavailable" },
-        { entryId: "alpha-trustworthy", repoRoot: alphaRoot, displayName: "Alpha Project" },
-      ],
-    },
-    null,
-    2,
-  )}\n`;
-  await Promise.all([
-    writeFile(join(homeRoot, ".bearing/catalog.json"), catalogDocument),
-    writeFile(join(homeRoot, ".bearing/catalog.backup.json"), catalogDocument),
+  await writeCatalogFixture(homeRoot, [
+    { entryId: "zulu-recovery", repoRoot: recoveryRoot, displayName: "Zulu Recovery" },
+    { entryId: "missing-neighbor", repoRoot: missingRoot, displayName: "Bravo Unavailable" },
+    { entryId: "alpha-trustworthy", repoRoot: alphaRoot, displayName: "Alpha Project" },
   ]);
   host = await startBuiltPortal(homeRoot);
 });
@@ -244,12 +234,12 @@ test("a real Host recovers and synchronizes one project without disturbing its n
   expect(consoleErrors).toEqual([]);
 
   await page.getByRole("link", { name: /Return to Project Catalog from Alpha Project/u }).click();
-  await writeFile(join(homeRoot, ".bearing/catalog.json"), "{malformed\n");
+  await writeFile(join(homeRoot, ".bearing/catalog.sqlite"), "{malformed\n");
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Using last-known-good projects" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Catalog is unavailable" })).toBeVisible();
   const finalCatalogOrder = await orderedNames();
-  expect(finalCatalogOrder).toEqual(catalogOrder);
-  await page.screenshot({ path: join(evidence, "catalog-degraded-backup.png"), fullPage: true });
+  expect(finalCatalogOrder).toEqual([]);
+  await page.screenshot({ path: join(evidence, "catalog-unavailable.png"), fullPage: true });
 
   await Promise.all([
     preserveFixedCache(alphaRoot, join(evidence, "fixture-output/alpha")),

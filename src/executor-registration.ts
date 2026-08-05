@@ -1,6 +1,6 @@
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
-import { parseFrontmatter } from "./frontmatter";
+import { parseMarkdownEnvelope } from "./markdown-document";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
 import { repositoryManifestSchema } from "./schema-definitions";
 import type { AgentSurface, ExecutorRegistration } from "./types";
@@ -130,7 +130,7 @@ export const resolveExecutorNomination = async (
       cause: error,
     });
   }
-  const parsed = parseFrontmatter(source);
+  const parsed = parseMarkdownEnvelope(source);
   if (!parsed.ok) {
     throw new Error(`Nominated executor skill contract is malformed: ${capabilityLocator}`);
   }
@@ -230,9 +230,9 @@ export const readConfiguredExecutionProfiles = async (
   }> = [];
   for (const profileKey of profileKeys) {
     const profilePath = join(root, ".bearing/executor-profiles", `${profileKey}.md`);
-    let parsed: ReturnType<typeof parseFrontmatter>;
+    let parsed: ReturnType<typeof parseMarkdownEnvelope>;
     try {
-      parsed = parseFrontmatter((await readContainedFile(root, profilePath)).toString("utf8"));
+      parsed = parseMarkdownEnvelope((await readContainedFile(root, profilePath)).toString("utf8"));
     } catch (error) {
       throw new Error(`Configured Execution Profile is unavailable: ${profileKey}`, {
         cause: error,

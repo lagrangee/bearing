@@ -5,6 +5,7 @@ import { PROJECT_SNAPSHOT_VERSION, projectSnapshotSchema } from "../src/project-
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
 const removedPortalModules = [
+  "src/portal/project-location-recovery.ts",
   "src/portal-ui/effort-row.tsx",
   "src/portal-ui/guidance-item.tsx",
   "src/portal-ui/project-inspector-state.ts",
@@ -40,6 +41,9 @@ test("clean-cuts obsolete Portal disclosure and persistent discovery compatibili
   const allSources = (
     await Promise.all(files.map((file) => readFile(join(process.cwd(), file), "utf8")))
   ).join("\n");
+  expect(allSources).not.toMatch(
+    /project-location-recovery|createProjectLocationRecovery|locationRecovery/iu,
+  );
   expect(allSources).not.toMatch(
     /legacyNativeScopeDiscovery|deleteLegacyNativeScopeDiscovery|nativeScopeDiscovery|native-scope-discovery/iu,
   );
