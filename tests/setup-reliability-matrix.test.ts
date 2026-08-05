@@ -38,6 +38,7 @@ describe("Setup Reliability Codex matrix", () => {
         freshOrientationOfferEligible({
           journey: "fresh",
           outcome: "applied",
+          repositoryResultReported: true,
           catalogResultReported: true,
           portalHandoff,
         }),
@@ -48,52 +49,73 @@ describe("Setup Reliability Codex matrix", () => {
       {
         journey: "fresh",
         outcome: "partial",
+        repositoryResultReported: true,
         catalogResultReported: true,
         portalHandoff: "absent",
       },
       {
         journey: "fresh",
         outcome: "blocked",
+        repositoryResultReported: true,
         catalogResultReported: true,
         portalHandoff: "absent",
       },
       {
         journey: "fresh",
         outcome: "cancelled",
+        repositoryResultReported: true,
         catalogResultReported: true,
         portalHandoff: "absent",
       },
       {
         journey: "active",
         outcome: "no-op",
+        repositoryResultReported: true,
         catalogResultReported: true,
         portalHandoff: "compatible",
       },
       {
         journey: "reactivation",
         outcome: "applied",
+        repositoryResultReported: true,
         catalogResultReported: true,
         portalHandoff: "compatible",
       },
       {
         journey: "cutover",
         outcome: "applied",
+        repositoryResultReported: true,
         catalogResultReported: true,
         portalHandoff: "compatible",
       },
       {
         journey: "catalog-recovery",
         outcome: "applied",
+        repositoryResultReported: true,
         catalogResultReported: true,
         portalHandoff: "compatible",
       },
       {
         journey: "fresh",
         outcome: "applied",
+        repositoryResultReported: true,
         catalogResultReported: false,
         portalHandoff: "compatible",
       },
-      { journey: "fresh", outcome: "applied", catalogResultReported: true, portalHandoff: null },
+      {
+        journey: "fresh",
+        outcome: "applied",
+        repositoryResultReported: false,
+        catalogResultReported: true,
+        portalHandoff: "compatible",
+      },
+      {
+        journey: "fresh",
+        outcome: "applied",
+        repositoryResultReported: true,
+        catalogResultReported: true,
+        portalHandoff: null,
+      },
     ] as const) {
       expect(freshOrientationOfferEligible(input)).toBe(false);
     }
@@ -178,10 +200,14 @@ describe("Setup Reliability Codex matrix", () => {
     const cases = SETUP_RELIABILITY_CASES.map(({ id }) => ({
       id,
       candidate,
+      invocationStarted: true,
       terminalBoundary: "pass" as const,
     }));
+    const firstCase = cases[0];
     const thirdCase = cases[2];
-    if (thirdCase === undefined) throw new Error("Expected the third matrix case.");
+    if (firstCase === undefined || thirdCase === undefined) {
+      throw new Error("Expected the first and third matrix cases.");
+    }
 
     expect(
       createSetupReliabilityEvidence({
@@ -204,7 +230,7 @@ describe("Setup Reliability Codex matrix", () => {
         requestedModel: "gpt-5.6-luna",
         requestedReasoningEffort: "high",
       },
-      cases: cases.map(({ id }) => ({ id, terminalBoundary: "pass" })),
+      cases: cases.map(({ id }) => ({ id, invocationStarted: true, terminalBoundary: "pass" })),
     });
 
     expect(() =>
@@ -225,8 +251,25 @@ describe("Setup Reliability Codex matrix", () => {
       createSetupReliabilityEvidence({
         codexCliVersion: "codex-cli 0.142.5",
         candidate,
-        cases: [cases[0]!, cases[0]!, cases[2]!],
+        cases: [firstCase, firstCase, thirdCase],
       }),
     ).toThrow("each required matrix case exactly once");
+
+    const blockedCases = cases.map((entry, index) =>
+      index === 1
+        ? { ...entry, invocationStarted: false, terminalBoundary: "blocked:runtime-unavailable" }
+        : entry,
+    );
+    expect(
+      createSetupReliabilityEvidence({
+        codexCliVersion: "codex-cli 0.142.5",
+        candidate,
+        cases: blockedCases,
+      }).cases[1],
+    ).toEqual({
+      id: "invalid-then-skip-decline-orientation",
+      invocationStarted: false,
+      terminalBoundary: "blocked:runtime-unavailable",
+    });
   });
 });

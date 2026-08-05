@@ -222,6 +222,11 @@ describe("package-owned planning skills", () => {
     expect(router.body).toContain("governance-disposition");
     expect(setup).not.toMatch(/successful Fresh Setup[\s\S]*optional Bearing Scope Review/iu);
     expect(setup).toMatch(/explicitly requested Active-project Scope Review/iu);
+    expect(disposition).not.toMatch(
+      /one optional successful Fresh Setup review|Fresh Setup may offer the review/iu,
+    );
+    expect(disposition).toMatch(/inventory acquisition inside an accepted Project Orientation/iu);
+    expect(disposition).toMatch(/explicitly requests an Active-project Bearing Scope Review/iu);
     expect(disposition).toMatch(/transient Work Management inventory/iu);
     expect(disposition).toMatch(/discard[\s\S]*inventory/iu);
     expect(disposition).toMatch(
@@ -243,7 +248,6 @@ describe("package-owned planning skills", () => {
   test("routes explicit Active-project Project Orientation through one read-only shared protocol", async () => {
     const router = await readSkill("bearing");
     const orientation = await readSharedContract("project-orientation");
-    const context = await readFile(join(process.cwd(), "CONTEXT.md"), "utf8");
     const workflow = await readFile(join(process.cwd(), "docs/everyday-workflows.md"), "utf8");
     const workflowZh = await readFile(
       join(process.cwd(), "docs/everyday-workflows.zh-CN.md"),
@@ -293,10 +297,11 @@ describe("package-owned planning skills", () => {
       "Project Summary",
       "Project Brief",
     ]) {
-      expect(context).toContain(term);
+      expect(workflow).toContain(term);
+      expect(workflowZh).toContain(term);
     }
-    expect(context.indexOf("**Bearing Project Orientation**")).toBeLessThan(
-      context.indexOf("**Bearing Scope Review**"),
+    expect(workflow.indexOf("**Bearing Project Orientation**")).toBeLessThan(
+      workflow.indexOf("**Bearing Scope Review**"),
     );
     expect(workflow).toMatch(
       /Run Bearing Project Orientation[\s\S]*read-only[\s\S]*Review Bearing Scope[\s\S]*narrower/iu,

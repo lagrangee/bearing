@@ -1,5 +1,11 @@
 {
   "provider": "github",
+  "state": {
+    "repositoryBytes": "README:v1|src/index.ts:v1|tests/index.test.ts:v1",
+    "nativeWorkBytes": "github:open,blocked,resolved:v1",
+    "canonicalPlanningBytes": "summary:v1|roadmap:v1|gate:v1",
+    "projectBrief": null
+  },
   "primaryReads": [
     "project-summary",
     "project-sitemap",

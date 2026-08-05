@@ -27,6 +27,7 @@ export const SETUP_RELIABILITY_CASES = [
 type FreshOrientationOfferInput = Readonly<{
   journey: "fresh" | "active" | "reactivation" | "cutover" | "catalog-recovery";
   outcome: "applied" | "no-op" | "partial" | "blocked" | "cancelled";
+  repositoryResultReported: boolean;
   catalogResultReported: boolean;
   portalHandoff: "compatible" | "incompatible" | "absent" | null;
 }>;
@@ -34,6 +35,7 @@ type FreshOrientationOfferInput = Readonly<{
 export const freshOrientationOfferEligible = (input: FreshOrientationOfferInput): boolean =>
   input.journey === "fresh" &&
   input.outcome === "applied" &&
+  input.repositoryResultReported &&
   input.catalogResultReported &&
   input.portalHandoff !== null;
 
@@ -61,6 +63,7 @@ type CandidateIdentity = Readonly<{
 type CaseEvidence = Readonly<{
   id: (typeof SETUP_RELIABILITY_CASES)[number]["id"];
   candidate: CandidateIdentity;
+  invocationStarted: boolean;
   terminalBoundary: string;
 }>;
 
@@ -96,7 +99,7 @@ export const createSetupReliabilityEvidence = (
       packageFile: entry.candidate.packageFile,
       packageSha256: entry.candidate.packageSha256,
       codexCliVersion: input.codexCliVersion,
-      invocationStarted: true,
+      invocationStarted: entry.invocationStarted,
       terminalBoundary: entry.terminalBoundary,
     }),
   );
@@ -120,7 +123,11 @@ export const createSetupReliabilityEvidence = (
     }),
     cases: Object.freeze(
       input.cases.map((entry) =>
-        Object.freeze({ id: entry.id, terminalBoundary: entry.terminalBoundary }),
+        Object.freeze({
+          id: entry.id,
+          invocationStarted: entry.invocationStarted,
+          terminalBoundary: entry.terminalBoundary,
+        }),
       ),
     ),
   });

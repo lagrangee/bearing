@@ -3,6 +3,12 @@ import { readFile } from "node:fs/promises";
 
 type OrientationFixture = Readonly<{
   provider: "local-markdown" | "github";
+  state: Readonly<{
+    repositoryBytes: string;
+    nativeWorkBytes: string;
+    canonicalPlanningBytes: string;
+    projectBrief: null;
+  }>;
   primaryReads: readonly string[];
   scopes: readonly Readonly<{
     id: string;
@@ -42,6 +48,11 @@ describe("Project Orientation provider fixtures", () => {
   for (const name of ["local-markdown", "github"] as const) {
     test(`${name} preserves progressive selection, evidence states, and source bytes`, async () => {
       const before = await loadFixture(name);
+      const beforeState = JSON.stringify(before.value.state);
+      const transientInventory = before.value.scopes.map((scope) => ({
+        ...scope,
+        subjects: [...scope.subjects],
+      }));
 
       expect(before.value.provider).toBe(name);
       expect(before.value.primaryReads).toEqual([
@@ -52,7 +63,7 @@ describe("Project Orientation provider fixtures", () => {
         "manifests",
         "source-test-topology",
       ]);
-      expect(selectProgressiveSubjects(before.value)).toEqual([
+      expect(selectProgressiveSubjects({ ...before.value, scopes: transientInventory })).toEqual([
         ...before.value.expectedExpandedSubjects,
       ]);
       expect(before.value.evidence).toEqual(
@@ -63,9 +74,14 @@ describe("Project Orientation provider fixtures", () => {
           { class: "unresolved-question", availability: "unresolved" },
         ]),
       );
+      transientInventory.splice(0, transientInventory.length);
+      expect(transientInventory).toEqual([]);
+      expect(JSON.stringify(before.value.state)).toBe(beforeState);
+      expect(before.value.state.projectBrief).toBeNull();
 
       const after = await loadFixture(name);
       expect(after.source).toBe(before.source);
+      expect(after.value.state).toEqual(before.value.state);
     });
   }
 });

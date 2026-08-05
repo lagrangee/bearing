@@ -26,6 +26,13 @@ Project Orientation 会读取当前项目文件、canonical planning，以及一
 
 结果是 read-only：不会写入 Summary、创建 planning 或 work、生成 Project Brief，也不会把 standalone work 自动纳入 Bearing Scope。任何后续变更仍需你明确接受，并由对应 owner 执行。
 
+### 相关概念
+
+- **Bearing Project Orientation** 是对当前 repository、planning 和有边界 work evidence 的只读综合；它只产出 drafts 与 candidates，不写 canonical change。
+- **Bearing Scope Review** 是更窄的临时比较，用于识别 standalone work 与可能的 enrollment candidates，不负责完整项目 orientation。
+- **Project Summary** 是 canonical accepted long-horizon synthesis。Orientation 可以提出 Summary draft，但不能写入。
+- **Project Brief** 只从符合条件且已接受的 lifecycle transition 派生；Setup 与 Orientation 都不会创建它。
+
 ## 有意识地修改 Roadmap
 
 方向变化时，让 agent 先呈现决策：

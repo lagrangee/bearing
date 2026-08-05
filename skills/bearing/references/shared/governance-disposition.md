@@ -1,12 +1,12 @@
 # Governance Disposition
 
-Load this shared protocol only after a Bearing-activated request completes native Work Management handling, or when the user accepts the one optional successful Fresh Setup review or explicitly requests a later Active-project Bearing Scope Review. It gives rationality advice without becoming a planning, enrollment, discovery, or persistence owner.
+Load this shared protocol only after a Bearing-activated request completes native Work Management handling, for the inventory acquisition inside an accepted Project Orientation, or when the user explicitly requests an Active-project Bearing Scope Review. It gives rationality advice without becoming a planning, enrollment, discovery, or persistence owner.
 
 ## Scope Review
 
 For a requested review, ask for one transient Work Management inventory bounded to the current conversation. Compare it with explicit canonical commitments and accepted Work Bindings only. Repository presence, tracker membership, labels, textual similarity, recent activity, and provider discovery are not enrollment authority. Discard the inventory when the review finishes.
 
-Never run ambient discovery, background inventory, automatic enrollment, or standalone-work governance. A Fresh Setup may offer the review once after complete success. An Active project runs it only when the user explicitly requests it. Declining or ending the review changes nothing.
+Never run ambient discovery, background inventory, automatic enrollment, or standalone-work governance. Fresh Setup offers Project Orientation, not a separate Bearing Scope Review. Project Orientation may reuse only this bounded inventory acquisition after the user accepts Orientation. An Active project runs Bearing Scope Review only when the user explicitly requests it. Declining or ending either read changes nothing.
 
 ## Request Disposition
 

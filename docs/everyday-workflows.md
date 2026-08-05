@@ -26,6 +26,13 @@ Project Orientation reads current project files, canonical planning, and a bound
 
 The result is read-only. It does not write the Summary, create planning or work, generate a Project Brief, or enroll standalone work. Any follow-up change still requires your explicit acceptance through its owning workflow.
 
+### Related concepts
+
+- **Bearing Project Orientation** is a read-only synthesis of current repository, planning, and bounded work evidence. It produces drafts and candidates, not canonical changes.
+- **Bearing Scope Review** is the narrower transient comparison used to identify standalone work and possible enrollment candidates. It does not orient the whole project.
+- **Project Summary** is the canonical accepted long-horizon synthesis. An Orientation can propose a Summary draft but cannot write it.
+- **Project Brief** is derived only from qualifying accepted lifecycle transitions. Setup and Orientation never create it.
+
 ## Change the roadmap deliberately
 
 When direction changes, ask for the decision:
