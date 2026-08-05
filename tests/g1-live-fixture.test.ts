@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { access, mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { CODEX_E2E_RUNTIME, codexE2ERuntimeArguments } from "../scripts/codex-e2e-runtime";
 import {
   finalizeFixtureSnapshot,
   G1_LIVE_JOURNEYS,
@@ -8,11 +9,36 @@ import {
   G1_LIVE_SURFACES,
   G1_MATT_SKILL_CLOSURE,
   inspectCodexOperatorContext,
+  instructionBytes,
   serializeG1LiveSkillInvocation,
   surfaceLaunchContract,
 } from "../scripts/g1-live-fixture";
 
 describe("G1 live fixture recipe", () => {
+  test("places the Matt contract pointer in the supported Agent skills section", () => {
+    expect(instructionBytes("docs/agents/issue-tracker.md")).toContain(`## Agent skills
+
+### Issue tracker
+
+Work-management contract: \`docs/agents/issue-tracker.md\``);
+  });
+
+  test("uses the repository-wide fail-closed Codex E2E runtime identity", () => {
+    expect(CODEX_E2E_RUNTIME).toEqual({
+      model: "gpt-5.6-luna",
+      reasoningEffort: "high",
+    });
+    expect(codexE2ERuntimeArguments()).toEqual([
+      "--model",
+      "gpt-5.6-luna",
+      "--config",
+      'model_reasoning_effort="high"',
+    ]);
+    expect(() =>
+      codexE2ERuntimeArguments({ model: "different-model", reasoningEffort: "low" }),
+    ).toThrow("does not accept runtime overrides");
+  });
+
   test("pins the complete versioned matrix and bounded external skill closure", () => {
     expect(G1_LIVE_PLAN_ID).toBe("bearing-0.1.1-g1-live-v1");
     expect(G1_LIVE_JOURNEYS).toEqual([
@@ -73,6 +99,10 @@ describe("G1 live fixture recipe", () => {
         program: "codex",
         arguments: [
           "exec",
+          "--model",
+          "gpt-5.6-luna",
+          "--config",
+          'model_reasoning_effort="high"',
           "--ignore-user-config",
           "--ignore-rules",
           "-c",
@@ -124,6 +154,10 @@ describe("G1 live fixture recipe", () => {
         arguments: [
           "exec",
           "resume",
+          "--model",
+          "gpt-5.6-luna",
+          "--config",
+          'model_reasoning_effort="high"',
           "--ignore-user-config",
           "--ignore-rules",
           "-c",

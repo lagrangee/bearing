@@ -127,6 +127,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/skills/bearing/references/shared/governance-disposition.md",
         "package/skills/bearing/references/shared/planning-transaction.md",
         "package/skills/bearing/references/shared/project-brief-refresh.md",
+        "package/skills/bearing/references/shared/project-orientation.md",
         "package/skills/bearing/references/shared/typed-inspection.md",
       ].sort(),
     );
@@ -204,6 +205,17 @@ test("the packed CLI runs through offline local npm exec", async () => {
     );
     expect(bundledTypedInspection).toMatch(/`complete`[\s\S]*`partial`[\s\S]*`invalid`/u);
     expect(bundledTypedInspection).toContain("skills-only runtime");
+    const bundledProjectOrientation = await readFile(
+      join(
+        homeDirectory,
+        ".bearing/kit/current/skills/bearing/references/shared/project-orientation.md",
+      ),
+      "utf8",
+    );
+    expect(bundledProjectOrientation).toContain("Project Orientation is read-only");
+    expect(bundledProjectOrientation).toMatch(
+      /Project Summary draft[\s\S]*future Roadmap horizons[\s\S]*candidate Gates/iu,
+    );
 
     syncRoot = await mkdtemp(join(root, "fresh-local-repository-"));
     await writeStandardMattLocalRepository(syncRoot);

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Stats } from "node:fs";
 import { cp, lstat, mkdir, readdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { codexE2ERuntimeArguments } from "./codex-e2e-runtime";
 
 export const G1_LIVE_PLAN_ID = "bearing-0.1.1-g1-live-v1";
 export const G1_LIVE_JOURNEYS = [
@@ -407,6 +408,7 @@ export const surfaceLaunchContract = (
       program: "codex",
       arguments: [
         "exec",
+        ...codexE2ERuntimeArguments(),
         "--ignore-user-config",
         "--ignore-rules",
         ...codexApprovalArguments,
@@ -426,6 +428,7 @@ export const surfaceLaunchContract = (
       arguments: [
         "exec",
         "resume",
+        ...codexE2ERuntimeArguments(),
         "--ignore-user-config",
         "--ignore-rules",
         ...codexApprovalArguments,
@@ -528,11 +531,15 @@ const surfaceContract = (
     ? { cli: "agent-skills", instruction: "AGENTS.md" }
     : { cli: "claude", instruction: "CLAUDE.md" };
 
-const instructionBytes = (contractLocator: string | undefined): string => `# G1 Fixture
+export const instructionBytes = (contractLocator: string | undefined): string => `# G1 Fixture
 
 Use Chinese for user-visible conversation and newly authored human-reviewed planning artifacts.
 Keep agent-facing skills and normative contracts in English.
-${contractLocator === undefined ? "" : `\nWork-management contract: \`${contractLocator}\`\n`}`;
+${
+  contractLocator === undefined
+    ? ""
+    : `\n## Agent skills\n\n### Issue tracker\n\nWork-management contract: \`${contractLocator}\`\n`
+}`;
 
 const manifestDocument = (surface: "agent-skills" | "claude", packageVersion = "0.1.0"): string =>
   `${JSON.stringify(

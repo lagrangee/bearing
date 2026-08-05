@@ -33,3 +33,5 @@ Forks may accurately describe their origin, but must not imply endorsement by Be
 ## Verification
 
 Use the current package scripts and release instructions. At minimum, run the checks relevant to your change and say what you ran in the pull request.
+
+Every Codex E2E matrix, automated Codex journey, live gated E2E, and Codex release smoke run in this repository must follow the repository-wide [Codex E2E Policy](docs/agents/codex-e2e.md).

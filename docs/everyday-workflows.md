@@ -14,15 +14,17 @@ Check this request against current direction, accepted decisions, and active wor
 
 Expected result: the agent either confirms fit with sources or exposes a conflict.
 
-## Reorient to the project
+## Run Bearing Project Orientation
 
 Ask:
 
 ```text
-Orient me to the current Project Summary, focused Roadmap and Gate, active Efforts, and Attention.
+Give me a Bearing Project Orientation from the current repository and existing work.
 ```
 
-This should cite current source truth rather than summarize chat history.
+Project Orientation reads current project files, canonical planning, and a bounded transient view of existing work. It separates facts, inferences, evidence gaps, and unresolved questions, then returns current understanding, a completed baseline, the active-work landscape, a Project Summary draft, and zero or more future Roadmap/Gate candidates. It cites current source truth rather than summarizing chat history.
+
+The result is read-only. It does not write the Summary, create planning or work, generate a Project Brief, or enroll standalone work. Any follow-up change still requires your explicit acceptance through its owning workflow.
 
 ## Change the roadmap deliberately
 
@@ -50,7 +52,7 @@ Planning Audit looks for material drift. Next Work Guidance suggests one primary
 
 ## Review Bearing Scope
 
-After Fresh Setup, Bearing may offer one optional Bearing Scope Review. Later reviews run only when you explicitly ask to compare the current managed scope with a transient Work Management inventory. Bearing discards the inventory, recommendations, and dispositions after the review without persisting them. Standalone work enters managed scope only through a follow-up planning change you explicitly accept.
+Bearing Scope Review is narrower than Project Orientation: it only compares the current managed scope with a transient Work Management inventory to identify standalone work and possible enrollment candidates. Later reviews run only when you explicitly ask. Bearing discards the inventory, recommendations, and dispositions after the review without persisting them. Standalone work enters managed scope only through a follow-up planning change you explicitly accept.
 
 ## Use Portal
 

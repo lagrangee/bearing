@@ -14,15 +14,17 @@
 
 期望结果：agent 要么带来源确认 fit，要么暴露 conflict。
 
-## 重新理解项目
+## 运行 Bearing Project Orientation
 
 可以问：
 
 ```text
-请根据当前 Project Summary、focused Roadmap 和 Gate、active Efforts、Attention 给我做项目 orientation。
+请根据当前 repository 和已有工作，为我做一次 Bearing Project Orientation。
 ```
 
-它应该引用当前 source truth，而不是复述聊天历史。
+Project Orientation 会读取当前项目文件、canonical planning，以及一个有边界的临时 existing-work 视图；它会区分 facts、inferences、evidence gaps 和 unresolved questions，并给出当前理解、已交付 baseline、active-work landscape、Project Summary draft，以及零个或多个未来 Roadmap／Gate candidates。它应该引用当前 source truth，而不是复述聊天历史。
+
+结果是 read-only：不会写入 Summary、创建 planning 或 work、生成 Project Brief，也不会把 standalone work 自动纳入 Bearing Scope。任何后续变更仍需你明确接受，并由对应 owner 执行。
 
 ## 有意识地修改 Roadmap
 
@@ -50,7 +52,7 @@ Planning Audit 查找实质 drift。Next Work Guidance 给出一个主方向和�
 
 ## 检查 Bearing Scope
 
-Fresh Setup 完成后，Bearing 可以提供一次可选的 Bearing Scope Review。后续只有在你显式要求比较当前 managed scope 与临时 Work Management inventory 时才运行。Review 完成后，Bearing 会丢弃 inventory、recommendation 和 disposition，不会持久化这些数据。只有通过你显式接受的后续 planning change，standalone work 才会进入 managed scope。
+Bearing Scope Review 比 Project Orientation 更窄：它只比较当前 managed scope 与临时 Work Management inventory，用来识别 standalone work 和可能的 enrollment candidate。后续只有在你显式要求时才运行。Review 完成后，Bearing 会丢弃 inventory、recommendation 和 disposition，不会持久化这些数据。只有通过你显式接受的后续 planning change，standalone work 才会进入 managed scope。
 
 ## 使用 Portal
 

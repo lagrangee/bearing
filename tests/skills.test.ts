@@ -108,19 +108,25 @@ describe("package-owned planning skills", () => {
           reference: "skills/bearing/references/shared/governance-disposition.md",
           loading: "on-native-handling-or-scope-review",
         },
+        {
+          key: "project-orientation",
+          reference: "skills/bearing/references/shared/project-orientation.md",
+          loading: "on-explicit-request-or-accepted-fresh-offer",
+        },
       ],
       publicSharedContracts: [
         "typed-inspection",
         "artifact-registration",
         "executor-continuation",
         "governance-disposition",
+        "project-orientation",
       ],
       branches: branchEntries.map((key) => ({
         key,
         reference: `skills/bearing/references/branches/${key}.md`,
         sharedContracts: [
           "planning-transaction",
-          ...(["setup"].includes(key) ? ["governance-disposition"] : []),
+          ...(["setup"].includes(key) ? ["governance-disposition", "project-orientation"] : []),
           ...(["roadmap", "milestone-gate", "effort-lifecycle"].includes(key)
             ? ["project-brief-refresh"]
             : []),
@@ -214,8 +220,8 @@ describe("package-owned planning skills", () => {
     const disposition = await readSharedContract("governance-disposition");
 
     expect(router.body).toContain("governance-disposition");
-    expect(setup).toMatch(/successful Fresh Setup[\s\S]*optional Bearing Scope Review/iu);
-    expect(setup).toMatch(/Active project[\s\S]*explicitly requests/iu);
+    expect(setup).not.toMatch(/successful Fresh Setup[\s\S]*optional Bearing Scope Review/iu);
+    expect(setup).toMatch(/explicitly requested Active-project Scope Review/iu);
     expect(disposition).toMatch(/transient Work Management inventory/iu);
     expect(disposition).toMatch(/discard[\s\S]*inventory/iu);
     expect(disposition).toMatch(
@@ -231,6 +237,72 @@ describe("package-owned planning skills", () => {
     );
     expect(disposition).toMatch(
       /ambient discovery[\s\S]*background inventory[\s\S]*automatic enrollment/iu,
+    );
+  });
+
+  test("routes explicit Active-project Project Orientation through one read-only shared protocol", async () => {
+    const router = await readSkill("bearing");
+    const orientation = await readSharedContract("project-orientation");
+    const context = await readFile(join(process.cwd(), "CONTEXT.md"), "utf8");
+    const workflow = await readFile(join(process.cwd(), "docs/everyday-workflows.md"), "utf8");
+    const workflowZh = await readFile(
+      join(process.cwd(), "docs/everyday-workflows.zh-CN.md"),
+      "utf8",
+    );
+
+    expect(router.body).toMatch(
+      /explicit[\s\S]*Bearing Project Orientation[\s\S]*Active[\s\S]*project-orientation/iu,
+    );
+    expect(router.body).toMatch(
+      /Project Orientation[\s\S]*does not enter Setup[\s\S]*does not replay Fresh onboarding/iu,
+    );
+    expect(orientation).toMatch(
+      /only after[\s\S]*explicit request[\s\S]*accepted Fresh offer[\s\S]*never ambient/iu,
+    );
+    expect(orientation).toMatch(
+      /Project Summary[\s\S]*Project Sitemap[\s\S]*canonical planning[\s\S]*primary project documentation[\s\S]*manifests[\s\S]*top-level source and test topology/iu,
+    );
+    expect(orientation).toMatch(
+      /project-level scope and lifecycle summaries[\s\S]*active or open work[\s\S]*completed work required[\s\S]*not[\s\S]*all historical tickets/iu,
+    );
+    expect(orientation).toMatch(
+      /repository facts[\s\S]*native-work facts[\s\S]*agent inferences[\s\S]*unresolved questions/iu,
+    );
+    expect(orientation).toMatch(
+      /current project understanding[\s\S]*completed baseline[\s\S]*active, open, and blocked work[\s\S]*Project Summary draft[\s\S]*future Roadmap[\s\S]*ordered candidate Gates/iu,
+    );
+    expect(orientation).toMatch(
+      /completed tickets[\s\S]*evidence only[\s\S]*never reconstruct[\s\S]*historical Roadmap[\s\S]*Gate Passage[\s\S]*Source Event Time/iu,
+    );
+    expect(orientation).toMatch(
+      /read-only[\s\S]*no Project Brief[\s\S]*Project Summary[\s\S]*Roadmap[\s\S]*Gate[\s\S]*Effort[\s\S]*Work Binding[\s\S]*native work[\s\S]*Portal state/iu,
+    );
+    expect(orientation).toMatch(
+      /Bearing Scope Review[\s\S]*narrow[\s\S]*transient inventory[\s\S]*discard[\s\S]*never expand Bearing Scope/iu,
+    );
+    expect(orientation).toMatch(
+      /explicit acceptance[\s\S]*Summary owner[\s\S]*Roadmap owner[\s\S]*Gate owner[\s\S]*dependency-safe order/iu,
+    );
+    expect(orientation).toMatch(
+      /defaults to project direction[\s\S]*not Efforts or Work Bindings/iu,
+    );
+    expect(orientation).not.toMatch(/[\u3400-\u9fff]/u);
+    for (const term of [
+      "Bearing Project Orientation",
+      "Bearing Scope Review",
+      "Project Summary",
+      "Project Brief",
+    ]) {
+      expect(context).toContain(term);
+    }
+    expect(context.indexOf("**Bearing Project Orientation**")).toBeLessThan(
+      context.indexOf("**Bearing Scope Review**"),
+    );
+    expect(workflow).toMatch(
+      /Run Bearing Project Orientation[\s\S]*read-only[\s\S]*Review Bearing Scope[\s\S]*narrower/iu,
+    );
+    expect(workflowZh).toMatch(
+      /运行 Bearing Project Orientation[\s\S]*read-only[\s\S]*检查 Bearing Scope[\s\S]*更窄/u,
     );
   });
 
@@ -342,9 +414,20 @@ describe("package-owned planning skills", () => {
       /matt-skills\/v1[\s\S]*Provider Configuration[\s\S]*never stores or asks for a tracker driver/iu,
     );
     expect(setup).toMatch(
-      /never[\s\S]*inspects native scope outside an explicitly accepted transient Scope Review/iu,
+      /never[\s\S]*inspects native scope outside an accepted Project Orientation or explicitly requested Active-project Scope Review/iu,
     );
-    expect(setup).toMatch(/zero nominations[\s\S]*complete/iu);
+    expect(setup).toMatch(
+      /executor decision[\s\S]*begins unresolved[\s\S]*explicit nomination[\s\S]*explicit skip or none/iu,
+    );
+    expect(setup).toMatch(
+      /before the final Apply review[\s\S]*ask exactly once[\s\S]*ordinary user language[\s\S]*nominate[\s\S]*skip[\s\S]*does not block Setup completion/iu,
+    );
+    expect(setup).toMatch(
+      /Agent Surface selection[\s\S]*Matt prerequisite consent[\s\S]*provider validation[\s\S]*Apply acceptance[\s\S]*never imply executor skip/iu,
+    );
+    expect(setup).toMatch(
+      /assisted prerequisite[\s\S]*same visible Fresh continuation[\s\S]*executor decision/iu,
+    );
     expect(setup).toMatch(/Generic[\s\S]*hidden during Setup/iu);
     expect(setup).toMatch(
       /Never scan, rank, recommend, install, whitelist-match, prefer, or select a default executor/iu,
@@ -356,7 +439,10 @@ describe("package-owned planning skills", () => {
       /explicit semantic assessment[\s\S]*Do not infer eligibility from keywords[\s\S]*exact directly required local reference locators[\s\S]*exact source excerpts[\s\S]*--executor-assessment/iu,
     );
     expect(setup).toMatch(
-      /unavailable, malformed, ambiguous, or insufficient nomination[\s\S]*retried or skipped[\s\S]*never blocks/iu,
+      /unavailable, malformed, ambiguous, invalid, or supporting-only nomination[\s\S]*explain[\s\S]*once[\s\S]*materially new contract evidence[\s\S]*different nomination or skip/iu,
+    );
+    expect(setup).toMatch(
+      /deterministic CLI[\s\S]*resolved configuration[\s\S]*no free-prose intent[\s\S]*no-executors marker[\s\S]*proof that the question was shown/iu,
     );
     expect(setup).toMatch(
       /surface-scoped[\s\S]*portable surface-qualified capability locator[\s\S]*Multiple registrations[\s\S]*without cross-surface deduplication, priority, preference, or default/iu,
@@ -370,7 +456,7 @@ describe("package-owned planning skills", () => {
     );
     expect(setup).not.toMatch(/Catalog failure[\s\S]{0,160}return `blocked`/iu);
     expect(setup).toMatch(
-      /created no Roadmap, Milestone Gate, Effort, Work Binding, or Matt-owned mutation/iu,
+      /created no Roadmap, Milestone Gate, Effort, Work Binding, substantive Project Summary, Project Brief, or Matt-owned mutation/iu,
     );
     expect(setup).toMatch(
       /configured loopback origin[\s\S]*BEARING_PORT[\s\S]*127\.0\.0\.1:4178[\s\S]*never scan/iu,
@@ -385,7 +471,33 @@ describe("package-owned planning skills", () => {
       /Portal[\s\S]*never changes Setup success[\s\S]*Fresh[\s\S]*routine Active no-op/iu,
     );
     expect(setup).not.toMatch(/Initial Bearing Analysis|discovered native scopes/iu);
-    expect(setup).toMatch(/one optional Scope Review offer in step 8/iu);
+    expect(setup).toMatch(
+      /does not create or refresh a substantive Project Summary[\s\S]*evidence is insufficient[\s\S]*honestly remain absent/iu,
+    );
+    expect(setup).toMatch(
+      /applied Fresh outcome[\s\S]*repository validation[\s\S]*Catalog result[\s\S]*exactly one Portal handoff[\s\S]*Project Orientation offer/iu,
+    );
+    expect(setup).toMatch(
+      /current user's language[\s\S]*project files[\s\S]*existing tasks and progress[\s\S]*analysis[\s\S]*Project Summary draft[\s\S]*Roadmap and Gate candidates[\s\S]*does not automatically modify/iu,
+    );
+    expect(setup).toMatch(
+      /accept and skip[\s\S]*Setup is already complete[\s\S]*skip does not change that success/iu,
+    );
+    expect(setup).toMatch(
+      /acceptance[\s\S]*shared `project-orientation`[\s\S]*same visible conversation/iu,
+    );
+    expect(setup).toMatch(
+      /decline[\s\S]*does not acquire[\s\S]*inventory[\s\S]*Summary[\s\S]*Brief[\s\S]*planning[\s\S]*native mutation/iu,
+    );
+    expect(setup).toMatch(
+      /`partial`, `blocked`, or `cancelled`[\s\S]*independent Catalog recovery[\s\S]*Active reconcile or no-op[\s\S]*reactivation[\s\S]*cutover[\s\S]*never trigger/iu,
+    );
+    expect(setup).toMatch(
+      /no offer marker, receipt, cache entry, lifecycle field, or persisted eligibility state/iu,
+    );
+    expect(setup).toMatch(
+      /assisted prerequisite[\s\S]*executor correction[\s\S]*same visible continuation[\s\S]*Catalog retry[\s\S]*preserve[\s\S]*eligibility/iu,
+    );
     expect(setup).toMatch(/current user's language/iu);
   });
 

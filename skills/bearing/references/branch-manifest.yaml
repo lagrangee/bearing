@@ -23,17 +23,22 @@ sharedContracts:
   - key: governance-disposition
     reference: skills/bearing/references/shared/governance-disposition.md
     loading: on-native-handling-or-scope-review
+  - key: project-orientation
+    reference: skills/bearing/references/shared/project-orientation.md
+    loading: on-explicit-request-or-accepted-fresh-offer
 publicSharedContracts:
   - typed-inspection
   - artifact-registration
   - executor-continuation
   - governance-disposition
+  - project-orientation
 branches:
   - key: setup
     reference: skills/bearing/references/branches/setup.md
     sharedContracts:
       - planning-transaction
       - governance-disposition
+      - project-orientation
   - key: summary
     reference: skills/bearing/references/branches/summary.md
     sharedContracts:

@@ -1,0 +1,41 @@
+{
+  "provider": "github",
+  "primaryReads": [
+    "project-summary",
+    "project-sitemap",
+    "canonical-planning",
+    "primary-docs",
+    "manifests",
+    "source-test-topology"
+  ],
+  "scopes": [
+    {
+      "id": "scope:active-github",
+      "lifecycle": "active",
+      "subjects": [
+        { "id": "issue:open", "state": "open" },
+        { "id": "issue:blocked", "state": "blocked" },
+        { "id": "issue:resolved-current", "state": "resolved" }
+      ]
+    },
+    {
+      "id": "scope:completed-github",
+      "lifecycle": "concluded",
+      "subjects": [
+        { "id": "issue:baseline", "state": "resolved", "baselineRequired": true },
+        { "id": "issue:historical-noise", "state": "resolved" }
+      ]
+    }
+  ],
+  "evidence": [
+    { "class": "repository-fact", "availability": "available" },
+    { "class": "native-work-fact", "availability": "partial" },
+    { "class": "agent-inference", "availability": "inference" },
+    { "class": "unresolved-question", "availability": "unresolved" }
+  ],
+  "expectedExpandedSubjects": [
+    "scope:active-github/issue:open",
+    "scope:active-github/issue:blocked",
+    "scope:completed-github/issue:baseline"
+  ]
+}

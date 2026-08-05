@@ -1,0 +1,41 @@
+{
+  "provider": "local-markdown",
+  "primaryReads": [
+    "project-summary",
+    "project-sitemap",
+    "canonical-planning",
+    "primary-docs",
+    "manifests",
+    "source-test-topology"
+  ],
+  "scopes": [
+    {
+      "id": "scope:active-local",
+      "lifecycle": "active",
+      "subjects": [
+        { "id": "ticket:open", "state": "open" },
+        { "id": "ticket:blocked", "state": "blocked" },
+        { "id": "ticket:resolved-current", "state": "resolved" }
+      ]
+    },
+    {
+      "id": "scope:completed-local",
+      "lifecycle": "concluded",
+      "subjects": [
+        { "id": "ticket:baseline", "state": "resolved", "baselineRequired": true },
+        { "id": "ticket:historical-noise", "state": "resolved" }
+      ]
+    }
+  ],
+  "evidence": [
+    { "class": "repository-fact", "availability": "available" },
+    { "class": "native-work-fact", "availability": "partial" },
+    { "class": "agent-inference", "availability": "inference" },
+    { "class": "unresolved-question", "availability": "unresolved" }
+  ],
+  "expectedExpandedSubjects": [
+    "scope:active-local/ticket:open",
+    "scope:active-local/ticket:blocked",
+    "scope:completed-local/ticket:baseline"
+  ]
+}
