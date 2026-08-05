@@ -279,6 +279,12 @@ describe("package-owned planning skills", () => {
       /current project understanding[\s\S]*completed baseline[\s\S]*active, open, and blocked work[\s\S]*Project Summary draft[\s\S]*future Roadmap[\s\S]*ordered candidate Gates/iu,
     );
     expect(orientation).toMatch(
+      /always[\s\S]*explicitly labelled Project Summary draft[\s\S]*partial[\s\S]*evidence limitations/iu,
+    );
+    expect(orientation).toMatch(
+      /zero Roadmap candidates[\s\S]*state that result explicitly[\s\S]*never omit[\s\S]*Project Summary draft/iu,
+    );
+    expect(orientation).toMatch(
       /completed tickets[\s\S]*evidence only[\s\S]*never reconstruct[\s\S]*historical Roadmap[\s\S]*Gate Passage[\s\S]*Source Event Time/iu,
     );
     expect(orientation).toMatch(
@@ -435,6 +441,15 @@ describe("package-owned planning skills", () => {
     );
     expect(setup).toMatch(
       /assisted prerequisite[\s\S]*same visible Fresh continuation[\s\S]*executor decision/iu,
+    );
+    expect(setup).toMatch(
+      /prerequisite owner(?:'s)?[\s\S]*do(?:es)? not substitute[\s\S]*final Setup Apply review/iu,
+    );
+    expect(setup).toMatch(
+      /handoff resumes[\s\S]*executor decision resolves[\s\S]*(?:the )?complete owner-separated review/iu,
+    );
+    expect(setup).toMatch(
+      /never compress[\s\S]*Apply confirmation[\s\S]*exact repository Apply Unit[\s\S]*preserved[\s\S]*independent Catalog effect/iu,
     );
     expect(setup).toMatch(/Generic[\s\S]*hidden during Setup/iu);
     expect(setup).toMatch(

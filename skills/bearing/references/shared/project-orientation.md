@@ -32,7 +32,7 @@ Return one current, reviewable orientation in the user's language with:
 7. labelled agent inferences; and
 8. unresolved questions and evidence limitations.
 
-Zero Roadmap candidates is a valid outcome when evidence does not support a useful future horizon. Project Orientation defaults to project direction, not Efforts or Work Bindings, and does not design delivery scope unless a later explicit request enters the owning capability.
+Always include an explicitly labelled Project Summary draft, including for a `partial` outcome with evidence limitations. Zero Roadmap candidates is a valid outcome when evidence does not support a useful future horizon; state that result explicitly and never omit the Project Summary draft. Project Orientation defaults to project direction, not Efforts or Work Bindings, and does not design delivery scope unless a later explicit request enters the owning capability.
 
 ## Mutation Boundary
 
