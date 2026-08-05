@@ -106,7 +106,7 @@ describe("package-owned planning skills", () => {
         {
           key: "governance-disposition",
           reference: "skills/bearing/references/shared/governance-disposition.md",
-          loading: "on-native-handling-or-scope-review",
+          loading: "on-native-handling-scope-review-or-accepted-project-orientation",
         },
         {
           key: "project-orientation",
@@ -220,6 +220,9 @@ describe("package-owned planning skills", () => {
     const disposition = await readSharedContract("governance-disposition");
 
     expect(router.body).toContain("governance-disposition");
+    expect(router.body).toMatch(
+      /governance-disposition[\s\S]*native Work Management handling[\s\S]*explicit Bearing Scope Review[\s\S]*accepted Project Orientation/iu,
+    );
     expect(setup).not.toMatch(/successful Fresh Setup[\s\S]*optional Bearing Scope Review/iu);
     expect(setup).toMatch(/explicitly requested Active-project Scope Review/iu);
     expect(disposition).not.toMatch(

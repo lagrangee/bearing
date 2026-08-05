@@ -22,7 +22,7 @@ sharedContracts:
     loading: branch-declared
   - key: governance-disposition
     reference: skills/bearing/references/shared/governance-disposition.md
-    loading: on-native-handling-or-scope-review
+    loading: on-native-handling-scope-review-or-accepted-project-orientation
   - key: project-orientation
     reference: skills/bearing/references/shared/project-orientation.md
     loading: on-explicit-request-or-accepted-fresh-offer
