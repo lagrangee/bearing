@@ -43,5 +43,22 @@
     "scope:active-local/ticket:open",
     "scope:active-local/ticket:blocked",
     "scope:completed-local/ticket:baseline"
-  ]
+  ],
+  "expectedOutput": {
+    "completedBaseline": [
+      "scope:completed-local/ticket:baseline"
+    ],
+    "projectSummaryDraft": "The local fixture has one delivered baseline and one active reliability direction.",
+    "futureRoadmaps": [
+      {
+        "horizon": "Local workflow reliability",
+        "candidateGates": [
+          "Resolve the current blocker",
+          "Verify the open delivery path"
+        ]
+      }
+    ],
+    "historicalPlanningCreated": [],
+    "conflictsPromotedToFacts": []
+  }
 }

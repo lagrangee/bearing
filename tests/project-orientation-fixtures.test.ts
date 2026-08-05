@@ -21,9 +21,19 @@ type OrientationFixture = Readonly<{
   }>[];
   evidence: readonly Readonly<{
     class: "repository-fact" | "native-work-fact" | "agent-inference" | "unresolved-question";
-    availability: "available" | "partial" | "inference" | "unresolved";
+    availability: "available" | "partial" | "conflicting" | "inference" | "unresolved";
   }>[];
   expectedExpandedSubjects: readonly string[];
+  expectedOutput: Readonly<{
+    completedBaseline: readonly string[];
+    projectSummaryDraft: string;
+    futureRoadmaps: readonly Readonly<{
+      horizon: string;
+      candidateGates: readonly string[];
+    }>[];
+    historicalPlanningCreated: readonly string[];
+    conflictsPromotedToFacts: readonly string[];
+  }>;
 }>;
 
 const loadFixture = async (
@@ -69,11 +79,27 @@ describe("Project Orientation provider fixtures", () => {
       expect(before.value.evidence).toEqual(
         expect.arrayContaining([
           { class: "repository-fact", availability: "available" },
-          { class: "native-work-fact", availability: "partial" },
           { class: "agent-inference", availability: "inference" },
           { class: "unresolved-question", availability: "unresolved" },
         ]),
       );
+      expect(
+        before.value.evidence.find((entry) => entry.class === "native-work-fact")?.availability,
+      ).toBe(name === "github" ? "conflicting" : "partial");
+      expect(before.value.expectedOutput.completedBaseline).toEqual(
+        before.value.scopes.flatMap((scope) =>
+          scope.subjects
+            .filter((subject) => subject.baselineRequired === true)
+            .map((subject) => `${scope.id}/${subject.id}`),
+        ),
+      );
+      expect(before.value.expectedOutput.projectSummaryDraft.length).toBeGreaterThan(0);
+      for (const roadmap of before.value.expectedOutput.futureRoadmaps) {
+        expect(roadmap.horizon.length).toBeGreaterThan(0);
+        expect(roadmap.candidateGates.length).toBeGreaterThan(0);
+      }
+      expect(before.value.expectedOutput.historicalPlanningCreated).toEqual([]);
+      expect(before.value.expectedOutput.conflictsPromotedToFacts).toEqual([]);
       transientInventory.splice(0, transientInventory.length);
       expect(transientInventory).toEqual([]);
       expect(JSON.stringify(before.value.state)).toBe(beforeState);

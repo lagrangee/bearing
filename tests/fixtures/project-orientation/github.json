@@ -35,7 +35,7 @@
   ],
   "evidence": [
     { "class": "repository-fact", "availability": "available" },
-    { "class": "native-work-fact", "availability": "partial" },
+    { "class": "native-work-fact", "availability": "conflicting" },
     { "class": "agent-inference", "availability": "inference" },
     { "class": "unresolved-question", "availability": "unresolved" }
   ],
@@ -43,5 +43,22 @@
     "scope:active-github/issue:open",
     "scope:active-github/issue:blocked",
     "scope:completed-github/issue:baseline"
-  ]
+  ],
+  "expectedOutput": {
+    "completedBaseline": [
+      "scope:completed-github/issue:baseline"
+    ],
+    "projectSummaryDraft": "The GitHub fixture has one delivered baseline while current native evidence remains conflicting.",
+    "futureRoadmaps": [
+      {
+        "horizon": "GitHub evidence reliability",
+        "candidateGates": [
+          "Resolve the conflicting native evidence",
+          "Verify the open delivery path"
+        ]
+      }
+    ],
+    "historicalPlanningCreated": [],
+    "conflictsPromotedToFacts": []
+  }
 }
