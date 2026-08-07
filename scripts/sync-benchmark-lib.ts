@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { cpus, freemem, homedir, hostname, platform, release, tmpdir, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -307,8 +307,44 @@ export type BenchmarkWorkerResult = Readonly<{
   }>;
   warmupIterations: number;
   measuredIterations: number;
+  runtime: ReturnType<typeof runtimeMetadata>;
+  initialProviderAcquisitionCount: number;
+  initialPublicationCount: number;
+  peakRssBytes: number;
+  retainedFootprint: Readonly<{
+    fileCount: number;
+    totalBytes: number;
+    observationFileCount: number;
+    observationBytes: number;
+  }>;
   samples: readonly BenchmarkSample[];
 }>;
+
+const retainedCacheFootprint = async (
+  root: string,
+): Promise<BenchmarkWorkerResult["retainedFootprint"]> => {
+  const cacheRoot = join(root, ".bearing/cache");
+  const files: Readonly<{ locator: string; bytes: number }>[] = [];
+  const visit = async (directory: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile()) {
+        files.push({ locator: path.slice(cacheRoot.length + 1), bytes: (await lstat(path)).size });
+      }
+    }
+  };
+  await visit(cacheRoot);
+  const observations = files.filter(({ locator }) =>
+    /provider-observation|native-scope-inspection/u.test(locator),
+  );
+  return {
+    fileCount: files.length,
+    totalBytes: files.reduce((total, file) => total + file.bytes, 0),
+    observationFileCount: observations.length,
+    observationBytes: observations.reduce((total, file) => total + file.bytes, 0),
+  };
+};
 
 export const runBenchmarkWorker = async (options: {
   scale: BenchmarkScale;
@@ -318,9 +354,10 @@ export const runBenchmarkWorker = async (options: {
   const specification = BENCHMARK_SCALES[options.scale];
   const fixture = await createBenchmarkFixture(options.scale);
   try {
-    await runSyncMeasured(fixture.root, {
+    const initial = await runSyncMeasured(fixture.root, {
       packageVersion: "0.0.0-benchmark",
       completedAt: "2026-07-18T00:00:00.000Z",
+      providerObservationIntent: "initial-baseline",
     });
     for (let index = 0; index < specification.warmupIterations; index += 1) {
       await sample(fixture, options.scenario, index, 0);
@@ -349,6 +386,11 @@ export const runBenchmarkWorker = async (options: {
       },
       warmupIterations: specification.warmupIterations,
       measuredIterations: specification.measuredIterations,
+      runtime: runtimeMetadata(),
+      initialProviderAcquisitionCount: initial.metrics.providerAcquisitionCount,
+      initialPublicationCount: initial.result.changed ? 1 : 0,
+      peakRssBytes: process.resourceUsage().maxRSS * (typeof Bun === "undefined" ? 1024 : 1),
+      retainedFootprint: await retainedCacheFootprint(fixture.root),
       samples,
     };
   } finally {
@@ -391,6 +433,17 @@ export const summarizeWorkers = (workers: readonly BenchmarkWorkerResult[]) => {
       recordDecodes: [...new Set(samples.map((entry) => entry.recordDecodes))],
       repositoryRevalidations: [...new Set(samples.map((entry) => entry.repositoryRevalidations))],
       providerObservations: [...new Set(samples.map((entry) => entry.providerObservations))],
+    },
+    evidence: {
+      runtimes: workers.map((worker) => worker.runtime),
+      initialProviderAcquisitionCounts: [
+        ...new Set(workers.map((worker) => worker.initialProviderAcquisitionCount)),
+      ],
+      initialPublicationCounts: [
+        ...new Set(workers.map((worker) => worker.initialPublicationCount)),
+      ],
+      peakRssBytes: Math.max(...workers.map((worker) => worker.peakRssBytes)),
+      retainedFootprints: workers.map((worker) => worker.retainedFootprint),
     },
     outputFingerprints: [...new Set(samples.map((entry) => entry.fingerprint))].sort(),
   };

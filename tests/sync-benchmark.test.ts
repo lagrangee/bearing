@@ -63,6 +63,29 @@ test("keeps the schema v1 Sync benchmark phase summary unchanged", () => {
       },
       warmupIterations: 0,
       measuredIterations: 1,
+      runtime: {
+        generatedAt: "2026-08-08T00:00:00.000Z",
+        hostname: "fixture-host",
+        platform: "darwin",
+        release: "fixture-release",
+        architecture: "arm64",
+        cpuModel: "fixture-cpu",
+        logicalCpuCount: 10,
+        totalMemoryBytes: 16 * 1024 * 1024 * 1024,
+        freeMemoryBytesAtStart: 8 * 1024 * 1024 * 1024,
+        bunVersion: undefined,
+        nodeVersion: "v26.5.0",
+        homeDirectoryRecorded: true,
+      },
+      initialProviderAcquisitionCount: 9,
+      initialPublicationCount: 1,
+      peakRssBytes: 64 * 1024 * 1024,
+      retainedFootprint: {
+        fileCount: 6,
+        totalBytes: 1_024,
+        observationFileCount: 1,
+        observationBytes: 128,
+      },
       samples: [
         {
           totalMs: 10,
@@ -83,6 +106,35 @@ test("keeps the schema v1 Sync benchmark phase summary unchanged", () => {
 
   expect(Object.keys(summary.phases)).toEqual(Object.keys(phaseMs));
   expect(summary.structural.providerObservations).toEqual([0]);
+  expect(summary.evidence).toEqual({
+    runtimes: [
+      {
+        generatedAt: "2026-08-08T00:00:00.000Z",
+        hostname: "fixture-host",
+        platform: "darwin",
+        release: "fixture-release",
+        architecture: "arm64",
+        cpuModel: "fixture-cpu",
+        logicalCpuCount: 10,
+        totalMemoryBytes: 16 * 1024 * 1024 * 1024,
+        freeMemoryBytesAtStart: 8 * 1024 * 1024 * 1024,
+        bunVersion: undefined,
+        nodeVersion: "v26.5.0",
+        homeDirectoryRecorded: true,
+      },
+    ],
+    initialProviderAcquisitionCounts: [9],
+    initialPublicationCounts: [1],
+    peakRssBytes: 64 * 1024 * 1024,
+    retainedFootprints: [
+      {
+        fileCount: 6,
+        totalBytes: 1_024,
+        observationFileCount: 1,
+        observationBytes: 128,
+      },
+    ],
+  });
 });
 
 test("declares the accepted after-only scenario and iteration matrix", () => {
