@@ -30,6 +30,8 @@ import { createPlanningGraphInstrumentation } from "./planning-graph-instrumenta
 import { parsePortalPort } from "./portal/port";
 import { createProjectMaterializer } from "./portal/project-materializer";
 import { startPortalServer } from "./portal/server";
+import { planningReferenceSchema } from "./project-read-model/contract";
+import { inspectProject } from "./project-read-model/inspect";
 import { reconcileRepository } from "./reconcile-repository";
 import { deactivateRepository, inspectPurgePlan, purgeRepository } from "./repo-lifecycle";
 import { inspectLegacyCutoverPlan } from "./repository-cutover";
@@ -51,7 +53,7 @@ Usage:
   bearing catalog <rename|forget|remove|relink|reset> [options]
   bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
   bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
-  bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]
+  bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]
   bearing portal [--port <1-65535>]
   bearing --help
   bearing --version
@@ -522,37 +524,57 @@ const runSyncCommand = async (args: readonly string[]): Promise<void> => {
 };
 
 const runNativeReconciliationCommand = async (args: readonly string[]): Promise<void> => {
-  const parsed = parseArgs({
-    args: [...args],
-    options: {
-      repo: { type: "string" },
-      scope: { type: "string" },
-      ref: { type: "string", multiple: true },
-      relation: { type: "string", multiple: true },
-    },
-    allowPositionals: false,
-    strict: true,
-  });
+  const parsed = (() => {
+    try {
+      return parseArgs({
+        args: [...args],
+        options: {
+          repo: { type: "string" },
+          scope: { type: "string" },
+          ref: { type: "string", multiple: true },
+          relation: { type: "string", multiple: true },
+        },
+        allowPositionals: false,
+        strict: true,
+      });
+    } catch (error) {
+      throw new CommandUsageError(
+        "Usage: bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]",
+        { cause: error },
+      );
+    }
+  })();
   const nativeScope = parsed.values.scope;
   if (nativeScope === undefined) {
-    throw new Error("Targeted native reconciliation requires --scope <opaque-native-scope>.");
+    throw new CommandUsageError(
+      "Targeted native reconciliation requires --scope <opaque-native-scope>.",
+    );
   }
-  const relations = (parsed.values.relation ?? []).map((encoded) => {
-    let value: unknown;
+  const relations = (() => {
     try {
-      value = JSON.parse(encoded);
+      return (parsed.values.relation ?? []).map((encoded) => {
+        const value: unknown = JSON.parse(encoded);
+        return nativeWorkAffectedRelationSchema.parse(value);
+      });
     } catch (error) {
-      throw new Error("Every --relation value must be one JSON relation object.", {
+      throw new CommandUsageError("Every --relation value must be one JSON relation object.", {
         cause: error,
       });
     }
-    return nativeWorkAffectedRelationSchema.parse(value);
-  });
-  const request = normalizeNativeReconciliationRequest({
-    binding: { provider: "matt-skills/v1", nativeScope },
-    subjects: parsed.values.ref ?? [],
-    relations,
-  });
+  })();
+  const request = (() => {
+    try {
+      return normalizeNativeReconciliationRequest({
+        binding: { provider: "matt-skills/v1", nativeScope },
+        subjects: parsed.values.ref ?? [],
+        relations,
+      });
+    } catch (error) {
+      throw new CommandUsageError("Targeted native reconciliation input is invalid.", {
+        cause: error,
+      });
+    }
+  })();
   const repoRoot = await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd()));
   const catalog = await readCatalogDocument({ homeDir: homeDirectory() });
   const entry = catalog.entries.find((candidate) => candidate.repoRoot === repoRoot);
@@ -595,34 +617,91 @@ const runNativeReconciliationCommand = async (args: readonly string[]): Promise<
   const blocked =
     reconciliation.outcome === "failed" ||
     diagnostics.some((diagnostic) => diagnostic.impact === "blocking");
-  const outcome = blocked ? "blocked" : "succeeded";
   process.stdout.write(
-    `Input fingerprint: ${coordinated.snapshot.basis.sitemapFingerprint}\nDiagnostics: ${diagnostics.length}\nScoped diagnostics: ${reconciliation.diagnostics.length}\nReconciliation: ${reconciliation.outcome}\nPublication: ${coordinated.publication}\nSnapshot: ${coordinated.snapshotDisposition}\nOutcome: ${outcome}\n`,
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        command: "reconcile-native",
+        outcome: blocked ? "unfulfilled" : "complete",
+        request,
+        result: {
+          requestFingerprint: reconciliation.requestFingerprint,
+          reconciliation: reconciliation.outcome,
+          publication: coordinated.publication,
+          snapshot: coordinated.snapshotDisposition,
+          generationFingerprint: coordinated.snapshot.basis.sitemapFingerprint,
+          scopedDiagnosticCount: reconciliation.diagnostics.length,
+        },
+        diagnostics,
+      },
+      null,
+      2,
+    )}\n`,
   );
-  for (const diagnostic of reconciliation.diagnostics) {
-    process.stdout.write(`- ${diagnostic.code} [${diagnostic.target}]: ${diagnostic.message}\n`);
-  }
   if (blocked) process.exitCode = 1;
 };
 
 const runInspectCommand = async (args: readonly string[]): Promise<void> => {
-  const parsed = parseArgs({
-    args: [...args],
-    options: {
-      repo: { type: "string" },
-      "benchmark-metrics-file": { type: "string" },
-      "portal-entry": { type: "string" },
-    },
-    allowPositionals: true,
-    strict: true,
-  });
+  const parsed = (() => {
+    try {
+      return parseArgs({
+        args: [...args],
+        options: {
+          repo: { type: "string" },
+          "benchmark-metrics-file": { type: "string" },
+          "portal-entry": { type: "string" },
+        },
+        allowPositionals: true,
+        strict: true,
+      });
+    } catch (error) {
+      throw new CommandUsageError(
+        "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]",
+        { cause: error },
+      );
+    }
+  })();
+  const [request, ...requestExtra] = parsed.positionals;
+  if (
+    request !== undefined &&
+    requestExtra.length === 0 &&
+    parsed.values["benchmark-metrics-file"] === undefined &&
+    parsed.values["portal-entry"] === undefined
+  ) {
+    const inspectRequest =
+      request === "project"
+        ? ({ kind: "project" } as const)
+        : request === "diagnostics"
+          ? ({ kind: "diagnostics" } as const)
+          : planningReferenceSchema.safeParse(request).success
+            ? ({ kind: "planning-reference", reference: request } as const)
+            : undefined;
+    if (inspectRequest === undefined) {
+      throw new CommandUsageError(
+        "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]",
+      );
+    }
+    const result = await inspectProject(
+      await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd())),
+      inspectRequest,
+    );
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (
+      result.outcome === "unfulfilled" ||
+      result.outcome === "recovery-required" ||
+      result.outcome === "need-update"
+    ) {
+      process.exitCode = 1;
+    }
+    return;
+  }
   const [kind, id, ...extra] = parsed.positionals;
   if (
     (kind !== "roadmap" && kind !== "gate" && kind !== "effort") ||
     id === undefined ||
     extra.length > 0
   ) {
-    throw new Error(
+    throw new CommandUsageError(
       "Usage: bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]",
     );
   }
@@ -683,6 +762,11 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
   }
   if (result.state === "invalid") process.exitCode = 1;
 };
+
+class CommandUsageError extends Error {
+  readonly exitCode = 2;
+  readonly name = "CommandUsageError";
+}
 
 const runPortal = async (args: readonly string[]): Promise<void> => {
   const port = parsePortalPort(args, process.env);
@@ -762,5 +846,5 @@ try {
   await main();
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+  process.exitCode = error instanceof CommandUsageError ? error.exitCode : 1;
 }

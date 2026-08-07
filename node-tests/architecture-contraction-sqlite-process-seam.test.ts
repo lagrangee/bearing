@@ -1,9 +1,22 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { createBenchmarkFixture } from "../scripts/sync-benchmark-lib";
 import { readCatalogDocument, upsertCatalogEntry } from "../src/catalog/store";
+import { resolveRepositoryRoot } from "../src/path-boundary";
+import {
+  currentBasisFingerprint,
+  inspectProject,
+  materializeProjectReadModelCandidate,
+} from "../src/project-read-model/inspect";
+import {
+  inspectProjectReadModel,
+  projectReadModelPath,
+  publishProjectReadModel,
+} from "../src/project-read-model/store";
 import { processEvidence, runNodeProcessGroup } from "./product-seams/sqlite-process-harness";
 
 const makeRepository = async (root: string): Promise<void> => {
@@ -43,6 +56,18 @@ if (process.argv[2] === "--sqlite-product-worker") {
         ...processEvidence(0),
       })}\n`,
     );
+  } else if (mode === "read-model") {
+    if (repoRoot === undefined) throw new Error("Read Model reader arguments missing.");
+    const result = await inspectProject(repoRoot, { kind: "project" });
+    process.stdout.write(
+      `${JSON.stringify({
+        role: "read-model-reader",
+        outcome: result.outcome,
+        basisFingerprint: result.generation?.basisFingerprint,
+        generationPublicationCount: result.generation?.publicationCount ?? 0,
+        ...processEvidence(0),
+      })}\n`,
+    );
   } else {
     throw new Error(`Unknown worker mode: ${mode}`);
   }
@@ -75,5 +100,249 @@ test("real SQLite process seam records committed publications and peak RSS", asy
     assert.ok((reader?.value.peakRssBytes ?? 0) > 0);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Project Read Model publishes atomically, preserves last-good, and stays isolated from Catalog", async () => {
+  const fixture = await createBenchmarkFixture("representative");
+  const homeDir = await mkdtemp(join(tmpdir(), "bearing-read-model-catalog-"));
+  try {
+    await upsertCatalogEntry({
+      homeDir,
+      repoRoot: fixture.root,
+      createEntryId: () => "catalog-entry",
+    });
+    const catalogBefore = await readFile(join(homeDir, ".bearing/catalog.sqlite"));
+    const firstCandidate = await materializeProjectReadModelCandidate(fixture.root);
+    assert.equal(
+      firstCandidate.basisObservations.some(
+        (observation) => observation.key === "native-scope-inspection-selection",
+      ),
+      false,
+    );
+    const firstReceipt = await publishProjectReadModel(fixture.root, firstCandidate, {
+      now: () => "2026-08-08T00:00:00.000Z",
+    });
+    assert.equal(firstReceipt.publicationCount, 1);
+    const evidenceAfterFirst = new DatabaseSync(projectReadModelPath(fixture.root), {
+      readOnly: true,
+    });
+    assert.equal(
+      evidenceAfterFirst.prepare("SELECT count(*) AS count FROM provider_evidence").get()?.[
+        "count"
+      ],
+      9,
+    );
+    evidenceAfterFirst.close();
+
+    const summaryPath = join(fixture.root, fixture.summaryLocator);
+    await writeFile(
+      summaryPath,
+      (await readFile(summaryPath, "utf8")).replace(
+        "variant A",
+        "variant B after one changed canonical basis",
+      ),
+    );
+    const secondCandidate = await materializeProjectReadModelCandidate(fixture.root);
+    await assert.rejects(
+      publishProjectReadModel(fixture.root, secondCandidate, {
+        faultAt: "before-commit",
+      }),
+      /Injected publication failure/u,
+    );
+    const afterFailure = await inspectProjectReadModel(fixture.root);
+    assert.equal(afterFailure.state, "ready");
+    if (afterFailure.state !== "ready") throw new Error("Expected last-good generation.");
+    assert.equal(afterFailure.metadata.receipt.publicationCount, 1);
+    assert.equal(afterFailure.metadata.basisFingerprint, firstCandidate.basisFingerprint);
+
+    const changedInspection = await inspectProject(fixture.root, { kind: "project" });
+    assert.equal(changedInspection.generation?.publicationCount, 2);
+    assert.equal(changedInspection.generation?.basisFingerprint, secondCandidate.basisFingerprint);
+    const evidenceAfterSecond = new DatabaseSync(projectReadModelPath(fixture.root), {
+      readOnly: true,
+    });
+    assert.equal(
+      evidenceAfterSecond.prepare("SELECT count(*) AS count FROM provider_evidence").get()?.[
+        "count"
+      ],
+      9,
+    );
+    evidenceAfterSecond.close();
+    const afterSecond = await inspectProjectReadModel(fixture.root);
+    assert.equal(afterSecond.state, "ready");
+    if (afterSecond.state !== "ready") throw new Error("Expected second generation.");
+    assert.equal(
+      await currentBasisFingerprint(
+        await resolveRepositoryRoot(fixture.root),
+        afterSecond.metadata,
+      ),
+      secondCandidate.basisFingerprint,
+    );
+    assert.equal(
+      Buffer.compare(catalogBefore, await readFile(join(homeDir, ".bearing/catalog.sqlite"))),
+      0,
+    );
+
+    const entrypoint = new URL(import.meta.url).pathname;
+    const readers = await runNodeProcessGroup([
+      [entrypoint, "--sqlite-product-worker", "read-model", homeDir, fixture.root],
+      [entrypoint, "--sqlite-product-worker", "read-model", homeDir, fixture.root],
+    ]);
+    assert.ok(readers.every((reader) => reader.value.publicationCount === 0));
+    assert.deepEqual(
+      readers.map((reader) => reader.value["generationPublicationCount"]),
+      [2, 2],
+    );
+    assert.ok(
+      readers.every(
+        (reader) => reader.value["outcome"] === "complete" || reader.value["outcome"] === "partial",
+      ),
+    );
+    assert.ok(
+      readers.every(
+        (reader) => reader.value["basisFingerprint"] === secondCandidate.basisFingerprint,
+      ),
+    );
+
+    await writeFile(
+      summaryPath,
+      (await readFile(summaryPath, "utf8")).replace(
+        "variant B after one changed canonical basis",
+        "variant C for concurrent Ensure Current",
+      ),
+    );
+    const thirdCandidate = await materializeProjectReadModelCandidate(fixture.root);
+    const concurrentReaders = await runNodeProcessGroup([
+      [entrypoint, "--sqlite-product-worker", "read-model", homeDir, fixture.root],
+      [entrypoint, "--sqlite-product-worker", "read-model", homeDir, fixture.root],
+    ]);
+    assert.deepEqual(
+      concurrentReaders.map((reader) => reader.value["generationPublicationCount"]),
+      [3, 3],
+    );
+    assert.ok(
+      concurrentReaders.every(
+        (reader) => reader.value["basisFingerprint"] === thirdCandidate.basisFingerprint,
+      ),
+    );
+
+    const samples: number[] = [];
+    for (let index = 0; index < 20; index += 1) {
+      const started = performance.now();
+      const inspected = await inspectProject(fixture.root, {
+        kind: "planning-reference",
+        reference: "effort:e001",
+      });
+      samples.push(performance.now() - started);
+      assert.ok(inspected.outcome === "complete" || inspected.outcome === "partial");
+      assert.equal(inspected.generation?.publicationCount, 3);
+    }
+    samples.sort((left, right) => left - right);
+    assert.ok((samples[Math.ceil(samples.length * 0.95) - 1] ?? Infinity) < 100);
+    assert.ok((samples.at(-1) ?? Infinity) < 500);
+    assert.ok((await readFile(projectReadModelPath(fixture.root))).length > 0);
+
+    await rm(summaryPath);
+    const afterDeletedInput = await inspectProject(fixture.root, { kind: "project" });
+    assert.equal(afterDeletedInput.generation?.publicationCount, 4);
+    const afterDeletedResult = afterDeletedInput.result;
+    assert.ok(afterDeletedResult !== undefined && "summary" in afterDeletedResult);
+    assert.deepEqual(afterDeletedResult.summary, { validity: "absent" });
+  } finally {
+    await Promise.all([
+      rm(fixture.root, { recursive: true, force: true }),
+      rm(homeDir, { recursive: true, force: true }),
+    ]);
+  }
+});
+
+test("Project Read Model classifies missing, compatible-obsolete, older, newer, corrupt, and unsafe stores", async () => {
+  const fixture = await createBenchmarkFixture("representative");
+  try {
+    assert.deepEqual(await inspectProjectReadModel(fixture.root), { state: "missing" });
+    const candidate = await materializeProjectReadModelCandidate(fixture.root);
+    await publishProjectReadModel(fixture.root, candidate);
+    const path = projectReadModelPath(fixture.root);
+
+    const database = new DatabaseSync(path);
+    const summaryPayload = database
+      .prepare(
+        "SELECT payload_json FROM project_objects WHERE reference = 'project-summary:current'",
+      )
+      .get()?.["payload_json"];
+    if (typeof summaryPayload !== "string") throw new Error("Expected Summary payload.");
+    database
+      .prepare(
+        "UPDATE project_objects SET payload_json = '{}' WHERE reference = 'project-summary:current'",
+      )
+      .run();
+    assert.equal((await inspectProjectReadModel(fixture.root)).state, "recovery-required");
+    database
+      .prepare(
+        "UPDATE project_objects SET payload_json = ? WHERE reference = 'project-summary:current'",
+      )
+      .run(summaryPayload);
+    database
+      .prepare("UPDATE provider_evidence SET observation_id = 'tampered' WHERE rowid = 1")
+      .run();
+    assert.equal((await inspectProjectReadModel(fixture.root)).state, "recovery-required");
+    database
+      .prepare(
+        "UPDATE provider_evidence SET observation_id = NULL WHERE observation_id = 'tampered'",
+      )
+      .run();
+    database.exec("UPDATE read_model_metadata SET projection_version = 0 WHERE singleton = 1");
+    database.close();
+    assert.equal((await inspectProjectReadModel(fixture.root)).state, "obsolete-compatible");
+
+    const newerProjection = new DatabaseSync(path);
+    newerProjection.exec(
+      "UPDATE read_model_metadata SET projection_version = 2 WHERE singleton = 1",
+    );
+    newerProjection.exec(
+      "UPDATE project_objects SET payload_json = '{\"futureField\":true}' WHERE reference = 'project-summary:current'",
+    );
+    newerProjection.close();
+    assert.deepEqual(await inspectProjectReadModel(fixture.root), {
+      state: "need-update",
+      storageVersion: 1,
+      projectionVersion: 2,
+    });
+
+    const currentProjection = new DatabaseSync(path);
+    currentProjection.exec(
+      "UPDATE read_model_metadata SET projection_version = 1 WHERE singleton = 1",
+    );
+    currentProjection
+      .prepare(
+        "UPDATE project_objects SET payload_json = ? WHERE reference = 'project-summary:current'",
+      )
+      .run(summaryPayload);
+    currentProjection.close();
+
+    const newer = new DatabaseSync(path);
+    newer.exec("PRAGMA user_version = 2");
+    newer.close();
+    assert.deepEqual(await inspectProjectReadModel(fixture.root), {
+      state: "need-update",
+      storageVersion: 2,
+    });
+
+    const older = new DatabaseSync(path);
+    older.exec("PRAGMA user_version = 0");
+    older.close();
+    assert.equal((await inspectProjectReadModel(fixture.root)).state, "recovery-required");
+
+    const bytes = await readFile(path);
+    await writeFile(path, "not a sqlite database\n");
+    assert.equal((await inspectProjectReadModel(fixture.root)).state, "recovery-required");
+    await writeFile(path, bytes);
+    assert.equal((await inspectProjectReadModel(fixture.root)).state, "recovery-required");
+    await rm(path);
+    await mkdir(path);
+    assert.equal((await inspectProjectReadModel(fixture.root)).state, "recovery-required");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
   }
 });

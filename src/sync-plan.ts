@@ -17,7 +17,6 @@ import { fingerprintInputRecords } from "./fingerprint";
 import { retainContainedInputs } from "./input-boundary";
 import { serializeMarkdownDocument } from "./markdown-document";
 import {
-  fingerprintNativeScopeInspections,
   type NativeScopeInspectionIntent,
   selectNativeScopeInspections,
 } from "./native-scope-inspection";
@@ -48,6 +47,8 @@ export type SyncPlan = Readonly<{
   reportPath: string;
   sitemapPath: string;
   inputs: readonly string[];
+  basisObservations: readonly Readonly<{ key: string; value: string }>[];
+  projectReadModelBasisFingerprint: string;
   fingerprint: string;
   diagnostics: readonly StructuralDiagnostic[];
   advisoryFreshness: AdvisoryFreshness;
@@ -224,7 +225,7 @@ export const prepareSync = async (
     optionalLocators: advisoryBasisInputsFromGeneration(initiallyDecoded),
     observations: assetResolution.observations.map((observation) => ({
       key: `asset-content-availability:${observation.id}:${observation.location}`,
-      value: observation.availability,
+      value: `${observation.availability}:${observation.shape}`,
     })),
   });
   const extended = performance.now();
@@ -260,8 +261,13 @@ export const prepareSync = async (
       ? {}
       : { maximumStoreBytes: options.nativeScopeInspectionMaximumStoreBytes }),
   });
-  const finalGeneration = fingerprintInputRecords(generation.records, [
+  const semanticBasisObservations = [
     ...generation.observations,
+    {
+      key: "repository-identity",
+      value: fingerprintInputRecords([], [{ key: "repository-root", value: generation.root }])
+        .fingerprint,
+    },
     {
       key: "provider-observation-selection",
       value: fingerprintProviderObservationSelection(
@@ -269,14 +275,19 @@ export const prepareSync = async (
         providerSelection.selections,
       ),
     },
+  ];
+  const basisObservations = [
+    ...semanticBasisObservations,
     {
-      key: "native-scope-inspection-selection",
-      value: fingerprintNativeScopeInspections(
-        nativeScopeInspection.observations,
-        nativeScopeInspection.selections,
-      ),
+      key: "input-discovery-diagnostics",
+      value: JSON.stringify(discoveryDiagnostics),
     },
-  ]);
+  ];
+  const finalGeneration = fingerprintInputRecords(generation.records, semanticBasisObservations);
+  const projectReadModelBasisFingerprint = fingerprintInputRecords(
+    generation.records,
+    basisObservations,
+  ).fingerprint;
   const decoded = rebaseDecodedBearingRecordGeneration(
     providerBasisDecoded,
     finalGeneration.fingerprint,
@@ -334,6 +345,8 @@ export const prepareSync = async (
     reportPath,
     sitemapPath,
     inputs: finalGeneration.inputs,
+    basisObservations,
+    projectReadModelBasisFingerprint,
     fingerprint: finalGeneration.fingerprint,
     diagnostics,
     advisoryFreshness,
