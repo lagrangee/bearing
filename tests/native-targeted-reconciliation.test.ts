@@ -315,7 +315,7 @@ test("targeted reconciliation updates one matched binding without capture-every-
   );
 });
 
-test("bound reconciliation never falls back to full capture and retains prior evidence as undetermined on failure", async () => {
+test("bound reconciliation never falls back to full capture and retains prior current evidence on failure", async () => {
   const root = await createValidBearingRepo();
   const binding = { provider: "matt-skills/v1" as const, nativeScope: ".scratch/work" };
   const baseline = await prepareSync(root, {
@@ -358,13 +358,13 @@ test("bound reconciliation never falls back to full capture and retains prior ev
   expect(failed.providerObservations).toEqual([prior]);
   expect(failed.providerObservationSelections[0]).toMatchObject({
     observationId: prior.id,
-    effectiveFreshness: "undetermined",
+    effectiveFreshness: "current",
     latestAttempt: {
       intent: "targeted-reconciliation",
       outcome: "failed",
     },
   });
-  expect(failed.diagnostics).toContainEqual(
+  expect(failed.diagnostics).not.toContainEqual(
     expect.objectContaining({ code: "provider-targeted-reconciliation-failed" }),
   );
 });

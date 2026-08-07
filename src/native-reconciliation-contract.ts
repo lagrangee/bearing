@@ -8,7 +8,7 @@ const MAXIMUM_AFFECTED_SUBJECTS = 256;
 const MAXIMUM_AFFECTED_RELATIONS = 512;
 const MAXIMUM_REFERENCE_BYTES = 4096;
 
-const nativeReferenceSchema = z
+export const nativeReferenceSchema = z
   .string()
   .min(1)
   .max(MAXIMUM_REFERENCE_BYTES)

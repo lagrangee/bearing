@@ -12,7 +12,9 @@ export type ProviderObservationIntent =
   | "targeted-reconciliation"
   | "initial-baseline"
   | "recovery"
-  | "full-verification";
+  | "full-verification"
+  | "exact-scope-capture"
+  | "all-scope-verification";
 export type ProviderObservationAcquisitionIntent = Exclude<
   ProviderObservationIntent,
   "ordinary-sync" | "targeted-reconciliation"
@@ -53,6 +55,8 @@ const attemptSchema = z
       "initial-baseline",
       "recovery",
       "full-verification",
+      "exact-scope-capture",
+      "all-scope-verification",
       "targeted-reconciliation",
       "native-scope-inspection",
     ]),
@@ -82,20 +86,11 @@ export const providerObservationSelectionSchema = z
     latestAttempt: attemptSchema.nullable(),
   })
   .superRefine((selection, context) => {
-    const latestAttemptBlocks =
-      selection.latestAttempt?.outcome === "failed" ||
-      selection.latestAttempt?.diagnostics.some(
-        (diagnostic) => diagnostic.impact === "blocking",
-      ) === true;
-    if (
-      (selection.observationId === null || latestAttemptBlocks) &&
-      selection.effectiveFreshness !== "undetermined"
-    ) {
+    if (selection.observationId === null && selection.effectiveFreshness !== "undetermined") {
       context.addIssue({
         code: "custom",
         path: ["effectiveFreshness"],
-        message:
-          "A missing observation or failed/blocking latest attempt requires undetermined effective freshness.",
+        message: "A missing selected observation requires undetermined effective freshness.",
       });
     }
     if (
@@ -125,20 +120,20 @@ export const assessSelectedProviderObservationEvidence = (
   selection: ProviderObservationSelection | undefined,
 ): ProviderObservationEvidenceAssessment => {
   const assessment = assessProviderObservationEvidence(observation);
-  const selected =
+  const hasSelectedObservation =
     observation !== undefined &&
     selection !== undefined &&
-    selection.observationId === observation.id &&
-    selection.effectiveFreshness === "current" &&
-    selection.latestAttempt?.outcome !== "failed";
-  const latestBlockingDiagnostics =
-    selection?.latestAttempt?.diagnostics.filter((diagnostic) => diagnostic.impact === "blocking")
-      .length ?? 0;
+    selection.observationId === observation.id;
+  const selected = hasSelectedObservation && selection.effectiveFreshness === "current";
+  const latestBlockingDiagnostics = hasSelectedObservation
+    ? 0
+    : (selection?.latestAttempt?.diagnostics.filter(
+        (diagnostic) => diagnostic.impact === "blocking",
+      ).length ?? 0);
   return {
     ...assessment,
     freshness: selection?.effectiveFreshness ?? "undetermined",
     blockingDiagnosticCount: assessment.blockingDiagnosticCount + latestBlockingDiagnostics,
-    frontierEvidence:
-      selected && latestBlockingDiagnostics === 0 ? assessment.frontierEvidence : "withheld",
+    frontierEvidence: selected ? assessment.frontierEvidence : "withheld",
   };
 };

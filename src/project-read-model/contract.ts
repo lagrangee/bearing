@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nativeReferenceSchema } from "../native-reconciliation-contract";
 import {
   authoritySchema,
   effortSchema,
@@ -44,6 +45,7 @@ export const planningReferenceSchema = z
 export type ProjectInspectRequest =
   | Readonly<{ kind: "project" }>
   | Readonly<{ kind: "planning-reference"; reference: string }>
+  | Readonly<{ kind: "native-reference"; reference: string }>
   | Readonly<{ kind: "diagnostics" }>;
 
 export type ProjectInspectOutcome =
@@ -148,10 +150,37 @@ export const planningInspectResultSchema = z.strictObject({
   }),
 });
 
+export const nativeInspectResultSchema = z.strictObject({
+  reference: nativeReferenceSchema,
+  binding: z.union([
+    z.strictObject({ state: z.literal("unbound") }),
+    z.strictObject({
+      state: z.literal("bound"),
+      provider: z.literal("matt-skills/v1"),
+      nativeScope: z.string().min(1),
+      role: z.literal("bound"),
+      observationId: z.string().nullable(),
+      effectiveFreshness: z.enum(["current", "stale", "undetermined"]),
+      planningReferences: z.array(planningReferenceSchema),
+    }),
+  ]),
+  coverage: z.union([
+    z.strictObject({ state: z.literal("unavailable") }),
+    z.strictObject({
+      state: z.literal("available"),
+      assessment: z.enum(["complete", "incomplete"]),
+      completion: z.enum(["complete", "incomplete", "undetermined"]),
+    }),
+  ]),
+  generationFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+});
+
 export type ProjectContextResult = Readonly<z.infer<typeof projectContextResultSchema>>;
 export type PlanningInspectResult = Readonly<z.infer<typeof planningInspectResultSchema>>;
+export type NativeInspectResult = Readonly<z.infer<typeof nativeInspectResultSchema>>;
 export type ProjectInspectResult =
   | ProjectContextResult
   | PlanningInspectResult
+  | NativeInspectResult
   | readonly z.infer<typeof structuralDiagnosticSchema>[]
   | Readonly<{ reason: string }>;

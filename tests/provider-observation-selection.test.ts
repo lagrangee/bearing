@@ -159,7 +159,7 @@ test("explicit full verification is distinguishable and may replace the selected
   expect(verified.providerObservations[0]?.id).not.toBe(baseline.providerObservations[0]?.id);
 });
 
-test("failed verification preserves prior evidence and records an undetermined latest attempt", async () => {
+test("failed verification preserves prior current evidence and records the failed attempt", async () => {
   const root = await createValidBearingRepo();
   const baselineCalls = { count: 0 };
   const baseline = await prepareSync(root, {
@@ -184,19 +184,19 @@ test("failed verification preserves prior evidence and records an undetermined l
   expect(failed.providerObservationOperation).toEqual({
     intent: "full-verification",
     outcome: "retained-after-failure",
-    acquisitionCount: 0,
+    acquisitionCount: 1,
   });
   expect(failed.providerObservations).toEqual([prior]);
   expect(failed.providerObservationSelections[0]).toMatchObject({
     observationId: prior.id,
-    effectiveFreshness: "undetermined",
+    effectiveFreshness: "current",
     latestAttempt: {
       intent: "full-verification",
       attemptedAt: "2026-07-31T07:00:00.000Z",
       outcome: "failed",
     },
   });
-  expect(failed.diagnostics).toContainEqual(
+  expect(failed.diagnostics).not.toContainEqual(
     expect.objectContaining({ code: "provider-observation-acquisition-failed" }),
   );
   await commitSyncPlan(failed);
@@ -204,7 +204,7 @@ test("failed verification preserves prior evidence and records an undetermined l
   const ordinary = await prepareSync(root);
   expect(ordinary.providerObservationOperation).toMatchObject({
     intent: "ordinary-sync",
-    outcome: "unavailable",
+    outcome: "reused",
     acquisitionCount: 0,
   });
   expect(ordinary.providerObservationSelections).toEqual(failed.providerObservationSelections);
@@ -236,13 +236,13 @@ test("a production missing-configuration result retains prior evidence as a fail
   expect(failed.providerObservations).toEqual([prior]);
   expect(failed.providerObservationSelections[0]).toMatchObject({
     observationId: prior.id,
-    effectiveFreshness: "undetermined",
+    effectiveFreshness: "current",
     latestAttempt: {
       intent: "full-verification",
       outcome: "failed",
     },
   });
-  expect(failed.diagnostics).toContainEqual(
+  expect(failed.diagnostics).not.toContainEqual(
     expect.objectContaining({ code: "missing-provider-configuration" }),
   );
 });
@@ -319,7 +319,7 @@ test("ordinary Sync rejects tampered observation content without fallback acquis
   expect(ordinaryCalls.count).toBe(0);
 });
 
-test("a failed latest attempt cannot remain current or trustworthy after store tampering", async () => {
+test("an operational failed attempt does not invalidate selected current evidence", async () => {
   const root = await createValidBearingRepo();
   const calls = { count: 0 };
   const baseline = await prepareSync(root, {
@@ -351,7 +351,7 @@ test("a failed latest attempt cannot remain current or trustworthy after store t
   };
   expect(
     assessSelectedProviderObservationEvidence(observation, failedSelection).frontierEvidence,
-  ).toBe("withheld");
+  ).toBe("trustworthy");
 
   const storePath = join(root, ".bearing/cache/provider-observations.json");
   const store = JSON.parse(await readFile(storePath, "utf8")) as {
@@ -367,21 +367,39 @@ test("a failed latest attempt cannot remain current or trustworthy after store t
 
   expect(ordinary.providerObservationOperation).toEqual({
     intent: "ordinary-sync",
-    outcome: "unavailable",
+    outcome: "reused",
     acquisitionCount: 0,
   });
-  expect(ordinary.providerObservations).toEqual([]);
+  expect(ordinary.providerObservations).toEqual([observation]);
   expect(ordinary.providerObservationSelections).toEqual([
     expect.objectContaining({
-      observationId: null,
-      effectiveFreshness: "undetermined",
-      latestAttempt: null,
+      observationId: observation.id,
+      effectiveFreshness: "current",
+      latestAttempt: failedSelection.latestAttempt,
     }),
   ]);
-  expect(ordinary.diagnostics).toContainEqual(
-    expect.objectContaining({ code: "provider-observation-store-unavailable" }),
+  expect(ordinary.diagnostics).not.toContainEqual(
+    expect.objectContaining({ code: "fixture-latest-attempt-failed" }),
   );
   expect(ordinaryCalls.count).toBe(0);
+
+  await writeFixture(root, "CONTEXT.md", "# Unrelated canonical change\n");
+  const canonicalChanged = await prepareSync(root);
+  expect(canonicalChanged.diagnostics).not.toContainEqual(
+    expect.objectContaining({ code: "fixture-latest-attempt-failed" }),
+  );
+
+  const identicalSuccess = await prepareSync(root, {
+    providerObservationIntent: "full-verification",
+    providerFactory: () => ({
+      id: "matt-skills/v1",
+      capture: async () => observation,
+    }),
+  });
+  expect(identicalSuccess.diagnostics).not.toContainEqual(
+    expect.objectContaining({ code: "fixture-latest-attempt-failed" }),
+  );
+  expect(identicalSuccess.fingerprint).toBe(canonicalChanged.fingerprint);
 });
 
 test("ordinary Sync rejects a cross-scope observation selection without fallback acquisition", async () => {

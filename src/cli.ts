@@ -12,7 +12,6 @@ import { ACTIVATION_ORIGINS, checkBearingActivation } from "./activation-policy"
 import { createPlanningLineageAgentHandoff } from "./agent-planning-lineage-handoff";
 import { registerAsset } from "./asset-registration";
 import { runCatalogCommand } from "./catalog/cli";
-import { readCatalogDocument } from "./catalog/store";
 import {
   executorNominationAssessmentSchema,
   resolveExecutorNominations,
@@ -20,25 +19,30 @@ import {
 } from "./executor-registration";
 import { writeInspectBenchmarkMetrics } from "./inspect-benchmark";
 import { installKit } from "./installer";
-import { assessNativeReconciliation } from "./native-reconciliation-assessment";
 import {
+  nativeReferenceSchema,
   nativeWorkAffectedRelationSchema,
   normalizeNativeReconciliationRequest,
 } from "./native-reconciliation-contract";
 import { resolveRepositoryRoot } from "./path-boundary";
 import { createPlanningGraphInstrumentation } from "./planning-graph-instrumentation";
 import { parsePortalPort } from "./portal/port";
-import { createProjectMaterializer } from "./portal/project-materializer";
 import { startPortalServer } from "./portal/server";
 import { planningReferenceSchema } from "./project-read-model/contract";
 import { inspectProject } from "./project-read-model/inspect";
+import {
+  captureProjectProviderScopes,
+  rebuildProjectReadModel,
+  reconcileProjectNative,
+  verifyAllProjectProviderScopes,
+} from "./project-read-model/provider-operations";
 import { reconcileRepository } from "./reconcile-repository";
 import { deactivateRepository, inspectPurgePlan, purgeRepository } from "./repo-lifecycle";
 import { inspectLegacyCutoverPlan } from "./repository-cutover";
 import { planRepositoryIntegration } from "./repository-integration-plan";
 import { runSync } from "./sync";
 import { commitSyncPlan, prepareSync } from "./sync-plan";
-import type { AgentSurface, StructuralDiagnostic } from "./types";
+import type { AgentSurface } from "./types";
 
 const HELP = `Bearing ${packageMetadata.version}
 
@@ -53,7 +57,10 @@ Usage:
   bearing catalog <rename|forget|remove|relink|reset> [options]
   bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
   bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
-  bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]
+  bearing provider capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] [--repo <path>]
+  bearing provider verify --all [--repo <path>]
+  bearing cache rebuild [--repo <path>]
+  bearing inspect <project|diagnostics|stable-planning-reference> [--native <native-reference>] [--repo <path>]
   bearing portal [--port <1-65535>]
   bearing --help
   bearing --version
@@ -69,6 +76,8 @@ Commands:
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
   sync     Rebuild deterministic diagnostics and the Project Sitemap under .bearing/cache/.
   reconcile-native  Re-observe only the native subjects and relations affected by one completed Matt transaction.
+  provider  Explicitly capture exact Work Binding scopes or verify all current scopes.
+  cache     Rebuild only the disposable repository Project Read Model.
   inspect  Return one generation-scoped planning context closure.
   portal   Run the foreground loopback Portal Host and compiled browser Module.
 
@@ -575,70 +584,86 @@ const runNativeReconciliationCommand = async (args: readonly string[]): Promise<
       });
     }
   })();
-  const repoRoot = await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd()));
-  const catalog = await readCatalogDocument({ homeDir: homeDirectory() });
-  const entry = catalog.entries.find((candidate) => candidate.repoRoot === repoRoot);
-  if (entry === undefined) {
-    throw new Error(
-      "Targeted native reconciliation requires the repository's current Project Catalog entry.",
+  const result = await reconcileProjectNative(
+    await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd())),
+    {
+      binding: request.binding,
+      subjects: request.subjects,
+      relations: request.relations,
+    },
+  );
+  process.stdout.write(`${JSON.stringify({ ...result, request }, null, 2)}\n`);
+  if (result.outcome !== "complete") process.exitCode = 1;
+};
+
+const runProviderCommand = async (args: readonly string[]): Promise<void> => {
+  const [operation, ...operationArgs] = args;
+  if (operation !== "capture" && operation !== "verify") {
+    throw new CommandUsageError(
+      "Usage: bearing provider <capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] | verify --all> [--repo <path>]",
     );
   }
-  const materializer = createProjectMaterializer({
-    packageName: packageMetadata.name,
-    packageVersion: packageMetadata.version,
-  });
-  const result = await materializer.run(repoRoot, "force", undefined, undefined, "ordinary-sync", {
-    kind: "reconcile",
-    request,
-  });
-  const coordinated = {
-    snapshot: result.snapshot,
-    snapshotDisposition: result.snapshotDisposition,
-    publication: result.outcome,
-  } as const;
-  const reconciliation = assessNativeReconciliation({
-    request,
-    boundSelections: coordinated.snapshot.providerObservationSelections,
-    inspectionSelections: coordinated.snapshot.nativeScopeInspections.selections,
-  });
-  const diagnostics: StructuralDiagnostic[] = [
-    ...coordinated.snapshot.diagnostics,
-    ...reconciliation.diagnostics,
-  ].filter(
-    (diagnostic, index, all) =>
-      all.findIndex(
-        (candidate) =>
-          candidate.code === diagnostic.code &&
-          candidate.impact === diagnostic.impact &&
-          candidate.target === diagnostic.target &&
-          candidate.message === diagnostic.message,
-      ) === index,
-  );
-  const blocked =
-    reconciliation.outcome === "failed" ||
-    diagnostics.some((diagnostic) => diagnostic.impact === "blocking");
-  process.stdout.write(
-    `${JSON.stringify(
-      {
-        schemaVersion: 1,
-        command: "reconcile-native",
-        outcome: blocked ? "unfulfilled" : "complete",
-        request,
-        result: {
-          requestFingerprint: reconciliation.requestFingerprint,
-          reconciliation: reconciliation.outcome,
-          publication: coordinated.publication,
-          snapshot: coordinated.snapshotDisposition,
-          generationFingerprint: coordinated.snapshot.basis.sitemapFingerprint,
-          scopedDiagnosticCount: reconciliation.diagnostics.length,
+  const parsed = (() => {
+    try {
+      return parseArgs({
+        args: operationArgs,
+        options: {
+          repo: { type: "string" },
+          scope: { type: "string", multiple: true },
+          all: { type: "boolean" },
         },
-        diagnostics,
-      },
-      null,
-      2,
-    )}\n`,
+        allowPositionals: false,
+        strict: true,
+      });
+    } catch (error) {
+      throw new CommandUsageError("Provider acquisition input is invalid.", { cause: error });
+    }
+  })();
+  if (
+    (operation === "capture" &&
+      ((parsed.values.scope?.length ?? 0) === 0 || parsed.values.all === true)) ||
+    (operation === "verify" &&
+      (parsed.values.all !== true || (parsed.values.scope?.length ?? 0) > 0))
+  ) {
+    throw new CommandUsageError(
+      operation === "capture"
+        ? "Usage: bearing provider capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] [--repo <path>]"
+        : "Usage: bearing provider verify --all [--repo <path>]",
+    );
+  }
+  const repoRoot = await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd()));
+  const result =
+    operation === "capture"
+      ? await captureProjectProviderScopes(repoRoot, parsed.values.scope ?? [])
+      : await verifyAllProjectProviderScopes(repoRoot);
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (result.outcome !== "complete") process.exitCode = 1;
+};
+
+const runCacheCommand = async (args: readonly string[]): Promise<void> => {
+  const [operation, ...operationArgs] = args;
+  if (operation !== "rebuild") {
+    throw new CommandUsageError("Usage: bearing cache rebuild [--repo <path>]");
+  }
+  const parsed = (() => {
+    try {
+      return parseArgs({
+        args: operationArgs,
+        options: { repo: { type: "string" } },
+        allowPositionals: false,
+        strict: true,
+      });
+    } catch (error) {
+      throw new CommandUsageError("Usage: bearing cache rebuild [--repo <path>]", {
+        cause: error,
+      });
+    }
+  })();
+  const result = await rebuildProjectReadModel(
+    await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd())),
   );
-  if (blocked) process.exitCode = 1;
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (result.outcome !== "complete") process.exitCode = 1;
 };
 
 const runInspectCommand = async (args: readonly string[]): Promise<void> => {
@@ -648,6 +673,7 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
         args: [...args],
         options: {
           repo: { type: "string" },
+          native: { type: "string" },
           "benchmark-metrics-file": { type: "string" },
           "portal-entry": { type: "string" },
         },
@@ -663,22 +689,27 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
   })();
   const [request, ...requestExtra] = parsed.positionals;
   if (
-    request !== undefined &&
+    (request !== undefined || parsed.values.native !== undefined) &&
+    !(request !== undefined && parsed.values.native !== undefined) &&
     requestExtra.length === 0 &&
     parsed.values["benchmark-metrics-file"] === undefined &&
     parsed.values["portal-entry"] === undefined
   ) {
     const inspectRequest =
-      request === "project"
-        ? ({ kind: "project" } as const)
-        : request === "diagnostics"
-          ? ({ kind: "diagnostics" } as const)
-          : planningReferenceSchema.safeParse(request).success
-            ? ({ kind: "planning-reference", reference: request } as const)
-            : undefined;
+      parsed.values.native !== undefined
+        ? nativeReferenceSchema.safeParse(parsed.values.native).success
+          ? ({ kind: "native-reference", reference: parsed.values.native } as const)
+          : undefined
+        : request === "project"
+          ? ({ kind: "project" } as const)
+          : request === "diagnostics"
+            ? ({ kind: "diagnostics" } as const)
+            : request !== undefined && planningReferenceSchema.safeParse(request).success
+              ? ({ kind: "planning-reference", reference: request } as const)
+              : undefined;
     if (inspectRequest === undefined) {
       throw new CommandUsageError(
-        "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]",
+        "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--native <native-reference>] [--repo <path>]",
       );
     }
     const result = await inspectProject(
@@ -829,6 +860,14 @@ const main = async (): Promise<void> => {
   }
   if (command === "reconcile-native") {
     await runNativeReconciliationCommand(args);
+    return;
+  }
+  if (command === "provider") {
+    await runProviderCommand(args);
+    return;
+  }
+  if (command === "cache") {
+    await runCacheCommand(args);
     return;
   }
   if (command === "inspect") {

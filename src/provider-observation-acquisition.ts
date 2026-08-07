@@ -17,14 +17,24 @@ import {
   githubMattNativeScopeIdentity,
 } from "./providers/matt-skills-v1/github-native-scope";
 import { createLocalMarkdownMattProvider } from "./providers/matt-skills-v1/local-markdown";
+import { sameMattNativeBindingDefinition } from "./providers/matt-skills-v1/native-subject";
+import { mattSkillsV1ProviderObservationSchema } from "./providers/matt-skills-v1/schema";
 import type { SyncInputGeneration } from "./sync-input-generation";
 import type { StructuralDiagnostic } from "./types";
 
 export type ProviderObservationAcquisition = Readonly<{
   observations: readonly MattSkillsV1ProviderObservation[];
+  failures: readonly Readonly<{
+    binding: MattSkillsV1WorkBinding;
+    diagnostics: readonly StructuralDiagnostic[];
+  }>[];
   diagnostics: readonly StructuralDiagnostic[];
   acquisitionCount: number;
 }>;
+
+export class ProviderObservationAcquisitionUnavailableError extends Error {
+  readonly name = "ProviderObservationAcquisitionUnavailableError";
+}
 
 export type MattProviderFactoryInput = Readonly<{
   driver: "local-markdown" | "github-issues";
@@ -226,26 +236,60 @@ export const acquireProviderObservations = async (
   generation: SyncInputGeneration,
   decoded: DecodedBearingRecordGeneration,
   providerFactory: MattProviderFactory = defaultMattProviderFactory,
+  requestedBindings?: readonly MattSkillsV1WorkBinding[],
 ): Promise<ProviderObservationAcquisition> => {
-  const bindings = boundProviderScopes(decoded);
+  const currentBindings = boundProviderScopes(decoded);
+  const bindings =
+    requestedBindings === undefined
+      ? currentBindings
+      : requestedBindings.filter((requested) =>
+          currentBindings.some((current) => sameMattNativeBindingDefinition(current, requested)),
+        );
   if (bindings.length === 0) {
-    return { observations: [], diagnostics: [], acquisitionCount: 0 };
+    return { observations: [], failures: [], diagnostics: [], acquisitionCount: 0 };
   }
   const resolution = resolveMattProvider(generation, providerFactory);
   if (resolution.state === "unavailable") {
     return {
       observations: [],
+      failures: bindings.map((binding) => ({
+        binding,
+        diagnostics: resolution.diagnostics,
+      })),
       diagnostics: resolution.diagnostics,
       acquisitionCount: 0,
     };
   }
   const observations: MattSkillsV1ProviderObservation[] = [];
+  const failures: {
+    binding: MattSkillsV1WorkBinding;
+    diagnostics: readonly StructuralDiagnostic[];
+  }[] = [];
+  let acquisitionCount = 0;
   for (const binding of bindings) {
-    observations.push(await resolution.provider.capture(binding));
+    acquisitionCount += 1;
+    try {
+      observations.push(
+        mattSkillsV1ProviderObservationSchema.parse(
+          await resolution.provider.capture(binding),
+        ) as MattSkillsV1ProviderObservation,
+      );
+    } catch (error) {
+      if (!(error instanceof ProviderObservationAcquisitionUnavailableError)) throw error;
+      failures.push({
+        binding,
+        diagnostics: [
+          diagnostic(
+            "provider-observation-acquisition-failed",
+            binding.nativeScope,
+            `Provider observation acquisition failed: ${error.message}`,
+          ),
+        ],
+      });
+    }
   }
-  return {
-    observations,
-    diagnostics: observations.flatMap((observation) =>
+  const diagnostics = [
+    ...observations.flatMap((observation) =>
       observation.diagnostics.map((item) => ({
         code: item.code,
         impact: item.impact,
@@ -253,6 +297,12 @@ export const acquireProviderObservations = async (
         message: item.message,
       })),
     ),
-    acquisitionCount: observations.length,
+    ...failures.flatMap((failure) => failure.diagnostics),
+  ];
+  return {
+    observations,
+    failures,
+    diagnostics,
+    acquisitionCount,
   };
 };

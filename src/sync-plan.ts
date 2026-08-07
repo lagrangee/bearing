@@ -18,6 +18,7 @@ import { retainContainedInputs } from "./input-boundary";
 import { serializeMarkdownDocument } from "./markdown-document";
 import {
   type NativeScopeInspectionIntent,
+  type NativeScopeInspectionStore,
   selectNativeScopeInspections,
 } from "./native-scope-inspection";
 import { resolveRepositoryRoot } from "./path-boundary";
@@ -29,9 +30,13 @@ import {
   type ProviderObservationIntent,
   type ProviderObservationOperation,
   type ProviderObservationSelection,
+  type ProviderObservationStore,
   selectProviderObservations,
 } from "./provider-observation-store";
-import type { MattSkillsV1ProviderObservation } from "./providers/matt-skills-v1/capture";
+import type {
+  MattSkillsV1ProviderObservation,
+  MattSkillsV1WorkBinding,
+} from "./providers/matt-skills-v1/capture";
 import { buildProjectSitemapFromGeneration } from "./sitemap";
 import { discoverProjectSitemapInputs } from "./sitemap-discovery";
 import { captureSyncInputGeneration, extendSyncInputGeneration } from "./sync-input-generation";
@@ -102,8 +107,11 @@ export type PrepareSyncOptions = Readonly<{
   providerFactory?: MattProviderFactory;
   providerObservationIntent?: ProviderObservationIntent;
   providerObservationNow?: () => string;
+  providerObservationStore?: ProviderObservationStore | null;
+  requestedProviderBindings?: readonly MattSkillsV1WorkBinding[];
   nativeScopeInspectionIntent?: NativeScopeInspectionIntent;
   nativeScopeInspectionMaximumStoreBytes?: number;
+  nativeScopeInspectionStore?: NativeScopeInspectionStore | null;
 }>;
 
 const readExisting = async (target: string): Promise<Buffer | undefined> => {
@@ -246,6 +254,12 @@ export const prepareSync = async (
     ...(options.providerObservationNow === undefined
       ? {}
       : { now: options.providerObservationNow }),
+    ...(options.providerObservationStore === undefined
+      ? {}
+      : { priorStore: options.providerObservationStore }),
+    ...(options.requestedProviderBindings === undefined
+      ? {}
+      : { requestedBindings: options.requestedProviderBindings }),
   });
   const nativeScopeInspection = await selectNativeScopeInspections({
     repoRoot: generation.root,
@@ -260,6 +274,9 @@ export const prepareSync = async (
     ...(options.nativeScopeInspectionMaximumStoreBytes === undefined
       ? {}
       : { maximumStoreBytes: options.nativeScopeInspectionMaximumStoreBytes }),
+    ...(options.nativeScopeInspectionStore === undefined
+      ? {}
+      : { priorStore: options.nativeScopeInspectionStore }),
   });
   const semanticBasisObservations = [
     ...generation.observations,

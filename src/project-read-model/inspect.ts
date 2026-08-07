@@ -6,6 +6,7 @@ import type { AssetContentObservation, AssetContentShape } from "../asset-inputs
 import { listFiles } from "../discovery";
 import { type FingerprintObservation, fingerprintInputRecords } from "../fingerprint";
 import { probeContainedInput, readContainedInput } from "../input-boundary";
+import type { NativeScopeInspectionStore } from "../native-scope-inspection";
 import { resolveRepositoryRoot } from "../path-boundary";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import { buildProjectSnapshot } from "../project-snapshot/projection";
@@ -19,10 +20,16 @@ import { projectBriefSchema } from "../project-snapshot/schema-brief";
 import { planningLineageSubjectProjectionSchema } from "../project-snapshot/schema-planning-lineage";
 import { projectSummarySchema } from "../project-snapshot/schema-summary";
 import { sourceRecordSchema } from "../project-snapshot/source-schema";
+import { providerObservationSelectionSchema } from "../provider-observation-contract";
+import type { ProviderObservationStore } from "../provider-observation-store";
+import { mattNativeSubjectForObject } from "../providers/matt-skills-v1/native-subject";
+import { mattObjects } from "../providers/matt-skills-v1/projection";
+import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import { discoverProjectSitemapInputs } from "../sitemap-discovery";
-import { prepareSync } from "../sync-plan";
+import { type PrepareSyncOptions, prepareSync } from "../sync-plan";
 import type { StructuralDiagnostic } from "../types";
 import {
+  nativeInspectResultSchema,
   PROJECT_INSPECT_ENVELOPE_VERSION,
   type ProjectInspectEnvelope,
   type ProjectInspectRequest,
@@ -36,6 +43,7 @@ import {
   ProjectReadModelBusyError,
   type ProjectReadModelMetadata,
   publishProjectReadModel,
+  readProjectProviderEvidence,
   withProjectReadModel,
 } from "./store";
 
@@ -150,8 +158,44 @@ export const currentBasisFingerprint = async (
   return fingerprintInputRecords(records, observations).fingerprint;
 };
 
-export const materializeProjectReadModelCandidate = async (repoRoot: string) => {
-  const plan = await prepareSync(repoRoot);
+export const prepareProjectReadModelCandidate = async (
+  repoRoot: string,
+  options: Readonly<{
+    providerObservationStore?: ProviderObservationStore | null;
+    providerObservationIntent?: PrepareSyncOptions["providerObservationIntent"];
+    providerFactory?: PrepareSyncOptions["providerFactory"];
+    providerObservationNow?: () => string;
+    requestedProviderBindings?: PrepareSyncOptions["requestedProviderBindings"];
+    nativeReconciliationRequest?: import("../native-reconciliation-contract").NativeReconciliationRequest;
+    nativeScopeInspectionStore?: NativeScopeInspectionStore | null;
+  }> = {},
+) => {
+  const plan = await prepareSync(repoRoot, {
+    ...(options.providerObservationStore === undefined
+      ? {}
+      : { providerObservationStore: options.providerObservationStore }),
+    ...(options.providerObservationIntent === undefined
+      ? {}
+      : { providerObservationIntent: options.providerObservationIntent }),
+    ...(options.providerFactory === undefined ? {} : { providerFactory: options.providerFactory }),
+    ...(options.providerObservationNow === undefined
+      ? {}
+      : { providerObservationNow: options.providerObservationNow }),
+    ...(options.requestedProviderBindings === undefined
+      ? {}
+      : { requestedProviderBindings: options.requestedProviderBindings }),
+    ...(options.nativeReconciliationRequest === undefined
+      ? {}
+      : {
+          nativeScopeInspectionIntent: {
+            kind: "reconcile" as const,
+            request: options.nativeReconciliationRequest,
+          },
+        }),
+    ...(options.nativeScopeInspectionStore === undefined
+      ? {}
+      : { nativeScopeInspectionStore: options.nativeScopeInspectionStore }),
+  });
   const snapshot = await buildProjectSnapshot({
     repoRoot,
     packageVersion: packageMetadata.version,
@@ -166,14 +210,20 @@ export const materializeProjectReadModelCandidate = async (repoRoot: string) => 
     assetContentObservations: plan.assetContentObservations,
     planningGraph: plan.planningGraph,
   });
-  return compileProjectReadModel({
+  const candidate = compileProjectReadModel({
     snapshot,
     basisFingerprint: plan.projectReadModelBasisFingerprint,
     basisInputs: plan.inputs,
     basisObservations: plan.basisObservations,
     assetContentObservations: plan.assetContentObservations,
   });
+  return { candidate, plan };
 };
+
+export const materializeProjectReadModelCandidate = async (
+  repoRoot: string,
+  options: Parameters<typeof prepareProjectReadModelCandidate>[1] = {},
+) => (await prepareProjectReadModelCandidate(repoRoot, options)).candidate;
 
 const ensureCurrent = async (repoRoot: string) => {
   const state = await inspectProjectReadModel(repoRoot);
@@ -182,7 +232,26 @@ const ensureCurrent = async (repoRoot: string) => {
     const fingerprint = await currentBasisFingerprint(repoRoot, state.metadata);
     if (fingerprint === state.metadata.basisFingerprint) return state;
   }
-  const candidate = await materializeProjectReadModelCandidate(repoRoot);
+  const providerEvidence =
+    state.state === "ready" || state.state === "obsolete-compatible"
+      ? await readProjectProviderEvidence(repoRoot)
+      : undefined;
+  const providerObservationStore =
+    providerEvidence === undefined
+      ? undefined
+      : {
+          schemaVersion: 1 as const,
+          observations: providerEvidence.flatMap((entry) =>
+            entry.role === "bound" && entry.observation !== undefined ? [entry.observation] : [],
+          ),
+          selections: providerEvidence.flatMap((entry) =>
+            entry.role === "bound" ? [entry.selection] : [],
+          ),
+        };
+  const candidate = await materializeProjectReadModelCandidate(repoRoot, {
+    ...(providerObservationStore === undefined ? {} : { providerObservationStore }),
+    ...(providerEvidence === undefined ? {} : { nativeScopeInspectionStore: null }),
+  });
   const receipt = await publishProjectReadModel(repoRoot, candidate);
   return {
     state: "ready" as const,
@@ -392,6 +461,76 @@ const planningResult = (
   });
 };
 
+const nativeResult = (
+  database: DatabaseSync,
+  metadata: ProjectReadModelMetadata,
+  reference: string,
+) => {
+  const rows = database
+    .prepare(
+      "SELECT observation_json, selection_json FROM provider_evidence WHERE role = 'bound' ORDER BY binding_key",
+    )
+    .all();
+  for (const row of rows) {
+    const selection = providerObservationSelectionSchema.parse(parseJson(row["selection_json"]));
+    const observation =
+      typeof row["observation_json"] === "string"
+        ? mattSkillsV1ProviderObservationSchema.parse(parseJson(row["observation_json"]))
+        : undefined;
+    const relativeNativeReference = posix.relative(selection.nativeScope, reference);
+    const locallyContained =
+      selection.nativeScope.startsWith(".") &&
+      relativeNativeReference !== "" &&
+      relativeNativeReference !== ".." &&
+      !relativeNativeReference.startsWith("../") &&
+      !posix.isAbsolute(relativeNativeReference);
+    const subjectMatched =
+      reference === selection.nativeScope ||
+      locallyContained ||
+      (observation !== undefined &&
+        mattObjects(observation).some(
+          (candidate) =>
+            mattNativeSubjectForObject(candidate).id === reference ||
+            (candidate.native.kind === "github" && candidate.native.identity.url === reference),
+        ));
+    if (!subjectMatched) continue;
+    const planningReferences = database
+      .prepare("SELECT reference, payload_json FROM project_objects WHERE kind = 'effort'")
+      .all()
+      .flatMap((effortRow) => {
+        const effort = effortSchema.parse(parseJson(effortRow["payload_json"]));
+        return effort.workBinding?.nativeScope === selection.nativeScope ? [effort.id] : [];
+      });
+    return nativeInspectResultSchema.parse({
+      reference,
+      binding: {
+        state: "bound",
+        provider: selection.provider,
+        nativeScope: selection.nativeScope,
+        role: "bound",
+        observationId: selection.observationId,
+        effectiveFreshness: selection.effectiveFreshness,
+        planningReferences,
+      },
+      coverage:
+        observation === undefined
+          ? { state: "unavailable" }
+          : {
+              state: "available",
+              assessment: observation.coverage.assessment,
+              completion: observation.completion,
+            },
+      generationFingerprint: metadata.basisFingerprint,
+    });
+  }
+  return nativeInspectResultSchema.parse({
+    reference,
+    binding: { state: "unbound" },
+    coverage: { state: "unavailable" },
+    generationFingerprint: metadata.basisFingerprint,
+  });
+};
+
 export const inspectProject = async (
   repoRoot: string,
   request: ProjectInspectRequest,
@@ -443,6 +582,15 @@ export const inspectProject = async (
           outcome: blocked ? ("partial" as const) : ("complete" as const),
           diagnostics: projectDiagnostics,
           result: projectResult(database, metadata),
+        };
+      }
+      if (request.kind === "native-reference") {
+        const result = nativeResult(database, metadata, request.reference);
+        return {
+          ...base,
+          outcome: "complete" as const,
+          diagnostics: [],
+          result,
         };
       }
       const reference = planningReferenceSchema.parse(request.reference);

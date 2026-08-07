@@ -333,8 +333,18 @@ export const selectNativeScopeInspections = async (input: {
   readonly providerFactory?: MattProviderFactory;
   readonly now?: () => string;
   readonly maximumStoreBytes?: number;
+  readonly priorStore?: NativeScopeInspectionStore | null;
 }): Promise<NativeScopeInspectionPlan> => {
-  const current = await readNativeScopeInspectionStore(input.repoRoot);
+  const current =
+    input.priorStore === undefined
+      ? await readNativeScopeInspectionStore(input.repoRoot)
+      : input.priorStore === null
+        ? ({ kind: "missing" } as const)
+        : ({
+            kind: "available",
+            store: input.priorStore,
+            bytes: serializeValidatedJson(storeSchema, input.priorStore),
+          } as const);
   const prior = current.kind === "available" ? current.store : undefined;
   const store = selectedState(prior, input.boundSelections);
   const maximumStoreBytes = input.maximumStoreBytes ?? MAXIMUM_STORE_BYTES;

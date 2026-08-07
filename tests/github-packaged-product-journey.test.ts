@@ -4,6 +4,7 @@ import { withBearingManagedPointer } from "../src/agent-surface-entry";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
 import { buildProjectSnapshot } from "../src/project-snapshot/projection";
 import type { MattProviderFactory } from "../src/provider-observation-acquisition";
+import type { MattSkillsV1ProviderObservation } from "../src/providers/matt-skills-v1/capture";
 import {
   GitHubReadError,
   type GitHubReadRequest,
@@ -35,8 +36,10 @@ const instrumentedProviderFactory = (
 ): Readonly<{
   providerFactory: MattProviderFactory;
   captureCalls: () => number;
+  captures: () => readonly MattSkillsV1ProviderObservation[];
 }> => {
   let captureCalls = 0;
+  const captures: MattSkillsV1ProviderObservation[] = [];
   const createProvider = githubMattProviderFactoryFor(transport);
   const providerFactory: MattProviderFactory = (input) => {
     expect(input.driver).toBe("github-issues");
@@ -45,11 +48,13 @@ const instrumentedProviderFactory = (
       id: provider.id,
       capture: async (binding) => {
         captureCalls += 1;
-        return provider.capture(binding);
+        const observation = await provider.capture(binding);
+        captures.push(observation);
+        return observation;
       },
     };
   };
-  return { providerFactory, captureCalls: () => captureCalls };
+  return { providerFactory, captureCalls: () => captureCalls, captures: () => captures };
 };
 
 const prepareStandardGitHubRepository = async (): Promise<
@@ -435,7 +440,7 @@ for (const scenario of degradationScenarios) {
       if (scenario.expectedFirstEndpoint !== undefined) {
         expect(requests[0]?.endpoint).toBe(scenario.expectedFirstEndpoint);
       }
-      const capture = plan.providerObservations[0];
+      const capture = instrumented.captures()[0];
       expect(capture).toMatchObject({
         state: scenario.expectedState,
         freshness: { assessment: "undetermined" },
@@ -449,6 +454,18 @@ for (const scenario of degradationScenarios) {
       expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
         expect.arrayContaining(scenario.expectedDiagnosticCodes),
       );
+      expect(plan.providerObservations).toEqual([]);
+      const selection = plan.providerObservationSelections[0];
+      expect(selection).toMatchObject({
+        observationId: null,
+        effectiveFreshness: "undetermined",
+        latestAttempt: {
+          outcome: "failed",
+        },
+      });
+      expect(selection?.latestAttempt?.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+        expect.arrayContaining(scenario.expectedDiagnosticCodes),
+      );
       if (scenario.expectedFreshnessEvidence !== undefined) {
         expect(capture?.freshness.evidence).toContainEqual(scenario.expectedFreshnessEvidence);
       }
@@ -456,7 +473,7 @@ for (const scenario of degradationScenarios) {
       const inspect = plan.planningGraph.contextFor({ kind: "effort", id: "effort:test" });
       expect(inspect.state).toBe("partial");
       if (inspect.state === "invalid") throw new Error("Expected typed Effort Inspect context.");
-      expect(inspect.context.providerCapture).toBe(capture);
+      expect(inspect.context.providerCapture).toBeUndefined();
       expect(inspect.context.effort.value.lifecycle).toBe("active");
       const gateInspect = plan.planningGraph.contextFor({ kind: "gate", id: "gate:test" });
       expect(gateInspect.state).toBe("partial");
@@ -468,7 +485,7 @@ for (const scenario of degradationScenarios) {
       expect(plan.sitemap.toString("utf8")).toMatch(/[1-9][0-9]* blocking diagnostic\(s\)/u);
 
       const snapshot = await buildSnapshotForSyncPlan(root, PACKAGE_VERSION, plan);
-      expect(snapshot.providerObservations[0]).toEqual(capture);
+      expect(snapshot.providerObservations).toEqual([]);
       const requestCountAfterSync = requests.length;
       const materialization = await captureConsoleLogs(() =>
         createProjectMaterializer({
@@ -480,7 +497,7 @@ for (const scenario of degradationScenarios) {
         }).run(root, "ensure-current"),
       );
       const portal = materialization.result;
-      expect(portal.snapshot.providerObservations[0]).toEqual(capture);
+      expect(portal.snapshot.providerObservations).toEqual([]);
       expect(requests).toHaveLength(requestCountAfterSync);
 
       const persistedPaths = [

@@ -323,18 +323,8 @@ test("Effort closure returns full nested context and fails a bound absent scope 
   const optional = graph.contextFor({ kind: "effort", id: "effort:optional" });
   expect(optional.state).toBe("partial");
   if (optional.state === "invalid") throw new Error("Expected optional Effort context.");
-  expect(optional.context.providerCapture).toMatchObject({
-    state: "absent",
-    completion: "incomplete",
-    binding: { nativeScope: ".scratch/optional" },
-  });
-  expect(optional.context.nativeWorkReadingState).toMatchObject({
-    conclusion: "Can't verify",
-    why: {
-      projectionState: "absent",
-      completion: "incomplete",
-    },
-  });
+  expect(optional.context.providerCapture).toBeUndefined();
+  expect(optional.context.nativeWorkReadingState).toBeUndefined();
   expect(optional.context.evidence).toEqual([]);
   expect(optional.issues).toContainEqual(
     expect.objectContaining({

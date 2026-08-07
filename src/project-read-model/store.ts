@@ -1,4 +1,4 @@
-import { lstat, mkdir } from "node:fs/promises";
+import { lstat, mkdir, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
 import { z } from "zod";
@@ -15,8 +15,15 @@ import {
   planningLineageSubjectProjectionSchema,
 } from "../project-snapshot/schema-planning-lineage";
 import { sourceRecordSchema } from "../project-snapshot/source-schema";
-import { providerObservationSelectionSchema } from "../provider-observation-contract";
-import { mattNativeScopeKey } from "../providers/matt-skills-v1/native-subject";
+import {
+  type ProviderObservationSelection,
+  providerObservationSelectionSchema,
+} from "../provider-observation-contract";
+import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
+import {
+  mattNativeScopeKey,
+  sameMattNativeBindingDefinition,
+} from "../providers/matt-skills-v1/native-subject";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import {
   PROJECT_READ_MODEL_PROJECTION_VERSION,
@@ -43,7 +50,7 @@ type RelationRow = Readonly<{
 }>;
 type PayloadRow = Readonly<{ reference: string; payload: string }>;
 type SourceRow = Readonly<{ reference: string; kind: string; payload: string }>;
-type ProviderEvidenceRow = Readonly<{
+export type ProjectProviderEvidenceRow = Readonly<{
   bindingKey: string;
   role: "bound" | "detail";
   observationId?: string;
@@ -63,7 +70,7 @@ export type ProjectReadModelCandidate = Readonly<{
   attention: readonly PayloadRow[];
   diagnostics: readonly PayloadRow[];
   sources: readonly SourceRow[];
-  providerEvidence: readonly ProviderEvidenceRow[];
+  providerEvidence: readonly ProjectProviderEvidenceRow[];
 }>;
 
 export type ProjectReadModelMetadata = Readonly<{
@@ -93,6 +100,16 @@ export class ProjectReadModelBusyError extends Error {
 
 export const projectReadModelPath = (repoRoot: string): string =>
   join(repoRoot, ".bearing", "cache", "project-read-model.sqlite");
+
+export const removeProjectReadModelForRebuild = async (repoRoot: string): Promise<boolean> => {
+  const safety = await pathSafety(repoRoot);
+  if (safety === "missing") return false;
+  if (safety === "unsafe") {
+    throw new Error("Project Read Model target is unsafe and was not changed.");
+  }
+  await unlink(projectReadModelPath(repoRoot));
+  return true;
+};
 
 const openDatabase = async (
   path: string,
@@ -285,14 +302,14 @@ export const compileProjectReadModel = (input: {
     }
   }
   const providerEvidenceRows = (
-    role: ProviderEvidenceRow["role"],
+    role: ProjectProviderEvidenceRow["role"],
     selections:
       | ProjectSnapshot["providerObservationSelections"]
       | ProjectSnapshot["nativeScopeInspections"]["selections"],
     observations:
       | ProjectSnapshot["providerObservations"]
       | ProjectSnapshot["nativeScopeInspections"]["observations"],
-  ): ProviderEvidenceRow[] =>
+  ): ProjectProviderEvidenceRow[] =>
     selections.map((selection) => {
       const observation = observations.find(
         (candidate) => mattNativeScopeKey(candidate.binding) === mattNativeScopeKey(selection),
@@ -548,6 +565,26 @@ const insertCandidate = (
   candidate: ProjectReadModelCandidate,
   receipt: ProjectReadModelReceipt,
 ): void => {
+  const currentBindings = candidate.providerEvidence
+    .filter((row) => row.role === "bound")
+    .map((row) => providerObservationSelectionSchema.parse(parseJson(row.selection)));
+  const matchesCurrentBinding = (selectionJson: string): boolean => {
+    const selection = providerObservationSelectionSchema.parse(parseJson(selectionJson));
+    return currentBindings.some((binding) => sameMattNativeBindingDefinition(binding, selection));
+  };
+  const currentBindingKeys = new Set(
+    candidate.providerEvidence.filter((row) => row.role === "bound").map((row) => row.bindingKey),
+  );
+  const retainedDetailEvidence = database
+    .prepare(
+      "SELECT binding_key, role, observation_id, source_revision, observation_json, selection_json FROM provider_evidence WHERE role = 'detail'",
+    )
+    .all()
+    .filter(
+      (row) =>
+        currentBindingKeys.has(z.string().parse(row["binding_key"])) &&
+        matchesCurrentBinding(z.string().parse(row["selection_json"])),
+    );
   for (const table of [
     "project_objects",
     "project_relations",
@@ -598,7 +635,17 @@ const insertCandidate = (
   const providerInsert = database.prepare(
     "INSERT INTO provider_evidence(binding_key, role, observation_id, source_revision, observation_json, selection_json) VALUES (?, ?, ?, ?, ?, ?)",
   );
+  const retainedDetailKeys = new Set(
+    retainedDetailEvidence.map((row) => z.string().parse(row["binding_key"])),
+  );
   for (const row of candidate.providerEvidence) {
+    if (
+      row.role === "detail" &&
+      (!currentBindingKeys.has(row.bindingKey) || !matchesCurrentBinding(row.selection))
+    ) {
+      continue;
+    }
+    if (row.role === "detail" && retainedDetailKeys.has(row.bindingKey)) continue;
     providerInsert.run(
       row.bindingKey,
       row.role,
@@ -606,6 +653,16 @@ const insertCandidate = (
       row.sourceRevision ?? null,
       row.observation ?? null,
       row.selection,
+    );
+  }
+  for (const row of retainedDetailEvidence) {
+    providerInsert.run(
+      z.string().parse(row["binding_key"]),
+      z.literal("detail").parse(row["role"]),
+      row["observation_id"] ?? null,
+      row["source_revision"] ?? null,
+      row["observation_json"] ?? null,
+      z.string().parse(row["selection_json"]),
     );
   }
   database
@@ -713,6 +770,117 @@ export const withProjectReadModel = async <Result>(
     const result = read(database, metadata);
     database.exec("COMMIT");
     return result;
+  } finally {
+    database?.close();
+  }
+};
+
+export type ProjectProviderEvidence = Readonly<{
+  bindingKey: string;
+  role: "bound" | "detail";
+  observation?: MattSkillsV1ProviderObservation;
+  selection: ProviderObservationSelection;
+}>;
+
+const projectProviderEvidence = (
+  database: DatabaseSync,
+  role?: ProjectProviderEvidence["role"],
+): readonly ProjectProviderEvidence[] =>
+  database
+    .prepare(
+      role === undefined
+        ? "SELECT binding_key, role, observation_json, selection_json FROM provider_evidence ORDER BY binding_key, role"
+        : "SELECT binding_key, role, observation_json, selection_json FROM provider_evidence WHERE role = ? ORDER BY binding_key",
+    )
+    .all(...(role === undefined ? [] : [role]))
+    .map((row) => {
+      const parsedRole = z.enum(["bound", "detail"]).parse(row["role"]);
+      const selection = providerObservationSelectionSchema.parse(
+        parseJson(row["selection_json"]),
+      ) as ProviderObservationSelection;
+      return {
+        bindingKey: z.string().parse(row["binding_key"]),
+        role: parsedRole,
+        selection,
+        ...(typeof row["observation_json"] === "string"
+          ? {
+              observation: mattSkillsV1ProviderObservationSchema.parse(
+                parseJson(row["observation_json"]),
+              ) as MattSkillsV1ProviderObservation,
+            }
+          : {}),
+      };
+    });
+
+export const readProjectProviderEvidence = async (
+  repoRoot: string,
+  role?: ProjectProviderEvidence["role"],
+): Promise<readonly ProjectProviderEvidence[]> =>
+  withProjectReadModel(repoRoot, (database) => projectProviderEvidence(database, role));
+
+export const replaceProjectProviderEvidence = async (
+  repoRoot: string,
+  evidence: ProjectProviderEvidence,
+): Promise<void> => {
+  let database: DatabaseSync | undefined;
+  let began = false;
+  try {
+    database = await openDatabase(projectReadModelPath(repoRoot));
+    configure(database);
+    const version = assertSchema(database);
+    if (version !== PROJECT_READ_MODEL_STORAGE_VERSION) {
+      throw new Error("Project Read Model storage version is incompatible.");
+    }
+    database.exec("BEGIN IMMEDIATE");
+    began = true;
+    const metadata = readMetadata(database, version);
+    const observation = evidence.observation;
+    const existing = database
+      .prepare(
+        "SELECT observation_id, source_revision, observation_json FROM provider_evidence WHERE binding_key = ? AND role = ?",
+      )
+      .get(evidence.bindingKey, evidence.role);
+    if (
+      evidence.role === "bound" &&
+      (existing === undefined ||
+        existing["observation_id"] !== (observation?.id ?? null) ||
+        existing["source_revision"] !== (observation?.sourceRevision ?? null) ||
+        existing["observation_json"] !== (observation === undefined ? null : json(observation)))
+    ) {
+      throw new Error(
+        "Scoped bound evidence replacement cannot change the selected observation outside generation publication.",
+      );
+    }
+    database
+      .prepare(
+        "INSERT INTO provider_evidence(binding_key, role, observation_id, source_revision, observation_json, selection_json) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(binding_key, role) DO UPDATE SET observation_id = excluded.observation_id, source_revision = excluded.source_revision, observation_json = excluded.observation_json, selection_json = excluded.selection_json",
+      )
+      .run(
+        evidence.bindingKey,
+        evidence.role,
+        observation?.id ?? null,
+        observation?.sourceRevision ?? null,
+        observation === undefined ? null : json(observation),
+        json(evidence.selection),
+      );
+    validatePayloads(database);
+    if (readMetadata(database, version).basisFingerprint !== metadata.basisFingerprint) {
+      throw new Error("Scoped provider evidence replacement changed the Project generation.");
+    }
+    database.exec("COMMIT");
+    began = false;
+  } catch (error) {
+    if (began) {
+      try {
+        database?.exec("ROLLBACK");
+      } catch {
+        // Preserve the scoped replacement failure.
+      }
+    }
+    if (error instanceof Error && /busy|locked/iu.test(error.message)) {
+      throw new ProjectReadModelBusyError({ cause: error });
+    }
+    throw error;
   } finally {
     database?.close();
   }

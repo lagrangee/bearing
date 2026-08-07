@@ -83,7 +83,7 @@ test("rebuilds a producer-mismatched Snapshot with the current Host package vers
   expect(await readFile(receiptPath(root))).toEqual(receipt);
 });
 
-test("detects added and deleted native inputs only through explicit full verification", async () => {
+test("does not enroll unselected native inputs during legacy full verification", async () => {
   const root = await createValidBearingRepo();
   const materializer = createProjectMaterializer({ packageVersion: "0.0.0-current" });
   const baseline = await runSync(root, { completedAt: "2026-07-14T08:00:00.000Z" });
@@ -106,11 +106,11 @@ test("detects added and deleted native inputs only through explicit full verific
   const addedSitemap = await readProjectSitemapCache(root);
 
   expect(added).toMatchObject({ outcome: "synced", reconciliation: "applied" });
-  expect(String(added.snapshot.basis.sitemapFingerprint)).not.toBe(baseline.fingerprint);
+  expect(String(added.snapshot.basis.sitemapFingerprint)).toBe(baseline.fingerprint);
   expect(addedSitemap.kind).toBe("available");
   if (addedSitemap.kind !== "available") throw new Error("Expected current Sitemap cache.");
   expect(addedSitemap.envelope.inputs).not.toContain(addedLocator);
-  expect(JSON.stringify(added.snapshot.providerObservations)).toContain(addedLocator);
+  expect(JSON.stringify(added.snapshot.providerObservations)).not.toContain(addedLocator);
 
   await unlink(join(root, addedLocator));
   const deleted = await materializer.run(

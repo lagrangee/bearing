@@ -319,8 +319,8 @@ Can this work be classified?
   });
   expect(output.issues).toContainEqual(
     expect.objectContaining({
-      code: "matt.local.lifecycle.unknown",
-      target: ".scratch/work/issues/02-invalid.md",
+      code: "missing-provider-capture",
+      target: ".scratch/work",
     }),
   );
   expect(output.issues).toContainEqual(

@@ -11,6 +11,7 @@ import {
   acquireProviderObservations,
   boundProviderScopes,
   type MattProviderFactory,
+  ProviderObservationAcquisitionUnavailableError,
   providerBindingConflicts,
   resolveMattProvider,
 } from "./provider-observation-acquisition";
@@ -61,9 +62,7 @@ export type ProviderObservationSelectionPlan = Readonly<{
   storeChanged: boolean;
 }>;
 
-export class ProviderObservationAcquisitionUnavailableError extends Error {
-  readonly name = "ProviderObservationAcquisitionUnavailableError";
-}
+export { ProviderObservationAcquisitionUnavailableError } from "./provider-observation-acquisition";
 
 const storeSchema = z
   .strictObject({
@@ -209,7 +208,6 @@ const selectedFrom = (
         target: item.target,
         message: item.message,
       })),
-      ...(selection.latestAttempt?.diagnostics ?? []),
     );
   }
   return {
@@ -247,15 +245,23 @@ const withBindingConflicts = (
   };
 };
 
-const mergeHistory = (
+const selectCurrentObservations = (
   prior: ProviderObservationStore | undefined,
   next: readonly MattSkillsV1ProviderObservation[],
+  selections: readonly ProviderObservationSelection[],
 ): readonly MattSkillsV1ProviderObservation[] => {
   const byId = new Map(
     (prior?.observations ?? []).map((observation) => [observation.id, observation]),
   );
   for (const observation of next) byId.set(observation.id, observation);
-  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id, "en"));
+  const selectedIds = new Set(
+    selections.flatMap((selection) =>
+      selection.observationId === null ? [] : [selection.observationId],
+    ),
+  );
+  return [...byId.values()]
+    .filter((observation) => selectedIds.has(observation.id))
+    .sort((left, right) => left.id.localeCompare(right.id, "en"));
 };
 
 const acquisitionAttemptAt = (
@@ -306,9 +312,20 @@ export const selectProviderObservations = async (
     providerFactory?: MattProviderFactory;
     now?: () => string;
     nativeReconciliationRequest?: NativeReconciliationRequest;
+    priorStore?: ProviderObservationStore | null;
+    requestedBindings?: readonly MattSkillsV1WorkBinding[];
   }>,
 ): Promise<ProviderObservationSelectionPlan> => {
-  const current = await readProviderObservationStore(input.generation.root);
+  const current =
+    input.priorStore === undefined
+      ? await readProviderObservationStore(input.generation.root)
+      : input.priorStore === null
+        ? ({ kind: "missing" } as const)
+        : ({
+            kind: "available",
+            store: input.priorStore,
+            bytes: storeBytes(input.priorStore),
+          } as const);
   const bindings = boundProviderScopes(input.decoded);
   const bindingConflicts = providerBindingConflicts(input.decoded);
   const prior = current.kind === "available" ? current.store : undefined;
@@ -316,7 +333,9 @@ export const selectProviderObservations = async (
   const acquisitionIntent: ProviderObservationAcquisitionIntent | undefined =
     input.intent === "initial-baseline" ||
     input.intent === "recovery" ||
-    input.intent === "full-verification"
+    input.intent === "full-verification" ||
+    input.intent === "exact-scope-capture" ||
+    input.intent === "all-scope-verification"
       ? input.intent
       : undefined;
   const target = providerObservationStorePath(input.generation.root);
@@ -477,7 +496,9 @@ export const selectProviderObservations = async (
         nativeScope: binding.nativeScope,
         observationId: successfulObservation?.id ?? existingObservation?.id ?? null,
         effectiveFreshness:
-          successfulObservation?.freshness.assessment ?? ("undetermined" as const),
+          successfulObservation?.freshness.assessment ??
+          existingObservation?.freshness.assessment ??
+          ("undetermined" as const),
         latestAttempt: {
           intent: "targeted-reconciliation",
           attemptedAt,
@@ -489,7 +510,11 @@ export const selectProviderObservations = async (
     });
     const store: ProviderObservationStore = {
       schemaVersion: 1,
-      observations: mergeHistory(prior, observation === undefined ? [] : [observation]),
+      observations: selectCurrentObservations(
+        prior,
+        observation === undefined ? [] : [observation],
+        selections,
+      ),
       selections,
     };
     const bytes = storeBytes(store);
@@ -523,6 +548,7 @@ export const selectProviderObservations = async (
       input.generation,
       input.decoded,
       input.providerFactory,
+      input.requestedBindings,
     );
     const attemptedAt = acquisitionAttemptAt(
       acquired.observations,
@@ -531,6 +557,11 @@ export const selectProviderObservations = async (
     let retainedPrior = false;
     let unavailable = false;
     const selections: ProviderObservationSelection[] = bindings.map((binding) => {
+      const requested =
+        input.requestedBindings === undefined ||
+        input.requestedBindings.some((candidate) =>
+          sameMattNativeBindingDefinition(candidate, binding),
+        );
       const observation = acquired.observations.find((candidate) =>
         sameMattNativeBindingDefinition(candidate.binding, binding),
       );
@@ -539,10 +570,24 @@ export const selectProviderObservations = async (
         prior === undefined || priorSelection === undefined
           ? undefined
           : observationFor(prior, priorSelection);
+      if (!requested) {
+        return (
+          priorSelection ?? {
+            provider: binding.provider,
+            nativeScope: binding.nativeScope,
+            observationId: null,
+            effectiveFreshness: "undetermined",
+            latestAttempt: null,
+          }
+        );
+      }
       const succeeded = observation !== undefined && acquisitionSucceeded(observation);
+      const failure = acquired.failures.find((candidate) =>
+        sameMattNativeBindingDefinition(candidate.binding, binding),
+      );
       const diagnostics = [
         ...(observation === undefined
-          ? acquired.diagnostics
+          ? (failure?.diagnostics ?? acquired.diagnostics)
           : structuralObservationDiagnostics(observation)),
         ...(succeeded ? [] : [incompleteAcquisitionDiagnostic(observation, binding)]),
       ];
@@ -558,7 +603,7 @@ export const selectProviderObservations = async (
           provider: binding.provider,
           nativeScope: binding.nativeScope,
           observationId: priorObservation.id,
-          effectiveFreshness: "undetermined",
+          effectiveFreshness: priorObservation.freshness.assessment,
           latestAttempt,
         };
       }
@@ -566,7 +611,7 @@ export const selectProviderObservations = async (
       return {
         provider: binding.provider,
         nativeScope: binding.nativeScope,
-        observationId: observation?.id ?? null,
+        observationId: succeeded && observation !== undefined ? observation.id : null,
         effectiveFreshness: succeeded
           ? observation.freshness.assessment
           : ("undetermined" as const),
@@ -575,7 +620,7 @@ export const selectProviderObservations = async (
     });
     const store: ProviderObservationStore = {
       schemaVersion: 1,
-      observations: mergeHistory(prior, acquired.observations),
+      observations: selectCurrentObservations(prior, acquired.observations, selections),
       selections,
     };
     const bytes = storeBytes(store);
@@ -609,18 +654,27 @@ export const selectProviderObservations = async (
     );
     if (prior === undefined) {
       const attemptedAt = (input.now ?? (() => new Date().toISOString()))();
-      const selections: ProviderObservationSelection[] = bindings.map((binding) => ({
-        provider: binding.provider,
-        nativeScope: binding.nativeScope,
-        observationId: null,
-        effectiveFreshness: "undetermined",
-        latestAttempt: {
-          intent: acquisitionIntent,
-          attemptedAt,
-          outcome: "failed",
-          diagnostics: [failure],
-        },
-      }));
+      const selections: ProviderObservationSelection[] = bindings.map((binding) => {
+        const requested =
+          input.requestedBindings === undefined ||
+          input.requestedBindings.some((candidate) =>
+            sameMattNativeBindingDefinition(candidate, binding),
+          );
+        return {
+          provider: binding.provider,
+          nativeScope: binding.nativeScope,
+          observationId: null,
+          effectiveFreshness: "undetermined",
+          latestAttempt: requested
+            ? {
+                intent: acquisitionIntent,
+                attemptedAt,
+                outcome: "failed" as const,
+                diagnostics: [failure],
+              }
+            : null,
+        };
+      });
       const store: ProviderObservationStore = {
         schemaVersion: 1,
         observations: [],
@@ -646,11 +700,28 @@ export const selectProviderObservations = async (
     const attemptedAt = (input.now ?? (() => new Date().toISOString()))();
     const selections: ProviderObservationSelection[] = bindings.map((binding) => {
       const selection = selectionFor(prior, binding);
+      const observation = selection === undefined ? undefined : observationFor(prior, selection);
+      const requested =
+        input.requestedBindings === undefined ||
+        input.requestedBindings.some((candidate) =>
+          sameMattNativeBindingDefinition(candidate, binding),
+        );
+      if (!requested) {
+        return (
+          selection ?? {
+            provider: binding.provider,
+            nativeScope: binding.nativeScope,
+            observationId: null,
+            effectiveFreshness: "undetermined",
+            latestAttempt: null,
+          }
+        );
+      }
       return {
         provider: binding.provider,
         nativeScope: binding.nativeScope,
         observationId: selection?.observationId ?? null,
-        effectiveFreshness: "undetermined",
+        effectiveFreshness: observation?.freshness.assessment ?? "undetermined",
         latestAttempt: {
           intent: acquisitionIntent,
           attemptedAt,
@@ -682,4 +753,8 @@ export const selectProviderObservations = async (
 export const fingerprintProviderObservationSelection = (
   observations: readonly MattSkillsV1ProviderObservation[],
   selections: readonly ProviderObservationSelection[],
-): string => stableStringify({ observations, selections }) ?? "";
+): string =>
+  stableStringify({
+    observations,
+    selections: selections.map(({ latestAttempt: _latestAttempt, ...selection }) => selection),
+  }) ?? "";
