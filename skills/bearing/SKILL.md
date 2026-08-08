@@ -1,56 +1,164 @@
 ---
 name: bearing
-description: Use for explicit Bearing invocation or when the current repository's Repository Configuration managed pointer contextually nominates Bearing for a repository-dependent request. Do not use based only on repository relevance, ambiguity, or working directory.
+description: Use for explicit Bearing invocation or when the current repository's Repository Configuration managed pointer nominates this skill.
 ---
 
 # Bearing
 
-Activate and coordinate project-aware work without becoming a canonical planning writer, native Work Management system, or executor. This public router has no persisted mode, target, or hidden session state.
+Coordinate project governance, Repository Configuration, native work, and execution through one
+public Agent surface. The Repository Configuration managed pointer is the single source of truth
+for contextual nomination. Trust that pointer to decide whether it nominated the current request;
+do not reconstruct or broaden its conditions here. Explicit Bearing invocation remains the other
+authorized entry origin and the fallback when contextual nomination did not occur.
 
-## Process
+## Execution spine
 
-1. **Validate contextual entry and repository lifecycle before orientation.** Classify the origin as `explicit` only when the user authored a Bearing invocation; otherwise require the Repository Configuration managed pointer nomination and classify it as `model-invoked`. Run `bearing configure inspect --repo <repository-root>` and use its typed lifecycle facts. A model-invoked entry continues only for `active`; Fresh or Deactivated must stop without processing the original request, and Invalid or Unsupported directs the user to explicit `/bearing` for reviewed platform removal. An explicit entry continues ordinary work for Active, or selects the Repository Configuration owner for Fresh and Deactivated. An operational inspection failure stops safely. Completion: origin and current lifecycle are visible.
-2. **Apply the request-dependency test.** For an Active repository, a request qualifies when its correct answer or action may depend on repository code, documentation, native work, Bearing state, or accepted decisions. Explicit Bearing invocation and ambiguous repository relevance qualify. The working directory alone does not qualify. A clear repository-independent conversation exits `no-op` before project orientation; explicit invocation never takes that exit. Completion: entry or exclusion has one stated reason.
-3. **Reuse only a reliable direct continuation.** A direct continuation of the same request and repository may reuse visibly reliable orientation already present in the conversation. Refresh when the repository, target, or request changes, or when context loss, handoff, compaction, or freshness doubt makes prior orientation unreliable. Never infer continuity from hidden state. Completion: reuse or refresh is explicit.
-4. **Acquire lifecycle-appropriate orientation once.** For Active entry, refresh Sync only when the Project Sitemap is missing, malformed, known stale after a write, or explicitly requested. Read the optional Project Brief, optional Project Summary, and complete Project Sitemap once, then Read their canonical source locators when deeper evidence is material. Keep Brief generation, Summary revision, and honest absence distinct. For Fresh or Deactivated explicit entry, preserve only the resolved repository root and inspected lifecycle, skip governance orientation, and continue directly to the Repository Configuration owner. Completion: the bounded orientation required by the lifecycle is visible once.
-5. **Select one owner path.** Read `$HOME/.bearing/kit/current/skills/bearing/references/branch-manifest.yaml`. Continue ordinary unmanaged work when governance adds no material action. Compose native Work Management or Execution when it owns the request. An explicit Bearing Project Orientation request in an Active repository loads the shared `project-orientation` protocol directly and loads `governance-disposition` only for transient inventory acquisition after Orientation has been accepted; Project Orientation does not enter Repository Configuration and does not replay Fresh onboarding. Never run it from ordinary contextual entry, Portal reading, or elapsed time. For a Bearing mutation, load exactly one selected internal branch and only the shared contracts declared for that path. Load `typed-inspection` only for a completeness-sensitive target claim or mutation. Do not re-enter the public router from an internal branch. Roadmap Horizon exhaustion requires an explicit Complete, Extend, or Keep active decision. Next Work produces one Primary Recommendation and zero to two meaningful Alternatives, or `no-op: no-managed-frontier` without an empty snapshot. Completion: one mutation owner and its progressive read set are explicit.
-6. **Compose sequentially without takeover.** Give the selected capability only relevant orientation and the current user's language requirement. Preserve its contract, lifecycle, status taxonomy, artifacts, and writeback authority. When more than one owner is required, finish and validate one owner boundary before selecting the next. For a direct executor invocation, load `executor-continuation` and continue the original command after fresh orientation or with reliable visible Bearing awareness. Once the actual executor is known, read its project-owned Execution Profile when present. Leave native status, blocker, dependency, claim, and resolution writes with Work Management; never translate failure, incomplete, ambiguous, or spec-only outcomes into success. After native Work Management handling, load `governance-disposition` and return exactly one transient disposition without persisting an inventory or binding suggestion. Only when that disposition is `already managed` through an explicit accepted Work Binding, collect the native subjects and typed relations actually written, targeted, or returned by successful Matt operations, deduplicate them at transaction close, and invoke `bearing reconcile-native` for that exact opaque bound scope. For `kept standalone` or an unaccepted `enrollment suggested` result, run no Bearing Sync, capture, inspection, registration, or reconciliation and retain no refs. The references select bounded provider reads; they never prove outcome, lifecycle, completion, chronology, or readiness. Do not fall back to discovery or full capture when targeted reconciliation fails. Completion: each effect has one owner and every managed successful Matt write set has one bounded reconciliation result.
-7. **Reconcile produced outputs.** Require every composed executor, planning, research, prototype, or subagent capability to return a produced-output manifest. Assign each output exactly one disposition: `transient`, `durable-registered`, or `durable-unregistered`. For a durable output with complete factual metadata, load `artifact-registration` and use `bearing asset register`; registration does not create Citation, adoption, disposition, binding, or Passage Evidence. A `durable-unregistered` output makes artifact reconciliation `incomplete` and prevents a full-success claim. Deterministic Sync never crawls native work or `.scratch` to infer durability. Completion: every reported output has one truthful disposition.
-8. **Return to the original request.** Report the native or branch outcome without translation, relevant Attention, any typed-inspection state, output reconciliation, and the exact blocker or resumption point when unfinished. User-visible interaction and newly authored human-reviewed planning artifacts follow the current user's language; agent-facing contracts remain English. An empty managed frontier never becomes a global claim that there is nothing to do. Completion: the request progressed or stopped at one concrete authority boundary.
+1. **Establish the request boundary.** Identify the repository, the user request, and whether entry
+   is explicit or came from the current repository's managed pointer. A managed-pointer entry is
+   valid only for the nomination conditions above. Do not invent nomination from repository
+   presence. Completion: one authorized entry origin and one repository are explicit.
+2. **Select the first functional operation.** Repository Configuration begins with
+   `$HOME/.bearing/bin/bearing configure inspect --repo <repo-root>`. Active governance normally
+   begins with `$HOME/.bearing/bin/bearing inspect project --repo <repo-root>`. Catalog, native
+   work, execution, reconciliation, and maintenance use their direct product seams. Each functional
+   Module independently validates its required Repository Integration Lifecycle before cache
+   creation, provider I/O, or mutation. A stale pointer fails closed at the requested operation;
+   there is no separate entry preflight. Completion: the first operation has one owner and one
+   lifecycle-validating product seam.
+3. **Acquire only decision-relevant context.** Use Project Context and direct deeper-read
+   references. Read repository sources progressively. Provider acquisition is an explicit cost;
+   ordinary inspection performs no hidden provider traversal. A reliable direct continuation may
+   reuse visible orientation, but mutable facts and write preconditions are always re-read.
+   Completion: every material claim has current evidence and every limitation is visible.
+4. **Load the exact one-hop references.** Load only the journeys and owners required by the visible
+   operation. A canonical semantic change loads the canonical-mutation contract, one initiating
+   owner, and every additional owner whose domain the accepted write set will actually change.
+   Inspected objects do not require their owners. Completion: each read, decision, and effect has
+   one named authority.
+5. **Compose in visible context.** Complete and validate each owner boundary in dependency-safe
+   order. Sequential composition has no persisted session mode, operation object, transition
+   dispatcher, or global follow-up engine. There is no hidden loop or fallback. Completion: the
+   current stage is complete or has one exact resumption point.
+6. **Return the original outcome.** Preserve native, executor, provider, and deterministic outcomes
+   without translation. State what changed, what did not change, and which acceptance or authority
+   is still required. User-visible interaction and new human-reviewed planning content use the
+   current user's language; agent-facing contracts remain English. Completion: the original
+   request progressed or stopped at a concrete boundary.
 
-## Read Set
+## Authority boundaries
 
-- Latest prompt and visible recent conversation
-- Structured `bearing configure inspect` result for the current invocation origin
-- `.bearing/manifest.json`
-- `.bearing/state/project-brief.md` when present
-- `.bearing/state/project-summary.md` when present
-- `.bearing/cache/project-sitemap.md`
-- `$HOME/.bearing/kit/current/skills/bearing/references/branch-manifest.yaml`
-- At most one selected internal branch and its declared shared contracts; none for direct executor continuation
-- `executor-continuation` only for a direct executor invocation
-- `governance-disposition` only after native Work Management handling, for an explicit Bearing Scope Review, or for transient inventory acquisition inside an accepted Project Orientation
-- `project-orientation` only for an explicit Active-project request or accepted Fresh Repository Configuration offer
-- Material canonical sources selected from orientation
-- A project-owned Execution Profile only after the actual executor is known
+- The Agent owns semantic meaning, rationale, materiality, acceptance interpretation, canonical
+  content, recommendations, direct canonical edits, and scoped repair of its own attempted write
+  set.
+- Deterministic Bearing Modules own contained reads, identity, schema and reference validation,
+  lifecycle and revision facts, provider acquisition, exact reconciliation, SQLite publication,
+  and typed diagnostics. They report facts and do not choose semantic repair.
+- Repository Configuration alone owns deterministic Inspect, sealed Plan, and Apply because it
+  changes machine-owned configuration and managed pointers.
+- Work Management owns native status, claim, blockers, dependencies, checklists, Answer, and
+  resolution. Execution owns implementation, tests, review, commit, and its own outcome.
+- Portal is read-oriented. It does not authorize canonical or native mutation.
+- Direct user acceptance of a complete visible candidate is sufficient. Ask again only for
+  ambiguity, a new material conflict, or an unentailed collateral effect.
 
-## Write Set
+## Completeness-sensitive reads
 
-Never mutate canonical planning state or native work from this router. It may run deterministic Sync, compose one owning capability at a time, invoke targeted native reconciliation for a completed Matt transaction, and invoke the package-owned factual Asset Registration Route. Each composed owner retains its own write set and rollback contract.
+Use the installed package-owned CLI:
 
-## Outcomes
+- Project Context: `$HOME/.bearing/bin/bearing inspect project --repo <repo-root>`
+- One planning target: `$HOME/.bearing/bin/bearing inspect <stable-planning-reference> --repo <repo-root>`
+- One native reference and local Binding fact: `$HOME/.bearing/bin/bearing inspect --native <native-reference> --repo <repo-root>`
+- Diagnostics: `$HOME/.bearing/bin/bearing inspect diagnostics --repo <repo-root>`
 
-- `applied`: the original request completed and every owned write and durable output reconciled.
-- `no-op`: the request was clearly repository-independent, the ineligible public entry stopped without acting, or project context required no managed action.
-- `partial`: an accepted lifecycle owner write committed while a later Project Summary or Brief refresh failed and retained its previous successful state.
-- `awaiting-decision`: an owning capability requires explicit user acceptance.
-- `blocked`: enablement, source truth, inspection, provider terminal writeback, or an owning capability cannot proceed safely.
-- `incomplete`: target coverage, native outcome, or durable-output reconciliation is truthfully incomplete.
+`complete` proves coverage only. It never proves readiness, lifecycle, Passage, acceptance, or
+mutation authority. Preserve `partial`, `unfulfilled`, `recovery-required`, and `need-update` as
+typed limits. Use no title match, repository scan, manual graph join, provider fallback, Portal
+startup, or alternate runtime to manufacture completeness.
 
-## Recovery
+## Reference map
 
-Repeat Repository Configuration inspection after a repository lifecycle change or any doubt about the prior facts. An ineligible model-invoked entry never repairs itself or resumes the original task from inside the public router; only a later explicit Bearing entry may select Repository Configuration or reviewed removal. Refresh orientation from current visible context after repository, target, request, or freshness change. Preserve a composed capability's native failure and recovery report. A failed targeted reconciliation retains prior evidence as non-current and stops without discovery or full-capture fallback. Never reconstruct a missing typed closure, infer a native terminal write, or silently register an output after incomplete metadata.
+All runtime references are selected here. No reference routes onward to another owner or journey.
 
-## Completion Criterion
+### Shared contract
 
-Invocation origin and the package-owned Repository Configuration lifecycle are explicit, lifecycle-appropriate orientation ran at most once for the current reliable episode, one owner path was loaded at a time, native lifecycle was preserved, and every produced output and managed write has a truthful terminal state.
+- For any accepted canonical semantic mutation, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/contracts/canonical-mutation.md`.
+
+### Journeys
+
+- For every Repository Configuration intent, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure.md`, plus exactly one
+  lifecycle variant below.
+- For Fresh Configuration, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure-fresh.md`.
+- For Active modification, executor addition or removal, or ordinary repair, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure-active.md`.
+- For Deactivated reactivation, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure-reactivate.md`.
+- For repository deactivation, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure-deactivate.md`.
+- For Invalid or Unsupported state, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure-unsupported.md`.
+- For Project Catalog inspect, rename, unregister, relink, or reset, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/catalog.md`.
+- For an explicit Active-project Project Orientation or an accepted Fresh offer, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/project-orientation.md`. For a
+  complete Orientation that includes existing-work evidence, co-load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/scope-review.md`. Omit Scope Review
+  when the user explicitly excludes existing-work evidence.
+- For an explicit whole-project Scope Review outside Orientation, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/scope-review.md`.
+- For native Work Management or a known native write, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/native-work.md`.
+- For direct executor invocation, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/execution.md` and continue the
+  original executor command in the same visible operation.
+- For explicit Next Work guidance, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/next-work.md`.
+
+### Semantic owners
+
+- For Project Summary creation or material revision, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/owners/project-summary.md`.
+- For Project Brief creation or material refresh, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/owners/project-brief.md`.
+- For Roadmap horizon creation, revision, order, completion, or supersession, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/owners/roadmap.md`.
+- For Milestone Gate definition, revision, order, lifecycle, or Passage, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/owners/milestone-gate.md`.
+- For Effort creation, lifecycle, scope, or Work Binding, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/owners/effort.md`.
+- For Asset creation, metadata, ownership, or lifecycle, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/owners/asset.md`.
+- For Authority Scope, current Baseline Assets, or baseline explanation, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/owners/authority.md`.
+- For an explicit Planning Audit, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/owners/planning-audit.md`.
+- For a pending or accepted project-wide or exact-target decision, load
+  `$HOME/.bearing/kit/current/skills/bearing/references/owners/planning-review.md`.
+
+### Observable tool effects
+
+- Fresh Configuration uses `bearing configure inspect`, `bearing configure plan`, and
+  `bearing configure apply` through the Configure journey.
+- A bound native write starts with `bearing inspect --native` and, after successful exact native
+  effects, ends with `bearing reconcile-native` for only those subjects and relations.
+- A semantic mutation uses `bearing inspect project` or
+  `bearing inspect <stable-planning-reference>` before candidate authorship and inspects affected
+  targets after publication.
+
+## Truthful outcomes
+
+Report each owner and journey stage separately. Preserve failure, partial, unfulfilled, cancelled,
+and unavailable outcomes without translation into success. An already committed owner stage may
+remain valid when a later independent stage fails; name the retained effect and resumption point.
+Tests, receipts, diagnostics, resolved native work, provider completion, and candidate evidence
+never conclude an Effort, pass a Gate, or complete a Roadmap. An empty managed frontier is not a
+global claim that no work exists.
+
+## Completion criterion
+
+The entry origin is authorized, every loaded reference came directly from this map, current facts
+and mutation preconditions were inspected at the required product seam, each semantic or native
+effect stayed with its owner, exact successful native writes were reconciled without scope
+expansion, and the user received a truthful outcome or one exact decision/resumption boundary.

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Stats } from "node:fs";
 import { cp, lstat, mkdir, readdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { BEARING_POINTER } from "../src/agent-surface-entry";
 import { codexE2ERuntimeArguments } from "./codex-e2e-runtime";
 
 export const G1_LIVE_PLAN_ID = "bearing-0.1.1-g1-live-v1";
@@ -531,6 +532,22 @@ const surfaceContract = (
     ? { cli: "agent-skills", instruction: "AGENTS.md" }
     : { cli: "claude", instruction: "CLAUDE.md" };
 
+export const repositoryConfigurationActivationArguments = (
+  surface: G1LiveSurface,
+  repositoryRoot: string,
+): readonly string[] => [
+  "--intent",
+  "activate",
+  "--repo",
+  repositoryRoot,
+  "--surface",
+  surfaceContract(surface).cli,
+  "--provider-contract",
+  "docs/agents/issue-tracker.md",
+  "--executor-mode",
+  "skip",
+];
+
 export const instructionBytes = (contractLocator: string | undefined): string => `# G1 Fixture
 
 Use Chinese for user-visible conversation and newly authored human-reviewed planning artifacts.
@@ -540,6 +557,17 @@ ${
     ? ""
     : `\n## Agent skills\n\n### Issue tracker\n\nWork-management contract: \`${contractLocator}\`\n`
 }`;
+
+export const driftManagedPointer = (current: string): string => {
+  if (!current.includes(BEARING_POINTER)) {
+    throw new Error("Cannot inject managed pointer drift because the current pointer is absent.");
+  }
+  const drifted = current.replace(BEARING_POINTER, `DRIFTED: ${BEARING_POINTER}`);
+  if (drifted === current) {
+    throw new Error("Managed pointer drift injection did not change the instruction bytes.");
+  }
+  return drifted;
+};
 
 const manifestDocument = (surface: "agent-skills" | "claude", packageVersion = "0.1.0"): string =>
   `${JSON.stringify(
@@ -643,7 +671,6 @@ Authorities: []
 Citations: []
 Work binding:
   Provider: matt-skills/v1
-  Driver: local-markdown
   Native scope: .scratch/work
 ---
 
@@ -660,7 +687,6 @@ Exercise bound native work without lifecycle takeover.
 
 const nativeMap = `# Wayfinder Map: G1 Fixture
 
-Type: wayfinder:map
 Status: resolved
 
 ## Destination
@@ -670,19 +696,49 @@ Validate the isolated journey.
 ## Not yet specified
 `;
 
+const nativeSpec = `# G1 Fixture Spec
+
+Status: ready-for-agent
+
+## Problem Statement
+
+Exercise one isolated Agent behavior contract.
+
+## Solution
+
+Use the packaged public Skill in a controlled repository.
+
+## User Stories
+
+An evaluator can observe authority and tool effects.
+
+## Implementation Decisions
+
+Keep native work in the local tracker.
+
+## Testing Decisions
+
+Run the repository test command.
+
+## Out of Scope
+
+Do not infer Gate Passage.
+
+## Further Notes
+
+The fixture is disposable.
+`;
+
 const openTicket = (ordinal: string, title: string, body: string): string => `# ${title}
 
-Type: task
-Status: open
+**What to build:** ${body}
 
-## What to build
+Blocked by: None — can start immediately
 
-${body}
+Status: ready-for-agent
 
-## Acceptance
-
-- Run the repository test command.
-- Commit only the ticket's owned change.
+- [ ] Run the repository test command.
+- [ ] Commit only the ticket's owned change.
 
 Ticket identity: ${ordinal}
 `;
@@ -697,6 +753,7 @@ const seedPlanning = async (
   await writeFixture(root, ".bearing/state/milestone-gates/g1-fixture.md", gate);
   await writeFixture(root, ".bearing/state/efforts/g1-fixture.md", effort);
   await writeFixture(root, ".scratch/work/map.md", nativeMap);
+  await writeFixture(root, ".scratch/work/PRD.md", nativeSpec);
   await writeFixture(
     root,
     ".bearing/state/assets.md",
@@ -774,7 +831,7 @@ Assets:
   await writeFixture(
     root,
     ".scratch/work/issues/00-language-decision.md",
-    "# Choose fixture wording\n\nType: task\nStatus: claimed\n\n## Question\n\nShould the human-reviewed resolution be Chinese?\n",
+    "# Choose fixture wording\n\nType: task\n\nBlocked by: None — can start immediately\n\nStatus: claimed\n\n## Question\n\nShould the human-reviewed resolution be Chinese?\n",
   );
   await writeFixture(
     root,
@@ -873,11 +930,6 @@ Create src/incomplete.ts.
     root,
     "tests/fixed-ticket-12-failure.ts",
     'throw new Error("fixed G1 execution-failure fixture");\n',
-  );
-  await writeFixture(
-    root,
-    ".scratch/work/PRD.md",
-    "# G1 Fixture Spec\n\nThis Spec is deliberately not a Delivery Ticket.\n",
   );
 };
 
@@ -989,18 +1041,17 @@ const installDevelopmentPackage = async (args: Arguments): Promise<void> => {
 };
 
 const setupActiveRepository = async (args: Arguments): Promise<void> => {
-  const surface = surfaceContract(args.surface);
+  const bearing = join(args.home, ".bearing/bin/bearing");
+  const selections = repositoryConfigurationActivationArguments(args.surface, args.root);
+  await run([bearing, "configure", "inspect", "--repo", args.root], { home: args.home });
+  const planned = JSON.parse(
+    await run([bearing, "configure", "plan", ...selections], { home: args.home }),
+  ) as Readonly<{ sealedPlanToken?: unknown }>;
+  if (typeof planned.sealedPlanToken !== "string") {
+    throw new Error("Fresh G1 fixture Configure Plan did not return a sealed plan token.");
+  }
   await run(
-    [
-      join(args.home, ".bearing/bin/bearing"),
-      "setup",
-      "--repo",
-      args.root,
-      "--surface",
-      surface.cli,
-      "--provider-contract",
-      "docs/agents/issue-tracker.md",
-    ],
+    [bearing, "configure", "apply", ...selections, "--plan-token", planned.sealedPlanToken],
     { home: args.home },
   );
 };
@@ -1070,6 +1121,8 @@ const createFixture = async (args: Arguments): Promise<void> => {
   ]);
   const surface = surfaceContract(args.surface);
   const contractBytes = await readFile(args.mattContractSource);
+  const triageLabelsSource = join(dirname(args.mattContractSource), "triage-labels.md");
+  const triageLabelsBytes = await readFile(triageLabelsSource);
   await writeFixture(args.root, "source.txt", "G1 fixture source\n");
 
   const l3 = args.journey.startsWith("L3-");
@@ -1083,6 +1136,7 @@ const createFixture = async (args: Arguments): Promise<void> => {
     );
     if (!l3) {
       await writeFixture(args.root, "docs/agents/issue-tracker.md", contractBytes);
+      await writeFixture(args.root, "docs/agents/triage-labels.md", triageLabelsBytes);
     }
   }
 
@@ -1095,13 +1149,7 @@ const createFixture = async (args: Arguments): Promise<void> => {
   } else if (args.journey.startsWith("L4-") && args.journey.endsWith("-negative")) {
     const instructionPath = join(args.root, surface.instruction);
     const current = await readFile(instructionPath, "utf8");
-    await writeFile(
-      instructionPath,
-      current.replace(
-        "For a new request whose correct answer or action may depend on this repository",
-        "DRIFTED: for a new request whose correct answer or action may depend on this repository",
-      ),
-    );
+    await writeFile(instructionPath, driftManagedPointer(current));
   } else if (args.journey.startsWith("L5-") && args.journey.endsWith("-negative")) {
     await writeFixture(
       args.root,
@@ -1124,7 +1172,10 @@ const createFixture = async (args: Arguments): Promise<void> => {
   const bearingCli = join(args.home, ".bearing/bin/bearing");
   let initialSync: unknown;
   if (requiresActiveSetup(args.journey)) {
-    const output = await run([bearingCli, "sync", "--repo", args.root], { home: args.home });
+    const output = await run(
+      [bearingCli, "sync", "--recover-provider-observations", "--repo", args.root],
+      { home: args.home },
+    );
     const fingerprint = /^Input fingerprint:\s*(sha256:[0-9a-f]{64})\s*$/mu.exec(output)?.[1];
     const diagnosticsText = /^Diagnostics:\s*(\d+)\s*$/mu.exec(output)?.[1];
     const diagnostics =

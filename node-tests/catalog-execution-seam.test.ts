@@ -648,7 +648,8 @@ test("the built and shipped CLI exposes only the SQLite Catalog surface", async 
   }
 
   const shippedGuidance = await Promise.all([
-    readFile(join(process.cwd(), "skills/bearing/references/branches/setup.md"), "utf8"),
+    readFile(join(process.cwd(), "skills/bearing/references/journeys/configure.md"), "utf8"),
+    readFile(join(process.cwd(), "skills/bearing/references/journeys/catalog.md"), "utf8"),
     readFile(join(process.cwd(), "docs/cli.md"), "utf8"),
     readFile(join(process.cwd(), "docs/cli.zh-CN.md"), "utf8"),
   ]);

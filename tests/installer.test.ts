@@ -60,9 +60,14 @@ describe("Bearing kit installer", () => {
     expect(result.outcome).toBe("applied");
     await access(join(homeDir, ".bearing/bin/bearing"));
     await access(
-      join(homeDir, ".bearing/kit/current/skills/bearing/references/branch-manifest.yaml"),
+      join(
+        homeDir,
+        ".bearing/kit/current/skills/bearing/references/contracts/canonical-mutation.md",
+      ),
     );
-    await access(join(homeDir, ".bearing/kit/current/skills/bearing/references/branches/setup.md"));
+    await access(
+      join(homeDir, ".bearing/kit/current/skills/bearing/references/journeys/configure.md"),
+    );
     for (const skillName of publicSkillNames) {
       const canonical = join(homeDir, ".bearing/kit/current/skills", skillName);
       for (const surfaceRoot of [".agents/skills", ".claude/skills"]) {

@@ -30,12 +30,14 @@ describe("repository setup review regressions", () => {
   test("keeps Bearing nomination contextual and explicit", () => {
     expect(pointer.trim().split(/\s+/u).length).toBeLessThanOrEqual(100);
     expect(pointer).not.toMatch(/[\u3400-\u9fff]/u);
-    expect(pointer).toContain("correct answer or action may depend on this repository");
-    expect(pointer).toContain("bearing configure inspect");
-    expect(pointer).toContain("Fresh and Deactivated model-invoked work stops");
+    expect(pointer).toContain("explicit Bearing concepts");
+    expect(pointer).toContain("reasonable material planning/governance relevance");
+    expect(pointer).toContain("ordinary non-governance code/documentation work");
     expect(pointer).toContain("Explicit `/bearing`");
     expect(pointer).toContain("reliable Bearing orientation");
     expect(pointer).toContain("repository-independent conversation");
+    expect(pointer).toContain("contextual guidance, not an executable hook");
+    expect(pointer).not.toContain("bearing configure inspect");
     expect(pointer).not.toContain("activation check");
   });
 

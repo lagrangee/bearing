@@ -1,61 +1,70 @@
 import { describe, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { parseDocument } from "yaml";
+import { BEARING_POINTER } from "../src/agent-surface-entry";
 
-const skillNames = ["bearing"] as const;
+const skillRoot = join(process.cwd(), "skills/bearing");
 
-const branchEntries = [
-  "setup",
-  "summary",
-  "roadmap",
-  "milestone-gate",
-  "effort-lifecycle",
-  "asset-lifecycle",
-  "alignment-check",
-  "planning-audit",
-  "planning-review",
-  "next-work",
+const contractReferences = ["references/contracts/canonical-mutation.md"] as const;
+const journeyReferences = [
+  "references/journeys/configure.md",
+  "references/journeys/configure-fresh.md",
+  "references/journeys/configure-active.md",
+  "references/journeys/configure-reactivate.md",
+  "references/journeys/configure-deactivate.md",
+  "references/journeys/configure-unsupported.md",
+  "references/journeys/catalog.md",
+  "references/journeys/project-orientation.md",
+  "references/journeys/scope-review.md",
+  "references/journeys/native-work.md",
+  "references/journeys/execution.md",
+  "references/journeys/next-work.md",
+] as const;
+const ownerReferences = [
+  "references/owners/project-summary.md",
+  "references/owners/project-brief.md",
+  "references/owners/roadmap.md",
+  "references/owners/milestone-gate.md",
+  "references/owners/effort.md",
+  "references/owners/asset.md",
+  "references/owners/authority.md",
+  "references/owners/planning-audit.md",
+  "references/owners/planning-review.md",
+] as const;
+const runtimeReferences = [
+  ...contractReferences,
+  ...journeyReferences,
+  ...ownerReferences,
 ] as const;
 
-const readSkill = async (name: string): Promise<{ frontmatter: unknown; body: string }> => {
-  const source = await readFile(join(process.cwd(), "skills", name, "SKILL.md"), "utf8");
+const walk = async (directory: string): Promise<string[]> => {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const target = join(directory, entry.name);
+      return entry.isDirectory() ? walk(target) : [relative(skillRoot, target)];
+    }),
+  );
+  return files.flat().sort();
+};
+
+const readRuntime = (reference: (typeof runtimeReferences)[number]): Promise<string> =>
+  readFile(join(skillRoot, reference), "utf8");
+
+const readSkill = async (): Promise<{ frontmatter: unknown; body: string }> => {
+  const source = await readFile(join(skillRoot, "SKILL.md"), "utf8");
   const match = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/u.exec(source);
-  if (!match?.[1] || match[2] === undefined) {
-    throw new Error(`${name} has no YAML frontmatter`);
-  }
+  if (!match?.[1] || match[2] === undefined) throw new Error("bearing has no YAML frontmatter");
   const document = parseDocument(match[1]);
-  if (document.errors.length > 0) {
-    throw new Error(`${name} has invalid YAML frontmatter`);
-  }
+  if (document.errors.length > 0) throw new Error("bearing has invalid YAML frontmatter");
   return { frontmatter: document.toJS(), body: match[2] };
 };
 
-const readBranch = async (name: string): Promise<string> =>
-  readFile(join(process.cwd(), "skills/bearing/references/branches", `${name}.md`), "utf8");
+describe("public Bearing Agent surface", () => {
+  test("ships exactly one root router and the accepted one-hop runtime graph", async () => {
+    expect(await walk(skillRoot)).toEqual(["SKILL.md", ...runtimeReferences].sort());
 
-const readSharedContract = async (name: string): Promise<string> =>
-  readFile(join(process.cwd(), "skills/bearing/references/shared", `${name}.md`), "utf8");
-
-describe("package-owned planning skills", () => {
-  for (const name of skillNames) {
-    test(`${name} ships the standard package-owned contract shape`, async () => {
-      const skill = await readSkill(name);
-
-      expect(skill.frontmatter).toEqual({ name, description: expect.any(String) });
-      expect(skill.body).toContain(
-        "$HOME/.bearing/kit/current/skills/bearing/references/branch-manifest.yaml",
-      );
-      expect(skill.body).toMatch(/^## Process$/mu);
-      expect(skill.body).toContain("## Read Set");
-      expect(skill.body).toContain("## Write Set");
-      expect(skill.body).toContain("## Outcomes");
-      expect(skill.body).toContain("## Recovery");
-      expect(skill.body).toContain("## Completion Criterion");
-    });
-  }
-
-  test("ships exactly one public skill and one explicit contract-phase branch manifest", async () => {
     const topLevel = await readdir(join(process.cwd(), "skills"), { withFileTypes: true });
     expect(
       topLevel
@@ -63,595 +72,278 @@ describe("package-owned planning skills", () => {
         .map((entry) => entry.name)
         .sort(),
     ).toEqual(["bearing"]);
-    const source = await readFile(
-      join(process.cwd(), "skills/bearing/references/branch-manifest.yaml"),
-      "utf8",
-    );
-    const document = parseDocument(source);
-    expect(document.errors).toEqual([]);
-    expect(document.toJS()).toEqual({
-      schemaVersion: 1,
-      phase: "contract",
-      publicEntry: "skills/bearing/SKILL.md",
-      progressiveLoading: {
-        rule: "Load at most one selected branch after public routing; direct executor continuation loads zero branches.",
-        internalBranchesReenterPublicRouter: false,
-      },
-      sharedContracts: [
-        {
-          key: "typed-inspection",
-          reference: "skills/bearing/references/shared/typed-inspection.md",
-          loading: "on-completeness-demand",
-        },
-        {
-          key: "planning-transaction",
-          reference: "skills/bearing/references/shared/planning-transaction.md",
-          loading: "branch-declared",
-        },
-        {
-          key: "artifact-registration",
-          reference: "skills/bearing/references/shared/artifact-registration.md",
-          loading: "on-durable-output",
-        },
-        {
-          key: "executor-continuation",
-          reference: "skills/bearing/references/shared/executor-continuation.md",
-          loading: "on-direct-executor",
-        },
-        {
-          key: "project-brief-refresh",
-          reference: "skills/bearing/references/shared/project-brief-refresh.md",
-          loading: "branch-declared",
-        },
-        {
-          key: "governance-disposition",
-          reference: "skills/bearing/references/shared/governance-disposition.md",
-          loading: "on-native-handling-scope-review-or-accepted-project-orientation",
-        },
-        {
-          key: "project-orientation",
-          reference: "skills/bearing/references/shared/project-orientation.md",
-          loading: "on-explicit-request-or-accepted-fresh-offer",
-        },
-      ],
-      publicSharedContracts: [
-        "typed-inspection",
-        "artifact-registration",
-        "executor-continuation",
-        "governance-disposition",
-        "project-orientation",
-      ],
-      branches: branchEntries.map((key) => ({
-        key,
-        reference: `skills/bearing/references/branches/${key}.md`,
-        sharedContracts: [
-          "planning-transaction",
-          ...(["setup"].includes(key) ? ["governance-disposition", "project-orientation"] : []),
-          ...(["roadmap", "milestone-gate", "effort-lifecycle"].includes(key)
-            ? ["project-brief-refresh"]
-            : []),
-        ],
-      })),
-    });
   });
 
-  test("keeps each branch contract in one English normative owner", async () => {
-    for (const key of branchEntries) {
-      const reference = `skills/bearing/references/branches/${key}.md`;
-      const branch = await readFile(join(process.cwd(), reference), "utf8");
-
-      expect(branch.startsWith("---\n")).toBe(false);
-      expect(branch).toMatch(/^# Bearing /u);
-      expect(branch).toContain("## Process");
-      expect(branch).toContain("## Read Set");
-      expect(branch).toContain("## Write Set");
-      expect(branch).toContain("## Outcomes");
-      expect(branch).toContain("## Recovery");
-      expect(branch).toContain("## Completion Criterion");
-      expect(branch).not.toMatch(/[\u3400-\u9fff]/u);
-      expect(branch).toMatch(/Established public orientation[\s\S]*do not (?:reload|re-enter)/iu);
-      expect(branch).toContain(
-        "$HOME/.bearing/kit/current/skills/bearing/references/shared/planning-transaction.md",
-      );
-    }
-  });
-
-  test("public bearing contains contextual Repository Configuration entry", async () => {
-    const { frontmatter, body } = await readSkill("bearing");
+  test("keeps the global description narrow and delegates contextual nomination to the pointer", async () => {
+    const { frontmatter, body } = await readSkill();
     expect(frontmatter).toEqual({
       name: "bearing",
-      description: expect.stringContaining(
-        "Repository Configuration managed pointer contextually nominates Bearing",
-      ),
+      description: expect.stringMatching(/explicit Bearing invocation[\s\S]*managed pointer/iu),
     });
-    expect((frontmatter as { description: string }).description).toContain(
-      "explicit Bearing invocation",
+    expect((frontmatter as { description: string }).description).not.toMatch(
+      /repository-dependent request|working directory|ambiguous/iu,
     );
-    expect((frontmatter as { description: string }).description).not.toContain(
-      "any request whose correct answer or action may depend on a repository",
+    expect(body).toMatch(/managed pointer[\s\S]*single source of truth/iu);
+    expect(body).toMatch(/do not reconstruct or broaden[\s\S]*conditions/iu);
+    expect(body).toMatch(/explicit Bearing[\s\S]*fallback/iu);
+    expect(body).not.toMatch(/activation check|activation-policy/iu);
+
+    expect(BEARING_POINTER).toMatch(
+      /explicit Bearing concepts[\s\S]*reliable direct continuation[\s\S]*material planning\/governance/iu,
     );
-    expect(body).toContain("bearing configure inspect --repo <repository-root>");
-    for (const lifecycle of ["Active", "Fresh", "Deactivated", "Invalid or Unsupported"]) {
-      expect(body).toContain(lifecycle);
+    expect(BEARING_POINTER).toMatch(
+      /Working directory[\s\S]*generic roadmap words[\s\S]*ordinary non-governance code/iu,
+    );
+    expect(BEARING_POINTER).toMatch(/contextual guidance[\s\S]*not an executable hook/iu);
+    expect(BEARING_POINTER).toMatch(/functional operation validates[\s\S]*lifecycle/iu);
+    expect(BEARING_POINTER).not.toContain("bearing configure inspect");
+  });
+
+  test("root carries the execution spine, authority boundaries, and truthful completion", async () => {
+    const { body } = await readSkill();
+    for (const heading of [
+      "## Execution spine",
+      "## Authority boundaries",
+      "## Completeness-sensitive reads",
+      "## Reference map",
+      "## Truthful outcomes",
+      "## Completion criterion",
+    ]) {
+      expect(body).toContain(heading);
     }
-    expect(body).toMatch(/model-invoked[\s\S]*stop without processing the original request/iu);
-    expect(body).toMatch(/explicit[\s\S]*Repository Configuration/iu);
-    expect(body).toContain("correct answer or action may depend on");
-    expect(body).toContain("working directory alone");
-    expect(body).toContain("clear repository-independent conversation");
-    expect(body).toMatch(/direct continuation[\s\S]*visibly reliable orientation/iu);
     expect(body).toMatch(
-      /repository, target, or request[\s\S]*context loss[\s\S]*freshness doubt/iu,
+      /one initiating[\s\S]*owner[\s\S]*every additional owner[\s\S]*actually\s+change/iu,
     );
-    expect(body).toContain("Project Summary");
-    expect(body).toContain("Project Sitemap");
-    expect(body).toMatch(/exactly one selected internal branch/iu);
-    expect(body).toContain("Do not re-enter the public router");
-    expect(body).toContain("produced-output manifest");
-    for (const disposition of ["transient", "durable-registered", "durable-unregistered"]) {
-      expect(body).toContain(disposition);
+    expect(body).toMatch(
+      /visible context[\s\S]*no persisted session mode[\s\S]*operation object/iu,
+    );
+    for (const evidence of ["Tests", "diagnostics", "resolved native work"]) {
+      expect(body).toContain(evidence);
     }
-    expect(body).toMatch(/durable-unregistered[\s\S]*incomplete/iu);
-    expect(body).toContain("bearing asset register");
+    expect(body).toMatch(/never conclude an Effort[\s\S]*pass a Gate/iu);
+    expect(body).toMatch(/failure[\s\S]*partial[\s\S]*unfulfilled[\s\S]*without translation/iu);
     expect(body).toMatch(/current user's language/iu);
-  });
-
-  test("keeps Next Work cardinality explicit in its single branch owner", async () => {
-    const branch = await readBranch("next-work");
-
-    expect(branch).toMatch(/zero to two meaningful alternatives/iu);
-    expect(branch).not.toMatch(/exactly two alternatives|two distinct alternatives/iu);
-  });
-
-  test("keeps Bearing Scope Review transient and Governance Disposition user-owned", async () => {
-    const router = await readSkill("bearing");
-    const setup = await readBranch("setup");
-    const disposition = await readSharedContract("governance-disposition");
-
-    expect(router.body).toContain("governance-disposition");
-    expect(router.body).toMatch(
-      /governance-disposition[\s\S]*native Work Management handling[\s\S]*explicit Bearing Scope Review[\s\S]*accepted Project Orientation/iu,
+    expect(body).toMatch(
+      /first functional operation[\s\S]*independently validates[\s\S]*required[\s\S]*Lifecycle/iu,
     );
-    expect(setup).not.toMatch(/successful Fresh Setup[\s\S]*optional Bearing Scope Review/iu);
-    expect(setup).toMatch(/explicitly requested Active-project Scope Review/iu);
-    expect(disposition).not.toMatch(
-      /one optional successful Fresh Setup review|Fresh Setup may offer the review/iu,
-    );
-    expect(disposition).toMatch(/inventory acquisition inside an accepted Project Orientation/iu);
-    expect(disposition).toMatch(/explicitly requests an Active-project Bearing Scope Review/iu);
-    expect(disposition).toMatch(/transient Work Management inventory/iu);
-    expect(disposition).toMatch(/discard[\s\S]*inventory/iu);
-    expect(disposition).toMatch(
-      /already managed[\s\S]*enrollment suggested[\s\S]*kept standalone/iu,
-    );
-    expect(disposition).toMatch(/at most one[\s\S]*high-confidence/iu);
-    expect(disposition).toMatch(/no reasonable binding[\s\S]*kept standalone/iu);
-    expect(disposition).toMatch(
-      /explicit user acceptance[\s\S]*planning owner[\s\S]*Work Binding/iu,
-    );
-    expect(disposition).toMatch(
-      /never writes[\s\S]*Project Snapshot[\s\S]*Portal[\s\S]*Attention[\s\S]*canonical history/iu,
-    );
-    expect(disposition).toMatch(
-      /ambient discovery[\s\S]*background inventory[\s\S]*automatic enrollment/iu,
+    expect(body).toMatch(
+      /stale pointer[\s\S]*requested operation[\s\S]*no separate entry preflight/iu,
     );
   });
 
-  test("routes explicit Active-project Project Orientation through one read-only shared protocol", async () => {
-    const router = await readSkill("bearing");
-    const orientation = await readSharedContract("project-orientation");
-    const workflow = await readFile(join(process.cwd(), "docs/everyday-workflows.md"), "utf8");
-    const workflowZh = await readFile(
-      join(process.cwd(), "docs/everyday-workflows.zh-CN.md"),
-      "utf8",
-    );
+  test("root names every selectable runtime reference directly and no reference routes onward", async () => {
+    const { body } = await readSkill();
+    for (const reference of runtimeReferences) {
+      expect(body).toContain(`$HOME/.bearing/kit/current/skills/bearing/${reference}`);
+      const source = await readRuntime(reference);
+      expect(source).not.toContain("$HOME/.bearing/kit/current/skills/bearing/references/");
+      expect(source).not.toMatch(/read (?:the )?(?:journey|owner|contract)/iu);
+      expect(source).not.toMatch(/\bco-load(?:s|ed|ing)?\b/iu);
+    }
+    expect(body).not.toMatch(/branch-manifest|references\/branches|references\/shared/iu);
+  });
 
-    expect(router.body).toMatch(
-      /explicit[\s\S]*Bearing Project Orientation[\s\S]*Active[\s\S]*project-orientation/iu,
+  test("every executable reference is English, scoped, and locally completable", async () => {
+    for (const reference of runtimeReferences) {
+      const source = await readRuntime(reference);
+      expect(source.startsWith("---\n")).toBe(false);
+      expect(source).toMatch(/^# /u);
+      expect(source).toContain("## Applicability");
+      expect(source).toContain("## Authority");
+      expect(source).toContain("## Operation");
+      expect(source).toContain("## Completion criterion");
+      expect(source).not.toMatch(/[\u3400-\u9fff]/u);
+    }
+  });
+
+  test("canonical mutation keeps semantic authorship with the Agent and mechanics with Modules", async () => {
+    const contract = await readRuntime("references/contracts/canonical-mutation.md");
+    expect(contract).toMatch(/inspect[\s\S]*complete current target/iu);
+    expect(contract).toMatch(/Agent-authored[\s\S]*candidate/iu);
+    expect(contract).toMatch(/clear direct instruction[\s\S]*acceptance/iu);
+    expect(contract).toMatch(
+      /ambiguity[\s\S]*material conflict[\s\S]*unentailed collateral effect/iu,
     );
-    expect(router.body).toMatch(
-      /Project Orientation[\s\S]*does not enter Repository Configuration[\s\S]*does not replay Fresh onboarding/iu,
+    expect(contract).toMatch(/re-read[\s\S]*precondition[\s\S]*immediately before/iu);
+    expect(contract).toMatch(/direct edit[\s\S]*schema and references[\s\S]*publish/iu);
+    expect(contract).toMatch(/affected[\s\S]*bearing inspect/iu);
+    expect(contract).toMatch(/partial write[\s\S]*repair[\s\S]*own attempted write set/iu);
+    expect(contract).toMatch(
+      /Materiality means[\s\S]*Summary[\s\S]*accepted new project meaning[\s\S]*Brief[\s\S]*accepted truth/iu,
     );
+    expect(contract).not.toMatch(
+      /bearing (?:sync|asset register)|receipt file|global follow-up engine/iu,
+    );
+  });
+
+  test("completeness rules use the typed package surface without hidden fallback", async () => {
+    const { body } = await readSkill();
+    expect(body).toContain("$HOME/.bearing/bin/bearing inspect project --repo <repo-root>");
+    expect(body).toContain(
+      "$HOME/.bearing/bin/bearing inspect <stable-planning-reference> --repo <repo-root>",
+    );
+    expect(body).toContain(
+      "$HOME/.bearing/bin/bearing inspect --native <native-reference> --repo <repo-root>",
+    );
+    expect(body).toMatch(/complete[\s\S]*coverage only[\s\S]*never[\s\S]*authority/iu);
+    expect(body).toMatch(/partial|unfulfilled|recovery-required|need-update/iu);
+    expect(body).toMatch(/no title match[\s\S]*repository scan[\s\S]*provider fallback/iu);
+  });
+
+  test("Configure keeps one dialogue and exactly one ownership-level final review", async () => {
+    const common = await readRuntime("references/journeys/configure.md");
+    expect(common).toMatch(/bearing configure inspect/iu);
+    expect(common).toMatch(/one material choice at a time/iu);
+    expect(common).toMatch(/preserve[\s\S]*accepted choices[\s\S]*prerequisite/iu);
+    expect(common).toMatch(/executor[\s\S]*unresolved[\s\S]*Ask\s+exactly\s+once/iu);
+    expect(common).toMatch(/Explain[\s\S]*invalid[\s\S]*once[\s\S]*materially new evidence/iu);
+    expect(common).toMatch(/bearing configure plan[\s\S]*one[\s\S]*owner-separated final review/iu);
+    expect(common).toMatch(/bearing configure apply[\s\S]*same sealed plan/iu);
+    expect(common).toMatch(/Catalog[\s\S]*independent[\s\S]*Portal handoff/iu);
+    expect(common).not.toMatch(/second router|select another reference/iu);
+
+    const variants = await Promise.all(
+      journeyReferences
+        .filter((reference) => reference.startsWith("references/journeys/configure-"))
+        .map(readRuntime),
+    );
+    expect(variants).toHaveLength(5);
+    expect(variants[0]).toMatch(
+      /Fresh[\s\S]*no\s+substantive planning[\s\S]*no provider acquisition/iu,
+    );
+    expect(variants[0]).toMatch(/optional[\s\S]*Project Orientation[\s\S]*after/iu);
+    expect(variants[1]).toMatch(/Active[\s\S]*executor addition[\s\S]*removal[\s\S]*repair/iu);
+    expect(variants[2]).toMatch(/Deactivated[\s\S]*reactivat/iu);
+    expect(variants[3]).toMatch(/deactivat[\s\S]*preserve[\s\S]*canonical[\s\S]*native work/iu);
+    expect(variants[4]).toMatch(/Unsupported[\s\S]*explicit[\s\S]*reviewed[\s\S]*removal/iu);
+  });
+
+  test("Orientation and Scope Review are one bounded read-only operation", async () => {
+    const orientation = await readRuntime("references/journeys/project-orientation.md");
+    const review = await readRuntime("references/journeys/scope-review.md");
     expect(orientation).toMatch(
-      /only after[\s\S]*explicit request[\s\S]*accepted Fresh offer[\s\S]*never ambient/iu,
+      /Project Context[\s\S]*repository evidence[\s\S]*canonical planning/iu,
     );
-    expect(orientation).toMatch(
-      /Project Summary[\s\S]*Project Sitemap[\s\S]*canonical planning[\s\S]*primary project documentation[\s\S]*manifests[\s\S]*top-level source and test topology/iu,
+    expect(orientation).toMatch(/repository facts[\s\S]*native-work facts[\s\S]*Agent inference/iu);
+    expect(orientation).toMatch(/Project Summary draft[\s\S]*Roadmap[\s\S]*Gate candidates/iu);
+    expect(orientation).toMatch(/read-only[\s\S]*writes nothing/iu);
+    expect(review).toMatch(
+      /summaries first[\s\S]*active\s+and\s+open[\s\S]*baseline-relevant completed/iu,
     );
-    expect(orientation).toMatch(
-      /project-level scope and lifecycle summaries[\s\S]*active or open work[\s\S]*completed work required[\s\S]*not[\s\S]*all historical tickets/iu,
+    expect(review).toMatch(/same visible operation[\s\S]*no separate outcome/iu);
+    expect(review).toMatch(/discard[\s\S]*inventory[\s\S]*no persist/iu);
+    expect(review).toMatch(/Offer[\s\S]*high-cost/iu);
+  });
+
+  test("native work and execution preserve owners and exact reconciliation", async () => {
+    const native = await readRuntime("references/journeys/native-work.md");
+    const execution = await readRuntime("references/journeys/execution.md");
+    expect(native).toMatch(
+      /Work Management[\s\S]*status[\s\S]*checklist[\s\S]*Answer[\s\S]*resolution/iu,
     );
-    expect(orientation).toMatch(
-      /repository facts[\s\S]*native-work facts[\s\S]*agent inferences[\s\S]*unresolved questions/iu,
+    expect(native).toMatch(/successful[\s\S]*exact[\s\S]*reconcile-native/iu);
+    expect(native).toMatch(/failed[\s\S]*no[\s\S]*full-scope[\s\S]*fallback/iu);
+    expect(native).toMatch(
+      /unbound[\s\S]*material planning[\s\S]*recommendation[\s\S]*enrollment is not a prerequisite/iu,
     );
-    expect(orientation).toMatch(
-      /current project understanding[\s\S]*completed baseline[\s\S]*active, open, and blocked work[\s\S]*Project Summary draft[\s\S]*future Roadmap[\s\S]*ordered candidate Gates/iu,
+    expect(execution).toMatch(/same visible operation[\s\S]*original executor command/iu);
+    expect(execution).toMatch(/planned Effort[\s\S]*directly entails[\s\S]*activation/iu);
+    expect(execution).toMatch(/refus[\s\S]*no\s+Effort[\s\S]*executor[\s\S]*native mutation/iu);
+    expect(execution).toMatch(/concluded Effort[\s\S]*never[\s\S]*reopen/iu);
+    expect(execution).toMatch(/lifecycle mismatch[\s\S]*facts only/iu);
+  });
+
+  test("semantic owners retain direct authority and domain-local follow-up", async () => {
+    const summary = await readRuntime("references/owners/project-summary.md");
+    const brief = await readRuntime("references/owners/project-brief.md");
+    const roadmap = await readRuntime("references/owners/roadmap.md");
+    const gate = await readRuntime("references/owners/milestone-gate.md");
+    const effort = await readRuntime("references/owners/effort.md");
+    const asset = await readRuntime("references/owners/asset.md");
+    const authority = await readRuntime("references/owners/authority.md");
+
+    expect(summary).toMatch(
+      /accepted long-horizon project meaning[\s\S]*shared materiality test/iu,
     );
-    expect(orientation).toMatch(
-      /always[\s\S]*explicitly labelled Project Summary draft[\s\S]*partial[\s\S]*evidence limitations/iu,
+    expect(brief).toMatch(/compress accepted truth[\s\S]*shared materiality test/iu);
+    expect(roadmap).toMatch(/Complete Roadmap[\s\S]*Extend Horizon[\s\S]*Leave Active for Now/iu);
+    expect(gate).toMatch(/human[\s\S]*Passage[\s\S]*readiness[\s\S]*never/iu);
+    expect(effort).toMatch(/Work Binding[\s\S]*Effort owner/iu);
+    expect(effort).toMatch(
+      /\*\*Required:\*\*[\s\S]*new or changed[\s\S]*exact-scope[\s\S]*baseline acquisition/iu,
     );
-    expect(orientation).toMatch(
-      /zero Roadmap candidates[\s\S]*state that result explicitly[\s\S]*never omit[\s\S]*Project Summary draft/iu,
+    expect(asset).toMatch(
+      /Citation[\s\S]*does not[\s\S]*Asset metadata|Asset metadata[\s\S]*not[\s\S]*Citation/iu,
     );
-    expect(orientation).toMatch(
-      /completed tickets[\s\S]*evidence only[\s\S]*never reconstruct[\s\S]*historical Roadmap[\s\S]*Gate Passage[\s\S]*Source Event Time/iu,
-    );
-    expect(orientation).toMatch(
-      /read-only[\s\S]*no Project Brief[\s\S]*Project Summary[\s\S]*Roadmap[\s\S]*Gate[\s\S]*Effort[\s\S]*Work Binding[\s\S]*native work[\s\S]*Portal state/iu,
-    );
-    expect(orientation).toMatch(
-      /Bearing Scope Review[\s\S]*narrow[\s\S]*transient inventory[\s\S]*discard[\s\S]*never expand Bearing Scope/iu,
-    );
-    expect(orientation).toMatch(
-      /explicit acceptance[\s\S]*Summary owner[\s\S]*Roadmap owner[\s\S]*Gate owner[\s\S]*dependency-safe order/iu,
-    );
-    expect(orientation).toMatch(
-      /defaults to project direction[\s\S]*not Efforts or Work Bindings/iu,
-    );
-    expect(orientation).not.toMatch(/[\u3400-\u9fff]/u);
-    for (const term of [
-      "Bearing Project Orientation",
-      "Bearing Scope Review",
-      "Project Summary",
-      "Project Brief",
+    expect(authority).toMatch(/Scope[\s\S]*Baseline Asset[\s\S]*current-baseline explanation/iu);
+    expect(authority).toMatch(/membership[\s\S]*no adoption event[\s\S]*timestamp/iu);
+
+    for (const source of [summary, brief, roadmap, gate, effort, asset, authority]) {
+      expect(source).toContain("## After this operation");
+      expect(source).toMatch(/Required|Consider|Do not infer/u);
+    }
+  });
+
+  test("fresh-Agent contract cases expose exact one-hop selection and observable effects", async () => {
+    const { body } = await readSkill();
+    const cases = [
+      {
+        prompt: "Explicit Fresh Bearing configuration",
+        refs: ["configure.md", "configure-fresh.md"],
+        effects: ["bearing configure inspect", "bearing configure plan", "bearing configure apply"],
+      },
+      {
+        prompt: "Accepted complete Project Orientation",
+        refs: ["project-orientation.md", "scope-review.md"],
+        effects: ["bearing inspect project"],
+      },
+      {
+        prompt: "Edit a bound native Ticket",
+        refs: ["native-work.md"],
+        effects: ["bearing inspect --native", "bearing reconcile-native"],
+      },
+      {
+        prompt: "Execute a planned bound Effort",
+        refs: ["execution.md", "canonical-mutation.md", "effort.md"],
+        effects: ["bearing inspect --native", "bearing inspect <stable-planning-reference>"],
+      },
+      {
+        prompt: "Accept a Summary and Roadmap candidate",
+        refs: ["canonical-mutation.md", "project-summary.md", "roadmap.md"],
+        effects: ["bearing inspect project", "bearing inspect <stable-planning-reference>"],
+      },
+    ] as const;
+
+    for (const scenario of cases) {
+      for (const reference of scenario.refs) expect(body, scenario.prompt).toContain(reference);
+      for (const effect of scenario.effects) expect(body, scenario.prompt).toContain(effect);
+    }
+    expect(BEARING_POINTER).toMatch(/Do not load[\s\S]*ordinary non-governance code/iu);
+    expect(body).toMatch(/explicit[\s\S]*fallback/iu);
+    expect(body).toMatch(/no hidden loop[\s\S]*fallback/iu);
+  });
+
+  test("retired routing and operation vocabulary is absent from the shipped Skill graph", async () => {
+    const sources = await Promise.all([
+      readFile(join(skillRoot, "SKILL.md"), "utf8"),
+      ...runtimeReferences.map(readRuntime),
+    ]);
+    const joined = sources.join("\n");
+    for (const retired of [
+      "branch-manifest.yaml",
+      "references/branches",
+      "references/shared",
+      "Typed Inspection",
+      "Public Entry Lifecycle Validation",
+      "Artifact Registration",
+      "Executor Continuation",
+      "Governance Disposition",
+      "Project Brief Refresh",
+      "Alignment Check",
+      "bearing asset register",
+      "produced-output manifest",
     ]) {
-      expect(workflow).toContain(term);
-      expect(workflowZh).toContain(term);
+      expect(joined).not.toContain(retired);
     }
-    expect(workflow.indexOf("**Bearing Project Orientation**")).toBeLessThan(
-      workflow.indexOf("**Bearing Scope Review**"),
-    );
-    expect(workflow).toMatch(
-      /Run Bearing Project Orientation[\s\S]*read-only[\s\S]*Review Bearing Scope[\s\S]*narrower/iu,
-    );
-    expect(workflowZh).toMatch(
-      /运行 Bearing Project Orientation[\s\S]*read-only[\s\S]*检查 Bearing Scope[\s\S]*更窄/u,
-    );
-  });
-
-  test("keeps Effort lifecycle transitions explicit, atomic, and independent", async () => {
-    const branch = await readBranch("effort-lifecycle");
-
-    expect(branch).toMatch(/planned[\s\S]*active[\s\S]*concluded/iu);
-    expect(branch).toMatch(/completed[\s\S]*withdrawn[\s\S]*superseded/iu);
-    expect(branch).toMatch(/Planned at[\s\S]*Activated at[\s\S]*Concluded at/iu);
-    expect(branch).toMatch(/UTC[\s\S]*same atomic canonical mutation/iu);
-    expect(branch).toMatch(/historical migration authority[\s\S]*Time unavailable/iu);
-    expect(branch).toMatch(
-      /Provider Completion[\s\S]*Map lifecycle[\s\S]*Gate Readiness[\s\S]*Gate Passage[\s\S]*never transition/iu,
-    );
-    expect(branch).toMatch(/explicit user acceptance/iu);
-  });
-
-  test("keeps every Bearing-owned Source Event Time with its mutation owner", async () => {
-    const transaction = await readSharedContract("planning-transaction");
-    const roadmap = await readBranch("roadmap");
-    const gate = await readBranch("milestone-gate");
-    const assetLifecycle = await readBranch("asset-lifecycle");
-    const check = await readBranch("alignment-check");
-    const review = await readBranch("planning-review");
-    const registration = await readSharedContract("artifact-registration");
-
-    expect(transaction).toMatch(
-      /current UTC Source Event Time[\s\S]*same successful canonical mutation/iu,
-    );
-    expect(transaction).toMatch(
-      /file metadata[\s\S]*Provider Observation Time[\s\S]*Sync completion[\s\S]*no event time/iu,
-    );
-    expect(roadmap).toMatch(/Started at[\s\S]*Completed at[\s\S]*Superseded at/iu);
-    expect(gate).toMatch(/Planned at[\s\S]*Activated at[\s\S]*Accepted at[\s\S]*Superseded at/iu);
-    expect(check).toMatch(/Accepted at[\s\S]*Authority Adoption[\s\S]*never copies or invents/iu);
-    expect(review).toMatch(/Accepted at[\s\S]*Authority Adoption[\s\S]*never copies or invents/iu);
-    expect(registration).toMatch(/Produced At[\s\S]*Date-only[\s\S]*Registered at/iu);
-    expect(registration).toMatch(/asset-lifecycle[\s\S]*Superseded at[\s\S]*Archived at/iu);
-    expect(assetLifecycle).toMatch(/available[\s\S]*superseded[\s\S]*replacement[\s\S]*archived/iu);
-    expect(assetLifecycle).toMatch(
-      /explicit user acceptance[\s\S]*current UTC Source Event Time[\s\S]*same atomic canonical mutation/iu,
-    );
-    expect(assetLifecycle).toMatch(/\.bearing\/state\/assets\.md/iu);
-    expect(assetLifecycle).toMatch(/Filesystem absence[\s\S]*never authorizes/iu);
-    expect(assetLifecycle).toMatch(/provider state never authorizes/iu);
-    expect(assetLifecycle).toMatch(/Sync completion[\s\S]*never backfills/iu);
-  });
-
-  test("direct executor continuation preserves owner and terminal truth", async () => {
-    const router = await readSkill("bearing");
-    const contract = await readSharedContract("executor-continuation");
-
-    expect(router.body).toContain("executor-continuation");
-    expect(router.body).toMatch(
-      /At most one selected internal branch[\s\S]*none for direct executor continuation/iu,
-    );
-    expect(contract).toMatch(/fresh direct invocation[\s\S]*before execution/iu);
-    expect(contract).toMatch(/Bearing-aware continuation[\s\S]*same user command/iu);
-    expect(contract).toMatch(
-      /explicit Matt Delivery Ticket[\s\S]*Effort and Work Binding context[\s\S]*explicit fact that it is unbound/iu,
-    );
-    expect(contract).toMatch(
-      /ambiguous Ticket identity[\s\S]*Spec-only[\s\S]*does not enter execution/iu,
-    );
-    expect(contract).toMatch(
-      /executor[\s\S]*implementation[\s\S]*tests[\s\S]*review[\s\S]*commit/iu,
-    );
-    expect(contract).toMatch(/Bearing[\s\S]*factual registration[\s\S]*Sync/iu);
-    expect(contract).toMatch(/Work Management provider[\s\S]*terminal resolution/iu);
-    expect(contract).toMatch(/Produced For[\s\S]*native evidence[\s\S]*independent/iu);
-    expect(contract).toMatch(
-      /provider completion contract[\s\S]*unavailable[\s\S]*deterministic Sync[\s\S]*truthful stop/iu,
-    );
-    expect(contract).toMatch(
-      /Generic[\s\S]*evidence reconciliation only[\s\S]*no native Ticket lifecycle authority/iu,
-    );
-    expect(contract).toMatch(
-      /zero diagnostics[\s\S]*does not authorize[\s\S]*native Ticket lifecycle/iu,
-    );
-    expect(contract).toMatch(/failure[\s\S]*incomplete[\s\S]*ambiguous[\s\S]*spec-only/iu);
-    expect(contract).toMatch(
-      /actual executor contract[\s\S]*Execution Profile[\s\S]*never defines or translates the executor outcome taxonomy[\s\S]*`completed` remains `completed`/iu,
-    );
-    for (const hook of [
-      "direct-executor:fresh",
-      "direct-executor:aware",
-      "direct-executor:reconciled",
-      "direct-executor:nonterminal",
-    ]) {
-      expect(contract).toContain(hook);
-    }
-    expect(contract).toMatch(
-      /direct-executor:nonterminal[\s\S]*Sync fingerprint and diagnostics/iu,
-    );
-  });
-
-  test("Fresh Setup keeps one-decision conversation and owner-separated outcomes", async () => {
-    const setup = await readBranch("setup");
-
-    expect(setup).toMatch(/report detected facts[\s\S]*one material decision at a time/iu);
-    expect(setup).toMatch(/one final[\s\S]*owner-separated Apply review/iu);
-    expect(setup).toMatch(/running Agent Surface[\s\S]*primary fact/iu);
-    expect(setup).toMatch(/matching instruction file[\s\S]*no redundant question/iu);
-    expect(setup).toMatch(/neither[\s\S]*AGENTS\.md[\s\S]*CLAUDE\.md[\s\S]*both/iu);
-    expect(setup).toMatch(
-      /Matt prerequisite[\s\S]*owning capability[\s\S]*resume[\s\S]*refusal[\s\S]*no Bearing repository writes/iu,
-    );
-    expect(setup).toMatch(
-      /matt-skills\/v1[\s\S]*Provider Configuration[\s\S]*never stores or asks for a tracker driver/iu,
-    );
-    expect(setup).toMatch(
-      /never[\s\S]*inspects native scope outside an accepted Project Orientation or explicitly requested Active-project Scope Review/iu,
-    );
-    expect(setup).toMatch(
-      /executor decision[\s\S]*begins unresolved[\s\S]*explicit nomination[\s\S]*explicit skip or none/iu,
-    );
-    expect(setup).toMatch(
-      /before the final Apply review[\s\S]*ask exactly once[\s\S]*ordinary user language[\s\S]*nominate[\s\S]*skip[\s\S]*does not block Repository Configuration completion/iu,
-    );
-    expect(setup).toMatch(
-      /Agent Surface selection[\s\S]*Matt prerequisite consent[\s\S]*provider validation[\s\S]*Apply acceptance[\s\S]*never imply executor skip/iu,
-    );
-    expect(setup).toMatch(
-      /assisted prerequisite[\s\S]*same visible Fresh continuation[\s\S]*executor decision/iu,
-    );
-    expect(setup).toMatch(
-      /prerequisite owner(?:'s)?[\s\S]*do(?:es)? not substitute[\s\S]*final Repository Configuration Apply review/iu,
-    );
-    expect(setup).toMatch(
-      /handoff resumes[\s\S]*executor decision resolves[\s\S]*(?:the )?complete owner-separated review/iu,
-    );
-    expect(setup).toMatch(
-      /never compress[\s\S]*Apply confirmation[\s\S]*exact repository Apply Unit[\s\S]*preserved[\s\S]*independent Catalog effect/iu,
-    );
-    expect(setup).toMatch(/Generic[\s\S]*hidden during Repository Configuration/iu);
-    expect(setup).toMatch(
-      /Never scan, rank, recommend, install, whitelist-match, prefer, or select a default executor/iu,
-    );
-    expect(setup).toMatch(
-      /end-to-end execution[\s\S]*final outcome or writeback[\s\S]*planning, testing, TDD, debugging, and review helpers/iu,
-    );
-    expect(setup).toMatch(
-      /explicit semantic assessment[\s\S]*Do not infer eligibility from keywords[\s\S]*exact directly required local reference locators[\s\S]*exact source excerpts[\s\S]*--executor-assessment/iu,
-    );
-    expect(setup).toMatch(
-      /unavailable, malformed, ambiguous, invalid, or supporting-only nomination[\s\S]*explain[\s\S]*once[\s\S]*materially new contract evidence[\s\S]*different nomination or skip/iu,
-    );
-    expect(setup).toMatch(
-      /deterministic CLI[\s\S]*resolved configuration[\s\S]*no free-prose intent[\s\S]*no-executors marker[\s\S]*proof that the question was shown/iu,
-    );
-    expect(setup).toMatch(
-      /surface-scoped[\s\S]*portable surface-qualified capability locator[\s\S]*Multiple registrations[\s\S]*without cross-surface deduplication, priority, preference, or default/iu,
-    );
-    expect(setup).toMatch(
-      /Generic evidence-reconciliation fallback[\s\S]*only when[\s\S]*no specialized registration/iu,
-    );
-    expect(setup).toMatch(/Catalog[\s\S]*independent outcome/iu);
-    expect(setup).toMatch(
-      /Catalog failure[\s\S]*return `partial` with separate `Repository` and `Catalog` outcomes/iu,
-    );
-    expect(setup).not.toMatch(/Catalog failure[\s\S]{0,160}return `blocked`/iu);
-    expect(setup).toMatch(
-      /created no Roadmap, Milestone Gate, Effort, Work Binding, substantive Project Summary, Project Brief, or Matt-owned mutation/iu,
-    );
-    expect(setup).toMatch(
-      /configured loopback origin[\s\S]*BEARING_PORT[\s\S]*127\.0\.0\.1:4178[\s\S]*never scan/iu,
-    );
-    expect(setup).toMatch(
-      /\/healthz[\s\S]*compatible Bearing package and read-model[\s\S]*current Catalog Entry[\s\S]*\/projects\/<catalog-entry-id>/iu,
-    );
-    expect(setup).toMatch(
-      /connection failure[\s\S]*absent[\s\S]*bearing portal[\s\S]*separate terminal/iu,
-    );
-    expect(setup).toMatch(/reachable Host[\s\S]*incompatible[\s\S]*current kit/iu);
-    expect(setup).toMatch(
-      /Portal[\s\S]*never changes Repository Configuration success[\s\S]*Fresh[\s\S]*routine Active no-op/iu,
-    );
-    expect(setup).not.toMatch(/Initial Bearing Analysis|discovered native scopes/iu);
-    expect(setup).toMatch(
-      /does not create or refresh a substantive Project Summary[\s\S]*evidence is insufficient[\s\S]*honestly remain absent/iu,
-    );
-    expect(setup).toMatch(
-      /applied Fresh outcome[\s\S]*repository validation[\s\S]*Catalog result[\s\S]*exactly one Portal handoff[\s\S]*Project Orientation offer/iu,
-    );
-    expect(setup).toMatch(
-      /current user's language[\s\S]*project files[\s\S]*existing tasks and progress[\s\S]*analysis[\s\S]*Project Summary draft[\s\S]*Roadmap and Gate candidates[\s\S]*does not automatically modify/iu,
-    );
-    expect(setup).toMatch(
-      /accept and skip[\s\S]*Configuration is already complete[\s\S]*skip changes nothing/iu,
-    );
-    expect(setup).toMatch(
-      /acceptance[\s\S]*shared `project-orientation`[\s\S]*same visible conversation/iu,
-    );
-    expect(setup).toMatch(
-      /decline[\s\S]*does not acquire[\s\S]*inventory[\s\S]*Summary[\s\S]*Brief[\s\S]*planning[\s\S]*native mutation/iu,
-    );
-    expect(setup).toMatch(
-      /`partial`, `blocked`, or `cancelled`[\s\S]*independent Catalog recovery[\s\S]*Active reconcile or no-op[\s\S]*reactivation[\s\S]*never trigger/iu,
-    );
-    expect(setup).toMatch(
-      /no offer marker, receipt, cache entry, lifecycle field, or persisted eligibility state/iu,
-    );
-    expect(setup).toMatch(
-      /assisted prerequisite[\s\S]*executor correction[\s\S]*same visible continuation[\s\S]*Catalog retry[\s\S]*preserve[\s\S]*eligibility/iu,
-    );
-    expect(setup).toMatch(/current user's language/iu);
-  });
-
-  test("bearing-summary declares the per-part Project Summary language contract", async () => {
-    // Given: the package-owned Summary authoring skill.
-    const skill = await readBranch("summary");
-
-    // When: an agent looks for the language metadata rule.
-    const languageContract = skill.match(/Languages:[\s\S]*?BCP-47[\s\S]*?inherit/iu);
-
-    // Then: the rule is explicit and forbids an inferred fallback.
-    expect(languageContract).not.toBeNull();
-    expect(skill).toMatch(/never infer/iu);
-  });
-
-  test("terminal lifecycle routes orchestrate Summary and Brief refresh exactly once", async () => {
-    // Given: the package-owned lifecycle routes and their shared Brief refresh protocol.
-    const setup = await readBranch("setup");
-    const summary = await readBranch("summary");
-    const effort = await readBranch("effort-lifecycle");
-    const gate = await readBranch("milestone-gate");
-    const roadmap = await readBranch("roadmap");
-    const refresh = await readSharedContract("project-brief-refresh");
-
-    // Then: initialization owns Summary only, terminal routes share one end-of-workflow refresh,
-    // and Roadmap completion orders Summary before Brief without background coalescing.
-    expect(setup).toMatch(
-      /initialization[\s\S]*Project Summary[\s\S]*does not[\s\S]*Project Brief/iu,
-    );
-    expect(summary).toMatch(/initialization[\s\S]*Roadmap completion/iu);
-    expect(summary).toMatch(/Updated at/iu);
-    expect(summary).toMatch(/Gate Passage[\s\S]*Effort conclusion[\s\S]*do not refresh/iu);
-    expect(effort).toMatch(/conclusion[\s\S]*Project Brief Refresh/iu);
-    expect(gate).toMatch(/Passage[\s\S]*Project Brief Refresh/iu);
-    expect(roadmap).toMatch(/completed[\s\S]*Project Summary[\s\S]*Project Brief/iu);
-    expect(roadmap).toMatch(/superseded[\s\S]*Project Brief[\s\S]*not[\s\S]*Project Summary/iu);
-    expect(refresh).toMatch(/workflow[\s\S]*exactly once/iu);
-    expect(refresh).toMatch(/already loaded[\s\S]*complete semantic context/iu);
-    expect(refresh).toMatch(/retain[\s\S]*previous[\s\S]*Generated at/iu);
-    expect(refresh).toMatch(/failure does not roll back[\s\S]*lifecycle-owner write/iu);
-    expect(refresh).toMatch(/not[\s\S]*timer[\s\S]*background worker[\s\S]*Portal action/iu);
-    expect(refresh).toMatch(
-      /Ticket creation, claim, resolution, ordinary Sync, Portal entry, elapsed time, and ordinary conversation never trigger/iu,
-    );
-    const router = await readSkill("bearing");
-    expect(router.body).toMatch(/`partial`[\s\S]*lifecycle[\s\S]*Summary or Brief/iu);
-    for (const route of [summary, effort, gate, roadmap]) {
-      expect(route).toMatch(/- `partial`:/iu);
-    }
-    expect(summary).toMatch(/restore[\s\S]*previous bytes[\s\S]*previous `Updated at`/iu);
-  });
-
-  test("bearing clean-cuts completeness-sensitive retrieval to typed package CLI inspection", async () => {
-    const skill = await readSharedContract("typed-inspection");
-
-    expect(skill).toContain(
-      "$HOME/.bearing/bin/bearing inspect <roadmap|gate|effort> <stable-id> --repo <repo-root>",
-    );
-    for (const trigger of [
-      "Roadmap horizon",
-      "canonical Gate order",
-      "focused Gate",
-      "Gate readiness",
-      "Gate passage",
-      "Effort scope",
-      "declared Authorities",
-      "tracker-native Tickets",
-      "relevant Alignment Checks",
-      "registered evidence",
-      "scope-complete planning mutation",
-    ]) {
-      expect(skill).toContain(trigger);
-    }
-    expect(skill).toMatch(/automatically invoke/iu);
-    expect(skill).toMatch(/do not ask the user to run/iu);
-    expect(skill).toMatch(/package-owned CLI/iu);
-  });
-
-  test("bearing preserves Sitemap orientation while inspect state bounds completeness claims", async () => {
-    const skill = await readSharedContract("typed-inspection");
-
-    expect(skill).toMatch(
-      /Sitemap remains limited to whole-project orientation, target discovery, source routing, and top-level Attention/iu,
-    );
-    expect(skill).toMatch(/`complete`[\s\S]*source retrieval[\s\S]*semantic judgment/iu);
-    expect(skill).toMatch(/`partial`[\s\S]*bounded orientation/iu);
-    expect(skill).toMatch(/`partial`[\s\S]*Do not[\s\S]*scope-complete planning mutation/iu);
-    expect(skill).toMatch(/projectOrientation[\s\S]*summary[\s\S]*brief/iu);
-    expect(skill).toMatch(/legacy Summary[\s\S]*omit[\s\S]*absent Brief/iu);
-    for (const forbiddenClaim of [
-      "all contributors are known",
-      "definitive readiness",
-      "Gate passage",
-      "scope-complete planning mutation",
-    ]) {
-      expect(skill).toContain(forbiddenClaim);
-    }
-    expect(skill).toMatch(
-      /`invalid`[\s\S]*unknown target[\s\S]*truthful `incomplete` or `blocked`/iu,
-    );
-  });
-
-  test("bearing permits bounded owned repair without treating partial as complete", async () => {
-    const skill = await readSharedContract("typed-inspection");
-
-    expect(skill).toContain("user-authorized issue-scoped repair");
-    expect(skill).toContain("unrelated bounded mutation");
-    expect(skill).toMatch(/route[\s\S]*owning branch/iu);
-    expect(skill).toMatch(/must not treat `partial` as `complete`/iu);
-    expect(skill).toMatch(/scope-complete mutation[\s\S]*requires[\s\S]*`complete`/iu);
-  });
-
-  test("bearing forbids compatibility retrieval and runtime fallbacks", async () => {
-    const skill = await readSharedContract("typed-inspection");
-
-    for (const forbiddenFallback of [
-      "title match",
-      "keyword search",
-      "`rg`",
-      "prose similarity",
-      "manual Sitemap join",
-      "shell `PATH`",
-      "Portal startup",
-      "network service",
-      "daemon",
-      "skills-only runtime",
-    ]) {
-      expect(skill).toContain(forbiddenFallback);
-    }
-    expect(skill).toMatch(/never use[\s\S]*fallback/iu);
-    expect(skill).toContain("$HOME/.bearing/bin/bearing");
-  });
-
-  test("bearing keeps unmanaged composition and mutation ownership contracts intact", async () => {
-    const skill = await readSkill("bearing");
-
-    expect(skill.body).toContain("Continue ordinary unmanaged work");
-    expect(skill.body).toContain("Never mutate canonical planning state");
-    expect(skill.body).toContain("Read their canonical source locators");
-    expect(skill.body).toMatch(
-      /leave native status, blocker, dependency, claim, and resolution writes/iu,
-    );
   });
 });

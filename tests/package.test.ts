@@ -111,24 +111,28 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/docs/troubleshooting.zh-CN.md",
         "package/package.json",
         "package/skills/bearing/SKILL.md",
-        "package/skills/bearing/references/branch-manifest.yaml",
-        "package/skills/bearing/references/branches/alignment-check.md",
-        "package/skills/bearing/references/branches/asset-lifecycle.md",
-        "package/skills/bearing/references/branches/effort-lifecycle.md",
-        "package/skills/bearing/references/branches/milestone-gate.md",
-        "package/skills/bearing/references/branches/next-work.md",
-        "package/skills/bearing/references/branches/planning-audit.md",
-        "package/skills/bearing/references/branches/planning-review.md",
-        "package/skills/bearing/references/branches/roadmap.md",
-        "package/skills/bearing/references/branches/setup.md",
-        "package/skills/bearing/references/branches/summary.md",
-        "package/skills/bearing/references/shared/artifact-registration.md",
-        "package/skills/bearing/references/shared/executor-continuation.md",
-        "package/skills/bearing/references/shared/governance-disposition.md",
-        "package/skills/bearing/references/shared/planning-transaction.md",
-        "package/skills/bearing/references/shared/project-brief-refresh.md",
-        "package/skills/bearing/references/shared/project-orientation.md",
-        "package/skills/bearing/references/shared/typed-inspection.md",
+        "package/skills/bearing/references/contracts/canonical-mutation.md",
+        "package/skills/bearing/references/journeys/catalog.md",
+        "package/skills/bearing/references/journeys/configure-active.md",
+        "package/skills/bearing/references/journeys/configure-deactivate.md",
+        "package/skills/bearing/references/journeys/configure-fresh.md",
+        "package/skills/bearing/references/journeys/configure-reactivate.md",
+        "package/skills/bearing/references/journeys/configure-unsupported.md",
+        "package/skills/bearing/references/journeys/configure.md",
+        "package/skills/bearing/references/journeys/execution.md",
+        "package/skills/bearing/references/journeys/native-work.md",
+        "package/skills/bearing/references/journeys/next-work.md",
+        "package/skills/bearing/references/journeys/project-orientation.md",
+        "package/skills/bearing/references/journeys/scope-review.md",
+        "package/skills/bearing/references/owners/asset.md",
+        "package/skills/bearing/references/owners/authority.md",
+        "package/skills/bearing/references/owners/effort.md",
+        "package/skills/bearing/references/owners/milestone-gate.md",
+        "package/skills/bearing/references/owners/planning-audit.md",
+        "package/skills/bearing/references/owners/planning-review.md",
+        "package/skills/bearing/references/owners/project-brief.md",
+        "package/skills/bearing/references/owners/project-summary.md",
+        "package/skills/bearing/references/owners/roadmap.md",
       ].sort(),
     );
 
@@ -193,29 +197,26 @@ test("the packed CLI runs through offline local npm exec", async () => {
       "utf8",
     );
     expect(installedBearingSkill).toBe(bundledBearingSkill);
-    const bundledTypedInspection = await readFile(
+    const bundledCanonicalMutation = await readFile(
       join(
         homeDirectory,
-        ".bearing/kit/current/skills/bearing/references/shared/typed-inspection.md",
+        ".bearing/kit/current/skills/bearing/references/contracts/canonical-mutation.md",
       ),
       "utf8",
     );
-    expect(bundledTypedInspection).toContain(
-      "$HOME/.bearing/bin/bearing inspect <roadmap|gate|effort> <stable-id> --repo <repo-root>",
+    expect(bundledCanonicalMutation).toMatch(
+      /Agent-authored candidate[\s\S]*re-read[\s\S]*precondition[\s\S]*bearing inspect/iu,
     );
-    expect(bundledTypedInspection).toMatch(/`complete`[\s\S]*`partial`[\s\S]*`invalid`/u);
-    expect(bundledTypedInspection).toContain("skills-only runtime");
     const bundledProjectOrientation = await readFile(
       join(
         homeDirectory,
-        ".bearing/kit/current/skills/bearing/references/shared/project-orientation.md",
+        ".bearing/kit/current/skills/bearing/references/journeys/project-orientation.md",
       ),
       "utf8",
     );
-    expect(bundledProjectOrientation).toContain("Project Orientation is read-only");
-    expect(bundledProjectOrientation).toMatch(
-      /Project Summary draft[\s\S]*future Roadmap horizons[\s\S]*candidate Gates/iu,
-    );
+    expect(bundledProjectOrientation).toMatch(/Orientation is a read-only Agent synthesis/iu);
+    expect(bundledProjectOrientation).toMatch(/Project Summary draft[\s\S]*future Roadmap/iu);
+    expect(bundledProjectOrientation).toMatch(/ordered Gate candidates/iu);
 
     syncRoot = await mkdtemp(join(root, "fresh-local-repository-"));
     await writeStandardMattLocalRepository(syncRoot);

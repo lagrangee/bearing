@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/pr
 import { join } from "node:path";
 import { CODEX_E2E_RUNTIME, codexE2ERuntimeArguments } from "../scripts/codex-e2e-runtime";
 import {
+  driftManagedPointer,
   finalizeFixtureSnapshot,
   G1_LIVE_JOURNEYS,
   G1_LIVE_PLAN_ID,
@@ -10,9 +11,11 @@ import {
   G1_MATT_SKILL_CLOSURE,
   inspectCodexOperatorContext,
   instructionBytes,
+  repositoryConfigurationActivationArguments,
   serializeG1LiveSkillInvocation,
   surfaceLaunchContract,
 } from "../scripts/g1-live-fixture";
+import { BEARING_POINTER } from "../src/agent-surface-entry";
 
 describe("G1 live fixture recipe", () => {
   test("places the Matt contract pointer in the supported Agent skills section", () => {
@@ -37,6 +40,32 @@ Work-management contract: \`docs/agents/issue-tracker.md\``);
     expect(() =>
       codexE2ERuntimeArguments({ model: "different-model", reasoningEffort: "low" }),
     ).toThrow("does not accept runtime overrides");
+  });
+
+  test("activates live fixtures through Repository Configuration", () => {
+    expect(repositoryConfigurationActivationArguments("codex", "/private/tmp/g1/repo")).toEqual([
+      "--intent",
+      "activate",
+      "--repo",
+      "/private/tmp/g1/repo",
+      "--surface",
+      "agent-skills",
+      "--provider-contract",
+      "docs/agents/issue-tracker.md",
+      "--executor-mode",
+      "skip",
+    ]);
+  });
+
+  test("injects current managed pointer drift and fails closed when the pointer is absent", () => {
+    const current = `Before\n${BEARING_POINTER}\nAfter\n`;
+    const drifted = driftManagedPointer(current);
+
+    expect(drifted).not.toBe(current);
+    expect(drifted).toContain(`DRIFTED: ${BEARING_POINTER}`);
+    expect(() => driftManagedPointer("no managed pointer here\n")).toThrow(
+      "current pointer is absent",
+    );
   });
 
   test("pins the complete versioned matrix and bounded external skill closure", () => {
