@@ -358,6 +358,7 @@ export function ProjectPage({
     content = (
       <div className="page project-state-page">
         <EmptyState
+          headingLevel={1}
           title="Project is unavailable"
           detail={activation.state.diagnostic.message}
           action={
@@ -381,6 +382,7 @@ export function ProjectPage({
     content = (
       <div className="page project-state-page">
         <EmptyState
+          headingLevel={1}
           title="Project could not be loaded"
           detail={detail}
           action={<CopyDiagnosticReference reference={activation.state.error.code} />}

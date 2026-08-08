@@ -9,7 +9,6 @@ import type { MattProviderFactory } from "../provider-acquisition";
 import { createProviderDetailEvidenceState } from "../provider-detail-selection";
 import type { ProviderEvidenceState } from "../provider-evidence-selection";
 import {
-  mattNativeScopeKey,
   mattNativeSubjectForObject,
   sameMattNativeBindingDefinition,
 } from "../providers/matt-skills-v1/native-subject";
@@ -20,6 +19,7 @@ import { materializeProjectReadModelCandidate, prepareProjectReadModelCandidate 
 import {
   inspectProjectReadModel,
   type ProjectProviderEvidence,
+  projectProviderEvidenceBindingKey,
   publishProjectReadModel,
   readProjectProviderEvidence,
   removeProjectReadModelForRebuild,
@@ -221,7 +221,7 @@ const acquisition = async (
         (candidate) => candidate.id === selection.observationId,
       );
       await replaceProjectProviderEvidence(root, {
-        bindingKey: mattNativeScopeKey(selection),
+        bindingKey: projectProviderEvidenceBindingKey(selection),
         role: "bound",
         ...(observation === undefined ? {} : { observation }),
         selection,
@@ -243,7 +243,7 @@ const acquisition = async (
           (candidate) => candidate.id === selection.observationId,
         );
         await replaceProjectProviderEvidence(root, {
-          bindingKey: mattNativeScopeKey(selection),
+          bindingKey: projectProviderEvidenceBindingKey(selection),
           role: "bound",
           ...(observation === undefined ? {} : { observation }),
           selection,
@@ -347,7 +347,7 @@ export const refreshProjectProviderDetail = async (
   );
   if (selection !== undefined) {
     await replaceProjectProviderEvidence(root, {
-      bindingKey: mattNativeScopeKey(selection),
+      bindingKey: projectProviderEvidenceBindingKey(selection),
       role: "detail",
       ...(observation === undefined ? {} : { observation }),
       selection,
@@ -446,7 +446,7 @@ export const reconcileProjectNative = async (
     if (prepared.candidate.basisFingerprint === currentState.metadata.basisFingerprint) {
       if (matchingSelection !== undefined) {
         await replaceProjectProviderEvidence(root, {
-          bindingKey: mattNativeScopeKey(matchingSelection),
+          bindingKey: projectProviderEvidenceBindingKey(matchingSelection),
           role: "bound",
           ...(matchingObservation === undefined ? {} : { observation: matchingObservation }),
           selection: matchingSelection,
@@ -458,7 +458,7 @@ export const reconcileProjectNative = async (
     }
   } else if (matchingSelection !== undefined) {
     await replaceProjectProviderEvidence(root, {
-      bindingKey: mattNativeScopeKey(matchingSelection),
+      bindingKey: projectProviderEvidenceBindingKey(matchingSelection),
       role: "bound",
       ...(matchingObservation === undefined ? {} : { observation: matchingObservation }),
       selection: matchingSelection,

@@ -16,10 +16,7 @@ import {
 } from "../provider-evidence-contract";
 import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
 import { hasCompleteMattNativeEvidence } from "../providers/matt-skills-v1/native-read-model";
-import {
-  mattNativeScopeKey,
-  sameMattNativeBindingDefinition,
-} from "../providers/matt-skills-v1/native-subject";
+import { sameMattNativeBindingDefinition } from "../providers/matt-skills-v1/native-subject";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import {
   assertProjectReadModelObjectIdentity,
@@ -28,7 +25,11 @@ import {
   type ProjectReadModelProjectionName,
   projectReadModelObjectSchema,
 } from "./contract";
-import { type ProjectReadModelMetadata, withProjectReadModel } from "./store";
+import {
+  type ProjectReadModelMetadata,
+  projectProviderEvidenceBindingKey,
+  withProjectReadModel,
+} from "./store";
 
 const MAX_PORTAL_ROWS = 500;
 const MAX_FIND_RESULTS = 50;
@@ -191,7 +192,10 @@ const nativeTargetState = (
     return undefined;
   }
   if (target.kind === "native-subject") return "unavailable";
-  const bindingKey = `matt-skills/v1\0${target.id}`;
+  const bindingKey = projectProviderEvidenceBindingKey({
+    provider: "matt-skills/v1",
+    nativeScope: target.id,
+  });
   const evidence = boundedRows(
     database,
     "SELECT binding_key, observation_id, source_revision, observation_json, selection_json FROM provider_evidence WHERE binding_key = ? ORDER BY role",
@@ -202,7 +206,7 @@ const nativeTargetState = (
       parseJson(row["selection_json"]),
     ) as ProviderObservationSelection;
     if (
-      mattNativeScopeKey(selection) !== row["binding_key"] ||
+      projectProviderEvidenceBindingKey(selection) !== row["binding_key"] ||
       selection.observationId !== row["observation_id"]
     ) {
       throw new Error("Project Read Model provider selection identity is inconsistent.");
@@ -379,15 +383,33 @@ const queryRows = (
 
 export type PortalProjectRows = Readonly<ReturnType<typeof queryRows>>;
 
+export const queryPortalProjectRowsWithGeneration = async (
+  repoRoot: string,
+  section: PortalProjectSection = "overview",
+  target?: PlanningLineageSubject | undefined,
+): Promise<
+  Readonly<{
+    generation: Readonly<{ basisFingerprint: string; publicationCount: number }>;
+    rows: PortalProjectRows;
+  }>
+> =>
+  withProjectReadModel(repoRoot, (database, metadata) => {
+    requireCurrentProjection(metadata);
+    return {
+      generation: {
+        basisFingerprint: metadata.basisFingerprint,
+        publicationCount: metadata.receipt.publicationCount,
+      },
+      rows: queryRows(database, section, target),
+    };
+  });
+
 export const queryPortalProjectRows = async (
   repoRoot: string,
   section: PortalProjectSection = "overview",
   target?: PlanningLineageSubject | undefined,
 ): Promise<PortalProjectRows> =>
-  withProjectReadModel(repoRoot, (database, metadata) => {
-    requireCurrentProjection(metadata);
-    return queryRows(database, section, target);
-  });
+  (await queryPortalProjectRowsWithGeneration(repoRoot, section, target)).rows;
 
 export type PortalAssetRowQuery =
   | Readonly<{ state: "available"; asset: AssetProjection }>

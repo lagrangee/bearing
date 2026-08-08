@@ -197,6 +197,7 @@ code {
   background: var(--surface);
   border-radius: 50%;
 }
+.empty-state h1,
 .empty-state h2 {
   margin: 0 0 var(--space-2);
   font-size: var(--type-view);

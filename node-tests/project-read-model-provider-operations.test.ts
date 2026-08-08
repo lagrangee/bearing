@@ -16,6 +16,7 @@ import {
 } from "../src/project-read-model/provider-operations";
 import {
   inspectProjectReadModel,
+  projectProviderEvidenceBindingKey,
   projectReadModelPath,
   publishProjectReadModel,
   readProjectProviderEvidence,
@@ -226,7 +227,12 @@ test("physical rebuild is local-only and exact capture replaces current bound ev
         .prepare(
           "SELECT count(*) AS count FROM provider_evidence WHERE role = 'bound' AND binding_key = ?",
         )
-        .get("matt-skills/v1\u0000.scratch/scope-001")?.["count"],
+        .get(
+          projectProviderEvidenceBindingKey({
+            provider: "matt-skills/v1",
+            nativeScope: ".scratch/scope-001",
+          }),
+        )?.["count"],
       1,
     );
     database.close();

@@ -231,7 +231,10 @@ export const materializeProjectReadModelCandidate = async (
   options: Parameters<typeof prepareProjectReadModelCandidate>[1] = {},
 ) => (await prepareProjectReadModelCandidate(repoRoot, options)).candidate;
 
-const ensureCurrent = async (repoRoot: string) => {
+const ensureCurrent = async (
+  repoRoot: string,
+  dependencies: Readonly<{ providerFactory?: ProjectCompilationOptions["providerFactory"] }> = {},
+) => {
   const state = await inspectProjectReadModel(repoRoot);
   if (state.state === "need-update" || state.state === "recovery-required") return state;
   if (state.state === "ready") {
@@ -257,6 +260,9 @@ const ensureCurrent = async (repoRoot: string) => {
   const candidate = await materializeProjectReadModelCandidate(repoRoot, {
     ...(providerObservationStore === undefined ? {} : { providerObservationStore }),
     ...(providerEvidence === undefined ? {} : { providerDetailEvidenceState: null }),
+    ...(dependencies.providerFactory === undefined
+      ? {}
+      : { providerFactory: dependencies.providerFactory }),
   });
   const receipt = await publishProjectReadModel(repoRoot, candidate);
   return {
@@ -617,11 +623,12 @@ export const queryCommittedProject = async (
 export const inspectProject = async (
   repoRoot: string,
   request: ProjectInspectRequest,
+  dependencies: Readonly<{ providerFactory?: ProjectCompilationOptions["providerFactory"] }> = {},
 ): Promise<ProjectInspectEnvelope> => {
   try {
     const root = await resolveRepositoryRoot(repoRoot);
     await assertActiveRepositoryIntegration(root, "inspect");
-    const current = await ensureCurrent(root);
+    const current = await ensureCurrent(root, dependencies);
     if (current.state === "need-update") {
       return {
         schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,

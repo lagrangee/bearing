@@ -368,3 +368,57 @@ test("Project Read Model classifies missing, compatible-obsolete, older, newer, 
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("a projection v4 raw provider key is compatible-obsolete and rematerializes to the current encoding", async () => {
+  assert.equal(PROJECT_READ_MODEL_PROJECTION_VERSION, 5);
+  const fixture = await createRepresentativeProject("representative");
+  try {
+    await publishProjectReadModel(
+      fixture.root,
+      await materializeProjectReadModelCandidate(fixture.root),
+    );
+    const path = projectReadModelPath(fixture.root);
+    const legacy = new DatabaseSync(path);
+    try {
+      legacy.exec("UPDATE read_model_metadata SET projection_version = 4 WHERE singleton = 1");
+      const rows = legacy
+        .prepare("SELECT binding_key, role, selection_json FROM provider_evidence")
+        .all();
+      for (const row of rows) {
+        const selection = JSON.parse(String(row["selection_json"])) as {
+          provider: string;
+          nativeScope: string;
+        };
+        legacy
+          .prepare(
+            "UPDATE provider_evidence SET binding_key = ? WHERE binding_key = ? AND role = ?",
+          )
+          .run(
+            `${selection.provider}\0${selection.nativeScope}`,
+            String(row["binding_key"]),
+            String(row["role"]),
+          );
+      }
+    } finally {
+      legacy.close();
+    }
+
+    assert.equal((await inspectProjectReadModel(fixture.root)).state, "obsolete-compatible");
+    const inspected = await inspectProject(fixture.root, { kind: "project" });
+    assert.ok(inspected.outcome === "complete" || inspected.outcome === "partial");
+    const current = await inspectProjectReadModel(fixture.root);
+    assert.equal(current.state, "ready");
+    if (current.state === "ready") {
+      assert.equal(current.metadata.projectionVersion, PROJECT_READ_MODEL_PROJECTION_VERSION);
+    }
+    const rematerialized = new DatabaseSync(path, { readOnly: true });
+    try {
+      const keys = rematerialized.prepare("SELECT binding_key FROM provider_evidence").all();
+      assert.ok(keys.every((row) => !String(row["binding_key"]).includes("\0")));
+    } finally {
+      rematerialized.close();
+    }
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});

@@ -24,6 +24,7 @@ import {
 import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
 import { mattNativeRecords } from "../providers/matt-skills-v1/native-read-model";
 import {
+  type MattNativeScopeBinding,
   mattNativeScopeKey,
   mattNativeScopeSubject,
   sameMattNativeBindingDefinition,
@@ -41,6 +42,9 @@ import {
 } from "./contract";
 
 const BUSY_TIMEOUT_MS = 1_000;
+
+export const projectProviderEvidenceBindingKey = (binding: MattNativeScopeBinding): string =>
+  Buffer.from(mattNativeScopeKey(binding), "utf8").toString("hex");
 
 type ObjectRow = Readonly<{
   reference: string;
@@ -386,7 +390,7 @@ export const compileProjectReadModel = (input: {
         (candidate) => mattNativeScopeKey(candidate.binding) === mattNativeScopeKey(selection),
       );
       return {
-        bindingKey: mattNativeScopeKey(selection),
+        bindingKey: projectProviderEvidenceBindingKey(selection),
         role,
         ...(observation === undefined
           ? {}
@@ -552,10 +556,18 @@ const readMetadata = (database: DatabaseSync, storageVersion: number): ProjectRe
   return metadata;
 };
 
-const validateProviderEvidenceRow = (row: Readonly<Record<string, SQLOutputValue>>): void => {
+const validateProviderEvidenceRow = (
+  row: Readonly<Record<string, SQLOutputValue>>,
+  projectionVersion: number,
+): void => {
   const selection = providerObservationSelectionSchema.parse(parseJson(row["selection_json"]));
+  const bindingKey = row["binding_key"];
+  const expectedBindingKeys =
+    projectionVersion < 5
+      ? new Set([mattNativeScopeKey(selection), projectProviderEvidenceBindingKey(selection)])
+      : new Set([projectProviderEvidenceBindingKey(selection)]);
   if (
-    mattNativeScopeKey(selection) !== row["binding_key"] ||
+    !expectedBindingKeys.has(String(bindingKey)) ||
     selection.observationId !== row["observation_id"]
   ) {
     throw new Error("Project Read Model provider selection identity is inconsistent.");
@@ -577,7 +589,7 @@ const validateProviderEvidenceRow = (row: Readonly<Record<string, SQLOutputValue
   }
 };
 
-const validatePayloads = (database: DatabaseSync): void => {
+const validatePayloads = (database: DatabaseSync, projectionVersion: number): void => {
   const objects: ProjectReadModelObject[] = [];
   for (const row of database
     .prepare("SELECT reference, kind, payload_json FROM project_objects")
@@ -671,7 +683,7 @@ const validatePayloads = (database: DatabaseSync): void => {
       "SELECT binding_key, observation_id, source_revision, observation_json, selection_json FROM provider_evidence",
     )
     .all()) {
-    validateProviderEvidenceRow(row);
+    validateProviderEvidenceRow(row, projectionVersion);
   }
 };
 
@@ -703,7 +715,7 @@ export const inspectProjectReadModel = async (repoRoot: string): Promise<Project
         projectionVersion: metadata.projectionVersion,
       };
     }
-    validatePayloads(database);
+    validatePayloads(database, metadata.projectionVersion);
     return metadata.projectionVersion < PROJECT_READ_MODEL_PROJECTION_VERSION
       ? { state: "obsolete-compatible", metadata }
       : { state: "ready", metadata };
@@ -738,7 +750,7 @@ const insertCandidate = (
           )
           .all(...currentBindingKeys)
           .filter((row) => {
-            validateProviderEvidenceRow(row);
+            validateProviderEvidenceRow(row, PROJECT_READ_MODEL_PROJECTION_VERSION);
             return matchesCurrentBinding(z.string().parse(row["selection_json"]));
           });
   for (const table of [
@@ -850,7 +862,7 @@ const validateProjectReadModelCandidate = async (
         publicationCount: 1,
       }),
     );
-    validatePayloads(database);
+    validatePayloads(database, PROJECT_READ_MODEL_PROJECTION_VERSION);
   } finally {
     database.close();
   }
@@ -1041,7 +1053,7 @@ export const replaceProjectProviderEvidence = async (
         observation === undefined ? null : json(observation),
         json(evidence.selection),
       );
-    validatePayloads(database);
+    validatePayloads(database, metadata.projectionVersion);
     if (readMetadata(database, version).basisFingerprint !== metadata.basisFingerprint) {
       throw new Error("Scoped provider evidence replacement changed the Project generation.");
     }

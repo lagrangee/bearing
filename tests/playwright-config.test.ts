@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { browserOutputContract } from "../browser-tests/browser-artifact-output";
+import portalContractConfig from "../browser-tests/portal-contract.playwright.config";
 import config from "../playwright.config";
 
 test("ordinary Bun test files do not launch Playwright browsers", async () => {
@@ -22,10 +23,12 @@ test("ordinary Bun test files do not launch Playwright browsers", async () => {
 
 test("the root browser suite excludes specs with a dedicated Host contract", () => {
   expect(config.testIgnore).toEqual([
+    "architecture-contraction-candidate.spec.ts",
     "packaged-catalog.spec.ts",
     "project-isolation-real-host.spec.ts",
     "portal-reference-fidelity.spec.ts",
   ]);
+  expect(portalContractConfig.testIgnore).toContain("architecture-contraction-candidate.spec.ts");
 });
 
 test("the root browser suite writes ordinary artifacts to disposable test output", () => {

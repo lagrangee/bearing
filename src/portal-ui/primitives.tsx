@@ -55,10 +55,12 @@ export function StatusMark({ label, tone }: { readonly label: string; readonly t
 export function EmptyState({
   action,
   detail,
+  headingLevel = 2,
   title,
 }: {
   readonly action?: ReactNode;
   readonly detail: string;
+  readonly headingLevel?: 1 | 2;
   readonly title: string;
 }) {
   return (
@@ -66,7 +68,7 @@ export function EmptyState({
       <span className="empty-orbit" aria-hidden="true">
         <Icons.overview />
       </span>
-      <h2>{title}</h2>
+      {headingLevel === 1 ? <h1>{title}</h1> : <h2>{title}</h2>}
       <p>{detail}</p>
       {action}
     </section>

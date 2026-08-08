@@ -12,6 +12,7 @@ import {
   PortalProjectReadModelUnavailableError,
   queryPortalAssetRow,
   queryPortalProjectRows,
+  queryPortalProjectRowsWithGeneration,
   searchPortalProjectRows,
 } from "../src/project-read-model/portal";
 import {
@@ -85,8 +86,12 @@ test("Portal reads bounded typed rows from one committed Project Read Model gene
     );
 
     const rows = await queryPortalProjectRows(fixture.root);
+    const snapshot = await queryPortalProjectRowsWithGeneration(fixture.root);
 
     assert.equal("generation" in rows, false);
+    assert.deepEqual(snapshot.rows, rows);
+    assert.equal(snapshot.generation.basisFingerprint, candidate.basisFingerprint);
+    assert.equal(snapshot.generation.publicationCount, 1);
     assert.equal(rows.section, "overview");
     assert.ok(rows.objects.length > 0);
     assert.ok(rows.objects.length <= 500);

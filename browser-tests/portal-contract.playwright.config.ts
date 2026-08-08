@@ -9,6 +9,7 @@ const port = 4181;
 export default defineConfig({
   testDir: join(process.cwd(), "browser-tests"),
   testIgnore: [
+    "architecture-contraction-candidate.spec.ts",
     "packaged-catalog.spec.ts",
     "project-isolation-real-host.spec.ts",
     "portal-reference-fidelity.spec.ts",
