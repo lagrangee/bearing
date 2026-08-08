@@ -55,7 +55,6 @@ const fixture = (): ProjectSnapshot => {
           citations: [],
           scope: "Accepted architecture direction.",
           baselineAssetIds: [],
-          adoptions: [],
         },
       ],
     },
@@ -188,15 +187,10 @@ const timedFixture = (): ProjectSnapshot => {
       ...snapshot.assets,
       items: snapshot.assets.items.map((asset) => ({
         ...asset,
-        registeredAt: {
+        addedAt: {
           availability: "available" as const,
-          value: "2026-07-31T09:30:00Z",
+          value: "2026-07-30T09:30:00Z",
           precision: "second" as const,
-        },
-        producedAt: {
-          availability: "available" as const,
-          value: "2026-07-30",
-          precision: "date" as const,
         },
       })),
     },
@@ -249,14 +243,7 @@ const withoutRequestedGate = (snapshot: ProjectSnapshot): ProjectSnapshot => {
         },
       ],
     },
-    assets: {
-      ...snapshot.assets,
-      items: snapshot.assets.items.map((asset) => ({
-        ...asset,
-        evidenceRoles: asset.evidenceRoles.filter((role) => role !== "passage-evidence"),
-        passageEvidence: asset.passageEvidence.filter((evidence) => evidence.gateId !== "gate:one"),
-      })),
-    },
+    assets: snapshot.assets,
   };
   return projectSnapshotSchema.parse({
     ...candidate,
@@ -518,9 +505,8 @@ test("Source Event Time stays source-precise while browser-relative updates rema
       id: "asset:planning-model-evidence",
     }),
   );
-  const produced = page.locator('#asset\\.event-history time[datetime="2026-07-30"]');
-  await expect(produced).toHaveText("2026-07-30");
-  await expect(page.locator("#asset\\.event-history")).not.toContainText("2026-07-30T00:00:00");
+  const added = page.locator('#asset\\.event-history time[datetime="2026-07-30T09:30:00Z"]');
+  await expect(added).toHaveText("Jul 30, 2026, 5:30 PM");
 
   await page.goto(
     planningLineageSubjectHref("lineage", {
@@ -801,9 +787,11 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   await expect(
     page.getByRole("heading", { name: "Planning Model Evidence", level: 1 }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Evidence Roles", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Planning Use", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ancestor Context", level: 3 })).toBeVisible();
-  await expect(page.getByText(".scratch/evidence/planning-model", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByText("Locator: .scratch/evidence/planning-model", { exact: true }),
+  ).toBeVisible();
   const technicalDetails = page.getByRole("button", { name: "Open Technical Details" });
   await technicalDetails.focus();
   await expect(technicalDetails).toBeFocused();

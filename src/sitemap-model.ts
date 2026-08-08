@@ -81,10 +81,10 @@ const assetNodes = (record: DecodedBearingRecord): SitemapNode[] | undefined => 
       type: "Assets",
       reference: asset.ID,
       title: asset.Title,
-      state: asset.Disposition ?? asset["Lifecycle source"],
+      state: asset.Disposition,
       locator: record.locator,
       links: [{ label: "owner", target: asset.Owner }],
-      annotations: [`location=${asset.Location}`],
+      annotations: [`source=${asset.Source}`],
     }),
   );
   const invalid = record.content.invalidEntries.map((entry) =>

@@ -5,11 +5,14 @@ import {
   queryPortalProjectRows,
   searchPortalProjectRows,
 } from "../project-read-model/portal";
+import { probeExactAssetSource } from "./asset-source-probe";
 import type { CatalogReadResult } from "./contract";
 import { resolveProjectEntry } from "./project-entry";
 
 export const createPortalProjectQueryService = (options: {
   readonly readCatalog: () => Promise<CatalogReadResult>;
+  readonly readRows?: typeof queryPortalProjectRows;
+  readonly probeAssetSource?: typeof probeExactAssetSource;
 }) => ({
   read: async (
     entryId: string,
@@ -19,6 +22,25 @@ export const createPortalProjectQueryService = (options: {
     const entry = await resolveProjectEntry({ entryId, readCatalog: options.readCatalog });
     if (entry.kind !== "available") return entry;
     try {
+      const rows = await (options.readRows ?? queryPortalProjectRows)(
+        entry.entry.repoRoot,
+        section,
+        target,
+      );
+      const assetSourceProbe =
+        section === "lineage" && target?.kind === "asset"
+          ? await (() => {
+              const asset = rows.objects.find(
+                (object) => object.kind === "asset" && object.value.id === target.id,
+              );
+              return asset?.kind !== "asset"
+                ? undefined
+                : (options.probeAssetSource ?? probeExactAssetSource)(
+                    entry.entry.repoRoot,
+                    asset.value.sourceLocator,
+                  );
+            })()
+          : undefined;
       return {
         kind: "ready" as const,
         project: {
@@ -26,7 +48,7 @@ export const createPortalProjectQueryService = (options: {
           displayName: entry.entry.displayName,
           availability: "available" as const,
         },
-        rows: await queryPortalProjectRows(entry.entry.repoRoot, section, target),
+        rows: assetSourceProbe === undefined ? rows : { ...rows, assetSourceProbe },
       };
     } catch (error) {
       if (error instanceof PortalProjectReadModelUnavailableError) {

@@ -114,30 +114,25 @@ test("Gate Passage and Planning Review schemas reject formatted normalized prose
   ).toBe(false);
 });
 
-test("Asset source schema rejects formatted metadata without treating opaque references as prose", () => {
+test("Asset source schema rejects formatted semantic metadata without treating Source as prose", () => {
   // Given: one valid Asset and variants with formatting in projected metadata.
   const asset = {
     ID: "asset:test",
     Title: "Test Asset",
-    Kind: "verification-report",
-    Location: ".scratch/evidence/report.md",
+    Purpose: "Keep the test reference available.",
+    Kind: "reference",
+    Source: "https://example.com/reference?v=%2A%2Aopaque%2A%2A",
     Owner: "effort:test",
-    Producer: {
-      Kind: "executor-profile",
-      Name: "generic-agent",
-      Reference: "native:<opaque-reference>",
-    },
-    "Lifecycle source": "native",
+    "Added at": null,
+    Disposition: "active",
+    Origin: "External reference",
   };
 
-  // When / Then: Title, Kind, and producer identity are plain; Reference stays opaque.
+  // When / Then: semantic prose is plain; Source stays opaque.
   expect(assetSchema.safeParse(asset).success).toBe(true);
   expect(assetSchema.safeParse({ ...asset, Title: "**Test Asset**" }).success).toBe(false);
   expect(assetSchema.safeParse({ ...asset, Kind: "`report`" }).success).toBe(false);
-  expect(
-    assetSchema.safeParse({ ...asset, Producer: { ...asset.Producer, Name: "<em>agent</em>" } })
-      .success,
-  ).toBe(false);
+  expect(assetSchema.safeParse({ ...asset, Origin: "<em>external</em>" }).success).toBe(false);
 });
 
 test("source schemas reject structures that cannot enter the normalized Snapshot", () => {

@@ -93,24 +93,20 @@ Type: asset-registry
 Assets:
   - ID: asset:design
     Title: First design baseline
+    Purpose: Preserve the first design baseline.
     Kind: design
-    Location: .scratch/work/map.md
+    Source: .scratch/work/map.md
     Owner: effort:test
-    Producer:
-      Kind: planning-skill
-      Name: prototype
-    Lifecycle source: registry
-    Disposition: available
+    Added at: null
+    Disposition: active
   - ID: asset:design
     Title: Second design baseline
+    Purpose: Preserve the second design baseline.
     Kind: design
-    Location: .scratch/work/map.md
+    Source: .scratch/work/map.md
     Owner: effort:test
-    Producer:
-      Kind: planning-skill
-      Name: prototype
-    Lifecycle source: registry
-    Disposition: available
+    Added at: null
+    Disposition: active
 ---
 
 # Assets

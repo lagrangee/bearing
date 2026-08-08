@@ -90,7 +90,7 @@ test("renders one route-owned Gate dossier and non-duplicated Lineage Context", 
   expect(html).toContain('<p class="lineage-header-status">Gate · Passed · Ready for review</p>');
   expect(html).toContain("Contributing Efforts");
   expect(html).not.toContain('id="relation.outcome.contributing-efforts"');
-  expect(html).toContain("accepted with evidence");
+  expect(html).toContain("Evidence: .scratch/evidence/planning-model");
   expect(html).toContain("Confirmed none");
   expect(html).not.toContain("<h3>Roadmap</h3>");
   expect(html).not.toContain('aria-label="Quick Look Planning Model"');
@@ -204,17 +204,7 @@ test("uses container-owned all-or-nothing Outcome Spine layout without truncatio
 test("keeps Asset semantics on detail and routes content outside Technical Details", () => {
   const baseSnapshot = createProjectOverviewFixture();
   if (baseSnapshot.assets.validity === "invalid") throw new Error("Expected Asset fixture.");
-  const snapshot = withLineage({
-    ...baseSnapshot,
-    assets: {
-      ...baseSnapshot.assets,
-      items: baseSnapshot.assets.items.map((asset) =>
-        asset.id === "asset:planning-model-evidence"
-          ? { ...asset, producedFor: "effort:model" }
-          : asset,
-      ),
-    },
-  });
+  const snapshot = withLineage(baseSnapshot);
   const html = render(
     {
       validity: "valid",
@@ -224,34 +214,24 @@ test("keeps Asset semantics on detail and routes content outside Technical Detai
   );
 
   expect(html).toContain("Asset Identity");
-  expect(html).toContain("Kind: verification-report");
+  expect(html).toContain("Kind: reference");
   expect(html).toContain("Ownership and Purpose");
   const header = html.match(/<header class="lineage-header"[\s\S]*?<\/header>/u)?.[0];
   expect(header).toBeDefined();
-  expect(header).toContain('class="action action-primary lineage-primary-action"');
-  expect(header).toContain(">View Content</a>");
-  expect(header).toContain('target="_blank"');
+  expect(header).not.toContain('class="action action-primary lineage-primary-action"');
   const ownership = html.match(/<section[^>]*id="asset.ownership"[\s\S]*?<\/section>/u)?.[0];
   expect(ownership).toBeDefined();
-  expect(ownership).toContain('href="/projects/bearing/lineage/gate/gate%3Aone"');
-  expect(ownership).toContain(
-    'Owner: Gate: <a href="/projects/bearing/lineage/gate/gate%3Aone">Model ready</a>',
-  );
+  expect(ownership).toContain("Owner: project-summary:current");
   expect(ownership).not.toMatch(/<a[^>]*>Owner:/u);
-  expect(ownership).toContain('href="/projects/bearing/lineage/effort/effort%3Amodel"');
-  expect(ownership).toContain(
-    'Produced For: Effort: <a href="/projects/bearing/lineage/effort/effort%3Amodel">Planning Model</a>',
-  );
-  expect(ownership).not.toMatch(/<a[^>]*>Produced For:/u);
   expect(html).toContain("Planning Citation");
-  expect(html).toContain("Passage Evidence");
+  expect(html).toContain("Current source availability is unavailable");
   expect(html).not.toContain('id="asset.content"');
   expect(html).not.toContain("Read this Asset on its bounded, read-only content surface.");
   expect(html).not.toContain("Read-only · current-checkout content · isolated window");
   expect(html).not.toContain('id="relation.production.owner"');
   expect(html).not.toContain('id="relation.production.produced-for"');
-  expect(html).not.toContain(".scratch/evidence/planning-model");
-  expect(html).not.toContain("asset:planning-model-evidence · verification-report");
+  expect(html).toContain("Locator: .scratch/evidence/planning-model");
+  expect(html).not.toContain("asset:planning-model-evidence · reference");
   expect(html).not.toContain("<h2>Provenance</h2>");
   expect(html).not.toContain("generic-agent");
 
@@ -287,75 +267,11 @@ test("keeps Asset semantics on detail and routes content outside Technical Detai
   const unavailableOwnership = unavailableOwnerHtml.match(
     /<section[^>]*id="asset.ownership"[\s\S]*?<\/section>/u,
   )?.[0];
-  expect(unavailableOwnership).toContain("<li>Owner: Gate: Model ready</li>");
+  expect(unavailableOwnership).toContain("<li>Owner: project-summary:current</li>");
   expect(unavailableOwnership).not.toContain('href="/projects/bearing/lineage/gate/gate%3Aone"');
 
   const assets = snapshot.assets;
   if (assets.validity === "invalid") throw new Error("Expected rebuilt Asset fixture.");
-  const contentState = (availability: "missing" | "unreadable") =>
-    withLineage({
-      ...snapshot,
-      assets: {
-        ...assets,
-        items: assets.items.map((asset) =>
-          asset.id === "asset:planning-model-evidence"
-            ? { ...asset, contentAvailability: availability, contentShape: "unavailable" }
-            : asset,
-        ),
-      },
-    });
-  const missing = render(
-    { validity: "valid", value: { kind: "asset", id: "asset:planning-model-evidence" } },
-    { snapshot: contentState("missing") },
-  );
-  expect(missing).not.toContain("View Content");
-  expect(missing).not.toContain("Content unavailable");
-
-  const unreadable = render(
-    { validity: "valid", value: { kind: "asset", id: "asset:planning-model-evidence" } },
-    { snapshot: contentState("unreadable") },
-  );
-  expect(unreadable).not.toContain("View Content");
-  expect(unreadable).toContain("Content unavailable");
-  expect(unreadable).toContain(
-    "Impact: content reading is unavailable; other Asset semantics remain available",
-  );
-  expect(unreadable).toContain("Recovery: open Technical Details");
-
-  const prototype = withLineage({
-    ...snapshot,
-    assets: {
-      ...assets,
-      items: assets.items.map((asset) =>
-        asset.id === "asset:planning-model-evidence" ? { ...asset, kind: "prototype" } : asset,
-      ),
-    },
-  });
-  const prototypeHtml = render(
-    { validity: "valid", value: { kind: "asset", id: "asset:planning-model-evidence" } },
-    { snapshot: prototype },
-  );
-  expect(prototypeHtml).not.toContain("View Content");
-  expect(prototypeHtml).not.toContain("Content unavailable");
-
-  const directory = withLineage({
-    ...snapshot,
-    assets: {
-      ...assets,
-      items: assets.items.map((asset) =>
-        asset.id === "asset:planning-model-evidence"
-          ? { ...asset, contentShape: "directory" }
-          : asset,
-      ),
-    },
-  });
-  const directoryDeepLinkHtml = render(
-    { validity: "valid", value: { kind: "asset", id: "asset:planning-model-evidence" } },
-    { snapshot: directory, semanticAnchor: "asset.content" },
-  );
-  expect(directoryDeepLinkHtml).not.toContain("View Content");
-  expect(directoryDeepLinkHtml).not.toContain('id="asset.content"');
-  expect(directoryDeepLinkHtml).toContain("Requested section unavailable");
 });
 
 test("renders only available named Source Event Times in Event History", () => {
@@ -638,7 +554,12 @@ test("renders bounded Planning Basis, Outputs, and Governance as Effort-owned re
       ...snapshot.assets,
       items: snapshot.assets.items.map((asset) =>
         asset.id === "asset:planning-model-evidence"
-          ? assetProjectionSchema.parse({ ...asset, owner: "effort:model" })
+          ? assetProjectionSchema.parse({
+              ...asset,
+              owner: "effort:model",
+              disposition: "archived",
+              archivedAt: { availability: "unavailable" },
+            })
           : asset,
       ),
     },
@@ -648,8 +569,8 @@ test("renders bounded Planning Basis, Outputs, and Governance as Effort-owned re
     { snapshot: withOutput },
   );
   expect(concluded).toContain('<section id="effort.outputs"><h2>Outputs</h2>');
-  expect(concluded).toContain("<span>verification-report</span>");
-  expect(concluded).toContain(">Planning Model Evidence</a><small>Native</small>");
+  expect(concluded).toContain("<span>reference</span>");
+  expect(concluded).toContain(">Planning Model Evidence</a><small>Archived</small>");
   expect(concluded).toContain(
     '<section id="effort.governance"><h2>Governance &amp; References</h2>',
   );

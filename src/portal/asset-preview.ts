@@ -389,27 +389,17 @@ const resolveRegisteredAsset = async (
       ) as UnavailableResolution,
     };
   }
-  if (asset.contentAvailability === "missing") {
+  if (asset.sourceLocator.startsWith("https://")) {
     return {
       kind: "unavailable",
       resolution: unavailable(
-        "content-missing",
-        "The registered Asset content is missing.",
-        "unavailable",
+        "preview-not-offered",
+        "External HTTPS Asset sources are opened separately and remain unverified.",
+        "not-offered",
       ) as UnavailableResolution,
     };
   }
-  if (asset.contentAvailability === "unreadable") {
-    return {
-      kind: "unavailable",
-      resolution: unavailable(
-        "content-unreadable",
-        "The registered Asset content is unreadable.",
-        "unsafe",
-      ) as UnavailableResolution,
-    };
-  }
-  const probe = await probeContainedInput(entry.entry.repoRoot, asset.displayLocation);
+  const probe = await probeContainedInput(entry.entry.repoRoot, asset.sourceLocator);
   if (probe.status === "missing") {
     return {
       kind: "unavailable",
@@ -526,9 +516,9 @@ const fileResolution = async (
       "exceeds-limit",
     );
   }
-  const representation = representationFor(context.asset.displayLocation);
+  const representation = representationFor(context.asset.sourceLocator);
   if (representation === undefined) {
-    const extension = extname(context.asset.displayLocation).toLowerCase();
+    const extension = extname(context.asset.sourceLocator).toLowerCase();
     return unsafeExtensions.has(extension)
       ? unavailable("unsafe-content", "Executable or runtime content is never previewed.", "unsafe")
       : unavailable(

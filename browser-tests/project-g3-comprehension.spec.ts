@@ -234,18 +234,14 @@ const withPreviewAsset = (snapshot: ProjectSnapshot): ProjectSnapshot => {
           id: "asset:fixture-uncited",
           title: "Uncited Fixture Evidence",
           source: source.reference,
-          evidenceRoles: [],
+          purpose: "Keep one uncited durable reference available for planning.",
           citations: [],
-          authorityAdoptions: [],
-          passageEvidence: [],
-          kind: "verification-report",
+          authorityBaselines: [],
+          kind: "reference",
           owner: "effort:portal",
-          producer: { kind: "executor-profile", name: "generic-agent" },
-          lifecycleSource: "native",
-          registeredAt: { availability: "unavailable" },
-          displayLocation: "evidence/uncited.md",
-          contentAvailability: "available",
-          contentShape: "file",
+          sourceLocator: "evidence/uncited.md",
+          addedAt: { availability: "unavailable" },
+          disposition: "active",
         },
       ],
     },
@@ -257,21 +253,7 @@ const withPreviewAsset = (snapshot: ProjectSnapshot): ProjectSnapshot => {
 const localSnapshot = (): ProjectSnapshot => {
   const snapshot = withPreviewAsset(withEffortOutput(createProjectOverviewFixture()));
   if (snapshot.assets.validity === "invalid") throw new Error("Expected Assets.");
-  return parseRebuiltPlanningLineageFixture({
-    ...snapshot,
-    assets: {
-      ...snapshot.assets,
-      items: snapshot.assets.items.map((asset) =>
-        asset.id === "asset:fixture-uncited"
-          ? {
-              ...asset,
-              owner: ".scratch/portal/issues/02-review.md",
-              producedFor: ".scratch/portal/issues/01-build.md",
-            }
-          : asset,
-      ),
-    },
-  });
+  return parseRebuiltPlanningLineageFixture(snapshot);
 };
 
 const githubScenarioSnapshot = (): Readonly<{
@@ -404,29 +386,34 @@ const degradedSnapshot = (snapshot: ProjectSnapshot): ProjectSnapshot => {
         },
       ],
     },
-    assets: {
-      ...snapshot.assets,
-      items: snapshot.assets.items.map((asset) => ({
-        ...asset,
-        evidenceRoles: asset.evidenceRoles.filter((role) => role !== "passage-evidence"),
-        passageEvidence: asset.passageEvidence.filter((evidence) => evidence.gateId !== "gate:one"),
-      })),
-    },
+    assets: snapshot.assets,
   };
   return projectSnapshotSchema.parse(withRebuiltPlanningLineage(candidate as ProjectSnapshotInput));
 };
 
 const withEffortOutput = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   if (snapshot.assets.validity === "invalid") throw new Error("Expected readable Assets.");
-  return parseRebuiltPlanningLineageFixture({
+  const candidate = {
     ...snapshot,
     assets: {
       ...snapshot.assets,
       items: snapshot.assets.items.map((asset) =>
-        asset.id === "asset:planning-model-evidence" ? { ...asset, owner: "effort:model" } : asset,
+        asset.id === "asset:planning-model-evidence"
+          ? {
+              ...asset,
+              owner: "effort:model" as const,
+              disposition: "archived" as const,
+              archivedAt: {
+                availability: "available" as const,
+                value: "2026-08-08T12:00:00Z",
+                precision: "second" as const,
+              },
+            }
+          : asset,
       ),
     },
-  });
+  };
+  return projectSnapshotSchema.parse(withRebuiltPlanningLineage(candidate as ProjectSnapshotInput));
 };
 
 const portalObservation = (snapshot: ProjectSnapshot) => {
@@ -632,6 +619,25 @@ const withConcludedOpenWork = (snapshot: ProjectSnapshot): ProjectSnapshot => {
           : effort,
       ),
     },
+    assets:
+      snapshot.assets.validity === "available"
+        ? {
+            ...snapshot.assets,
+            items: snapshot.assets.items.map((asset) =>
+              asset.owner === "effort:portal" && asset.disposition === "active"
+                ? {
+                    ...asset,
+                    disposition: "archived" as const,
+                    archivedAt: {
+                      availability: "available" as const,
+                      value: "2026-08-08T13:00:00Z",
+                      precision: "second" as const,
+                    },
+                  }
+                : asset,
+            ),
+          }
+        : snapshot.assets,
   });
 };
 
@@ -698,13 +704,13 @@ const withLongMixedLineageContent = (snapshot: ProjectSnapshot): ProjectSnapshot
 };
 
 const healthySnapshot = (snapshot: ProjectSnapshot): ProjectSnapshot =>
-  projectSnapshotSchema.parse({
+  parseRebuiltPlanningLineageFixture({
     ...snapshot,
     reviews:
       snapshot.reviews.validity === "available"
         ? {
             ...snapshot.reviews,
-            items: snapshot.reviews.items.map((review) => ({ ...review, status: "completed" })),
+            items: snapshot.reviews.items.filter((review) => review.status === "completed"),
           }
         : snapshot.reviews,
     diagnostics: [],
@@ -830,7 +836,6 @@ test.afterAll(async () => {
 });
 
 test("G3 uses one parameterized comprehension contract journey for Local and GitHub", async ({
-  context,
   page,
 }) => {
   test.slow();
@@ -1356,7 +1361,9 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await page.goto(`${host.url}/projects/${entryId}/audit`);
     await expect(page.getByRole("heading", { name: "Planning Audit", level: 1 })).toBeVisible();
     await expect(page.getByRole("heading", { name: "No findings" })).toBeVisible();
-    await expect(page.getByText("Audit is advisory", { exact: false })).toHaveCount(1);
+    await expect(page.getByRole("heading", { name: "Current Project Review" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Decisions Awaiting Attention" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Past Accepted Decisions" })).toBeVisible();
 
     await page.goto(`${host.url}/projects/${entryId}/assets`);
     const find = page.getByRole("button", { name: "Find in project" });
@@ -1401,6 +1408,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(page.getByRole("heading", { name: "Portal Evolution", level: 1 })).toBeVisible();
 
     await page.goto(`${host.url}/projects/${entryId}/assets`);
+    await page.getByRole("combobox", { name: "Status", exact: true }).selectOption("all");
     const evidenceFilter = page.getByRole("combobox", { name: "Evidence", exact: true });
     await evidenceFilter.selectOption("cited");
     const assetRow = page.getByRole("link", { name: /Planning Model Evidence/u });
@@ -1419,58 +1427,30 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await page.getByRole("combobox", { name: "Evidence", exact: true }).selectOption("all");
     const uncitedAsset = page.getByRole("link", { name: /Uncited Fixture Evidence/u });
     if (scenario.name === "Local") {
-      await expect(uncitedAsset).toHaveAccessibleName(/Review the Roadmap journey/u);
+      await expect(uncitedAsset).toHaveAccessibleName(/Web Portal Validation/u);
     }
     await uncitedAsset.click();
     if (scenario.name === "Local") {
-      const nativeOwner = page.getByRole("link", {
-        name: "Review the Roadmap journey",
+      const assetOwner = page.getByRole("link", {
+        name: "Web Portal Validation",
         exact: true,
       });
-      await expect(nativeOwner).toBeVisible();
-      await expect(nativeOwner.locator("xpath=..")).toContainText(
-        "Owner: Ticket: Review the Roadmap journey",
+      await expect(assetOwner).toBeVisible();
+      await expect(assetOwner.locator("xpath=..")).toContainText(
+        "Owner: Effort: Web Portal Validation",
       );
-      await expect(
-        page.getByRole("link", {
-          name: "Build the Roadmap journey",
-          exact: true,
-        }),
-      ).toBeVisible();
-      await expect(
-        page
-          .getByRole("link", { name: "Build the Roadmap journey", exact: true })
-          .locator("xpath=.."),
-      ).toContainText("Produced For: Ticket: Build the Roadmap journey");
       await expect(page.getByText(/\.scratch\/portal\/issues\//u)).toHaveCount(0);
       await expect(page.locator("#relation\\.production\\.owner")).toHaveCount(0);
-      await expect(page.locator("#relation\\.production\\.produced-for")).toHaveCount(0);
-      await nativeOwner.click();
+      await assetOwner.click();
       await expect(page).toHaveURL(
         `${host.url}${planningLineageSubjectHref(entryId, {
-          kind: "native-subject",
-          id: ".scratch/portal/issues/02-review.md",
+          kind: "effort",
+          id: "effort:portal",
         })}`,
       );
       await page.goBack();
     }
-    const previewTab = context.waitForEvent("page");
-    await page.getByRole("link", { name: /View Content/u }).click();
-    const previewPage = await previewTab;
-    await expect(
-      previewPage.getByRole("heading", { name: "Uncited Fixture Evidence" }),
-    ).toBeVisible();
-    await expect(previewPage.getByText("current-checkout content", { exact: false })).toBeVisible();
-    await expect(
-      previewPage.getByRole("button", { name: "Return to Asset detail" }),
-    ).toHaveAttribute(
-      "data-bearing-return-href",
-      planningLineageSubjectHref(entryId, {
-        kind: "asset",
-        id: "asset:fixture-uncited",
-      }),
-    );
-    await previewPage.close();
+    await expect(page.getByRole("link", { name: /View Content/u })).toHaveCount(0);
     await expect(page).toHaveURL(
       `${host.url}${planningLineageSubjectHref(entryId, {
         kind: "asset",

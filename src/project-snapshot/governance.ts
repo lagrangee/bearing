@@ -117,7 +117,10 @@ const gateProjection = (input: Input): BuildResult<MilestoneGate>[] =>
                 acceptedDecision: data.Passage["Accepted decision"],
                 acceptedAt: projectExpectedSourceEventTime(data.Passage["Accepted at"]),
                 rationale: data.Passage.Rationale,
-                evidenceAssetIds: data.Passage.Evidence,
+                evidence: data.Passage.Evidence.map((entry) => ({
+                  locator: entry.Locator,
+                  relevance: entry.Relevance,
+                })),
                 exceptions: data.Passage.Exceptions,
               },
             }),
@@ -213,10 +216,6 @@ const authorityProjection = (input: Input): BuildResult<Authority>[] =>
         citations: citations(data),
         scope,
         baselineAssetIds: data.Baseline,
-        adoptions: (data.Adoptions ?? []).map((adoption) => ({
-          assetId: adoption.Asset,
-          decisionReference: adoption.Decision,
-        })),
       }),
     };
   });

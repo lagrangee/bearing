@@ -123,20 +123,14 @@ const normalizeResolution = (
 const normalizeAsset = (asset: ParsedAsset): ParsedAsset => ({
   ID: asset.ID,
   Title: asset.Title,
+  Purpose: asset.Purpose,
   Kind: asset.Kind,
-  Location: asset.Location,
+  Source: asset.Source,
   Owner: asset.Owner,
-  Producer: {
-    Kind: asset.Producer.Kind,
-    Name: asset.Producer.Name,
-    ...(asset.Producer.Reference === undefined ? {} : { Reference: asset.Producer.Reference }),
-  },
-  "Lifecycle source": asset["Lifecycle source"],
-  ...(asset.Disposition === undefined ? {} : { Disposition: asset.Disposition }),
+  "Added at": asset["Added at"],
+  Disposition: asset.Disposition,
   ...(asset["Superseded by"] === undefined ? {} : { "Superseded by": asset["Superseded by"] }),
-  ...(asset["Produced for"] === undefined ? {} : { "Produced for": asset["Produced for"] }),
-  ...(asset["Registered at"] === undefined ? {} : { "Registered at": asset["Registered at"] }),
-  ...(asset["Produced at"] === undefined ? {} : { "Produced at": asset["Produced at"] }),
+  ...(asset.Origin === undefined ? {} : { Origin: asset.Origin }),
   ...(asset["Superseded at"] === undefined ? {} : { "Superseded at": asset["Superseded at"] }),
   ...(asset["Archived at"] === undefined ? {} : { "Archived at": asset["Archived at"] }),
 });
@@ -218,7 +212,10 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
                   ? {}
                   : { "Accepted at": data.Passage["Accepted at"] }),
                 Rationale: data.Passage.Rationale,
-                Evidence: [...data.Passage.Evidence],
+                Evidence: data.Passage.Evidence.map((entry) => ({
+                  Locator: entry.Locator,
+                  Relevance: entry.Relevance,
+                })),
                 Exceptions: [...data.Passage.Exceptions],
               },
             }),
@@ -263,14 +260,6 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         ID: data.ID,
         Title: data.Title,
         Baseline: [...data.Baseline],
-        ...(data.Adoptions === undefined
-          ? {}
-          : {
-              Adoptions: data.Adoptions.map((adoption) => ({
-                Asset: adoption.Asset,
-                Decision: adoption.Decision,
-              })),
-            }),
         ...(data.Citations === undefined ? {} : { Citations: normalizeCitations(data.Citations) }),
       };
     case "asset-registry":

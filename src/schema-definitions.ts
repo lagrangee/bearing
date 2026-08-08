@@ -4,12 +4,12 @@ import { languageTagSchema } from "./language-tag";
 import { markdownPlainText } from "./markdown-document";
 import { decodeGitHubMattNativeScope } from "./providers/matt-skills-v1/github-native-scope";
 import {
-  displayAssetLocatorSchema,
+  assetSourceLocatorSchema,
   displaySourceLocatorSchema,
   nonBlankStringSchema,
   planningReferenceSchema,
 } from "./reference-schema";
-import { bearingOwnedEventTimeSchema, sourceOwnedEventTimeValueSchema } from "./source-event-time";
+import { bearingOwnedEventTimeSchema } from "./source-event-time";
 
 const uniqueArray = <T>(schema: z.ZodType<T>) =>
   z.array(schema).refine((items) => new Set(items).size === items.length, {
@@ -47,11 +47,15 @@ export const citationSchema = z.strictObject({
 export type Citation = z.infer<typeof citationSchema>;
 
 const citationsSchema = z.array(citationSchema).optional();
+const passageEvidenceSchema = z.strictObject({
+  Locator: displaySourceLocatorSchema,
+  Relevance: requiredPlainTextSchema,
+});
 const passageSchema = z.looseObject({
   "Accepted decision": requiredPlainTextSchema,
   "Accepted at": bearingOwnedEventTimeSchema.optional(),
   Rationale: requiredPlainTextSchema,
-  Evidence: uniqueArray(assetIdSchema),
+  Evidence: uniqueArray(passageEvidenceSchema),
   Exceptions: z.array(requiredPlainTextSchema),
 });
 const resolutionSchema = z.looseObject({
@@ -59,11 +63,6 @@ const resolutionSchema = z.looseObject({
   "Accepted at": bearingOwnedEventTimeSchema.optional(),
   Rationale: requiredPlainTextSchema,
   "Changed references": z.array(planningReferenceSchema),
-});
-const producerSchema = z.looseObject({
-  Kind: requiredPlainTextSchema,
-  Name: requiredPlainTextSchema,
-  Reference: nonBlankStringSchema.optional(),
 });
 const fingerprintSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const advisoryInputsSchema = uniqueArray(displaySourceLocatorSchema);
@@ -111,38 +110,42 @@ const planningAuditSchema = z
     });
   });
 export const assetSchema = z
-  .looseObject({
+  .strictObject({
     ID: assetIdSchema,
     Title: requiredPlainTextSchema,
-    Kind: requiredPlainTextSchema,
-    Location: displayAssetLocatorSchema,
-    Owner: planningReferenceSchema,
-    Producer: producerSchema,
-    "Lifecycle source": z.enum(["native", "registry"]),
-    Disposition: z.enum(["available", "superseded", "archived"]).optional(),
+    Purpose: requiredPlainTextSchema,
+    Kind: z.enum([
+      "specification",
+      "prototype",
+      "design",
+      "research",
+      "baseline",
+      "reference",
+      "runbook",
+    ]),
+    Source: assetSourceLocatorSchema,
+    Owner: z.union([
+      z.literal("project-summary:current"),
+      roadmapIdSchema,
+      effortIdSchema,
+      authorityIdSchema,
+    ]),
+    "Added at": bearingOwnedEventTimeSchema,
+    Disposition: z.enum(["active", "superseded", "archived"]),
     "Superseded by": assetIdSchema.optional(),
-    "Produced for": planningReferenceSchema.optional(),
-    "Registered at": bearingOwnedEventTimeSchema.optional(),
-    "Produced at": sourceOwnedEventTimeValueSchema.optional(),
+    Origin: requiredPlainTextSchema.optional(),
     "Superseded at": bearingOwnedEventTimeSchema.optional(),
     "Archived at": bearingOwnedEventTimeSchema.optional(),
   })
   .superRefine((asset, context) => {
-    if (asset.Kind === "execution-evidence" && asset["Produced for"] === undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["Produced for"],
-        message: "Execution Evidence requires Produced for.",
-      });
-    }
-    if (asset.Kind === "execution-evidence" && asset.Producer.Kind !== "executor-profile") {
-      context.addIssue({
-        code: "custom",
-        path: ["Producer", "Kind"],
-        message: "Execution Evidence requires executor-profile Producer provenance.",
-      });
-    }
     if (asset.Disposition === "superseded") {
+      if (asset["Superseded by"] === undefined || asset["Superseded at"] === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["Superseded by"],
+          message: "A superseded Asset requires an active replacement and event time.",
+        });
+      }
       if (asset["Archived at"] !== undefined) {
         context.addIssue({
           code: "custom",
@@ -153,7 +156,11 @@ export const assetSchema = z
       return;
     }
     if (asset.Disposition === "archived") {
-      if (asset["Superseded at"] !== undefined) {
+      if (
+        asset["Archived at"] === undefined ||
+        asset["Superseded at"] !== undefined ||
+        asset["Superseded by"] !== undefined
+      ) {
         context.addIssue({
           code: "custom",
           path: ["Superseded at"],
@@ -162,11 +169,15 @@ export const assetSchema = z
       }
       return;
     }
-    if (asset["Superseded at"] !== undefined || asset["Archived at"] !== undefined) {
+    if (
+      asset["Superseded by"] !== undefined ||
+      asset["Superseded at"] !== undefined ||
+      asset["Archived at"] !== undefined
+    ) {
       context.addIssue({
         code: "custom",
         path: ["Disposition"],
-        message: "Only a registry disposition may carry its Source Event Time.",
+        message: "Only a superseded or archived Asset may carry lifecycle event fields.",
       });
     }
   });
@@ -321,43 +332,13 @@ export const bearingSchema = z.discriminatedUnion("Type", [
         });
       }
     }),
-  z
-    .looseObject({
-      Type: z.literal("authority"),
-      ID: authorityIdSchema,
-      Title: requiredPlainTextSchema,
-      Baseline: uniqueArray(assetIdSchema),
-      Adoptions: z
-        .array(
-          z.strictObject({
-            Asset: assetIdSchema,
-            Decision: planningReviewIdSchema,
-          }),
-        )
-        .optional(),
-      Citations: citationsSchema,
-    })
-    .superRefine((authority, context) => {
-      const adoptions = authority.Adoptions ?? [];
-      const adoptedAssets = new Set<string>();
-      for (const [position, adoption] of adoptions.entries()) {
-        if (!authority.Baseline.includes(adoption.Asset)) {
-          context.addIssue({
-            code: "custom",
-            path: ["Adoptions", position, "Asset"],
-            message: "Authority Adoption must belong to the current baseline.",
-          });
-        }
-        if (adoptedAssets.has(adoption.Asset)) {
-          context.addIssue({
-            code: "custom",
-            path: ["Adoptions", position, "Asset"],
-            message: "Authority Adoption Assets must be unique.",
-          });
-        }
-        adoptedAssets.add(adoption.Asset);
-      }
-    }),
+  z.looseObject({
+    Type: z.literal("authority"),
+    ID: authorityIdSchema,
+    Title: requiredPlainTextSchema,
+    Baseline: uniqueArray(assetIdSchema),
+    Citations: citationsSchema,
+  }),
   z.looseObject({
     Type: z.literal("asset-registry"),
     Assets: z.array(assetSchema),

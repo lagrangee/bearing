@@ -2,6 +2,7 @@ import { z } from "zod";
 import { providerObservationSelectionSchema } from "../provider-observation-contract";
 import { mattNativeScopeKey } from "../providers/matt-skills-v1/native-subject";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
+import { displaySourceLocatorSchema } from "../reference-schema";
 import { bearingSourceEventTimeSchema } from "../source-event-time";
 import { uniqueIdentityArraySchema } from "./projection-identity";
 import { assetProjectionSchema } from "./schema-asset";
@@ -94,7 +95,13 @@ export const gateSchema = z
         acceptedDecision: semanticPlainTextSchema,
         acceptedAt: bearingSourceEventTimeSchema,
         rationale: semanticPlainTextSchema,
-        evidenceAssetIds: uniqueIdentityArraySchema(assetIdSchema, (assetId) => assetId),
+        evidence: uniqueIdentityArraySchema(
+          z.strictObject({
+            locator: displaySourceLocatorSchema,
+            relevance: semanticPlainTextSchema,
+          }),
+          (entry) => `${entry.locator}\0${entry.relevance}`,
+        ),
         exceptions: uniqueIdentityArraySchema(semanticPlainTextSchema, (exception) => exception),
       })
       .optional(),
@@ -247,13 +254,6 @@ export const authoritySchema = z.strictObject({
   ...citedNodeShape,
   scope: semanticPlainTextSchema,
   baselineAssetIds: z.array(assetIdSchema),
-  adoptions: uniqueIdentityArraySchema(
-    z.strictObject({
-      assetId: assetIdSchema,
-      decisionReference: reviewIdSchema,
-    }),
-    (adoption) => adoption.assetId,
-  ),
 });
 export const planningReviewSchema = z
   .strictObject({

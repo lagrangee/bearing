@@ -28,7 +28,6 @@ type SubjectRecord =
   | PlanningReview
   | AssetProjection;
 
-const unavailableTime: SourceEventTime = { availability: "unavailable" };
 const event = (
   role: string,
   label: string,
@@ -47,32 +46,6 @@ const trustedItems = <T>(
     | Readonly<{ validity: "partial"; items: readonly T[]; issues: readonly unknown[] }>
     | Readonly<{ validity: "invalid"; issues: readonly unknown[] }>,
 ): readonly T[] => (collection.validity === "invalid" ? [] : collection.items);
-
-const acceptedDecisionTime = (snapshot: LineageModelData, reference: string): SourceEventTime => {
-  return (
-    trustedItems(snapshot.reviews).find((review) => review.id === reference)?.resolution
-      ?.acceptedAt ?? unavailableTime
-  );
-};
-
-const assetTitle = (snapshot: LineageModelData, id: string): string =>
-  trustedItems(snapshot.assets).find((asset) => asset.id === id)?.title ?? id;
-
-const authorityAdoptionEvent = (
-  snapshot: LineageModelData,
-  authority: Authority,
-  assetId: string,
-): PlanningLineageEvent | undefined => {
-  const adoption = authority.adoptions.find((candidate) => candidate.assetId === assetId);
-  return adoption === undefined
-    ? undefined
-    : event(
-        "authority.adoption",
-        "Adopted",
-        acceptedDecisionTime(snapshot, adoption.decisionReference),
-        adoption.decisionReference,
-      );
-};
 
 const targetRecord = (
   snapshot: LineageModelData,
@@ -131,10 +104,7 @@ export const effortLifecycleEvents = (effort: Effort): readonly PlanningLineageE
 ];
 
 export const assetLifecycleEvents = (asset: AssetProjection): readonly PlanningLineageEvent[] => [
-  ...(asset.producedAt === undefined
-    ? []
-    : [event("asset.produced", "Produced", asset.producedAt)]),
-  event("asset.registered", "Registered", asset.registeredAt),
+  event("asset.added", "Added to Assets", asset.addedAt),
   ...(asset.supersededAt === undefined
     ? []
     : [event("asset.superseded", "Superseded", asset.supersededAt)]),
@@ -144,7 +114,7 @@ export const assetLifecycleEvents = (asset: AssetProjection): readonly PlanningL
 ];
 
 export const planningLineageEventsFor = (
-  snapshot: LineageModelData,
+  _snapshot: LineageModelData,
   subject: PlanningLineageSubject,
   record: SubjectRecord,
 ): readonly PlanningLineageEvent[] => {
@@ -158,17 +128,8 @@ export const planningLineageEventsFor = (
     case "effort": {
       return effortLifecycleEvents(record as Effort);
     }
-    case "authority": {
-      const authority = record as Authority;
-      return authority.adoptions.map((adoption) =>
-        event(
-          "authority.adoption",
-          `Adopted ${assetTitle(snapshot, adoption.assetId)}`,
-          acceptedDecisionTime(snapshot, adoption.decisionReference),
-          adoption.decisionReference,
-        ),
-      );
-    }
+    case "authority":
+      return [];
     case "planning-review": {
       const review = record as PlanningReview;
       return review.resolution === undefined
@@ -194,35 +155,9 @@ export const planningLineageRelationEvent = (
   ownerRecord: SubjectRecord,
   relationKey: PlanningLineageRelationKey,
   target: PlanningLineageSubject | undefined,
-  targetReference: string,
+  _targetReference: string,
 ): PlanningLineageEvent | undefined => {
   switch (relationKey) {
-    case "adoption.used-by": {
-      if (owner.kind === "authority") {
-        return authorityAdoptionEvent(snapshot, ownerRecord as Authority, targetReference);
-      }
-      if (owner.kind === "asset" && target?.kind === "authority") {
-        const authority = targetRecord(snapshot, target) as Authority | undefined;
-        return authority === undefined
-          ? undefined
-          : authorityAdoptionEvent(snapshot, authority, owner.id);
-      }
-      return undefined;
-    }
-    case "passage.evidence": {
-      if (owner.kind !== "gate") return undefined;
-      const passage = (ownerRecord as MilestoneGate).passage;
-      return passage === undefined
-        ? undefined
-        : event("gate.passage-accepted", "Passage accepted", passage.acceptedAt);
-    }
-    case "passage.used-by": {
-      if (owner.kind !== "asset" || target?.kind !== "gate") return undefined;
-      const gate = targetRecord(snapshot, target) as MilestoneGate | undefined;
-      return gate?.passage === undefined
-        ? undefined
-        : event("gate.passage-accepted", "Passage accepted", gate.passage.acceptedAt);
-    }
     case "asset.replacement": {
       if (owner.kind !== "asset") return undefined;
       const supersededAt = (ownerRecord as AssetProjection).supersededAt;

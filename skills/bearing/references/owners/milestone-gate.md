@@ -16,7 +16,9 @@ and accepted Passage record. The user alone accepts Passage.
    native evidence, relevant Authorities, and diagnostics. Completion: every criterion and evidence
    limitation is explicit.
 2. For Passage, compare Exit Criteria with evidence and exceptions. `ready-for-review` permits human
-   review; readiness never proves Passage. Unknown or incomplete evidence remains visible.
+   review; readiness never proves Passage. Record each accepted historical evidence item directly
+   on Passage as one concise durable locator and relevance note. Do not register Passage proof as
+   an Asset or derive it through an Asset reverse relation. Unknown or incomplete evidence remains visible.
    Completion: every criterion, exception, and unfinished dependency is accounted for.
 3. Author the exact Gate candidate and obtain acceptance. Citation changes remain with the citing
    Gate; another domain changes only when its owner was selected by root. Completion: accepted
@@ -26,7 +28,8 @@ and accepted Passage record. The user alone accepts Passage.
 
 ## After this operation
 
-- **Required:** Keep evidence, readiness, and Passage as separate facts.
+- **Required:** Keep direct Passage evidence, readiness, and human Passage acceptance as separate
+  facts.
 - **Consider:** A material accepted Passage may justify Brief refresh or a Roadmap horizon decision.
 - **Do not infer:** Green tests, resolved Tickets, diagnostics, provider completion, or an accepted
   Effort transition passes the Gate.

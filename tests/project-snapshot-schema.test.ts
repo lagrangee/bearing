@@ -1,10 +1,8 @@
 import { expect, test } from "bun:test";
 import { createProviderScopeObservation } from "../src/native-work-provider";
-import type { AssetProjection } from "../src/project-snapshot/contract";
 import { buildMattNativeSourceRecords } from "../src/project-snapshot/native-work-sources";
 import { buildPlanningLineageProjection } from "../src/project-snapshot/planning-lineage";
 import {
-  assetProjectionSchema,
   gateSchema,
   planningReviewSchema,
   projectBriefSchema,
@@ -406,107 +404,6 @@ test("keeps Summary and Brief time provenance UTC and independently optional", (
   ).toBe(false);
 });
 
-test("keeps execution evidence provenance self-contained in cached Assets", () => {
-  // Given: an execution-evidence Asset with valid structural metadata.
-  const asset = {
-    id: "asset:evidence",
-    title: "Execution Evidence",
-    source: assetRecord.reference,
-    citations: [],
-    kind: "execution-evidence",
-    owner: "effort:test",
-    producer: { kind: "executor-profile", name: "generic-agent" },
-    lifecycleSource: "native",
-    registeredAt: { availability: "unavailable" },
-    producedFor: ".scratch/work/issues/01-work.md",
-    displayLocation: "evidence/report.md",
-    contentAvailability: "available",
-    contentShape: "file",
-    evidenceRoles: ["execution-evidence"],
-    authorityAdoptions: [],
-    passageEvidence: [],
-  };
-  const withAsset = (value: object) => ({
-    ...validSnapshot,
-    assets: { validity: "available", items: [value] },
-    lineage: buildPlanningLineageProjection({
-      ...validSnapshot,
-      assets: { validity: "available", items: [value as AssetProjection] },
-    }),
-  });
-
-  // When / Then: missing work provenance or the wrong Producer kind is rejected from cache.
-  expect(projectSnapshotSchema.safeParse(withAsset(asset)).success).toBe(true);
-  expect(
-    projectSnapshotSchema.safeParse(withAsset({ ...asset, producedFor: undefined })).success,
-  ).toBe(false);
-  expect(
-    projectSnapshotSchema.safeParse(
-      withAsset({ ...asset, producer: { kind: "agent", name: "fixture" } }),
-    ).success,
-  ).toBe(false);
-});
-
-test("keeps Asset lifecycle source, disposition, and supersession consistent", () => {
-  const asset = {
-    id: "asset:evidence",
-    title: "Historical evidence",
-    source: assetRecord.reference,
-    citations: [],
-    kind: "verification-report",
-    owner: "effort:test",
-    producer: { kind: "agent", name: "fixture" },
-    lifecycleSource: "registry",
-    registeredAt: { availability: "unavailable" },
-    disposition: "superseded",
-    supersededBy: "asset:replacement",
-    supersededAt: { availability: "unavailable" },
-    displayLocation: "evidence/report.md",
-    contentAvailability: "available",
-    contentShape: "file",
-    evidenceRoles: [],
-    authorityAdoptions: [],
-    passageEvidence: [],
-  };
-
-  expect(assetProjectionSchema.safeParse(asset).success).toBe(true);
-  for (const inconsistent of [
-    { ...asset, disposition: undefined, supersededBy: undefined },
-    { ...asset, lifecycleSource: "native", disposition: "available", supersededBy: undefined },
-    { ...asset, supersededBy: undefined },
-    { ...asset, disposition: "available" },
-    { ...asset, supersededBy: asset.id },
-  ]) {
-    expect(assetProjectionSchema.safeParse(inconsistent).success).toBe(false);
-  }
-});
-
-test("rejects duplicate Gate Passage identities in an Asset reverse relation cache", () => {
-  const asset = {
-    id: "asset:evidence",
-    title: "Execution Evidence",
-    source: assetRecord.reference,
-    citations: [],
-    kind: "execution-evidence",
-    owner: "effort:test",
-    producer: { kind: "executor-profile", name: "generic-agent" },
-    lifecycleSource: "native",
-    registeredAt: { availability: "unavailable" },
-    producedFor: ".scratch/work/issues/01-work.md",
-    displayLocation: "evidence/report.md",
-    contentAvailability: "available",
-    contentShape: "file",
-    evidenceRoles: ["execution-evidence", "passage-evidence"],
-    authorityAdoptions: [],
-    passageEvidence: [
-      { gateId: "gate:one", source: assetRecord.reference },
-      { gateId: "gate:one", source: assetRecord.reference },
-    ],
-  };
-
-  expect(assetProjectionSchema.safeParse(asset).success).toBe(false);
-});
-
 test("rejects absolute and traversing display locators", () => {
   const withLocator = (displayLocator: string) => ({
     ...validSnapshot,
@@ -516,122 +413,6 @@ test("rejects absolute and traversing display locators", () => {
     false,
   );
   expect(projectSnapshotSchema.safeParse(withLocator("../secret.md")).success).toBe(false);
-});
-
-test("accepts only repository-relative local Asset Locations", () => {
-  const baseAsset = {
-    id: "asset:local",
-    title: "Local context",
-    source: assetRecord.reference,
-    evidenceRoles: [],
-    citations: [],
-    authorityAdoptions: [],
-    passageEvidence: [],
-    kind: "project-context",
-    owner: "effort:test",
-    producer: { kind: "planning-skill", name: "fixture" },
-    lifecycleSource: "registry",
-    registeredAt: { availability: "unavailable" },
-    disposition: "available",
-    displayLocation: "evidence/report.md",
-    contentAvailability: "available",
-    contentShape: "file",
-  };
-
-  expect(assetProjectionSchema.safeParse(baseAsset).success).toBe(true);
-  expect(assetProjectionSchema.safeParse({ ...baseAsset, contentShape: undefined }).success).toBe(
-    false,
-  );
-  expect(
-    assetProjectionSchema.safeParse({
-      ...baseAsset,
-      contentAvailability: "missing",
-      contentShape: "file",
-    }).success,
-  ).toBe(false);
-  expect(
-    assetProjectionSchema.safeParse({ ...baseAsset, displayLocation: "evidence/reports" }).success,
-  ).toBe(true);
-  for (const displayLocation of [
-    "/tmp/report.md",
-    "../report.md",
-    "https://example.test/report.md",
-    "source:0123456789abcdef",
-  ]) {
-    expect(assetProjectionSchema.safeParse({ ...baseAsset, displayLocation }).success).toBe(false);
-  }
-});
-
-test("keeps Asset Evidence roles explicit, independent, and coexisting", () => {
-  const contextualAsset = {
-    id: "asset:context",
-    title: "Context without evidence",
-    source: assetRecord.reference,
-    evidenceRoles: [],
-    citations: [],
-    authorityAdoptions: [],
-    passageEvidence: [],
-    kind: "project-context",
-    owner: "gate:one",
-    producer: {
-      kind: "planning-skill",
-      name: "fixture",
-      reference: "planning-review:context",
-    },
-    lifecycleSource: "registry",
-    registeredAt: { availability: "unavailable" },
-    disposition: "available",
-    producedFor: "effort:test",
-    displayLocation: "docs/context",
-    contentAvailability: "available",
-    contentShape: "directory",
-  };
-  expect(assetProjectionSchema.safeParse(contextualAsset).success).toBe(true);
-
-  const allRoles = {
-    ...contextualAsset,
-    kind: "execution-evidence",
-    producer: {
-      kind: "executor-profile",
-      name: "generic-agent",
-      reference: "executor:generic",
-    },
-    evidenceRoles: [
-      "execution-evidence",
-      "planning-citation",
-      "authority-adoption",
-      "passage-evidence",
-    ],
-    citations: [
-      {
-        assetId: "asset:context",
-        note: "Direct planning use.",
-        citingReference: "effort:test",
-        source: assetRecord.reference,
-      },
-    ],
-    authorityAdoptions: [
-      {
-        authorityId: "authority:design",
-        decisionReference: "planning-review:adopt-design",
-        source: assetRecord.reference,
-      },
-    ],
-    passageEvidence: [{ gateId: "gate:one", source: assetRecord.reference }],
-  };
-  expect(assetProjectionSchema.safeParse(allRoles).success).toBe(true);
-  expect(
-    assetProjectionSchema.safeParse({
-      ...contextualAsset,
-      evidenceRoles: ["planning-citation"],
-    }).success,
-  ).toBe(false);
-  expect(
-    assetProjectionSchema.safeParse({
-      ...allRoles,
-      evidenceRoles: ["execution-evidence", "planning-citation", "passage-evidence"],
-    }).success,
-  ).toBe(false);
 });
 
 test("rejects a NUL byte in Source and Asset display locators", () => {
@@ -724,7 +505,12 @@ test("preserves the complete accepted Gate Passage decision", () => {
       acceptedDecision: "Pass the Gate.",
       acceptedAt: { availability: "unavailable" },
       rationale: "The accepted evidence is complete.",
-      evidenceAssetIds: [],
+      evidence: [
+        {
+          locator: ".scratch/evidence/overview.md",
+          relevance: "Records the accepted reading-path proof.",
+        },
+      ],
       exceptions: [],
     },
   };

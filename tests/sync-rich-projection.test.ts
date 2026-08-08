@@ -48,14 +48,12 @@ Type: asset-registry
 Assets:
   - ID: asset:design
     Title: Current Mock
+    Purpose: Preserve the current design mock.
     Kind: design
-    Location: .scratch/work/map.md
+    Source: .scratch/work/map.md
     Owner: effort:test
-    Producer:
-      Kind: planning-skill
-      Name: prototype
-    Lifecycle source: registry
-    Disposition: available
+    Added at: null
+    Disposition: active
 ---
 
 # Asset Registry
@@ -144,7 +142,7 @@ What follows the completed fixture?
     const sitemap = await readFile(result.sitemapPath, "utf8");
 
     expect(sitemap).toContain("`authority:product-design` | Product Design | current");
-    expect(sitemap).toContain("`asset:design` | Current Mock | available");
+    expect(sitemap).toContain("`asset:design` | Current Mock | active");
     expect(sitemap).toContain("citation-count=1");
     expect(sitemap).toContain("`planning-review:balance` | Portfolio balance | pending");
     expect(sitemap).toContain("`planning-audit:current` | Current Audit | stale");

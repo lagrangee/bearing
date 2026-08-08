@@ -246,13 +246,12 @@ Type: asset-registry
 Assets:
   - ID: asset:missing
     Title: Missing evidence
-    Kind: verification-report
-    Location: evidence/**missing**.md
+    Purpose: Exercise invalid Asset source text.
+    Kind: reference
+    Source: evidence/**missing**.md
     Owner: effort:test
-    Producer:
-      Kind: executor-profile
-      Name: generic-agent
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
 ---
 
 # Asset Registry
@@ -304,11 +303,6 @@ Input fingerprint: sha256:${"a".repeat(64)}
       code: "matt.local.lifecycle.unknown",
       target: ".scratch/work/map.md",
       message: "Map Status must be active or resolved.",
-    },
-    {
-      code: "missing-asset-input",
-      target: undefined,
-      message: "Referenced Asset Location is unavailable.",
     },
     {
       code: "invalid-bearing-schema",

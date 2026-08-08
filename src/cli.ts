@@ -9,12 +9,10 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 import packageMetadata from "../package.json";
 import { createPlanningLineageAgentHandoff } from "./agent-planning-lineage-handoff";
-import { registerAsset } from "./asset-registration";
 import { CatalogCommandUsageError, runCatalogCommand } from "./catalog/cli";
 import {
   executorNominationAssessmentSchema,
   resolveExecutorNominations,
-  resolveExecutorWritebackProfile,
 } from "./executor-registration";
 import { writeInspectBenchmarkMetrics } from "./inspect-benchmark";
 import { installKit, uninstallGlobalKit } from "./installer";
@@ -54,7 +52,6 @@ Usage:
   bearing configure inspect [--repo <path>]
   bearing configure plan --intent <activate|deactivate> [--repo <path>] [--surface <agent-skills|claude>] [--provider-contract <repository-relative-path>] [--executor-mode <skip|configure>] [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>]
   bearing configure apply --intent <activate|deactivate> --plan-token <sha256> [configuration options from the reviewed plan]
-  bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [--producer-reference <reference>] [--produced-for <reference>] [--produced-at <date-or-ISO-instant>]
   bearing catalog <inspect|rename|unregister|relink|reset> [options]
   bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
   bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
@@ -70,7 +67,6 @@ Commands:
   <none>   Run Global Kit Install, Update, Repair, or Uninstall in one terminal wizard.
   install  Install the global bundle, CLI, and skills for selected Agent Surfaces.
   configure  Inspect, seal, and apply one exact Repository Configuration write set.
-  asset    Register factual durable-output metadata in the repository Asset Registry.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
   sync     Rebuild deterministic diagnostics and the Project Sitemap under .bearing/cache/.
   reconcile-native  Re-observe only the native subjects and relations affected by one completed Matt transaction.
@@ -288,91 +284,6 @@ const runInstall = async (args: readonly string[]): Promise<void> => {
   process.stdout.write(
     `Outcome: ${result.outcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n`,
   );
-};
-
-const runAssetCommand = async (args: readonly string[]): Promise<void> => {
-  const parsed = parseArgs({
-    args: [...args],
-    options: {
-      repo: { type: "string" },
-      id: { type: "string" },
-      title: { type: "string" },
-      kind: { type: "string" },
-      location: { type: "string" },
-      owner: { type: "string" },
-      "producer-kind": { type: "string" },
-      "producer-name": { type: "string" },
-      "producer-reference": { type: "string" },
-      "executor-capability": { type: "string" },
-      "produced-for": { type: "string" },
-      "produced-at": { type: "string" },
-    },
-    allowPositionals: true,
-    strict: true,
-  });
-  if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "register") {
-    throw new Error("Usage: bearing asset register [options]");
-  }
-  const repoRoot = resolve(parsed.values.repo ?? process.cwd());
-  let producerName = parsed.values["producer-name"];
-  if (
-    parsed.values["producer-kind"] === "executor-profile" &&
-    parsed.values["executor-capability"] === undefined
-  ) {
-    throw new Error("--producer-kind executor-profile requires the actual --executor-capability.");
-  }
-  if (parsed.values["executor-capability"] !== undefined) {
-    if (parsed.values["producer-kind"] !== "executor-profile") {
-      throw new Error("--executor-capability requires --producer-kind executor-profile.");
-    }
-    const writebackProfile = await resolveExecutorWritebackProfile(
-      repoRoot,
-      parsed.values["executor-capability"],
-    );
-    if (producerName !== undefined && producerName !== writebackProfile.profileKey) {
-      throw new Error(
-        `--producer-name does not match the actual executor capability; expected ${writebackProfile.profileKey}.`,
-      );
-    }
-    producerName = writebackProfile.profileKey;
-  }
-  const required = {
-    id: parsed.values.id,
-    title: parsed.values.title,
-    kind: parsed.values.kind,
-    location: parsed.values.location,
-    owner: parsed.values.owner,
-    producerKind: parsed.values["producer-kind"],
-    producerName,
-  };
-  if (Object.values(required).some((value) => value === undefined)) {
-    throw new Error("Asset registration requires identity, location, owner, kind and producer.");
-  }
-  const result = await registerAsset({
-    repoRoot,
-    id: required.id ?? "",
-    title: required.title ?? "",
-    kind: required.kind ?? "",
-    location: required.location ?? "",
-    owner: required.owner ?? "",
-    producer: {
-      kind: required.producerKind as "executor-profile" | "agent-capability" | "external-source",
-      name: required.producerName ?? "",
-      ...(parsed.values["producer-reference"] === undefined
-        ? {}
-        : { reference: parsed.values["producer-reference"] }),
-    },
-    ...(parsed.values["executor-capability"] === undefined
-      ? {}
-      : { executorCapabilityLocator: parsed.values["executor-capability"] }),
-    ...(parsed.values["produced-for"] === undefined
-      ? {}
-      : { producedFor: parsed.values["produced-for"] }),
-    ...(parsed.values["produced-at"] === undefined
-      ? {}
-      : { producedAt: parsed.values["produced-at"] }),
-  });
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 };
 
 const runSyncCommand = async (args: readonly string[]): Promise<void> => {
@@ -726,10 +637,6 @@ const main = async (): Promise<void> => {
   }
   if (command === "catalog") {
     process.stdout.write(await runCatalogCommand(args, homeDirectory()));
-    return;
-  }
-  if (command === "asset") {
-    await runAssetCommand(args);
     return;
   }
   if (command === "sync") {

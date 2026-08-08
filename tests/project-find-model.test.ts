@@ -158,7 +158,10 @@ test("supports representative Chinese and English field recall without repositor
   expect(tokenizeProjectFindText("中文阅读路径").length).toBeGreaterThan(1);
   const chinese = index.search("中文阅读路径")[0];
   expect(chinese?.subject).toEqual({ kind: "gate", id: "gate:two" });
-  expect(index.search(".scratch/evidence/planning-model")).toHaveLength(0);
+  expect(index.search(".scratch/evidence/planning-model")[0]?.subject).toEqual({
+    kind: "asset",
+    id: "asset:planning-model-evidence",
+  });
   expect(index.search("Project Summary has one malformed section")).toHaveLength(0);
 });
 

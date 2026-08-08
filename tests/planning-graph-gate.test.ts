@@ -137,13 +137,12 @@ Type: asset-registry
 Assets:
   - ID: asset:second-evidence
     Title: Second evidence
-    Kind: verification-report
-    Location: evidence/second.md
+    Purpose: Preserve the second Effort evidence.
+    Kind: reference
+    Source: evidence/second.md
     Owner: effort:second
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
 ---
 
 # Asset Registry

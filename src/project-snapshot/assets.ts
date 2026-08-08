@@ -1,9 +1,5 @@
 import type { AssetContentObservation } from "../asset-inputs";
-import {
-  projectExpectedSourceEventTime,
-  projectOptionalSourceEventTime,
-} from "../source-event-time";
-import { deriveAssetEvidenceRoles } from "./asset-evidence-roles";
+import { projectExpectedSourceEventTime } from "../source-event-time";
 import type {
   AssetProjection,
   CollectionProjection,
@@ -24,20 +20,6 @@ type Result = Readonly<{ item?: AssetProjection; issue?: ProjectionIssue; source
 
 const compareUtf8 = (left: string, right: string): number =>
   Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
-const contentAvailability = (
-  observations: readonly AssetContentObservation[],
-  id: string,
-  location: string,
-): "available" | "missing" | "unreadable" =>
-  observations.find((observation) => observation.id === id && observation.location === location)
-    ?.availability ?? "unreadable";
-const contentShape = (
-  observations: readonly AssetContentObservation[],
-  id: string,
-  location: string,
-): "file" | "directory" | "unavailable" =>
-  observations.find((observation) => observation.id === id && observation.location === location)
-    ?.shape ?? "unavailable";
 const projection = (results: readonly Result[]): CollectionProjection<AssetProjection> => {
   const items = results.flatMap((result) => (result.item === undefined ? [] : [result.item]));
   const issues = results.flatMap((result) => (result.issue === undefined ? [] : [result.issue]));
@@ -84,40 +66,22 @@ export const buildAssetProjection = async (
       id: asset.ID,
       title: asset.Title,
       source: source.reference,
-      evidenceRoles: deriveAssetEvidenceRoles({
-        kind: asset.Kind,
-        citations: [],
-        authorityAdoptions: [],
-        passageEvidence: [],
-      }),
       citations: [],
-      authorityAdoptions: [],
-      passageEvidence: [],
+      authorityBaselines: [],
+      purpose: asset.Purpose,
       kind: asset.Kind,
+      sourceLocator: asset.Source,
       owner: asset.Owner,
-      producer: {
-        kind: asset.Producer.Kind,
-        name: asset.Producer.Name,
-        ...(asset.Producer.Reference === undefined ? {} : { reference: asset.Producer.Reference }),
-      },
-      lifecycleSource: asset["Lifecycle source"],
-      registeredAt: projectExpectedSourceEventTime(asset["Registered at"]),
-      ...(() => {
-        const producedAt = projectOptionalSourceEventTime(asset["Produced at"]);
-        return producedAt === undefined ? {} : { producedAt };
-      })(),
-      ...(asset.Disposition === undefined ? {} : { disposition: asset.Disposition }),
+      addedAt: projectExpectedSourceEventTime(asset["Added at"]),
+      disposition: asset.Disposition,
       ...(asset["Superseded by"] === undefined ? {} : { supersededBy: asset["Superseded by"] }),
-      ...(asset["Lifecycle source"] === "registry" && asset.Disposition === "superseded"
+      ...(asset.Disposition === "superseded"
         ? { supersededAt: projectExpectedSourceEventTime(asset["Superseded at"]) }
         : {}),
-      ...(asset["Lifecycle source"] === "registry" && asset.Disposition === "archived"
+      ...(asset.Disposition === "archived"
         ? { archivedAt: projectExpectedSourceEventTime(asset["Archived at"]) }
         : {}),
-      ...(asset["Produced for"] === undefined ? {} : { producedFor: asset["Produced for"] }),
-      displayLocation: asset.Location,
-      contentAvailability: contentAvailability(input.contentObservations, asset.ID, asset.Location),
-      contentShape: contentShape(input.contentObservations, asset.ID, asset.Location),
+      ...(asset.Origin === undefined ? {} : { origin: asset.Origin }),
     });
     results.push(
       projected.success

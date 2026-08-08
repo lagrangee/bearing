@@ -2,7 +2,7 @@ import type { MouseEvent } from "react";
 import { Icons } from "./icons";
 
 export function AssetRow({
-  evidenceRoles,
+  evidenceSummary,
   href,
   kind,
   onOpen,
@@ -10,7 +10,7 @@ export function AssetRow({
   primaryFocusKey,
   title,
 }: {
-  readonly evidenceRoles: readonly string[];
+  readonly evidenceSummary: string;
   readonly href: string;
   readonly kind: string;
   readonly onOpen: (event: MouseEvent<HTMLAnchorElement>) => void;
@@ -18,8 +18,6 @@ export function AssetRow({
   readonly primaryFocusKey?: string | undefined;
   readonly title: string;
 }) {
-  const evidenceSummary =
-    evidenceRoles.length === 0 ? "No explicit evidence role" : evidenceRoles.join(" · ");
   return (
     <div className="asset-row">
       <a

@@ -7,15 +7,9 @@ export type AssetDirectEvidence = Readonly<{
     citingReference: string;
     source: string;
   }>[];
-  authorityAdoptions: readonly Readonly<{
+  authorityBaselines: readonly Readonly<{
     assetId: string;
     authorityId: string;
-    decisionReference: string;
-    source: string;
-  }>[];
-  passageEvidence: readonly Readonly<{
-    assetId: string;
-    gateId: string;
     source: string;
   }>[];
 }>;
@@ -42,8 +36,7 @@ export const collectAssetDirectEvidence = (
   records: readonly SnapshotSourceInput[],
 ): AssetDirectEvidence => {
   const citations: AssetDirectEvidence["citations"][number][] = [];
-  const authorityAdoptions: AssetDirectEvidence["authorityAdoptions"][number][] = [];
-  const passageEvidence: AssetDirectEvidence["passageEvidence"][number][] = [];
+  const authorityBaselines: AssetDirectEvidence["authorityBaselines"][number][] = [];
   for (const record of parsedCanonicalRecords(records)) {
     const data = record.data;
     const directCitations = (() => {
@@ -70,24 +63,14 @@ export const collectAssetDirectEvidence = (
       });
     }
     if (data.Type === "authority") {
-      for (const adoption of data.Adoptions ?? []) {
-        authorityAdoptions.push({
-          assetId: adoption.Asset,
-          authorityId: data.ID,
-          decisionReference: adoption.Decision,
-          source: record.source.reference,
-        });
-      }
-    }
-    if (data.Type === "milestone-gate") {
-      for (const assetId of data.Passage?.Evidence ?? []) {
-        passageEvidence.push({
+      for (const assetId of data.Baseline) {
+        authorityBaselines.push({
           assetId,
-          gateId: data.ID,
+          authorityId: data.ID,
           source: record.source.reference,
         });
       }
     }
   }
-  return { citations, authorityAdoptions, passageEvidence };
+  return { citations, authorityBaselines };
 };

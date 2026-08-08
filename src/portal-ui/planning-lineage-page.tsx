@@ -155,19 +155,11 @@ const technicalDetailsSelection = (
       ...(asset === undefined
         ? []
         : [
-            { label: "Location", value: asset.displayLocation, code: true },
-            ...(asset.kind === "prototype"
-              ? [{ label: "Preview", value: "Not offered for prototype Assets" }]
-              : asset.contentShape === "directory"
-                ? [{ label: "Preview", value: "Not offered for directory Assets" }]
-                : []),
-            {
-              label: "Producer",
-              value: `${asset.producer.kind} / ${asset.producer.name}`,
-            },
-            ...(asset.producer.reference === undefined
+            { label: "Source", value: asset.sourceLocator, code: true },
+            { label: "Disposition", value: asset.disposition },
+            ...(asset.origin === undefined
               ? []
-              : [{ label: "Producer reference", value: asset.producer.reference, code: true }]),
+              : [{ label: "Origin", value: asset.origin, code: true }]),
           ]),
     ],
     source,
@@ -1313,7 +1305,7 @@ export function PlanningLineagePage({
               "production.owned-assets",
             ])
           : model.subject.kind === "asset"
-            ? new Set(["production.owner", "production.produced-for"])
+            ? new Set(["production.owner"])
             : model.subject.kind === "native-scope"
               ? new Set(["native-work.members"])
               : new Set<string>();

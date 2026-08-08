@@ -75,7 +75,7 @@ const requiredExecutionProfileSections = [
   "Writeback Behavior",
   "Durable Evidence",
   "Fallback Receipt",
-  "Producer Provenance",
+  "Asset Admission",
 ] as const;
 export const executorRegistrationSchema = z
   .strictObject({
@@ -442,9 +442,9 @@ Use only durable repository artifacts or stable native execution outputs that su
 
 Create \`.scratch/<slug>/evidence/<work-item>-${registration.profileKey}.md\` when the execution leaves no durable outcome and verification record. Record Work item, Execution profile, Outcome, Verification, and Produced artifacts.
 
-## Producer Provenance
+## Asset Admission
 
-Register execution-produced Assets with \`Kind: executor-profile\` and \`Name: ${registration.profileKey}\`. Use \`Reference\` only for a durable native locator.
+Do not register execution output as an Asset automatically. If an output has continuing planning value or is a first-class durable project artifact, return it to the initiating Agent for an explicit Asset admission decision. Ordinary source changes, commits, receipts, and verification evidence remain execution outputs, not Assets.
 `,
     "utf8",
   );

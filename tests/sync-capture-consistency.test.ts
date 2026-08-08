@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile, rm } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createProjectMaterializer } from "../src/portal/project-materializer";
 import type { MattProviderFactory } from "../src/provider-observation-acquisition";
@@ -74,59 +74,6 @@ test("materializes report, Sitemap, Snapshot, and Receipt from one captured gene
   const next = await prepareSync(root);
   expect(next.fingerprint).not.toBe(captured.fingerprint);
   expect(next.changed).toBe(true);
-});
-
-test("keeps Asset availability at the captured state until the next Sync", async () => {
-  const root = await createValidBearingRepo();
-  const assetLocation = "evidence/captured.md";
-  await writeFixture(root, assetLocation, "captured evidence\n");
-  await writeFixture(
-    root,
-    ".bearing/state/assets.md",
-    `---
-Type: asset-registry
-Assets:
-  - ID: asset:captured
-    Title: Captured evidence
-    Kind: verification-report
-    Location: ${assetLocation}
-    Owner: effort:test
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
----
-
-# Assets
-`,
-  );
-
-  const first = await createProjectMaterializer({
-    packageVersion: "0.0.0-test",
-    dependencies: {
-      prepare: async (repoRoot) => {
-        const plan = await prepareSync(repoRoot);
-        await rm(join(repoRoot, assetLocation));
-        return plan;
-      },
-    },
-  }).run(root, "force");
-  expect(first.snapshot.assets).toMatchObject({
-    validity: "available",
-    items: [{ id: "asset:captured", contentAvailability: "available" }],
-  });
-
-  const second = await createProjectMaterializer({ packageVersion: "0.0.0-test" }).run(
-    root,
-    "force",
-  );
-  expect(second.snapshot.assets).toMatchObject({
-    validity: "available",
-    items: [{ id: "asset:captured", contentAvailability: "missing" }],
-  });
-  expect(second.snapshot.basis.sitemapFingerprint).not.toBe(
-    first.snapshot.basis.sitemapFingerprint,
-  );
 });
 
 test("uses generation-captured interpretation documents without a second provider read", async () => {

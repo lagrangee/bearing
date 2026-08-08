@@ -13,9 +13,9 @@ export const G1_REGRESSION_CORE = [
     files: ["node-tests/repository-lifecycle.test.ts"],
   },
   {
-    key: "asset-registration",
-    seam: "repository-lifecycle-cli",
-    files: ["tests/asset-registration-cli.test.ts"],
+    key: "asset-contract",
+    seam: "planning-asset-contract",
+    files: ["tests/asset-kiss-contract.test.ts", "tests/portal-asset-source-probe.test.ts"],
   },
   {
     key: "package-topology",

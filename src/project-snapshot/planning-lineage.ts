@@ -680,10 +680,8 @@ const assetAncestorContextRelation = (
 ): PlanningLineageRelation => {
   const directReferences = [
     asset.owner,
-    ...(asset.producedFor === undefined ? [] : [asset.producedFor]),
     ...asset.citations.map((citation) => citation.citingReference),
-    ...asset.authorityAdoptions.map((adoption) => adoption.authorityId),
-    ...asset.passageEvidence.map((evidence) => evidence.gateId),
+    ...asset.authorityBaselines.map((baseline) => baseline.authorityId),
   ];
   const targets = new Map<string, RelationTarget>();
   let incomplete = false;
@@ -853,15 +851,6 @@ const semanticSectionsFor = (
           "authority.baseline",
           authority.baselineAssetIds.length === 0 ? "confirmed-empty" : "available",
         ),
-        section(
-          "authority.adoption-decisions",
-          authority.adoptions.length === 0 ? "confirmed-empty" : "available",
-        ),
-        section(
-          "authority.event-history",
-          authority.adoptions.length === 0 ? "confirmed-empty" : "available",
-        ),
-        section("authority.superseded-context", "unavailable"),
       ];
     }
     case "planning-review": {
@@ -891,21 +880,13 @@ const semanticSectionsFor = (
       ];
     }
     case "asset": {
-      const asset = record as AssetRecord;
       return [
         section("asset.event-history"),
         section("asset.identity"),
         section("asset.ownership"),
         section("asset.lifecycle"),
-        section("asset.evidence-roles"),
-        ...(asset.kind === "prototype" || asset.contentShape === "directory"
-          ? []
-          : [
-              section(
-                "asset.content",
-                asset.contentAvailability === "missing" ? "confirmed-empty" : "available",
-              ),
-            ]),
+        section("asset.source"),
+        section("asset.evidence"),
       ];
     }
   }
@@ -942,14 +923,6 @@ const relationsForGate = (input: Input, gate: GateRecord): PlanningLineageRelati
     gate.effortIds,
   ),
   citationRelation(input, gate.citations),
-  directRelation(
-    input,
-    "passage.evidence",
-    "Passage Evidence",
-    "accepted with evidence",
-    "many",
-    gate.passage?.evidenceAssetIds ?? [],
-  ),
 ];
 
 const workBindingRelation = (input: Input, effort: EffortRecord): PlanningLineageRelation => {
@@ -1038,21 +1011,6 @@ const relationsForAuthority = (
     "many",
     authority.baselineAssetIds,
   ),
-  authority.adoptions.length === 0
-    ? confirmedNone("adoption.used-by", "Authority Adoption", "adopts", "many")
-    : presentRelation(
-        "adoption.used-by",
-        "Authority Adoption",
-        "adopts",
-        "many",
-        authority.adoptions.map((adoption) =>
-          targetForReference(
-            input,
-            adoption.assetId,
-            `Accepted Decision: ${adoption.decisionReference}`,
-          ),
-        ),
-      ),
   citationRelation(input, authority.citations),
 ];
 
@@ -1080,11 +1038,6 @@ const relationsForAsset = (input: Input, asset: AssetRecord): PlanningLineageRel
   presentRelation("production.owner", "Owner", "is owned by", "one", [
     targetForPlanningOrNativeReference(input, asset.owner),
   ]),
-  asset.producedFor === undefined
-    ? confirmedNone("production.produced-for", "Produced For", "was produced for", "one")
-    : presentRelation("production.produced-for", "Produced For", "was produced for", "one", [
-        targetForPlanningOrNativeReference(input, asset.producedFor),
-      ]),
   reverseReferenceRelation(
     input,
     "planning-use.cited-by",
@@ -1098,25 +1051,14 @@ const relationsForAsset = (input: Input, asset: AssetRecord): PlanningLineageRel
   ),
   reverseReferenceRelation(
     input,
-    "adoption.used-by",
-    "Authority Adoption",
-    "is adopted by",
-    asset.authorityAdoptions.map((adoption) => ({
-      reference: adoption.authorityId,
-      note: `Accepted Decision: ${adoption.decisionReference}; Source ${adoption.source}.`,
+    "adoption.current-baseline",
+    "Authority Baselines",
+    "is a baseline for",
+    asset.authorityBaselines.map((baseline) => ({
+      reference: baseline.authorityId,
+      note: `Current Authority baseline; Source ${baseline.source}.`,
     })),
     [input.authorities],
-  ),
-  reverseReferenceRelation(
-    input,
-    "passage.used-by",
-    "Gate Passage Evidence",
-    "is used by",
-    asset.passageEvidence.map((evidence) => ({
-      reference: evidence.gateId,
-      note: `Historical Gate Passage; Source ${evidence.source}.`,
-    })),
-    [input.gates],
   ),
   assetAncestorContextRelation(input, asset),
   directRelation(

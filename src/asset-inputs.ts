@@ -1,7 +1,4 @@
-import { stat } from "node:fs/promises";
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
-import { normalizeLocator } from "./fingerprint";
-import { probeContainedInput } from "./input-boundary";
 import type { StructuralDiagnostic } from "./types";
 
 type InputFileLister = (
@@ -40,22 +37,12 @@ const referencedAssets = (decoded: DecodedBearingRecordGeneration): ReadonlySet<
     ),
   );
 
-const diagnostic = (
-  diagnostics: StructuralDiagnostic[],
-  referenced: boolean,
-  value: StructuralDiagnostic,
-): void => {
-  if (referenced) diagnostics.push(value);
-};
-
 export const resolveAssetInputs = async (
-  repoRoot: string,
+  _repoRoot: string,
   decoded: DecodedBearingRecordGeneration,
   diagnostics: StructuralDiagnostic[],
-  listFiles: InputFileLister,
+  _listFiles: InputFileLister,
 ): Promise<ResolvedAssetInputs> => {
-  const inputs = new Set<string>();
-  const observations: AssetContentObservation[] = [];
   const referenced = referencedAssets(decoded);
   const assets = assetRecords(decoded);
   const registered = new Set(assets.map((asset) => asset.ID));
@@ -68,71 +55,5 @@ export const resolveAssetInputs = async (
       message: "Referenced Asset is absent from the Asset Registry.",
     });
   }
-  for (const asset of assets) {
-    const isReferenced = referenced.has(asset.ID);
-    const observe = (
-      availability: AssetContentAvailability,
-      shape: AssetContentShape = "unavailable",
-    ): void => {
-      observations.push({ id: asset.ID, location: asset.Location, availability, shape });
-    };
-    if (/^[a-z][a-z0-9+.-]*:/iu.test(asset.Location)) {
-      observe("unreadable");
-      diagnostic(diagnostics, isReferenced, {
-        code: "external-asset-input",
-        impact: "blocking",
-        target: asset.ID,
-        message: "Referenced Asset is external and cannot enter a repository-local fingerprint.",
-      });
-      continue;
-    }
-    let locator: string;
-    try {
-      locator = normalizeLocator(asset.Location);
-    } catch {
-      observe("unreadable");
-      diagnostic(diagnostics, isReferenced, {
-        code: "invalid-asset-location",
-        impact: "blocking",
-        target: asset.ID,
-        message: "Referenced Asset Location is not repository-relative.",
-      });
-      continue;
-    }
-    const probe = await probeContainedInput(repoRoot, locator);
-    if (probe.status === "missing") {
-      observe("missing");
-      diagnostic(diagnostics, isReferenced, {
-        code: "missing-asset-input",
-        impact: "blocking",
-        target: asset.ID,
-        message: "Referenced Asset Location is unavailable.",
-      });
-      continue;
-    }
-    if (probe.status === "blocked") {
-      observe("unreadable");
-      diagnostic(diagnostics, isReferenced, probe.diagnostic);
-      continue;
-    }
-    const metadata = await stat(probe.path);
-    if (metadata.isDirectory()) {
-      observe("available", "directory");
-      if (isReferenced) {
-        for (const file of await listFiles(repoRoot, locator, false, diagnostics)) inputs.add(file);
-      }
-    } else if (metadata.isFile()) {
-      observe("available", "file");
-      if (isReferenced) inputs.add(locator);
-    } else {
-      observe("unreadable");
-      diagnostic(diagnostics, isReferenced, {
-        code: "unsupported-input-shape",
-        impact: "blocking",
-        target: locator,
-        message: "Repository input has an unsupported filesystem shape.",
-      });
-    }
-  }
-  return { inputs: [...inputs], observations };
+  return { inputs: [], observations: [] };
 };

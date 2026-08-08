@@ -205,7 +205,7 @@ const roadmapReadingFixture = (): ProjectSnapshot => {
                     precision: "second" as const,
                   },
                   rationale: gate.passage?.rationale ?? "The model is ready.",
-                  evidenceAssetIds: gate.passage?.evidenceAssetIds ?? [],
+                  evidence: gate.passage?.evidence ?? [],
                   exceptions: gate.passage?.exceptions ?? [],
                 },
               }
@@ -464,7 +464,12 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
   await expect(
     page.getByText("Accept the planning model as ready.", { exact: false }),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: /^Planning Model Evidence\b/u })).toBeVisible();
+  await expect(
+    page.getByText(
+      "Evidence: .scratch/evidence/planning-model · Accepted planning-model evidence.",
+      { exact: true },
+    ),
+  ).toBeVisible();
   await expect(
     page.getByRole("navigation", { name: "Canonical Parent Path" }).getByRole("link", {
       name: "Portal Evolution",
@@ -612,19 +617,7 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
             : snapshot.gates.items.filter((gate) => gate.id !== "gate:one"),
         issues: [{ code: "invalid-gate", target: "gate:one", message: "Gate unavailable." }],
       },
-      assets:
-        snapshot.assets.validity === "invalid"
-          ? snapshot.assets
-          : {
-              ...snapshot.assets,
-              items: snapshot.assets.items.map((asset) => ({
-                ...asset,
-                evidenceRoles: asset.evidenceRoles.filter((role) => role !== "passage-evidence"),
-                passageEvidence: asset.passageEvidence.filter(
-                  (evidence) => evidence.gateId !== "gate:one",
-                ),
-              })),
-            },
+      assets: snapshot.assets,
     }),
   );
   await page.unroute("**/api/v1/projects/roadmaps/read-model?section=*");

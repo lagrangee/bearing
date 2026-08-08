@@ -331,14 +331,14 @@ Type: asset-registry
 Assets:
   - ID: asset:review
     Title: Review evidence
-    Kind: verification-report
-    Location: evidence/review.md
+    Purpose: Exercise stable reference validation.
+    Kind: reference
+    Source: evidence/review.md
     Owner: effort:missing
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
-    Produced for: planning-review:missing
+    Added at: null
+    Disposition: superseded
+    Superseded by: asset:missing
+    Superseded at: null
 ---
 
 # Asset Registry
@@ -461,13 +461,12 @@ Type: asset-registry
 Assets:
   - ID: asset:healthy
     Title: Healthy Asset
-    Kind: verification-report
-    Location: evidence/healthy.md
+    Purpose: Preserve the healthy partial member.
+    Kind: reference
+    Source: evidence/healthy.md
     Owner: effort:test
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
   - ID: asset:broken
     Title: Broken Asset
 ---

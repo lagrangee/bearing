@@ -504,12 +504,6 @@ const canonicalFields = (
           text: authority.scope,
           anchor: "authority.scope",
         }),
-        contentField(snapshot, subject, {
-          key: "decision",
-          label: "Adoption decisions",
-          text: authority.adoptions.map((adoption) => adoption.decisionReference).join(" · "),
-          anchor: "authority.adoption-decisions",
-        }),
       );
       break;
     }
@@ -549,7 +543,7 @@ const canonicalFields = (
         contentField(snapshot, subject, {
           key: "summary",
           label: "Asset summary",
-          text: join([asset.kind, asset.owner, asset.producedFor ?? ""]),
+          text: join([asset.kind, asset.purpose, asset.owner, asset.sourceLocator]),
           anchor: "asset.identity",
         }),
       );

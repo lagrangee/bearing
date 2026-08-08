@@ -6,8 +6,12 @@ import {
   assetEvidenceFilterContract,
   isAssetEvidenceFilter,
 } from "./asset-evidence-filter";
-import { assetEvidenceRoleLabel } from "./asset-evidence-role-label";
 import { AssetRow } from "./asset-row";
+import {
+  ASSET_STATUS_FILTERS,
+  type AssetStatusFilter,
+  isAssetStatusFilter,
+} from "./asset-status-filter";
 import { Action } from "./primitives";
 import { buildProjectAssetsModel, filterAssetRows } from "./project-assets-model";
 import { readProjectCanvasHistory, updateAssetCanvasFilters } from "./project-canvas-history";
@@ -28,6 +32,9 @@ export function AssetsPage({
   const [evidenceFilter, setEvidenceFilter] = useState<AssetEvidenceFilter>(
     () => readProjectCanvasHistory(entryId, "assets")?.assets?.evidenceFilter ?? "all",
   );
+  const [statusFilter, setStatusFilter] = useState<AssetStatusFilter>(
+    () => readProjectCanvasHistory(entryId, "assets")?.assets?.statusFilter ?? "current",
+  );
   const model = buildProjectAssetsModel(snapshot);
   if (model.state === "invalid") {
     return (
@@ -42,8 +49,14 @@ export function AssetsPage({
   }
 
   const filterCoverage = model.evidenceFilterCoverage[evidenceFilter];
-  const visibleRows = filterAssetRows(model.rows, query, evidenceFilter, filterCoverage);
-  const filtering = query.trim() !== "" || evidenceFilter !== "all";
+  const visibleRows = filterAssetRows(
+    model.rows,
+    query,
+    statusFilter,
+    evidenceFilter,
+    filterCoverage,
+  );
+  const filtering = query.trim() !== "" || statusFilter !== "current" || evidenceFilter !== "all";
   const filterCoverageIncomplete = filterCoverage === "incomplete";
   const filterContract = assetEvidenceFilterContract(evidenceFilter);
   const partialCopy =
@@ -63,12 +76,30 @@ export function AssetsPage({
               onChange={(event) => {
                 const next = event.currentTarget.value;
                 setQuery(next);
-                updateAssetCanvasFilters(entryId, next, evidenceFilter);
+                updateAssetCanvasFilters(entryId, next, statusFilter, evidenceFilter);
               }}
               placeholder="Find an Asset"
               type="search"
               value={query}
             />
+          </label>
+          <label className="asset-filter-field">
+            <span>Status</span>
+            <select
+              onChange={(event) => {
+                const next = event.currentTarget.value;
+                if (!isAssetStatusFilter(next)) return;
+                setStatusFilter(next);
+                updateAssetCanvasFilters(entryId, query, next, evidenceFilter);
+              }}
+              value={statusFilter}
+            >
+              {ASSET_STATUS_FILTERS.map((filter) => (
+                <option key={filter.value} value={filter.value}>
+                  {filter.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="asset-filter-field">
             <span>Evidence</span>
@@ -77,7 +108,7 @@ export function AssetsPage({
                 const next = event.currentTarget.value;
                 if (!isAssetEvidenceFilter(next)) return;
                 setEvidenceFilter(next);
-                updateAssetCanvasFilters(entryId, query, next);
+                updateAssetCanvasFilters(entryId, query, statusFilter, next);
               }}
               value={evidenceFilter}
             >
@@ -109,8 +140,8 @@ export function AssetsPage({
       ) : null}
       {model.rows.length === 0 ? (
         <section className="asset-empty">
-          <h2>No registered Assets</h2>
-          <p>Register durable project context or evidence through the Agent Surface.</p>
+          <h2>No Assets</h2>
+          <p>The project has no durable Assets.</p>
         </section>
       ) : visibleRows.length === 0 ? (
         <section className="asset-empty">
@@ -125,19 +156,20 @@ export function AssetsPage({
           <Action
             onClick={() => {
               setQuery("");
+              setStatusFilter("current");
               setEvidenceFilter("all");
-              updateAssetCanvasFilters(entryId, "", "all");
+              updateAssetCanvasFilters(entryId, "", "current", "all");
             }}
           >
             Clear filters
           </Action>
         </section>
       ) : (
-        <section className="asset-table" aria-label="Registered Assets">
+        <section className="asset-table" aria-label="Assets">
           <div className="asset-table-header" aria-hidden="true">
             <span>Asset</span>
             <span>Owner</span>
-            <span>Evidence roles</span>
+            <span>Evidence</span>
           </div>
           {visibleRows.map((row) => {
             const href = planningLineageSubjectHref(entryId, {
@@ -146,7 +178,13 @@ export function AssetsPage({
             });
             return (
               <AssetRow
-                evidenceRoles={row.asset.evidenceRoles.map(assetEvidenceRoleLabel)}
+                evidenceSummary={
+                  row.authorityBaselines.length > 0
+                    ? "Authority baseline"
+                    : row.asset.citations.length > 0
+                      ? "Cited"
+                      : "Uncited"
+                }
                 href={href}
                 key={row.asset.id}
                 kind={row.asset.kind}

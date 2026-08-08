@@ -25,9 +25,9 @@ describe("G1 deterministic regression core", () => {
         files: ["node-tests/repository-lifecycle.test.ts"],
       },
       {
-        key: "asset-registration",
-        seam: "repository-lifecycle-cli",
-        files: ["tests/asset-registration-cli.test.ts"],
+        key: "asset-contract",
+        seam: "planning-asset-contract",
+        files: ["tests/asset-kiss-contract.test.ts", "tests/portal-asset-source-probe.test.ts"],
       },
       {
         key: "package-topology",
@@ -47,11 +47,12 @@ describe("G1 deterministic regression core", () => {
     expect(G1_REGRESSION_CORE).toEqual(expected);
     expect([...new Set(expected.map((group) => group.seam))].sort()).toEqual([
       "package-skill-contract",
+      "planning-asset-contract",
       "repository-lifecycle-cli",
     ]);
 
     const files = g1RegressionCoreFiles();
-    expect(files.length).toBe(8);
+    expect(files.length).toBe(9);
     expect(new Set(files).size).toBe(files.length);
     for (const locator of files) await access(join(process.cwd(), locator));
   });

@@ -9,15 +9,6 @@ export const ASSET_EVIDENCE_FILTERS = [
     incompleteEmpty: "Unavailable Asset coverage prevents a complete result.",
   },
   {
-    value: "execution-evidence",
-    label: "Execution Evidence",
-    match: "execution-evidence",
-    coverageBasis: "asset-record",
-    incompleteSubject: "Execution Evidence",
-    incompleteStatus: "Results include confirmed members only and cannot confirm an empty set.",
-    incompleteEmpty: "Unavailable Asset coverage prevents a complete Execution Evidence result.",
-  },
-  {
     value: "cited",
     label: "Cited",
     match: "planning-citation",
@@ -34,15 +25,6 @@ export const ASSET_EVIDENCE_FILTERS = [
     incompleteSubject: "Authority baseline",
     incompleteStatus: "Results include confirmed members only and cannot confirm an empty set.",
     incompleteEmpty: "Unavailable Authority coverage prevents a complete baseline result.",
-  },
-  {
-    value: "passage-evidence",
-    label: "Passage Evidence",
-    match: "passage-evidence",
-    coverageBasis: "gates",
-    incompleteSubject: "Gate Passage evidence",
-    incompleteStatus: "Results include confirmed members only and cannot confirm an empty set.",
-    incompleteEmpty: "Unavailable Gate coverage prevents a complete Passage evidence result.",
   },
   {
     value: "uncited",

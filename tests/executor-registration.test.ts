@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   assertExecutorRegistrationsCurrent,
   type ExecutorNominationAssessment,
+  readConfiguredExecutionProfiles,
   renderExecutionProfile,
   resolveExecutorNomination,
   resolveExecutorNominations,
@@ -395,7 +396,7 @@ Implement the work. Commit your work.
     );
   });
 
-  test("renders one structured project-owned profile without a preference or default", () => {
+  test("renders one structured project-owned profile that its reader accepts", async () => {
     const profile = renderExecutionProfile({
       profileKey: "agent-skills-implement",
       displayName: "/implement",
@@ -418,7 +419,24 @@ Implement the work. Commit your work.
     expect(profile).toContain("skill-owned repository commit");
     expect(profile).toContain("## Durable Evidence");
     expect(profile).toContain("## Fallback Receipt");
-    expect(profile).toContain("## Producer Provenance");
+    expect(profile).toContain("## Asset Admission");
+    expect(profile).toContain("Do not register execution output as an Asset automatically.");
+    expect(profile).not.toContain("Kind: executor-profile");
     expect(profile).not.toMatch(/\b(?:preferred|default executor)\b/iu);
+
+    const repoRoot = await makeTemporaryDirectory("bearing-execution-profile-roundtrip-");
+    await mkdir(join(repoRoot, ".bearing/executor-profiles"), { recursive: true });
+    await writeFile(
+      join(repoRoot, ".bearing/executor-profiles/agent-skills-implement.md"),
+      profile,
+    );
+    await expect(
+      readConfiguredExecutionProfiles(repoRoot, ["agent-skills"], ["agent-skills-implement"]),
+    ).resolves.toMatchObject([
+      {
+        profileKey: "agent-skills-implement",
+        capabilityLocator: "agent-skills:implement",
+      },
+    ]);
   });
 });

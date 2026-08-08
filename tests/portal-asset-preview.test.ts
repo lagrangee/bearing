@@ -60,14 +60,12 @@ Type: asset-registry
 Assets:
   - ID: asset:preview
     Title: Preview Asset
-    Kind: ${options.kind ?? "context"}
-    Location: ${location}
+    Purpose: Exercise one exact Asset preview source.
+    Kind: ${options.kind ?? "reference"}
+    Source: ${location}
     Owner: effort:test
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: registry
-    Disposition: available
+    Added at: null
+    Disposition: active
 ---
 
 # Asset Registry

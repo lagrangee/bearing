@@ -19,7 +19,7 @@ const validPassage = {
   acceptedDecision: "Pass the Gate.",
   acceptedAt: { availability: "unavailable" as const },
   rationale: "The accepted outcome is complete.",
-  evidenceAssetIds: [],
+  evidence: [],
   exceptions: [],
 };
 const gate = {

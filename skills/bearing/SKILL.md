@@ -128,7 +128,7 @@ All runtime references are selected here. No reference routes onward to another 
   `$HOME/.bearing/kit/current/skills/bearing/references/owners/milestone-gate.md`.
 - For Effort creation, lifecycle, scope, or Work Binding, load
   `$HOME/.bearing/kit/current/skills/bearing/references/owners/effort.md`.
-- For Asset creation, metadata, ownership, or lifecycle, load
+- For Asset admission, creation, metadata, ownership, source repair, or lifecycle, load
   `$HOME/.bearing/kit/current/skills/bearing/references/owners/asset.md`.
 - For Authority Scope, current Baseline Assets, or baseline explanation, load
   `$HOME/.bearing/kit/current/skills/bearing/references/owners/authority.md`.

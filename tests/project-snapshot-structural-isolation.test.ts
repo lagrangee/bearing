@@ -16,22 +16,20 @@ Type: asset-registry
 Assets:
   - ID: asset:healthy
     Title: Healthy Asset
-    Kind: verification-report
-    Location: evidence/healthy.md
+    Purpose: Preserve the healthy Asset.
+    Kind: reference
+    Source: evidence/healthy.md
     Owner: effort:test
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
   - ID: asset:outside
     Title: Outside Asset
-    Kind: verification-report
-    Location: ../outside.md
+    Purpose: Exercise invalid source isolation.
+    Kind: reference
+    Source: ../outside.md
     Owner: effort:test
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
 ---
 
 # Assets

@@ -44,9 +44,8 @@ test.beforeAll(async () => {
   await writeFile(
     assetsPath,
     assets.replace(
-      "    Lifecycle source: native\n",
-      "    Lifecycle source: native\n" +
-        `  - ID: asset:g3-prototype\n    Title: G3 Prototype\n    Kind: prototype\n    Location: prototypes/demo\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-reading-document\n    Title: G3 Reading Document\n    Kind: document\n    Location: docs/reading.html\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-directory\n    Title: G3 Directory Asset\n    Kind: context\n    Location: docs/bundle\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-unsupported\n    Title: G3 Unsupported Content\n    Kind: binary\n    Location: docs/payload.bin\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n`,
+      "---\n\n# Asset Registry",
+      `  - ID: asset:g3-prototype\n    Title: G3 Prototype\n    Purpose: Preserve the accepted interaction direction.\n    Kind: prototype\n    Source: prototypes/demo\n    Owner: effort:fixture\n    Added at: null\n    Disposition: active\n  - ID: asset:g3-reading-document\n    Title: G3 Reading Document\n    Purpose: Keep the durable reading reference available.\n    Kind: reference\n    Source: docs/reading.html\n    Owner: effort:fixture\n    Added at: null\n    Disposition: active\n  - ID: asset:g3-directory\n    Title: G3 Directory Asset\n    Purpose: Keep the durable directory reference available.\n    Kind: reference\n    Source: docs/bundle\n    Owner: effort:fixture\n    Added at: null\n    Disposition: active\n  - ID: asset:g3-unsupported\n    Title: G3 Unsupported Content\n    Purpose: Keep the durable opaque reference available.\n    Kind: reference\n    Source: docs/payload.bin\n    Owner: effort:fixture\n    Added at: null\n    Disposition: active\n---\n\n# Asset Registry`,
     ),
   );
   await runBuiltBearing(["provider", "capture", "--repo", fixtureRoot, "--scope", ".scratch/work"]);
@@ -88,11 +87,17 @@ test("prototype stays semantic-only while an ordinary HTML document keeps inert 
   await expect(page.getByRole("link", { name: /View Content/u })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Open Preview/u })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Asset Identity" })).toBeVisible();
-  await expect(page.getByText("Kind: prototype.", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Kind: prototype. Purpose: Preserve the accepted interaction direction.", {
+      exact: true,
+    }),
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ownership and Purpose" })).toBeVisible();
-  await expect(page.getByText("Produced For: Not declared", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Fixture Work" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Lifecycle" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Evidence Roles" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Source" })).toBeVisible();
+  await expect(page.getByText("Current local source: directory.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Planning Use" })).toBeVisible();
   await expect(
     page
       .getByLabel("Lineage Context")
@@ -100,10 +105,8 @@ test("prototype stays semantic-only while an ordinary HTML document keeps inert 
   ).toBeVisible();
   await page.getByRole("button", { name: "Open Technical Details" }).press("Enter");
   const technicalDetails = page.getByRole("complementary", { name: "Technical Details" });
-  await expect(technicalDetails.getByText("Preview", { exact: true })).toBeVisible();
-  await expect(
-    technicalDetails.getByText("Not offered for prototype Assets", { exact: true }),
-  ).toBeVisible();
+  await expect(technicalDetails.getByText("prototypes/demo", { exact: true })).toBeVisible();
+  await expect(technicalDetails.getByText("active", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
 
   const prototypeRoot = await page.request.get(
@@ -143,7 +146,7 @@ test("prototype stays semantic-only while an ordinary HTML document keeps inert 
   await expect(
     page
       .getByRole("complementary", { name: "Technical Details" })
-      .getByText("Not offered for directory Assets", { exact: true }),
+      .getByText("docs/bundle", { exact: true }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
 

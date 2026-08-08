@@ -52,7 +52,6 @@ import {
   type MattNativeWorkRegionModel,
 } from "../providers/matt-skills-v1/work-region";
 import { projectExpectedSourceEventTime } from "../source-event-time";
-import { assetEvidenceRoleLabel } from "./asset-evidence-role-label";
 import {
   type PlanningLineageEvent,
   type PlanningLineageEventTime,
@@ -633,9 +632,16 @@ const gateSections = (
       gate.passage === undefined
         ? "No Gate Passage is recorded."
         : `${gate.passage.acceptedDecision} ${gate.passage.rationale}`,
-    ...(gate.passage === undefined || gate.passage.exceptions.length === 0
+    ...(gate.passage === undefined
       ? {}
-      : { items: gate.passage.exceptions }),
+      : {
+          items: [
+            ...gate.passage.evidence.map(
+              (entry) => `Evidence: ${entry.locator} · ${entry.relevance}`,
+            ),
+            ...gate.passage.exceptions.map((exception) => `Exception: ${exception}`),
+          ],
+        }),
   },
   contributingEffortsSection(snapshot, gate.effortIds, entryId),
 ];
@@ -675,26 +681,6 @@ const authoritySections = (authority: Authority): readonly PlanningLineageSectio
         ? "No baseline Assets are declared."
         : "The following Assets form the current baseline.",
     ...(authority.baselineAssetIds.length === 0 ? {} : { items: authority.baselineAssetIds }),
-  },
-  {
-    anchor: "authority.adoption-decisions",
-    title: "Adoption Decisions",
-    body:
-      authority.adoptions.length === 0
-        ? "No explicit Authority Adoption is recorded. Current baseline membership is not substituted for decision provenance."
-        : "Each adoption cites the Accepted Decision that owns its Source Event Time.",
-    ...(authority.adoptions.length === 0
-      ? {}
-      : {
-          items: authority.adoptions.map(
-            (adoption) => `${adoption.assetId} · ${adoption.decisionReference}`,
-          ),
-        }),
-  },
-  {
-    anchor: "authority.superseded-context",
-    title: "Superseded Baseline Context",
-    body: "Superseded Authority context is unavailable in the current typed contract.",
   },
 ];
 
@@ -766,13 +752,8 @@ const assetSections = (
   entryId: string,
   lineage: PlanningLineageSubjectProjection,
 ): readonly PlanningLineageSection[] => {
-  const evidenceRoles = asset.evidenceRoles.map(assetEvidenceRoleLabel);
   const ownerTitle = semanticTitleForPlanningReference(snapshot, asset.owner);
-  const producedForTitle =
-    asset.producedFor === undefined
-      ? "Not declared"
-      : semanticTitleForPlanningReference(snapshot, asset.producedFor);
-  const relationTarget = (key: "production.owner" | "production.produced-for") => {
+  const relationTarget = (key: "production.owner") => {
     const relation = lineage.relations.find((candidate) => candidate.key === key);
     return relation?.state === "present" ? relation.targets[0] : undefined;
   };
@@ -820,11 +801,7 @@ const assetSections = (
     const type = objectTypeLabel(target?.subject);
     return `${relationLabel}: ${type === undefined ? "" : `${type}: `}${title}`;
   };
-  const relationLink = (
-    key: "production.owner" | "production.produced-for",
-    label: string,
-    title: string,
-  ) => {
+  const relationLink = (key: "production.owner", label: string, title: string) => {
     const target = relationTarget(key);
     return target?.availability !== "available" || target.subject === undefined
       ? undefined
@@ -835,72 +812,46 @@ const assetSections = (
         };
   };
   const ownerLink = relationLink("production.owner", "Owner", ownerTitle);
-  const producedForLink =
-    asset.producedFor === undefined
-      ? undefined
-      : relationLink("production.produced-for", "Produced For", producedForTitle);
   return [
     {
       anchor: "asset.identity",
       title: "Asset Identity",
-      body: `Kind: ${asset.kind}.`,
+      body: `Kind: ${asset.kind}. Purpose: ${asset.purpose}`,
     },
     {
       anchor: "asset.ownership",
       title: "Ownership and Purpose",
-      links: [ownerLink, producedForLink].filter(
-        (link): link is NonNullable<typeof link> => link !== undefined,
-      ),
+      links: [ownerLink].filter((link): link is NonNullable<typeof link> => link !== undefined),
       items: [
         ...(ownerLink === undefined
           ? [relationText("Owner", relationTarget("production.owner"), ownerTitle)]
           : []),
-        ...(asset.producedFor === undefined
-          ? ["Produced For: Not declared"]
-          : producedForLink === undefined
-            ? [
-                relationText(
-                  "Produced For",
-                  relationTarget("production.produced-for"),
-                  producedForTitle,
-                ),
-              ]
-            : []),
       ],
     },
     {
       anchor: "asset.lifecycle",
       title: "Lifecycle",
-      body: `${asset.lifecycleSource}${asset.disposition === undefined ? "" : ` · ${asset.disposition}`}`,
+      body: asset.disposition,
       ...(asset.supersededBy === undefined
         ? {}
         : { items: [`Replacement: ${asset.supersededBy}`] }),
     },
     {
-      anchor: "asset.evidence-roles",
-      title: "Evidence Roles",
+      anchor: "asset.source",
+      title: "Source",
       body:
-        evidenceRoles.length === 0
-          ? "No explicit Evidence role is recorded."
-          : "Only the following explicit Evidence roles are recorded.",
-      ...(evidenceRoles.length === 0 ? {} : { items: evidenceRoles }),
+        snapshot.assetSourceProbe?.kind === "external"
+          ? "External HTTPS source. Bearing did not verify its content."
+          : snapshot.assetSourceProbe?.kind === "local"
+            ? `Current local source: ${snapshot.assetSourceProbe.availability}.`
+            : "Current source availability is unavailable.",
+      items: [`Locator: ${asset.sourceLocator}`],
     },
-    ...(asset.kind === "prototype" ||
-    asset.contentShape === "directory" ||
-    asset.contentAvailability !== "unreadable"
-      ? []
-      : [
-          {
-            anchor: "asset.content",
-            title: "Content unavailable",
-            body: "The registered content is expected but unreadable.",
-            items: [
-              "Cause: the current Snapshot reports this registered Asset content as unreadable; exact source details remain in Technical Details.",
-              "Impact: content reading is unavailable; other Asset semantics remain available.",
-              "Recovery: open Technical Details to verify the registered source, repair it, then run Sync.",
-            ],
-          },
-        ]),
+    {
+      anchor: "asset.evidence",
+      title: "Planning Use",
+      body: `${asset.citations.length} Planning Citation${asset.citations.length === 1 ? "" : "s"}; ${asset.authorityBaselines.length} Authority baseline${asset.authorityBaselines.length === 1 ? "" : "s"}.`,
+    },
   ];
 };
 
@@ -1519,11 +1470,10 @@ export const effortPlanningBasisForWorkRegion = (
 
 const effortOutputTimes = (asset: AssetProjection): readonly PlanningLineageTimeFact[] => {
   const facts: PlanningLineageTimeFact[] = [];
-  const add = (key: string, label: string, time: AssetProjection["registeredAt"] | undefined) => {
+  const add = (key: string, label: string, time: AssetProjection["addedAt"] | undefined) => {
     if (time?.availability === "available") facts.push({ key, label, time });
   };
-  add(`${asset.id}:produced`, "Produced", asset.producedAt);
-  add(`${asset.id}:registered`, "Registered", asset.registeredAt);
+  add(`${asset.id}:added`, "Added to Assets", asset.addedAt);
   add(`${asset.id}:superseded`, "Superseded", asset.supersededAt);
   add(`${asset.id}:archived`, "Archived", asset.archivedAt);
   return facts;
@@ -1552,7 +1502,7 @@ const effortOutputsFor = (
       id: asset.id,
       title: asset.title,
       kind: asset.kind,
-      lifecycle: asset.disposition ?? asset.lifecycleSource,
+      lifecycle: asset.disposition,
       href: planningLineageSubjectHref(entryId, { kind: "asset", id: asset.id }),
       superseded: asset.disposition === "superseded",
       times: effortOutputTimes(asset),
@@ -1881,14 +1831,17 @@ export const buildPlanningLineageSubjectModel = (
     parentPath: parentPathForDisplay(snapshot, entryId, lineage),
     ...(headerStatus === undefined ? {} : { headerStatus }),
     ...(asset === undefined ||
-    asset.kind === "prototype" ||
-    asset.contentShape === "directory" ||
-    asset.contentAvailability !== "available"
+    snapshot.assetSourceProbe === undefined ||
+    (snapshot.assetSourceProbe.kind === "local" &&
+      (asset.kind === "prototype" || snapshot.assetSourceProbe.availability !== "file"))
       ? {}
       : {
           primaryAction: {
-            label: "View Content",
-            href: assetPreviewHref(entryId, asset.id),
+            label: snapshot.assetSourceProbe.kind === "external" ? "Open Source" : "View Content",
+            href:
+              snapshot.assetSourceProbe.kind === "external"
+                ? snapshot.assetSourceProbe.href
+                : assetPreviewHref(entryId, asset.id),
             external: true,
           },
         }),

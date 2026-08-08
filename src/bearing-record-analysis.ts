@@ -131,9 +131,6 @@ export const analyzeDecodedBearingArtifact = (
           message: "Planned or active Gate cannot have a Passage decision record.",
         });
       }
-      for (const target of data.Passage?.Evidence ?? []) {
-        references.push({ source: locator, target });
-      }
       break;
     case "effort":
       nodes.push({ id: data.ID, locator });

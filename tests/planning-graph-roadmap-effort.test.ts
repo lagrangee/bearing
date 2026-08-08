@@ -158,13 +158,12 @@ Type: asset-registry
 Assets:
   - ID: asset:test-evidence
     Title: Test evidence
-    Kind: verification-report
-    Location: evidence/test.md
+    Purpose: Preserve the test evidence.
+    Kind: reference
+    Source: evidence/test.md
     Owner: effort:test
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
 ---
 
 # Asset Registry
@@ -608,22 +607,20 @@ Type: asset-registry
 Assets:
   - ID: asset:duplicate
     Title: Duplicate evidence one
-    Kind: verification-report
-    Location: evidence/one.md
+    Purpose: Exercise duplicate evidence isolation.
+    Kind: reference
+    Source: evidence/one.md
     Owner: effort:test
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
   - ID: asset:duplicate
     Title: Duplicate evidence two
-    Kind: verification-report
-    Location: evidence/two.md
+    Purpose: Exercise duplicate evidence isolation.
+    Kind: reference
+    Source: evidence/two.md
     Owner: effort:test
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
 ---
 
 # Asset Registry
@@ -657,40 +654,36 @@ Type: asset-registry
 Assets:
   - ID: asset:owned-duplicate
     Title: Owned duplicate one
-    Kind: verification-report
-    Location: evidence/owned-one.md
+    Purpose: Exercise owned duplicate isolation.
+    Kind: reference
+    Source: evidence/owned-one.md
     Owner: effort:test
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
   - ID: asset:owned-duplicate
     Title: Owned duplicate two
-    Kind: verification-report
-    Location: evidence/owned-two.md
+    Purpose: Exercise owned duplicate isolation.
+    Kind: reference
+    Source: evidence/owned-two.md
     Owner: effort:test
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
   - ID: asset:unrelated-duplicate
     Title: Unrelated duplicate one
-    Kind: verification-report
-    Location: evidence/unrelated-one.md
+    Purpose: Exercise unrelated duplicate isolation.
+    Kind: reference
+    Source: evidence/unrelated-one.md
     Owner: effort:other
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
   - ID: asset:unrelated-duplicate
     Title: Unrelated duplicate two
-    Kind: verification-report
-    Location: evidence/unrelated-two.md
+    Purpose: Exercise unrelated duplicate isolation.
+    Kind: reference
+    Source: evidence/unrelated-two.md
     Owner: effort:other
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
 ---
 
 # Asset Registry

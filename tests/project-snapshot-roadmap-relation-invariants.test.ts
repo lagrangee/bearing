@@ -168,17 +168,7 @@ test("partial relation collections allow unresolved extras while remaining exact
       items: snapshot.gates.items.filter((gate) => gate.id !== "gate:one"),
       issues: [relationIssue],
     },
-    assets:
-      snapshot.assets.validity === "available"
-        ? {
-            ...snapshot.assets,
-            items: snapshot.assets.items.map((asset) => ({
-              ...asset,
-              evidenceRoles: asset.evidenceRoles.filter((role) => role !== "passage-evidence"),
-              passageEvidence: [],
-            })),
-          }
-        : snapshot.assets,
+    assets: snapshot.assets,
   };
   const partial = {
     ...snapshot,

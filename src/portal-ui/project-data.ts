@@ -109,6 +109,14 @@ export type LineageModelData = ProjectContext &
     diagnostics: readonly SnapshotDiagnostic[];
     sources: readonly SourceRecord[];
     nativeTargetState?: "covered-missing" | "unavailable" | undefined;
+    assetSourceProbe?:
+      | Readonly<{ kind: "external"; href: string; verification: "unverified" }>
+      | Readonly<{
+          kind: "local";
+          locator: string;
+          availability: "file" | "directory" | "missing" | "unreadable" | "unsafe";
+        }>
+      | undefined;
   }>;
 
 export type LineageProjectData = LineageModelData &

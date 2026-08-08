@@ -86,28 +86,9 @@ export const analyzeParsedAssetRegistry = (
     nodes.push({ id: asset.ID, locator });
     assetAvailability.push({
       id: asset.ID,
-      available: asset["Lifecycle source"] === "native" || asset.Disposition === "available",
+      available: asset.Disposition === "active",
     });
     references.push(...stableReference(locator, asset.Owner));
-    if (asset["Produced for"] !== undefined) {
-      references.push(...stableReference(asset.ID, asset["Produced for"]));
-    }
-    if (asset["Lifecycle source"] === "registry" && asset.Disposition === undefined) {
-      diagnostics.push({
-        code: "registry-asset-missing-disposition",
-        impact: "blocking",
-        target: asset.ID,
-        message: "Registry-managed Asset requires Disposition.",
-      });
-    }
-    if (asset["Lifecycle source"] === "native" && asset.Disposition !== undefined) {
-      diagnostics.push({
-        code: "native-asset-has-registry-disposition",
-        impact: "blocking",
-        target: asset.ID,
-        message: "Native Asset lifecycle cannot be overridden by registry Disposition.",
-      });
-    }
     if (asset.Disposition === "superseded" && asset["Superseded by"] === undefined) {
       diagnostics.push({
         code: "superseded-asset-missing-replacement",

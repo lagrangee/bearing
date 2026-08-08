@@ -178,6 +178,7 @@ export const portalRowsToProjectData = (rows: PortalProjectRows): ProjectData =>
         ...(rows.nativeTargetState === undefined
           ? {}
           : { nativeTargetState: rows.nativeTargetState }),
+        ...(rows.assetSourceProbe === undefined ? {} : { assetSourceProbe: rows.assetSourceProbe }),
         roadmaps: roadmaps(),
         gates: gates(),
         efforts: efforts(),

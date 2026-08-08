@@ -668,17 +668,6 @@ class ImmutablePlanningGraph implements PlanningGraph {
         );
       }
     }
-    for (const asset of evidence) {
-      if (asset.contentAvailability !== "available")
-        closureIssues.push(
-          relationIssue(
-            "unavailable-evidence-content",
-            asset.id,
-            "Registered evidence content is unavailable.",
-            asset.source,
-          ),
-        );
-    }
     return {
       effort: valueWithSource(effort, sourceByReference),
       source: effortSource,

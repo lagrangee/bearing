@@ -28,6 +28,25 @@ export const displayAssetLocatorSchema = displaySourceLocatorSchema.refine(
   },
 );
 
+const httpsAssetLocatorSchema = z
+  .url()
+  .startsWith("https://")
+  .superRefine((locator, context) => {
+    if (!URL.canParse(locator)) return;
+    const parsed = new URL(locator);
+    if (parsed.username.length > 0 || parsed.password.length > 0) {
+      context.addIssue({
+        code: "custom",
+        message: "HTTPS Asset Sources cannot contain credentials.",
+      });
+    }
+  });
+
+export const assetSourceLocatorSchema = z.union([
+  displayAssetLocatorSchema,
+  httpsAssetLocatorSchema,
+]);
+
 const trackerReferenceLocatorSchema = displaySourceLocatorSchema.refine(
   (locator) => !locator.includes(":"),
   { message: "Tracker references cannot contain Stable ID separators." },

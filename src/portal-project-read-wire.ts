@@ -34,6 +34,20 @@ export const portalProjectRowsSchema = z.strictObject({
   section: portalProjectSectionSchema,
   target: planningLineageSubjectSchema.optional(),
   nativeTargetState: z.enum(["covered-missing", "unavailable"]).optional(),
+  assetSourceProbe: z
+    .discriminatedUnion("kind", [
+      z.strictObject({
+        kind: z.literal("external"),
+        href: z.string().url().startsWith("https://"),
+        verification: z.literal("unverified"),
+      }),
+      z.strictObject({
+        kind: z.literal("local"),
+        locator: z.string().min(1),
+        availability: z.enum(["file", "directory", "missing", "unreadable", "unsafe"]),
+      }),
+    ])
+    .optional(),
   objects: z.array(projectReadModelObjectSchema).max(500),
   lineage: z.array(planningLineageSubjectProjectionSchema).max(500),
   attentionCount: z.number().int().nonnegative(),

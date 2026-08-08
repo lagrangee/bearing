@@ -1,4 +1,5 @@
 import { type AssetEvidenceFilter, isAssetEvidenceFilter } from "./asset-evidence-filter";
+import { type AssetStatusFilter, isAssetStatusFilter } from "./asset-status-filter";
 import type { ProjectSection } from "./project-navigation";
 
 const HISTORY_KEY = "bearingCanvas";
@@ -13,6 +14,7 @@ export type ProjectCanvasHistory = Readonly<{
   focusKey?: string | undefined;
   assets?: Readonly<{
     query: string;
+    statusFilter: AssetStatusFilter;
     evidenceFilter: AssetEvidenceFilter;
   }>;
 }>;
@@ -66,9 +68,11 @@ const parseHistory = (value: unknown): ProjectCanvasHistory | undefined => {
     typeof assets === "object" &&
     assets !== null &&
     typeof (assets as Record<string, unknown>)["query"] === "string" &&
+    isAssetStatusFilter((assets as Record<string, unknown>)["statusFilter"]) &&
     isAssetEvidenceFilter((assets as Record<string, unknown>)["evidenceFilter"])
       ? {
           query: (assets as Record<string, unknown>)["query"] as string,
+          statusFilter: (assets as Record<string, unknown>)["statusFilter"] as AssetStatusFilter,
           evidenceFilter: (assets as Record<string, unknown>)[
             "evidenceFilter"
           ] as AssetEvidenceFilter,
@@ -107,6 +111,7 @@ const replaceProjectCanvasHistory = (next: ProjectCanvasHistory): void => {
 export const updateAssetCanvasFilters = (
   entryId: string,
   query: string,
+  statusFilter: AssetStatusFilter,
   evidenceFilter: AssetEvidenceFilter,
 ): void => {
   const current = readProjectCanvasHistory(entryId, "assets");
@@ -114,7 +119,7 @@ export const updateAssetCanvasFilters = (
     entryId,
     section: "assets",
     location: currentLocation(),
-    assets: { query, evidenceFilter },
+    assets: { query, statusFilter, evidenceFilter },
     ...(current?.scrollY === undefined ? {} : { scrollY: current.scrollY }),
     ...(current?.focusKey === undefined ? {} : { focusKey: current.focusKey }),
   });

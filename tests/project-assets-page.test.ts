@@ -20,19 +20,19 @@ test("renders the accepted Assets reading surface without embedding Asset conten
   expect(html).toContain("<h1>Assets</h1>");
   expect(html).toContain('placeholder="Find an Asset"');
   for (const option of [
+    "Current",
+    "Replaced",
+    "Archived",
     "All Assets",
-    "Execution Evidence",
     "Cited",
     "Authority baselines",
-    "Passage Evidence",
     "Uncited",
   ]) {
     expect(html).toContain(option);
   }
-  expect(html).toContain("Evidence roles");
-  expect(html).toContain("Planning Citation · Passage Evidence");
+  expect(html).toContain("Evidence");
+  expect(html).toContain("Cited");
   expect(html).toContain("Planning Model Evidence");
-  expect(html).toContain("Model ready");
   expect(html).not.toContain("owner gate:one");
   expect(html).not.toContain(".scratch/evidence/planning-model");
   expect(html).not.toContain("Quick Look");
@@ -45,7 +45,7 @@ test("renders empty, partial, and invalid Assets as scoped projection states", (
   const snapshot = createProjectOverviewFixture();
   const issue = { code: "invalid-asset", target: "assets", message: "Asset unavailable." };
   expect(render({ ...snapshot, assets: { validity: "available", items: [] } })).toContain(
-    "No registered Assets",
+    "No Assets",
   );
   if (snapshot.assets.validity === "invalid") throw new Error("Expected Assets fixture.");
   expect(

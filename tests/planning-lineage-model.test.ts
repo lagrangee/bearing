@@ -15,7 +15,6 @@ import {
 import {
   authoritySchema,
   effortSchema,
-  planningReviewSchema,
   projectSnapshotSchema,
 } from "../src/project-snapshot/schema";
 import { assetProjectionSchema } from "../src/project-snapshot/schema-asset";
@@ -74,11 +73,6 @@ test("builds a Gate-owned route with trustworthy parents, full content, and type
       expect.objectContaining({
         key: "outcome.contributing-efforts",
         direction: "receives contribution from",
-        state: "present",
-      }),
-      expect.objectContaining({
-        key: "passage.evidence",
-        direction: "accepted with evidence",
         state: "present",
       }),
       expect.objectContaining({
@@ -159,8 +153,8 @@ test("builds Effort, Asset, and Planning Review routes from their own truth", ()
     ],
     [
       { kind: "asset", id: "asset:planning-model-evidence" },
-      ["asset.identity", "asset.ownership", "asset.lifecycle", "asset.evidence-roles"],
-      ["production.owner", "planning-use.cited-by", "passage.used-by"],
+      ["asset.identity", "asset.ownership", "asset.lifecycle", "asset.source", "asset.evidence"],
+      ["production.owner", "planning-use.cited-by"],
     ],
     [
       { kind: "planning-review", id: "planning-review:sequence" },
@@ -210,9 +204,9 @@ test("builds Effort, Asset, and Planning Review routes from their own truth", ()
       "bearing",
     ),
   );
-  expect(
-    asset.sections.find((section) => section.anchor === "asset.evidence-roles")?.items,
-  ).toEqual(["Planning Citation", "Passage Evidence"]);
+  expect(asset.sections.find((section) => section.anchor === "asset.evidence")?.body).toBe(
+    "1 Planning Citation; 0 Authority baselines.",
+  );
   expect(asset.relations.map((relation) => relation.key)).not.toContain("production.producer");
   if (snapshot.assets.validity === "invalid") throw new Error("Expected Assets.");
   const prototypeSnapshot = withLineage({
@@ -237,7 +231,8 @@ test("builds Effort, Asset, and Planning Review routes from their own truth", ()
     "asset.identity",
     "asset.ownership",
     "asset.lifecycle",
-    "asset.evidence-roles",
+    "asset.source",
+    "asset.evidence",
   ]);
   expect(
     findPlanningLineageSubjectProjection(prototypeSnapshot.lineage, {
@@ -245,17 +240,7 @@ test("builds Effort, Asset, and Planning Review routes from their own truth", ()
       id: "asset:planning-model-evidence",
     })?.semanticSections,
   ).not.toContainEqual(expect.objectContaining({ role: "asset.content" }));
-  const directorySnapshot = withLineage({
-    ...snapshot,
-    assets: {
-      ...snapshot.assets,
-      items: snapshot.assets.items.map((candidate) =>
-        candidate.id === "asset:planning-model-evidence"
-          ? { ...candidate, contentShape: "directory" }
-          : candidate,
-      ),
-    },
-  });
+  const directorySnapshot = withLineage(snapshot);
   const directory = readable(
     buildPlanningLineageSubjectModel(
       directorySnapshot,
@@ -267,7 +252,8 @@ test("builds Effort, Asset, and Planning Review routes from their own truth", ()
     "asset.identity",
     "asset.ownership",
     "asset.lifecycle",
-    "asset.evidence-roles",
+    "asset.source",
+    "asset.evidence",
   ]);
   expect(
     findPlanningLineageSubjectProjection(directorySnapshot.lineage, {
@@ -283,149 +269,6 @@ test("builds Effort, Asset, and Planning Review routes from their own truth", ()
     ),
   );
   expect(review.events).toEqual([]);
-});
-
-test("binds Adoption relation time to the exact Asset decision instead of Authority recency", () => {
-  const snapshot = fixture();
-  if (snapshot.assets.validity === "invalid" || snapshot.reviews.validity === "invalid") {
-    throw new Error("Expected Assets and Planning Reviews.");
-  }
-  const firstAsset = snapshot.assets.items.find(
-    (asset) => asset.id === "asset:planning-model-evidence",
-  );
-  if (firstAsset === undefined) throw new Error("Expected first Asset.");
-  const secondAssetSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
-    kind: "asset",
-    locator: ".bearing/state/assets.md",
-    binding: { role: "asset", identity: "asset:second-evidence" },
-    fragment: "asset:second-evidence",
-  });
-  const authoritySource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
-    kind: "canonical",
-    locator: ".bearing/state/authorities/design.md",
-    binding: { role: "authority", identity: "authority:design" },
-  });
-  const firstReviewSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
-    kind: "canonical",
-    locator: ".bearing/state/planning-reviews/adopt-first.md",
-    binding: { role: "planning-review", identity: "planning-review:adopt-first" },
-  });
-  const secondReviewSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
-    kind: "canonical",
-    locator: ".bearing/state/planning-reviews/adopt-second.md",
-    binding: { role: "planning-review", identity: "planning-review:adopt-second" },
-  });
-  const accepted = (value: string) =>
-    ({ availability: "available", value, precision: "second" }) as const;
-  const firstReview = planningReviewSchema.parse({
-    id: "planning-review:adopt-first",
-    title: "Adopt first",
-    source: firstReviewSource.reference,
-    citations: [],
-    status: "completed",
-    question: "Should the project adopt the first evidence?",
-    scope: { kind: "project" },
-    resolution: {
-      acceptedDecision: "Adopt first evidence.",
-      acceptedAt: accepted("2026-07-31T09:00:00Z"),
-      rationale: "First evidence governs its use.",
-      changedReferences: ["authority:design"],
-    },
-  });
-  const secondReview = planningReviewSchema.parse({
-    id: "planning-review:adopt-second",
-    title: "Adopt second",
-    source: secondReviewSource.reference,
-    citations: [],
-    status: "completed",
-    question: "Should the project adopt the second evidence?",
-    scope: { kind: "project" },
-    resolution: {
-      acceptedDecision: "Adopt second evidence.",
-      acceptedAt: accepted("2026-07-31T10:00:00Z"),
-      rationale: "Second evidence governs its use.",
-      changedReferences: ["authority:design"],
-    },
-  });
-  const secondAsset = assetProjectionSchema.parse({
-    ...firstAsset,
-    id: "asset:second-evidence",
-    title: "Second Evidence",
-    source: secondAssetSource.reference,
-    citations: [],
-    registeredAt: accepted("2026-07-31T11:00:00Z"),
-    displayLocation: "docs/second-evidence.md",
-    evidenceRoles: [],
-    authorityAdoptions: [],
-    passageEvidence: [],
-  });
-  const authority = authoritySchema.parse({
-    id: "authority:design",
-    title: "Design",
-    source: authoritySource.reference,
-    citations: [],
-    scope: "Govern the evidence baseline.",
-    baselineAssetIds: [firstAsset.id, secondAsset.id],
-    adoptions: [
-      { assetId: firstAsset.id, decisionReference: firstReview.id },
-      { assetId: secondAsset.id, decisionReference: secondReview.id },
-    ],
-  });
-  const withAdoptions = withLineage({
-    ...snapshot,
-    assets: { validity: "available", items: [...snapshot.assets.items, secondAsset] },
-    authorities: { validity: "available", items: [authority] },
-    reviews: {
-      ...snapshot.reviews,
-      items: [...snapshot.reviews.items, firstReview, secondReview],
-    },
-    sources: [
-      ...snapshot.sources,
-      secondAssetSource,
-      authoritySource,
-      firstReviewSource,
-      secondReviewSource,
-    ],
-  });
-
-  const authorityModel = readable(
-    buildPlanningLineageSubjectModel(
-      withAdoptions,
-      { kind: "authority", id: authority.id },
-      "bearing",
-    ),
-  );
-  const forward = authorityModel.relations.find((relation) => relation.key === "adoption.used-by");
-  expect(forward?.state).toBe("present");
-  if (forward?.state !== "present") throw new Error("Expected forward Adoption relation.");
-  expect(
-    forward.items.map((item) => [
-      item.reference,
-      item.event?.role,
-      item.event?.time,
-      item.event?.decisionReference,
-    ]),
-  ).toEqual([
-    [firstAsset.id, "authority.adoption", accepted("2026-07-31T09:00:00Z"), firstReview.id],
-    [secondAsset.id, "authority.adoption", accepted("2026-07-31T10:00:00Z"), secondReview.id],
-  ]);
-
-  const assetModel = readable(
-    buildPlanningLineageSubjectModel(
-      withAdoptions,
-      { kind: "asset", id: firstAsset.id },
-      "bearing",
-    ),
-  );
-  const reverse = assetModel.relations.find((relation) => relation.key === "adoption.used-by");
-  expect(reverse?.state).toBe("present");
-  if (reverse?.state !== "present") throw new Error("Expected reverse Adoption relation.");
-  expect(reverse.items[0]?.event).toEqual({
-    role: "authority.adoption",
-    label: "Adopted",
-    time: accepted("2026-07-31T09:00:00Z"),
-    decisionReference: firstReview.id,
-  });
 });
 
 test("retains the requested identity for missing and invalid subject projections", () => {
@@ -995,7 +838,7 @@ test("projects explicit Effort Outputs and Governance without inferring latest f
     throw new Error("Expected Assets and Efforts.");
   }
   const firstAsset = snapshot.assets.items[0];
-  const modelEffort = snapshot.efforts.items.find((effort) => effort.id === "effort:model");
+  const modelEffort = snapshot.efforts.items.find((effort) => effort.id === "effort:portal");
   if (firstAsset === undefined || modelEffort === undefined) {
     throw new Error("Expected the model Effort and its evidence.");
   }
@@ -1025,22 +868,20 @@ test("projects explicit Effort Outputs and Governance without inferring latest f
     citations: [],
     scope: "Govern the planning-model outputs.",
     baselineAssetIds: [],
-    adoptions: [],
   });
   const first = assetProjectionSchema.parse({
     ...firstAsset,
     owner: modelEffort.id,
-    lifecycleSource: "registry",
     disposition: "superseded",
     supersededBy: "asset:planning-model-evidence-v2",
     supersededAt: accepted("2026-08-03T08:00:00Z"),
-    registeredAt: accepted("2026-08-01T08:00:00Z"),
+    addedAt: accepted("2026-08-01T08:00:00Z"),
   });
   const availableOutput = (
     id: "asset:planning-model-evidence-v2" | "asset:planning-model-evidence-v3",
     title: string,
     source: typeof secondAssetSource,
-    producedAt: string,
+    addedAt: string,
   ) => {
     const slug = id.slice("asset:".length);
     return assetProjectionSchema.parse({
@@ -1050,14 +891,10 @@ test("projects explicit Effort Outputs and Governance without inferring latest f
       source: source.reference,
       owner: modelEffort.id,
       citations: [],
-      authorityAdoptions: [],
-      passageEvidence: [],
-      evidenceRoles: [],
-      lifecycleSource: "registry",
-      disposition: "available",
-      registeredAt: accepted(producedAt),
-      producedAt: accepted(producedAt),
-      displayLocation: `.scratch/evidence/${slug}`,
+      authorityBaselines: [],
+      disposition: "active",
+      addedAt: accepted(addedAt),
+      sourceLocator: `.scratch/evidence/${slug}`,
     });
   };
   const second = availableOutput(
@@ -1094,27 +931,20 @@ test("projects explicit Effort Outputs and Governance without inferring latest f
     state: "available",
     items: [
       { title: "Planning Model Evidence", superseded: true, lifecycle: "superseded" },
-      { title: "Planning Model Evidence v2", superseded: false, lifecycle: "available" },
-      { title: "Planning Model Evidence v3", superseded: false, lifecycle: "available" },
+      { title: "Planning Model Evidence v2", superseded: false, lifecycle: "active" },
+      { title: "Planning Model Evidence v3", superseded: false, lifecycle: "active" },
     ],
   });
   expect(
     model.effortLens?.outputs?.state === "available" && model.effortLens.outputs.items[1]?.times,
   ).toEqual([
-    expect.objectContaining({ label: "Produced", time: accepted("2026-08-02T08:00:00Z") }),
-    expect.objectContaining({ label: "Registered", time: accepted("2026-08-02T08:00:00Z") }),
+    expect.objectContaining({ label: "Added to Assets", time: accepted("2026-08-02T08:00:00Z") }),
   ]);
   expect(model.effortLens?.governance).toEqual({
     authorities: [
       { title: "Design", href: "/projects/bearing/lineage/authority/authority%3Adesign" },
     ],
-    citations: [
-      {
-        title: "Planning Model Evidence",
-        note: "Accepted planning-model evidence.",
-        href: "/projects/bearing/lineage/asset/asset%3Aplanning-model-evidence",
-      },
-    ],
+    citations: [],
   });
 });
 

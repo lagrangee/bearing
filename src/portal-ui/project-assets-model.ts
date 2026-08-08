@@ -5,6 +5,7 @@ import {
   type AssetEvidenceFilterCoverageBasis,
   assetEvidenceFilterContract,
 } from "./asset-evidence-filter";
+import type { AssetStatusFilter } from "./asset-status-filter";
 import { semanticTitleForPlanningReference } from "./planning-reference-title";
 import type { AssetsModelData } from "./project-data";
 
@@ -13,21 +14,10 @@ export type AssetEvidenceFilterCoverage = "complete" | "incomplete";
 export type ProjectAssetRow = Readonly<{
   asset: AssetProjection;
   ownerTitle: string;
-  authorityAdoptions: readonly Readonly<{
-    id: string;
-    decisionReference: string;
-    source: SourceRecord | undefined;
-    available: boolean;
-  }>[];
   authorityBaselines: readonly Readonly<{ id: string; available: boolean }>[];
   citationRelations: readonly Readonly<{
     citation: AssetProjection["citations"][number];
     source: SourceRecord | undefined;
-  }>[];
-  gatePassages: readonly Readonly<{
-    id: string;
-    source: SourceRecord | undefined;
-    available: boolean;
   }>[];
   searchValue: string;
   source: SourceRecord | undefined;
@@ -50,12 +40,11 @@ export type ProjectAssetsModel =
 const wordsFor = (asset: AssetProjection, ownerTitle: string): string =>
   [
     asset.title,
+    asset.purpose,
     asset.kind,
     ownerTitle,
-    asset.lifecycleSource,
     asset.disposition,
-    asset.producedFor,
-    ...asset.evidenceRoles,
+    asset.sourceLocator,
     ...asset.citations.map((citation) => citation.note),
   ]
     .filter((value): value is string => value !== undefined)
@@ -67,16 +56,6 @@ export const buildProjectAssetsModel = (snapshot: AssetsModelData): ProjectAsset
     return { state: "invalid", issueCount: snapshot.assets.issues.length, rows: [] };
   }
   const sources = new Map(snapshot.sources.map((source) => [source.reference, source]));
-  const authorityIds = new Set(
-    snapshot.authorities.validity === "invalid"
-      ? []
-      : snapshot.authorities.items.map((authority) => String(authority.id)),
-  );
-  const gateIds = new Set(
-    snapshot.gates.validity === "invalid"
-      ? []
-      : snapshot.gates.items.map((gate) => String(gate.id)),
-  );
   const rows = snapshot.assets.items.map((asset) => {
     const ownerTitle = semanticTitleForPlanningReference(snapshot, asset.owner);
     const citationSources = asset.citations.map((citation) => sources.get(citation.source));
@@ -92,21 +71,10 @@ export const buildProjectAssetsModel = (snapshot: AssetsModelData): ProjectAsset
     return {
       asset,
       ownerTitle,
-      authorityAdoptions: asset.authorityAdoptions.map((adoption) => ({
-        id: String(adoption.authorityId),
-        decisionReference: adoption.decisionReference,
-        source: sources.get(adoption.source),
-        available: authorityIds.has(adoption.authorityId),
-      })),
       authorityBaselines,
       citationRelations: asset.citations.map((citation, index) => ({
         citation,
         source: citationSources[index],
-      })),
-      gatePassages: asset.passageEvidence.map((evidence) => ({
-        id: String(evidence.gateId),
-        source: sources.get(evidence.source),
-        available: gateIds.has(evidence.gateId),
       })),
       searchValue: wordsFor(asset, ownerTitle),
       source: sources.get(asset.source),
@@ -127,7 +95,6 @@ export const buildProjectAssetsModel = (snapshot: AssetsModelData): ProjectAsset
     "asset-record": snapshot.assets.validity === "available" ? "complete" : "incomplete",
     "citation-owners": citationCoverage,
     authorities: snapshot.authorities.validity === "available" ? "complete" : "incomplete",
-    gates: snapshot.gates.validity === "available" ? "complete" : "incomplete",
   };
   const evidenceFilterCoverage = Object.fromEntries(
     ASSET_EVIDENCE_FILTERS.map((filter) => [filter.value, coverageByBasis[filter.coverageBasis]]),
@@ -145,23 +112,31 @@ export const buildProjectAssetsModel = (snapshot: AssetsModelData): ProjectAsset
 export const filterAssetRows = (
   rows: readonly ProjectAssetRow[],
   query: string,
+  statusFilter: AssetStatusFilter,
   evidenceFilter: AssetEvidenceFilter,
   filterCoverage: AssetEvidenceFilterCoverage,
 ): readonly ProjectAssetRow[] => {
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const match = assetEvidenceFilterContract(evidenceFilter).match;
   return rows.filter((row) => {
+    const statusMatch =
+      statusFilter === "all" ||
+      (statusFilter === "current"
+        ? row.asset.disposition === "active"
+        : statusFilter === "replaced"
+          ? row.asset.disposition === "superseded"
+          : row.asset.disposition === "archived");
     const evidenceMatch =
       match === "all" ||
-      (match === "execution-evidence"
-        ? row.asset.evidenceRoles.includes("execution-evidence")
-        : match === "planning-citation"
-          ? row.asset.evidenceRoles.includes("planning-citation")
-          : match === "authority-baseline"
-            ? row.authorityBaselines.length > 0
-            : match === "passage-evidence"
-              ? row.asset.evidenceRoles.includes("passage-evidence")
-              : filterCoverage === "complete" && row.asset.citations.length === 0);
-    return evidenceMatch && (normalizedQuery === "" || row.searchValue.includes(normalizedQuery));
+      (match === "planning-citation"
+        ? row.asset.citations.length > 0
+        : match === "authority-baseline"
+          ? row.authorityBaselines.length > 0
+          : filterCoverage === "complete" && row.asset.citations.length === 0);
+    return (
+      statusMatch &&
+      evidenceMatch &&
+      (normalizedQuery === "" || row.searchValue.includes(normalizedQuery))
+    );
   });
 };

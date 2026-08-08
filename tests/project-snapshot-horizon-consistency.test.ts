@@ -36,7 +36,7 @@ test("derives an exhausted active Roadmap from a terminal ordered Gate horizon",
                 acceptedDecision: "Pass the final declared Gate.",
                 acceptedAt: { availability: "unavailable" as const },
                 rationale: "The declared outcome horizon is exhausted.",
-                evidenceAssetIds: [],
+                evidence: [],
                 exceptions: [],
               },
             }

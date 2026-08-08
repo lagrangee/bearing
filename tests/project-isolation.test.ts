@@ -23,7 +23,7 @@ test("the fixed repository fixture materializes healthy semantics without changi
   expect(result.snapshot.audit).toEqual({ validity: "absent" });
   expect(result.snapshot.assets).toMatchObject({
     validity: "available",
-    items: [{ id: "asset:fixture-uncited", citations: [], evidenceRoles: [] }],
+    items: [{ id: "asset:fixture-uncited", citations: [], authorityBaselines: [] }],
   });
   expect(await readRepositorySourceBytes(root)).toEqual(before);
 });
@@ -38,7 +38,7 @@ test("one invalid canonical member stays scoped beside trustworthy fixture seman
   expect(result.snapshot.audit).toEqual({ validity: "absent" });
   expect(result.snapshot.assets).toMatchObject({
     validity: "partial",
-    items: [{ id: "asset:fixture-uncited", citations: [], evidenceRoles: [] }],
+    items: [{ id: "asset:fixture-uncited", citations: [], authorityBaselines: [] }],
     issues: [{ code: "invalid-asset-schema", target: ".bearing/state/assets.md#asset:broken" }],
   });
   expect(result.snapshot.diagnostics).toContainEqual(
@@ -132,21 +132,19 @@ Type: asset-registry
 Assets:
   - ID: asset:fixture-uncited
     Title: Uncited Fixture Evidence
-    Kind: verification-report
-    Location: evidence/uncited.md
+    Purpose: Keep one uncited fixture reference available for projection tests.
+    Kind: reference
+    Source: evidence/uncited.md
     Owner: effort:fixture
-    Producer:
-      Kind: executor-profile
-      Name: generic-agent
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
   - ID: asset:broken
     Title: Broken Fixture Asset
-    Kind: verification-report
+    Purpose: Exercise scoped invalid Asset isolation.
+    Kind: reference
     Owner: effort:fixture
-    Producer:
-      Kind: executor-profile
-      Name: generic-agent
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
 ---
 
 # Asset Registry
