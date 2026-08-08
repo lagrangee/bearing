@@ -115,7 +115,7 @@ export const inspectRepositoryIntegrationLifecycle = async (
 
 export const assertActiveRepositoryIntegration = async (
   root: string,
-  operation: "inspect" | "provider" | "reconcile-native" | "cache-rebuild" | "maintenance" | "sync",
+  operation: "inspect" | "provider" | "reconcile-native" | "cache-rebuild" | "maintenance",
 ): Promise<void> => {
   const lifecycle = await inspectRepositoryIntegrationLifecycle(root);
   if (lifecycle.kind === "active") return;

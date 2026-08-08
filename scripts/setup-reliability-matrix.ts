@@ -1,6 +1,7 @@
 import { createCodexE2EEvidenceRecord } from "./codex-e2e-runtime";
 import { surfaceLaunchContract } from "./g1-live-fixture";
 
+// Historical-only Setup Reliability identifiers remain stable for concluded evidence receipts.
 export const SETUP_RELIABILITY_PLAN_ID = "bearing-0.1.1-setup-reliability-v1";
 
 export const SETUP_RELIABILITY_CASES = [
@@ -83,14 +84,18 @@ export const createSetupReliabilityEvidence = (
     input.cases.length !== SETUP_RELIABILITY_CASES.length ||
     input.cases.some((entry) => !sameCandidate(input.candidate, entry.candidate))
   ) {
-    throw new Error("Every Setup Reliability journey must use the same exact candidate.");
+    throw new Error(
+      "Every Historical-only Setup Reliability journey must use the same exact candidate.",
+    );
   }
   const caseIds = new Set(input.cases.map((entry) => entry.id));
   if (
     caseIds.size !== SETUP_RELIABILITY_CASES.length ||
     SETUP_RELIABILITY_CASES.some(({ id }) => !caseIds.has(id))
   ) {
-    throw new Error("Setup Reliability evidence requires each required matrix case exactly once.");
+    throw new Error(
+      "Historical-only Setup Reliability evidence requires each required matrix case exactly once.",
+    );
   }
 
   const records = input.cases.map((entry) =>
@@ -104,7 +109,9 @@ export const createSetupReliabilityEvidence = (
     }),
   );
   const first = records[0];
-  if (first === undefined) throw new Error("Setup Reliability evidence requires matrix cases.");
+  if (first === undefined) {
+    throw new Error("Historical-only Setup Reliability evidence requires matrix cases.");
+  }
 
   return Object.freeze({
     schemaVersion: 1,

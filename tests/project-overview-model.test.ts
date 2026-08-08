@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OverviewAttention } from "../src/portal-ui/overview-attention";
 import { buildProjectOverviewModel } from "../src/portal-ui/project-overview-model";
-import { projectSnapshotSchema } from "../src/project-snapshot/schema";
+import { projectGenerationSchema } from "../src/project-generation/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
 
@@ -80,7 +80,7 @@ test("renders retained members from a trustworthy partial Roadmap projection", (
     target: "roadmap:second",
     message: "One Roadmap is unavailable.",
   };
-  const partial = projectSnapshotSchema.parse(
+  const partial = projectGenerationSchema.parse(
     withRebuiltPlanningLineage({
       ...snapshot,
       roadmapIndex: {

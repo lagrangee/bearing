@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Stats } from "node:fs";
-import { cp, lstat, mkdir, readdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { BEARING_POINTER } from "../src/agent-surface-entry";
 import { codexE2ERuntimeArguments } from "./codex-e2e-runtime";
@@ -17,8 +17,6 @@ export const G1_LIVE_JOURNEYS = [
   "L4-negative",
   "L5-positive",
   "L5-negative",
-  "L6-positive",
-  "L6-negative",
   "L7-positive",
   "L7-negative",
 ] as const;
@@ -113,7 +111,7 @@ const parseArguments = (argv: readonly string[]): Arguments => {
     if (option === "--help") {
       process.stdout.write(`Usage:
   bun scripts/g1-live-fixture.ts \\
-    --journey <L1-positive..L7-negative> \\
+    --journey <L1-positive..L5-negative|L7-positive|L7-negative> \\
     --surface <codex|claude-code> \\
     --root <absolute-new-repository-path> \\
     --home <absolute-new-home-path> \\
@@ -516,11 +514,7 @@ const treeDigest = (files: readonly FileDigest[]): string =>
 
 export const finalizeFixtureSnapshot = async (
   root: string,
-  removeSyncReceipt: boolean,
 ): Promise<Readonly<{ sha256: string; files: readonly FileDigest[] }>> => {
-  if (removeSyncReceipt) {
-    await unlink(join(root, ".bearing/cache/sync-receipt.json"));
-  }
   const files = await fileDigests(root);
   return { sha256: treeDigest(files), files };
 };
@@ -745,7 +739,7 @@ Ticket identity: ${ordinal}
 
 const seedPlanning = async (
   root: string,
-  options: Readonly<{ l7?: boolean; externalAsset?: string }> = {},
+  options: Readonly<{ l7?: boolean }> = {},
 ): Promise<void> => {
   await writeFixture(root, ".bearing/state/project-summary.md", projectSummary);
   await writeFixture(root, ".bearing/state/roadmap-index.md", roadmapIndex);
@@ -757,27 +751,9 @@ const seedPlanning = async (
   await writeFixture(
     root,
     ".bearing/state/assets.md",
-    options.externalAsset === undefined
-      ? `---
+    `---
 Type: asset-registry
 Assets: []
----
-
-# Asset Registry
-`
-      : `---
-Type: asset-registry
-Assets:
-  - ID: asset:g1-external-payload
-    Title: G1 External Payload
-    Kind: fixture-evidence
-    Location: file://${options.externalAsset}
-    Owner: effort:g1-fixture
-    Producer:
-      Kind: external-source
-      Name: g1-live-fixture
-    Lifecycle source: registry
-    Disposition: available
 ---
 
 # Asset Registry
@@ -953,14 +929,12 @@ Type: asset-registry
 Assets:
   - ID: asset:g1-legacy-output
     Title: G1 Legacy Output
-    Kind: fixture-evidence
-    Location: .scratch/work/evidence/legacy.md
+    Purpose: Preserve the durable fixture output.
+    Kind: reference
+    Source: .scratch/work/evidence/legacy.md
     Owner: effort:g1-fixture
-    Producer:
-      Kind: external-source
-      Name: g1-live-fixture
-    Lifecycle source: registry
-    Disposition: available
+    Added at: 2026-08-01T00:00:00Z
+    Disposition: active
 ---
 
 # Asset Registry
@@ -1057,10 +1031,7 @@ const setupActiveRepository = async (args: Arguments): Promise<void> => {
 };
 
 const requiresActiveSetup = (journey: G1LiveJourney): boolean =>
-  journey.startsWith("L1-") ||
-  journey.startsWith("L4-") ||
-  journey.startsWith("L6-") ||
-  journey.startsWith("L7-");
+  journey.startsWith("L1-") || journey.startsWith("L4-") || journey.startsWith("L7-");
 
 const createFixture = async (args: Arguments): Promise<void> => {
   const original = process.argv.slice(2);
@@ -1088,9 +1059,6 @@ const createFixture = async (args: Arguments): Promise<void> => {
   const prerequisiteSource = args.journey.startsWith("L3-")
     ? `${args.root}.matt-prerequisite.md`
     : undefined;
-  const externalAsset = args.journey.startsWith("L6-")
-    ? `${args.root}.external-payload.md`
-    : undefined;
   const generatedTargets = [
     { path: args.root, label: "Repository root" },
     { path: args.home, label: "Isolated home" },
@@ -1098,9 +1066,6 @@ const createFixture = async (args: Arguments): Promise<void> => {
     ...(prerequisiteSource === undefined
       ? []
       : [{ path: prerequisiteSource, label: "Matt prerequisite source" }]),
-    ...(externalAsset === undefined
-      ? []
-      : [{ path: externalAsset, label: "External Asset payload" }]),
   ];
   await assertIndependentTargets(generatedTargets);
   if (args.codexHome !== undefined) {
@@ -1156,10 +1121,6 @@ const createFixture = async (args: Arguments): Promise<void> => {
       ".bearing/executor-profiles/unregistered-extra.md",
       "# Unregistered unsafe legacy profile\n",
     );
-  } else if (args.journey.startsWith("L6-")) {
-    if (externalAsset === undefined) throw new Error("Missing derived external Asset target.");
-    await writeFile(externalAsset, "# External payload\n\nPurge must preserve this file.\n");
-    await seedPlanning(args.root, { externalAsset });
   } else if (args.journey.startsWith("L7-")) {
     await seedPlanning(args.root, { l7: true });
     if (args.journey.endsWith("-negative")) await seedL7Negative(args.root);
@@ -1170,23 +1131,34 @@ const createFixture = async (args: Arguments): Promise<void> => {
   }
 
   const bearingCli = join(args.home, ".bearing/bin/bearing");
-  let initialSync: unknown;
+  let initialReadModel: unknown;
   if (requiresActiveSetup(args.journey)) {
-    const output = await run(
-      [bearingCli, "sync", "--recover-provider-observations", "--repo", args.root],
-      { home: args.home },
-    );
-    const fingerprint = /^Input fingerprint:\s*(sha256:[0-9a-f]{64})\s*$/mu.exec(output)?.[1];
-    const diagnosticsText = /^Diagnostics:\s*(\d+)\s*$/mu.exec(output)?.[1];
-    const diagnostics =
-      diagnosticsText === undefined ? undefined : Number.parseInt(diagnosticsText, 10);
-    if (fingerprint === undefined || diagnostics !== 0) {
-      throw new Error(`Active fixture must begin with zero Sync diagnostics.`);
+    await run([bearingCli, "cache", "rebuild", "--repo", args.root], { home: args.home });
+    await run([bearingCli, "provider", "verify", "--all", "--repo", args.root], {
+      home: args.home,
+    });
+    const output = await run([bearingCli, "inspect", "project", "--repo", args.root], {
+      home: args.home,
+    });
+    const inspection = JSON.parse(output) as {
+      outcome?: string;
+      generation?: { basisFingerprint?: string };
+      result?: { diagnosticCounts?: { blocking?: number; nonBlocking?: number } };
+    };
+    const fingerprint = inspection.generation?.basisFingerprint;
+    const diagnosticCounts = inspection.result?.diagnosticCounts;
+    if (
+      inspection.outcome !== "complete" ||
+      fingerprint === undefined ||
+      diagnosticCounts?.blocking !== 0 ||
+      diagnosticCounts.nonBlocking !== 0
+    ) {
+      throw new Error(`Active fixture must begin with zero Project Read Model diagnostics.`);
     }
-    initialSync = { fingerprint, diagnostics, output };
+    initialReadModel = { fingerprint, diagnosticCounts, output };
   }
 
-  const fixture = await finalizeFixtureSnapshot(args.root, requiresActiveSetup(args.journey));
+  const fixture = await finalizeFixtureSnapshot(args.root);
   await run(["git", "init", "-q"], { cwd: args.root });
   await run(["git", "config", "user.name", "G1 Fixture"], { cwd: args.root });
   await run(["git", "config", "user.email", "g1-fixture@example.invalid"], { cwd: args.root });
@@ -1236,8 +1208,7 @@ const createFixture = async (args: Arguments): Promise<void> => {
     },
     installedBearingCli: bearingCli,
     instructionFile: surface.instruction,
-    initialSync: initialSync ?? null,
-    externalAsset: externalAsset ?? null,
+    initialReadModel: initialReadModel ?? null,
     codexOperatorContext,
     launch: surfaceLaunchContract({
       surface: args.surface,

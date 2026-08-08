@@ -2,10 +2,10 @@ import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AssetsPage } from "../src/portal-ui/assets-page";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import type { ProjectGeneration } from "../src/project-generation/contract";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
-const render = (snapshot: ProjectSnapshot): string =>
+const render = (snapshot: ProjectGeneration): string =>
   renderToStaticMarkup(
     createElement(AssetsPage, {
       entryId: "bearing",
@@ -52,12 +52,12 @@ test("renders empty, partial, and invalid Assets as scoped projection states", (
     render({
       ...snapshot,
       assets: { validity: "partial", items: snapshot.assets.items, issues: [issue] },
-    } as ProjectSnapshot),
+    } as ProjectGeneration),
   ).toContain("Asset orientation is partial");
   expect(
     render({
       ...snapshot,
       assets: { validity: "invalid", issues: [issue] },
-    } as ProjectSnapshot),
+    } as ProjectGeneration),
   ).toContain("Assets unavailable");
 });

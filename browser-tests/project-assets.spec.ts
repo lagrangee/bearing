@@ -1,8 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
-import { projectSnapshotSchema } from "../src/project-snapshot/schema";
-import { createSourceRecord } from "../src/project-snapshot/source-records";
+import type { ProjectGeneration } from "../src/project-generation/contract";
+import { projectGenerationSchema } from "../src/project-generation/schema";
+import { createSourceRecord } from "../src/project-generation/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { withRebuiltPlanningLineage } from "../tests/planning-lineage-fixture";
 import { browserArtifactPath } from "./browser-artifact-output";
@@ -12,24 +12,24 @@ import {
   projectTargetFromRequest,
 } from "./project-row-fixture";
 
-const assetsFixture = (): ProjectSnapshot => {
+const assetsFixture = (): ProjectGeneration => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.assets.validity !== "available") throw new Error("Expected Assets fixture.");
   const current = snapshot.assets.items[0];
   if (current === undefined) throw new Error("Expected current Asset.");
-  const replacementSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const replacementSource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "asset",
     locator: ".bearing/state/assets.md",
     binding: { role: "asset", identity: "asset:replaced" },
     fragment: "asset:replaced",
   });
-  const archivedSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const archivedSource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "asset",
     locator: ".bearing/state/assets.md",
     binding: { role: "asset", identity: "asset:archived" },
     fragment: "asset:archived",
   });
-  return projectSnapshotSchema.parse(
+  return projectGenerationSchema.parse(
     withRebuiltPlanningLineage({
       ...snapshot,
       assets: {
@@ -64,7 +64,7 @@ const assetsFixture = (): ProjectSnapshot => {
   );
 };
 
-const serveSnapshot = async (page: Page, snapshot: ProjectSnapshot): Promise<void> => {
+const serveSnapshot = async (page: Page, snapshot: ProjectGeneration): Promise<void> => {
   await page.route("**/api/v1/projects/assets/read-model?section=*", (route) => {
     const section = projectSectionFromRequest(route.request().url());
     const target = projectTargetFromRequest(route.request().url());

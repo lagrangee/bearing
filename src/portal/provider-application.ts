@@ -5,7 +5,7 @@ import type {
 import {
   captureProjectProviderScopes,
   type ProviderOperationDependencies,
-  reconcileProjectNative,
+  refreshProjectProviderDetail,
   verifyAllProjectProviderScopes,
 } from "../project-read-model/provider-operations";
 import { inspectProjectReadModel, readProjectProviderEvidence } from "../project-read-model/store";
@@ -101,9 +101,13 @@ const applicationDiagnostic = (
   message: string,
 ): StructuralDiagnostic => ({ code, impact: "blocking", target, message });
 
-const observedEvidence = async (repoRoot: string, scopes: readonly string[]) => {
+const observedEvidence = async (
+  repoRoot: string,
+  scopes: readonly string[],
+  role: "bound" | "detail",
+) => {
   const requested = new Set(scopes);
-  return (await readProjectProviderEvidence(repoRoot, "bound"))
+  return (await readProjectProviderEvidence(repoRoot, role))
     .filter((entry) => requested.has(entry.selection.nativeScope))
     .map((entry) => ({
       scope: entry.selection.nativeScope,
@@ -258,12 +262,11 @@ export const createPortalProviderApplicationService = (options: {
 
     const operation =
       request.action === "item-refresh"
-        ? await reconcileProjectNative(
+        ? await refreshProjectProviderDetail(
             repoRoot,
             {
               binding: request.binding,
-              subjects: [request.subject],
-              relations: [],
+              subject: request.subject,
             },
             options.providerDependencies,
           )
@@ -284,7 +287,11 @@ export const createPortalProviderApplicationService = (options: {
     const observations =
       operation.outcome === "recovery-required" || operation.outcome === "need-update"
         ? []
-        : await observedEvidence(repoRoot, scopes);
+        : await observedEvidence(
+            repoRoot,
+            scopes,
+            request.action === "item-refresh" ? "detail" : "bound",
+          );
     if (operation.outcome === "complete") {
       return {
         version: 1,

@@ -6,28 +6,28 @@ import type { AssetContentObservation, AssetContentShape } from "../asset-inputs
 import { listFiles } from "../discovery";
 import { type FingerprintObservation, fingerprintInputRecords } from "../fingerprint";
 import { probeContainedInput, readContainedInput } from "../input-boundary";
-import type { NativeScopeInspectionStore } from "../native-scope-inspection";
+import { discoverManagedInputs } from "../managed-input-discovery";
 import { resolveRepositoryRoot } from "../path-boundary";
-import type { ProjectSnapshot } from "../project-snapshot/contract";
-import { buildProjectSnapshot } from "../project-snapshot/projection";
+import { compileProjectGeneration, type ProjectCompilationOptions } from "../project-compilation";
+import type { ProjectGeneration } from "../project-generation/contract";
+import { buildProjectGeneration } from "../project-generation/projection";
 import {
   effortSchema,
   gateSchema,
   roadmapSchema,
   structuralDiagnosticSchema,
-} from "../project-snapshot/schema";
-import { projectBriefSchema } from "../project-snapshot/schema-brief";
-import { planningLineageSubjectProjectionSchema } from "../project-snapshot/schema-planning-lineage";
-import { projectSummarySchema } from "../project-snapshot/schema-summary";
-import { sourceRecordSchema } from "../project-snapshot/source-schema";
-import { providerObservationSelectionSchema } from "../provider-observation-contract";
-import type { ProviderObservationStore } from "../provider-observation-store";
+} from "../project-generation/schema";
+import { projectBriefSchema } from "../project-generation/schema-brief";
+import { planningLineageSubjectProjectionSchema } from "../project-generation/schema-planning-lineage";
+import { projectSummarySchema } from "../project-generation/schema-summary";
+import { sourceRecordSchema } from "../project-generation/source-schema";
+import type { ProviderDetailEvidenceState } from "../provider-detail-selection";
+import { providerObservationSelectionSchema } from "../provider-evidence-contract";
+import type { ProviderEvidenceState } from "../provider-evidence-selection";
 import { mattNativeSubjectForObject } from "../providers/matt-skills-v1/native-subject";
 import { mattObjects } from "../providers/matt-skills-v1/projection";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import { assertActiveRepositoryIntegration } from "../repository-integration-lifecycle";
-import { discoverProjectSitemapInputs } from "../sitemap-discovery";
-import { type PrepareSyncOptions, prepareSync } from "../sync-plan";
 import type { StructuralDiagnostic } from "../types";
 import {
   nativeInspectResultSchema,
@@ -86,7 +86,7 @@ export const currentBasisFingerprint = async (
   repoRoot: string,
   metadata: ProjectReadModelMetadata,
 ): Promise<string | undefined> => {
-  const discovery = await discoverProjectSitemapInputs(repoRoot);
+  const discovery = await discoverManagedInputs(repoRoot);
   const assets = await Promise.all(
     metadata.assetContentObservations.map((observation) =>
       observationForAsset(repoRoot, observation),
@@ -164,16 +164,17 @@ export const currentBasisFingerprint = async (
 export const prepareProjectReadModelCandidate = async (
   repoRoot: string,
   options: Readonly<{
-    providerObservationStore?: ProviderObservationStore | null;
-    providerObservationIntent?: PrepareSyncOptions["providerObservationIntent"];
-    providerFactory?: PrepareSyncOptions["providerFactory"];
+    providerObservationStore?: ProviderEvidenceState | null;
+    providerObservationIntent?: ProjectCompilationOptions["providerObservationIntent"];
+    providerFactory?: ProjectCompilationOptions["providerFactory"];
     providerObservationNow?: () => string;
-    requestedProviderBindings?: PrepareSyncOptions["requestedProviderBindings"];
+    requestedProviderBindings?: ProjectCompilationOptions["requestedProviderBindings"];
     nativeReconciliationRequest?: import("../native-reconciliation-contract").NativeReconciliationRequest;
-    nativeScopeInspectionStore?: NativeScopeInspectionStore | null;
+    providerDetailEvidenceIntent?: ProjectCompilationOptions["providerDetailEvidenceIntent"];
+    providerDetailEvidenceState?: ProviderDetailEvidenceState | null;
   }> = {},
 ) => {
-  const plan = await prepareSync(repoRoot, {
+  const plan = await compileProjectGeneration(repoRoot, {
     ...(options.providerObservationStore === undefined
       ? {}
       : { providerObservationStore: options.providerObservationStore }),
@@ -187,34 +188,36 @@ export const prepareProjectReadModelCandidate = async (
     ...(options.requestedProviderBindings === undefined
       ? {}
       : { requestedProviderBindings: options.requestedProviderBindings }),
-    ...(options.nativeReconciliationRequest === undefined
+    ...(options.providerDetailEvidenceIntent !== undefined
+      ? { providerDetailEvidenceIntent: options.providerDetailEvidenceIntent }
+      : options.nativeReconciliationRequest === undefined
+        ? {}
+        : {
+            providerDetailEvidenceIntent: {
+              kind: "reconcile" as const,
+              request: options.nativeReconciliationRequest,
+            },
+          }),
+    ...(options.providerDetailEvidenceState === undefined
       ? {}
-      : {
-          nativeScopeInspectionIntent: {
-            kind: "reconcile" as const,
-            request: options.nativeReconciliationRequest,
-          },
-        }),
-    ...(options.nativeScopeInspectionStore === undefined
-      ? {}
-      : { nativeScopeInspectionStore: options.nativeScopeInspectionStore }),
+      : { providerDetailEvidenceState: options.providerDetailEvidenceState }),
   });
-  const snapshot = await buildProjectSnapshot({
+  const generation = await buildProjectGeneration({
     repoRoot,
     packageVersion: packageMetadata.version,
-    sitemapFingerprint: plan.fingerprint,
+    basisFingerprint: plan.fingerprint,
     diagnostics: plan.diagnostics,
     advisoryFreshness: plan.advisoryFreshness,
     decoded: plan.decoded,
     providerObservations: plan.providerObservations,
     providerObservationSelections: plan.providerObservationSelections,
-    nativeScopeInspectionObservations: plan.nativeScopeInspectionObservations,
-    nativeScopeInspectionSelections: plan.nativeScopeInspectionSelections,
+    providerDetailEvidenceObservations: plan.providerDetailEvidenceObservations,
+    providerDetailEvidenceSelections: plan.providerDetailEvidenceSelections,
     assetContentObservations: plan.assetContentObservations,
-    planningGraph: plan.planningGraph,
+    projectProjections: plan.projectProjections,
   });
   const candidate = compileProjectReadModel({
-    snapshot,
+    snapshot: generation,
     basisFingerprint: plan.projectReadModelBasisFingerprint,
     basisInputs: plan.inputs,
     basisObservations: plan.basisObservations,
@@ -253,7 +256,7 @@ const ensureCurrent = async (repoRoot: string) => {
         };
   const candidate = await materializeProjectReadModelCandidate(repoRoot, {
     ...(providerObservationStore === undefined ? {} : { providerObservationStore }),
-    ...(providerEvidence === undefined ? {} : { nativeScopeInspectionStore: null }),
+    ...(providerEvidence === undefined ? {} : { providerDetailEvidenceState: null }),
   });
   const receipt = await publishProjectReadModel(repoRoot, candidate);
   return {
@@ -270,7 +273,7 @@ const ensureCurrent = async (repoRoot: string) => {
   };
 };
 
-const diagnostics = (database: DatabaseSync): ProjectSnapshot["diagnostics"] =>
+const diagnostics = (database: DatabaseSync): ProjectGeneration["diagnostics"] =>
   database
     .prepare("SELECT payload_json FROM project_diagnostics ORDER BY impact, reference")
     .all()

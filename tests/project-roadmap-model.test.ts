@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { buildRoadmapIndexModel } from "../src/portal-ui/project-roadmap-model";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import type { ProjectGeneration } from "../src/project-generation/contract";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
-const fixture = (): ProjectSnapshot => createProjectOverviewFixture();
+const fixture = (): ProjectGeneration => createProjectOverviewFixture();
 
 test("builds lifecycle Index rows in canonical order with complete Gate horizons", () => {
   const model = buildRoadmapIndexModel(fixture());
@@ -30,7 +30,7 @@ test("keeps absent, invalid, and partial Index states scoped without a legacy de
     buildRoadmapIndexModel({
       ...snapshot,
       roadmapIndex: { validity: "absent" },
-    } as ProjectSnapshot),
+    } as ProjectGeneration),
   ).toEqual({ state: "absent", groups: [] });
 
   const invalid = buildRoadmapIndexModel({
@@ -39,7 +39,7 @@ test("keeps absent, invalid, and partial Index states scoped without a legacy de
       validity: "invalid",
       issues: [{ code: "invalid-roadmap-index", target: "roadmap-index", message: "Invalid." }],
     },
-  } as ProjectSnapshot);
+  } as ProjectGeneration);
   expect(invalid).toEqual({ state: "invalid", groups: [], issueCount: 1 });
 
   if (snapshot.gates.validity === "invalid") throw new Error("Expected readable Gates.");
@@ -50,7 +50,7 @@ test("keeps absent, invalid, and partial Index states scoped without a legacy de
       items: snapshot.gates.items.filter((gate) => gate.id !== "gate:one"),
       issues: [{ code: "invalid-gate", target: "gate:one", message: "Gate unavailable." }],
     },
-  } as ProjectSnapshot);
+  } as ProjectGeneration);
   expect(partial.state).toBe("partial");
   if (partial.state !== "partial") throw new Error("Expected partial Roadmap Index.");
   expect(partial.groups[0]?.items[1]?.missingGateIds.map(String)).toEqual(["gate:one"]);

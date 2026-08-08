@@ -30,12 +30,7 @@ export const writeCatalogFixture = async (
   }
 };
 
-const outputs = [
-  "project-sitemap.md",
-  "sync-report.md",
-  "project-snapshot.json",
-  "sync-receipt.json",
-] as const;
+const projectReadModelOutputs = ["project-read-model.sqlite"] as const;
 
 const defaultCommandTimeoutMs = 30_000;
 const defaultTermGraceMs = 5_000;
@@ -298,10 +293,12 @@ export const stopBuiltPortal = async (portal: RunningTestPortal | undefined): Pr
   if (portal !== undefined) await stopHarnessProcess(portal.child, { label: "built Portal" });
 };
 
-export const fixedCacheHashes = async (root: string): Promise<Readonly<Record<string, string>>> =>
+export const projectReadModelHashes = async (
+  root: string,
+): Promise<Readonly<Record<string, string>>> =>
   Object.fromEntries(
     await Promise.all(
-      outputs.map(async (locator) => {
+      projectReadModelOutputs.map(async (locator) => {
         try {
           return [
             locator,
@@ -319,10 +316,10 @@ export const fixedCacheHashes = async (root: string): Promise<Readonly<Record<st
     ),
   );
 
-export const preserveFixedCache = async (root: string, target: string): Promise<void> => {
+export const preserveProjectReadModel = async (root: string, target: string): Promise<void> => {
   await mkdir(target, { recursive: true });
   await Promise.all(
-    outputs.map((locator) =>
+    projectReadModelOutputs.map((locator) =>
       copyFile(join(root, ".bearing/cache", locator), join(target, locator)),
     ),
   );

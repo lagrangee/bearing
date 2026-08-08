@@ -7,7 +7,7 @@ import {
   gateIdSchema,
   reviewIdSchema,
   roadmapIdSchema,
-} from "./project-snapshot/schema-primitives";
+} from "./project-generation/schema-primitives";
 
 export const planningLineageSubjectKindSchema = z.enum([
   "roadmap",
@@ -34,7 +34,7 @@ export const nativeSubjectIdSchema = z
     }),
   );
 
-export const nativeScopeInspectionSubjectSchema = z.discriminatedUnion("kind", [
+export const providerDetailEvidenceSubjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("native-scope"), id: nativeSubjectIdSchema }),
   z.strictObject({ kind: z.literal("native-subject"), id: nativeSubjectIdSchema }),
 ]);
@@ -46,7 +46,7 @@ export const planningLineageSubjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("authority"), id: unbrandedId(authorityIdSchema) }),
   z.strictObject({ kind: z.literal("planning-review"), id: unbrandedId(reviewIdSchema) }),
   z.strictObject({ kind: z.literal("asset"), id: unbrandedId(assetIdSchema) }),
-  ...nativeScopeInspectionSubjectSchema.options,
+  ...providerDetailEvidenceSubjectSchema.options,
 ]);
 export type PlanningLineageSubject = z.infer<typeof planningLineageSubjectSchema>;
 

@@ -7,7 +7,7 @@ import {
   setupReliabilityLaunchContract,
 } from "../scripts/setup-reliability-matrix";
 
-describe("Setup Reliability Codex matrix", () => {
+describe("Historical-only Setup Reliability Codex matrix", () => {
   test("pins the smallest decision-distinct synthetic journey set", () => {
     expect(SETUP_RELIABILITY_PLAN_ID).toBe("bearing-0.1.1-setup-reliability-v1");
     expect(SETUP_RELIABILITY_CASES).toEqual([

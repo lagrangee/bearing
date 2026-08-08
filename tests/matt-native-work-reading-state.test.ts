@@ -229,7 +229,7 @@ test("withholds a prior complete observation after the latest verification fails
           observationId: complete.id,
           effectiveFreshness: "undetermined" as const,
           latestAttempt: {
-            intent: "full-verification" as const,
+            intent: "all-scope-verification" as const,
             attemptedAt: "2026-07-31T07:00:00Z",
             outcome: "failed" as const,
             diagnostics: [
@@ -271,7 +271,7 @@ test("keeps a first acquisition failure bound while preserving its concrete diag
           observationId: null,
           effectiveFreshness: "undetermined" as const,
           latestAttempt: {
-            intent: "initial-baseline" as const,
+            intent: "exact-scope-capture" as const,
             attemptedAt: "2026-07-31T07:00:00Z",
             outcome: "failed" as const,
             diagnostics: [

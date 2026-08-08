@@ -270,37 +270,6 @@
   height: 16px;
 }
 
-.snapshot-states {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-.snapshot-state {
-  padding: var(--space-2) var(--space-3);
-  color: var(--muted);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  font-size: var(--type-tech);
-}
-.snapshot-checking,
-.snapshot-refreshing,
-.snapshot-syncing {
-  color: var(--info);
-  background: var(--info-wash);
-}
-.snapshot-current,
-.snapshot-updated {
-  color: var(--success);
-  background: var(--success-wash);
-}
-.snapshot-missing,
-.snapshot-malformed,
-.snapshot-failed {
-  color: color-mix(in oklch, var(--error) 88%, var(--ink));
-  background: var(--error-wash);
-}
-
 @media (max-width: 900px) {
   .attention-queue {
     grid-template-columns: 1fr;

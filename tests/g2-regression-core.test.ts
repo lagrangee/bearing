@@ -18,13 +18,12 @@ describe("G2 Matt-native regression core", () => {
         files: ["tests/native-work-provider.test.ts", "tests/matt-semantic-equivalence.test.ts"],
       },
       {
-        key: "single-generation-product",
+        key: "explicit-provider-product",
         seam: "packaged-product",
         files: [
-          "tests/provider-observation-deduplication.test.ts",
-          "tests/local-packaged-product-journey.test.ts",
-          "tests/github-packaged-product-journey.test.ts",
-          "tests/provider-degradation-product-seam.test.ts",
+          "tests/architecture-contraction-product-seams.test.ts",
+          "tests/architecture-contraction-provider-product-seam.test.ts",
+          "tests/portal-provider-application.test.ts",
         ],
       },
       {
@@ -32,26 +31,24 @@ describe("G2 Matt-native regression core", () => {
         seam: "architecture-guard",
         files: [
           "tests/native-work-provider-architecture.test.ts",
-          "tests/provider-observation-cutover-architecture.test.ts",
+          "tests/architecture-clean-cut.test.ts",
           "tests/markdown-architecture.test.ts",
           "tests/local-markdown-provider-architecture.test.ts",
           "tests/github-provider-architecture.test.ts",
         ],
       },
       {
-        key: "snapshot-portal-isolation",
-        seam: "project-snapshot-portal",
+        key: "typed-portal-isolation",
+        seam: "project-read-model-portal",
         files: [
-          "tests/planning-graph-projection-owner.test.ts",
-          "tests/project-snapshot-planning-derivation-consistency.test.ts",
-          "tests/project-snapshot-structural-isolation.test.ts",
-          "tests/project-isolation.test.ts",
+          "tests/portal-typed-row-contract.test.ts",
+          "tests/provider-native-subject-contract.test.ts",
         ],
       },
       {
-        key: "zero-intrusion-credential-safety",
+        key: "credential-safety",
         seam: "native-ownership-boundary",
-        files: ["tests/zero-intrusion-proof.test.ts", "tests/github-provider.test.ts"],
+        files: ["tests/github-provider.test.ts", "tests/local-markdown-provider.test.ts"],
       },
     ] as const;
     expect(G2_REGRESSION_CORE).toEqual(expected);

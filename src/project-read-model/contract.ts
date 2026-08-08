@@ -8,26 +8,26 @@ import {
   planningReviewSchema,
   roadmapSchema,
   structuralDiagnosticSchema,
-} from "../project-snapshot/schema";
-import { assetProjectionSchema } from "../project-snapshot/schema-asset";
-import { planningAuditSchema } from "../project-snapshot/schema-audit";
-import { projectBriefSchema } from "../project-snapshot/schema-brief";
+} from "../project-generation/schema";
+import { assetProjectionSchema } from "../project-generation/schema-asset";
+import { planningAuditSchema } from "../project-generation/schema-audit";
+import { projectBriefSchema } from "../project-generation/schema-brief";
 import {
   planningLineageParentPathSchema,
   planningLineageRelationSchema,
   planningLineageSemanticSectionSchema,
-} from "../project-snapshot/schema-planning-lineage";
+} from "../project-generation/schema-planning-lineage";
 import {
   projectionIssueSchema,
   singletonProjectionSchema,
-} from "../project-snapshot/schema-projection";
-import { roadmapIndexSchema } from "../project-snapshot/schema-roadmap-index";
-import { projectSummarySchema } from "../project-snapshot/schema-summary";
-import { sourceRecordSchema } from "../project-snapshot/source-schema";
+} from "../project-generation/schema-projection";
+import { roadmapIndexSchema } from "../project-generation/schema-roadmap-index";
+import { projectSummarySchema } from "../project-generation/schema-summary";
+import { sourceRecordSchema } from "../project-generation/source-schema";
 import {
   providerObservationSelectionFreshnessIsCoherent,
   providerObservationSelectionSchema,
-} from "../provider-observation-contract";
+} from "../provider-evidence-contract";
 import {
   mattNativeObjectForSubject,
   mattNativeScopeKey,

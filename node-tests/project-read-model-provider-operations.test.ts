@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { createBenchmarkFixture } from "../scripts/sync-benchmark-lib";
 import { providerObservationIdentityFor } from "../src/native-work-provider";
 import {
   inspectProject,
@@ -12,6 +11,7 @@ import {
   captureProjectProviderScopes,
   rebuildProjectReadModel,
   reconcileProjectNative,
+  refreshProjectProviderDetail,
   verifyAllProjectProviderScopes,
 } from "../src/project-read-model/provider-operations";
 import {
@@ -21,8 +21,8 @@ import {
   readProjectProviderEvidence,
   replaceProjectProviderEvidence,
 } from "../src/project-read-model/store";
-import { defaultMattProviderFactory } from "../src/provider-observation-acquisition";
-import { ProviderObservationAcquisitionUnavailableError } from "../src/provider-observation-store";
+import { defaultMattProviderFactory } from "../src/provider-acquisition";
+import { ProviderObservationAcquisitionUnavailableError } from "../src/provider-evidence-selection";
 import {
   decodeGitHubMattNativeScope,
   encodeGitHubMattNativeScope,
@@ -34,9 +34,72 @@ import {
   githubMattProviderFactoryFor,
   writeStandardGitHubMattProductRepository,
 } from "../tests/fixtures/github-matt-api";
+import { createRepresentativeProject } from "../tests/fixtures/representative-project";
+import { createValidBearingRepo } from "../tests/helpers";
+
+test("all-scope verification completes truthfully when the active project has no Work Bindings", async () => {
+  const root = await createValidBearingRepo();
+  try {
+    const effortPath = `${root}/.bearing/state/efforts/test.md`;
+    const effort = await readFile(effortPath, "utf8");
+    await writeFile(
+      effortPath,
+      effort.replace(
+        "Work binding:\n  Provider: matt-skills/v1\n  Native scope: .scratch/work\n",
+        "",
+      ),
+    );
+    assert.equal((await rebuildProjectReadModel(root)).outcome, "complete");
+    assert.deepEqual(await verifyAllProjectProviderScopes(root), {
+      schemaVersion: 1,
+      command: "provider-verify",
+      outcome: "complete",
+      result: { acquisitionCount: 0, scopes: [], missingEvidenceScopes: [] },
+      diagnostics: [],
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("item refresh publishes detail evidence without changing bound evidence or generation", async () => {
+  const root = await createValidBearingRepo();
+  try {
+    assert.equal((await rebuildProjectReadModel(root)).outcome, "complete");
+    assert.equal((await captureProjectProviderScopes(root, [".scratch/work"])).outcome, "complete");
+    const beforeState = await inspectProjectReadModel(root);
+    assert.equal(beforeState.state, "ready");
+    if (beforeState.state !== "ready") throw new Error("Expected a ready Project Read Model.");
+    const beforeBound = await readProjectProviderEvidence(root, "bound");
+
+    const refreshed = await refreshProjectProviderDetail(root, {
+      binding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
+      subject: ".scratch/work/issues/01-finish.md",
+    });
+
+    assert.equal(refreshed.outcome, "complete");
+    assert.equal(refreshed.result.acquisitionCount, 1);
+    assert.deepEqual(refreshed.result.scopes, [
+      { scope: ".scratch/work", disposition: "captured" },
+    ]);
+    assert.deepEqual(await readProjectProviderEvidence(root, "bound"), beforeBound);
+    const detail = await readProjectProviderEvidence(root, "detail");
+    assert.equal(detail.length, 1);
+    assert.equal(detail[0]?.role, "detail");
+    assert.equal(detail[0]?.selection.nativeScope, ".scratch/work");
+    assert.equal(detail[0]?.selection.latestAttempt?.intent, "provider-detail-selection");
+    assert.equal(detail[0]?.selection.latestAttempt?.outcome, "succeeded");
+    const afterState = await inspectProjectReadModel(root);
+    assert.equal(afterState.state, "ready");
+    if (afterState.state !== "ready") throw new Error("Expected a ready Project Read Model.");
+    assert.equal(afterState.metadata.basisFingerprint, beforeState.metadata.basisFingerprint);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("physical rebuild is local-only and exact capture replaces current bound evidence", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     const rebuilt = await rebuildProjectReadModel(fixture.root);
     assert.equal(rebuilt.outcome, "complete");
@@ -195,7 +258,7 @@ test("physical rebuild is local-only and exact capture replaces current bound ev
 });
 
 test("exact reconciliation returns complete readback and never broadens a failed read", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     await rebuildProjectReadModel(fixture.root);
     await captureProjectProviderScopes(fixture.root, [".scratch/scope-001"]);
@@ -271,7 +334,7 @@ test("exact reconciliation returns complete readback and never broadens a failed
 });
 
 test("bound and detail roles retain one current row and detail replacement does not publish", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     await rebuildProjectReadModel(fixture.root);
     await captureProjectProviderScopes(fixture.root, [".scratch/scope-001"]);
@@ -293,7 +356,7 @@ test("bound and detail roles retain one current row and detail replacement does 
       selection: {
         ...bound.selection,
         latestAttempt: {
-          intent: "native-scope-inspection",
+          intent: "provider-detail-selection",
           attemptedAt: "2026-08-08T00:00:00.000Z",
           outcome: "succeeded",
           diagnostics: [],
@@ -329,7 +392,7 @@ test("bound and detail roles retain one current row and detail replacement does 
         ),
         selections: currentBound.map((entry) => entry.selection),
       },
-      nativeScopeInspectionStore: null,
+      providerDetailEvidenceState: null,
     });
     await replaceProjectProviderEvidence(fixture.root, {
       ...bound,
@@ -337,7 +400,7 @@ test("bound and detail roles retain one current row and detail replacement does 
       selection: {
         ...bound.selection,
         latestAttempt: {
-          intent: "native-scope-inspection",
+          intent: "provider-detail-selection",
           attemptedAt: "2026-08-08T01:00:00.000Z",
           outcome: "succeeded",
           diagnostics: [],
@@ -349,7 +412,7 @@ test("bound and detail roles retain one current row and detail replacement does 
     assert.equal(afterCanonicalPublication.length, 1);
     assert.equal(
       afterCanonicalPublication[0]?.selection.latestAttempt?.intent,
-      "native-scope-inspection",
+      "provider-detail-selection",
     );
     assert.equal(
       afterCanonicalPublication[0]?.selection.latestAttempt?.attemptedAt,
@@ -377,7 +440,7 @@ test("bound and detail roles retain one current row and detail replacement does 
         ),
         selections: currentBound.map((entry) => entry.selection),
       },
-      nativeScopeInspectionStore: null,
+      providerDetailEvidenceState: null,
     });
     await publishProjectReadModel(fixture.root, afterBindingRemovalCandidate);
     assert.equal(
@@ -411,7 +474,7 @@ test("bound and detail roles retain one current row and detail replacement does 
 });
 
 test("explicit rebuild recovers corrupt disposable bytes but never downgrades a newer store", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     await rebuildProjectReadModel(fixture.root);
     const path = projectReadModelPath(fixture.root);
@@ -455,7 +518,7 @@ test("explicit rebuild recovers corrupt disposable bytes but never downgrades a 
 });
 
 test("all-scope verification is explicit and captures each current Work Binding once", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     await rebuildProjectReadModel(fixture.root);
     const verified = await verifyAllProjectProviderScopes(fixture.root);
@@ -469,7 +532,7 @@ test("all-scope verification is explicit and captures each current Work Binding 
 });
 
 test("mixed all-scope verification publishes successful captures with failed attempts atomically", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     await rebuildProjectReadModel(fixture.root);
     const before = await inspectProjectReadModel(fixture.root);
@@ -592,7 +655,7 @@ test("SQLite acquisition preserves complete GitHub Matt semantics through the sa
         ),
         selections: currentBound.map((entry) => entry.selection),
       },
-      nativeScopeInspectionStore: null,
+      providerDetailEvidenceState: null,
     });
     await publishProjectReadModel(root, changedCandidate);
     assert.equal((await readProjectProviderEvidence(root, "detail")).length, 0);

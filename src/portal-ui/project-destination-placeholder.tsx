@@ -7,7 +7,7 @@ export function ProjectDestinationPlaceholder({ section }: { readonly section: "
     <div className="page destination-placeholder">
       <p className="eyebrow">Project destination</p>
       <h1>{labels[section]}</h1>
-      <p>This destination will use the same current Project Snapshot.</p>
+      <p>This destination will use the same current Project Read Model generation.</p>
     </div>
   );
 }

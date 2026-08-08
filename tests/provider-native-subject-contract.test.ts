@@ -6,7 +6,7 @@ import {
   planningLineageSubjectHref,
 } from "../src/planning-lineage-route";
 import { parsePortalRoute } from "../src/portal-ui/project-route";
-import { buildMattNativeSourceRecords } from "../src/project-snapshot/native-work-sources";
+import { buildMattNativeSourceRecords } from "../src/project-generation/native-work-sources";
 import {
   decodeGitHubMattNativeScope,
   encodeGitHubMattNativeScope,

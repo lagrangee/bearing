@@ -8,13 +8,11 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import packageMetadata from "../package.json";
-import { createPlanningLineageAgentHandoff } from "./agent-planning-lineage-handoff";
 import { CatalogCommandUsageError, runCatalogCommand } from "./catalog/cli";
 import {
   executorNominationAssessmentSchema,
   resolveExecutorNominations,
 } from "./executor-registration";
-import { writeInspectBenchmarkMetrics } from "./inspect-benchmark";
 import { installKit, uninstallGlobalKit } from "./installer";
 import {
   nativeReferenceSchema,
@@ -22,7 +20,6 @@ import {
   normalizeNativeReconciliationRequest,
 } from "./native-reconciliation-contract";
 import { resolveRepositoryRoot } from "./path-boundary";
-import { createPlanningGraphInstrumentation } from "./planning-graph-instrumentation";
 import { parsePortalPort } from "./portal/port";
 import { startPortalServer } from "./portal/server";
 import { planningReferenceSchema } from "./project-read-model/contract";
@@ -38,10 +35,10 @@ import {
   inspectRepositoryConfiguration,
   planRepositoryConfiguration,
 } from "./repository-configuration";
-import { assertActiveRepositoryIntegration } from "./repository-integration-lifecycle";
-import { runSync } from "./sync";
-import { commitSyncPlan, prepareSync } from "./sync-plan";
 import type { AgentSurface } from "./types";
+
+const INSPECT_USAGE =
+  "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]\n       bearing inspect --native <native-reference> [--repo <path>]";
 
 const HELP = `Bearing ${packageMetadata.version}
 
@@ -53,12 +50,12 @@ Usage:
   bearing configure plan --intent <activate|deactivate> [--repo <path>] [--surface <agent-skills|claude>] [--provider-contract <repository-relative-path>] [--executor-mode <skip|configure>] [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>]
   bearing configure apply --intent <activate|deactivate> --plan-token <sha256> [configuration options from the reviewed plan]
   bearing catalog <inspect|rename|unregister|relink|reset> [options]
-  bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
   bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
   bearing provider capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] [--repo <path>]
   bearing provider verify --all [--repo <path>]
   bearing cache rebuild [--repo <path>]
-  bearing inspect <project|diagnostics|stable-planning-reference> [--native <native-reference>] [--repo <path>]
+  bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]
+  bearing inspect --native <native-reference> [--repo <path>]
   bearing portal [--port <1-65535>]
   bearing --help
   bearing --version
@@ -68,11 +65,10 @@ Commands:
   install  Install the global bundle, CLI, and skills for selected Agent Surfaces.
   configure  Inspect, seal, and apply one exact Repository Configuration write set.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
-  sync     Rebuild deterministic diagnostics and the Project Sitemap under .bearing/cache/.
   reconcile-native  Re-observe only the native subjects and relations affected by one completed Matt transaction.
   provider  Explicitly capture exact Work Binding scopes or verify all current scopes.
   cache     Rebuild only the disposable repository Project Read Model.
-  inspect  Return one generation-scoped planning context closure.
+  inspect  Read one typed result from the current Project Read Model generation.
   portal   Run the foreground loopback Portal Host and compiled browser Module.
 
 Environment:
@@ -286,47 +282,6 @@ const runInstall = async (args: readonly string[]): Promise<void> => {
   );
 };
 
-const runSyncCommand = async (args: readonly string[]): Promise<void> => {
-  const parsed = parseArgs({
-    args: [...args],
-    options: {
-      repo: { type: "string" },
-      "initialize-provider-observations": { type: "boolean" },
-      "recover-provider-observations": { type: "boolean" },
-      "full-provider-verification": { type: "boolean" },
-    },
-    allowPositionals: false,
-    strict: true,
-  });
-  const providerIntentCount = [
-    parsed.values["initialize-provider-observations"],
-    parsed.values["recover-provider-observations"],
-    parsed.values["full-provider-verification"],
-  ].filter((value) => value === true).length;
-  if (providerIntentCount > 1) {
-    throw new Error(
-      "Choose exactly one provider observation baseline, recovery, or full verification intent.",
-    );
-  }
-  const providerObservationIntent =
-    parsed.values["initialize-provider-observations"] === true
-      ? ("initial-baseline" as const)
-      : parsed.values["recover-provider-observations"] === true
-        ? ("recovery" as const)
-        : parsed.values["full-provider-verification"] === true
-          ? ("full-verification" as const)
-          : ("ordinary-sync" as const);
-  const result = await runSync(resolve(parsed.values.repo ?? process.cwd()), {
-    providerObservationIntent,
-  });
-  process.stdout.write(
-    `Report: ${result.reportPath}\nSitemap: ${result.sitemapPath}\nInput fingerprint: ${result.fingerprint}\nDiagnostics: ${result.diagnostics.length}\nProvider observations: ${result.providerObservationOperation.intent}/${result.providerObservationOperation.outcome} (${result.providerObservationOperation.acquisitionCount} acquisitions)\nNative scope inspection: ${result.nativeScopeInspectionOperation.intent.kind}/${result.nativeScopeInspectionOperation.outcome} (${result.nativeScopeInspectionOperation.acquisitionCount} acquisitions)\nOutcome: ${result.changed ? "applied" : "no-op"}\n`,
-  );
-  if (result.diagnostics.some((diagnostic) => diagnostic.impact === "blocking")) {
-    process.exitCode = 1;
-  }
-};
-
 const runNativeReconciliationCommand = async (args: readonly string[]): Promise<void> => {
   const parsed = (() => {
     try {
@@ -469,27 +424,19 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
         options: {
           repo: { type: "string" },
           native: { type: "string" },
-          "benchmark-metrics-file": { type: "string" },
-          "portal-entry": { type: "string" },
         },
         allowPositionals: true,
         strict: true,
       });
     } catch (error) {
-      throw new CommandUsageError(
-        "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]",
-        { cause: error },
-      );
+      throw new CommandUsageError(INSPECT_USAGE, { cause: error });
     }
   })();
   const [request, ...requestExtra] = parsed.positionals;
-  if (
-    (request !== undefined || parsed.values.native !== undefined) &&
-    !(request !== undefined && parsed.values.native !== undefined) &&
-    requestExtra.length === 0 &&
-    parsed.values["benchmark-metrics-file"] === undefined &&
-    parsed.values["portal-entry"] === undefined
-  ) {
+  if ((request === undefined) === (parsed.values.native === undefined) || requestExtra.length > 0) {
+    throw new CommandUsageError(INSPECT_USAGE);
+  }
+  {
     const inspectRequest =
       parsed.values.native !== undefined
         ? nativeReferenceSchema.safeParse(parsed.values.native).success
@@ -503,9 +450,7 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
               ? ({ kind: "planning-reference", reference: request } as const)
               : undefined;
     if (inspectRequest === undefined) {
-      throw new CommandUsageError(
-        "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--native <native-reference>] [--repo <path>]",
-      );
+      throw new CommandUsageError(INSPECT_USAGE);
     }
     const result = await inspectProject(
       await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd())),
@@ -521,74 +466,6 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
     }
     return;
   }
-  const [kind, id, ...extra] = parsed.positionals;
-  if (
-    (kind !== "roadmap" && kind !== "gate" && kind !== "effort") ||
-    id === undefined ||
-    extra.length > 0
-  ) {
-    throw new CommandUsageError(
-      "Usage: bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]",
-    );
-  }
-  const requestedRepoRoot = resolve(parsed.values.repo ?? process.cwd());
-  const repoRoot = await resolveRepositoryRoot(requestedRepoRoot);
-  await assertActiveRepositoryIntegration(repoRoot, "inspect");
-  const metricsFile = parsed.values["benchmark-metrics-file"];
-  const instrumentation =
-    metricsFile === undefined ? undefined : createPlanningGraphInstrumentation();
-  const plan = await prepareSync(
-    repoRoot,
-    instrumentation === undefined ? {} : { planningGraphInstrumentation: instrumentation },
-  );
-  const closureStarted = performance.now();
-  const result = plan.planningGraph.contextFor({ kind, id });
-  const closureCompleted = performance.now();
-  await commitSyncPlan(plan);
-  const outputStarted = performance.now();
-  const portalEntry = parsed.values["portal-entry"];
-  const outputValue =
-    portalEntry === undefined
-      ? result
-      : {
-          ...result,
-          handoff: createPlanningLineageAgentHandoff(portalEntry, { kind, id }),
-        };
-  const output = `${JSON.stringify(outputValue, null, 2)}\n`;
-  const outputCompleted = performance.now();
-  process.stdout.write(output);
-  if (metricsFile !== undefined && instrumentation !== undefined) {
-    const observed = instrumentation.snapshot();
-    writeInspectBenchmarkMetrics(requestedRepoRoot, metricsFile, {
-      schemaVersion: 1,
-      benchmark: "inspect-sample",
-      processId: process.pid,
-      runtime: { nodeVersion: process.version },
-      target: { kind, id },
-      fingerprint: result.fingerprint,
-      state: result.state,
-      phases: {
-        discovery: plan.metrics.phaseMs.discovery,
-        capture: plan.metrics.phaseMs.capture,
-        decode: plan.metrics.phaseMs.decode,
-        graphBuild: plan.planningPhaseMs.graphBuild,
-        closure: closureCompleted - closureStarted,
-        output: plan.planningPhaseMs.output + (outputCompleted - outputStarted),
-        cacheComparison: plan.planningPhaseMs.cacheComparison,
-      },
-      structural: {
-        inputReads: plan.metrics.inputReadCount,
-        capturedInputs: plan.metrics.capturedInputCount,
-        bearingRecords: plan.metrics.bearingRecordCount,
-        recordDecodes: plan.metrics.recordDecodeCount,
-        providerObservations: plan.metrics.providerAcquisitionCount,
-        planningGraphBuilds: observed.planningGraphBuilds,
-        rootClosures: observed.rootClosures,
-        repositoryRevalidations: plan.metrics.repositoryRevalidationCount,
-      },
-    });
-  }
-  if (result.state === "invalid") process.exitCode = 1;
 };
 
 class CommandUsageError extends Error {
@@ -637,10 +514,6 @@ const main = async (): Promise<void> => {
   }
   if (command === "catalog") {
     process.stdout.write(await runCatalogCommand(args, homeDirectory()));
-    return;
-  }
-  if (command === "sync") {
-    await runSyncCommand(args);
     return;
   }
   if (command === "reconcile-native") {

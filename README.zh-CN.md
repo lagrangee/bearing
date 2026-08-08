@@ -125,10 +125,10 @@ uninstall 是彼此独立的操作；见 [故障排查](docs/troubleshooting.zh-
 
 当 agent 解释这个请求如何符合当前方向，或在实现前暴露实质冲突并给出明确决策路径时，第一次 alignment loop 就完成了。安装成功本身不是价值里程碑。
 
-### 5. Sync 并检查
+### 5. 检查当前项目
 
 ```bash
-bearing sync --repo .
+bearing inspect project --repo .
 bearing portal
 ```
 

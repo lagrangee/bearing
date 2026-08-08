@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { createBenchmarkFixture } from "../scripts/sync-benchmark-lib";
+import { createRepresentativeProject } from "./fixtures/representative-project";
 import { installPackedProduct } from "./product-seams/installed-product";
 
 test("packed product seam records public output, exit class, and filesystem effects", async () => {
   const product = await installPackedProduct();
-  const fixture = await createBenchmarkFixture("representative", product.root);
+  const fixture = await createRepresentativeProject("representative", product.root);
 
   try {
     expect(product.candidate.identity).toBe(
@@ -25,12 +25,17 @@ test("packed product seam records public output, exit class, and filesystem effe
       effects: { created: [], changed: [], removed: [] },
     });
 
-    const synced = await product.run(
-      ["sync", "--repo", ".", "--initialize-provider-observations"],
-      { cwd: fixture.root, observeRoots: [fixture.root] },
-    );
-    expect(synced.exitClass).toBe("success");
-    expect(synced.effects.created.length).toBeGreaterThan(0);
+    const rebuilt = await product.run(["cache", "rebuild", "--repo", "."], {
+      cwd: fixture.root,
+      observeRoots: [fixture.root],
+    });
+    expect(rebuilt.exitClass).toBe("success");
+    expect(rebuilt.effects.created).toContain("root-0/.bearing/cache/project-read-model.sqlite");
+    const verified = await product.run(["provider", "verify", "--all", "--repo", "."], {
+      cwd: fixture.root,
+      observeRoots: [fixture.root],
+    });
+    expect(verified.exitClass).toBe("success");
 
     const inspected = await product.run(["inspect", "project", "--repo", "."], {
       cwd: fixture.root,
@@ -43,9 +48,9 @@ test("packed product seam records public output, exit class, and filesystem effe
       command: "inspect",
       outcome: "complete",
       request: { kind: "project" },
-      generation: { publicationCount: 1 },
+      generation: { publicationCount: expect.any(Number) },
       result: {
-        basis: { publicationCount: 1 },
+        basis: { publicationCount: expect.any(Number) },
         summary: { value: { id: "project-summary:current" } },
         diagnosticCounts: { blocking: 0, nonBlocking: 0 },
       },
@@ -57,7 +62,7 @@ test("packed product seam records public output, exit class, and filesystem effe
     expect(projectEnvelope.result.attentionCount).toBeNumber();
     expect(projectEnvelope.result.sources).toBeArray();
     expect(projectEnvelope.result.deeperReads).toContain("effort:e001");
-    expect(inspected.effects.created).toContain("root-0/.bearing/cache/project-read-model.sqlite");
+    expect(inspected.effects).toEqual({ created: [], changed: [], removed: [] });
 
     const repeated = await product.run(["inspect", "project", "--repo", "."], {
       cwd: fixture.root,
@@ -65,10 +70,7 @@ test("packed product seam records public output, exit class, and filesystem effe
     });
     expect(repeated.exitClass).toBe("success");
     expect(repeated.effects).toEqual({ created: [], changed: [], removed: [] });
-    expect(JSON.parse(repeated.stdout)).toMatchObject({
-      outcome: "complete",
-      generation: { publicationCount: 1 },
-    });
+    expect(JSON.parse(repeated.stdout)).toEqual(projectEnvelope);
 
     const diagnostics = await product.run(["inspect", "diagnostics", "--repo", "."], {
       cwd: fixture.root,

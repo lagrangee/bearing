@@ -94,25 +94,30 @@ working directory, generic roadmap words, repository-independent conversation, a
 work do not nominate it. Functional operations validate Active lifecycle before cache creation,
 provider I/O, or mutation.
 
-## Sync
+## Project Read Model operations
 
 ```bash
-bearing sync --repo .
+bearing cache rebuild --repo .
+bearing provider verify --all --repo .
+bearing inspect project --repo .
 ```
 
-Ordinary Sync rebuilds deterministic diagnostics and Project Sitemap projection under cache while
-reusing the latest immutable provider observations selected by explicit Work Bindings. It does not
-discover standalone work or expand Bearing Scope.
+Cache rebuild creates only the disposable SQLite Project Read Model. Provider verification is an
+explicit cost-bearing operation over current Work Bindings. Inspect returns typed committed rows.
+These commands do not discover standalone work or expand Bearing Scope.
 
 ## Inspect
 
 ```bash
-bearing inspect roadmap <roadmap-id> --repo .
-bearing inspect gate <gate-id> --repo .
-bearing inspect effort <effort-id> --repo .
+bearing inspect project --repo .
+bearing inspect effort:<effort-id> --repo .
+bearing inspect --native <native-reference> --repo .
+bearing inspect diagnostics --repo .
 ```
 
-Inspect returns a planning context closure for the selected object.
+Inspect returns a versioned typed envelope from committed Project Read Model rows. The four forms
+read bounded Project Context, one stable planning reference, one exact native reference, or typed
+diagnostics.
 
 ## Portal
 

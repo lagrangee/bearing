@@ -19,16 +19,16 @@ test("Portal public read transport has no whole-Snapshot route or browser schema
 
   expect(routes).not.toContain("/api/v1/projects/:entryId/snapshot");
   expect(routes).toContain("/api/v1/projects/:entryId/read-model");
-  expect(browserContract).not.toContain("readProjectSnapshot");
+  expect(browserContract).not.toContain("readProjectGeneration");
   expect(browserContract).toContain("targetKind");
   expect(browserContract).toContain("targetId");
-  expect(wire).not.toContain("projectSnapshotSchema");
+  expect(wire).not.toContain("projectGenerationSchema");
   expect(wire).not.toContain("projectReadModelReceiptSchema");
   expect(wire).not.toContain("providerEvidence");
-  expect(pageData).not.toContain("ProjectSnapshot");
+  expect(pageData).not.toContain("ProjectGeneration");
   expect(pageData).toContain('section: "overview"');
   expect(pageData).toContain('section: "lineage"');
-  expect(assetPreview).not.toContain("readProjectSnapshotCache");
+  expect(assetPreview).not.toContain("readProjectGenerationCache");
   expect(assetPreview).not.toContain("readProjectSitemapCache");
   expect(assetPreview).toContain("queryPortalAssetRow");
 });
@@ -37,7 +37,7 @@ test("composite Portal rows bind their nested identity to the row key", () => {
   const snapshot = createProjectOverviewFixture();
   const candidate = compileProjectReadModel({
     snapshot,
-    basisFingerprint: snapshot.basis.sitemapFingerprint,
+    basisFingerprint: snapshot.basis.basisFingerprint,
     basisInputs: [],
     basisObservations: [],
     assetContentObservations: [],

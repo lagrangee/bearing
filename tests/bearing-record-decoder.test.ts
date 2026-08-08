@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { decodeBearingRecordGeneration } from "../src/bearing-record-decoder";
-import { discoverProjectSitemapInputs } from "../src/sitemap-discovery";
-import { captureSyncInputGeneration } from "../src/sync-input-generation";
+import { discoverManagedInputs } from "../src/managed-input-discovery";
+import { captureProjectInputGeneration } from "../src/project-input-generation";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
 const fingerprint = `sha256:${"a".repeat(64)}`;
@@ -9,8 +9,8 @@ const fingerprint = `sha256:${"a".repeat(64)}`;
 test("decodes every owned Bearing Record once behind one generation interface", async () => {
   const root = await createValidBearingRepo();
   await addRemainingRecordTypes(root);
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
 
   const decoded = decodeBearingRecordGeneration(generation);
 
@@ -41,8 +41,8 @@ test("decodes every owned Bearing Record once behind one generation interface", 
 test("represents invalid source as data for every Bearing Record type", async () => {
   const root = await createValidBearingRepo();
   await addRemainingRecordTypes(root);
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
   const owned = decodeBearingRecordGeneration(generation).records;
 
   for (const record of owned) {
@@ -122,8 +122,8 @@ Current architecture decisions.
 The healthy partial Asset remains trustworthy.
 `,
   );
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
 
   const decoded = decodeBearingRecordGeneration(generation);
   const audit = decoded.records.find((record) => record.type === "planning-audit");
@@ -169,8 +169,8 @@ Input fingerprint: ${fingerprint}
 ---
 `,
   );
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
   const roadmap = generation.records.find(
     (record) => record.locator === ".bearing/state/roadmaps/test.md",
   );
@@ -212,9 +212,9 @@ test("keeps Effort identity while reporting missing, unparseable, and conflictin
       "",
     ),
   );
-  let discovery = await discoverProjectSitemapInputs(root);
+  let discovery = await discoverManagedInputs(root);
   let decoded = decodeBearingRecordGeneration(
-    await captureSyncInputGeneration(root, discovery.inputs),
+    await captureProjectInputGeneration(root, discovery.inputs),
   );
   expect(decoded.records.find((record) => record.type === "effort")).toMatchObject({
     trust: "partial",
@@ -236,8 +236,10 @@ test("keeps Effort identity while reporting missing, unparseable, and conflictin
       "Work binding: cannot-parse",
     ),
   );
-  discovery = await discoverProjectSitemapInputs(root);
-  decoded = decodeBearingRecordGeneration(await captureSyncInputGeneration(root, discovery.inputs));
+  discovery = await discoverManagedInputs(root);
+  decoded = decodeBearingRecordGeneration(
+    await captureProjectInputGeneration(root, discovery.inputs),
+  );
   expect(decoded.records.find((record) => record.type === "effort")).toMatchObject({
     trust: "partial",
     data: { Type: "effort", ID: "effort:test" },
@@ -256,8 +258,10 @@ test("keeps Effort identity while reporting missing, unparseable, and conflictin
     ".bearing/state/efforts/duplicate-binding.md",
     source.replace("ID: effort:test", "ID: effort:duplicate-binding"),
   );
-  discovery = await discoverProjectSitemapInputs(root);
-  decoded = decodeBearingRecordGeneration(await captureSyncInputGeneration(root, discovery.inputs));
+  discovery = await discoverManagedInputs(root);
+  decoded = decodeBearingRecordGeneration(
+    await captureProjectInputGeneration(root, discovery.inputs),
+  );
   expect(
     decoded.diagnostics.filter((diagnostic) => diagnostic.code === "effort-work-binding-conflict"),
   ).toEqual([
@@ -272,8 +276,8 @@ test("keeps Effort identity while reporting missing, unparseable, and conflictin
 test("rejects a schema-valid Record whose type does not match its locator", async () => {
   const root = await createValidBearingRepo();
   await addRemainingRecordTypes(root);
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
   const roadmap = generation.records.find(
     (record) => record.locator === ".bearing/state/roadmaps/test.md",
   );
@@ -301,8 +305,8 @@ test("rejects a schema-valid Record whose type does not match its locator", asyn
 test("strips unknown frontmatter fields from normalized Decoder output", async () => {
   const root = await createValidBearingRepo();
   const locator = ".bearing/state/roadmaps/test.md";
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
   const roadmap = generation.records.find((record) => record.locator === locator);
   if (roadmap === undefined) throw new Error("Missing Roadmap fixture.");
   const source = roadmap.source.replace(
@@ -344,8 +348,8 @@ Assets:
 # Asset Registry
 `,
   );
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
 
   const decoded = decodeBearingRecordGeneration(generation);
 

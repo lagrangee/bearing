@@ -2,7 +2,7 @@
 
 [简体中文](getting-started.zh-CN.md)
 
-This guide gets you to the first real Bearing alignment loop.
+This guide gets you to the first real Bearing governance loop.
 
 ## Prerequisites
 
@@ -55,7 +55,7 @@ The useful baseline is intentionally small:
 
 Bearing should ask before accepting direction. If the agent silently invents strategic truth, stop and ask it to surface assumptions as decisions.
 
-## Complete the first alignment loop
+## Complete the first governance loop
 
 Bring one real request:
 
@@ -71,7 +71,9 @@ The loop succeeds when the agent either:
 ## Inspect the shared picture
 
 ```bash
-bearing sync --repo .
+bearing cache rebuild --repo .
+bearing provider verify --all --repo .
+bearing inspect project --repo .
 bearing portal
 ```
 

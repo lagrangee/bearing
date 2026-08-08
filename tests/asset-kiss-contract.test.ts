@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { projectSnapshotSchema } from "../src/project-snapshot/schema";
-import { assetProjectionSchema } from "../src/project-snapshot/schema-asset";
+import { projectGenerationSchema } from "../src/project-generation/schema";
+import { assetProjectionSchema } from "../src/project-generation/schema-asset";
 import { assetSchema, bearingSchema } from "../src/schema-definitions";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import { withRebuiltPlanningLineage } from "./planning-lineage-fixture";
@@ -99,7 +99,7 @@ describe("KISS Asset canonical contract", () => {
         items: snapshot.assets.items.map((asset) => ({ ...asset, owner: "effort:model" as const })),
       },
     });
-    const result = projectSnapshotSchema.safeParse(candidate);
+    const result = projectGenerationSchema.safeParse(candidate);
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues.map((issue) => issue.message)).toContain(

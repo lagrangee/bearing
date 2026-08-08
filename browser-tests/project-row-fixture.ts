@@ -8,11 +8,11 @@ import {
   portalProjectSectionSchema,
 } from "../src/portal-project-read-wire";
 import { buildProjectFindIndex } from "../src/portal-ui/project-find-model";
+import type { ProjectGeneration } from "../src/project-generation/contract";
 import {
   compileProjectReadModel,
   type ProjectReadModelCandidate,
 } from "../src/project-read-model/store";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { hasCompleteMattNativeEvidence } from "../src/providers/matt-skills-v1/native-read-model";
 import { mattNativeScopeKey } from "../src/providers/matt-skills-v1/native-subject";
 
@@ -55,17 +55,17 @@ const sectionKinds: Readonly<Record<PortalProjectSection, ReadonlySet<string>>> 
   ]),
 };
 
-const candidateFor = (snapshot: ProjectSnapshot): ProjectReadModelCandidate =>
+const candidateFor = (snapshot: ProjectGeneration): ProjectReadModelCandidate =>
   compileProjectReadModel({
     snapshot,
-    basisFingerprint: snapshot.basis.sitemapFingerprint,
+    basisFingerprint: snapshot.basis.basisFingerprint,
     basisInputs: [],
     basisObservations: [],
     assetContentObservations: [],
   });
 
 export const projectRowEnvelope = (input: {
-  readonly snapshot: ProjectSnapshot;
+  readonly snapshot: ProjectGeneration;
   readonly section: PortalProjectSection;
   readonly entryId: string;
   readonly displayName?: string;
@@ -119,14 +119,14 @@ export const projectRowEnvelope = (input: {
     const observations = new Map(
       [
         ...input.snapshot.providerObservations,
-        ...input.snapshot.nativeScopeInspections.observations,
+        ...input.snapshot.providerDetailEvidences.observations,
       ]
         .filter((observation) => mattNativeScopeKey(observation.binding) === bindingKey)
         .map((observation) => [mattNativeScopeKey(observation.binding), observation]),
     );
     const selections = [
       ...input.snapshot.providerObservationSelections,
-      ...input.snapshot.nativeScopeInspections.selections,
+      ...input.snapshot.providerDetailEvidences.selections,
     ].filter((selection) => mattNativeScopeKey(selection) === bindingKey);
     return observations.size > 0 &&
       [...observations.values()].every((observation) =>
@@ -221,7 +221,11 @@ export const projectTargetFromRequest = (url: string): PlanningLineageSubject | 
     : planningLineageSubjectSchema.parse({ kind, id });
 };
 
-export const projectFindEnvelope = (snapshot: ProjectSnapshot, entryId: string, query: string) => {
+export const projectFindEnvelope = (
+  snapshot: ProjectGeneration,
+  entryId: string,
+  query: string,
+) => {
   const index = buildProjectFindIndex(snapshot, entryId);
   return {
     version: 1 as const,

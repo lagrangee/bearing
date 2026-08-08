@@ -819,16 +819,6 @@ const bundleMatches = async (
 };
 
 const skillNamesForInstall = ["bearing"] as const;
-const obsoleteSkillNames = [
-  "bearing-setup",
-  "bearing-summary",
-  "bearing-roadmap",
-  "bearing-milestone-gate",
-  "bearing-alignment-check",
-  "bearing-planning-audit",
-  "bearing-planning-review",
-  "bearing-next-work",
-] as const;
 
 const managedSurfaceTargets = (
   homeDir: string,
@@ -849,23 +839,7 @@ const managedSurfaceTargets = (
     })),
   );
 
-const obsoleteSurfaceTargets = (
-  homeDir: string,
-): readonly Readonly<{ target: string; source: string }>[] =>
-  (["agent-skills", "claude"] as const).flatMap((surface) =>
-    obsoleteSkillNames.map((skillName) => ({
-      target: join(
-        homeDir,
-        surface === "agent-skills" ? ".agents/skills" : ".claude/skills",
-        skillName,
-      ),
-      source: join(homeDir, ".bearing/kit/current/skills", skillName),
-    })),
-  );
-
 export type InstallTransactionHooks = Readonly<{
-  afterObsoleteLinksInspected?: () => Promise<void> | void;
-  afterObsoleteLinkQuarantined?: (target: string) => Promise<void> | void;
   afterCurrentMoved?: () => Promise<void> | void;
 }>;
 
@@ -897,11 +871,9 @@ export const installKit = async (
   const cliSource = join(current, "dist/cli.js");
   const selected = new Set(options.surfaces);
   const surfaceTargets = managedSurfaceTargets(homeDir);
-  const obsoleteTargets = obsoleteSurfaceTargets(homeDir);
   await ensureInstallDirectoryTargets(homeDir, [
     cliTarget,
     ...surfaceTargets.map((item) => item.target),
-    ...obsoleteTargets.map((item) => item.target),
   ]);
   const cliSnapshot = await inspectManagedLink(
     cliTarget,
@@ -922,12 +894,6 @@ export const installKit = async (
       }
     }
   }
-  const obsoleteSnapshots: ManagedLinkSnapshot[] = [];
-  for (const item of obsoleteTargets) {
-    const snapshot = await inspectManagedLink(item.target, item.source);
-    if (snapshot.kind !== "missing") obsoleteSnapshots.push(snapshot);
-  }
-
   const transaction = randomUUID();
   const staging = join(kitRoot, `.staged-${transaction}`);
   const backup = join(kitRoot, `.previous-${transaction}`);
@@ -952,8 +918,7 @@ export const installKit = async (
         return selected.has(item.selectedBy)
           ? snapshot?.kind === "symlink"
           : snapshot === undefined;
-      }) &&
-      obsoleteSnapshots.length === 0;
+      });
     if ((await bundleMatches(current, staging, bundlePlans)) && linksAlreadyCurrent) {
       await removeExactTree(staging);
       return { outcome: "no-op", cliPath: cliTarget, changedTargets: [] };
@@ -963,11 +928,6 @@ export const installKit = async (
       mutatedLinks.push(
         await replaceWithManagedLink(cliSnapshot, cliSource, nextLinkRetirement("original")),
       );
-    }
-    await hooks.afterObsoleteLinksInspected?.();
-    for (const snapshot of obsoleteSnapshots) {
-      mutatedLinks.push(await removeManagedLink(snapshot, nextLinkRetirement("original")));
-      await hooks.afterObsoleteLinkQuarantined?.(snapshot.target);
     }
     for (const item of surfaceTargets) {
       const snapshot = surfaceSnapshots.get(item.target);
@@ -1087,7 +1047,6 @@ export const uninstallGlobalKit = async (
   const candidates = [
     { target: cliTarget, source: cliSource, legacySource: cliSource },
     ...managedSurfaceTargets(homeDir),
-    ...obsoleteSurfaceTargets(homeDir),
   ];
   const ownedEntries = (
     await Promise.all(

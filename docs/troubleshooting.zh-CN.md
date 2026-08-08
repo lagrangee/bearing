@@ -26,17 +26,17 @@ compatibility 也始终保持 fail closed。
 
 ## 缺少 work-management adapter
 
-首个 Preview 要求受支持的 Matt-native 本地 Markdown Map 与 Ticket 工作流。先创建或恢复这份 work scope，再期待 Bearing 根据 active work 做 alignment。
+首个 Preview 要求受支持的 Matt-native 本地 Markdown Map 与 Ticket 工作流。请先创建或恢复这份 work scope，再检查 current work。
 
-## Sync diagnostics
+## Project diagnostics
 
 运行：
 
 ```bash
-bearing sync --repo .
+bearing inspect diagnostics --repo .
 ```
 
-阅读命令打印的 report path。Cache diagnostics 是 disposable；malformed source files 需要由对应 owner 修正。
+阅读命令打印的 typed diagnostic rows。Project Read Model 是 disposable；malformed source files 需要由对应 owner 修正。
 
 ## Portal 无法打开
 

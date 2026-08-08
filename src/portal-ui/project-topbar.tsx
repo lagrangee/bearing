@@ -92,10 +92,10 @@ export function ProjectTopbar({
           <span>Find</span>
         </Action>
         {providerRefreshAvailable ? (
-          <div className="sync-control">
+          <div className="refresh-control">
             <Action
               ref={refreshTriggerRef}
-              className="topbar-sync"
+              className="topbar-refresh"
               tone="primary"
               disabled={providerBusy}
               onClick={() => setConfirming(true)}

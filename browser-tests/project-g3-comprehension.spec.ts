@@ -8,15 +8,15 @@ import {
   type PlanningLineageSubject,
   planningLineageSubjectHref,
 } from "../src/planning-lineage-route";
-import type { ProjectSnapshot, ProjectSnapshotInput } from "../src/project-snapshot/contract";
-import { buildMattNativeSourceRecords } from "../src/project-snapshot/native-work-sources";
-import { buildProjectSnapshot } from "../src/project-snapshot/projection";
-import { projectSnapshotSchema } from "../src/project-snapshot/schema";
-import { createSourceRecord } from "../src/project-snapshot/source-records";
-import type { MattProviderFactory } from "../src/provider-observation-acquisition";
+import { compileProjectGeneration } from "../src/project-compilation";
+import type { ProjectGeneration, ProjectGenerationInput } from "../src/project-generation/contract";
+import { buildMattNativeSourceRecords } from "../src/project-generation/native-work-sources";
+import { buildProjectGeneration } from "../src/project-generation/projection";
+import { projectGenerationSchema } from "../src/project-generation/schema";
+import { createSourceRecord } from "../src/project-generation/source-records";
+import type { MattProviderFactory } from "../src/provider-acquisition";
 import { encodeGitHubMattNativeScope } from "../src/providers/matt-skills-v1/github";
 import { mattNativeScopeSubject } from "../src/providers/matt-skills-v1/native-subject";
-import { prepareSync } from "../src/sync-plan";
 import { createMattReferenceProjection } from "../tests/fixtures/matt-reference-scenario";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import {
@@ -43,13 +43,13 @@ import {
 
 const entryId = "g3-comprehension";
 
-const withProjectBrief = (snapshot: ProjectSnapshot): ProjectSnapshot => {
-  const source = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+const withProjectBrief = (snapshot: ProjectGeneration): ProjectGeneration => {
+  const source = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "canonical",
     locator: ".bearing/state/project-brief.md",
     binding: { role: "project-brief", identity: "project-brief:current" },
   });
-  return projectSnapshotSchema.parse({
+  return projectGenerationSchema.parse({
     ...snapshot,
     brief: {
       validity: "available",
@@ -186,23 +186,23 @@ const proveGitHubStandaloneExclusion = async (): Promise<void> => {
         return observation;
       },
     });
-    const plan = await prepareSync(root, {
-      providerObservationIntent: "initial-baseline",
+    const plan = await compileProjectGeneration(root, {
+      providerObservationIntent: "exact-scope-capture",
       providerFactory,
     });
-    const snapshot = await buildProjectSnapshot({
+    const snapshot = await buildProjectGeneration({
       repoRoot: root,
       packageVersion: "0.0.0-g3-proof",
-      sitemapFingerprint: plan.fingerprint,
+      basisFingerprint: plan.fingerprint,
       diagnostics: plan.diagnostics,
       advisoryFreshness: plan.advisoryFreshness,
       decoded: plan.decoded,
       providerObservations: plan.providerObservations,
       providerObservationSelections: plan.providerObservationSelections,
-      nativeScopeInspectionObservations: plan.nativeScopeInspectionObservations,
-      nativeScopeInspectionSelections: plan.nativeScopeInspectionSelections,
+      providerDetailEvidenceObservations: plan.providerDetailEvidenceObservations,
+      providerDetailEvidenceSelections: plan.providerDetailEvidenceSelections,
       assetContentObservations: plan.assetContentObservations,
-      planningGraph: plan.planningGraph,
+      projectProjections: plan.projectProjections,
     });
     expect(capturedScopes).toEqual([boundScope]);
     expect(plan.providerObservations.map((observation) => observation.id)).toEqual([bound.id]);
@@ -216,9 +216,9 @@ const proveGitHubStandaloneExclusion = async (): Promise<void> => {
   }
 };
 
-const withPreviewAsset = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+const withPreviewAsset = (snapshot: ProjectGeneration): ProjectGeneration => {
   if (snapshot.assets.validity !== "available") throw new Error("Expected readable Assets.");
-  const source = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const source = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "asset",
     locator: ".bearing/state/assets.md",
     binding: { role: "asset", identity: "asset:fixture-uncited" },
@@ -247,17 +247,19 @@ const withPreviewAsset = (snapshot: ProjectSnapshot): ProjectSnapshot => {
     },
     sources: [...snapshot.sources, source],
   };
-  return projectSnapshotSchema.parse(withRebuiltPlanningLineage(candidate as ProjectSnapshotInput));
+  return projectGenerationSchema.parse(
+    withRebuiltPlanningLineage(candidate as ProjectGenerationInput),
+  );
 };
 
-const localSnapshot = (): ProjectSnapshot => {
+const localSnapshot = (): ProjectGeneration => {
   const snapshot = withPreviewAsset(withEffortOutput(createProjectOverviewFixture()));
   if (snapshot.assets.validity === "invalid") throw new Error("Expected Assets.");
   return parseRebuiltPlanningLineageFixture(snapshot);
 };
 
 const githubScenarioSnapshot = (): Readonly<{
-  snapshot: ProjectSnapshot;
+  snapshot: ProjectGeneration;
   nativeScope: PlanningLineageSubject;
   nativeSubject: PlanningLineageSubject;
   nativeScopeTitle: string;
@@ -323,7 +325,7 @@ const githubScenarioSnapshot = (): Readonly<{
   ];
   const sources = [
     ...base.sources.filter((source) => !source.displayLocator.startsWith(".scratch/portal")),
-    ...buildMattNativeSourceRecords([observation], base.basis.sitemapFingerprint),
+    ...buildMattNativeSourceRecords([observation], base.basis.basisFingerprint),
   ];
   const snapshot = withPreviewAsset(
     parseRebuiltPlanningLineageFixture({
@@ -369,7 +371,7 @@ const githubScenarioSnapshot = (): Readonly<{
   };
 };
 
-const degradedSnapshot = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+const degradedSnapshot = (snapshot: ProjectGeneration): ProjectGeneration => {
   if (snapshot.gates.validity !== "available" || snapshot.assets.validity !== "available") {
     throw new Error("Expected readable Gates and Assets.");
   }
@@ -388,10 +390,12 @@ const degradedSnapshot = (snapshot: ProjectSnapshot): ProjectSnapshot => {
     },
     assets: snapshot.assets,
   };
-  return projectSnapshotSchema.parse(withRebuiltPlanningLineage(candidate as ProjectSnapshotInput));
+  return projectGenerationSchema.parse(
+    withRebuiltPlanningLineage(candidate as ProjectGenerationInput),
+  );
 };
 
-const withEffortOutput = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+const withEffortOutput = (snapshot: ProjectGeneration): ProjectGeneration => {
   if (snapshot.assets.validity === "invalid") throw new Error("Expected readable Assets.");
   const candidate = {
     ...snapshot,
@@ -413,10 +417,12 @@ const withEffortOutput = (snapshot: ProjectSnapshot): ProjectSnapshot => {
       ),
     },
   };
-  return projectSnapshotSchema.parse(withRebuiltPlanningLineage(candidate as ProjectSnapshotInput));
+  return projectGenerationSchema.parse(
+    withRebuiltPlanningLineage(candidate as ProjectGenerationInput),
+  );
 };
 
-const portalObservation = (snapshot: ProjectSnapshot) => {
+const portalObservation = (snapshot: ProjectGeneration) => {
   const binding =
     snapshot.efforts.validity === "invalid"
       ? undefined
@@ -435,9 +441,9 @@ const portalObservation = (snapshot: ProjectSnapshot) => {
 };
 
 const withDegradedEffortObservation = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   state: "partial" | "stale",
-): ProjectSnapshot => {
+): ProjectGeneration => {
   const { observation } = portalObservation(snapshot);
   const degraded = createProviderScopeObservation({
     ...observation,
@@ -471,9 +477,9 @@ const withDegradedEffortObservation = (
 };
 
 const withoutEffortObservation = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   prior: "none" | "retained",
-): ProjectSnapshot => {
+): ProjectGeneration => {
   const { binding, observation } = portalObservation(snapshot);
   const failedSelection = {
     provider: "matt-skills/v1" as const,
@@ -481,7 +487,7 @@ const withoutEffortObservation = (
     observationId: prior === "retained" ? observation.id : null,
     effectiveFreshness: "undetermined" as const,
     latestAttempt: {
-      intent: "native-scope-inspection" as const,
+      intent: "provider-detail-selection" as const,
       attemptedAt: "2026-08-03T10:15:00.000Z",
       outcome: "failed" as const,
       diagnostics: [
@@ -504,14 +510,14 @@ const withoutEffortObservation = (
         ? { ...failedSelection, observationId: null }
         : selection,
     ),
-    nativeScopeInspections:
+    providerDetailEvidences:
       prior === "retained"
         ? { observations: [observation], selections: [failedSelection] }
         : { observations: [], selections: [] },
   });
 };
 
-const withInvalidEffortBinding = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+const withInvalidEffortBinding = (snapshot: ProjectGeneration): ProjectGeneration => {
   if (snapshot.efforts.validity === "invalid") throw new Error("Expected readable Efforts.");
   return parseRebuiltPlanningLineageFixture({
     ...snapshot,
@@ -530,7 +536,7 @@ const withInvalidEffortBinding = (snapshot: ProjectSnapshot): ProjectSnapshot =>
   });
 };
 
-const withEmptyCurrentWork = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+const withEmptyCurrentWork = (snapshot: ProjectGeneration): ProjectGeneration => {
   const { observation } = portalObservation(snapshot);
   const empty = createProviderScopeObservation({
     ...observation,
@@ -558,7 +564,7 @@ const withEmptyCurrentWork = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   });
 };
 
-const withMixedCurrentWork = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+const withMixedCurrentWork = (snapshot: ProjectGeneration): ProjectGeneration => {
   const { observation } = portalObservation(snapshot);
   const blockedTicket = observation.projection.wayfinderTickets.find(
     (ticket) => ticket.lifecycle.state === "open" && ticket.claim.state === "unclaimed",
@@ -599,7 +605,7 @@ const withMixedCurrentWork = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   });
 };
 
-const withConcludedOpenWork = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+const withConcludedOpenWork = (snapshot: ProjectGeneration): ProjectGeneration => {
   if (snapshot.efforts.validity === "invalid") throw new Error("Expected readable Efforts.");
   return parseRebuiltPlanningLineageFixture({
     ...snapshot,
@@ -641,7 +647,7 @@ const withConcludedOpenWork = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   });
 };
 
-const withRefreshedEffortDetails = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+const withRefreshedEffortDetails = (snapshot: ProjectGeneration): ProjectGeneration => {
   const { binding, observation } = portalObservation(snapshot);
   const refreshed = createProviderScopeObservation({
     ...observation,
@@ -650,7 +656,7 @@ const withRefreshedEffortDetails = (snapshot: ProjectSnapshot): ProjectSnapshot 
   } as never) as typeof observation;
   return parseRebuiltPlanningLineageFixture({
     ...snapshot,
-    nativeScopeInspections: {
+    providerDetailEvidences: {
       observations: [refreshed],
       selections: [
         {
@@ -659,7 +665,7 @@ const withRefreshedEffortDetails = (snapshot: ProjectSnapshot): ProjectSnapshot 
           observationId: refreshed.id,
           effectiveFreshness: "current",
           latestAttempt: {
-            intent: "native-scope-inspection",
+            intent: "provider-detail-selection",
             attemptedAt: "2026-08-03T10:20:00.000Z",
             outcome: "succeeded",
             diagnostics: [],
@@ -670,7 +676,7 @@ const withRefreshedEffortDetails = (snapshot: ProjectSnapshot): ProjectSnapshot 
   });
 };
 
-const withLongMixedLineageContent = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+const withLongMixedLineageContent = (snapshot: ProjectGeneration): ProjectGeneration => {
   if (snapshot.gates.validity === "invalid" || snapshot.efforts.validity === "invalid") {
     throw new Error("Expected readable Gates and Efforts.");
   }
@@ -703,7 +709,7 @@ const withLongMixedLineageContent = (snapshot: ProjectSnapshot): ProjectSnapshot
   });
 };
 
-const healthySnapshot = (snapshot: ProjectSnapshot): ProjectSnapshot =>
+const healthySnapshot = (snapshot: ProjectGeneration): ProjectGeneration =>
   parseRebuiltPlanningLineageFixture({
     ...snapshot,
     reviews:
@@ -717,8 +723,8 @@ const healthySnapshot = (snapshot: ProjectSnapshot): ProjectSnapshot =>
     attention: [],
   });
 
-const invalidSummarySnapshot = (snapshot: ProjectSnapshot): ProjectSnapshot =>
-  projectSnapshotSchema.parse({
+const invalidSummarySnapshot = (snapshot: ProjectGeneration): ProjectGeneration =>
+  projectGenerationSchema.parse({
     ...snapshot,
     summary: {
       validity: "invalid",
@@ -765,7 +771,7 @@ const sourceState = async (root: string): Promise<Readonly<Record<string, string
 
 type Scenario = Readonly<{
   name: "Local" | "GitHub";
-  snapshot: ProjectSnapshot;
+  snapshot: ProjectGeneration;
   nativeScope: PlanningLineageSubject;
   nativeSubject: PlanningLineageSubject;
   nativeScopeTitle: string;

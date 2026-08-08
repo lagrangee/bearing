@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { createBenchmarkFixture } from "../scripts/sync-benchmark-lib";
 import { readCatalogDocument, upsertCatalogEntry } from "../src/catalog/store";
 import { resolveRepositoryRoot } from "../src/path-boundary";
 import { PROJECT_READ_MODEL_PROJECTION_VERSION } from "../src/project-read-model/contract";
@@ -19,6 +18,7 @@ import {
   projectReadModelPath,
   publishProjectReadModel,
 } from "../src/project-read-model/store";
+import { createRepresentativeProject } from "../tests/fixtures/representative-project";
 import { processEvidence, runNodeProcessGroup } from "./product-seams/sqlite-process-harness";
 
 const makeRepository = async (root: string): Promise<void> => {
@@ -106,7 +106,7 @@ test("real SQLite process seam records committed publications and peak RSS", asy
 });
 
 test("Project Read Model publishes atomically, preserves last-good, and stays isolated from Catalog", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   const homeDir = await mkdtemp(join(tmpdir(), "bearing-read-model-catalog-"));
   try {
     await upsertCatalogEntry({
@@ -118,7 +118,7 @@ test("Project Read Model publishes atomically, preserves last-good, and stays is
     const firstCandidate = await materializeProjectReadModelCandidate(fixture.root);
     assert.equal(
       firstCandidate.basisObservations.some(
-        (observation) => observation.key === "native-scope-inspection-selection",
+        (observation) => observation.key === "provider-detail-selection-selection",
       ),
       false,
     );
@@ -280,7 +280,7 @@ test("Project Read Model publishes atomically, preserves last-good, and stays is
 });
 
 test("Project Read Model classifies missing, compatible-obsolete, older, newer, corrupt, and unsafe stores", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     assert.deepEqual(await inspectProjectReadModel(fixture.root), { state: "missing" });
     const candidate = await materializeProjectReadModelCandidate(fixture.root);

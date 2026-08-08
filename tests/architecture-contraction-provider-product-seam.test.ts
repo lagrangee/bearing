@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
-import { createBenchmarkFixture } from "../scripts/sync-benchmark-lib";
+import { createRepresentativeProject } from "./fixtures/representative-project";
 import { installPackedProduct } from "./product-seams/installed-product";
 
 test("packed product exposes explicit provider cost classes and native typed readback", async () => {
   const product = await installPackedProduct();
-  const fixture = await createBenchmarkFixture("representative", product.root);
+  const fixture = await createRepresentativeProject("representative", product.root);
   try {
     const rebuilt = await product.run(["cache", "rebuild", "--repo", "."], {
       cwd: fixture.root,
@@ -24,7 +24,7 @@ test("packed product exposes explicit provider cost classes and native typed rea
       "root-0/.bearing/cache/provider-observations.json",
     );
     expect(rebuilt.effects.created).not.toContain(
-      "root-0/.bearing/cache/native-scope-inspections.json",
+      "root-0/.bearing/cache/provider-detail-selections.json",
     );
 
     const captured = await product.run(

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { MattProviderFactory } from "../../src/provider-observation-acquisition";
+import type { MattProviderFactory } from "../../src/provider-acquisition";
 import {
   createGitHubMattProvider,
   encodeGitHubMattNativeScope,
@@ -8,7 +8,7 @@ import {
   type GitHubReadResponse,
   type GitHubReadTransport,
 } from "../../src/providers/matt-skills-v1/github";
-import { setupRepository } from "../../src/repo-setup";
+import { applyRepositoryConfigurationUnit } from "../../src/repository-configuration-apply";
 import { makeTemporaryDirectory, writeFixture, writeValidBearingState } from "../helpers";
 
 export const githubContractLocator = "docs/agents/issue-tracker.md";
@@ -94,7 +94,7 @@ export const writeStandardGitHubMattProductRepository = async (
   const contractBefore = await readFile(join(root, githubContractLocator));
   const triageBefore = await readFile(join(root, githubTriageLocator));
   const agentSurfaceBefore = await readFile(join(root, "AGENTS.md"), "utf8");
-  const setup = await setupRepository({
+  const setup = await applyRepositoryConfigurationUnit({
     repoRoot: root,
     packageRoot: process.cwd(),
     surfaces: ["agent-skills"],

@@ -25,7 +25,7 @@ export function OverviewRoadmaps({
           <h2 id="active-roadmaps-title">Active Roadmaps</h2>
           <span className="truth-note">0 active</span>
         </div>
-        <p>No Roadmap Index is available in the current Snapshot.</p>
+        <p>No Roadmap Index is available in the current Project Read Model generation.</p>
       </section>
     );
   }

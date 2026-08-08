@@ -1,11 +1,11 @@
 import { createProviderScopeObservation } from "../../src/native-work-provider";
-import { buildPlanningLineageProjection } from "../../src/project-snapshot/planning-lineage";
-import { projectSnapshotSchema } from "../../src/project-snapshot/schema";
+import { buildPlanningLineageProjection } from "../../src/project-generation/planning-lineage";
+import { projectGenerationSchema } from "../../src/project-generation/schema";
 import {
   createSourceReference,
   type SourceBindingRole,
   type SourceKind,
-} from "../../src/project-snapshot/source-reference";
+} from "../../src/project-generation/source-reference";
 
 const BASIS = `sha256:${"b".repeat(64)}`;
 const sourceRecord = (
@@ -344,7 +344,7 @@ export const createProjectOverviewFixture = () => {
   const candidate = {
     schemaVersion: 20,
     producer: { packageVersion: "0.0.0-test" },
-    basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
+    basis: { generationVersion: 1, basisFingerprint: BASIS },
     summary: {
       validity: "available",
       value: {
@@ -644,10 +644,10 @@ export const createProjectOverviewFixture = () => {
     effectiveFreshness: observation.freshness.assessment,
     latestAttempt: null,
   }));
-  return projectSnapshotSchema.parse({
+  return projectGenerationSchema.parse({
     ...candidate,
     providerObservationSelections,
-    nativeScopeInspections: { observations: [], selections: [] },
+    providerDetailEvidences: { observations: [], selections: [] },
     lineage: buildPlanningLineageProjection({
       roadmaps: candidate.roadmaps,
       gates: candidate.gates,
@@ -657,7 +657,7 @@ export const createProjectOverviewFixture = () => {
       reviews: candidate.reviews,
       providerObservations: candidate.providerObservations,
       providerObservationSelections,
-      nativeScopeInspections: { observations: [], selections: [] },
+      providerDetailEvidences: { observations: [], selections: [] },
       sources: candidate.sources,
     }),
   });

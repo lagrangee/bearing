@@ -90,25 +90,30 @@ Managed pointer 提供 contextual nomination guidance。显式 Bearing request�
 roadmap words、repository-independent conversation 与 ordinary code work 不会 nominate Bearing。
 Functional operations 会在 cache creation、provider I/O 或 mutation 前验证 Active lifecycle。
 
-## Sync
+## Project Read Model operations
 
 ```bash
-bearing sync --repo .
+bearing cache rebuild --repo .
+bearing provider verify --all --repo .
+bearing inspect project --repo .
 ```
 
-普通 Sync 会在 cache 下重建 deterministic diagnostics 与 Project Sitemap projection，并复用
-由显式 Work Bindings 选择的最新 immutable provider observations。它不会发现 standalone work，
-也不会扩张 Bearing Scope。
+Cache rebuild 只创建 disposable SQLite Project Read Model。Provider verification 是针对当前
+Work Bindings 的显式 cost-bearing operation。Inspect 返回 typed committed rows。这些命令不会
+发现 standalone work，也不会扩张 Bearing Scope。
 
 ## Inspect
 
 ```bash
-bearing inspect roadmap <roadmap-id> --repo .
-bearing inspect gate <gate-id> --repo .
-bearing inspect effort <effort-id> --repo .
+bearing inspect project --repo .
+bearing inspect effort:<effort-id> --repo .
+bearing inspect --native <native-reference> --repo .
+bearing inspect diagnostics --repo .
 ```
 
-Inspect 返回所选对象的 planning context closure。
+Inspect 从 committed Project Read Model rows 返回 versioned typed envelope。这四种形式分别读取
+bounded Project Context、一个 stable planning reference、一个 exact native reference 或 typed
+diagnostics。
 
 ## Portal
 

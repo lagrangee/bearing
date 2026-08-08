@@ -1,4 +1,4 @@
-import type { AssetProjection, SourceRecord } from "../project-snapshot/contract";
+import type { AssetProjection, SourceRecord } from "../project-generation/contract";
 import {
   ASSET_EVIDENCE_FILTERS,
   type AssetEvidenceFilter,

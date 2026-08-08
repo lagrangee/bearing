@@ -2,10 +2,10 @@ import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OverviewPage } from "../src/portal-ui/overview-page";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import type { ProjectGeneration } from "../src/project-generation/contract";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
-const render = (snapshot: ProjectSnapshot): string =>
+const render = (snapshot: ProjectGeneration): string =>
   renderToStaticMarkup(
     createElement(OverviewPage, {
       entryId: "bearing",
@@ -46,7 +46,7 @@ test("renders Brief-first orientation without Guidance or Discovered Work", () =
         binding: { role: "project-brief", identity: "project-brief:current" },
       },
     ],
-  } as unknown as ProjectSnapshot;
+  } as unknown as ProjectGeneration;
 
   const html = render(current);
 

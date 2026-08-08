@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import packageMetadata from "../package.json";
-import { PROJECT_SNAPSHOT_VERSION } from "../src/project-snapshot/schema";
+import { PROJECT_GENERATION_VERSION } from "../src/project-generation/schema";
 import { inspectPortalHandoff } from "../src/repository-configuration";
 
 const originalFetch = globalThis.fetch;
@@ -13,7 +13,7 @@ const health = (): Response =>
   Response.json({
     state: "ready",
     packageVersion: packageMetadata.version,
-    readModelVersion: PROJECT_SNAPSHOT_VERSION,
+    readModelVersion: PROJECT_GENERATION_VERSION,
   });
 
 test("Portal handoff reports compatible only for a readable current Catalog Entry", async () => {

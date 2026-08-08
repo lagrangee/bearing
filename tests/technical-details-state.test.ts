@@ -12,12 +12,12 @@ const selection: TechnicalDetailsSelection = {
   sections: [],
 };
 
-test("fails closed when Technical Details outlives its route or Snapshot view", () => {
+test("fails closed when Technical Details outlives its route or generation view", () => {
   const snapshot = createProjectOverviewFixture();
   const context = {
     entryId: "bearing",
     section: "roadmaps" as const,
-    snapshotFingerprint: snapshot.basis.sitemapFingerprint,
+    snapshotFingerprint: snapshot.basis.basisFingerprint,
   };
   const captured = captureTechnicalDetailsSelection(selection, context);
 

@@ -11,10 +11,10 @@ import type {
 import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
 import { ProviderObservationStatus } from "../src/portal-ui/provider-observation-status";
 import { ProviderObservationTime } from "../src/portal-ui/provider-observation-time";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
-import { effortSchema } from "../src/project-snapshot/schema";
-import { assetProjectionSchema } from "../src/project-snapshot/schema-asset";
-import { createSourceRecord } from "../src/project-snapshot/source-records";
+import type { ProjectGeneration } from "../src/project-generation/contract";
+import { effortSchema } from "../src/project-generation/schema";
+import { assetProjectionSchema } from "../src/project-generation/schema-asset";
+import { createSourceRecord } from "../src/project-generation/source-records";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import { parseRebuiltPlanningLineageFixture } from "./planning-lineage-fixture";
 
@@ -38,7 +38,7 @@ test("formats Provider Observation Time as local minutes with relative context",
 const render = (
   requested: RequestedPlanningLineageSubject,
   options: Readonly<{
-    snapshot?: ProjectSnapshot;
+    snapshot?: ProjectGeneration;
     semanticAnchor?: string;
     filteredView?: RequestedPlanningLineageFilteredView;
     observationActionLabel?: "Load source" | "Refresh item";
@@ -259,7 +259,7 @@ test("keeps Asset semantics on detail and routes content outside Technical Detai
           : subject,
       ),
     },
-  } satisfies ProjectSnapshot;
+  } satisfies ProjectGeneration;
   const unavailableOwnerHtml = render(
     { validity: "valid", value: { kind: "asset", id: "asset:planning-model-evidence" } },
     { snapshot: unavailableOwner },
@@ -600,7 +600,7 @@ test("renders first acquisition failure as bound-unresolved with its concrete ca
             observationId: null,
             effectiveFreshness: "undetermined" as const,
             latestAttempt: {
-              intent: "initial-baseline" as const,
+              intent: "exact-scope-capture" as const,
               attemptedAt: "2026-07-31T07:00:00Z",
               outcome: "failed" as const,
               diagnostics: [
@@ -814,7 +814,7 @@ test("keeps Map detail out of Effort Current Work when its optional semantics ar
     throw new Error("Expected the Portal Map observation.");
   }
   const map = portal.projection.map;
-  const degraded: ProjectSnapshot = {
+  const degraded: ProjectGeneration = {
     ...snapshot,
     providerObservations: snapshot.providerObservations.map((observation) =>
       observation.id === portal.id
@@ -945,7 +945,7 @@ test("renders invalid Effort binding as cause, impact, and recovery rather than 
     "Impact: native work cannot contribute trusted evidence or Gate readiness.",
   );
   expect(html).toContain(
-    "Recovery: declare exactly one supported Work Binding in the canonical Effort record, then Sync.",
+    "Recovery: declare exactly one supported Work Binding in the canonical Effort record, then reload this view.",
   );
   expect(html).not.toContain("Not bound");
   expect(html).not.toContain("No Work Binding is declared");
@@ -969,7 +969,7 @@ test("renders a stable filtered relation view as owner-derived list state, not a
   }
   const extras = Array.from({ length: 5 }, (_, index) => {
     const id = `effort:extra-${index + 1}`;
-    const source = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    const source = createSourceRecord(snapshot.basis.basisFingerprint, {
       kind: "canonical",
       locator: `.bearing/state/efforts/extra-${index + 1}.md`,
       binding: { role: "effort", identity: id },

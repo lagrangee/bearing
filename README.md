@@ -126,10 +126,10 @@ Before we start, check this against the current direction, accepted decisions, a
 
 The first alignment loop is complete when the agent either explains how the request fits or exposes a material conflict with explicit decision paths. Installation success alone is not the value milestone.
 
-### 5. Sync and inspect
+### 5. Inspect the current project
 
 ```bash
-bearing sync --repo .
+bearing inspect project --repo .
 bearing portal
 ```
 

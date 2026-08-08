@@ -4,7 +4,6 @@ import { serve } from "@hono/node-server";
 import { readCatalog } from "../catalog/probe";
 import { createPortalApp } from "./app";
 import { loadPortalAssets } from "./assets";
-import { authorizeWritesDirectly } from "./project-write-executor";
 
 export type RunningPortalServer = Readonly<{
   url: string;
@@ -25,7 +24,6 @@ export const startPortalServer = async (options: {
       secret: options.sessionSecret ?? randomBytes(32).toString("base64url"),
     },
     readCatalog: () => readCatalog({ homeDir: options.homeDir }),
-    operationExecutorFor: () => (operation) => operation(authorizeWritesDirectly),
   });
 
   let resolveListening: ((address: AddressInfo) => void) | undefined;

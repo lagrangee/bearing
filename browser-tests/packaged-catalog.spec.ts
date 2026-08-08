@@ -225,7 +225,7 @@ test("a freshly reconciled repository is selectable through the packed installed
     );
     await refresh.click();
     expect((await refreshResponsePromise).status()).toBe(200);
-    await expect(page.locator(".topbar-sync")).toContainText("Refresh");
+    await expect(page.locator(".topbar-refresh")).toContainText("Refresh");
 
     await page.screenshot({
       path: join(evidence, "installed-product-overview-1280.png"),

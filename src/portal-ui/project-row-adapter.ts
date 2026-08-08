@@ -1,5 +1,5 @@
 import type { PortalProjectRows } from "../portal-project-read-wire";
-import type { CollectionProjection, SingletonProjection } from "../project-snapshot/contract";
+import type { CollectionProjection, SingletonProjection } from "../project-generation/contract";
 import type { ProjectData } from "./project-data";
 
 const projectionState = (rows: PortalProjectRows, name: string) => {
@@ -190,7 +190,7 @@ export const portalRowsToProjectData = (rows: PortalProjectRows): ProjectData =>
           evidence.observation === undefined ? [] : [evidence.observation],
         ),
         providerObservationSelections: boundEvidence.map((evidence) => evidence.selection),
-        nativeScopeInspections: {
+        providerDetailEvidences: {
           observations: detailEvidence.flatMap((evidence) =>
             evidence.observation === undefined ? [] : [evidence.observation],
           ),

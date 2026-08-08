@@ -48,7 +48,7 @@ export function RoadmapsIndex({
     return (
       <div className="page roadmaps-index scoped-state">
         <h1>Roadmaps</h1>
-        <p>No canonical Roadmap Index is available in the current Snapshot.</p>
+        <p>No canonical Roadmap Index is available in the current Project Read Model generation.</p>
       </div>
     );
   }

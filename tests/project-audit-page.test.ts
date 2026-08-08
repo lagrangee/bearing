@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AuditPage } from "../src/portal-ui/audit-page";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import type { ProjectGeneration } from "../src/project-generation/contract";
 import {
   createInvalidProjectAuditFixture,
   createPartialProjectAuditFixture,
@@ -12,7 +12,7 @@ import {
 } from "./fixtures/project-audit";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
-const render = (snapshot: ProjectSnapshot): string =>
+const render = (snapshot: ProjectGeneration): string =>
   renderToStaticMarkup(createElement(AuditPage, { entryId: "audit", snapshot }));
 
 test("keeps an absent Planning Audit truthful inside the three-section Portal", () => {

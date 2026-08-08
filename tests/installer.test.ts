@@ -3,20 +3,10 @@ import { access, lstat, mkdir, readFile, readlink, writeFile } from "node:fs/pro
 import { join } from "node:path";
 import { BEARING_POINTER } from "../src/agent-surface-entry";
 import { installKit } from "../src/installer";
-import { setupRepository } from "../src/repo-setup";
+import { applyRepositoryConfigurationUnit } from "../src/repository-configuration-apply";
 import { LOCAL_MATT_CONTRACT, makeTemporaryDirectory, standardMattAgentSurface } from "./helpers";
 
 const publicSkillNames = ["bearing"] as const;
-const internalCompatibilitySkillNames = [
-  "bearing-setup",
-  "bearing-summary",
-  "bearing-roadmap",
-  "bearing-milestone-gate",
-  "bearing-alignment-check",
-  "bearing-planning-audit",
-  "bearing-planning-review",
-  "bearing-next-work",
-] as const;
 
 const writeMattProviderFixture = async (
   repoRoot: string,
@@ -77,15 +67,6 @@ describe("Bearing kit installer", () => {
         await access(join(surfaceSkill, "SKILL.md"));
       }
     }
-    for (const skillName of internalCompatibilitySkillNames) {
-      await expect(
-        access(join(homeDir, ".bearing/kit/current/skills", skillName, "SKILL.md")),
-      ).rejects.toThrow();
-      for (const surfaceRoot of [".agents/skills", ".claude/skills"]) {
-        await expect(access(join(homeDir, surfaceRoot, skillName))).rejects.toThrow();
-      }
-    }
-
     const rerun = await installKit({
       homeDir,
       packageRoot,
@@ -119,7 +100,7 @@ describe("Bearing kit installer", () => {
     await writeFile(join(repoRoot, "CLAUDE.md"), "# Claude rules\n");
     const contractLocator = await writeMattProviderFixture(repoRoot, ["agent-skills", "claude"]);
 
-    const result = await setupRepository({
+    const result = await applyRepositoryConfigurationUnit({
       repoRoot,
       packageRoot: process.cwd(),
       surfaces: ["agent-skills", "claude"],
@@ -143,7 +124,7 @@ describe("Bearing kit installer", () => {
     await expect(access(join(repoRoot, ".agents/skills/bearing/SKILL.md"))).rejects.toThrow();
     await expect(access(join(repoRoot, ".claude/skills/bearing/SKILL.md"))).rejects.toThrow();
 
-    const rerun = await setupRepository({
+    const rerun = await applyRepositoryConfigurationUnit({
       repoRoot,
       packageRoot: process.cwd(),
       surfaces: ["agent-skills", "claude"],
@@ -159,7 +140,7 @@ describe("Bearing kit installer", () => {
     await writeFile(agentsPath, "# Project rules\n");
 
     await expect(
-      setupRepository({
+      applyRepositoryConfigurationUnit({
         repoRoot,
         packageRoot: process.cwd(),
         surfaces: ["agent-skills"],

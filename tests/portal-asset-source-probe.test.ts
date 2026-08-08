@@ -3,7 +3,7 @@ import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { probeExactAssetSource } from "../src/portal/asset-source-probe";
 import { createPortalProjectQueryService } from "../src/portal/project-query-service";
-import type { AssetProjection } from "../src/project-snapshot/contract";
+import type { AssetProjection } from "../src/project-generation/contract";
 
 const asset = (sourceLocator: string) =>
   ({

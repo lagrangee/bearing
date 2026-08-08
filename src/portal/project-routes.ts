@@ -1,5 +1,4 @@
 import type { Context, Hono } from "hono";
-import { normalizeNativeReconciliationRequest } from "../native-reconciliation-contract";
 import { planningLineageSubjectSchema } from "../planning-lineage-route";
 import { portalProjectSectionSchema } from "../portal-project-read-wire";
 import { portalProviderApplicationRequestSchema } from "../portal-provider-application-wire";
@@ -8,19 +7,7 @@ import {
   type AssetPreviewService,
   assetPreviewUnavailableDocument,
 } from "./asset-preview";
-import type { PortalDiagnostic } from "./contract";
-import {
-  type ProjectFailureView,
-  type ProjectOperationError,
-  type ProjectSyncApiResponse,
-  type ProjectSyncRequest,
-  projectNativeReconciliationRequestSchema,
-  projectNativeScopeInspectionRequestSchema,
-  projectSyncRequestSchema,
-} from "./project-contract";
 import type { PortalProjectQueryService } from "./project-query-service";
-import type { ProjectService } from "./project-service";
-import type { ProjectSyncServiceResult } from "./project-service-contract";
 import type { PortalProviderApplicationService } from "./provider-application";
 import type { PortalSessionManager } from "./session";
 
@@ -28,7 +15,6 @@ type RouteOptions = Readonly<{
   assetPreview: AssetPreviewService;
   projectQueries: PortalProjectQueryService;
   providerApplication: PortalProviderApplicationService;
-  projects: ProjectService;
   sessions: PortalSessionManager;
 }>;
 
@@ -47,100 +33,6 @@ const requestFailure = () => ({
   code: "request-failed" as const,
   message: "Portal request failed.",
 });
-const operationMessages: Readonly<Record<ProjectOperationError["code"], string>> = {
-  "request-failed": "Portal request failed.",
-  "project-unavailable": "The registered project is currently unavailable.",
-  "unsafe-project-cache": "The project cache boundary is unsafe.",
-  "input-validation-failed": "Project inputs could not be validated.",
-  "sync-failed": "Project reconciliation failed.",
-  "snapshot-materialization-failed": "Project Snapshot materialization failed.",
-  "snapshot-write-failed": "Project cache could not be saved.",
-};
-const fixedError = (code: ProjectOperationError["code"]): ProjectOperationError => ({
-  code,
-  message: operationMessages[code],
-});
-const sanitizeError = (
-  error: PortalDiagnostic,
-  fallback: ProjectOperationError["code"] = "request-failed",
-): ProjectOperationError => {
-  const code = Object.hasOwn(operationMessages, error.code)
-    ? (error.code as ProjectOperationError["code"])
-    : fallback;
-  return fixedError(code);
-};
-const validationUnavailable = { due: true, cooldownRemainingMs: 0, inFlight: false } as const;
-
-const syncResponse = (
-  context: Context,
-  result: ProjectSyncServiceResult,
-  requestedMode: ProjectSyncRequest["mode"],
-): Response => {
-  switch (result.kind) {
-    case "completed": {
-      const response = {
-        version: 1,
-        state: "completed",
-        mode: result.mode,
-        outcome: result.outcome,
-        ...(result.reconciliation === undefined ? {} : { reconciliation: result.reconciliation }),
-        snapshotDisposition: result.snapshotDisposition,
-        view: result.view,
-        validation: result.validation,
-      } as ProjectSyncApiResponse;
-      return context.json(response);
-    }
-    case "cooldown": {
-      const response: ProjectSyncApiResponse = {
-        version: 1,
-        state: "cooldown",
-        mode: result.mode,
-        outcome: result.outcome,
-        view: result.view,
-        validation: result.validation,
-      };
-      return context.json(response);
-    }
-    case "failed": {
-      const presentation: ProjectFailureView =
-        result.view === undefined
-          ? result.viewDisposition === "discard"
-            ? { viewDisposition: "discard" }
-            : {}
-          : { view: result.view };
-      const response: ProjectSyncApiResponse = {
-        version: 1,
-        state: "failed",
-        mode: result.mode,
-        outcome: result.outcome,
-        error: sanitizeError(result.error),
-        ...presentation,
-        validation: result.validation,
-      };
-      return context.json(response);
-    }
-    case "unavailable":
-      return context.json({
-        version: 1,
-        state: "unavailable",
-        project: result.project,
-        diagnostic: sanitizeError(result.diagnostic, "project-unavailable"),
-      });
-    case "invalid-id":
-    case "not-found":
-    case "catalog-failed": {
-      const response: ProjectSyncApiResponse = {
-        version: 1,
-        state: "failed",
-        mode: requestedMode,
-        outcome: "failed",
-        error: result.kind === "not-found" ? fixedError("project-unavailable") : requestFailure(),
-        validation: validationUnavailable,
-      };
-      return context.json(response);
-    }
-  }
-};
 
 export const registerProjectRoutes = (app: Hono, options: RouteOptions): void => {
   const parseAction = async (context: Context): Promise<unknown | Response> => {
@@ -325,125 +217,6 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
     }
     return context.json(
       await options.providerApplication.apply(context.req.param("entryId"), parsed.data),
-    );
-  });
-
-  app.post("/api/v1/projects/:entryId/sync", async (context) => {
-    noStore(context);
-    if (
-      !options.sessions.verify(
-        context.req.header("cookie"),
-        context.req.header("x-bearing-csrf-token"),
-      )
-    ) {
-      return context.json({ code: "invalid-csrf-token", message: "CSRF check failed." }, 403);
-    }
-    const mediaType = context.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-    if (mediaType !== "application/json") {
-      return context.json(
-        { code: "unsupported-media-type", message: "Expected application/json." },
-        415,
-      );
-    }
-    let input: unknown;
-    try {
-      input = await context.req.json();
-    } catch {
-      return context.json({ code: "invalid-request", message: "Request body is not JSON." }, 400);
-    }
-    const parsed = projectSyncRequestSchema.safeParse(input);
-    if (!parsed.success) {
-      return context.json(
-        { code: "invalid-request", message: "Project Sync request is invalid." },
-        400,
-      );
-    }
-    return syncResponse(
-      context,
-      await options.projects.sync(context.req.param("entryId"), parsed.data.mode),
-      parsed.data.mode,
-    );
-  });
-
-  app.post("/api/v1/projects/:entryId/inspect-native-scope", async (context) => {
-    noStore(context);
-    if (
-      !options.sessions.verify(
-        context.req.header("cookie"),
-        context.req.header("x-bearing-csrf-token"),
-      )
-    ) {
-      return context.json({ code: "invalid-csrf-token", message: "CSRF check failed." }, 403);
-    }
-    const mediaType = context.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-    if (mediaType !== "application/json") {
-      return context.json(
-        { code: "unsupported-media-type", message: "Expected application/json." },
-        415,
-      );
-    }
-    let input: unknown;
-    try {
-      input = await context.req.json();
-    } catch {
-      return context.json({ code: "invalid-request", message: "Request body is not JSON." }, 400);
-    }
-    const parsed = projectNativeScopeInspectionRequestSchema.safeParse(input);
-    if (!parsed.success) {
-      return context.json(
-        { code: "invalid-request", message: "Native Scope Inspection request is invalid." },
-        400,
-      );
-    }
-    return syncResponse(
-      context,
-      await options.projects.sync(context.req.param("entryId"), "force", {
-        kind: "inspect",
-        subject: parsed.data.subject,
-        target: parsed.data.target,
-        refresh: parsed.data.refresh,
-      }),
-      "force",
-    );
-  });
-
-  app.post("/api/v1/projects/:entryId/reconcile-native", async (context) => {
-    noStore(context);
-    if (
-      !options.sessions.verify(
-        context.req.header("cookie"),
-        context.req.header("x-bearing-csrf-token"),
-      )
-    ) {
-      return context.json({ code: "invalid-csrf-token", message: "CSRF check failed." }, 403);
-    }
-    const mediaType = context.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-    if (mediaType !== "application/json") {
-      return context.json(
-        { code: "unsupported-media-type", message: "Expected application/json." },
-        415,
-      );
-    }
-    let input: unknown;
-    try {
-      input = await context.req.json();
-    } catch {
-      return context.json({ code: "invalid-request", message: "Request body is not JSON." }, 400);
-    }
-    const parsed = projectNativeReconciliationRequestSchema.safeParse(input);
-    if (!parsed.success) {
-      return context.json(
-        { code: "invalid-request", message: "Native reconciliation request is invalid." },
-        400,
-      );
-    }
-    return syncResponse(
-      context,
-      await options.projects.sync(context.req.param("entryId"), "force", {
-        kind: "reconcile",
-        request: normalizeNativeReconciliationRequest(parsed.data),
-      }),
-      "force",
     );
   });
 };

@@ -6,7 +6,7 @@ import {
   buildProjectFindIndex,
   tokenizeProjectFindText,
 } from "../src/portal-ui/project-find-model";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import type { ProjectGeneration } from "../src/project-generation/contract";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import {
   parseRebuiltPlanningLineageFixture,
@@ -81,13 +81,13 @@ test("indexes the managed Audit and inspection-backed bound work", () => {
     providerObservationSelections: snapshot.providerObservationSelections.filter(
       (candidate) => candidate !== selection,
     ),
-    nativeScopeInspections: {
+    providerDetailEvidences: {
       observations: [observation],
       selections: [
         {
           ...selection,
           latestAttempt: {
-            intent: "native-scope-inspection",
+            intent: "provider-detail-selection",
             attemptedAt: "2026-07-14T12:00:00+08:00",
             outcome: "succeeded",
             diagnostics: [],
@@ -148,11 +148,11 @@ test("supports representative Chinese and English field recall without repositor
         gate.id === "gate:two" ? { ...gate, title: "中文规划", intent: "确认中文阅读路径" } : gate,
       ),
     },
-  } as ProjectSnapshot;
+  } as ProjectGeneration;
   const rebuilt = {
     ...snapshot,
     lineage: withRebuiltPlanningLineage(snapshot).lineage,
-  } as ProjectSnapshot;
+  } as ProjectGeneration;
   const index = buildProjectFindIndex(rebuilt, "bearing");
 
   expect(tokenizeProjectFindText("中文阅读路径").length).toBeGreaterThan(1);
@@ -193,7 +193,7 @@ test("fails closed for unavailable semantic fields and silently falls back from 
         subject === baseLineage ? noAnchorLineage : subject,
       ),
     },
-  } as ProjectSnapshot;
+  } as ProjectGeneration;
   const unavailable = {
     ...base,
     gates: {
@@ -211,7 +211,7 @@ test("fails closed for unavailable semantic fields and silently falls back from 
         subject === baseLineage ? unavailableLineage : subject,
       ),
     },
-  } as ProjectSnapshot;
+  } as ProjectGeneration;
 
   const missingResult = buildProjectFindIndex(missingAnchor, "bearing").search("Prove Overview")[0];
   expect(missingResult?.subject).toEqual({ kind: "gate", id: "gate:two" });
@@ -233,13 +233,13 @@ test("replaces the disposable index when the Snapshot fingerprint changes", () =
       ...snapshot,
       basis: {
         ...snapshot.basis,
-        sitemapFingerprint: `sha256:${"c".repeat(64)}` as typeof snapshot.basis.sitemapFingerprint,
+        basisFingerprint: `sha256:${"c".repeat(64)}` as typeof snapshot.basis.basisFingerprint,
       },
     },
     "bearing",
   );
 
-  expect(first.fingerprint).toBe(snapshot.basis.sitemapFingerprint);
+  expect(first.fingerprint).toBe(snapshot.basis.basisFingerprint);
   expect(second.fingerprint).not.toBe(first.fingerprint);
   expect(first.documentCount).toBe(second.documentCount);
 });
@@ -252,7 +252,7 @@ test("reports typed scope degradation with an executable recovery", () => {
       validity: "invalid" as const,
       issues: [{ code: "invalid-assets", target: "assets", message: "Assets unavailable." }],
     },
-  } as ProjectSnapshot;
+  } as ProjectGeneration;
 
   expect(buildProjectFindIndex(snapshot, "bearing").scopeState).toEqual({ state: "available" });
   expect(buildProjectFindIndex(degraded, "bearing").scopeState).toMatchObject({
@@ -342,7 +342,7 @@ test("reports typed scope degradation with an executable recovery", () => {
   });
   const providerAuthoritative = parseRebuiltPlanningLineageFixture({
     ...snapshot,
-    nativeScopeInspections: {
+    providerDetailEvidences: {
       observations: [obsoleteInspection],
       selections: [
         {
@@ -351,7 +351,7 @@ test("reports typed scope degradation with an executable recovery", () => {
           observationId: obsoleteInspection.id,
           effectiveFreshness: "current",
           latestAttempt: {
-            intent: "native-scope-inspection",
+            intent: "provider-detail-selection",
             attemptedAt: "2026-07-14T12:00:00+08:00",
             outcome: "succeeded",
             diagnostics: [],

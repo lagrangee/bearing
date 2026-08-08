@@ -2,9 +2,9 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import { planningLineageSubjectHref } from "../src/planning-lineage-route";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
-import { projectSnapshotSchema } from "../src/project-snapshot/schema";
-import { createSourceRecord } from "../src/project-snapshot/source-records";
+import type { ProjectGeneration } from "../src/project-generation/contract";
+import { projectGenerationSchema } from "../src/project-generation/schema";
+import { createSourceRecord } from "../src/project-generation/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { withRebuiltPlanningLineage } from "../tests/planning-lineage-fixture";
 import { browserArtifactPath } from "./browser-artifact-output";
@@ -15,12 +15,12 @@ import {
 } from "./project-row-fixture";
 
 const readyEnvelope = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   section: Parameters<typeof projectRowEnvelope>[0]["section"],
   target?: Parameters<typeof projectRowEnvelope>[0]["target"],
 ) => projectRowEnvelope({ snapshot, section, entryId: "roadmaps", target });
 
-const serveSnapshot = async (page: Page, snapshot: ProjectSnapshot): Promise<void> => {
+const serveSnapshot = async (page: Page, snapshot: ProjectGeneration): Promise<void> => {
   await page.route("**/api/v1/projects/roadmaps/read-model?section=*", (route) =>
     route.fulfill({
       json: readyEnvelope(
@@ -75,10 +75,10 @@ const expectHorizontalHorizonAlignment = async (locator: Locator): Promise<void>
 const longGateIntent =
   "让维护者完整理解 Gate 的语义目标、退出条件与 Passage ownership, while preserving the full canonical planning meaning across a deliberately long reading line without moving essential content into an inspector.";
 
-const longCriteriaFixture = (): ProjectSnapshot => {
+const longCriteriaFixture = (): ProjectGeneration => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.gates.validity === "invalid") throw new Error("Expected Gate fixture.");
-  return projectSnapshotSchema.parse(
+  return projectGenerationSchema.parse(
     withRebuiltPlanningLineage({
       ...snapshot,
       gates: {
@@ -102,19 +102,19 @@ const longCriteriaFixture = (): ProjectSnapshot => {
   );
 };
 
-const plannedGateFixture = (): ProjectSnapshot => {
+const plannedGateFixture = (): ProjectGeneration => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.roadmaps.validity === "invalid" || snapshot.gates.validity === "invalid") {
     throw new Error("Expected complete planning fixture.");
   }
   const template = snapshot.gates.items.find((gate) => gate.id === "gate:two");
   if (template === undefined) throw new Error("Expected focused Gate fixture.");
-  const plannedSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const plannedSource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "canonical",
     locator: ".bearing/state/milestone-gates/three.md",
     binding: { role: "milestone-gate", identity: "gate:three" },
   });
-  return projectSnapshotSchema.parse(
+  return projectGenerationSchema.parse(
     withRebuiltPlanningLineage({
       ...snapshot,
       sources: [...snapshot.sources, plannedSource],
@@ -152,7 +152,7 @@ const longRoadmapIntent =
 const longPassedGateTitle =
   "Model ready with a deliberately long bilingual outcome title that remains fully readable 模型契约完整可读";
 
-const roadmapReadingFixture = (): ProjectSnapshot => {
+const roadmapReadingFixture = (): ProjectGeneration => {
   const snapshot = createProjectOverviewFixture();
   if (
     snapshot.roadmapIndex.validity !== "available" ||
@@ -161,7 +161,7 @@ const roadmapReadingFixture = (): ProjectSnapshot => {
     throw new Error("Expected complete Roadmap fixture.");
   }
   if (snapshot.gates.validity !== "available") throw new Error("Expected complete Gate fixture.");
-  return projectSnapshotSchema.parse(
+  return projectGenerationSchema.parse(
     withRebuiltPlanningLineage({
       ...snapshot,
       roadmapIndex: {
@@ -216,7 +216,7 @@ const roadmapReadingFixture = (): ProjectSnapshot => {
   );
 };
 
-const fourGateReadingFixture = (): ProjectSnapshot => {
+const fourGateReadingFixture = (): ProjectGeneration => {
   const snapshot = roadmapReadingFixture();
   if (snapshot.roadmaps.validity !== "available" || snapshot.gates.validity !== "available") {
     throw new Error("Expected complete planning fixture.");
@@ -231,13 +231,13 @@ const fourGateReadingFixture = (): ProjectSnapshot => {
     },
   ] as const;
   const addedSources = addedGates.map((gate) =>
-    createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    createSourceRecord(snapshot.basis.basisFingerprint, {
       kind: "canonical",
       locator: `.bearing/state/milestone-gates/${gate.id.slice("gate:".length)}.md`,
       binding: { role: "milestone-gate", identity: gate.id },
     }),
   );
-  return projectSnapshotSchema.parse(
+  return projectGenerationSchema.parse(
     withRebuiltPlanningLineage({
       ...snapshot,
       sources: [...snapshot.sources, ...addedSources],
@@ -274,8 +274,8 @@ const fourGateReadingFixture = (): ProjectSnapshot => {
 };
 
 const oneFogFixture = (
-  snapshot: ProjectSnapshot = createProjectOverviewFixture(),
-): ProjectSnapshot => {
+  snapshot: ProjectGeneration = createProjectOverviewFixture(),
+): ProjectGeneration => {
   const providerObservations = snapshot.providerObservations.map((capture) =>
     capture.binding.nativeScope === ".scratch/portal" &&
     (capture.state === "available" || capture.state === "partial") &&
@@ -296,7 +296,7 @@ const oneFogFixture = (
     (observation) => observation.binding.nativeScope === ".scratch/portal",
   );
   if (portalObservation === undefined) throw new Error("Expected the Portal observation.");
-  return projectSnapshotSchema.parse({
+  return projectGenerationSchema.parse({
     ...snapshot,
     providerObservations,
     providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
@@ -606,7 +606,7 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
   );
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
-  const partial = projectSnapshotSchema.parse(
+  const partial = projectGenerationSchema.parse(
     withRebuiltPlanningLineage({
       ...snapshot,
       gates: {
@@ -626,7 +626,7 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
   await expect(page.getByText("Gate unavailable", { exact: true })).toBeVisible();
   await expect(page.getByText("gate:one", { exact: false })).toHaveCount(0);
 
-  const mapPartial = projectSnapshotSchema.parse(
+  const mapPartial = projectGenerationSchema.parse(
     withRebuiltPlanningLineage({
       ...snapshot,
       gates:
@@ -691,7 +691,7 @@ test("Roadmaps keeps planned, absent, and invalid states explicit", async ({ pag
   await page.unroute("**/api/v1/projects/roadmaps/read-model?section=*");
   await serveSnapshot(
     page,
-    projectSnapshotSchema.parse({ ...base, roadmapIndex: { validity: "absent" } }),
+    projectGenerationSchema.parse({ ...base, roadmapIndex: { validity: "absent" } }),
   );
   await page.reload();
   await expect(page.getByText("No canonical Roadmap Index is available")).toBeVisible();
@@ -699,7 +699,7 @@ test("Roadmaps keeps planned, absent, and invalid states explicit", async ({ pag
   await page.unroute("**/api/v1/projects/roadmaps/read-model?section=*");
   await serveSnapshot(
     page,
-    projectSnapshotSchema.parse({
+    projectGenerationSchema.parse({
       ...base,
       roadmapIndex: {
         validity: "invalid",

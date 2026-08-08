@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
-import { projectSnapshotSchema } from "../src/project-snapshot/schema";
+import type { ProjectGeneration } from "../src/project-generation/contract";
+import { projectGenerationSchema } from "../src/project-generation/schema";
 import {
   createAbsentProjectAuditFixture,
   createInvalidProjectAuditFixture,
@@ -19,7 +19,7 @@ import {
 } from "./project-row-fixture";
 
 const envelope = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   section: Parameters<typeof projectRowEnvelope>[0]["section"],
   target?: Parameters<typeof projectRowEnvelope>[0]["target"],
 ) =>
@@ -31,7 +31,7 @@ const envelope = (
     displayName: "Audit fixture",
   });
 
-const serveSnapshot = async (page: Page, current: () => ProjectSnapshot): Promise<void> => {
+const serveSnapshot = async (page: Page, current: () => ProjectGeneration): Promise<void> => {
   await page.route("**/api/v1/projects/audit/read-model?section=*", (route) =>
     route.fulfill({
       json: envelope(
@@ -162,7 +162,7 @@ test("Review completion leaves Attention only after an explicit accepted Snapsho
   if (snapshot.reviews.validity === "invalid") throw new Error("Expected Planning Review fixture.");
   const review = snapshot.reviews.items[0];
   if (review === undefined) throw new Error("Expected one Planning Review fixture.");
-  snapshot = projectSnapshotSchema.parse(
+  snapshot = projectGenerationSchema.parse(
     withRebuiltPlanningLineage({
       ...snapshot,
       reviews: {

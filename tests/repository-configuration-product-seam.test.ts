@@ -118,12 +118,12 @@ test("packed Repository Configuration seals one exact Fresh write set and applie
     expect(prematureInspect.exitClass).toBe("product-outcome");
     expect(prematureInspect.stderr).toMatch(/requires an Active Repository Configuration/iu);
     expect(prematureInspect.effects).toEqual({ created: [], changed: [], removed: [] });
-    const prematureSync = await product.run(["sync", "--repo", root], {
+    const prematureRebuild = await product.run(["cache", "rebuild", "--repo", root], {
       observeRoots: [root],
     });
-    expect(prematureSync.exitClass).toBe("product-outcome");
-    expect(prematureSync.stderr).toMatch(/requires an Active Repository Configuration/iu);
-    expect(prematureSync.effects).toEqual({ created: [], changed: [], removed: [] });
+    expect(prematureRebuild.exitClass).toBe("product-outcome");
+    expect(prematureRebuild.stderr).toMatch(/requires an Active Repository Configuration/iu);
+    expect(prematureRebuild.effects).toEqual({ created: [], changed: [], removed: [] });
 
     const incomplete = await product.run([
       "configure",
@@ -309,12 +309,12 @@ test("Configure Apply rejects a stale seal without writing and deactivation pres
     expect(await readFile(join(root, ".scratch/work/native.md"), "utf8")).toBe("native\n");
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).not.toContain(BEARING_POINTER);
     await expect(access(join(root, ".bearing/cache"))).rejects.toThrow();
-    const deactivatedSync = await product.run(["sync", "--repo", root], {
+    const deactivatedRebuild = await product.run(["cache", "rebuild", "--repo", root], {
       observeRoots: [root],
     });
-    expect(deactivatedSync.exitClass).toBe("product-outcome");
-    expect(deactivatedSync.stderr).toMatch(/requires an Active Repository Configuration/iu);
-    expect(deactivatedSync.effects).toEqual({ created: [], changed: [], removed: [] });
+    expect(deactivatedRebuild.exitClass).toBe("product-outcome");
+    expect(deactivatedRebuild.stderr).toMatch(/requires an Active Repository Configuration/iu);
+    expect(deactivatedRebuild.effects).toEqual({ created: [], changed: [], removed: [] });
     const prematureProvider = await product.run([
       "provider",
       "capture",

@@ -27,17 +27,17 @@ Run the installer again for the intended Agent Surface. If you use multiple surf
 
 ## Missing work-management adapter
 
-Bearing requires the supported Matt-native local Markdown Map and Ticket workflow for the first Preview. Create or restore that work scope before expecting alignment against active work.
+Bearing requires the supported Matt-native local Markdown Map and Ticket workflow for the first Preview. Create or restore that work scope before inspecting current work.
 
-## Sync diagnostics
+## Project diagnostics
 
 Run:
 
 ```bash
-bearing sync --repo .
+bearing inspect diagnostics --repo .
 ```
 
-Read the report path printed by the command. Cache diagnostics are disposable; malformed source files need owner-specific correction.
+Read the typed diagnostic rows printed by the command. The Project Read Model is disposable; malformed source files need owner-specific correction.
 
 ## Portal does not open
 

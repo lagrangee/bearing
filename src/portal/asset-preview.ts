@@ -4,12 +4,12 @@ import MarkdownIt from "markdown-it";
 import sanitizeHtml from "sanitize-html";
 import { probeContainedInput } from "../input-boundary";
 import { readContainedFile } from "../path-boundary";
+import type { AssetProjection } from "../project-generation/contract";
+import { assetIdSchema } from "../project-generation/schema-primitives";
 import {
   PortalProjectReadModelUnavailableError,
   queryPortalAssetRow,
 } from "../project-read-model/portal";
-import type { AssetProjection } from "../project-snapshot/contract";
-import { assetIdSchema } from "../project-snapshot/schema-primitives";
 import type { CatalogReadResult } from "./contract";
 import { resolveProjectEntry } from "./project-entry";
 
@@ -169,12 +169,12 @@ export const assetPreviewUnavailableDocument = (
         : "Install a compatible Bearing runtime, then open this Asset again.";
     return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>Content unavailable</title></head><body><header>${returnControl}<p>View Content · current-checkout content</p></header><main><h1>Content unavailable</h1><p>Cause: ${safeText(result.message)}</p><p>Impact: this Asset content cannot be read on the current content surface.</p><p>Recovery: ${recovery}</p></main></body></html>`;
   }
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>Content unavailable</title></head><body><header>${returnControl}<p>View Content · current-checkout content</p></header><main><h1>Content unavailable</h1><p>Cause: ${safeText(result.message)}</p><p>Impact: this Asset content cannot be read on the current content surface.</p><p>Recovery: return to Asset detail, open Technical Details, repair the registered source, then run Sync.</p></main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>Content unavailable</title></head><body><header>${returnControl}<p>View Content · current-checkout content</p></header><main><h1>Content unavailable</h1><p>Cause: ${safeText(result.message)}</p><p>Impact: this Asset content cannot be read on the current content surface.</p><p>Recovery: return to Asset detail, open Technical Details, repair the registered source, then open this Asset again.</p></main></body></html>`;
 };
 
 const previewDocument = (title: string, body: string, returnHref: string): Buffer =>
   Buffer.from(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>${safeText(title)}</title></head><body><header>${returnToAssetDetailControl(returnHref)}<p>View Content · current-checkout content</p><p>This is not historical Snapshot bytes; the registered Asset was revalidated against the current checkout.</p></header><main>${body}</main></body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>${safeText(title)}</title></head><body><header>${returnToAssetDetailControl(returnHref)}<p>View Content · current-checkout content</p><p>This is not historical Project Read Model bytes; the registered Asset was revalidated against the current checkout.</p></header><main>${body}</main></body></html>`,
     "utf8",
   );
 

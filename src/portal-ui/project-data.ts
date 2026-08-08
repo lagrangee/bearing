@@ -5,6 +5,7 @@ import type {
   Authority,
   CollectionProjection,
   Effort,
+  GenerationDiagnostic,
   MilestoneGate,
   PlanningAudit,
   PlanningLineageProjection,
@@ -14,10 +15,9 @@ import type {
   Roadmap,
   RoadmapIndex,
   SingletonProjection,
-  SnapshotDiagnostic,
   SourceRecord,
-} from "../project-snapshot/contract";
-import type { providerObservationSelectionSchema } from "../provider-observation-contract";
+} from "../project-generation/contract";
+import type { providerObservationSelectionSchema } from "../provider-evidence-contract";
 import type { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 
 type DeepReadonly<Value> = Value extends
@@ -52,7 +52,7 @@ export type OverviewModelData = ProjectContext &
     gates: CollectionProjection<MilestoneGate>;
     efforts: CollectionProjection<Effort>;
     reviews: CollectionProjection<PlanningReview>;
-    diagnostics: readonly SnapshotDiagnostic[];
+    diagnostics: readonly GenerationDiagnostic[];
     sources: readonly SourceRecord[];
   }>;
 export type OverviewProjectData = OverviewModelData &
@@ -101,12 +101,12 @@ export type LineageModelData = ProjectContext &
     lineage: PlanningLineageProjection;
     providerObservations: readonly ProviderObservation[];
     providerObservationSelections: readonly ProviderSelection[];
-    nativeScopeInspections: Readonly<{
+    providerDetailEvidences: Readonly<{
       observations: readonly ProviderObservation[];
       selections: readonly ProviderSelection[];
     }>;
     referenceTitles?: readonly Readonly<{ reference: string; title: string }>[] | undefined;
-    diagnostics: readonly SnapshotDiagnostic[];
+    diagnostics: readonly GenerationDiagnostic[];
     sources: readonly SourceRecord[];
     nativeTargetState?: "covered-missing" | "unavailable" | undefined;
     assetSourceProbe?:

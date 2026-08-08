@@ -5,11 +5,11 @@ import {
   planningLineageFilteredViewHref,
   planningLineageSubjectHref,
 } from "../src/planning-lineage-route";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
-import { buildMattNativeSourceRecords } from "../src/project-snapshot/native-work-sources";
-import { buildPlanningLineageProjection } from "../src/project-snapshot/planning-lineage";
-import { projectSnapshotSchema } from "../src/project-snapshot/schema";
-import { createSourceRecord } from "../src/project-snapshot/source-records";
+import type { ProjectGeneration } from "../src/project-generation/contract";
+import { buildMattNativeSourceRecords } from "../src/project-generation/native-work-sources";
+import { buildPlanningLineageProjection } from "../src/project-generation/planning-lineage";
+import { projectGenerationSchema } from "../src/project-generation/schema";
+import { createSourceRecord } from "../src/project-generation/source-records";
 import { encodeGitHubMattNativeScope } from "../src/providers/matt-skills-v1/github";
 import { mattNativeScopeSubject } from "../src/providers/matt-skills-v1/native-subject";
 import { createMattReferenceProjection } from "../tests/fixtures/matt-reference-scenario";
@@ -22,14 +22,14 @@ import {
 } from "./project-row-fixture";
 
 const readyEnvelope = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   section: Parameters<typeof projectRowEnvelope>[0]["section"],
   target?: Parameters<typeof projectRowEnvelope>[0]["target"],
 ) => projectRowEnvelope({ snapshot, section, entryId: "lineage", target });
 
-const fixture = (): ProjectSnapshot => {
+const fixture = (): ProjectGeneration => {
   const snapshot = createProjectOverviewFixture();
-  const authoritySource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const authoritySource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "canonical",
     locator: ".bearing/state/authorities/architecture.md",
     binding: { role: "authority", identity: "authority:architecture" },
@@ -60,13 +60,13 @@ const fixture = (): ProjectSnapshot => {
     },
     sources: [...snapshot.sources, authoritySource],
   };
-  return projectSnapshotSchema.parse({
+  return projectGenerationSchema.parse({
     ...candidate,
     lineage: buildPlanningLineageProjection(candidate),
   });
 };
 
-const githubFixture = (): ProjectSnapshot => {
+const githubFixture = (): ProjectGeneration => {
   const snapshot = fixture();
   if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
   const nativeScope = encodeGitHubMattNativeScope({
@@ -125,7 +125,7 @@ const githubFixture = (): ProjectSnapshot => {
   ];
   const sources = [
     ...snapshot.sources.filter((source) => !source.displayLocator.startsWith(".scratch/portal")),
-    ...buildMattNativeSourceRecords([observation], snapshot.basis.sitemapFingerprint),
+    ...buildMattNativeSourceRecords([observation], snapshot.basis.basisFingerprint),
   ];
   return parseRebuiltPlanningLineageFixture({
     ...snapshot,
@@ -146,7 +146,7 @@ const githubFixture = (): ProjectSnapshot => {
   });
 };
 
-const timedFixture = (): ProjectSnapshot => {
+const timedFixture = (): ProjectGeneration => {
   const snapshot = fixture();
   if (snapshot.gates.validity === "invalid" || snapshot.assets.validity === "invalid") {
     throw new Error("Expected readable Gates and Assets.");
@@ -195,13 +195,13 @@ const timedFixture = (): ProjectSnapshot => {
       })),
     },
   };
-  return projectSnapshotSchema.parse({
+  return projectGenerationSchema.parse({
     ...candidate,
     lineage: buildPlanningLineageProjection(candidate),
   });
 };
 
-const degradedWorkHistoryFixture = (): ProjectSnapshot => {
+const degradedWorkHistoryFixture = (): ProjectGeneration => {
   const snapshot = fixture();
   const portal = snapshot.providerObservations.find(
     (observation) => observation.binding.nativeScope === ".scratch/portal",
@@ -226,7 +226,7 @@ const degradedWorkHistoryFixture = (): ProjectSnapshot => {
   });
 };
 
-const withoutRequestedGate = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+const withoutRequestedGate = (snapshot: ProjectGeneration): ProjectGeneration => {
   if (snapshot.gates.validity === "invalid" || snapshot.assets.validity === "invalid") {
     throw new Error("Expected readable Gates and Assets.");
   }
@@ -245,13 +245,13 @@ const withoutRequestedGate = (snapshot: ProjectSnapshot): ProjectSnapshot => {
     },
     assets: snapshot.assets,
   };
-  return projectSnapshotSchema.parse({
+  return projectGenerationSchema.parse({
     ...candidate,
     lineage: buildPlanningLineageProjection(candidate),
   });
 };
 
-const serveSnapshot = async (page: Page, snapshot: ProjectSnapshot): Promise<void> => {
+const serveSnapshot = async (page: Page, snapshot: ProjectGeneration): Promise<void> => {
   await page.route("**/api/v1/projects/lineage/read-model?section=*", (route) =>
     route.fulfill({
       json: readyEnvelope(

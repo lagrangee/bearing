@@ -182,30 +182,3 @@ export const requestProviderObservation = async (
   }
   return envelope;
 };
-
-export const requestNativeScopeInspection = async (
-  entryId: string,
-  subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
-  target: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
-  refresh: boolean,
-  csrfToken: string,
-  signal: AbortSignal,
-): Promise<void> => {
-  const response = await window.fetch(
-    `/api/v1/projects/${encodeURIComponent(entryId)}/inspect-native-scope`,
-    {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "X-Bearing-CSRF-Token": csrfToken,
-      },
-      body: JSON.stringify({ version: 1, subject, target, refresh }),
-      signal,
-    },
-  );
-  if (!response.ok) {
-    throw new ProjectResponseError(`Project request returned ${response.status}.`);
-  }
-};

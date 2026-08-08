@@ -5,7 +5,7 @@ import {
 import type {
   ProviderObservationAttempt,
   ProviderObservationSelection,
-} from "./provider-observation-contract";
+} from "./provider-evidence-contract";
 import { sameMattNativeBindingDefinition } from "./providers/matt-skills-v1/native-subject";
 import type { StructuralDiagnostic } from "./types";
 

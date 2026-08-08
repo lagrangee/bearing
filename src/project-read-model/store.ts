@@ -5,22 +5,22 @@ import { z } from "zod";
 import type { AssetContentObservation } from "../asset-inputs";
 import type { FingerprintObservation } from "../fingerprint";
 import { buildProjectFindDocuments, projectFindScopeState } from "../portal-ui/project-find-model";
-import type { ProjectSnapshot } from "../project-snapshot/contract";
+import type { ProjectGeneration } from "../project-generation/contract";
 import {
   attentionItemSchema,
-  projectSnapshotSchema,
+  projectGenerationSchema,
   structuralDiagnosticSchema,
-} from "../project-snapshot/schema";
+} from "../project-generation/schema";
 import {
   planningLineageRelationSchema,
   planningLineageSubjectProjectionSchema,
-} from "../project-snapshot/schema-planning-lineage";
-import { sourceRecordSchema } from "../project-snapshot/source-schema";
+} from "../project-generation/schema-planning-lineage";
+import { sourceRecordSchema } from "../project-generation/source-schema";
 import {
   type ProviderObservationSelection,
   providerObservationSelectionFreshnessIsCoherent,
   providerObservationSelectionSchema,
-} from "../provider-observation-contract";
+} from "../provider-evidence-contract";
 import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
 import { mattNativeRecords } from "../providers/matt-skills-v1/native-read-model";
 import {
@@ -242,19 +242,19 @@ const assertSchema = (database: DatabaseSync): number => {
   return version;
 };
 
-const referenceForSubject = (subject: ProjectSnapshot["lineage"]["subjects"][number]): string =>
+const referenceForSubject = (subject: ProjectGeneration["lineage"]["subjects"][number]): string =>
   subject.identity.kind === "native-subject" || subject.identity.kind === "native-scope"
     ? `${subject.identity.kind}:${subject.identity.id}`
     : String(subject.identity.id);
 
 export const compileProjectReadModel = (input: {
-  readonly snapshot: ProjectSnapshot;
+  readonly snapshot: ProjectGeneration;
   readonly basisFingerprint: string;
   readonly basisInputs: readonly string[];
   readonly basisObservations: readonly FingerprintObservation[];
   readonly assetContentObservations: readonly AssetContentObservation[];
 }): ProjectReadModelCandidate => {
-  const snapshot = projectSnapshotSchema.parse(input.snapshot);
+  const snapshot = projectGenerationSchema.parse(input.snapshot);
   const objects: ObjectRow[] = [];
   const appendSingleton = (
     kind: string,
@@ -375,11 +375,11 @@ export const compileProjectReadModel = (input: {
   const providerEvidenceRows = (
     role: ProjectProviderEvidenceRow["role"],
     selections:
-      | ProjectSnapshot["providerObservationSelections"]
-      | ProjectSnapshot["nativeScopeInspections"]["selections"],
+      | ProjectGeneration["providerObservationSelections"]
+      | ProjectGeneration["providerDetailEvidences"]["selections"],
     observations:
-      | ProjectSnapshot["providerObservations"]
-      | ProjectSnapshot["nativeScopeInspections"]["observations"],
+      | ProjectGeneration["providerObservations"]
+      | ProjectGeneration["providerDetailEvidences"]["observations"],
   ): ProjectProviderEvidenceRow[] =>
     selections.map((selection) => {
       const observation = observations.find(
@@ -403,11 +403,11 @@ export const compileProjectReadModel = (input: {
   const appendPortalEvidence = (
     role: ProjectProviderEvidenceRow["role"],
     selections:
-      | ProjectSnapshot["providerObservationSelections"]
-      | ProjectSnapshot["nativeScopeInspections"]["selections"],
+      | ProjectGeneration["providerObservationSelections"]
+      | ProjectGeneration["providerDetailEvidences"]["selections"],
     observations:
-      | ProjectSnapshot["providerObservations"]
-      | ProjectSnapshot["nativeScopeInspections"]["observations"],
+      | ProjectGeneration["providerObservations"]
+      | ProjectGeneration["providerDetailEvidences"]["observations"],
   ) => {
     for (const selection of selections) {
       const observation = observations.find(
@@ -456,12 +456,12 @@ export const compileProjectReadModel = (input: {
   );
   appendPortalEvidence(
     "detail",
-    snapshot.nativeScopeInspections.selections,
-    snapshot.nativeScopeInspections.observations,
+    snapshot.providerDetailEvidences.selections,
+    snapshot.providerDetailEvidences.observations,
   );
   const referenceTitles = new Map<string, string>();
   for (const record of mattNativeRecords(
-    [...snapshot.providerObservations, ...snapshot.nativeScopeInspections.observations],
+    [...snapshot.providerObservations, ...snapshot.providerDetailEvidences.observations],
     snapshot.sources,
   )) {
     referenceTitles.set(record.id, record.title);
@@ -483,8 +483,8 @@ export const compileProjectReadModel = (input: {
     ),
     ...providerEvidenceRows(
       "detail",
-      snapshot.nativeScopeInspections.selections,
-      snapshot.nativeScopeInspections.observations,
+      snapshot.providerDetailEvidences.selections,
+      snapshot.providerDetailEvidences.observations,
     ),
   ];
   return {

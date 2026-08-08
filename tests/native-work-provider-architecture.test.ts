@@ -29,14 +29,14 @@ test("keeps the semantic equivalence oracle test-owned", async () => {
   }
 });
 
-test("reuses one immutable-object implementation across capture and Planning Graph", async () => {
+test("reuses one immutable-object implementation across capture and project compilation", async () => {
   const immutable = await readFile("src/immutable.ts", "utf8");
   const capture = await readFile("src/native-work-provider.ts", "utf8");
-  const graph = await readFile("src/planning-graph.ts", "utf8");
+  const projections = await readFile("src/project-compilation-projection.ts", "utf8");
   expect(immutable).toContain("export const deepFreeze");
   expect(immutable).toContain('from "deep-freeze-es6"');
   expect(immutable).not.toContain("Object.freeze");
   expect(capture).toContain('import { deepFreeze } from "./immutable"');
-  expect(graph).toContain('import { deepFreeze } from "./immutable"');
-  expect(graph).not.toContain("const deepFreeze =");
+  expect(projections).toContain('import { deepFreeze } from "./immutable"');
+  expect(projections).not.toContain("const deepFreeze =");
 });

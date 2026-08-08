@@ -6,13 +6,12 @@ import { readCatalogState } from "./catalog/store";
 import { inspectInstallPath } from "./install-boundary";
 import { pointsToMattContractLocator } from "./matt-agent-surface";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
-import { PROJECT_SNAPSHOT_VERSION } from "./project-snapshot/schema";
+import { PROJECT_GENERATION_VERSION } from "./project-generation/schema";
 import { decodeMattProviderConfiguration } from "./provider-configuration";
 import { validateMattSkillsV1Contract } from "./providers/matt-skills-v1";
 import type { ReconcileRepositoryResult } from "./reconcile-repository";
 import { reconcileRepository } from "./reconcile-repository";
-import type { RepositoryLifecycleResult } from "./repo-lifecycle";
-import { deactivateRepository } from "./repo-lifecycle";
+import { deactivateRepository, type RepositoryDeactivationResult } from "./repository-deactivation";
 import { inspectRepositoryIntegrationLifecycle } from "./repository-integration-lifecycle";
 import {
   captureRepositoryTargetPreconditions,
@@ -150,9 +149,9 @@ export type RepositoryConfigurationApplyResult =
       schemaVersion: 1;
       command: "configure-apply";
       intent: "deactivate";
-      outcome: RepositoryLifecycleResult["outcome"];
-      repository: RepositoryLifecycleResult["repository"];
-      catalog: RepositoryLifecycleResult["catalog"];
+      outcome: RepositoryDeactivationResult["outcome"];
+      repository: RepositoryDeactivationResult["repository"];
+      catalog: RepositoryDeactivationResult["catalog"];
       resumption?: RepositoryConfigurationResumption;
     }>;
 
@@ -529,7 +528,7 @@ export const inspectPortalHandoff = async (
       healthResponse.ok &&
       health["state"] === "ready" &&
       health["packageVersion"] === packageMetadata.version &&
-      health["readModelVersion"] === PROJECT_SNAPSHOT_VERSION;
+      health["readModelVersion"] === PROJECT_GENERATION_VERSION;
     if (!compatible) {
       return { state: "incompatible", origin, guidance: "stop-host-and-start-current-kit" };
     }

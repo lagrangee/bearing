@@ -17,7 +17,7 @@ import {
   type RepositoryIntegrationLifecycle,
 } from "./repository-integration-lifecycle";
 import { repositoryManifestSchema } from "./schema-definitions";
-import type { RepositorySetupOptions } from "./types";
+import type { RepositoryConfigurationApplyOptions } from "./types";
 
 export type { RepositoryIntegrationLifecycle } from "./repository-integration-lifecycle";
 
@@ -34,7 +34,7 @@ export type RepositoryIntegrationPlan = Readonly<{
       items: readonly RepositoryExternalPrerequisite[];
     }>;
     repositoryApplyUnit: Readonly<{
-      owner: "bearing-setup";
+      owner: "bearing-repository-configuration";
       atomic: true;
       rollback: "restore-previous-repository-bytes";
       targets: readonly string[];
@@ -81,8 +81,10 @@ const validatedProfileDisposition = (profiles: readonly string[]): readonly stri
 
 const plannedTargets = (
   root: string,
-  options: Pick<RepositorySetupOptions, "surfaces" | "profiles" | "removeProfiles"> &
-    Readonly<{ existingSurfaces: readonly RepositorySetupOptions["surfaces"][number][] }>,
+  options: Pick<RepositoryConfigurationApplyOptions, "surfaces" | "profiles" | "removeProfiles"> &
+    Readonly<{
+      existingSurfaces: readonly RepositoryConfigurationApplyOptions["surfaces"][number][];
+    }>,
 ): readonly string[] => {
   const targets = [
     join(root, ".bearing/manifest.json"),
@@ -213,7 +215,7 @@ export type MattProviderContractInspection = Readonly<{
 export const inspectMattProviderContract = async (
   root: string,
   contractLocator: string,
-  surfaces: RepositorySetupOptions["surfaces"],
+  surfaces: RepositoryConfigurationApplyOptions["surfaces"],
 ): Promise<MattProviderContractInspection> => {
   const precondition = await captureTargetPrecondition(root, contractLocator);
   if (precondition.kind !== "file" || precondition.linkCount !== 1) {
@@ -243,7 +245,7 @@ export const inspectMattProviderContract = async (
 export const assertMattProviderContractCurrent = async (
   root: string,
   contractLocator: string,
-  surfaces: RepositorySetupOptions["surfaces"],
+  surfaces: RepositoryConfigurationApplyOptions["surfaces"],
   expected: MattProviderContractInspection,
 ): Promise<void> => {
   const current = await inspectMattProviderContract(root, contractLocator, surfaces);
@@ -282,7 +284,7 @@ export const assertRepositoryTargetPreconditionsCurrent = async (
 };
 
 export const planRepositoryIntegration = async (
-  options: RepositorySetupOptions,
+  options: RepositoryConfigurationApplyOptions,
 ): Promise<RepositoryIntegrationPlan> => {
   const root = await resolveRepositoryRoot(options.repoRoot);
   const selection = setupPlanningSelectionSchema.parse({
@@ -397,7 +399,7 @@ export const planRepositoryIntegration = async (
         items: Object.freeze(externalPrerequisites.map((item) => Object.freeze(item))),
       }),
       repositoryApplyUnit: Object.freeze({
-        owner: "bearing-setup" as const,
+        owner: "bearing-repository-configuration" as const,
         atomic: true as const,
         rollback: "restore-previous-repository-bytes" as const,
         targets: Object.freeze(targets),

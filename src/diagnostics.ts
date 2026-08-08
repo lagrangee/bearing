@@ -1,6 +1,6 @@
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
+import type { ProjectInputRecord } from "./project-input-generation";
 import { repositoryManifestSchema } from "./schema-definitions";
-import type { SyncInputRecord } from "./sync-input-generation";
 import type { StructuralDiagnostic } from "./types";
 
 const compareText = (left: string, right: string): number =>
@@ -26,7 +26,7 @@ const manifestDiagnostic = (source: string): StructuralDiagnostic[] => {
 
 export const deriveStructuralDiagnosticsFromGeneration = (
   decoded: DecodedBearingRecordGeneration,
-  records: readonly SyncInputRecord[],
+  records: readonly ProjectInputRecord[],
   initial: readonly StructuralDiagnostic[],
 ): readonly StructuralDiagnostic[] => {
   const diagnostics = [...initial, ...decoded.diagnostics];

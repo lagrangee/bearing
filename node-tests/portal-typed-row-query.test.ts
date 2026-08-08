@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { rm } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { createBenchmarkFixture } from "../scripts/sync-benchmark-lib";
 import { providerObservationIdentityFor } from "../src/native-work-provider";
 import { planningLineageSubjectSchema } from "../src/planning-lineage-route";
 import { buildProjectOverviewModel } from "../src/portal-ui/project-overview-model";
@@ -22,15 +21,16 @@ import {
   publishProjectReadModel,
 } from "../src/project-read-model/store";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
+import { createRepresentativeProject } from "../tests/fixtures/representative-project";
 
 test("Portal reads bounded typed rows from one committed Project Read Model generation", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     const materialized = await materializeProjectReadModelCandidate(fixture.root);
     const overviewSnapshot = createProjectOverviewFixture();
     const overviewCandidate = compileProjectReadModel({
       snapshot: overviewSnapshot,
-      basisFingerprint: overviewSnapshot.basis.sitemapFingerprint,
+      basisFingerprint: overviewSnapshot.basis.basisFingerprint,
       basisInputs: [],
       basisObservations: [],
       assetContentObservations: [],

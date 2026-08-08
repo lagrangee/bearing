@@ -5,8 +5,9 @@ import {
   normalizeNativeReconciliationRequest,
 } from "../native-reconciliation-contract";
 import { resolveRepositoryRoot } from "../path-boundary";
-import type { MattProviderFactory } from "../provider-observation-acquisition";
-import type { ProviderObservationStore } from "../provider-observation-store";
+import type { MattProviderFactory } from "../provider-acquisition";
+import { createProviderDetailEvidenceState } from "../provider-detail-selection";
+import type { ProviderEvidenceState } from "../provider-evidence-selection";
 import {
   mattNativeScopeKey,
   mattNativeSubjectForObject,
@@ -51,7 +52,7 @@ const uniqueDiagnostics = (
   ).values(),
 ];
 
-const boundStore = (evidence: readonly ProjectProviderEvidence[]): ProviderObservationStore => ({
+const boundStore = (evidence: readonly ProjectProviderEvidence[]): ProviderEvidenceState => ({
   schemaVersion: 1,
   observations: evidence.flatMap((entry) =>
     entry.role === "bound" && entry.observation !== undefined ? [entry.observation] : [],
@@ -72,7 +73,7 @@ const localStore = async (repoRoot: string): Promise<LocalStore> => {
   if (state.state === "missing") {
     const candidate = await materializeProjectReadModelCandidate(repoRoot, {
       providerObservationStore: null,
-      nativeScopeInspectionStore: null,
+      providerDetailEvidenceState: null,
     });
     await publishProjectReadModel(repoRoot, candidate);
     return { state: "available", evidence: await readProjectProviderEvidence(repoRoot) };
@@ -106,12 +107,22 @@ const missingEvidenceScopes = (evidence: readonly ProjectProviderEvidence[]): re
     .map((entry) => entry.selection.nativeScope)
     .sort((left, right) => left.localeCompare(right, "en"));
 
+type ProviderAcquisitionResult = Readonly<{
+  acquisitionCount: number;
+  scopes: readonly Readonly<{
+    scope: string;
+    disposition: "captured" | "retained-after-failure" | "unavailable";
+  }>[];
+  generationFingerprint?: string;
+  missingEvidenceScopes: readonly string[];
+}>;
+
 const acquisition = async (
   repoRoot: string,
   scopes: readonly string[],
   intent: "exact-scope-capture" | "all-scope-verification",
   dependencies: ProviderOperationDependencies,
-) => {
+): Promise<ProviderOperationEnvelope<ProviderAcquisitionResult>> => {
   const root = await resolveRepositoryRoot(repoRoot);
   await assertActiveRepositoryIntegration(root, "provider");
   const local = await localStore(root);
@@ -136,6 +147,19 @@ const acquisition = async (
     intent === "all-scope-verification"
       ? [...available.keys()].sort((left, right) => left.localeCompare(right, "en"))
       : [...new Set(scopes)].sort((left, right) => left.localeCompare(right, "en"));
+  if (intent === "all-scope-verification" && selectedScopes.length === 0) {
+    return {
+      schemaVersion: 1 as const,
+      command: "provider-verify" as const,
+      outcome: "complete" as const,
+      result: {
+        acquisitionCount: 0,
+        scopes: [],
+        missingEvidenceScopes: [],
+      },
+      diagnostics: [],
+    };
+  }
   const unknown = selectedScopes.filter((scope) => !available.has(scope));
   if (unknown.length > 0 || selectedScopes.length === 0) {
     const diagnostics: StructuralDiagnostic[] = [
@@ -172,7 +196,7 @@ const acquisition = async (
     providerObservationStore: store,
     providerObservationIntent: intent,
     requestedProviderBindings: requestedBindings,
-    nativeScopeInspectionStore: null,
+    providerDetailEvidenceState: null,
     ...(dependencies.providerFactory === undefined
       ? {}
       : { providerFactory: dependencies.providerFactory }),
@@ -274,6 +298,84 @@ export const verifyAllProjectProviderScopes = (
   dependencies: ProviderOperationDependencies = {},
 ) => acquisition(repoRoot, [], "all-scope-verification", dependencies);
 
+export const refreshProjectProviderDetail = async (
+  repoRoot: string,
+  input: Readonly<{
+    binding: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>;
+    subject: string;
+  }>,
+  dependencies: ProviderOperationDependencies = {},
+) => {
+  const root = await resolveRepositoryRoot(repoRoot);
+  await assertActiveRepositoryIntegration(root, "provider");
+  const local = await localStore(root);
+  if (local.state === "unavailable") {
+    return {
+      schemaVersion: 1 as const,
+      command: "provider-detail-refresh" as const,
+      outcome: local.outcome,
+      result: { acquisitionCount: 0, scopes: [] },
+      diagnostics: [local.diagnostic],
+    };
+  }
+  const priorDetail = local.evidence.filter((entry) => entry.role === "detail");
+  const prepared = await prepareProjectReadModelCandidate(root, {
+    providerObservationStore: boundStore(local.evidence),
+    providerObservationIntent: "reuse-current",
+    providerDetailEvidenceIntent: {
+      kind: "inspect",
+      subject: { kind: "native-subject", id: input.subject },
+      target: input.binding,
+      refresh: true,
+    },
+    providerDetailEvidenceState: createProviderDetailEvidenceState({
+      observations: priorDetail.flatMap((entry) =>
+        entry.observation === undefined ? [] : [entry.observation],
+      ),
+      selections: priorDetail.map((entry) => entry.selection),
+    }),
+    ...(dependencies.providerFactory === undefined
+      ? {}
+      : { providerFactory: dependencies.providerFactory }),
+    ...(dependencies.now === undefined ? {} : { providerObservationNow: dependencies.now }),
+  });
+  const selection = prepared.plan.providerDetailEvidenceSelections.find((candidate) =>
+    sameMattNativeBindingDefinition(candidate, input.binding),
+  );
+  const observation = prepared.plan.providerDetailEvidenceObservations.find(
+    (candidate) => candidate.id === selection?.observationId,
+  );
+  if (selection !== undefined) {
+    await replaceProjectProviderEvidence(root, {
+      bindingKey: mattNativeScopeKey(selection),
+      role: "detail",
+      ...(observation === undefined ? {} : { observation }),
+      selection,
+    });
+  }
+  const diagnostics = uniqueDiagnostics(selection?.latestAttempt?.diagnostics ?? []);
+  const completed = prepared.plan.providerDetailEvidenceOperation.outcome === "acquired";
+  return {
+    schemaVersion: 1 as const,
+    command: "provider-detail-refresh" as const,
+    outcome: completed ? ("complete" as const) : ("unfulfilled" as const),
+    result: {
+      acquisitionCount: prepared.plan.providerDetailEvidenceOperation.acquisitionCount,
+      scopes: [
+        {
+          scope: input.binding.nativeScope,
+          disposition: completed
+            ? ("captured" as const)
+            : observation === undefined
+              ? ("unavailable" as const)
+              : ("retained-after-failure" as const),
+        },
+      ],
+    },
+    diagnostics,
+  };
+};
+
 export const reconcileProjectNative = async (
   repoRoot: string,
   input: Omit<NativeReconciliationRequest, "schemaVersion">,
@@ -315,7 +417,7 @@ export const reconcileProjectNative = async (
   const store = boundStore(priorEvidence);
   const prepared = await prepareProjectReadModelCandidate(root, {
     providerObservationStore: store,
-    nativeScopeInspectionStore: null,
+    providerDetailEvidenceState: null,
     nativeReconciliationRequest: request,
     ...(dependencies.providerFactory === undefined
       ? {}
@@ -440,7 +542,7 @@ export const rebuildProjectReadModel = async (
   }
   const candidate = await materializeProjectReadModelCandidate(root, {
     providerObservationStore: null,
-    nativeScopeInspectionStore: null,
+    providerDetailEvidenceState: null,
   });
   if (state.state === "recovery-required") await removeProjectReadModelForRebuild(root);
   const receipt = await publishProjectReadModel(root, candidate);

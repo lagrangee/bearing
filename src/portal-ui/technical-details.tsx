@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { SourceRecord } from "../project-snapshot/contract";
+import type { SourceRecord } from "../project-generation/contract";
 import { TechnicalDetailsPanel } from "./shell";
 
 export type TechnicalDetailsSelection = Readonly<{
@@ -58,7 +58,7 @@ export function TechnicalDetails({
           <dt>Source</dt>
           <dd>
             {selection.source === undefined ? (
-              "Unavailable in the current Snapshot"
+              "Unavailable in the current Project Read Model generation"
             ) : selection.sourceHref === undefined ? (
               selection.source.displayLocator
             ) : (

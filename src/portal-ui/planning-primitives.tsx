@@ -5,4 +5,3 @@ export {
   RoadmapHorizon,
   RoadmapIndexRow,
 } from "./roadmap-primitives";
-export { type SnapshotState, SnapshotStates } from "./snapshot-states";

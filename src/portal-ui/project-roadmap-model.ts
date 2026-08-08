@@ -1,4 +1,4 @@
-import type { MilestoneGate, Roadmap, SourceRecord } from "../project-snapshot/contract";
+import type { MilestoneGate, Roadmap, SourceRecord } from "../project-generation/contract";
 import type { RoadmapsModelData } from "./project-data";
 
 export type RoadmapGateModel = Readonly<{

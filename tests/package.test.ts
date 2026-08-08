@@ -60,7 +60,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
   const root = await mkdtemp(join(tmpdir(), "bearing-package-test-"));
   const packDirectory = join(root, "pack");
   const homeDirectory = join(root, "home");
-  let syncRoot: string | undefined;
+  let configuredRoot: string | undefined;
   await mkdir(packDirectory);
   await mkdir(homeDirectory);
   try {
@@ -135,6 +135,24 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/skills/bearing/references/owners/roadmap.md",
       ].sort(),
     );
+    const activeProductFiles = [...archiveFiles.entries()].filter(
+      ([path]) =>
+        path === "package/dist/cli.js" ||
+        path === "package/package.json" ||
+        path === "package/README.md" ||
+        path === "package/README.zh-CN.md" ||
+        path.startsWith("package/dist/portal/") ||
+        path.startsWith("package/docs/") ||
+        path.startsWith("package/skills/"),
+    );
+    const retiredProductSurface =
+      /(?:project-sitemap\.md|sync-report\.md|sync-receipt\.json|project-generation\.json|provider-observations\.json|provider-detail-selections\.json|inspect-benchmark-|benchmark:(?:sync|inspect)|--(?:initialize-provider-observations|benchmark-metrics-file|portal-entry|persist-provider-observations)|\/api\/v1\/projects\/[^\s`"']*\/(?:sync|inspect-native-scope|reconcile-native)|\bbearing sync\b|\bthen Sync\b|\bSetup\b|\b(?:SyncOperationInstrumentation|SyncOperationMetricsSnapshot|createSyncOperationInstrumentation|syncing|topbar-sync|sync-control|sync-failure-detail)\b)/u;
+    expect(
+      activeProductFiles.flatMap(([path, entry]) => {
+        const match = entry.bytes.toString("utf8").match(retiredProductSurface);
+        return match === null ? [] : [`${path}: ${match[0]}`];
+      }),
+    ).toEqual([]);
 
     const executed = await run(
       ["npm", "exec", "--yes", "--offline", `--package=${tarball}`, "--", "bearing", "--version"],
@@ -148,6 +166,31 @@ test("the packed CLI runs through offline local npm exec", async () => {
     expect(executed.exitCode).toBe(0);
     expect(executed.stdout).toBe("0.1.0\n");
     expect(executed.stderr).toBe("");
+
+    const help = await run(
+      ["npm", "exec", "--yes", "--offline", `--package=${tarball}`, "--", "bearing", "--help"],
+      {
+        HOME: homeDirectory,
+        npm_config_cache: join(root, "exec-cache"),
+        npm_config_update_notifier: "false",
+        npm_config_loglevel: "error",
+      },
+    );
+    expect(help.exitCode).toBe(0);
+    expect(help.stdout).not.toMatch(/^\s*bearing sync\b/mu);
+    expect(help.stdout).not.toContain("benchmark:");
+
+    const retiredCommand = await run(
+      ["npm", "exec", "--yes", "--offline", `--package=${tarball}`, "--", "bearing", "sync"],
+      {
+        HOME: homeDirectory,
+        npm_config_cache: join(root, "exec-cache"),
+        npm_config_update_notifier: "false",
+        npm_config_loglevel: "error",
+      },
+    );
+    expect(retiredCommand.exitCode).toBe(1);
+    expect(retiredCommand.stderr).toBe("Unknown command. Run bearing --help.\n");
 
     const installCommand = [
       "npm",
@@ -184,9 +227,6 @@ test("the packed CLI runs through offline local npm exec", async () => {
     expect(repeated.stdout).toContain("Changed targets: 0");
     for (const surfaceRoot of [".agents/skills", ".claude/skills"]) {
       await access(join(homeDirectory, surfaceRoot, "bearing", "SKILL.md"));
-      await expect(
-        access(join(homeDirectory, surfaceRoot, "bearing-summary", "SKILL.md")),
-      ).rejects.toThrow();
     }
     const installedBearingSkill = await readFile(
       join(homeDirectory, ".agents/skills/bearing/SKILL.md"),
@@ -218,9 +258,9 @@ test("the packed CLI runs through offline local npm exec", async () => {
     expect(bundledProjectOrientation).toMatch(/Project Summary draft[\s\S]*future Roadmap/iu);
     expect(bundledProjectOrientation).toMatch(/ordered Gate candidates/iu);
 
-    syncRoot = await mkdtemp(join(root, "fresh-local-repository-"));
-    await writeStandardMattLocalRepository(syncRoot);
-    await expect(access(join(syncRoot, ".bearing"))).rejects.toThrow();
+    configuredRoot = await mkdtemp(join(root, "fresh-local-repository-"));
+    await writeStandardMattLocalRepository(configuredRoot);
+    await expect(access(join(configuredRoot, ".bearing"))).rejects.toThrow();
     const configureArguments = [
       join(homeDirectory, ".bearing/bin/bearing"),
       "configure",
@@ -228,7 +268,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
       "--intent",
       "activate",
       "--repo",
-      syncRoot,
+      configuredRoot,
       "--surface",
       "agent-skills",
       "--provider-contract",
@@ -253,26 +293,33 @@ test("the packed CLI runs through offline local npm exec", async () => {
     );
     expect(configured.exitCode, configured.stderr).toBe(0);
     expect(JSON.parse(configured.stdout)).toMatchObject({ outcome: "applied" });
-    await access(join(syncRoot, ".bearing/manifest.json"));
+    await access(join(configuredRoot, ".bearing/manifest.json"));
     await expect(
-      access(join(syncRoot, ".bearing/executor-profiles/generic-agent.md")),
+      access(join(configuredRoot, ".bearing/executor-profiles/generic-agent.md")),
     ).rejects.toThrow();
-    await expect(access(join(syncRoot, ".agents/skills/bearing/SKILL.md"))).rejects.toThrow();
-    await writeValidBearingState(syncRoot);
+    await expect(access(join(configuredRoot, ".agents/skills/bearing/SKILL.md"))).rejects.toThrow();
+    await writeValidBearingState(configuredRoot);
 
-    const syncCommand = [join(homeDirectory, ".bearing/bin/bearing"), "sync", "--repo", syncRoot];
-    const firstSync = await run([...syncCommand, "--initialize-provider-observations"], {
+    const cli = join(homeDirectory, ".bearing/bin/bearing");
+    const rebuilt = await run([cli, "cache", "rebuild", "--repo", configuredRoot], {
       HOME: homeDirectory,
     });
-    const secondSync = await run(syncCommand, { HOME: homeDirectory });
-    expect(firstSync.exitCode, firstSync.stderr || firstSync.stdout).toBe(0);
-    expect(firstSync.stdout).toContain("Diagnostics: 0");
-    expect(firstSync.stdout).toContain("Provider observations: initial-baseline/acquired");
-    expect(firstSync.stdout).toContain("Outcome: applied");
-    expect(secondSync.exitCode).toBe(0);
-    expect(secondSync.stdout).toContain("Outcome: no-op");
-    await access(join(syncRoot, ".bearing/cache/sync-report.md"));
-    await access(join(syncRoot, ".bearing/cache/project-sitemap.md"));
+    const verified = await run([cli, "provider", "verify", "--all", "--repo", configuredRoot], {
+      HOME: homeDirectory,
+    });
+    const firstInspection = await run([cli, "inspect", "project", "--repo", configuredRoot], {
+      HOME: homeDirectory,
+    });
+    const secondInspection = await run([cli, "inspect", "project", "--repo", configuredRoot], {
+      HOME: homeDirectory,
+    });
+    expect(rebuilt.exitCode, rebuilt.stderr || rebuilt.stdout).toBe(0);
+    expect(verified.exitCode, verified.stderr || verified.stdout).toBe(0);
+    expect(firstInspection.exitCode, firstInspection.stderr || firstInspection.stdout).toBe(0);
+    expect(secondInspection.exitCode, secondInspection.stderr || secondInspection.stdout).toBe(0);
+    expect(JSON.parse(firstInspection.stdout)).toMatchObject({ outcome: "complete" });
+    expect(JSON.parse(secondInspection.stdout)).toMatchObject({ outcome: "complete" });
+    await access(join(configuredRoot, ".bearing/cache/project-read-model.sqlite"));
 
     const portalPort = await reservePort();
     const portal = Bun.spawn(
@@ -302,7 +349,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
     };
     expect(catalogBody).toMatchObject({
       state: "ready",
-      entries: [{ displayName: syncRoot.split("/").at(-1), availability: "available" }],
+      entries: [{ displayName: configuredRoot.split("/").at(-1), availability: "available" }],
     });
     expect(await application.text()).toContain("Bearing Portal");
     expect(browserAsset.status).toBe(200);
@@ -334,7 +381,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
     const cookie = firstRead.headers.get("set-cookie");
     const csrf = firstRead.headers.get("x-bearing-csrf-token");
     if (cookie === null || csrf === null) throw new Error("Packaged Portal created no session.");
-    const portalSync = await fetch(
+    const removedRoute = await fetch(
       `http://127.0.0.1:${portalPort}/api/v1/projects/${entryId}/sync`,
       {
         method: "POST",
@@ -346,83 +393,52 @@ test("the packed CLI runs through offline local npm exec", async () => {
         body: JSON.stringify({ version: 1, mode: "ensure-current" }),
       },
     );
-    const portalSyncBody = (await portalSync.json()) as {
-      readonly state: string;
-      readonly view?: Readonly<{
-        cache: Readonly<{
-          snapshot: Readonly<{
-            state: string;
-            snapshot?: Readonly<{
-              basis: Readonly<{ sitemapFingerprint: string }>;
-              providerObservations: readonly Readonly<{
-                id: string;
-              }>[];
-              providerObservationSelections: readonly Readonly<{
-                observationId: string | null;
-              }>[];
-              maps?: unknown;
-              tickets?: unknown;
-            }>;
-          }>;
-        }>;
-      }>;
-    };
-    expect(portalSync.status).toBe(200);
-    expect(portalSyncBody).toMatchObject({
-      state: "completed",
-      view: { cache: { snapshot: { state: "available" } } },
+    const removedRouteBody = await removedRoute.json();
+    expect(removedRoute.status).toBe(404);
+    expect(removedRouteBody).toEqual({
+      code: "not-found",
+      message: "No such Portal product action.",
     });
-    const packagedSnapshot = portalSyncBody.view?.cache.snapshot.snapshot;
-    if (packagedSnapshot === undefined) throw new Error("Packaged Portal returned no Snapshot.");
-    expect(packagedSnapshot.providerObservations).toHaveLength(1);
-    expect(packagedSnapshot.providerObservationSelections[0]?.observationId).toBe(
-      packagedSnapshot.providerObservations[0]?.id,
-    );
-    expect(packagedSnapshot).not.toHaveProperty("maps");
-    expect(packagedSnapshot).not.toHaveProperty("tickets");
     portal.kill("SIGTERM");
     expect(await portal.exited).toBe(0);
     ready.reader.releaseLock();
 
     const inspectOutputs = await Promise.all(
-      (
-        [
-          ["roadmap", "roadmap:test"],
-          ["gate", "gate:test"],
-          ["effort", "effort:test"],
-        ] as const
-      ).map(async ([kind, id]) => {
+      (["roadmap:test", "gate:test", "effort:test"] as const).map(async (id) => {
         const result = await run(
           [
             join(homeDirectory, ".bearing/bin/bearing"),
             "inspect",
-            kind,
             id,
             "--repo",
-            syncRoot as string,
+            configuredRoot as string,
           ],
           { HOME: homeDirectory },
         );
         expect(result.exitCode, result.stderr).toBe(0);
         expect(result.stderr).toBe("");
         return JSON.parse(result.stdout) as {
-          readonly state: string;
-          readonly fingerprint: string;
-          readonly target: Readonly<{ kind: string; id: string }>;
+          readonly outcome: string;
+          readonly result: Readonly<{
+            target: Readonly<{ kind: string; value: Readonly<{ id: string }> }>;
+            revision: Readonly<{ generationFingerprint: string }>;
+          }>;
         };
       }),
     );
-    expect(inspectOutputs.map((output) => output.state)).toEqual([
+    expect(inspectOutputs.map((output) => output.outcome)).toEqual([
       "complete",
       "complete",
       "complete",
     ]);
-    expect(inspectOutputs.map((output) => output.target)).toEqual([
-      { kind: "roadmap", id: "roadmap:test" },
-      { kind: "gate", id: "gate:test" },
-      { kind: "effort", id: "effort:test" },
+    expect(inspectOutputs.map((output) => output.result.target)).toEqual([
+      { kind: "roadmap", value: expect.objectContaining({ id: "roadmap:test" }) },
+      { kind: "gate", value: expect.objectContaining({ id: "gate:test" }) },
+      { kind: "effort", value: expect.objectContaining({ id: "effort:test" }) },
     ]);
-    expect(new Set(inspectOutputs.map((output) => output.fingerprint))).toHaveLength(1);
+    expect(
+      new Set(inspectOutputs.map((output) => output.result.revision.generationFingerprint)),
+    ).toHaveLength(1);
 
     const rejected = await run(
       [
@@ -446,7 +462,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
     expect(rejected.stderr).toBe("Unknown command. Run bearing --help.\n");
     expect(rejected.stderr).not.toContain("sensitive-input");
   } finally {
-    if (syncRoot !== undefined) await rm(syncRoot, { recursive: true, force: true });
+    if (configuredRoot !== undefined) await rm(configuredRoot, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
   }
 }, 60_000);

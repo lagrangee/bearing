@@ -45,7 +45,7 @@ import {
   loadPortalAssets,
   writePortalAssetManifest,
 } from "../src/portal/assets";
-import { deactivateRepository } from "../src/repo-lifecycle";
+import { deactivateRepository } from "../src/repository-deactivation";
 import {
   LOCAL_MATT_CONTRACT,
   LOCAL_MATT_TRIAGE_LABELS,

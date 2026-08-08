@@ -290,14 +290,14 @@ describe("public Bearing Agent surface", () => {
     const review = await readRuntime("references/owners/planning-review.md");
 
     expect(nextWork).toMatch(/transient Agent judgment[\s\S]*conversation only/iu);
-    expect(nextWork).toMatch(/no snapshot[\s\S]*queue[\s\S]*selection is persisted/iu);
+    expect(nextWork).toMatch(/no artifact[\s\S]*queue[\s\S]*selection is persisted/iu);
     expect(audit).toMatch(/explicit Planning Audit request[\s\S]*Replace only the current Audit/iu);
     expect(audit).toMatch(/create or refresh[\s\S]*Question, Scope[\s\S]*exact `Target`/iu);
     expect(audit).toMatch(/reuse[\s\S]*instead of creating a duplicate/iu);
     expect(review).toMatch(/clear direct instruction[\s\S]*accepts one candidate/iu);
     expect(review).toMatch(/completed Review history[\s\S]*later question gets a new identity/iu);
     expect(review).toMatch(
-      /Audit, Sync, inspection, Portal use, or evidence completion[\s\S]*changes\s+Review\s+status/iu,
+      /Audit, Project Read Model operations, Portal use, or evidence completion[\s\S]*changes\s+Review\s+status/iu,
     );
   });
 

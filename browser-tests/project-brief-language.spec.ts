@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { createSourceRecord } from "../src/project-snapshot/source-records";
+import { createSourceRecord } from "../src/project-generation/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { projectRowEnvelope } from "./project-row-fixture";
 
 test("Project Brief applies only authored per-part language metadata", async ({ page }) => {
   // Given: a Chinese Purpose explicitly declares zh-CN while English Current Stage is undeclared.
   const snapshot = createProjectOverviewFixture();
-  const briefSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const briefSource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "canonical",
     locator: ".bearing/state/project-brief.md",
     binding: { role: "project-brief", identity: "project-brief:current" },

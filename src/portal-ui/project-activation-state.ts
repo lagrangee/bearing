@@ -12,11 +12,10 @@ export type ActivationState =
   | Readonly<{ kind: "loading-cache" }>
   | Readonly<{ kind: "checking"; view?: ProjectView }>
   | Readonly<{ kind: "refreshing"; view: ProjectView }>
-  | Readonly<{ kind: "syncing"; view?: ProjectView }>
   | Readonly<{ kind: "settled"; confirmation: ProjectConfirmation; view: ProjectView }>
   | Readonly<{
       kind: "failed";
-      operation: "check" | "sync";
+      operation: "check";
       error: ProjectOperationError;
       view?: ProjectView;
     }>
@@ -25,12 +24,11 @@ export type ActivationState =
 export type ActivationAction =
   | Readonly<{ type: "load-started" }>
   | Readonly<{ type: "checking"; view?: ProjectView }>
-  | Readonly<{ type: "syncing"; view?: ProjectView }>
   | Readonly<{ type: "settled"; confirmation: ProjectConfirmation; view: ProjectView }>
   | Readonly<{ type: "refreshing"; view: ProjectView }>
   | Readonly<{
       type: "failed";
-      operation: "check" | "sync";
+      operation: "check";
       error: ProjectOperationError;
       view?: ProjectView;
       viewDisposition?: "discard";
@@ -44,7 +42,6 @@ export type ActivationAction =
 export const visibleProjectView = (state: ActivationState): ProjectView | undefined => {
   switch (state.kind) {
     case "checking":
-    case "syncing":
     case "failed":
     case "refreshing":
     case "settled":
@@ -61,10 +58,11 @@ export const activationStateForEntry = (
   entryId: string,
 ): ActivationState => (stateEntryId === entryId ? state : { kind: "loading-cache" });
 
-const withOptionalView = <Kind extends "checking" | "syncing">(
-  kind: Kind,
+const withOptionalView = (
+  kind: "checking",
   view: ProjectView | undefined,
-): Readonly<{ kind: Kind; view?: ProjectView }> => (view === undefined ? { kind } : { kind, view });
+): Readonly<{ kind: "checking"; view?: ProjectView }> =>
+  view === undefined ? { kind } : { kind, view };
 
 export const projectActivationReducer = (
   state: ActivationState,
@@ -75,8 +73,6 @@ export const projectActivationReducer = (
       return { kind: "loading-cache" };
     case "checking":
       return withOptionalView("checking", action.view);
-    case "syncing":
-      return withOptionalView("syncing", action.view);
     case "settled":
       return { kind: "settled", confirmation: action.confirmation, view: action.view };
     case "refreshing":

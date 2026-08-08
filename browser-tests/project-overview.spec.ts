@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, test } from "@playwright/test";
-import { projectSnapshotSchema } from "../src/project-snapshot/schema";
-import { createSourceRecord } from "../src/project-snapshot/source-records";
+import { projectGenerationSchema } from "../src/project-generation/schema";
+import { createSourceRecord } from "../src/project-generation/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { browserArtifactPath } from "./browser-artifact-output";
 import { projectRowEnvelope } from "./project-row-fixture";
@@ -18,7 +18,7 @@ const expectMinimumTarget = async (target: Locator, size: number): Promise<void>
 const projectView = () => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.summary.validity !== "available") throw new Error("Expected Summary fixture.");
-  const briefSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const briefSource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "canonical",
     locator: ".bearing/state/project-brief.md",
     binding: { role: "project-brief", identity: "project-brief:current" },
@@ -28,7 +28,7 @@ const projectView = () => {
     cache: {
       snapshot: {
         state: "available",
-        snapshot: projectSnapshotSchema.parse({
+        snapshot: projectGenerationSchema.parse({
           ...snapshot,
           brief: {
             validity: "available",
@@ -57,7 +57,7 @@ const projectView = () => {
         schemaVersion: 1,
         producer: { packageName: "@lagrangee/bearing", packageVersion: "0.0.0-test" },
         completedAt,
-        sitemap: { version: 1, fingerprint: snapshot.basis.sitemapFingerprint },
+        sitemap: { version: 1, fingerprint: snapshot.basis.basisFingerprint },
         reconciliation: "no-op",
       },
       retained: false,
@@ -66,7 +66,7 @@ const projectView = () => {
   };
 };
 
-const projectSnapshot = () => {
+const projectGeneration = () => {
   const view = projectView();
   if (view.cache.snapshot.state !== "available") throw new Error("Expected project Snapshot.");
   return view.cache.snapshot.snapshot;
@@ -74,7 +74,7 @@ const projectSnapshot = () => {
 
 const readyEnvelope = (section: "overview" | "roadmaps" = "overview") =>
   projectRowEnvelope({
-    snapshot: projectSnapshot(),
+    snapshot: projectGeneration(),
     section,
     entryId: "overview",
     displayName: "Bearing 控制台",
@@ -96,7 +96,7 @@ test("Overview is Brief-first, keeps managed context stable, and stays responsiv
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
   await expect(page.locator(".project-switcher code")).toHaveText("Bearing 控制台");
   await expect(page.locator(".project-switcher strong")).toHaveText("Portal Project");
-  await expect(page.locator(".topbar-sync")).toContainText("Refresh all sources");
+  await expect(page.locator(".topbar-refresh")).toContainText("Refresh all sources");
   const briefTab = page.getByRole("tab", { name: "Brief", exact: true });
   const summaryTab = page.getByRole("tab", { name: "Project Summary", exact: true });
   await expect(briefTab).toHaveAttribute("aria-selected", "true");
@@ -145,7 +145,7 @@ test("Overview is Brief-first, keeps managed context stable, and stays responsiv
   );
   await page.mouse.move(0, 0);
   expect(posts).toEqual([]);
-  await expect(page.locator(".topbar-sync")).toHaveText("Refresh all sources");
+  await expect(page.locator(".topbar-refresh")).toHaveText("Refresh all sources");
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   });
@@ -224,7 +224,7 @@ test("invalid and absent semantic projections stay scoped to their Overview sect
   ) {
     throw new Error("Expected available browser fixture.");
   }
-  const scopedSnapshot = projectSnapshotSchema.parse({
+  const scopedSnapshot = projectGenerationSchema.parse({
     ...view.cache.snapshot.snapshot,
     summary: {
       validity: "invalid",

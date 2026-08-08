@@ -81,8 +81,6 @@ Work-management contract: \`docs/agents/issue-tracker.md\``);
       "L4-negative",
       "L5-positive",
       "L5-negative",
-      "L6-positive",
-      "L6-negative",
       "L7-positive",
       "L7-negative",
     ]);
@@ -328,13 +326,6 @@ Work-management contract: \`docs/agents/issue-tracker.md\``);
       join(parent, "l3-home"),
       `${l3Root}.matt-prerequisite.md`,
     );
-    const l6Root = join(parent, "l6-root");
-    const l6Collision = await run(
-      "L6-positive",
-      l6Root,
-      join(parent, "l6-home"),
-      `${l6Root}.external-payload.md`,
-    );
 
     expect(equal.exitCode).toBe(1);
     expect(equal.stderr).toContain("must be independent canonical paths");
@@ -342,34 +333,28 @@ Work-management contract: \`docs/agents/issue-tracker.md\``);
     expect(aliased.stderr).toContain("must be independent canonical paths");
     expect(l3Collision.exitCode).toBe(1);
     expect(l3Collision.stderr).toContain("must be independent canonical paths");
-    expect(l6Collision.exitCode).toBe(1);
-    expect(l6Collision.stderr).toContain("must be independent canonical paths");
     await expect(access(target)).rejects.toThrow();
     await expect(access(l3Root)).rejects.toThrow();
-    await expect(access(l6Root)).rejects.toThrow();
   });
 
-  test("normalizes disposable Sync receipts before producing stable repository digests", async () => {
+  test("includes exact disposable Project Read Model bytes in repository digests", async () => {
     const parent = await mkdtemp("/tmp/bearing-g1-digests-");
     const first = join(parent, "first");
     const second = join(parent, "second");
-    for (const [root, completedAt] of [
-      [first, "2026-07-26T01:00:00.000Z"],
-      [second, "2026-07-26T02:00:00.000Z"],
+    for (const [root, bytes] of [
+      [first, "first read model\n"],
+      [second, "second read model\n"],
     ] as const) {
       await mkdir(join(root, ".bearing/cache"), { recursive: true });
       await writeFile(join(root, "stable.md"), "# Stable fixture\n");
-      await writeFile(
-        join(root, ".bearing/cache/sync-receipt.json"),
-        `${JSON.stringify({ completedAt })}\n`,
-      );
+      await writeFile(join(root, ".bearing/cache/project-read-model.sqlite"), bytes);
     }
 
-    const firstSnapshot = await finalizeFixtureSnapshot(first, true);
-    const secondSnapshot = await finalizeFixtureSnapshot(second, true);
+    const firstSnapshot = await finalizeFixtureSnapshot(first);
+    const secondSnapshot = await finalizeFixtureSnapshot(second);
 
-    expect(firstSnapshot).toEqual(secondSnapshot);
-    await expect(access(join(first, ".bearing/cache/sync-receipt.json"))).rejects.toThrow();
-    await expect(access(join(second, ".bearing/cache/sync-receipt.json"))).rejects.toThrow();
+    expect(firstSnapshot).not.toEqual(secondSnapshot);
+    await access(join(first, ".bearing/cache/project-read-model.sqlite"));
+    await access(join(second, ".bearing/cache/project-read-model.sqlite"));
   });
 });

@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { catalogAvailabilitySchema } from "./catalog/availability";
 import { planningLineageSubjectSchema } from "./planning-lineage-route";
+import { attentionItemSchema, structuralDiagnosticSchema } from "./project-generation/schema";
+import { planningLineageSubjectProjectionSchema } from "./project-generation/schema-planning-lineage";
+import { sourceRecordSchema } from "./project-generation/source-schema";
 import { projectReadModelObjectSchema } from "./project-read-model/contract";
-import { attentionItemSchema, structuralDiagnosticSchema } from "./project-snapshot/schema";
-import { planningLineageSubjectProjectionSchema } from "./project-snapshot/schema-planning-lineage";
-import { sourceRecordSchema } from "./project-snapshot/source-schema";
 
 const diagnosticSchema = z.strictObject({ code: z.string().min(1), message: z.string().min(1) });
 

@@ -3,7 +3,7 @@ import {
   latestPlanningLineageEvent,
   planningLineageEventsFor,
 } from "../src/portal-ui/planning-lineage-events";
-import type { AssetProjection, Roadmap } from "../src/project-snapshot/contract";
+import type { AssetProjection, Roadmap } from "../src/project-generation/contract";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
 const available = (value: string, precision: "date" | "second" = "second") =>

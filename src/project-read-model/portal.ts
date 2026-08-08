@@ -5,15 +5,15 @@ import {
   buildProjectFindIndexFromDocuments,
   type ProjectFindScopeState,
 } from "../portal-ui/project-find-model";
-import type { AssetProjection } from "../project-snapshot/contract";
-import { attentionItemSchema, structuralDiagnosticSchema } from "../project-snapshot/schema";
-import { planningLineageSubjectProjectionSchema } from "../project-snapshot/schema-planning-lineage";
-import { sourceRecordSchema } from "../project-snapshot/source-schema";
+import type { AssetProjection } from "../project-generation/contract";
+import { attentionItemSchema, structuralDiagnosticSchema } from "../project-generation/schema";
+import { planningLineageSubjectProjectionSchema } from "../project-generation/schema-planning-lineage";
+import { sourceRecordSchema } from "../project-generation/source-schema";
 import {
   type ProviderObservationSelection,
   providerObservationSelectionFreshnessIsCoherent,
   providerObservationSelectionSchema,
-} from "../provider-observation-contract";
+} from "../provider-evidence-contract";
 import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
 import { hasCompleteMattNativeEvidence } from "../providers/matt-skills-v1/native-read-model";
 import {

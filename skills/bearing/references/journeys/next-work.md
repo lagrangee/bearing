@@ -17,7 +17,7 @@ start work.
    explicit.
 2. Rank only evidence-backed directions. Recommendation count, grouping, and ordering remain Agent
    judgment; omit filler alternatives. Completion: each recommendation states reason and owner.
-3. Return guidance in conversation only. Completion: no snapshot, queue, or selection is persisted.
+3. Return guidance in conversation only. Completion: no artifact, queue, or selection is persisted.
 
 ## After this operation
 

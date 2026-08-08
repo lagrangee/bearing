@@ -1,5 +1,5 @@
-import type { ProviderObservationSelection } from "../../provider-observation-contract";
-import { assessSelectedProviderObservationEvidence } from "../../provider-observation-contract";
+import type { ProviderObservationSelection } from "../../provider-evidence-contract";
+import { assessSelectedProviderObservationEvidence } from "../../provider-evidence-contract";
 import type {
   MattDeliveryTicket,
   MattIncomingIssue,

@@ -1012,14 +1012,25 @@ const runFullLane = async ({ candidate, options, roots, environment, cli, packag
       throw new Error(`${pointer} does not contain the managed Bearing runbook pointer.`);
     }
   }
-  const sync = await runCandidateCli(cli, ["sync", "--repo", roots.repository], {
+  await runCandidateCli(cli, ["cache", "rebuild", "--repo", roots.repository], {
     cwd: roots.repository,
     env: environment,
   });
-  if (!sync.stdout.includes("Diagnostics: 0")) throw new Error("Golden-path Sync has diagnostics.");
-  const sitemap = await readFile(join(roots.repository, ".bearing/cache/project-sitemap.md"), "utf8");
-  if (!sitemap.includes(".scratch/release-smoke/map.md") || !sitemap.includes("01-orient.md")) {
-    throw new Error("Golden-path Sync did not project the deterministic native tracker seed.");
+  await runCandidateCli(cli, ["provider", "verify", "--all", "--repo", roots.repository], {
+    cwd: roots.repository,
+    env: environment,
+  });
+  const inspection = await runCandidateCli(cli, ["inspect", "project", "--repo", roots.repository], {
+    cwd: roots.repository,
+    env: environment,
+  });
+  const inspected = JSON.parse(inspection.stdout);
+  if (
+    inspected.outcome !== "complete" ||
+    inspected.result?.diagnosticCounts?.blocking !== 0 ||
+    inspected.result?.diagnosticCounts?.nonBlocking !== 0
+  ) {
+    throw new Error("Golden-path Project Read Model has diagnostics.");
   }
 
   const unsupported = join(roots.workRoot, "unsupported-schema-repository");
@@ -1029,18 +1040,18 @@ const runFullLane = async ({ candidate, options, roots, environment, cli, packag
   unsupportedDocument.schemaVersion = 999;
   const unsupportedBytes = Buffer.from(`${JSON.stringify(unsupportedDocument, null, 2)}\n`, "utf8");
   await writeFile(unsupportedManifest, unsupportedBytes);
-  const unsupportedSync = await runCommand(
+  const unsupportedInspection = await runCommand(
     process.execPath,
-    [cli, "sync", "--repo", unsupported],
+    [cli, "inspect", "project", "--repo", unsupported],
     { cwd: unsupported, env: environment },
   );
-  if (unsupportedSync.exitCode === 0) {
+  if (unsupportedInspection.exitCode === 0) {
     throw new Error("Unsupported repository schema did not fail with a non-zero exit status.");
   }
   if (!(await readFile(unsupportedManifest)).equals(unsupportedBytes)) {
     throw new Error("Unsupported repository schema input was rewritten instead of failing closed.");
   }
-  if (!/unsupported|invalid-bearing-manifest|schema/iu.test(`${unsupportedSync.stdout}\n${unsupportedSync.stderr}`)) {
+  if (!/unsupported|invalid-bearing-manifest|schema/iu.test(`${unsupportedInspection.stdout}\n${unsupportedInspection.stderr}`)) {
     throw new Error("Unsupported repository schema failure did not explain the incompatible state.");
   }
   checks.push(
@@ -1048,7 +1059,7 @@ const runFullLane = async ({ candidate, options, roots, environment, cli, packag
     "agent-surface-conflict-fail-closed",
     "managed-agent-surfaces",
     "ordinary-repository-configuration",
-    "deterministic-sync",
+    "typed-project-read-model",
     "unsupported-schema-fail-closed",
     "repository-deactivate-preserves-state",
     "package-downgrade-requires-confirmation",

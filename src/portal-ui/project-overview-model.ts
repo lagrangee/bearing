@@ -1,15 +1,15 @@
-import type { NativeScopeInspectionSubject } from "../native-scope-inspection";
 import type {
   AttentionItem,
+  GenerationDiagnostic,
   PlanningReview,
   ProjectBrief,
   ProjectionIssue,
   ProjectSummary,
-  SnapshotDiagnostic,
   SourceRecord,
   SourceReference,
-} from "../project-snapshot/contract";
-import { targetWithinNativeScope } from "../project-snapshot/managed-attention";
+} from "../project-generation/contract";
+import { targetWithinNativeScope } from "../project-generation/managed-attention";
+import type { ProviderDetailEvidenceSubject } from "../provider-detail-selection";
 import { mattNativeScopeSubject } from "../providers/matt-skills-v1/native-subject";
 import type { OverviewModelData } from "./project-data";
 import { buildOverviewRoadmaps, type OverviewRoadmaps } from "./project-overview-roadmaps";
@@ -31,7 +31,7 @@ export type OverviewAttentionItem = Readonly<{
   state: "available" | "unresolved";
   title: string;
   detail: string | undefined;
-  nativeSubject?: NativeScopeInspectionSubject | undefined;
+  nativeSubject?: ProviderDetailEvidenceSubject | undefined;
 }>;
 
 export type ProjectOverviewModel = Readonly<{
@@ -85,7 +85,7 @@ const scopedValue = <Item extends Readonly<{ source: SourceReference }>>(
 
 const attentionModel = (
   item: AttentionItem,
-  diagnostics: ReadonlyMap<string, SnapshotDiagnostic>,
+  diagnostics: ReadonlyMap<string, GenerationDiagnostic>,
   reviews: ReadonlyMap<string, PlanningReview>,
   sources: ReadonlyMap<string, SourceRecord>,
   efforts: OverviewModelData["efforts"],

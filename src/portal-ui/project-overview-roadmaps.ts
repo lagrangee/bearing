@@ -3,7 +3,7 @@ import type {
   ProjectionIssue,
   Roadmap,
   SourceRecord,
-} from "../project-snapshot/contract";
+} from "../project-generation/contract";
 import type { OverviewModelData } from "./project-data";
 
 export type OverviewRoadmap = Readonly<{

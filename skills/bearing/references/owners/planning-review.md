@@ -30,7 +30,7 @@ semantics.
 - **Consider:** Refresh material Summary or Brief only through their owners.
 - **Do not infer:** Pending review accepts a candidate, and completed review automatically changes
   any owner not present in its accepted scope.
-- **Do not infer:** Audit, Sync, inspection, Portal use, or evidence completion changes Review
+- **Do not infer:** Audit, Project Read Model operations, Portal use, or evidence completion changes Review
   status.
 
 ## Completion criterion

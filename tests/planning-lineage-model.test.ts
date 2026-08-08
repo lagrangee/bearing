@@ -6,23 +6,23 @@ import {
   nativeLifecycleEventsFor,
   type PlanningLineageSubjectModel,
 } from "../src/portal-ui/planning-lineage-model";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import type { ProjectGeneration } from "../src/project-generation/contract";
 import {
   buildPlanningLineageProjection,
   findPlanningLineageSubjectProjection,
   nativeEventHistoryAvailabilityFor,
-} from "../src/project-snapshot/planning-lineage";
+} from "../src/project-generation/planning-lineage";
 import {
   authoritySchema,
   effortSchema,
-  projectSnapshotSchema,
-} from "../src/project-snapshot/schema";
-import { assetProjectionSchema } from "../src/project-snapshot/schema-asset";
-import { createSourceRecord } from "../src/project-snapshot/source-records";
+  projectGenerationSchema,
+} from "../src/project-generation/schema";
+import { assetProjectionSchema } from "../src/project-generation/schema-asset";
+import { createSourceRecord } from "../src/project-generation/source-records";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import { parseRebuiltPlanningLineageFixture } from "./planning-lineage-fixture";
 
-const fixture = (): ProjectSnapshot => createProjectOverviewFixture();
+const fixture = (): ProjectGeneration => createProjectOverviewFixture();
 const withLineage = parseRebuiltPlanningLineageFixture;
 const readable = (
   model: PlanningLineageSubjectModel,
@@ -342,7 +342,7 @@ test("the lineage builder stops ambiguous parentage while the complete Snapshot 
     state: "truncated-unavailable",
     reason: "Canonical parentage is ambiguous.",
   });
-  expect(projectSnapshotSchema.safeParse({ ...ambiguous, lineage }).success).toBe(false);
+  expect(projectGenerationSchema.safeParse({ ...ambiguous, lineage }).success).toBe(false);
 });
 
 test("large relation collections expose truthful coverage and a stable filtered view", () => {
@@ -363,7 +363,7 @@ test("large relation collections expose truthful coverage and a stable filtered 
   }
   const extras = Array.from({ length: 5 }, (_, index) => {
     const id = `effort:extra-${index + 1}`;
-    const source = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+    const source = createSourceRecord(snapshot.basis.basisFingerprint, {
       kind: "canonical",
       locator: `.bearing/state/efforts/extra-${index + 1}.md`,
       binding: { role: "effort", identity: id },
@@ -748,7 +748,7 @@ test("uses a refreshed disposable observation only for its exact bound Effort sc
         ? { ...selection, observationId: stale.id, effectiveFreshness: "stale" as const }
         : selection,
     ),
-    nativeScopeInspections: {
+    providerDetailEvidences: {
       observations: [refreshed],
       selections: [
         {
@@ -757,7 +757,7 @@ test("uses a refreshed disposable observation only for its exact bound Effort sc
           observationId: refreshed.id,
           effectiveFreshness: "current" as const,
           latestAttempt: {
-            intent: "native-scope-inspection" as const,
+            intent: "provider-detail-selection" as const,
             attemptedAt: "2026-08-03T10:00:00.000Z",
             outcome: "succeeded" as const,
             diagnostics: [],
@@ -844,18 +844,18 @@ test("projects explicit Effort Outputs and Governance without inferring latest f
   }
   const accepted = (value: string) =>
     ({ availability: "available", value, precision: "second" }) as const;
-  const authoritySource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const authoritySource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "canonical",
     locator: ".bearing/state/authorities/design.md",
     binding: { role: "authority", identity: "authority:design" },
   });
-  const secondAssetSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const secondAssetSource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "asset",
     locator: ".bearing/state/assets.md",
     binding: { role: "asset", identity: "asset:planning-model-evidence-v2" },
     fragment: "asset:planning-model-evidence-v2",
   });
-  const thirdAssetSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const thirdAssetSource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "asset",
     locator: ".bearing/state/assets.md",
     binding: { role: "asset", identity: "asset:planning-model-evidence-v3" },
@@ -1108,7 +1108,7 @@ test("keeps unknown and ambiguous Incoming classifications distinct from needs-t
       providerObservations,
       providerObservationSelections,
     };
-    const projected = projectSnapshotSchema.parse({
+    const projected = projectGenerationSchema.parse({
       ...candidate,
       lineage: buildPlanningLineageProjection(candidate),
     });
@@ -1144,7 +1144,7 @@ test("withholds native hierarchy certainty when the selected observation is not 
   const degraded = {
     ...candidate,
     lineage,
-  } as ProjectSnapshot;
+  } as ProjectGeneration;
 
   const mapProjection = findPlanningLineageSubjectProjection(lineage, {
     kind: "native-subject",
@@ -1213,7 +1213,7 @@ test("keeps a trustworthy native route readable when an unrelated scope is stale
   const scoped = {
     ...candidate,
     lineage: buildPlanningLineageProjection(candidate),
-  } as ProjectSnapshot;
+  } as ProjectGeneration;
 
   const trustworthy = readable(
     buildPlanningLineageSubjectModel(
@@ -1253,7 +1253,7 @@ test("discloses selected stale and undetermined freshness without changing nativ
     const scoped = {
       ...candidate,
       lineage: buildPlanningLineageProjection(candidate),
-    } as ProjectSnapshot;
+    } as ProjectGeneration;
     const model = readable(
       buildPlanningLineageSubjectModel(
         scoped,
@@ -1407,7 +1407,7 @@ test("carries provider unsupported availability through validated Snapshot and P
     providerObservations,
     providerObservationSelections,
   };
-  const projected = projectSnapshotSchema.parse({
+  const projected = projectGenerationSchema.parse({
     ...candidate,
     lineage: buildPlanningLineageProjection(candidate),
   });
@@ -1439,7 +1439,7 @@ test("rejects missing or forged provider-native Source provenance", () => {
   if (mapSource?.binding === undefined || scopeSource === undefined) {
     throw new Error("Expected provider-native Source fixtures.");
   }
-  const forged = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const forged = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "tracker",
     locator: ".scratch/forged/map.md",
     binding: mapSource.binding,
@@ -1451,7 +1451,7 @@ test("rejects missing or forged provider-native Source provenance", () => {
     ),
   };
   expect(
-    projectSnapshotSchema.safeParse({
+    projectGenerationSchema.safeParse({
       ...forgedCandidate,
       lineage: buildPlanningLineageProjection(forgedCandidate),
     }).success,
@@ -1462,7 +1462,7 @@ test("rejects missing or forged provider-native Source provenance", () => {
     sources: snapshot.sources.filter((source) => source.reference !== scopeSource.reference),
   };
   expect(
-    projectSnapshotSchema.safeParse({
+    projectGenerationSchema.safeParse({
       ...missingCandidate,
       lineage: buildPlanningLineageProjection(missingCandidate),
     }).success,

@@ -9,7 +9,7 @@ import { createPortalApp } from "../src/portal/app";
 import {
   buildPortalAssetManifest,
   loadPortalAssets,
-  PROJECT_SNAPSHOT_VERSION,
+  PROJECT_GENERATION_VERSION,
   writePortalAssetManifest,
 } from "../src/portal/assets";
 import { parsePortalPort } from "../src/portal/port";
@@ -110,7 +110,7 @@ test("reports Host and fixed-asset readiness independently of Catalog health", a
   expect(healthSchema.parse(await response.json())).toEqual({
     state: "ready",
     packageVersion: packageMetadata.version,
-    readModelVersion: PROJECT_SNAPSHOT_VERSION,
+    readModelVersion: PROJECT_GENERATION_VERSION,
   });
 });
 
@@ -262,11 +262,11 @@ test("applies the accepted browser security policy to every Portal response surf
     assets,
     sessions: { secret: TEST_SESSION_SECRET },
     readCatalog: async () => ({ state: "ready" as const, entries: [] }),
-    projectService: {
+    projectQueryService: {
       read: async () => {
         throw new Error("private failure detail");
       },
-      sync: async () => {
+      search: async () => {
         throw new Error("private failure detail");
       },
     },

@@ -1,4 +1,4 @@
-import type { AuditFinding, PlanningReview } from "../project-snapshot/contract";
+import type { AuditFinding, PlanningReview } from "../project-generation/contract";
 import type { AuditModelData } from "./project-data";
 
 type AuditPromotion = NonNullable<AuditFinding["promotion"]>;

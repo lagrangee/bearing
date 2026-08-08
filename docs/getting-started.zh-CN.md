@@ -2,7 +2,7 @@
 
 [English](getting-started.md)
 
-这份指南帮助你完成第一次真实的 Bearing alignment loop。
+这份指南帮助你完成第一次真实的 Bearing governance loop。
 
 ## 前置条件
 
@@ -55,7 +55,7 @@ bearing configure
 
 Bearing 应该在接受方向前询问你。如果 agent 静默编造战略 truth，请停下来要求它把 assumptions 作为 decisions 暴露出来。
 
-## 完成第一次 alignment loop
+## 完成第一次 governance loop
 
 带来一个真实请求：
 
@@ -71,7 +71,9 @@ Bearing 应该在接受方向前询问你。如果 agent 静默编造战略 trut
 ## 检查共享图景
 
 ```bash
-bearing sync --repo .
+bearing cache rebuild --repo .
+bearing provider verify --all --repo .
+bearing inspect project --repo .
 bearing portal
 ```
 

@@ -1,18 +1,13 @@
 import { Hono } from "hono";
 import type { PortalCatalogEnvelope } from "../portal-catalog-wire";
 import { type AssetPreviewService, createAssetPreviewService } from "./asset-preview";
-import { type PortalAssets, PROJECT_SNAPSHOT_VERSION } from "./assets";
+import { type PortalAssets, PROJECT_GENERATION_VERSION } from "./assets";
 import type { CatalogReadResult } from "./contract";
 import {
   createPortalProjectQueryService,
   type PortalProjectQueryService,
 } from "./project-query-service";
 import { registerProjectRoutes } from "./project-routes";
-import {
-  createProjectService,
-  type ProjectOperationExecutorFactory,
-  type ProjectService,
-} from "./project-service";
 import {
   createPortalProviderApplicationService,
   type PortalProviderApplicationService,
@@ -23,10 +18,8 @@ type PortalAppOptions = Readonly<{
   assets: PortalAssets;
   readCatalog: () => Promise<CatalogReadResult>;
   sessions: Readonly<{ secret: string }> | PortalSessionManager;
-  projectService?: ProjectService;
   projectQueryService?: PortalProjectQueryService;
   providerApplicationService?: PortalProviderApplicationService;
-  operationExecutorFor?: ProjectOperationExecutorFactory;
   assetPreviewService?: AssetPreviewService;
 }>;
 
@@ -84,15 +77,6 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
   const sessions = isSessionManager(options.sessions)
     ? options.sessions
     : createPortalSessionManager(options.sessions.secret);
-  const projects =
-    options.projectService ??
-    createProjectService({
-      readCatalog: options.readCatalog,
-      packageVersion: options.assets.manifest.packageVersion,
-      ...(options.operationExecutorFor === undefined
-        ? {}
-        : { operationExecutorFor: options.operationExecutorFor }),
-    });
   const assetPreview =
     options.assetPreviewService ?? createAssetPreviewService({ readCatalog: options.readCatalog });
   const projectQueries =
@@ -130,7 +114,7 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     context.json({
       state: "ready",
       packageVersion: options.assets.manifest.packageVersion,
-      readModelVersion: PROJECT_SNAPSHOT_VERSION,
+      readModelVersion: PROJECT_GENERATION_VERSION,
     }),
   );
 
@@ -200,7 +184,6 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     assetPreview,
     projectQueries,
     providerApplication,
-    projects,
     sessions,
   });
 

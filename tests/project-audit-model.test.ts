@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { buildProjectAuditModel } from "../src/portal-ui/project-audit-model";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import type { ProjectGeneration } from "../src/project-generation/contract";
 import {
   createAbsentProjectAuditFixture,
   createInvalidProjectAuditFixture,
@@ -66,7 +66,7 @@ test("resolves a completed Planning Review without turning its Audit finding int
     attention: snapshot.attention.filter(
       (item) => item.kind !== "planning-review" || item.id !== review.id,
     ),
-  } as ProjectSnapshot;
+  } as ProjectGeneration;
 
   const model = buildProjectAuditModel(completed);
   if (model.current.state !== "available") throw new Error("Expected available Audit.");
@@ -92,7 +92,7 @@ test("distinguishes absent, invalid, zero-finding, and trustworthy partial Audit
         validity: "invalid",
         issues: [{ code: "invalid-planning-audit", target: "audit", message: "Audit is invalid." }],
       },
-    } as ProjectSnapshot),
+    } as ProjectGeneration),
   ).toMatchObject({ current: { state: "invalid", issueCount: 1 } });
 
   if (snapshot.audit.validity !== "available") throw new Error("Expected available Audit.");
@@ -115,7 +115,7 @@ test("distinguishes absent, invalid, zero-finding, and trustworthy partial Audit
         },
       ],
     },
-  } as ProjectSnapshot);
+  } as ProjectGeneration);
   expect(partial.current.state).toBe("partial");
   expect(partial.current.state === "partial" && partial.current.issueCount).toBe(1);
   expect(partial.current.state === "partial" && partial.current.findings).toHaveLength(1);

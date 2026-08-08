@@ -26,7 +26,7 @@ and coordinate their promotion, but it cannot accept decisions or mutate other p
 - **Required:** Validate Audit and any co-owned Review through affected-target inspection.
 - **Consider:** Offer owner-specific changes only as recommendations.
 - **Do not infer:** Audit evidence accepts a decision, changes lifecycle, or repairs planning.
-- **Do not infer:** Sync, inspection, Portal use, or a changed input starts or replaces an Audit.
+- **Do not infer:** Project Read Model operations, Portal use, or a changed input starts or replaces an Audit.
 
 ## Completion criterion
 

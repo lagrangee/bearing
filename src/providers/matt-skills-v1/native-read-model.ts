@@ -1,7 +1,7 @@
 import {
   assessSelectedProviderObservationEvidence,
   type ProviderObservationSelection,
-} from "../../provider-observation-contract";
+} from "../../provider-evidence-contract";
 import {
   mattNativeScopeSubject,
   mattNativeScopeTitle,

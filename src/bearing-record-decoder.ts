@@ -11,11 +11,11 @@ import { type PlanningAuditBodyResult, parsePlanningAuditBody } from "./audit-bo
 import { analyzeDecodedBearingArtifact } from "./bearing-record-analysis";
 import { parseExactSections, parsePlainText, parseUnorderedList } from "./bearing-record-sections";
 import { parseMarkdownEnvelope } from "./markdown-document";
-import type { SourceBinding, SourceRecord } from "./project-snapshot/contract";
-import { createSourceRecord } from "./project-snapshot/source-records";
+import type { SourceBinding, SourceRecord } from "./project-generation/contract";
+import { createSourceRecord } from "./project-generation/source-records";
+import type { ProjectInputGeneration } from "./project-input-generation";
 import { mattNativeScopeKey } from "./providers/matt-skills-v1/native-subject";
 import { bearingSchema } from "./schema-definitions";
-import type { SyncInputGeneration } from "./sync-input-generation";
 import { deriveTopologyDiagnostics } from "./topology-diagnostics";
 import type { StructuralDiagnostic } from "./types";
 
@@ -485,7 +485,7 @@ const sourceBinding = (data: BearingArtifact | undefined): SourceBinding | undef
 };
 
 const decodeRecord = (
-  record: SyncInputGeneration["records"][number],
+  record: ProjectInputGeneration["records"][number],
   fingerprint: string,
 ): DecodedBearingRecord | undefined => {
   const expectedType = expectedBearingType(record.locator) as BearingRecordType | undefined;
@@ -789,7 +789,7 @@ const authorityAvailabilityDiagnostics = (
 };
 
 export const decodeBearingRecordGeneration = (
-  generation: Pick<SyncInputGeneration, "fingerprint" | "records">,
+  generation: Pick<ProjectInputGeneration, "fingerprint" | "records">,
 ): DecodedBearingRecordGeneration => {
   const capturedRecords = generation.records;
   let decodeCount = 0;

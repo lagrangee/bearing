@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { realpath, rm, writeFile } from "node:fs/promises";
 import { test } from "node:test";
-import { createBenchmarkFixture } from "../scripts/sync-benchmark-lib";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import { createPortalProviderApplicationService } from "../src/portal/provider-application";
 import { rebuildProjectReadModel } from "../src/project-read-model/provider-operations";
@@ -9,8 +8,9 @@ import { readProjectProviderEvidence } from "../src/project-read-model/store";
 import {
   defaultMattProviderFactory,
   ProviderObservationAcquisitionUnavailableError,
-} from "../src/provider-observation-acquisition";
+} from "../src/provider-acquisition";
 import { readRepositorySourceBytes } from "../tests/fixtures/repository-fixture";
+import { createRepresentativeProject } from "../tests/fixtures/representative-project";
 
 const catalogFor = (repoRoot: string) => async () => ({
   state: "ready" as const,
@@ -25,12 +25,12 @@ const catalogFor = (repoRoot: string) => async () => ({
 });
 
 test("Provider Application keeps exact item, exact source, and all-sources costs distinct", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     const root = await realpath(fixture.root);
     await rebuildProjectReadModel(root);
     const sourceBytes = await readRepositorySourceBytes(root);
-    const reconciledInputs: unknown[] = [];
+    const capturedScopes: string[] = [];
     const application = createPortalProviderApplicationService({
       readCatalog: catalogFor(root),
       providerDependencies: {
@@ -38,10 +38,9 @@ test("Provider Application keeps exact item, exact source, and all-sources costs
           const provider = defaultMattProviderFactory(input);
           return {
             ...provider,
-            reconcile: async (request) => {
-              reconciledInputs.push(request.affected);
-              if (provider.reconcile === undefined) throw new Error("Expected reconciliation.");
-              return provider.reconcile(request);
+            capture: async (binding) => {
+              capturedScopes.push(binding.nativeScope);
+              return provider.capture(binding);
             },
           };
         },
@@ -77,7 +76,7 @@ test("Provider Application keeps exact item, exact source, and all-sources costs
         summary: "Provider observation needs Agent Surface attention.",
       },
     ]);
-    assert.deepEqual(reconciledInputs, []);
+    assert.deepEqual(capturedScopes, [".scratch/scope-001"]);
 
     const item = await application.apply("fixture", {
       version: 1,
@@ -88,7 +87,10 @@ test("Provider Application keeps exact item, exact source, and all-sources costs
     assert.equal(item.state, "completed");
     assert.equal(item.action, "item-refresh");
     assert.equal(item.acquisitionCount, 1);
-    assert.deepEqual(reconciledInputs, [{ subjects: [fixture.nativeLocator], relations: [] }]);
+    assert.deepEqual(capturedScopes, [".scratch/scope-001", ".scratch/scope-001"]);
+    const detail = await readProjectProviderEvidence(root, "detail");
+    assert.equal(detail.length, 1);
+    assert.equal(detail[0]?.selection.nativeScope, ".scratch/scope-001");
 
     const all = await application.apply("fixture", {
       version: 1,
@@ -106,7 +108,7 @@ test("Provider Application keeps exact item, exact source, and all-sources costs
 });
 
 test("failed provider acquisition retains the last valid observed time and a typed diagnostic", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     const root = await realpath(fixture.root);
     await rebuildProjectReadModel(root);
@@ -161,7 +163,7 @@ test("failed provider acquisition retains the last valid observed time and a typ
     assert.ok(
       failed.diagnostics.some(
         (diagnostic) =>
-          diagnostic.reference === "provider-observation-acquisition-failed" &&
+          diagnostic.reference === "provider-acquisition-failed" &&
           diagnostic.summary === "Provider observation needs Agent Surface attention.",
       ),
     );
@@ -177,7 +179,7 @@ test("failed provider acquisition retains the last valid observed time and a typ
 });
 
 test("Provider Application keeps baseline, provider, storage, update, and removal conditions distinct", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     const root = await realpath(fixture.root);
     await rebuildProjectReadModel(root);
@@ -319,7 +321,7 @@ test("Provider Application keeps baseline, provider, storage, update, and remova
 });
 
 test("Provider Application serializes different explicit sources for one Catalog Entry", async () => {
-  const fixture = await createBenchmarkFixture("representative");
+  const fixture = await createRepresentativeProject("representative");
   try {
     const root = await realpath(fixture.root);
     await rebuildProjectReadModel(root);

@@ -1,5 +1,5 @@
 import { planningLineageSubjectHref } from "../planning-lineage-route";
-import type { PlanningReview } from "../project-snapshot/contract";
+import type { PlanningReview } from "../project-generation/contract";
 import { AuditFindingRow } from "./audit-finding-row";
 import { Icons } from "./icons";
 import { buildProjectAuditModel, type ProjectAuditModel } from "./project-audit-model";

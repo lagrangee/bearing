@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { buildProjectSnapshot } from "../src/project-snapshot/projection";
-import type { SyncPlan } from "../src/sync-plan";
+import type { ProjectCompilation } from "../src/project-compilation";
+import { buildProjectGeneration } from "../src/project-generation/projection";
 import { LOCAL_MATT_CONTRACT, LOCAL_MATT_TRIAGE_LABELS } from "./fixtures/local-matt-contract";
 
 export { LOCAL_MATT_CONTRACT, LOCAL_MATT_TRIAGE_LABELS } from "./fixtures/local-matt-contract";
@@ -10,20 +10,24 @@ export { LOCAL_MATT_CONTRACT, LOCAL_MATT_TRIAGE_LABELS } from "./fixtures/local-
 export const makeTemporaryDirectory = async (prefix: string): Promise<string> =>
   mkdtemp(join(tmpdir(), prefix));
 
-export const buildSnapshotForSyncPlan = (root: string, packageVersion: string, plan: SyncPlan) =>
-  buildProjectSnapshot({
+export const buildSnapshotForProjectCompilation = (
+  root: string,
+  packageVersion: string,
+  plan: ProjectCompilation,
+) =>
+  buildProjectGeneration({
     repoRoot: root,
     packageVersion,
-    sitemapFingerprint: plan.fingerprint,
+    basisFingerprint: plan.fingerprint,
     diagnostics: plan.diagnostics,
     advisoryFreshness: plan.advisoryFreshness,
     decoded: plan.decoded,
     providerObservations: plan.providerObservations,
     providerObservationSelections: plan.providerObservationSelections,
-    nativeScopeInspectionObservations: plan.nativeScopeInspectionObservations,
-    nativeScopeInspectionSelections: plan.nativeScopeInspectionSelections,
+    providerDetailEvidenceObservations: plan.providerDetailEvidenceObservations,
+    providerDetailEvidenceSelections: plan.providerDetailEvidenceSelections,
     assetContentObservations: plan.assetContentObservations,
-    planningGraph: plan.planningGraph,
+    projectProjections: plan.projectProjections,
   });
 
 const CONSOLE_LOG_METHODS = ["debug", "error", "info", "log", "warn"] as const;
@@ -273,7 +277,7 @@ Work binding:
 
 ## Intent
 
-Exercise the sync contract.
+Exercise the Project Read Model contract.
 
 ## Work
 

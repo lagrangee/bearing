@@ -7,10 +7,10 @@ import type {
   Effort,
   MilestoneGate,
   PlanningReview,
-  ProjectSnapshot,
+  ProjectGeneration,
   Roadmap,
-} from "../project-snapshot/contract";
-import { assessSelectedProviderObservationEvidence } from "../provider-observation-contract";
+} from "../project-generation/contract";
+import { assessSelectedProviderObservationEvidence } from "../provider-evidence-contract";
 import type {
   MattDeliveryTicket,
   MattIncomingIssue,
@@ -107,7 +107,7 @@ export type ProjectFindIndex = Readonly<{
   search: (query: string) => readonly ProjectFindResult[];
 }>;
 
-const subjectTypeLabel = (snapshot: ProjectSnapshot, subject: ProjectFindSubject): string => {
+const subjectTypeLabel = (snapshot: ProjectGeneration, subject: ProjectFindSubject): string => {
   switch (subject.kind) {
     case "audit":
       return "Audit";
@@ -168,7 +168,7 @@ export const tokenizeProjectFindText = (text: string): readonly string[] => {
 const boundedText = (text: string): string => text.slice(0, MAX_INDEXED_FIELD_LENGTH);
 
 const itemsFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   kind: PlanningLineageSubject["kind"],
 ): readonly Readonly<{ id: string; title: string }>[] => {
   switch (kind) {
@@ -191,17 +191,17 @@ const itemsFor = (
 };
 
 const canonicalRecordFor = <T extends Readonly<{ id: string }>>(
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   subject: PlanningLineageSubject,
 ): T | undefined =>
   itemsFor(snapshot, subject.kind).find((item) => String(item.id) === subject.id) as T | undefined;
 
-type NativeObservation = ProjectSnapshot["providerObservations"][number];
+type NativeObservation = ProjectGeneration["providerObservations"][number];
 
-const nativeObservations = (snapshot: ProjectSnapshot): readonly NativeObservation[] => {
+const nativeObservations = (snapshot: ProjectGeneration): readonly NativeObservation[] => {
   const selected = (
     observations: readonly NativeObservation[],
-    selections: ProjectSnapshot["providerObservationSelections"],
+    selections: ProjectGeneration["providerObservationSelections"],
   ): readonly NativeObservation[] => {
     const byId = new Map(observations.map((observation) => [observation.id, observation]));
     return selections.flatMap((selection) => {
@@ -218,8 +218,8 @@ const nativeObservations = (snapshot: ProjectSnapshot): readonly NativeObservati
     byScope.set(mattNativeScopeKey(observation.binding), observation);
   }
   for (const observation of selected(
-    snapshot.nativeScopeInspections.observations,
-    snapshot.nativeScopeInspections.selections,
+    snapshot.providerDetailEvidences.observations,
+    snapshot.providerDetailEvidences.selections,
   )) {
     const scopeKey = mattNativeScopeKey(observation.binding);
     if (!byScope.has(scopeKey)) byScope.set(scopeKey, observation);
@@ -227,10 +227,10 @@ const nativeObservations = (snapshot: ProjectSnapshot): readonly NativeObservati
   return [...byScope.values()];
 };
 
-const trustedEfforts = (snapshot: ProjectSnapshot): readonly Effort[] =>
+const trustedEfforts = (snapshot: ProjectGeneration): readonly Effort[] =>
   snapshot.efforts.validity === "invalid" ? [] : snapshot.efforts.items;
 
-const managedNativeSubjectKeys = (snapshot: ProjectSnapshot): ReadonlySet<string> => {
+const managedNativeSubjectKeys = (snapshot: ProjectGeneration): ReadonlySet<string> => {
   const keys = new Set<string>();
   const observations = nativeObservations(snapshot);
   for (const effort of trustedEfforts(snapshot)) {
@@ -251,7 +251,7 @@ const managedNativeSubjectKeys = (snapshot: ProjectSnapshot): ReadonlySet<string
   return keys;
 };
 
-export const projectFindScopeState = (snapshot: ProjectSnapshot): ProjectFindScopeState => {
+export const projectFindScopeState = (snapshot: ProjectGeneration): ProjectFindScopeState => {
   const canonicalCollections = [
     ["Roadmap", snapshot.roadmaps],
     ["Gate", snapshot.gates],
@@ -304,7 +304,7 @@ export const projectFindScopeState = (snapshot: ProjectSnapshot): ProjectFindSco
   }
   const observationGroups = [
     [snapshot.providerObservations, snapshot.providerObservationSelections],
-    [snapshot.nativeScopeInspections.observations, snapshot.nativeScopeInspections.selections],
+    [snapshot.providerDetailEvidences.observations, snapshot.providerDetailEvidences.selections],
   ] as const;
   for (const effort of trustedEfforts(snapshot)) {
     if (effort.workBindingState.state !== "bound") continue;
@@ -370,7 +370,7 @@ export const projectFindScopeState = (snapshot: ProjectSnapshot): ProjectFindSco
 };
 
 const nativeRecordFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   subject: PlanningLineageSubject,
 ): MattNativeRecord | undefined =>
   mattNativeRecords(nativeObservations(snapshot), snapshot.sources).find(
@@ -378,7 +378,7 @@ const nativeRecordFor = (
   );
 
 const semanticAnchorState = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   subject: PlanningLineageSubject,
   anchor: string,
 ): "available" | "unavailable" | "excluded" => {
@@ -397,7 +397,7 @@ const semanticAnchorState = (
 };
 
 const contentField = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   subject: PlanningLineageSubject,
   input: Omit<FindField, "anchorAvailable"> & Readonly<{ anchor: string }>,
 ): FindField | undefined => {
@@ -412,7 +412,7 @@ const join = (values: readonly string[]): string =>
   values.filter((value) => value.length > 0).join(" · ");
 
 const canonicalFields = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   subject: PlanningLineageSubject,
 ): readonly FindField[] => {
   const record = canonicalRecordFor<
@@ -557,7 +557,7 @@ const canonicalFields = (
 };
 
 const nativeContentFields = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   subject: PlanningLineageSubject,
   object: MattMap | MattSpec | MattWayfinderTicket | MattDeliveryTicket | MattIncomingIssue,
 ): readonly FindField[] => {
@@ -645,7 +645,7 @@ const nativeContentFields = (
 };
 
 const findFieldsFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   subject: ProjectFindSubject,
   title: string,
 ): readonly FindField[] => {
@@ -773,7 +773,7 @@ const subjectHref = (entryId: string, subject: ProjectFindSubject, anchor?: stri
     : planningLineageSubjectHref(entryId, subject, anchor);
 
 export const buildProjectFindDocuments = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   entryId: string,
 ): readonly FindDocument[] => {
   const managedNativeSubjects = managedNativeSubjectKeys(snapshot);
@@ -946,12 +946,12 @@ export const buildProjectFindIndexFromDocuments = (
 };
 
 export const buildProjectFindIndex = (
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectGeneration,
   entryId: string,
 ): ProjectFindIndex =>
   buildProjectFindIndexFromDocuments(
     buildProjectFindDocuments(snapshot, entryId),
     entryId,
-    snapshot.basis.sitemapFingerprint,
+    snapshot.basis.basisFingerprint,
     projectFindScopeState(snapshot),
   );

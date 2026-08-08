@@ -7,14 +7,14 @@ import type {
   AssetProjection,
   Authority,
   Effort,
+  PlanningLineageRelation as GenerationLineageRelation,
   MilestoneGate,
   PlanningLineageSubjectProjection,
   PlanningReview,
   Roadmap,
-  PlanningLineageRelation as SnapshotLineageRelation,
   SourceRecord,
-} from "../project-snapshot/contract";
-import { findPlanningLineageSubjectProjection } from "../project-snapshot/planning-lineage";
+} from "../project-generation/contract";
+import { findPlanningLineageSubjectProjection } from "../project-generation/planning-lineage";
 import type {
   MattDeliveryTicket,
   MattIncomingIssue,
@@ -289,7 +289,7 @@ type ReadablePlanningLineageSubjectModel = Readonly<{
   nativeInspection?:
     | Readonly<{
         freshness: "current" | "stale" | "undetermined";
-        latestAttempt: LineageModelData["nativeScopeInspections"]["selections"][number]["latestAttempt"];
+        latestAttempt: LineageModelData["providerDetailEvidences"]["selections"][number]["latestAttempt"];
       }>
     | undefined;
   semanticAvailability: ReadonlyMap<string, MattSemanticSectionAvailability>;
@@ -324,11 +324,11 @@ const isNativeSubject = (subject: PlanningLineageSubject): subject is MattNative
 
 type NativeObservation =
   | LineageModelData["providerObservations"][number]
-  | LineageModelData["nativeScopeInspections"]["observations"][number];
+  | LineageModelData["providerDetailEvidences"]["observations"][number];
 
 const nativeObservations = (snapshot: LineageModelData): readonly NativeObservation[] => {
   const byScope = new Map(
-    snapshot.nativeScopeInspections.observations.map((observation) => [
+    snapshot.providerDetailEvidences.observations.map((observation) => [
       mattNativeScopeKey(observation.binding),
       observation,
     ]),
@@ -341,7 +341,7 @@ const nativeObservations = (snapshot: LineageModelData): readonly NativeObservat
 
 const nativeSelections = (snapshot: LineageModelData) => {
   const byScope = new Map(
-    snapshot.nativeScopeInspections.selections.map((selection) => [
+    snapshot.providerDetailEvidences.selections.map((selection) => [
       mattNativeScopeKey(selection),
       selection,
     ]),
@@ -437,7 +437,7 @@ const relationItem = (
   entryId: string,
   owner: PlanningLineageSubject,
   relationKey: PlanningLineageRelationKey,
-  target: Extract<SnapshotLineageRelation, { state: "present" }>["targets"][number],
+  target: Extract<GenerationLineageRelation, { state: "present" }>["targets"][number],
 ): PlanningLineageRelationItem => {
   const ownerRecord = recordFor(snapshot, owner);
   const relationEvent =
@@ -467,7 +467,7 @@ const relationForDisplay = (
   snapshot: LineageModelData,
   entryId: string,
   owner: PlanningLineageSubject,
-  relation: SnapshotLineageRelation,
+  relation: GenerationLineageRelation,
 ): PlanningLineageRelation => {
   const base = {
     key: relation.key,
@@ -1570,13 +1570,13 @@ const effortLensFor = (
   const inspectionSelection =
     binding === undefined
       ? undefined
-      : snapshot.nativeScopeInspections.selections.find((selection) =>
+      : snapshot.providerDetailEvidences.selections.find((selection) =>
           sameMattNativeScope(selection, binding),
         );
   const inspectionObservation =
     binding === undefined || inspectionSelection?.observationId === null
       ? undefined
-      : snapshot.nativeScopeInspections.observations.find(
+      : snapshot.providerDetailEvidences.observations.find(
           (observation) =>
             observation.id === inspectionSelection?.observationId &&
             sameMattNativeScope(observation.binding, binding),
@@ -1588,14 +1588,14 @@ const effortLensFor = (
           readableEfforts(snapshot),
           effort,
           inspectionObservation,
-          snapshot.nativeScopeInspections.selections,
+          snapshot.providerDetailEvidences.selections,
         );
   const inspectedWorkRegion =
     inspectionContext === undefined
       ? undefined
       : buildMattNativeWorkRegion(
           inspectionObservation,
-          snapshot.nativeScopeInspections.selections,
+          snapshot.providerDetailEvidences.selections,
           inspectionContext,
         );
   const disposableWorkRegion = inspectedWorkRegion ?? workRegion;
@@ -1666,7 +1666,7 @@ const effortLensFor = (
           impact: "native work cannot contribute trusted evidence or Gate readiness.",
           recovery:
             binding === undefined
-              ? "declare exactly one supported Work Binding in the canonical Effort record, then Sync."
+              ? "declare exactly one supported Work Binding in the canonical Effort record, then reload this view."
               : "load this exact declared provider source; after any Matt transaction, run exact Targeted Native Reconciliation separately.",
         }
       : effort.lifecycle === "concluded" && workItems.length === 0
@@ -1751,7 +1751,8 @@ export const buildPlanningLineageSubjectModel = (
       return {
         state: "missing",
         requested: subject,
-        reason: "This persistent identity is not present in the current Project Snapshot.",
+        reason:
+          "This persistent identity is not present in the current Project Read Model generation.",
       };
     }
     const collection = collectionFor(snapshot, subject.kind);
@@ -1759,7 +1760,8 @@ export const buildPlanningLineageSubjectModel = (
       return {
         state: "missing",
         requested: subject,
-        reason: "This persistent identity is not present in the current Project Snapshot.",
+        reason:
+          "This persistent identity is not present in the current Project Read Model generation.",
       };
     }
     return {
@@ -1769,7 +1771,7 @@ export const buildPlanningLineageSubjectModel = (
       reason:
         collection.validity === "partial"
           ? "Partial collection coverage cannot establish whether this persistent identity is present."
-          : "The requested subject projection cannot be trusted in the current Snapshot.",
+          : "The requested subject projection cannot be trusted in the current Project Read Model generation.",
     };
   }
   const record = recordFor(snapshot, subject);
@@ -1811,7 +1813,7 @@ export const buildPlanningLineageSubjectModel = (
   const asset = subject.kind === "asset" ? (record as AssetProjection) : undefined;
   const headerStatus = headerStatusFor(record, subject);
   const inspectionSelection = isNativeSubject(subject)
-    ? snapshot.nativeScopeInspections.selections.find((selection) => {
+    ? snapshot.providerDetailEvidences.selections.find((selection) => {
         const observation = (record as NativeRecord).observation;
         return (
           sameMattNativeScope(selection, observation.binding) &&

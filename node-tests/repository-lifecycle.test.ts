@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { readCatalogDocument, upsertCatalogEntry } from "../src/catalog/store";
-import { deactivateRepository } from "../src/repo-lifecycle";
-import { setupRepository } from "../src/repo-setup";
+import { applyRepositoryConfigurationUnit } from "../src/repository-configuration-apply";
+import { deactivateRepository } from "../src/repository-deactivation";
 import {
   LOCAL_MATT_CONTRACT,
   LOCAL_MATT_TRIAGE_LABELS,
@@ -21,7 +21,7 @@ const seedRepository = async (repoRoot: string): Promise<void> => {
     `# User rules\n\n## Agent skills\n\n### Issue tracker\n\nIssues use the repository tracker. See \`${contractLocator}\`.\n`,
   );
   await writeFile(join(repoRoot, "source.txt"), "source stays\n");
-  await setupRepository({
+  await applyRepositoryConfigurationUnit({
     repoRoot,
     packageRoot: process.cwd(),
     surfaces: ["agent-skills"],

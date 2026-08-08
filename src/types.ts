@@ -16,27 +16,6 @@ export type SemanticFreshness = "current" | "stale" | "unknown";
 export type AdvisoryId = "planning-audit:current";
 export type AdvisoryFreshness = Readonly<Partial<Record<AdvisoryId, SemanticFreshness>>>;
 
-import type { NativeScopeInspectionPlan } from "./native-scope-inspection";
-import type { ProviderObservationOperation } from "./provider-observation-store";
-import type { SyncReceipt } from "./sync-receipt";
-
-export type SyncProjectionResult = FingerprintResult &
-  Readonly<{
-    changed: boolean;
-    advisoryFreshness: AdvisoryFreshness;
-    diagnostics: readonly StructuralDiagnostic[];
-    reportPath: string;
-    sitemapPath: string;
-  }>;
-
-export type SyncResult = SyncProjectionResult &
-  Readonly<{
-    providerObservationOperation: ProviderObservationOperation;
-    nativeScopeInspectionOperation: NativeScopeInspectionPlan["operation"];
-    receipt: SyncReceipt;
-    receiptPath: string;
-  }>;
-
 export type AgentSurface = "agent-skills" | "claude";
 
 export type InstallOptions = Readonly<{
@@ -57,7 +36,7 @@ export type GlobalUninstallResult = Readonly<{
   removedTargets: readonly string[];
 }>;
 
-export type RepositorySetupOptions = Readonly<{
+export type RepositoryConfigurationApplyOptions = Readonly<{
   repoRoot: string;
   packageRoot: string;
   surfaces: readonly AgentSurface[];
@@ -100,7 +79,7 @@ export type ExecutorRegistration = Readonly<{
   sourceContractSnapshot: string;
 }>;
 
-export type RepositorySetupResult = Readonly<{
+export type RepositoryConfigurationApplyResult = Readonly<{
   outcome: "applied" | "no-op";
   manifestPath: string;
   changedTargets: readonly string[];

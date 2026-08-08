@@ -1,17 +1,17 @@
-import { buildAdvisoryProjection } from "../../src/project-snapshot/advisory";
+import { buildAdvisoryProjection } from "../../src/project-generation/advisory";
 import {
   createAuditFindingId,
   INVALID_AUDIT_FINDING_CODE,
   invalidAuditFindingMessage,
   UNAVAILABLE_AUDIT_PROMOTION_CODE,
   UNAVAILABLE_AUDIT_PROMOTION_MESSAGE,
-} from "../../src/project-snapshot/audit-findings";
-import type { ProjectSnapshot } from "../../src/project-snapshot/contract";
-import { buildDecisionProjection } from "../../src/project-snapshot/decisions";
-import { projectSnapshotSchema } from "../../src/project-snapshot/schema";
-import { createSourceRecord } from "../../src/project-snapshot/source-records";
+} from "../../src/project-generation/audit-findings";
+import type { ProjectGeneration } from "../../src/project-generation/contract";
+import { buildDecisionProjection } from "../../src/project-generation/decisions";
+import { projectGenerationSchema } from "../../src/project-generation/schema";
+import { createSourceRecord } from "../../src/project-generation/source-records";
 import { withRebuiltPlanningLineage } from "../planning-lineage-fixture";
-import { decodeSourceFixtures } from "../project-snapshot-fixture";
+import { decodeSourceFixtures } from "../project-generation-fixture";
 import { createProjectOverviewFixture } from "./project-overview";
 
 const AUDIT_LOCATOR = ".bearing/state/planning-audit.md";
@@ -22,25 +22,25 @@ export const AUDIT_FINDING_ID = createAuditFindingId(
   AUDIT_FINDING_FRAGMENT,
 );
 
-export const createProjectAuditFixture = (): ProjectSnapshot => {
+export const createProjectAuditFixture = (): ProjectGeneration => {
   const snapshot = createProjectOverviewFixture();
   const review =
     snapshot.reviews.validity === "invalid"
       ? undefined
       : snapshot.reviews.items.find((candidate) => candidate.id === "planning-review:sequence");
   if (review === undefined) throw new Error("Expected Planning Review fixture.");
-  const findingSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const findingSource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "canonical",
     locator: AUDIT_LOCATOR,
     fragment: AUDIT_FINDING_FRAGMENT,
     binding: { role: "audit-finding", identity: AUDIT_FINDING_ID },
   });
-  const evidenceSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
+  const evidenceSource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "evidence",
     locator: ".bearing/state/roadmaps/portal.md",
   });
   if (snapshot.audit.validity !== "available") throw new Error("Expected Audit fixture.");
-  return projectSnapshotSchema.parse({
+  return projectGenerationSchema.parse({
     ...snapshot,
     audit: {
       validity: "available",
@@ -69,13 +69,15 @@ export const createProjectAuditFixture = (): ProjectSnapshot => {
   });
 };
 
-const withAudit = (snapshot: ProjectSnapshot, audit: ProjectSnapshot["audit"]): ProjectSnapshot =>
-  projectSnapshotSchema.parse({ ...snapshot, audit });
+const withAudit = (
+  snapshot: ProjectGeneration,
+  audit: ProjectGeneration["audit"],
+): ProjectGeneration => projectGenerationSchema.parse({ ...snapshot, audit });
 
-export const createAbsentProjectAuditFixture = (): ProjectSnapshot =>
+export const createAbsentProjectAuditFixture = (): ProjectGeneration =>
   withAudit(createProjectOverviewFixture(), { validity: "absent" });
 
-export const createZeroProjectAuditFixture = (): ProjectSnapshot => {
+export const createZeroProjectAuditFixture = (): ProjectGeneration => {
   const snapshot = createProjectAuditFixture();
   if (snapshot.audit.validity !== "available") throw new Error("Expected Audit fixture.");
   return withAudit(snapshot, {
@@ -90,7 +92,7 @@ export const createZeroProjectAuditFixture = (): ProjectSnapshot => {
   });
 };
 
-export const createPartialProjectAuditFixture = (): ProjectSnapshot => {
+export const createPartialProjectAuditFixture = (): ProjectGeneration => {
   const snapshot = createProjectAuditFixture();
   if (snapshot.audit.validity !== "available") throw new Error("Expected Audit fixture.");
   return withAudit(snapshot, {
@@ -107,12 +109,12 @@ export const createPartialProjectAuditFixture = (): ProjectSnapshot => {
   });
 };
 
-export const createUnavailableAuditPromotionFixture = (): ProjectSnapshot => {
+export const createUnavailableAuditPromotionFixture = (): ProjectGeneration => {
   const snapshot = createProjectAuditFixture();
   if (snapshot.audit.validity !== "available") throw new Error("Expected Audit fixture.");
   const finding = snapshot.audit.value.findings[0];
   if (finding === undefined) throw new Error("Expected one Audit finding.");
-  return projectSnapshotSchema.parse(
+  return projectGenerationSchema.parse(
     withRebuiltPlanningLineage({
       ...snapshot,
       reviews: { validity: "available", items: [] },
@@ -135,7 +137,7 @@ export const createUnavailableAuditPromotionFixture = (): ProjectSnapshot => {
   );
 };
 
-export const createInvalidProjectAuditFixture = (): ProjectSnapshot => {
+export const createInvalidProjectAuditFixture = (): ProjectGeneration => {
   const snapshot = createProjectAuditFixture();
   return withAudit(snapshot, {
     validity: "invalid",
@@ -149,7 +151,7 @@ export const createInvalidProjectAuditFixture = (): ProjectSnapshot => {
   });
 };
 
-export const createMissingGeneratedTimeAuditFixture = (): ProjectSnapshot => {
+export const createMissingGeneratedTimeAuditFixture = (): ProjectGeneration => {
   const snapshot = createProjectAuditFixture();
   const records = decodeSourceFixtures(
     [
@@ -172,20 +174,20 @@ No material findings.
 `,
       },
     ],
-    snapshot.basis.sitemapFingerprint,
+    snapshot.basis.basisFingerprint,
   );
   const decisions = buildDecisionProjection({
     records,
-    sitemapFingerprint: snapshot.basis.sitemapFingerprint,
+    basisFingerprint: snapshot.basis.basisFingerprint,
   });
   const advisory = buildAdvisoryProjection({
     records,
-    sitemapFingerprint: snapshot.basis.sitemapFingerprint,
+    basisFingerprint: snapshot.basis.basisFingerprint,
     advisoryFreshness: {},
     reviews: decisions.reviews,
   });
   const projectedReferences = new Set(advisory.sources.map((source) => source.reference));
-  return projectSnapshotSchema.parse({
+  return projectGenerationSchema.parse({
     ...snapshot,
     audit: advisory.audit,
     sources: [

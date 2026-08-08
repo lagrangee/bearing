@@ -6,7 +6,7 @@ import type {
   MilestoneGate,
   PlanningReview,
   Roadmap,
-} from "../project-snapshot/contract";
+} from "../project-generation/contract";
 import type { SourceEventTime } from "../source-event-time";
 import type { LineageModelData } from "./project-data";
 

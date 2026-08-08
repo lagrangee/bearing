@@ -16,7 +16,7 @@ describe("G1 deterministic regression core", () => {
         seam: "repository-lifecycle-cli",
         files: [
           "tests/repository-configuration-product-seam.test.ts",
-          "tests/repo-setup-regressions.test.ts",
+          "tests/repository-configuration-apply-regressions.test.ts",
         ],
       },
       {

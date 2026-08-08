@@ -39,7 +39,7 @@ function BriefCanvas({ brief }: { readonly brief: ProjectOverviewModel["brief"] 
         <h2>Project Brief unavailable</h2>
         <p>{cause}</p>
         <p>The current Brief cannot be trusted; Project Summary remains independently readable.</p>
-        <p>Correct the Project Brief source in Agent Surface, then Sync.</p>
+        <p>Correct the Project Brief source in Agent Surface, then reload this view.</p>
       </div>
     );
   }
@@ -53,7 +53,7 @@ function BriefCanvas({ brief }: { readonly brief: ProjectOverviewModel["brief"] 
         <p className="projection-note" role="status">
           Some Brief content may be incomplete:{" "}
           {brief.issues[0]?.message ?? "source data is partial"}. Use it only for bounded
-          orientation; correct the source in Agent Surface, then Sync.
+          orientation; correct the source in Agent Surface, then reload this view.
         </p>
       ) : null}
       <p lang={brief.value.languages?.projectPurpose}>{brief.value.projectPurpose}</p>
@@ -94,7 +94,7 @@ function SummaryCanvas({ summary }: { readonly summary: ProjectOverviewModel["su
     return (
       <div className="orientation-state">
         <h2>Project Summary unavailable</h2>
-        <p>No Project Summary is available in the current Snapshot.</p>
+        <p>No Project Summary is available in the current Project Read Model generation.</p>
       </div>
     );
   }
@@ -105,7 +105,7 @@ function SummaryCanvas({ summary }: { readonly summary: ProjectOverviewModel["su
         <h2>Project Summary unavailable</h2>
         <p>{cause}</p>
         <p>The complete Summary cannot be trusted; Project Brief remains independently readable.</p>
-        <p>Correct the Project Summary source in Agent Surface, then Sync.</p>
+        <p>Correct the Project Summary source in Agent Surface, then reload this view.</p>
       </div>
     );
   }
@@ -119,7 +119,7 @@ function SummaryCanvas({ summary }: { readonly summary: ProjectOverviewModel["su
         <p className="projection-note" role="status">
           Some Summary content may be incomplete:{" "}
           {summary.issues[0]?.message ?? "source data is partial"}. Use only the visible sections;
-          correct the source in Agent Surface, then Sync.
+          correct the source in Agent Surface, then reload this view.
         </p>
       ) : null}
       <section>

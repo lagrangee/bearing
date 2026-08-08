@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { PROJECT_SNAPSHOT_VERSION, projectSnapshotSchema } from "../src/project-snapshot/schema";
+import {
+  PROJECT_GENERATION_VERSION,
+  projectGenerationSchema,
+} from "../src/project-generation/schema";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 
 const removedPortalModules = [
@@ -50,22 +53,22 @@ test("clean-cuts obsolete Portal disclosure and persistent discovery compatibili
   const snapshotSources = (
     await Promise.all(
       files
-        .filter((file) => file.startsWith("src/project-snapshot/"))
+        .filter((file) => file.startsWith("src/project-generation/"))
         .map((file) => readFile(join(process.cwd(), file), "utf8")),
     )
   ).join("\n");
   expect(snapshotSources).not.toMatch(/NextWorkGuidance|nextWorkGuidanceSchema|guidance-item/iu);
 });
 
-test("exposes only the revised versioned Portal Snapshot contract", () => {
-  const snapshot = createProjectOverviewFixture();
+test("exposes only the revised versioned Project Generation contract", () => {
+  const generation = createProjectOverviewFixture();
 
-  expect(PROJECT_SNAPSHOT_VERSION).toBe(20);
-  expect("guidance" in snapshot).toBe(false);
+  expect(PROJECT_GENERATION_VERSION).toBe(20);
+  expect("guidance" in generation).toBe(false);
   expect(
-    projectSnapshotSchema.safeParse({ ...snapshot, guidance: { validity: "absent" } }).success,
+    projectGenerationSchema.safeParse({ ...generation, guidance: { validity: "absent" } }).success,
   ).toBe(false);
-  expect(projectSnapshotSchema.safeParse({ ...snapshot, nativeScopeDiscovery: {} }).success).toBe(
-    false,
-  );
+  expect(
+    projectGenerationSchema.safeParse({ ...generation, nativeScopeDiscovery: {} }).success,
+  ).toBe(false);
 });

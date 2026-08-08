@@ -1,9 +1,9 @@
 import type { DecodedBearingRecordGeneration } from "./bearing-record-decoder";
 import { fingerprintInputRecords, orderedInputLocators } from "./fingerprint";
-import type { SyncInputRecord } from "./sync-input-generation";
+import type { ProjectInputRecord } from "./project-input-generation";
 import type { AdvisoryFreshness, AdvisoryId, SemanticFreshness } from "./types";
 
-type CapturedInputRecord = SyncInputRecord;
+type CapturedInputRecord = ProjectInputRecord;
 
 const advisories = (decoded: DecodedBearingRecordGeneration) =>
   decoded.records.filter((record) => record.data?.Type === "planning-audit");
