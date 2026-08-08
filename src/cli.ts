@@ -11,7 +11,7 @@ import packageMetadata from "../package.json";
 import { ACTIVATION_ORIGINS, checkBearingActivation } from "./activation-policy";
 import { createPlanningLineageAgentHandoff } from "./agent-planning-lineage-handoff";
 import { registerAsset } from "./asset-registration";
-import { runCatalogCommand } from "./catalog/cli";
+import { CatalogCommandUsageError, runCatalogCommand } from "./catalog/cli";
 import {
   executorNominationAssessmentSchema,
   resolveExecutorNominations,
@@ -54,7 +54,7 @@ Usage:
   bearing deactivate --repo <path>
   bearing purge --repo <path> [--plan] [--confirm-purge --purge-plan-token <sha256> (--recovery-export <path> | --accept-no-recovery-export)]
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [--producer-reference <reference>] [--produced-for <reference>] [--produced-at <date-or-ISO-instant>]
-  bearing catalog <rename|forget|remove|relink|reset> [options]
+  bearing catalog <inspect|rename|unregister|relink|reset> [options]
   bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
   bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
   bearing provider capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] [--repo <path>]
@@ -509,7 +509,7 @@ const runRepositoryLifecycle = async (
   }
   if (result.catalog.outcome === "failed") {
     process.stderr.write(
-      `Catalog removal failed: ${result.catalog.message}\nCompleted: repository lifecycle apply.\nPending: Project Catalog removal.\nPersistent external effects: the repository lifecycle state is already committed and is not rolled back by Catalog failure.\nResumption point: if the database is unavailable, run confirmed Catalog reset and Setup re-registration; then run \`bearing catalog remove --repo ${options.repoRoot}\`.\n`,
+      `Catalog unregister failed: ${result.catalog.message}\nCompleted: repository lifecycle apply.\nPending: Project Catalog unregister.\nPersistent external effects: the repository lifecycle state is already committed and is not rolled back by Catalog failure.\nResumption point: if the database is unavailable, run confirmed Catalog reset and Setup re-registration; then run \`bearing catalog unregister --repo ${options.repoRoot}\`.\n`,
     );
   }
   if (result.outcome === "blocked" || result.outcome === "partial") process.exitCode = 1;
@@ -909,5 +909,8 @@ try {
   await main();
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = error instanceof CommandUsageError ? error.exitCode : 1;
+  process.exitCode =
+    error instanceof CommandUsageError || error instanceof CatalogCommandUsageError
+      ? error.exitCode
+      : 1;
 }

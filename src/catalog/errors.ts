@@ -31,9 +31,11 @@ export class CatalogDuplicateRepositoryError extends Error {
   }
 }
 
-export class CatalogMoveConfirmationRequiredError extends Error {
+export class CatalogLocatorReplacementConfirmationRequiredError extends Error {
   public constructor() {
-    super("The existing repository is still available; explicit move confirmation is required.");
-    this.name = "CatalogMoveConfirmationRequiredError";
+    super(
+      "The existing repository locator is still available; explicit locator replacement confirmation is required.",
+    );
+    this.name = "CatalogLocatorReplacementConfirmationRequiredError";
   }
 }

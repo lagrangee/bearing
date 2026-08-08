@@ -3,7 +3,11 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { forgetCatalogEntry, readCatalogDocument, upsertCatalogEntry } from "../src/catalog/store";
+import {
+  readCatalogDocument,
+  unregisterCatalogEntry,
+  upsertCatalogEntry,
+} from "../src/catalog/store";
 import {
   deactivateRepository,
   inspectPurgePlan,
@@ -157,7 +161,7 @@ test("purge preserves changed or newly-created Catalog identity after review", a
     });
     const changed = await confirmedPurge(homeDir, changedRoot, {
       beforeNamespaceRename: async () => {
-        await forgetCatalogEntry({ homeDir, entryId: "reviewed-entry" });
+        await unregisterCatalogEntry({ homeDir, entryId: "reviewed-entry" });
         await upsertCatalogEntry({
           homeDir,
           repoRoot: changedRoot,

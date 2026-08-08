@@ -106,5 +106,5 @@ and repository-state removal are separate Agent-owned lifecycle operations.
 
 Package uninstall remains owned by the package manager, for example
 `npm uninstall -g @lagrangee/bearing` for a global npm installation. It does not remove the Project
-Catalog or repository state. Never substitute `bearing catalog forget` for repository lifecycle:
-forgetting changes registration only.
+Catalog or repository state. Never substitute `bearing catalog unregister` for repository lifecycle:
+unregister changes registration only.

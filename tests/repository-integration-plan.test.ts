@@ -950,9 +950,9 @@ Example only; do not configure \`${contractLocator}\` here.
     expect(result.stdout).toContain("Outcome: partial");
     expect(result.stdout).toContain("Repository: applied");
     expect(result.stdout).toContain("Catalog: failed");
-    expect(result.stderr).toContain("Catalog removal failed");
+    expect(result.stderr).toContain("Catalog unregister failed");
     expect(result.stderr).toContain("Completed: repository lifecycle apply");
-    expect(result.stderr).toContain("Pending: Project Catalog removal");
+    expect(result.stderr).toContain("Pending: Project Catalog unregister");
     expect(result.stderr).toContain("Persistent external effects:");
     expect(result.stderr).toContain("Resumption point:");
     expect(

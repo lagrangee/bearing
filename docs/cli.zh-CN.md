@@ -172,7 +172,7 @@ Portal 前台运行并打印 loopback URL。安装版本支持时，可用 `BEAR
 
 ## Catalog
 
-对 rename、forget、remove、relink 与需明确确认的 reset 等操作，使用 `bearing catalog --help` 和当前命令 help。Reset 会创建空的 SQLite Catalog；随后需再次运行 Setup 注册 repository。Catalog 操作会影响用户级 project registration；不要盲目执行。
+完整 Catalog CLI 只有 inspect、rename、unregister、relink 与需明确确认的 reset；使用 `bearing catalog --help` 查看语法。Unregister 必须且只能使用一个 Entry ID 或 repository-root selector。Relink 只替换 registration locator，绝不移动 repository files。Reset 会创建空的 SQLite Catalog；随后需再次运行 Repository Configuration 注册 repository。Catalog 操作会影响用户级 project registration；不要盲目执行。
 
 ## Global Uninstall 与 package-manager 边界
 

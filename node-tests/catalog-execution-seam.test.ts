@@ -29,12 +29,13 @@ import {
   CatalogBusyError,
   CatalogDuplicateRepositoryError,
   CatalogEntryNotFoundError,
-  CatalogMoveConfirmationRequiredError,
-  forgetCatalogEntry,
+  CatalogLocatorReplacementConfirmationRequiredError,
+  CatalogRecoveryRequiredError,
   readCatalogDocument,
   relinkCatalogEntry,
   renameCatalogEntry,
   resetCatalog,
+  unregisterCatalogEntry,
   upsertCatalogEntry,
 } from "../src/catalog/store";
 import { installKit } from "../src/installer";
@@ -163,13 +164,13 @@ test("SQLite Catalog preserves domain CRUD, stable identity, constraints, and mi
     );
     await assert.rejects(
       relinkCatalogEntry({ homeDir, entryId: "entry-one", newRepoRoot: secondRoot }),
-      (error) => error instanceof CatalogMoveConfirmationRequiredError,
+      (error) => error instanceof CatalogLocatorReplacementConfirmationRequiredError,
     );
     const relinked = await relinkCatalogEntry({
       homeDir,
       entryId: "entry-one",
       newRepoRoot: secondRoot,
-      confirmMove: true,
+      confirmReplaceLocation: true,
     });
     assert.equal(relinked.entry.entryId, "entry-one");
     assert.equal(relinked.entry.repoRoot, await realpath(secondRoot));
@@ -179,12 +180,18 @@ test("SQLite Catalog preserves domain CRUD, stable identity, constraints, and mi
         homeDir,
         entryId: "entry-one",
         newRepoRoot: thirdRoot,
-        confirmMove: true,
+        confirmReplaceLocation: true,
       }),
       (error) => error instanceof CatalogDuplicateRepositoryError,
     );
-    assert.equal((await forgetCatalogEntry({ homeDir, entryId: "entry-one" })).outcome, "applied");
-    assert.equal((await forgetCatalogEntry({ homeDir, entryId: "entry-one" })).outcome, "no-op");
+    assert.equal(
+      (await unregisterCatalogEntry({ homeDir, entryId: "entry-one" })).outcome,
+      "applied",
+    );
+    assert.equal(
+      (await unregisterCatalogEntry({ homeDir, entryId: "entry-one" })).outcome,
+      "no-op",
+    );
     await assert.rejects(
       renameCatalogEntry({ homeDir, entryId: "entry-one", displayName: "Missing" }),
       (error) => error instanceof CatalogEntryNotFoundError,
@@ -294,6 +301,10 @@ test("SQLite Catalog returns bounded catalog-busy and succeeds after the writer 
       }),
       (error) => error instanceof CatalogBusyError && error.code === "catalog-busy",
     );
+    await assert.rejects(
+      unregisterCatalogEntry({ homeDir, entryId: "entry-a" }),
+      (error) => error instanceof CatalogBusyError && error.code === "catalog-busy",
+    );
     const elapsed = Date.now() - startedAt;
     assert.ok(elapsed >= 750, `Expected the default busy wait, received ${elapsed}ms.`);
     assert.ok(elapsed <= 5_000, `Expected bounded busy failure, received ${elapsed}ms.`);
@@ -331,6 +342,10 @@ test("SQLite Catalog rejects existing incompatible schema, constraints, and open
     versionDatabase.exec("PRAGMA user_version = 2");
     versionDatabase.close();
     assert.equal((await readCatalogState({ homeDir: versionHome })).state, "failed");
+    await assert.rejects(
+      unregisterCatalogEntry({ homeDir: versionHome, entryId: "version-entry" }),
+      (error) => error instanceof CatalogRecoveryRequiredError,
+    );
 
     await mkdir(join(constraintHome, ".bearing"), { recursive: true });
     const constraintDatabase = new DatabaseSync(catalogDatabasePath(constraintHome));
@@ -344,6 +359,10 @@ test("SQLite Catalog rejects existing incompatible schema, constraints, and open
     `);
     constraintDatabase.close();
     assert.equal((await readCatalogState({ homeDir: constraintHome })).state, "failed");
+    await assert.rejects(
+      unregisterCatalogEntry({ homeDir: constraintHome, entryId: "constraint-entry" }),
+      (error) => error instanceof CatalogRecoveryRequiredError,
+    );
     await assert.rejects(
       upsertCatalogEntry({
         homeDir: constraintHome,
@@ -395,6 +414,11 @@ test("SQLite Catalog fails closed, ignores legacy JSON, and recovers through res
     assert.deepEqual(await readCatalogDocument({ homeDir }), { version: 1, entries: [] });
     await writeFile(catalogDatabasePath(homeDir), "not a database");
     await assert.rejects(readCatalogDocument({ homeDir }), /unavailable/i);
+    await assert.rejects(
+      unregisterCatalogEntry({ homeDir, entryId: "any-entry" }),
+      (error) => error instanceof CatalogRecoveryRequiredError,
+    );
+    assert.equal(await readFile(catalogDatabasePath(homeDir), "utf8"), "not a database");
     await assert.rejects(resetCatalog({ homeDir, confirmed: false }), /confirmation/i);
     assert.equal((await resetCatalog({ homeDir, confirmed: true })).outcome, "applied");
     assert.deepEqual(await readCatalogDocument({ homeDir }), { version: 1, entries: [] });
@@ -614,6 +638,10 @@ test("the built and shipped CLI exposes only the SQLite Catalog surface", async 
       env: { ...process.env, HOME: homeDir },
     });
     assert.match(help.stdout, /catalog reset --confirm-empty/u);
+    assert.match(help.stdout, /catalog inspect/u);
+    assert.match(help.stdout, /catalog unregister/u);
+    assert.match(help.stdout, /confirm-replace-location/u);
+    assert.doesNotMatch(help.stdout, /catalog (?:forget|remove)\b|confirm-move/u);
     assert.doesNotMatch(help.stdout, /repair|lease|lock/u);
   } finally {
     await rm(homeDir, { recursive: true, force: true });
@@ -629,5 +657,6 @@ test("the built and shipped CLI exposes only the SQLite Catalog surface", async 
       document,
       /catalog\.json|catalog\.backup|repair-lock|repair-entry-lock|backup repair/u,
     );
+    assert.doesNotMatch(document, /catalog (?:forget|remove)\b|confirm-move/u);
   }
 });

@@ -102,4 +102,4 @@ repository-state removal 是不同的 Agent-owned lifecycle operations。
 
 Package uninstall 仍由 package manager 负责，例如 global npm installation 使用
 `npm uninstall -g @lagrangee/bearing`。它不会移除 Project Catalog 或 repository state。不要用
-`bearing catalog forget` 代替 repository lifecycle；forget 只改变 registration。
+`bearing catalog unregister` 代替 repository lifecycle；unregister 只改变 registration。

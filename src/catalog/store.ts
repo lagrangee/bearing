@@ -2,18 +2,17 @@ export {
   CatalogBusyError,
   CatalogDuplicateRepositoryError,
   CatalogEntryNotFoundError,
-  CatalogMoveConfirmationRequiredError,
+  CatalogLocatorReplacementConfirmationRequiredError,
   CatalogRecoveryRequiredError,
 } from "./errors";
 export {
   type CatalogEntryMutationResult,
-  type CatalogRemovalResult,
+  type CatalogUnregisterResult,
   type CatalogUpsertResult,
-  forgetCatalogEntry,
   relinkCatalogEntry,
   removeCatalogEntryByExactIdentity,
-  removeCatalogEntryByRepoRoot,
   renameCatalogEntry,
+  unregisterCatalogEntry,
   upsertCatalogEntry,
 } from "./operations";
 export {

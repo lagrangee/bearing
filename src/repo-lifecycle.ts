@@ -3,7 +3,7 @@ import { lstat, rename, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { z } from "zod";
 import { agentSurfaceEntryFile, withoutBearingManagedPointer } from "./agent-surface-entry";
-import { removeCatalogEntryByExactIdentity, removeCatalogEntryByRepoRoot } from "./catalog/store";
+import { removeCatalogEntryByExactIdentity, unregisterCatalogEntry } from "./catalog/store";
 import { inspectInstallPath } from "./install-boundary";
 import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans, type InstallTargetWriter, writeInstallTarget } from "./installer";
@@ -158,7 +158,7 @@ const removeCatalogAfterLifecycle = async (
   repository: RepositoryLifecycleResult["repository"],
 ): Promise<RepositoryLifecycleResult> => {
   try {
-    const catalog = await removeCatalogEntryByRepoRoot({ homeDir, repoRoot });
+    const catalog = await unregisterCatalogEntry({ homeDir, repoRoot });
     return {
       outcome:
         repository.cleanup?.outcome === "residue"
