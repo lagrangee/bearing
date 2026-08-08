@@ -12,21 +12,17 @@ describe("G1 deterministic regression core", () => {
   test("keeps one bounded selection across the two deterministic seams", async () => {
     const expected = [
       {
-        key: "setup-apply-reconcile",
+        key: "repository-configuration",
         seam: "repository-lifecycle-cli",
         files: [
+          "tests/repository-configuration-product-seam.test.ts",
           "tests/repo-setup-regressions.test.ts",
-          "tests/repository-integration-plan.test.ts",
         ],
       },
       {
-        key: "cutover-lifecycle-recovery",
+        key: "repository-deactivation",
         seam: "repository-lifecycle-cli",
-        files: [
-          "tests/repository-cutover.test.ts",
-          "node-tests/repository-lifecycle.test.ts",
-          "tests/repository-recovery.test.ts",
-        ],
+        files: ["node-tests/repository-lifecycle.test.ts"],
       },
       {
         key: "asset-registration",
@@ -55,7 +51,7 @@ describe("G1 deterministic regression core", () => {
     ]);
 
     const files = g1RegressionCoreFiles();
-    expect(files.length).toBe(10);
+    expect(files.length).toBe(8);
     expect(new Set(files).size).toBe(files.length);
     for (const locator of files) await access(join(process.cwd(), locator));
   });

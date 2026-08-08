@@ -50,16 +50,30 @@ test("packed Catalog CLI exposes five exact lifecycle operations with truthful l
     expect(help.stdout).not.toMatch(/catalog (?:forget|remove)\b/u);
     expect(help.stdout).not.toContain("--confirm-move");
 
-    const setup = await product.run([
-      "setup",
+    const configureArguments = [
+      "--intent",
+      "activate",
       "--repo",
       firstRoot,
       "--surface",
       "agent-skills",
       "--provider-contract",
       "docs/agents/issue-tracker.md",
+      "--executor-mode",
+      "skip",
+    ] as const;
+    const plan = await product.run(["configure", "plan", ...configureArguments]);
+    expect(plan.exitClass, plan.stderr).toBe("success");
+    const planToken = (JSON.parse(plan.stdout) as { sealedPlanToken?: unknown }).sealedPlanToken;
+    if (typeof planToken !== "string") throw new Error("Configure plan returned no seal.");
+    const configured = await product.run([
+      "configure",
+      "apply",
+      ...configureArguments,
+      "--plan-token",
+      planToken,
     ]);
-    expect(setup.exitClass).toBe("success");
+    expect(configured.exitClass, configured.stderr).toBe("success");
 
     const inspected = await product.run(["catalog", "inspect", "--repo", firstRoot], {
       observeRoots: [product.homeDir, firstRoot, secondRoot],

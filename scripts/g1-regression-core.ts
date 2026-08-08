@@ -1,17 +1,16 @@
 export const G1_REGRESSION_CORE = [
   {
-    key: "setup-apply-reconcile",
-    seam: "repository-lifecycle-cli",
-    files: ["tests/repo-setup-regressions.test.ts", "tests/repository-integration-plan.test.ts"],
-  },
-  {
-    key: "cutover-lifecycle-recovery",
+    key: "repository-configuration",
     seam: "repository-lifecycle-cli",
     files: [
-      "tests/repository-cutover.test.ts",
-      "node-tests/repository-lifecycle.test.ts",
-      "tests/repository-recovery.test.ts",
+      "tests/repository-configuration-product-seam.test.ts",
+      "tests/repo-setup-regressions.test.ts",
     ],
+  },
+  {
+    key: "repository-deactivation",
+    seam: "repository-lifecycle-cli",
+    files: ["node-tests/repository-lifecycle.test.ts"],
   },
   {
     key: "asset-registration",

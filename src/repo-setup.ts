@@ -1,7 +1,6 @@
 import { lstat, mkdir, readFile, rmdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
-import packageMetadata from "../package.json";
 import {
   type AGENT_SURFACES,
   agentSurfaceEntryFile,
@@ -18,6 +17,12 @@ import { inspectInstallPath } from "./install-boundary";
 import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans, type InstallTargetWriter, preflightInstallTargets } from "./installer";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
+import { rebuildProjectReadModel } from "./project-read-model/provider-operations";
+import {
+  inspectProjectReadModel,
+  projectReadModelPath,
+  removeProjectReadModelForRebuild,
+} from "./project-read-model/store";
 import {
   assertMattProviderContractCurrent,
   assertRepositoryTargetPreconditionsCurrent,
@@ -27,8 +32,6 @@ import {
   type RepositoryTargetPrecondition,
 } from "./repository-integration-plan";
 import { repositoryManifestSchema } from "./schema-definitions";
-import { prepareSync } from "./sync-plan";
-import { buildSyncTransactionTargets } from "./sync-transaction";
 import type { RepositorySetupOptions, RepositorySetupResult } from "./types";
 
 const packageSchema = z.object({ version: z.string().min(1) });
@@ -119,15 +122,21 @@ const assertRepositoryPlansCurrent = async (
   for (const plan of plans) {
     if (plan.kind === "delete") {
       if ((await inspectInstallPath(plan.target)).kind !== "missing") {
-        throw new Error(`Fresh Setup validation found an undeleted target: ${plan.target}`);
+        throw new Error(
+          `Repository Configuration validation found an undeleted target: ${plan.target}`,
+        );
       }
       continue;
     }
     if (!("bytes" in plan)) {
-      throw new Error(`Fresh Setup validation found an unsupported target plan: ${plan.target}`);
+      throw new Error(
+        `Repository Configuration validation found an unsupported target plan: ${plan.target}`,
+      );
     }
     if (!(await readContainedFile(root, plan.target)).equals(plan.bytes)) {
-      throw new Error(`Fresh Setup validation found unexpected repository bytes: ${plan.target}`);
+      throw new Error(
+        `Repository Configuration validation found unexpected repository bytes: ${plan.target}`,
+      );
     }
   }
 };
@@ -222,7 +231,9 @@ const reconciliationProfileSelection = (
   }
   if (existingManifest === undefined) {
     if (retained.length > 0 || removed.length > 0) {
-      throw new Error("Fresh Setup cannot retain or remove an unconfigured Execution Profile.");
+      throw new Error(
+        "Repository Configuration cannot retain or remove an unconfigured Execution Profile.",
+      );
     }
     return { profiles: nominated, retainedProfiles: [], removedProfiles: [] };
   }
@@ -291,7 +302,7 @@ export const setupRepository = async (
   const requestedProfiles = validatedProfiles(options.profiles);
   if (options.provider === undefined) {
     throw new Error(
-      "Setup requires a selected-surface Matt provider contract; the removed 0.1.0 compatibility path made no repository writes.",
+      "Repository Configuration requires a selected-surface Matt provider contract; no repository writes were made.",
     );
   }
   {
@@ -319,11 +330,11 @@ export const setupRepository = async (
     if (blocker !== undefined) throw new Error(blocker.message);
     if (providerPrerequisite?.state !== "satisfied") {
       throw new Error(
-        "Matt provider contract is unsupported or unavailable; Bearing Setup made no repository writes.",
+        "Matt provider contract is unsupported or unavailable; Repository Configuration made no repository writes.",
       );
     }
     if (integrationPlan.lifecycle.kind === "invalid-or-unsupported") {
-      throw new Error(`Bearing Setup cannot apply: ${integrationPlan.lifecycle.reason}`);
+      throw new Error(`Repository Configuration cannot apply: ${integrationPlan.lifecycle.reason}`);
     }
     if (integrationPlan.lifecycle.kind === "deactivated" && options.confirmReactivate !== true) {
       throw new Error(
@@ -415,7 +426,9 @@ export const setupRepository = async (
         (target) => !target.startsWith(".bearing/"),
       );
       const ownerGroups = [
-        ...(bearingOwned.length === 0 ? [] : [`bearing-setup=[${bearingOwned.join(", ")}]`]),
+        ...(bearingOwned.length === 0
+          ? []
+          : [`bearing-repository-configuration=[${bearingOwned.join(", ")}]`]),
         ...(managedSurfaceBlocks.length === 0
           ? []
           : [`agent-surface-managed-block=[${managedSurfaceBlocks.join(", ")}]`]),
@@ -430,7 +443,25 @@ export const setupRepository = async (
     }
     const createdDirectories = await ensureNamespaces(root);
     let result: Awaited<ReturnType<typeof applyInstallPlans>>;
-    let syncPlans: readonly TargetPlan[] = [];
+    const initializeReadModel =
+      options.initializeReadModel === true &&
+      (integrationPlan.lifecycle.kind === "fresh" ||
+        integrationPlan.lifecycle.kind === "deactivated");
+    const readModelBefore = initializeReadModel ? await inspectProjectReadModel(root) : undefined;
+    const readModelTarget = projectReadModelPath(root);
+    const readModelTargetState = initializeReadModel
+      ? await inspectInstallPath(readModelTarget)
+      : undefined;
+    const readModelOriginal =
+      readModelTargetState?.kind === "file" && readModelTargetState.linkCount === 1
+        ? {
+            target: readModelTarget,
+            bytes: await readContainedFile(root, readModelTarget),
+            executable: false,
+            mode: readModelTargetState.mode & 0o7777,
+          }
+        : undefined;
+    let readModel: RepositorySetupResult["readModel"];
     try {
       result = await applyInstallPlans(
         root,
@@ -459,30 +490,21 @@ export const setupRepository = async (
           if (options.executorHomeDir !== undefined) {
             await assertExecutorRegistrationsCurrent(options.executorHomeDir, registrations);
           }
-          const syncPlan = await prepareSync(root, {
-            providerObservationIntent:
-              integrationPlan.lifecycle.kind === "fresh"
-                ? "initial-baseline"
-                : integrationPlan.lifecycle.kind === "deactivated"
-                  ? "recovery"
-                  : "ordinary-sync",
-          });
-          if (syncPlan.diagnostics.length > 0) {
+          if (!initializeReadModel) return [];
+          const rebuilt = await rebuildProjectReadModel(root);
+          if (rebuilt.outcome !== "complete" || rebuilt.result.acquisitionCount !== 0) {
             throw new Error(
-              `Fresh Setup validation requires zero Sync diagnostics; found ${syncPlan.diagnostics.length}.`,
+              "Repository Configuration could not initialize the local Project Read Model without provider acquisition.",
             );
           }
-          syncPlans = syncPlan.changed
-            ? buildSyncTransactionTargets(syncPlan, {
-                packageName: packageMetadata.name,
-                packageVersion: packageMetadata.version,
-                completedAt: new Date().toISOString(),
-              }).targets
-            : [];
-          return syncPlans;
+          readModel = {
+            acquisitionCount: 0,
+            missingEvidenceScopes: rebuilt.result.missingEvidenceScopes,
+          };
+          return [];
         },
         async () => {
-          await assertRepositoryPlansCurrent(root, [...plans, ...syncPlans]);
+          await assertRepositoryPlansCurrent(root, plans);
           await assertMattProviderContractCurrent(
             root,
             provider.contractLocator,
@@ -492,9 +514,33 @@ export const setupRepository = async (
           if (options.executorHomeDir !== undefined) {
             await assertExecutorRegistrationsCurrent(options.executorHomeDir, registrations);
           }
+          if (initializeReadModel && (await inspectProjectReadModel(root)).state !== "ready") {
+            throw new Error(
+              "Repository Configuration did not publish a readable Project Read Model.",
+            );
+          }
         },
       );
     } catch (error) {
+      if (readModelOriginal !== undefined) {
+        try {
+          await applyInstallPlans(root, [readModelOriginal]);
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [error, cleanupError],
+            "Repository Configuration failed and could not restore its previous Project Read Model.",
+          );
+        }
+      } else if (initializeReadModel && readModelBefore?.state === "missing") {
+        try {
+          await removeProjectReadModelForRebuild(root);
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [error, cleanupError],
+            "Repository Configuration failed and could not remove its transaction-created Project Read Model.",
+          );
+        }
+      }
       await removeCreatedNamespaces(createdDirectories);
       throw error;
     }
@@ -505,6 +551,7 @@ export const setupRepository = async (
       outcome: result.outcome === "applied" || namespaceTargets.length > 0 ? "applied" : "no-op",
       manifestPath: join(root, ".bearing/manifest.json"),
       changedTargets: [...result.changedTargets, ...namespaceTargets].sort(),
+      ...(readModel === undefined ? {} : { readModel }),
     };
   }
 };

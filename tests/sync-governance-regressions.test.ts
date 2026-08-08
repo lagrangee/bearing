@@ -28,7 +28,7 @@ describe("sync governance review regressions", () => {
     expect(sitemap).not.toContain(".scratch/unbound");
   });
 
-  test("diagnoses invalid manifest and advisory snapshot schemas", async () => {
+  test("fails closed before advisory inspection when the manifest is invalid", async () => {
     const root = await createValidBearingRepo();
     await writeFixture(
       root,
@@ -46,22 +46,10 @@ describe("sync governance review regressions", () => {
       `---\nType: next-work-guidance\nID: next-work-guidance:current\nGenerated at: now\nInputs: []\nInput fingerprint: sha256:${"b".repeat(64)}\nSemantic coverage: complete\n---\n\n# Guidance\n\n## Primary Recommendation\n\nContinue.\n\n## Alternatives\n\n1. One.\n2. Two.\n`,
     );
 
-    const result = await runSync(root);
-    const targets = result.diagnostics.map((diagnostic) => diagnostic.target);
-    const sitemap = await readFile(result.sitemapPath, "utf8");
-
-    expect(targets).toContain(".bearing/manifest.json");
-    expect(targets).toContain(".bearing/state/planning-audit.md");
-    expect(targets).toContain(".bearing/state/next-work-guidance.md");
-    expect(sitemap).toContain("`invalid:.bearing/state/planning-audit.md` | Audit | invalid");
-    expect(sitemap).toContain(
-      "`invalid:.bearing/state/next-work-guidance.md` | Guidance | invalid",
-    );
-    expect(sitemap).not.toContain("`planning-audit:wrong`");
-    expect(sitemap).not.toContain("`next-work-guidance:current`");
+    await expect(runSync(root)).rejects.toThrow(/requires an Active Repository Configuration/iu);
   });
 
-  test("diagnoses duplicate manifest selections", async () => {
+  test("fails closed when the manifest has duplicate selections", async () => {
     const root = await createValidBearingRepo();
     await writeFixture(
       root,
@@ -74,14 +62,7 @@ describe("sync governance review regressions", () => {
       })}\n`,
     );
 
-    const result = await runSync(root);
-
-    expect(result.diagnostics).toContainEqual({
-      code: "invalid-bearing-manifest",
-      impact: "blocking",
-      target: ".bearing/manifest.json",
-      message: "Bearing manifest does not match its package-owned schema.",
-    });
+    await expect(runSync(root)).rejects.toThrow(/requires an Active Repository Configuration/iu);
   });
 
   test("diagnoses Next Work Guidance with more than two alternatives", async () => {

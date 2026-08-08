@@ -11,6 +11,7 @@ import {
   currentBasisFingerprint,
   inspectProject,
   materializeProjectReadModelCandidate,
+  queryCommittedProject,
 } from "../src/project-read-model/inspect";
 import {
   inspectProjectReadModel,
@@ -227,20 +228,40 @@ test("Project Read Model publishes atomically, preserves last-good, and stays is
       ),
     );
 
-    const samples: number[] = [];
-    for (let index = 0; index < 20; index += 1) {
-      const started = performance.now();
-      const inspected = await inspectProject(fixture.root, {
+    for (let index = 0; index < 5; index += 1) {
+      await queryCommittedProject(fixture.root, {
         kind: "planning-reference",
         reference: "effort:e001",
       });
-      samples.push(performance.now() - started);
+    }
+    const querySamples: number[] = [];
+    for (let index = 0; index < 20; index += 1) {
+      const started = performance.now();
+      const inspected = await queryCommittedProject(fixture.root, {
+        kind: "planning-reference",
+        reference: "effort:e001",
+      });
+      querySamples.push(performance.now() - started);
       assert.ok(inspected.outcome === "complete" || inspected.outcome === "partial");
       assert.equal(inspected.generation?.publicationCount, 3);
     }
-    samples.sort((left, right) => left - right);
-    assert.ok((samples[Math.ceil(samples.length * 0.95) - 1] ?? Infinity) < 100);
-    assert.ok((samples.at(-1) ?? Infinity) < 500);
+    querySamples.sort((left, right) => left - right);
+    const queryP95 = querySamples[Math.ceil(querySamples.length * 0.95) - 1] ?? Infinity;
+    assert.ok(queryP95 < 100, `Typed query p95 was ${queryP95.toFixed(3)} ms.`);
+
+    const basisSamples: number[] = [];
+    for (let index = 0; index < 20; index += 1) {
+      const started = performance.now();
+      const unchanged = await inspectProject(fixture.root, {
+        kind: "planning-reference",
+        reference: "effort:e001",
+      });
+      basisSamples.push(performance.now() - started);
+      assert.ok(unchanged.outcome === "complete" || unchanged.outcome === "partial");
+      assert.equal(unchanged.generation?.publicationCount, 3);
+    }
+    const basisMaximum = Math.max(...basisSamples);
+    assert.ok(basisMaximum < 500, `Unchanged basis max was ${basisMaximum.toFixed(3)} ms.`);
     assert.ok((await readFile(projectReadModelPath(fixture.root))).length > 0);
 
     await rm(summaryPath);

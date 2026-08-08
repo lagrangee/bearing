@@ -1,10 +1,25 @@
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = join(projectRoot, "node-tests");
+const sqliteProcessSeamArtifact = "architecture-contraction-sqlite-process-seam.test.js";
+
+const runNodeTestGroup = async (label: string, artifacts: readonly string[]): Promise<void> => {
+  if (artifacts.length === 0) return;
+  const child = Bun.spawn(["node", "--test", ...artifacts], {
+    cwd: projectRoot,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const exitCode = await child.exited;
+  if (exitCode !== 0) {
+    throw new Error(`${label} failed with exit code ${exitCode}.`);
+  }
+};
 
 const selectEntrypoints = async (): Promise<string[]> => {
   const requested = process.argv.slice(2);
@@ -57,16 +72,14 @@ const run = async (): Promise<void> => {
       );
     }
 
-    const child = Bun.spawn(["node", "--test", ...artifacts], {
-      cwd: projectRoot,
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-    const exitCode = await child.exited;
-    if (exitCode !== 0) {
-      throw new Error(`Node Catalog test lane failed with exit code ${exitCode}.`);
-    }
+    const sqliteProcessSeam = artifacts.filter(
+      (artifact) => basename(artifact) === sqliteProcessSeamArtifact,
+    );
+    const portableCorrectness = artifacts.filter(
+      (artifact) => basename(artifact) !== sqliteProcessSeamArtifact,
+    );
+    await runNodeTestGroup("SQLite process/performance seam", sqliteProcessSeam);
+    await runNodeTestGroup("Portable Node correctness lane", portableCorrectness);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }

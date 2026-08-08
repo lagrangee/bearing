@@ -16,10 +16,6 @@ import {
   inspectRepositoryIntegrationLifecycle,
   type RepositoryIntegrationLifecycle,
 } from "./repository-integration-lifecycle";
-import {
-  diagnoseRepositoryRecovery,
-  type RepositoryRecoveryDiagnosis,
-} from "./repository-recovery";
 import { repositoryManifestSchema } from "./schema-definitions";
 import type { RepositorySetupOptions } from "./types";
 
@@ -29,7 +25,6 @@ export type RepositoryIntegrationPlan = Readonly<{
   planVersion: 1;
   repoRoot: string;
   lifecycle: RepositoryIntegrationLifecycle;
-  recoveryDiagnosis?: RepositoryRecoveryDiagnosis;
   canApply: boolean;
   blockers: readonly RepositoryIntegrationBlocker[];
   stages: Readonly<{
@@ -54,7 +49,10 @@ export type RepositoryIntegrationPlan = Readonly<{
 }>;
 
 export type RepositoryIntegrationBlocker = Readonly<{
-  code: "unsafe-repository-target" | "unsupported-executor-registration";
+  code:
+    | "unsafe-repository-target"
+    | "unsupported-executor-registration"
+    | "unsupported-provider-contract";
   target: string;
   message: string;
 }>;
@@ -83,7 +81,8 @@ const validatedProfileDisposition = (profiles: readonly string[]): readonly stri
 
 const plannedTargets = (
   root: string,
-  options: Pick<RepositorySetupOptions, "surfaces" | "profiles" | "removeProfiles">,
+  options: Pick<RepositorySetupOptions, "surfaces" | "profiles" | "removeProfiles"> &
+    Readonly<{ existingSurfaces: readonly RepositorySetupOptions["surfaces"][number][] }>,
 ): readonly string[] => {
   const targets = [
     join(root, ".bearing/manifest.json"),
@@ -92,7 +91,9 @@ const plannedTargets = (
     ...(options.removeProfiles ?? []).map((profile) =>
       join(root, ".bearing/executor-profiles", `${profile}.md`),
     ),
-    ...options.surfaces.map((surface) => join(root, agentSurfaceEntryFile(surface))),
+    ...[...new Set([...options.surfaces, ...options.existingSurfaces])].map((surface) =>
+      join(root, agentSurfaceEntryFile(surface)),
+    ),
   ];
   return uniqueSorted(targets).map((target) => relative(root, target));
 };
@@ -108,11 +109,6 @@ const setupPlanningSelectionSchema = z.object({
       contractLocator: displaySourceLocatorSchema,
     })
     .optional(),
-});
-
-const invalidLifecycle = (reason: string): RepositoryIntegrationLifecycle => ({
-  kind: "invalid-or-unsupported",
-  reason,
 });
 
 const captureTargetPrecondition = async (
@@ -252,7 +248,9 @@ export const assertMattProviderContractCurrent = async (
 ): Promise<void> => {
   const current = await inspectMattProviderContract(root, contractLocator, surfaces);
   if (!current.supported || !equalJson(current.precondition, expected.precondition)) {
-    throw new Error(`Matt provider contract changed after Fresh Setup review: ${contractLocator}`);
+    throw new Error(
+      `Matt provider contract changed after Repository Configuration review: ${contractLocator}`,
+    );
   }
 };
 
@@ -299,21 +297,14 @@ export const planRepositoryIntegration = async (
     provider: selection.provider,
   };
   const inspectedLifecycle = await inspectRepositoryIntegrationLifecycle(root);
-  const inspectedDiagnosis =
-    inspectedLifecycle.kind === "invalid-or-unsupported" ||
-    inspectedLifecycle.kind === "deactivated" ||
-    inspectedLifecycle.kind === "active"
-      ? await diagnoseRepositoryRecovery(root, options.executorHomeDir)
-      : undefined;
-  const recoveryDiagnosis =
-    inspectedDiagnosis !== undefined && inspectedDiagnosis.blockers.length > 0
-      ? inspectedDiagnosis
-      : undefined;
-  const lifecycle =
-    recoveryDiagnosis === undefined
-      ? inspectedLifecycle
-      : invalidLifecycle(recoveryDiagnosis.blockers.map((blocker) => blocker.impact).join(" "));
-  const targets = plannedTargets(root, normalizedOptions);
+  const lifecycle = inspectedLifecycle;
+  const existingSurfaces =
+    lifecycle.kind === "active" || lifecycle.kind === "deactivated"
+      ? repositoryManifestSchema.parse(
+          JSON.parse(await readFile(join(root, ".bearing/manifest.json"), "utf8")),
+        ).surfaces
+      : [];
+  const targets = plannedTargets(root, { ...normalizedOptions, existingSurfaces });
   const preconditions = await captureRepositoryTargetPreconditions(root, targets);
   let executorRegistrationError: string | undefined;
   if (normalizedOptions.provider !== undefined) {
@@ -397,9 +388,6 @@ export const planRepositoryIntegration = async (
     planVersion: 1,
     repoRoot: root,
     lifecycle: Object.freeze(lifecycle),
-    ...(recoveryDiagnosis === undefined
-      ? {}
-      : { recoveryDiagnosis: Object.freeze(recoveryDiagnosis) }),
     canApply,
     blockers: Object.freeze(blockers.map((blocker) => Object.freeze(blocker))),
     stages: Object.freeze({

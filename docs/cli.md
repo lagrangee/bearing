@@ -47,106 +47,52 @@ immediately preceding minor is supported; cross-major and multi-minor skips are 
 is not repository-state rollback. If state was upgraded, restore the release-specific verified
 backup first; otherwise the downgrade fails closed.
 
-## Enable one repository
+## Configure one repository
 
-The managed Agent Surface pointer uses the package-owned read-only activation check before loading
-the global skill for an ordinary repository request:
-
-```bash
-bearing activation check --origin model-invoked --repo .
-```
-
-The versioned JSON disposition is `invoke-bearing` only for an Active manifest. Fresh and
-Deactivated return `continue-without-bearing`; Invalid or Unsupported return
-`stop-for-explicit-entry`. An explicit Bearing entry uses `--origin explicit` and routes to
-ordinary Bearing work, Setup, reactivation, or recovery according to the same lifecycle
-inspection. The check reads no Catalog or planning projection and performs no writes.
+Repository Configuration is Agent-led. Bare `bearing configure` redirects to the public Bearing
+skill. The deterministic CLI provides only machine facts, a sealed plan, and exact apply:
 
 ```bash
-bearing setup --repo . --surface agent-skills \
-  --provider-contract docs/agents/issue-tracker.md \
-  --executor agent-skills:implement \
-  --executor-assessment '<Agent-Surface-authored semantic assessment JSON>'
+bearing configure inspect --repo .
+bearing configure plan --intent activate --repo . --surface agent-skills \
+  --provider-contract docs/agents/issue-tracker.md --executor-mode skip
+bearing configure apply --intent activate --repo . --surface agent-skills \
+  --provider-contract docs/agents/issue-tracker.md --executor-mode skip \
+  --plan-token <sealedPlanToken>
 ```
 
-`setup` enables the repository without copying package-owned contracts or skills into it.
-Fresh Setup requires one confirmed repository-relative `matt-skills/v1` Provider Contract locator.
-It writes an active manifest, the Provider Configuration, and managed pointers only for selected
-Agent Surfaces as one repository Apply Unit; zero executor nominations is a complete success and
-does not install the Generic fallback. Catalog registration follows repository validation and is
-reported independently.
-`--executor` is repeatable and accepts only a portable, surface-qualified locator for a skill the
-user already nominated. Each nomination requires one matching `--executor-assessment` containing
-the Agent Surface's exact directly required local reference locators, explicit
-end-to-end/final-writeback conclusion, exact source excerpts, and source-supported profile content.
-The CLI verifies those references and excerpts against only the nominated skill contract; it does
-not infer ownership from free-prose keywords. Setup reads no other executor skill. Omit both options
-to skip specialized registration.
-Repeated Setup returns a byte-preserving no-op when the active configuration matches. Material
-drift requires `--confirm-repair`. The Agent Surface revalidates each existing specialized profile
-by supplying its current `--executor` and structured `--executor-assessment`; an unchanged
-assessment produces no write and does not replay an accepted user decision. If the skill is
-missing or materially changed, the user explicitly chooses an assessed update,
-`--retain-executor <profile-key>`, or `--remove-executor <profile-key>` with `--confirm-repair`.
-A deactivated repository is never re-enabled implicitly; after
-reviewing its retained surfaces, Provider Configuration, and profiles, pass
-`--confirm-reactivate` to restore the managed pointers and active manifest in one Apply Unit.
-It refuses an unsupported newer repository schema and directs you to a compatible Bearing version;
-it never rewrites newer state as schema 1.
+Inspect performs no writes and makes no preference or product decision. Plan needs every material
+choice and returns exact targets, preconditions, preservation effects, and a token for that exact
+repository generation. Apply recomputes the plan, rejects stale or mismatched tokens, and modifies
+only the reviewed Bearing machine configuration and managed pointers. Fresh Configuration creates
+the disposable Project Read Model without provider acquisition or substantive planning objects.
+Catalog upsert runs after repository validation and reports failure separately. Portal handoff
+reports a compatible URL, an incompatible Host restart instruction, or a foreground start
+instruction; it never starts Portal.
 
-An inspected 0.1.0 repository requires an explicit incompatible cutover; a package-version change
-alone does not trigger it. First inspect the exact plan without writing:
+Use repeatable `--executor` and matching `--executor-assessment` values only after the user nominates
+a capable executor. Use `--executor-mode skip` only after an explicit skip decision. Existing
+profiles can be retained or removed with `--retain-executor` and `--remove-executor`. Bearing does
+not install an executor or infer one from free prose.
+
+Deactivate through the same sealed lifecycle:
 
 ```bash
-bearing setup --repo . --surface agent-skills \
-  --provider-contract docs/agents/issue-tracker.md \
-  --cutover-at 2026-07-26T12:34:56.000Z --plan
+bearing configure plan --intent deactivate --repo .
+bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanToken>
 ```
 
-After separately accepting the upgrade direction and then the complete plan, repeat the same
-selection and timestamp with `--accept-upgrade-direction --confirm-cutover
---cutover-plan-token <confirmationToken>`. The token binds the second consent to the inspected
-repository generation; any changed source or write set requires a new plan and consent. Setup creates and
-verifies the reported `.bearing/backups/0.1.0-to-0.1.1-<timestamp>/` Recovery Bundle before one
-rollback-protected conversion. The bundle retains old State, Effort sidecars, integration sources,
-managed blocks, hashes, inventory, and receipt; it excludes cache, Matt-native work, unmanaged
-content, and external Asset payloads. Conversion moves Efforts into canonical
-`.bearing/state/efforts/`, rebuilds disposable projections, and preserves native work. A repository
-failure restores the old integration while retaining the verified bundle; later Catalog failure is
-reported as a separate resumable partial outcome.
+Deactivation removes the managed pointer and disposable cache. It preserves canonical state,
+Provider Configuration, profiles, artifacts, and native work. Catalog unregister is a later,
+independently reported stage. Unsupported Preview state is removal-required. Bearing has no
+built-in migration, cutover, silent repair, or repository Purge. Repository removal is an external,
+explicitly authorized, Agent-reviewed platform operation followed by Fresh Configuration.
 
-## Deactivate or purge one repository
-
-```bash
-bearing deactivate --repo .
-bearing purge --repo . --plan
-bearing purge --repo . --confirm-purge --purge-plan-token <confirmationToken> \
-  --recovery-export /safe/external/bearing-recovery
-# Or explicitly accept unrecoverable removal:
-bearing purge --repo . --confirm-purge --purge-plan-token <confirmationToken> \
-  --accept-no-recovery-export
-```
-
-Use these only through an accepted `bearing-setup` lifecycle decision. `deactivate` changes the
-manifest to `status: deactivated` and removes only its registered managed root pointers, disposable
-cache, and Catalog registration. It preserves `.bearing/state`, Provider Configuration, profiles,
-backups, native `.scratch` work, and durable artifacts as the reactivation baseline. `purge`
-first returns a no-write exact inventory of every `.bearing` path (including State, profiles,
-Registry and backups), each verifiable managed block, and the matching Catalog entry. Its token
-binds confirmation to that generation. Confirmation must either create and verify one recovery
-export outside `.bearing`, or explicitly accept that canonical history and local backups are
-unrecoverable. It then removes only the reviewed `.bearing` namespace and managed root pointers;
-it preserves `.scratch`, source, docs, external Asset payloads, and the global kit. A recognized
-older or newer schema, unsafe owned target, ambiguous block, or changed generation fails closed.
-Invalid repositories may be purged only when every target remains safely identifiable. After either repository mutation
-commits, Catalog removal is reported separately and can be retried safely if it fails. Purge first
-atomically detaches `.bearing`; if recursive
-cleanup then fails, the command returns blocked and prints the exact partial quarantine path. That
-residue is not a backup, and Bearing never claims that partially deleted bytes were restored.
-Both lifecycle commands reject a linked or otherwise unsafe `.bearing` namespace. Before reading or
-changing `.bearing/manifest.json`, they require one supported single-link regular lifecycle
-manifest when repository configuration exists; a missing authority with retained configuration,
-symlink, directory, multiply-linked file, or special type fails closed.
+The managed pointer gives contextual nomination guidance. Explicit Bearing requests, reliable
+continuations, and materially relevant planning or governance work can nominate Bearing. The
+working directory, generic roadmap words, repository-independent conversation, and ordinary code
+work do not nominate it. Functional operations validate Active lifecycle before cache creation,
+provider I/O, or mutation.
 
 ## Sync
 

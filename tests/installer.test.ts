@@ -160,7 +160,7 @@ describe("Bearing kit installer", () => {
         surfaces: ["agent-skills"],
         profiles: ["generic-agent"],
       }),
-    ).rejects.toThrow("removed 0.1.0 compatibility path");
+    ).rejects.toThrow("requires a selected-surface Matt provider contract");
 
     expect(await readFile(agentsPath, "utf8")).toBe("# Project rules\n");
     await expect(access(join(repoRoot, ".bearing"))).rejects.toThrow();

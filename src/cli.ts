@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import packageMetadata from "../package.json";
-import { ACTIVATION_ORIGINS, checkBearingActivation } from "./activation-policy";
 import { createPlanningLineageAgentHandoff } from "./agent-planning-lineage-handoff";
 import { registerAsset } from "./asset-registration";
 import { CatalogCommandUsageError, runCatalogCommand } from "./catalog/cli";
@@ -36,10 +35,12 @@ import {
   reconcileProjectNative,
   verifyAllProjectProviderScopes,
 } from "./project-read-model/provider-operations";
-import { reconcileRepository } from "./reconcile-repository";
-import { deactivateRepository, inspectPurgePlan, purgeRepository } from "./repo-lifecycle";
-import { inspectLegacyCutoverPlan } from "./repository-cutover";
-import { planRepositoryIntegration } from "./repository-integration-plan";
+import {
+  applyRepositoryConfiguration,
+  inspectRepositoryConfiguration,
+  planRepositoryConfiguration,
+} from "./repository-configuration";
+import { assertActiveRepositoryIntegration } from "./repository-integration-lifecycle";
 import { runSync } from "./sync";
 import { commitSyncPlan, prepareSync } from "./sync-plan";
 import type { AgentSurface } from "./types";
@@ -49,10 +50,10 @@ const HELP = `Bearing ${packageMetadata.version}
 Usage:
   bearing
   bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
-  bearing setup --repo <path> --surface <agent-skills|claude> --provider-contract <repository-relative-path> [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>] [--confirm-repair] [--confirm-reactivate] [--accept-upgrade-direction --confirm-cutover --cutover-at <ISO-8601> --cutover-plan-token <sha256>] [--plan]
-  bearing activation check --origin <model-invoked|explicit> [--repo <path>]
-  bearing deactivate --repo <path>
-  bearing purge --repo <path> [--plan] [--confirm-purge --purge-plan-token <sha256> (--recovery-export <path> | --accept-no-recovery-export)]
+  bearing configure
+  bearing configure inspect [--repo <path>]
+  bearing configure plan --intent <activate|deactivate> [--repo <path>] [--surface <agent-skills|claude>] [--provider-contract <repository-relative-path>] [--executor-mode <skip|configure>] [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>]
+  bearing configure apply --intent <activate|deactivate> --plan-token <sha256> [configuration options from the reviewed plan]
   bearing asset register --repo <path> --id <asset:id> --title <text> --kind <kind> --location <locator> --owner <reference> --producer-kind <kind> [--producer-name <name> | --executor-capability <surface:skill>] [--producer-reference <reference>] [--produced-for <reference>] [--produced-at <date-or-ISO-instant>]
   bearing catalog <inspect|rename|unregister|relink|reset> [options]
   bearing sync [--repo <path>] [--initialize-provider-observations | --recover-provider-observations | --full-provider-verification]
@@ -68,10 +69,7 @@ Usage:
 Commands:
   <none>   Run Global Kit Install, Update, Repair, or Uninstall in one terminal wizard.
   install  Install the global bundle, CLI, and skills for selected Agent Surfaces.
-  setup    Enable Bearing in one repository without copying package-owned contracts or skills into it.
-  activation  Check read-only repository eligibility and routing before Bearing activation.
-  deactivate  Remove repository enablement and managed pointers; preserve state and native work.
-  purge    Remove only the repository .bearing namespace and managed pointers after confirmation.
+  configure  Inspect, seal, and apply one exact Repository Configuration write set.
   asset    Register factual durable-output metadata in the repository Asset Registry.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
   sync     Rebuild deterministic diagnostics and the Project Sitemap under .bearing/cache/.
@@ -86,7 +84,8 @@ Environment:
 `;
 
 const surfaceSchema = z.array(z.enum(["agent-skills", "claude"])).min(1);
-const activationOriginSchema = z.enum(ACTIVATION_ORIGINS);
+const configurationIntentSchema = z.enum(["activate", "deactivate"]);
+const executorModeSchema = z.enum(["skip", "configure"]);
 
 const packageRoot = (): string => {
   const adjacent = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -170,29 +169,52 @@ const runInstallWizard = async (): Promise<void> => {
   );
 };
 
-const runSetup = async (args: readonly string[]): Promise<void> => {
+const runConfigure = async (args: readonly string[]): Promise<void> => {
+  const [subcommand, ...values] = args;
+  if (subcommand === undefined) {
+    process.stdout.write(
+      "Repository Configuration is Agent-led. Load the public Bearing skill, inspect machine facts, resolve one material choice at a time, then review one sealed plan.\n",
+    );
+    return;
+  }
+  if (subcommand === "inspect") {
+    const parsed = parseArgs({
+      args: values,
+      options: { repo: { type: "string" } },
+      allowPositionals: false,
+      strict: true,
+    });
+    const result = await inspectRepositoryConfiguration({
+      repoRoot: resolve(parsed.values.repo ?? process.cwd()),
+      packageRoot: packageRoot(),
+      homeDir: homeDirectory(),
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+  if (subcommand !== "plan" && subcommand !== "apply") {
+    throw new CommandUsageError("Usage: bearing configure <inspect|plan|apply> [options]");
+  }
   const parsed = parseArgs({
-    args: [...args],
+    args: values,
     options: {
       repo: { type: "string" },
+      intent: { type: "string" },
       surface: { type: "string", multiple: true },
       executor: { type: "string", multiple: true },
       "executor-assessment": { type: "string", multiple: true },
+      "executor-mode": { type: "string" },
       "provider-contract": { type: "string" },
       "retain-executor": { type: "string", multiple: true },
       "remove-executor": { type: "string", multiple: true },
-      "confirm-repair": { type: "boolean" },
-      "confirm-reactivate": { type: "boolean" },
-      "accept-upgrade-direction": { type: "boolean" },
-      "confirm-cutover": { type: "boolean" },
-      "cutover-at": { type: "string" },
-      "cutover-plan-token": { type: "string" },
-      plan: { type: "boolean" },
+      "plan-token": { type: "string" },
     },
     allowPositionals: false,
     strict: true,
   });
-  const surfaces = surfaceSchema.parse(parsed.values.surface ?? []);
+  const intent = configurationIntentSchema.parse(parsed.values.intent);
+  const surfaces =
+    parsed.values.surface === undefined ? [] : surfaceSchema.parse(parsed.values.surface);
   const provider =
     parsed.values["provider-contract"] === undefined
       ? undefined
@@ -213,130 +235,37 @@ const runSetup = async (args: readonly string[]): Promise<void> => {
       return executorNominationAssessmentSchema.parse(assessment);
     }),
   );
-  const profiles = [
-    ...registrations.map((registration) => registration.profileKey),
-    ...(parsed.values["retain-executor"] ?? []),
-  ];
-  if (parsed.values.plan === true) {
-    const plan = await planRepositoryIntegration({
-      repoRoot: resolve(parsed.values.repo ?? process.cwd()),
-      packageRoot: packageRoot(),
-      surfaces,
-      profiles,
-      registrations,
-      executorHomeDir: homeDirectory(),
-      retainProfiles: parsed.values["retain-executor"] ?? [],
-      removeProfiles: parsed.values["remove-executor"] ?? [],
-      confirmRepair: parsed.values["confirm-repair"] === true,
-      confirmReactivate: parsed.values["confirm-reactivate"] === true,
-      acceptUpgradeDirection: parsed.values["accept-upgrade-direction"] === true,
-      confirmCutover: parsed.values["confirm-cutover"] === true,
-      ...(parsed.values["cutover-at"] === undefined
-        ? {}
-        : { cutoverAt: parsed.values["cutover-at"] }),
-      ...(parsed.values["cutover-plan-token"] === undefined
-        ? {}
-        : { cutoverPlanToken: parsed.values["cutover-plan-token"] }),
-      ...(provider === undefined ? {} : { provider }),
-    });
-    const cutover =
-      plan.recoveryDiagnosis?.classification === "legacy-cutover" &&
-      provider !== undefined &&
-      parsed.values["cutover-at"] !== undefined
-        ? await inspectLegacyCutoverPlan(plan.repoRoot, {
-            repoRoot: plan.repoRoot,
-            packageRoot: packageRoot(),
-            surfaces,
-            profiles,
-            registrations,
-            retainProfiles: parsed.values["retain-executor"] ?? [],
-            removeProfiles: parsed.values["remove-executor"] ?? [],
-            provider,
-            cutoverAt: parsed.values["cutover-at"],
-          })
-        : undefined;
-    process.stdout.write(
-      `${JSON.stringify(
-        cutover === undefined
-          ? plan
-          : {
-              ...plan,
-              canApply:
-                parsed.values["accept-upgrade-direction"] === true &&
-                parsed.values["confirm-cutover"] === true &&
-                parsed.values["cutover-plan-token"] === cutover.confirmationToken,
-              cutover,
-            },
-        null,
-        2,
-      )}\n`,
-    );
-    return;
-  }
-  if (provider === undefined) {
-    throw new Error(
-      "Setup requires a selected-surface Matt provider contract; no repository writes were made.",
-    );
-  }
-  const result = await reconcileRepository({
+  const request = {
     repoRoot: resolve(parsed.values.repo ?? process.cwd()),
     packageRoot: packageRoot(),
     homeDir: homeDirectory(),
+    intent,
     surfaces,
-    profiles,
+    ...(provider === undefined ? {} : { provider }),
+    ...(parsed.values["executor-mode"] === undefined
+      ? {}
+      : { executorDecision: executorModeSchema.parse(parsed.values["executor-mode"]) }),
     registrations,
     retainProfiles: parsed.values["retain-executor"] ?? [],
     removeProfiles: parsed.values["remove-executor"] ?? [],
-    confirmRepair: parsed.values["confirm-repair"] === true,
-    confirmReactivate: parsed.values["confirm-reactivate"] === true,
-    acceptUpgradeDirection: parsed.values["accept-upgrade-direction"] === true,
-    confirmCutover: parsed.values["confirm-cutover"] === true,
-    ...(parsed.values["cutover-at"] === undefined
-      ? {}
-      : { cutoverAt: parsed.values["cutover-at"] }),
-    ...(parsed.values["cutover-plan-token"] === undefined
-      ? {}
-      : { cutoverPlanToken: parsed.values["cutover-plan-token"] }),
-    ...(provider === undefined ? {} : { provider }),
+  };
+  if (subcommand === "plan") {
+    const plan = await planRepositoryConfiguration(request);
+    process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+    if (!plan.canApply) process.exitCode = 1;
+    return;
+  }
+  if (parsed.values["plan-token"] === undefined) {
+    throw new CommandUsageError("Configure Apply requires --plan-token from the reviewed plan.");
+  }
+  const result = await applyRepositoryConfiguration({
+    ...request,
+    sealedPlanToken: parsed.values["plan-token"],
   });
-  process.stdout.write(
-    `Outcome: ${result.outcome}\nRepository: ${result.repository.outcome}\nCatalog: ${result.catalog.outcome}\nManifest: ${result.repository.manifestPath}\nChanged targets: ${result.repository.changedTargets.length}\n`,
-  );
-  if (result.repository.recoveryBundlePath !== undefined) {
-    process.stdout.write(`Recovery bundle: ${result.repository.recoveryBundlePath}\n`);
-  }
-  if (result.repository.cutover !== undefined) {
-    process.stdout.write(
-      `Cutover schema: ${result.repository.cutover.sourceSchema} -> ${result.repository.cutover.targetSchema}\nRecovery verification: ${
-        result.repository.cutover.recoveryBundleVerified ? "verified" : "unverified"
-      }\nTarget validation: ${result.repository.cutover.targetValidation}\n`,
-    );
-  }
-  if (result.catalog.outcome === "failed") {
-    process.stderr.write(
-      `Catalog registration failed: ${result.catalog.message}\nCompleted: repository Setup Apply.\nPending: Project Catalog registration.\nPersistent external effects: the repository configuration is already valid and is not rolled back by Catalog failure.\nResumption point: apply the Catalog recovery named by the error, then rerun this exact Setup request; its repository stage will reconcile idempotently.\n`,
-    );
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (result.outcome === "partial" || result.outcome === "blocked") {
     process.exitCode = 1;
   }
-};
-
-const runActivationCheck = async (args: readonly string[]): Promise<void> => {
-  const [subcommand, ...values] = args;
-  if (subcommand !== "check") {
-    throw new Error("Activation requires the `check` subcommand.");
-  }
-  const parsed = parseArgs({
-    args: values,
-    options: {
-      origin: { type: "string" },
-      repo: { type: "string" },
-    },
-    allowPositionals: false,
-    strict: true,
-  });
-  const origin = activationOriginSchema.parse(parsed.values.origin);
-  const result = await checkBearingActivation(parsed.values.repo ?? process.cwd(), origin);
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 };
 
 const runInstall = async (args: readonly string[]): Promise<void> => {
@@ -444,75 +373,6 @@ const runAssetCommand = async (args: readonly string[]): Promise<void> => {
       : { producedAt: parsed.values["produced-at"] }),
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-};
-
-const runRepositoryLifecycle = async (
-  command: "deactivate" | "purge",
-  args: readonly string[],
-): Promise<void> => {
-  const parsed = parseArgs({
-    args: [...args],
-    options: {
-      repo: { type: "string" },
-      "confirm-purge": { type: "boolean" },
-      plan: { type: "boolean" },
-      "purge-plan-token": { type: "string" },
-      "recovery-export": { type: "string" },
-      "accept-no-recovery-export": { type: "boolean" },
-    },
-    allowPositionals: false,
-    strict: true,
-  });
-  if (
-    command === "deactivate" &&
-    (parsed.values["confirm-purge"] === true ||
-      parsed.values.plan === true ||
-      parsed.values["purge-plan-token"] !== undefined ||
-      parsed.values["recovery-export"] !== undefined ||
-      parsed.values["accept-no-recovery-export"] === true)
-  ) {
-    throw new Error("Purge planning and confirmation options are valid only for `bearing purge`.");
-  }
-  const options = {
-    repoRoot: resolve(parsed.values.repo ?? process.cwd()),
-    homeDir: homeDirectory(),
-  };
-  if (
-    command === "purge" &&
-    (parsed.values.plan === true || parsed.values["confirm-purge"] !== true)
-  ) {
-    const plan = await inspectPurgePlan(options);
-    process.stdout.write(`${JSON.stringify({ outcome: "cancelled", ...plan }, null, 2)}\n`);
-    return;
-  }
-  const result =
-    command === "deactivate"
-      ? await deactivateRepository(options)
-      : await purgeRepository({
-          ...options,
-          confirmed: parsed.values["confirm-purge"] === true,
-          ...(parsed.values["purge-plan-token"] === undefined
-            ? {}
-            : { planToken: parsed.values["purge-plan-token"] }),
-          ...(parsed.values["recovery-export"] === undefined
-            ? {}
-            : { recoveryExport: parsed.values["recovery-export"] }),
-          acceptNoRecoveryExport: parsed.values["accept-no-recovery-export"] === true,
-        });
-  process.stdout.write(
-    `Outcome: ${result.outcome}\nRepository: ${result.repository.outcome}\nCatalog: ${result.catalog.outcome}\nChanged targets: ${result.repository.changedTargets.length}\n`,
-  );
-  if (result.repository.cleanup?.outcome === "residue") {
-    process.stderr.write(
-      `Lifecycle cleanup residue: ${result.repository.cleanup.location}\n${result.repository.cleanup.message}\n`,
-    );
-  }
-  if (result.catalog.outcome === "failed") {
-    process.stderr.write(
-      `Catalog unregister failed: ${result.catalog.message}\nCompleted: repository lifecycle apply.\nPending: Project Catalog unregister.\nPersistent external effects: the repository lifecycle state is already committed and is not rolled back by Catalog failure.\nResumption point: if the database is unavailable, run confirmed Catalog reset and Setup re-registration; then run \`bearing catalog unregister --repo ${options.repoRoot}\`.\n`,
-    );
-  }
-  if (result.outcome === "blocked" || result.outcome === "partial") process.exitCode = 1;
 };
 
 const runSyncCommand = async (args: readonly string[]): Promise<void> => {
@@ -655,7 +515,7 @@ const runProviderCommand = async (args: readonly string[]): Promise<void> => {
         : "Usage: bearing provider verify --all [--repo <path>]",
     );
   }
-  const repoRoot = await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd()));
+  const repoRoot = resolve(parsed.values.repo ?? process.cwd());
   const result =
     operation === "capture"
       ? await captureProjectProviderScopes(repoRoot, parsed.values.scope ?? [])
@@ -760,7 +620,9 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
       "Usage: bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>] [--portal-entry <catalog-entry-id>]",
     );
   }
-  const repoRoot = resolve(parsed.values.repo ?? process.cwd());
+  const requestedRepoRoot = resolve(parsed.values.repo ?? process.cwd());
+  const repoRoot = await resolveRepositoryRoot(requestedRepoRoot);
+  await assertActiveRepositoryIntegration(repoRoot, "inspect");
   const metricsFile = parsed.values["benchmark-metrics-file"];
   const instrumentation =
     metricsFile === undefined ? undefined : createPlanningGraphInstrumentation();
@@ -786,7 +648,7 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
   process.stdout.write(output);
   if (metricsFile !== undefined && instrumentation !== undefined) {
     const observed = instrumentation.snapshot();
-    writeInspectBenchmarkMetrics(repoRoot, metricsFile, {
+    writeInspectBenchmarkMetrics(requestedRepoRoot, metricsFile, {
       schemaVersion: 1,
       benchmark: "inspect-sample",
       processId: process.pid,
@@ -858,16 +720,8 @@ const main = async (): Promise<void> => {
     await runInstall(args);
     return;
   }
-  if (command === "setup") {
-    await runSetup(args);
-    return;
-  }
-  if (command === "activation") {
-    await runActivationCheck(args);
-    return;
-  }
-  if (command === "deactivate" || command === "purge") {
-    await runRepositoryLifecycle(command, args);
+  if (command === "configure") {
+    await runConfigure(args);
     return;
   }
   if (command === "catalog") {

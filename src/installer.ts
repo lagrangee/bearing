@@ -434,7 +434,7 @@ const assertCatalogCompatibility = async (homeDir: string): Promise<void> => {
   const state = await readCatalogState({ homeDir });
   if (state.state === "failed") {
     throw new Error(
-      "Bearing update is blocked because the Project Catalog is unusable. Run confirmed Catalog reset and Setup re-registration before retrying.",
+      "Bearing update is blocked because the Project Catalog is unusable. Run confirmed Catalog reset and Repository Configuration before retrying.",
     );
   }
   const incompatible: string[] = [];

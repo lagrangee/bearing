@@ -1,25 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { lstat, rename, rm } from "node:fs/promises";
+import { rename, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { z } from "zod";
 import { agentSurfaceEntryFile, withoutBearingManagedPointer } from "./agent-surface-entry";
-import { removeCatalogEntryByExactIdentity, unregisterCatalogEntry } from "./catalog/store";
+import { unregisterCatalogEntry } from "./catalog/store";
 import { inspectInstallPath } from "./install-boundary";
 import type { TargetPlan } from "./install-manifest";
-import { applyInstallPlans, type InstallTargetWriter, writeInstallTarget } from "./installer";
+import { applyInstallPlans } from "./installer";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
-import {
-  assertPreparedPurgeCurrent,
-  assertPreparedPurgeNamespaceCurrent,
-  createPurgeRecoveryExport,
-  diagnoseRepositoryRecovery,
-  inspectPurgePlan,
-  preparePurge,
-} from "./repository-recovery";
 import { repositoryManifestSchema } from "./schema-definitions";
 import type { AgentSurface } from "./types";
-
-export { diagnoseRepositoryRecovery, inspectPurgePlan };
 
 const pointerPlans = async (
   root: string,
@@ -64,22 +54,6 @@ const assertPointerOriginalsCurrent = async (
         `Registered Agent Surface changed after lifecycle review: ${relative(
           root,
           original.target,
-        )}.`,
-      );
-    }
-  }
-};
-
-const assertPointerPlansApplied = async (
-  root: string,
-  plans: readonly TargetPlan[],
-): Promise<void> => {
-  for (const plan of plans) {
-    if (!("bytes" in plan) || !(await readContainedFile(root, plan.target)).equals(plan.bytes)) {
-      throw new Error(
-        `Registered Agent Surface did not retain the reviewed lifecycle write: ${relative(
-          root,
-          plan.target,
         )}.`,
       );
     }
@@ -159,47 +133,6 @@ const removeCatalogAfterLifecycle = async (
 ): Promise<RepositoryLifecycleResult> => {
   try {
     const catalog = await unregisterCatalogEntry({ homeDir, repoRoot });
-    return {
-      outcome:
-        repository.cleanup?.outcome === "residue"
-          ? "blocked"
-          : repository.outcome === "applied" || catalog.outcome === "applied"
-            ? "applied"
-            : "no-op",
-      repository,
-      catalog: { outcome: catalog.outcome },
-    };
-  } catch (error) {
-    return {
-      outcome: repository.cleanup?.outcome === "residue" ? "blocked" : "partial",
-      repository,
-      catalog: {
-        outcome: "failed",
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
-  }
-};
-
-const removeCatalogAfterPurge = async (
-  homeDir: string,
-  repoRoot: string,
-  repository: RepositoryLifecycleResult["repository"],
-  expectedEntry: Readonly<{ entryId: string; repoRoot: string; displayName: string }> | undefined,
-): Promise<RepositoryLifecycleResult> => {
-  try {
-    const catalog = await removeCatalogEntryByExactIdentity({
-      homeDir,
-      repoRoot,
-      ...(expectedEntry === undefined ? {} : { expectedEntry }),
-      assertBeforeMutation: async () => {
-        if ((await inspectInstallPath(join(repoRoot, ".bearing"))).kind !== "missing") {
-          throw new Error(
-            "Repository gained a new `.bearing` generation before Catalog cleanup; the reviewed Catalog identity was preserved.",
-          );
-        }
-      },
-    });
     return {
       outcome:
         repository.cleanup?.outcome === "residue"
@@ -318,161 +251,4 @@ export const deactivateRepository = async (options: {
     changedTargets,
     ...(cleanup === undefined ? {} : { cleanup }),
   });
-};
-
-export type PurgeTransactionHooks = Readonly<{
-  removeQuarantine?: (target: string) => Promise<void>;
-  beforeApply?: () => Promise<void>;
-  beforeNamespaceRename?: () => Promise<void>;
-  writeTarget?: InstallTargetWriter;
-}>;
-
-export const purgeRepository = async (
-  options: {
-    repoRoot: string;
-    homeDir: string;
-    confirmed: boolean;
-    planToken?: string;
-    recoveryExport?: string;
-    acceptNoRecoveryExport?: boolean;
-  },
-  hooks: PurgeTransactionHooks = {},
-): Promise<RepositoryLifecycleResult> => {
-  if (!options.confirmed) {
-    throw new Error(
-      "Repository purge requires --confirm-purge after an inspected plan; no repository writes were made.",
-    );
-  }
-  if ((options.recoveryExport !== undefined) === (options.acceptNoRecoveryExport === true)) {
-    throw new Error(
-      "Repository purge requires exactly one recovery export disposition: --recovery-export or --accept-no-recovery-export.",
-    );
-  }
-  const prepared = await preparePurge(options);
-  if (!prepared.plan.canPurge) {
-    throw new Error(`Repository purge is blocked: ${prepared.plan.blockers.join(" ")}`);
-  }
-  if (options.planToken !== prepared.plan.confirmationToken) {
-    throw new Error(
-      `Repository purge generation changed or the inspected --purge-plan-token is missing. Expected ${prepared.plan.confirmationToken}; received ${options.planToken ?? "missing"}.`,
-    );
-  }
-  if (options.recoveryExport !== undefined) {
-    await createPurgeRecoveryExport(prepared, options.recoveryExport);
-    await assertPreparedPurgeCurrent(prepared, options);
-  }
-  const root = prepared.root;
-  const namespace = join(root, ".bearing");
-  const namespaceState = await inspectInstallPath(namespace);
-  const reviewedNamespaceRoot = prepared.namespace.find((item) => item.target === ".bearing");
-  if (
-    namespaceState.kind === "directory" &&
-    (reviewedNamespaceRoot === undefined || reviewedNamespaceRoot.kind !== "directory")
-  ) {
-    throw new Error("Repository Purge plan has no reviewed `.bearing` directory identity.");
-  }
-  const assertPurgeGenerationCurrent = async (): Promise<void> => {
-    await assertPreparedPurgeNamespaceCurrent(prepared, options);
-  };
-  const pointers = await pointerPlans(
-    root,
-    prepared.managedBlocks.map((block) => block.surface),
-  );
-  const baseWriter = hooks.writeTarget ?? writeInstallTarget;
-  const protectedWriter: InstallTargetWriter = async (plan, ordinal) => {
-    const original = pointers.originals.find((candidate) => candidate.target === plan.target);
-    if (original !== undefined) await assertPointerOriginalsCurrent(root, [original]);
-    await baseWriter(plan, ordinal);
-  };
-  await hooks.beforeApply?.();
-  let quarantine: string | undefined;
-  let cleanup: RepositoryLifecycleResult["repository"]["cleanup"];
-  try {
-    await applyInstallPlans(
-      root,
-      pointers.plans,
-      protectedWriter,
-      async () => {
-        await assertPointerOriginalsCurrent(root, pointers.originals);
-        await assertPreparedPurgeCurrent(prepared, options);
-      },
-      async () => undefined,
-      async () => {
-        await assertPointerPlansApplied(root, pointers.plans);
-        if (namespaceState.kind !== "directory") return;
-        await assertPurgeGenerationCurrent();
-        await hooks.beforeNamespaceRename?.();
-        quarantine = join(root, `.bearing-purge-${randomUUID()}`);
-        await rename(namespace, quarantine);
-        const quarantined = await lstat(quarantine);
-        if (
-          !quarantined.isDirectory() ||
-          quarantined.isSymbolicLink() ||
-          `${quarantined.dev}:${quarantined.ino}` !== reviewedNamespaceRoot?.identity ||
-          (await inspectInstallPath(namespace)).kind !== "missing"
-        ) {
-          throw new Error(
-            "Repository `.bearing` identity changed at quarantine commit; no detached tree was deleted.",
-          );
-        }
-      },
-    );
-  } catch (error) {
-    if (
-      quarantine !== undefined &&
-      (await inspectInstallPath(quarantine)).kind === "directory" &&
-      (await inspectInstallPath(namespace)).kind === "missing"
-    ) {
-      await rename(quarantine, namespace);
-    }
-    throw new Error(
-      "Bearing repository purge failed before commit; original targets were restored.",
-      {
-        cause: error,
-      },
-    );
-  }
-  if (quarantine !== undefined) {
-    try {
-      await (hooks.removeQuarantine ?? ((target) => rm(target, { recursive: true, force: false })))(
-        quarantine,
-      );
-      const residueState = await inspectInstallPath(quarantine);
-      cleanup =
-        residueState.kind === "missing"
-          ? { outcome: "complete" }
-          : {
-              outcome: "residue",
-              location: quarantine,
-              message:
-                "Repository purge committed, but cleanup left a detached partial quarantine. It is not a backup and no restoration was claimed; inspect and remove only this exact path.",
-            };
-    } catch (error) {
-      const residueState = await inspectInstallPath(quarantine);
-      cleanup =
-        residueState.kind === "missing"
-          ? { outcome: "complete" }
-          : {
-              outcome: "residue",
-              location: quarantine,
-              message: `Repository purge committed, but cleanup failed and may have partially deleted the detached quarantine. It is not a backup and no restoration was claimed: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            };
-    }
-  }
-  const changedTargets = [
-    ...(namespaceState.kind === "directory" ? [".bearing/"] : []),
-    ...pointers.plans.map((plan) => relative(root, plan.target)),
-  ].sort();
-  return removeCatalogAfterPurge(
-    options.homeDir,
-    root,
-    {
-      outcome: changedTargets.length === 0 ? "no-op" : "applied",
-      changedTargets,
-      ...(cleanup === undefined ? {} : { cleanup }),
-    },
-    prepared.catalogEntry,
-  );
 };

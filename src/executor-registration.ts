@@ -397,7 +397,9 @@ export const assertExecutorRegistrationsCurrent = async (
     ),
   );
   if (JSON.stringify(current) !== JSON.stringify(expected)) {
-    throw new Error("Nominated executor skill contract changed after Fresh Setup review.");
+    throw new Error(
+      "Nominated executor skill contract changed after Repository Configuration review.",
+    );
   }
 };
 

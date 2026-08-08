@@ -206,6 +206,32 @@ describe("typed Asset Registration Route CLI", () => {
     expect(await readFile(join(root, ".bearing/state/assets.md"))).toEqual(accepted);
   });
 
+  test("deactivated Repository Configuration blocks Asset Registration before writes", async () => {
+    const root = await createValidBearingRepo();
+    const registryPath = join(root, ".bearing/state/assets.md");
+    const registryBefore = await readFile(registryPath);
+    const manifestPath = join(root, ".bearing/manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, status: "deactivated" }, null, 2)}\n`,
+    );
+    await writeFile(join(root, "evidence.md"), "# Evidence\n");
+
+    await expect(
+      registerAsset({
+        repoRoot: root,
+        id: "asset:deactivated",
+        title: "Deactivated evidence",
+        kind: "verification-report",
+        location: "evidence.md",
+        owner: "effort:test",
+        producer: { kind: "external-source", name: "user" },
+      }),
+    ).rejects.toThrow(/requires an Active Repository Configuration/iu);
+    await expect(readFile(registryPath)).resolves.toEqual(registryBefore);
+  });
+
   test("matches the actual unregistered capability to Generic provenance and discloses fallback", async () => {
     const root = await createValidBearingRepo();
     await initializeProviderObservations(root);

@@ -114,7 +114,7 @@ The minimum useful baseline is:
 - one active Roadmap and focused Milestone Gate;
 - one Effort that binds an existing Map or Ticket scope to that Gate.
 
-Accepted direction remains a human decision. Setup should not infer governance truth from repository files without asking.
+Accepted direction remains a human decision. Repository Configuration must not infer governance truth from repository files without asking.
 
 ### 4. Bring one real request
 

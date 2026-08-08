@@ -9,7 +9,7 @@ export class CatalogBusyError extends Error {
 
 export class CatalogRecoveryRequiredError extends Error {
   public constructor(
-    message = "Project Catalog is unavailable; confirmed reset and Setup re-registration are required.",
+    message = "Project Catalog is unavailable; confirmed reset and Repository Configuration are required.",
     options?: ErrorOptions,
   ) {
     super(message, options);

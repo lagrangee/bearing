@@ -10,7 +10,6 @@ export {
   type CatalogUnregisterResult,
   type CatalogUpsertResult,
   relinkCatalogEntry,
-  removeCatalogEntryByExactIdentity,
   renameCatalogEntry,
   unregisterCatalogEntry,
   upsertCatalogEntry,

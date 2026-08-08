@@ -112,3 +112,14 @@ export const inspectRepositoryIntegrationLifecycle = async (
   }
   return invalidLifecycle("The repository manifest schema is invalid or unsupported.");
 };
+
+export const assertActiveRepositoryIntegration = async (
+  root: string,
+  operation: "inspect" | "provider" | "reconcile-native" | "cache-rebuild" | "maintenance" | "sync",
+): Promise<void> => {
+  const lifecycle = await inspectRepositoryIntegrationLifecycle(root);
+  if (lifecycle.kind === "active") return;
+  throw new Error(
+    `Bearing ${operation} requires an Active Repository Configuration. Current lifecycle: ${lifecycle.kind}. ${lifecycle.reason}`,
+  );
+};

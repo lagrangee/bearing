@@ -780,18 +780,48 @@ const installArguments = Object.freeze([
   "claude",
 ]);
 
-const setupArguments = (repository, { confirmReactivate = false } = {}) => [
-  "setup",
+const configurationArguments = (repository, intent) => [
+  "--intent",
+  intent,
   "--repo",
   repository,
-  "--surface",
-  "agent-skills",
-  "--surface",
-  "claude",
-  "--provider-contract",
-  "docs/agents/issue-tracker.md",
-  ...(confirmReactivate ? ["--confirm-reactivate"] : []),
+  ...(intent === "deactivate"
+    ? []
+    : [
+        "--surface",
+        "agent-skills",
+        "--surface",
+        "claude",
+        "--provider-contract",
+        "docs/agents/issue-tracker.md",
+        "--executor-mode",
+        "skip",
+      ]),
 ];
+
+const configureRepository = async ({ cli, repository, intent, environment }) => {
+  const argumentsForIntent = configurationArguments(repository, intent);
+  const planned = await runCandidateCli(cli, ["configure", "plan", ...argumentsForIntent], {
+    cwd: repository,
+    env: environment,
+  });
+  const plan = JSON.parse(planned.stdout);
+  if (typeof plan.sealedPlanToken !== "string") {
+    throw new Error("Repository Configuration returned no sealed plan token.");
+  }
+  const applied = await runCandidateCli(
+    cli,
+    [
+      "configure",
+      "apply",
+      ...argumentsForIntent,
+      "--plan-token",
+      plan.sealedPlanToken,
+    ],
+    { cwd: repository, env: environment },
+  );
+  return JSON.parse(applied.stdout);
+};
 
 const proveIdempotentUpdate = async ({ cli, roots, environment }) => {
   const repeated = await runCandidateCli(cli, installArguments, {
@@ -847,18 +877,23 @@ const proveRepositoryLifecycle = async ({ cli, roots, environment }) => {
   const nativeBytes = await readFile(nativeWork);
   await writeFile(stateMarker, stateBytes);
   if (!(await catalogContains(roots.home, roots.repository))) {
-    throw new Error("Setup did not register the disposable repository in Project Catalog.");
+    throw new Error("Repository Configuration did not register the repository in Project Catalog.");
   }
 
-  const deactivated = await runCandidateCli(cli, ["deactivate", "--repo", roots.repository], {
-    cwd: roots.repository,
-    env: environment,
+  const deactivated = await configureRepository({
+    cli,
+    repository: roots.repository,
+    intent: "deactivate",
+    environment,
   });
-  if (!deactivated.stdout.includes("Catalog: applied")) {
+  if (deactivated.catalog?.outcome !== "applied") {
     throw new Error("Repository deactivation did not remove its Project Catalog entry.");
   }
-  if (await pathExists(join(roots.repository, ".bearing/manifest.json"))) {
-    throw new Error("Repository deactivation retained its enablement manifest.");
+  const deactivatedManifest = JSON.parse(
+    await readFile(join(roots.repository, ".bearing/manifest.json"), "utf8"),
+  );
+  if (deactivatedManifest.status !== "deactivated") {
+    throw new Error("Repository deactivation did not retain a Deactivated manifest.");
   }
   if (!(await readFile(stateMarker)).equals(stateBytes) || !(await readFile(nativeWork)).equals(nativeBytes)) {
     throw new Error("Repository deactivation did not preserve state and native work exactly.");
@@ -868,57 +903,21 @@ const proveRepositoryLifecycle = async ({ cli, roots, environment }) => {
     throw new Error("Repository deactivation retained its Project Catalog entry.");
   }
 
-  await runCandidateCli(cli, setupArguments(roots.repository, { confirmReactivate: true }), {
-    cwd: roots.repository,
-    env: environment,
+  await configureRepository({
+    cli,
+    repository: roots.repository,
+    intent: "activate",
+    environment,
   });
   if (
     !(await readFile(stateMarker)).equals(stateBytes) ||
     !(await catalogContains(roots.home, roots.repository))
   ) {
-    throw new Error("Repository re-setup did not preserve state and restore Catalog registration.");
+    throw new Error(
+      "Repository reconfiguration did not preserve state and restore Catalog registration.",
+    );
   }
 
-  const purgePlan = await runCandidateCli(
-    cli,
-    ["purge", "--repo", roots.repository, "--plan"],
-    { cwd: roots.repository, env: environment },
-  );
-  const reviewedPurge = JSON.parse(purgePlan.stdout);
-  if (
-    reviewedPurge.outcome !== "cancelled" ||
-    typeof reviewedPurge.confirmationToken !== "string" ||
-    !/^[0-9a-f]{64}$/u.test(reviewedPurge.confirmationToken) ||
-    !(await pathExists(join(roots.repository, ".bearing")))
-  ) {
-    throw new Error("Repository purge did not return one non-mutating confirmation plan.");
-  }
-  const purged = await runCandidateCli(
-    cli,
-    [
-      "purge",
-      "--repo",
-      roots.repository,
-      "--confirm-purge",
-      "--purge-plan-token",
-      reviewedPurge.confirmationToken,
-      "--accept-no-recovery-export",
-    ],
-    { cwd: roots.repository, env: environment },
-  );
-  if (!purged.stdout.includes("Catalog: applied")) {
-    throw new Error("Repository purge did not remove its Project Catalog entry.");
-  }
-  if (await pathExists(join(roots.repository, ".bearing"))) {
-    throw new Error("Confirmed repository purge retained the .bearing namespace.");
-  }
-  if (!(await readFile(nativeWork)).equals(nativeBytes)) {
-    throw new Error("Confirmed repository purge mutated native .scratch work.");
-  }
-  await assertManagedPointersAbsent(roots.repository);
-  if (await catalogContains(roots.home, roots.repository)) {
-    throw new Error("Confirmed repository purge retained its Project Catalog entry.");
-  }
 };
 
 const proveDowngradeRefusal = async ({ cli, roots, environment }) => {
@@ -966,7 +965,7 @@ const runCompatibilityLane = async ({ candidate, options, roots, environment, cl
   });
   if (version.stdout !== `${options.version}\n`) throw new Error("Packaged CLI version output mismatches.");
   const help = await runCandidateCli(cli, ["--help"], { cwd: roots.repository, env: environment });
-  if (!help.stdout.includes(`Bearing ${options.version}`) || !help.stdout.includes("bearing setup")) {
+  if (!help.stdout.includes(`Bearing ${options.version}`) || !help.stdout.includes("bearing configure")) {
     throw new Error("Packaged CLI help does not expose the expected candidate commands.");
   }
   await checkPackagedDocumentation(packageRoot);
@@ -996,11 +995,12 @@ const runFullLane = async ({ candidate, options, roots, environment, cli, packag
   await assertGlobalSurface(roots.home, options.version);
   await proveIdempotentUpdate({ cli, roots, environment });
   await proveSurfaceConflict({ cli, roots, environment, version: options.version });
-  await runCandidateCli(
+  await configureRepository({
     cli,
-    setupArguments(roots.repository),
-    { cwd: roots.repository, env: environment },
-  );
+    repository: roots.repository,
+    intent: "activate",
+    environment,
+  });
   const manifestPath = join(roots.repository, ".bearing/manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   if (manifest.packageVersion !== options.version) {
@@ -1047,11 +1047,10 @@ const runFullLane = async ({ candidate, options, roots, environment, cli, packag
     "same-candidate-update-no-op",
     "agent-surface-conflict-fail-closed",
     "managed-agent-surfaces",
-    "ordinary-repository-setup",
+    "ordinary-repository-configuration",
     "deterministic-sync",
     "unsupported-schema-fail-closed",
     "repository-deactivate-preserves-state",
-    "repository-purge-preserves-native-work",
     "package-downgrade-requires-confirmation",
     "package-uninstall-owned-by-package-manager",
   );

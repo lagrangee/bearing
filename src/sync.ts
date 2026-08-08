@@ -1,7 +1,9 @@
 import packageMetadata from "../package.json";
 import { applyInstallPlans } from "./installer";
 import type { NativeReconciliationRequest } from "./native-reconciliation-contract";
+import { resolveRepositoryRoot } from "./path-boundary";
 import type { ProviderObservationIntent } from "./provider-observation-store";
+import { assertActiveRepositoryIntegration } from "./repository-integration-lifecycle";
 import {
   prepareSync,
   type SyncPerformanceMetrics,
@@ -21,7 +23,9 @@ export const runSyncMeasured = async (
   repoRoot: string,
   options: RunSyncOptions = {},
 ): Promise<Readonly<{ result: SyncResult; metrics: SyncPerformanceMetrics }>> => {
-  const plan = await prepareSync(repoRoot, {
+  const root = await resolveRepositoryRoot(repoRoot);
+  await assertActiveRepositoryIntegration(root, "sync");
+  const plan = await prepareSync(root, {
     ...(options.providerObservationIntent === undefined
       ? {}
       : { providerObservationIntent: options.providerObservationIntent }),

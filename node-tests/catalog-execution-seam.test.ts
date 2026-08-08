@@ -45,7 +45,7 @@ import {
   loadPortalAssets,
   writePortalAssetManifest,
 } from "../src/portal/assets";
-import { deactivateRepository, inspectPurgePlan, purgeRepository } from "../src/repo-lifecycle";
+import { deactivateRepository } from "../src/repo-lifecycle";
 import {
   LOCAL_MATT_CONTRACT,
   LOCAL_MATT_TRIAGE_LABELS,
@@ -390,7 +390,7 @@ test("SQLite Catalog rejects existing incompatible schema, constraints, and open
   }
 });
 
-test("SQLite Catalog fails closed, ignores legacy JSON, and recovers through reset plus Setup", async () => {
+test("SQLite Catalog fails closed, ignores legacy JSON, and recovers through reset plus Repository Configuration", async () => {
   const root = await mkdtemp(join(tmpdir(), "bearing-sqlite-reset-"));
   const homeDir = join(root, "home");
   const repoRoot = join(root, "setup-project");
@@ -430,21 +430,41 @@ test("SQLite Catalog fails closed, ignores legacy JSON, and recovers through res
       join(repoRoot, "AGENTS.md"),
       "## Agent skills\n\n### Issue tracker\n\nIssues use the repository tracker. See `docs/agents/issue-tracker.md`.\n",
     );
-    const setup = await execFileAsync(
+    const configurationArguments = [
+      "--intent",
+      "activate",
+      "--repo",
+      repoRoot,
+      "--surface",
+      "agent-skills",
+      "--provider-contract",
+      "docs/agents/issue-tracker.md",
+      "--executor-mode",
+      "skip",
+    ];
+    const planned = await execFileAsync(
+      process.execPath,
+      ["dist/cli.js", "configure", "plan", ...configurationArguments],
+      { cwd: process.cwd(), env: { ...process.env, HOME: homeDir } },
+    );
+    const plan = JSON.parse(planned.stdout) as { sealedPlanToken?: string };
+    assert.match(plan.sealedPlanToken ?? "", /^sha256:[0-9a-f]{64}$/u);
+    const applied = await execFileAsync(
       process.execPath,
       [
         "dist/cli.js",
-        "setup",
-        "--repo",
-        repoRoot,
-        "--surface",
-        "agent-skills",
-        "--provider-contract",
-        "docs/agents/issue-tracker.md",
+        "configure",
+        "apply",
+        ...configurationArguments,
+        "--plan-token",
+        plan.sealedPlanToken ?? "",
       ],
       { cwd: process.cwd(), env: { ...process.env, HOME: homeDir } },
     );
-    assert.match(setup.stdout, /Catalog: applied/u);
+    assert.deepEqual((JSON.parse(applied.stdout) as { catalog: { outcome: string } }).catalog, {
+      outcome: "applied",
+      entryId: (await readCatalogDocument({ homeDir })).entries[0]?.entryId,
+    });
     assert.equal((await readCatalogDocument({ homeDir })).entries.length, 1);
     await Promise.all([
       access(join(homeDir, ".bearing", "catalog.json")),
@@ -567,39 +587,19 @@ test("Portal host reads the SQLite Catalog through the Node-owned adapter", asyn
   }
 });
 
-test("repository deactivate and purge clean up through the SQLite Catalog domain API", async () => {
+test("repository deactivation cleans up through the SQLite Catalog domain API", async () => {
   const root = await mkdtemp(join(tmpdir(), "bearing-sqlite-lifecycle-"));
   const homeDir = join(root, "home");
   const deactivateRoot = join(root, "deactivate");
-  const purgeRoot = join(root, "purge");
-  await Promise.all([makeRepository(deactivateRoot), makeRepository(purgeRoot)]);
+  await makeRepository(deactivateRoot);
   try {
     await upsertCatalogEntry({
       homeDir,
       repoRoot: deactivateRoot,
       createEntryId: () => "deactivate-entry",
     });
-    await upsertCatalogEntry({
-      homeDir,
-      repoRoot: purgeRoot,
-      createEntryId: () => "purge-entry",
-    });
     const deactivated = await deactivateRepository({ homeDir, repoRoot: deactivateRoot });
     assert.equal(deactivated.outcome, "applied");
-    assert.deepEqual(
-      (await readCatalogDocument({ homeDir })).entries.map((entry) => entry.entryId),
-      ["purge-entry"],
-    );
-
-    const plan = await inspectPurgePlan({ homeDir, repoRoot: purgeRoot });
-    const purged = await purgeRepository({
-      homeDir,
-      repoRoot: purgeRoot,
-      confirmed: true,
-      planToken: plan.confirmationToken,
-      acceptNoRecoveryExport: true,
-    });
-    assert.equal(purged.outcome, "applied");
     assert.deepEqual(await readCatalogDocument({ homeDir }), { version: 1, entries: [] });
   } finally {
     await rm(root, { recursive: true, force: true });

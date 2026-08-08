@@ -67,34 +67,29 @@ npx @lagrangee/bearing@<version> install --surface agent-skills --confirm-downgr
 SemVer 排序包含 prerelease。确认后只允许同一 minor 内 downgrade，或退回紧邻的上一个 minor；
 跨 major 和跨多个 minor downgrade 会被拒绝。不支持自动 state rollback。
 
-## Deactivate、purge 与 uninstall
+## Deactivate、移除 repository state 与 uninstall
 
 这些是不同操作：
 
-- repository deactivation 修改一个仓库；
-- purge 删除 repository-owned Bearing state；
+- Repository Configuration deactivation 修改一个仓库；
+- external platform removal 在显式审阅后删除 repository-owned Bearing state；
 - package uninstall 只移除 package-manager-owned installation。
 
-Repository deactivation 与 purge 有独立、可执行的路径：
+Repository deactivation 使用 sealed Repository Configuration 路径：
 
 ```bash
-bearing deactivate --repo .
-bearing purge --repo . --confirm-purge
+bearing configure plan --intent deactivate --repo .
+bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanToken>
 ```
 
-`deactivate` 保留 repository state 与 native work。`purge` 只移除精确的 `.bearing` namespace
-和 managed root blocks；它保留 `.scratch`、source、docs 与 durable native artifacts。两者都会
-在 repository mutation 后移除对应 Catalog registration，并单独报告 Catalog failure。
+Deactivation 保留 canonical state、Provider Configuration、profiles、artifacts 与 native work。
+它移除 managed pointers 与 disposable cache。Catalog unregister 在之后运行，并单独报告失败。
+Unsafe `.bearing` namespace 或 manifest 会在任何写入前 fail closed。
 
-两个命令都会拒绝 `.bearing` symbolic link 或 unsafe namespace shape。只有当
-`.bearing/manifest.json` 为 missing 或 single-link regular file 时才会读取或修改它；manifest
-symlink、directory、multiply-linked file 或 special type 都会 fail closed，因此 lifecycle
-operation 绝不会沿该 entry 修改 external state。
-
-Purge 在原子 detach `.bearing` 时提交。如果后续递归 cleanup 失败，命令会返回 blocked 并报告
-精确的 partial quarantine 路径。Repository 保持已 purge，Catalog removal 仍会尝试执行，并且
-这份 quarantine 明确不是可恢复 backup。只能检查并移除命令报告的精确路径；不要把部分删除的
-bytes rename 回 `.bearing`。
+Bearing 不提供 built-in repository Purge、migration、cutover、recovery export 或 quarantine path。
+如果 Unsupported Preview repository 是 removal-required，先检查 exact paths，取得用户显式授权，
+执行由 Agent 审阅的 external platform removal，然后运行 Fresh Repository Configuration。不要用
+`catalog unregister` 代替 repository removal。
 
 Wizard Global Uninstall 只移除 Global Kit bundle、CLI shim 与 Bearing-managed Agent Surface
 pointers。它保留 Project Catalog 与 repository state。Repository Deactivation 与

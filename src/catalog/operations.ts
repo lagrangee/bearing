@@ -153,45 +153,6 @@ export const unregisterCatalogEntry = async (
   return unregisterMatchingCatalogEntry(options, (entry) => entry.repoRoot === canonicalRoot);
 };
 
-export const removeCatalogEntryByExactIdentity = async (options: {
-  readonly homeDir: string;
-  readonly repoRoot: string;
-  readonly expectedEntry?: CatalogEntry;
-  readonly assertBeforeMutation?: () => Promise<void>;
-}): Promise<CatalogUnregisterResult> => {
-  const canonicalRoot = parseCatalogRepositoryRoot(options.repoRoot);
-  const expectedEntry =
-    options.expectedEntry === undefined
-      ? undefined
-      : catalogEntrySchema.parse(options.expectedEntry);
-  await options.assertBeforeMutation?.();
-  return runCatalogTransaction<CatalogUnregisterResult>({
-    homeDir: options.homeDir,
-    mutate: (current) => {
-      const matching = current.entries.find((entry) => entry.repoRoot === canonicalRoot);
-      if (expectedEntry === undefined) {
-        if (matching !== undefined) {
-          throw new Error(
-            "Project Catalog gained an unreviewed matching entry after Purge confirmation.",
-          );
-        }
-        return { result: { outcome: "no-op" } };
-      }
-      if (matching === undefined) return { result: { outcome: "no-op" } };
-      if (JSON.stringify(matching) !== JSON.stringify(expectedEntry)) {
-        throw new Error(
-          "Project Catalog matching entry identity changed after Purge confirmation.",
-        );
-      }
-      const next = parseCatalogDocument({
-        version: 1,
-        entries: current.entries.filter((entry) => entry.entryId !== matching.entryId),
-      });
-      return { result: { outcome: "applied", unregisteredEntry: matching }, next };
-    },
-  });
-};
-
 export const relinkCatalogEntry = async (options: {
   readonly homeDir: string;
   readonly entryId: string;

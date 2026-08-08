@@ -23,10 +23,10 @@ Global Uninstall. Installation actions preview managed targets and do not config
 start Portal. Global Uninstall removes only package-managed Global Kit targets and preserves the
 Project Catalog and repository state.
 
-The user-level Bearing skill remains available for an explicit Bearing or Setup request in any
-repository. Ordinary repository work activates it automatically only after Setup has installed the
-repository's managed Agent Surface pointer and the package-owned read-only check confirms an
-Active manifest. Fresh and deactivated repositories continue ordinary work without Bearing.
+The user-level Bearing skill remains available for an explicit Bearing or Repository Configuration
+request in any repository. A configured repository pointer uses context, not a repeated CLI
+preflight: explicit Bearing concepts, reliable continuation, or materially relevant planning and
+governance work can nominate Bearing. Ordinary code work and working-directory context alone do not.
 
 ## Enable one repository
 
@@ -40,7 +40,8 @@ If you use the CLI directly, prefer help output from the installed version:
 
 ```bash
 bearing --help
-bearing setup --repo . --surface agent-skills
+bearing configure inspect --repo .
+bearing configure
 ```
 
 ## Establish the minimum baseline

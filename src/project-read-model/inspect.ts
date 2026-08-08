@@ -25,6 +25,7 @@ import type { ProviderObservationStore } from "../provider-observation-store";
 import { mattNativeSubjectForObject } from "../providers/matt-skills-v1/native-subject";
 import { mattObjects } from "../providers/matt-skills-v1/projection";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
+import { assertActiveRepositoryIntegration } from "../repository-integration-lifecycle";
 import { discoverProjectSitemapInputs } from "../sitemap-discovery";
 import { type PrepareSyncOptions, prepareSync } from "../sync-plan";
 import type { StructuralDiagnostic } from "../types";
@@ -531,12 +532,90 @@ const nativeResult = (
   });
 };
 
+const queryCommittedProjectReadModel = (
+  root: string,
+  request: ProjectInspectRequest,
+): Promise<ProjectInspectEnvelope> =>
+  withProjectReadModel(root, (database, metadata) => {
+    const base = {
+      schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,
+      command: "inspect" as const,
+      request,
+      generation: metadata.receipt,
+    };
+    if (request.kind === "diagnostics") {
+      const projectDiagnostics = diagnostics(database);
+      const blocked = projectDiagnostics.some((diagnostic) => diagnostic.impact === "blocking");
+      return {
+        ...base,
+        outcome: blocked ? ("partial" as const) : ("complete" as const),
+        diagnostics: projectDiagnostics,
+        result: projectDiagnostics,
+      };
+    }
+    if (request.kind === "project") {
+      const projectDiagnostics = diagnostics(database);
+      const blocked = projectDiagnostics.some((diagnostic) => diagnostic.impact === "blocking");
+      return {
+        ...base,
+        outcome: blocked ? ("partial" as const) : ("complete" as const),
+        diagnostics: projectDiagnostics,
+        result: projectResult(database, metadata),
+      };
+    }
+    if (request.kind === "native-reference") {
+      const result = nativeResult(database, metadata, request.reference);
+      return {
+        ...base,
+        outcome: "complete" as const,
+        diagnostics: [],
+        result,
+      };
+    }
+    const reference = planningReferenceSchema.parse(request.reference);
+    const result = planningResult(database, metadata, reference);
+    return result === undefined
+      ? { ...base, outcome: "unfulfilled" as const, diagnostics: [] }
+      : {
+          ...base,
+          outcome: result.diagnostics.some((diagnostic) => diagnostic.impact === "blocking")
+            ? ("partial" as const)
+            : ("complete" as const),
+          diagnostics: result.diagnostics,
+          result,
+        };
+  });
+
+const busyProjectInspectEnvelope = (request: ProjectInspectRequest): ProjectInspectEnvelope => ({
+  schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,
+  command: "inspect",
+  outcome: "unfulfilled",
+  request,
+  diagnostics: [],
+  result: { reason: "project-read-model-busy" },
+});
+
+export const queryCommittedProject = async (
+  repoRoot: string,
+  request: ProjectInspectRequest,
+): Promise<ProjectInspectEnvelope> => {
+  const root = await resolveRepositoryRoot(repoRoot);
+  await assertActiveRepositoryIntegration(root, "inspect");
+  try {
+    return await queryCommittedProjectReadModel(root, request);
+  } catch (error) {
+    if (error instanceof ProjectReadModelBusyError) return busyProjectInspectEnvelope(request);
+    throw error;
+  }
+};
+
 export const inspectProject = async (
   repoRoot: string,
   request: ProjectInspectRequest,
 ): Promise<ProjectInspectEnvelope> => {
   try {
     const root = await resolveRepositoryRoot(repoRoot);
+    await assertActiveRepositoryIntegration(root, "inspect");
     const current = await ensureCurrent(root);
     if (current.state === "need-update") {
       return {
@@ -557,66 +636,9 @@ export const inspectProject = async (
         result: { reason: current.reason },
       };
     }
-    return withProjectReadModel(root, (database, metadata) => {
-      const base = {
-        schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,
-        command: "inspect" as const,
-        request,
-        generation: metadata.receipt,
-      };
-      if (request.kind === "diagnostics") {
-        const projectDiagnostics = diagnostics(database);
-        const blocked = projectDiagnostics.some((diagnostic) => diagnostic.impact === "blocking");
-        return {
-          ...base,
-          outcome: blocked ? ("partial" as const) : ("complete" as const),
-          diagnostics: projectDiagnostics,
-          result: projectDiagnostics,
-        };
-      }
-      if (request.kind === "project") {
-        const projectDiagnostics = diagnostics(database);
-        const blocked = projectDiagnostics.some((diagnostic) => diagnostic.impact === "blocking");
-        return {
-          ...base,
-          outcome: blocked ? ("partial" as const) : ("complete" as const),
-          diagnostics: projectDiagnostics,
-          result: projectResult(database, metadata),
-        };
-      }
-      if (request.kind === "native-reference") {
-        const result = nativeResult(database, metadata, request.reference);
-        return {
-          ...base,
-          outcome: "complete" as const,
-          diagnostics: [],
-          result,
-        };
-      }
-      const reference = planningReferenceSchema.parse(request.reference);
-      const result = planningResult(database, metadata, reference);
-      return result === undefined
-        ? { ...base, outcome: "unfulfilled" as const, diagnostics: [] }
-        : {
-            ...base,
-            outcome: result.diagnostics.some((diagnostic) => diagnostic.impact === "blocking")
-              ? ("partial" as const)
-              : ("complete" as const),
-            diagnostics: result.diagnostics,
-            result,
-          };
-    });
+    return queryCommittedProjectReadModel(root, request);
   } catch (error) {
-    if (error instanceof ProjectReadModelBusyError) {
-      return {
-        schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,
-        command: "inspect",
-        outcome: "unfulfilled",
-        request,
-        diagnostics: [],
-        result: { reason: error.code },
-      };
-    }
+    if (error instanceof ProjectReadModelBusyError) return busyProjectInspectEnvelope(request);
     throw error;
   }
 };

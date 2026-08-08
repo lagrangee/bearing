@@ -113,7 +113,7 @@ uninstall 是彼此独立的操作；见 [故障排查](docs/troubleshooting.zh-
 - 一条 active Roadmap 和 focused Milestone Gate；
 - 一个把现有 Map 或 Ticket scope 绑定到该 Gate 的 Effort。
 
-每个被接受的方向仍然是人的决策。Setup 不应该只靠仓库文件自行推断 governance truth。
+每个被接受的方向仍然是人的决策。Repository Configuration 不应该只靠仓库文件自行推断 governance truth。
 
 ### 4. 带来一个真实请求
 

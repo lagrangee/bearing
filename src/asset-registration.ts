@@ -17,6 +17,7 @@ import { ensureInstallDirectoryTargets, inspectInstallPath } from "./install-bou
 import { applyInstallPlans, type InstallTargetWriter } from "./installer";
 import { parseMarkdownEnvelope, serializeMarkdownDocument } from "./markdown-document";
 import { displaySourceLocatorSchema } from "./reference-schema";
+import { assertActiveRepositoryIntegration } from "./repository-integration-lifecycle";
 import { assetSchema, repositoryManifestSchema } from "./schema-definitions";
 import { bearingOwnedEventTimeSchema, sourceOwnedEventTimeValueSchema } from "./source-event-time";
 import { prepareSync } from "./sync-plan";
@@ -361,6 +362,7 @@ export const registerAsset = async (
     throw new Error("Asset registration requires a repository with a safe Bearing manifest.");
   }
   const root = inspection.canonicalRoot;
+  await assertActiveRepositoryIntegration(root, "maintenance");
   let writebackProfile: ExecutorWritebackSelection | undefined;
   if (input.executorCapabilityLocator !== undefined) {
     if (input.producer.kind !== "executor-profile") {

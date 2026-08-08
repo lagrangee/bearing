@@ -95,12 +95,11 @@ test("keeps provider acquisition behind the explicit observation owner", async (
   }
 });
 
-test("contains scratch discovery inside provider and explicit cutover boundaries", async () => {
+test("contains scratch discovery inside provider and explicit repository boundaries", async () => {
   const allowedScratchOwners = new Set([
     "src/artifact-model.ts",
     "src/executor-registration.ts",
     "src/providers/matt-skills-v1/local-markdown.ts",
-    "src/repository-cutover.ts",
   ]);
   const detected = new Set<string>();
   for (const file of new Bun.Glob("src/**/*.{ts,tsx}").scanSync({

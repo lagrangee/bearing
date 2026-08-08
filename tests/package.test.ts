@@ -220,19 +220,38 @@ test("the packed CLI runs through offline local npm exec", async () => {
     syncRoot = await mkdtemp(join(root, "fresh-local-repository-"));
     await writeStandardMattLocalRepository(syncRoot);
     await expect(access(join(syncRoot, ".bearing"))).rejects.toThrow();
-    const setupCommand = [
+    const configureArguments = [
       join(homeDirectory, ".bearing/bin/bearing"),
-      "setup",
+      "configure",
+      "plan",
+      "--intent",
+      "activate",
       "--repo",
       syncRoot,
       "--surface",
       "agent-skills",
       "--provider-contract",
       "docs/agents/issue-tracker.md",
+      "--executor-mode",
+      "skip",
     ];
-    const setup = await run(setupCommand, { HOME: homeDirectory });
-    expect(setup.exitCode, setup.stderr).toBe(0);
-    expect(setup.stdout).toContain("Outcome: applied");
+    const planned = await run(configureArguments, { HOME: homeDirectory });
+    expect(planned.exitCode, planned.stderr).toBe(0);
+    const planToken = (JSON.parse(planned.stdout) as { sealedPlanToken?: unknown }).sealedPlanToken;
+    if (typeof planToken !== "string") throw new Error("Configure plan returned no seal.");
+    const configured = await run(
+      [
+        join(homeDirectory, ".bearing/bin/bearing"),
+        "configure",
+        "apply",
+        ...configureArguments.slice(3),
+        "--plan-token",
+        planToken,
+      ],
+      { HOME: homeDirectory },
+    );
+    expect(configured.exitCode, configured.stderr).toBe(0);
+    expect(JSON.parse(configured.stdout)).toMatchObject({ outcome: "applied" });
     await access(join(syncRoot, ".bearing/manifest.json"));
     await expect(
       access(join(syncRoot, ".bearing/executor-profiles/generic-agent.md")),

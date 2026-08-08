@@ -1,8 +1,6 @@
 import { dirname } from "node:path";
 import { upsertCatalogEntry } from "./catalog/store";
 import { setupRepository } from "./repo-setup";
-import { cutOverLegacyRepository } from "./repository-cutover";
-import { planRepositoryIntegration } from "./repository-integration-plan";
 import type { AgentSurface, ExecutorRegistration, RepositorySetupResult } from "./types";
 
 export type ReconcileRepositoryResult = Readonly<{
@@ -22,10 +20,6 @@ export const reconcileRepository = async (options: {
   readonly registrations?: readonly ExecutorRegistration[];
   readonly confirmRepair?: boolean;
   readonly confirmReactivate?: boolean;
-  readonly acceptUpgradeDirection?: boolean;
-  readonly confirmCutover?: boolean;
-  readonly cutoverAt?: string;
-  readonly cutoverPlanToken?: string;
   readonly retainProfiles?: readonly string[];
   readonly removeProfiles?: readonly string[];
   readonly provider?: Readonly<{
@@ -33,25 +27,11 @@ export const reconcileRepository = async (options: {
     contractLocator: string;
   }>;
 }): Promise<ReconcileRepositoryResult> => {
-  const explicitCutover =
-    options.cutoverAt !== undefined ||
-    options.cutoverPlanToken !== undefined ||
-    options.acceptUpgradeDirection === true ||
-    options.confirmCutover === true;
-  const routeToCutover =
-    explicitCutover &&
-    (
-      await planRepositoryIntegration({
-        ...options,
-        executorHomeDir: options.homeDir,
-      })
-    ).recoveryDiagnosis?.classification === "legacy-cutover";
-  const repository = routeToCutover
-    ? await cutOverLegacyRepository(options.repoRoot, {
-        ...options,
-        executorHomeDir: options.homeDir,
-      })
-    : await setupRepository({ ...options, executorHomeDir: options.homeDir });
+  const repository = await setupRepository({
+    ...options,
+    executorHomeDir: options.homeDir,
+    initializeReadModel: true,
+  });
   try {
     const catalog = await upsertCatalogEntry({
       homeDir: options.homeDir,

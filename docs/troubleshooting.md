@@ -70,35 +70,30 @@ schemas are readable. SemVer ordering includes prereleases. A confirmed downgrad
 one minor or to the immediately preceding minor only; cross-major and multi-minor downgrades are
 refused. Automatic state rollback is unsupported.
 
-## Deactivate, purge, and uninstall
+## Deactivate, remove repository state, and uninstall
 
 These are different operations:
 
-- repository deactivation changes one repository;
-- purge removes repository-owned Bearing state;
+- Repository Configuration deactivation changes one repository;
+- external platform removal removes repository-owned Bearing state after explicit review;
 - package uninstall removes only the package-manager-owned installation.
 
-Repository deactivation and purge have executable, separate paths:
+Repository deactivation uses the sealed Repository Configuration path:
 
 ```bash
-bearing deactivate --repo .
-bearing purge --repo . --confirm-purge
+bearing configure plan --intent deactivate --repo .
+bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanToken>
 ```
 
-`deactivate` preserves repository state and native work. `purge` removes only the exact `.bearing`
-namespace and managed root blocks; it preserves `.scratch`, source, docs, and durable native
-artifacts. Both remove the matching Catalog registration after the repository mutation and report a
-Catalog failure separately.
+Deactivation preserves canonical state, Provider Configuration, profiles, artifacts, and native
+work. It removes managed pointers and disposable cache. Catalog unregister runs afterward and
+reports a failure separately. An unsafe `.bearing` namespace or manifest fails closed before any
+write.
 
-Both commands reject a `.bearing` symbolic link or unsafe namespace shape. They read or change
-`.bearing/manifest.json` only when it is missing or a single-link regular file. A manifest symlink,
-directory, multiply-linked file, or special type fails closed, so lifecycle operations never follow
-that entry into external state.
-
-Purge commits when `.bearing` is atomically detached. If later recursive cleanup fails, the command
-returns blocked with an exact partial quarantine path. The repository remains purged, the Catalog
-removal is still attempted, and the quarantine is explicitly not a restorable backup. Inspect and
-remove only that reported path; do not rename partially deleted bytes back to `.bearing`.
+Bearing has no built-in repository Purge, migration, cutover, recovery export, or quarantine path.
+If an Unsupported Preview repository is removal-required, inspect exact paths, get explicit user
+authorization, use an Agent-reviewed external platform removal, and then run Fresh Repository
+Configuration. Do not use `catalog unregister` as a substitute for repository removal.
 
 Wizard Global Uninstall removes only the Global Kit bundle, CLI shim, and Bearing-managed Agent
 Surface pointers. It preserves the Project Catalog and repository state. Repository Deactivation

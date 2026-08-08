@@ -156,12 +156,12 @@ describe("package-owned planning skills", () => {
     }
   });
 
-  test("public bearing contains managed activation and explicit-entry routing", async () => {
+  test("public bearing contains contextual Repository Configuration entry", async () => {
     const { frontmatter, body } = await readSkill("bearing");
     expect(frontmatter).toEqual({
       name: "bearing",
       description: expect.stringContaining(
-        "Setup-managed Agent Surface activation check returned `invoke-bearing`",
+        "Repository Configuration managed pointer contextually nominates Bearing",
       ),
     });
     expect((frontmatter as { description: string }).description).toContain(
@@ -170,23 +170,12 @@ describe("package-owned planning skills", () => {
     expect((frontmatter as { description: string }).description).not.toContain(
       "any request whose correct answer or action may depend on a repository",
     );
-    expect(body).toContain(
-      "$HOME/.bearing/bin/bearing activation check --origin <explicit|model-invoked> --repo <repository-root>",
-    );
-    for (const disposition of [
-      "continue-bearing",
-      "continue-without-bearing",
-      "enter-reactivation",
-      "enter-recovery",
-      "enter-setup",
-      "invoke-bearing",
-      "stop-for-explicit-entry",
-    ]) {
-      expect(body).toContain(disposition);
+    expect(body).toContain("bearing configure inspect --repo <repository-root>");
+    for (const lifecycle of ["Active", "Fresh", "Deactivated", "Invalid or Unsupported"]) {
+      expect(body).toContain(lifecycle);
     }
     expect(body).toMatch(/model-invoked[\s\S]*stop without processing the original request/iu);
-    expect(body).toMatch(/explicit[\s\S]*Setup[\s\S]*reactivation[\s\S]*recovery/iu);
-    expect(body).toMatch(/containment[\s\S]*does not prove that the skill was never loaded/iu);
+    expect(body).toMatch(/explicit[\s\S]*Repository Configuration/iu);
     expect(body).toContain("correct answer or action may depend on");
     expect(body).toContain("working directory alone");
     expect(body).toContain("clear repository-independent conversation");
@@ -261,7 +250,7 @@ describe("package-owned planning skills", () => {
       /explicit[\s\S]*Bearing Project Orientation[\s\S]*Active[\s\S]*project-orientation/iu,
     );
     expect(router.body).toMatch(
-      /Project Orientation[\s\S]*does not enter Setup[\s\S]*does not replay Fresh onboarding/iu,
+      /Project Orientation[\s\S]*does not enter Repository Configuration[\s\S]*does not replay Fresh onboarding/iu,
     );
     expect(orientation).toMatch(
       /only after[\s\S]*explicit request[\s\S]*accepted Fresh offer[\s\S]*never ambient/iu,
@@ -434,7 +423,7 @@ describe("package-owned planning skills", () => {
       /executor decision[\s\S]*begins unresolved[\s\S]*explicit nomination[\s\S]*explicit skip or none/iu,
     );
     expect(setup).toMatch(
-      /before the final Apply review[\s\S]*ask exactly once[\s\S]*ordinary user language[\s\S]*nominate[\s\S]*skip[\s\S]*does not block Setup completion/iu,
+      /before the final Apply review[\s\S]*ask exactly once[\s\S]*ordinary user language[\s\S]*nominate[\s\S]*skip[\s\S]*does not block Repository Configuration completion/iu,
     );
     expect(setup).toMatch(
       /Agent Surface selection[\s\S]*Matt prerequisite consent[\s\S]*provider validation[\s\S]*Apply acceptance[\s\S]*never imply executor skip/iu,
@@ -443,7 +432,7 @@ describe("package-owned planning skills", () => {
       /assisted prerequisite[\s\S]*same visible Fresh continuation[\s\S]*executor decision/iu,
     );
     expect(setup).toMatch(
-      /prerequisite owner(?:'s)?[\s\S]*do(?:es)? not substitute[\s\S]*final Setup Apply review/iu,
+      /prerequisite owner(?:'s)?[\s\S]*do(?:es)? not substitute[\s\S]*final Repository Configuration Apply review/iu,
     );
     expect(setup).toMatch(
       /handoff resumes[\s\S]*executor decision resolves[\s\S]*(?:the )?complete owner-separated review/iu,
@@ -451,7 +440,7 @@ describe("package-owned planning skills", () => {
     expect(setup).toMatch(
       /never compress[\s\S]*Apply confirmation[\s\S]*exact repository Apply Unit[\s\S]*preserved[\s\S]*independent Catalog effect/iu,
     );
-    expect(setup).toMatch(/Generic[\s\S]*hidden during Setup/iu);
+    expect(setup).toMatch(/Generic[\s\S]*hidden during Repository Configuration/iu);
     expect(setup).toMatch(
       /Never scan, rank, recommend, install, whitelist-match, prefer, or select a default executor/iu,
     );
@@ -488,10 +477,11 @@ describe("package-owned planning skills", () => {
       /\/healthz[\s\S]*compatible Bearing package and read-model[\s\S]*current Catalog Entry[\s\S]*\/projects\/<catalog-entry-id>/iu,
     );
     expect(setup).toMatch(
-      /incompatible[\s\S]*current kit[\s\S]*no Host[\s\S]*bearing portal[\s\S]*separate terminal/iu,
+      /connection failure[\s\S]*absent[\s\S]*bearing portal[\s\S]*separate terminal/iu,
     );
+    expect(setup).toMatch(/reachable Host[\s\S]*incompatible[\s\S]*current kit/iu);
     expect(setup).toMatch(
-      /Portal[\s\S]*never changes Setup success[\s\S]*Fresh[\s\S]*routine Active no-op/iu,
+      /Portal[\s\S]*never changes Repository Configuration success[\s\S]*Fresh[\s\S]*routine Active no-op/iu,
     );
     expect(setup).not.toMatch(/Initial Bearing Analysis|discovered native scopes/iu);
     expect(setup).toMatch(
@@ -504,7 +494,7 @@ describe("package-owned planning skills", () => {
       /current user's language[\s\S]*project files[\s\S]*existing tasks and progress[\s\S]*analysis[\s\S]*Project Summary draft[\s\S]*Roadmap and Gate candidates[\s\S]*does not automatically modify/iu,
     );
     expect(setup).toMatch(
-      /accept and skip[\s\S]*Setup is already complete[\s\S]*skip does not change that success/iu,
+      /accept and skip[\s\S]*Configuration is already complete[\s\S]*skip changes nothing/iu,
     );
     expect(setup).toMatch(
       /acceptance[\s\S]*shared `project-orientation`[\s\S]*same visible conversation/iu,
@@ -513,7 +503,7 @@ describe("package-owned planning skills", () => {
       /decline[\s\S]*does not acquire[\s\S]*inventory[\s\S]*Summary[\s\S]*Brief[\s\S]*planning[\s\S]*native mutation/iu,
     );
     expect(setup).toMatch(
-      /`partial`, `blocked`, or `cancelled`[\s\S]*independent Catalog recovery[\s\S]*Active reconcile or no-op[\s\S]*reactivation[\s\S]*cutover[\s\S]*never trigger/iu,
+      /`partial`, `blocked`, or `cancelled`[\s\S]*independent Catalog recovery[\s\S]*Active reconcile or no-op[\s\S]*reactivation[\s\S]*never trigger/iu,
     );
     expect(setup).toMatch(
       /no offer marker, receipt, cache entry, lifecycle field, or persisted eligibility state/iu,

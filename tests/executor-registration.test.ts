@@ -391,7 +391,7 @@ Implement the work. Commit your work.
     );
 
     await expect(assertExecutorRegistrationsCurrent(homeDir, [registration])).rejects.toThrow(
-      "changed after Fresh Setup review",
+      "changed after Repository Configuration review",
     );
   });
 

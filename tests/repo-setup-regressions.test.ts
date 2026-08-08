@@ -27,20 +27,16 @@ const writeMattProviderContract = async (repoRoot: string): Promise<void> => {
 };
 
 describe("repository setup review regressions", () => {
-  test("keeps automatic Bearing nomination behind the managed activation check", () => {
+  test("keeps Bearing nomination contextual and explicit", () => {
     expect(pointer.trim().split(/\s+/u).length).toBeLessThanOrEqual(100);
     expect(pointer).not.toMatch(/[\u3400-\u9fff]/u);
-    expect(pointer).toContain("new request");
-    expect(pointer).toContain(
-      "$HOME/.bearing/bin/bearing activation check --origin model-invoked --repo <repository-root>",
-    );
-    expect(pointer).toContain("`invoke-bearing`");
-    expect(pointer).toContain("`continue-without-bearing`");
-    expect(pointer).toContain("`stop-for-explicit-entry`");
-    expect(pointer).toContain("Explicit `/bearing` loads the skill directly");
-    expect(pointer).toContain("direct continuation");
-    expect(pointer).toContain("Clear repository-independent conversation");
-    expect(pointer).not.toContain("invoke the global `bearing` skill before proceeding");
+    expect(pointer).toContain("correct answer or action may depend on this repository");
+    expect(pointer).toContain("bearing configure inspect");
+    expect(pointer).toContain("Fresh and Deactivated model-invoked work stops");
+    expect(pointer).toContain("Explicit `/bearing`");
+    expect(pointer).toContain("reliable Bearing orientation");
+    expect(pointer).toContain("repository-independent conversation");
+    expect(pointer).not.toContain("activation check");
   });
 
   test("creates state and cache namespaces and removes an unselected surface pointer", async () => {

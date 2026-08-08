@@ -23,10 +23,10 @@ Uninstall。安装 actions 会预览 managed targets，且不会配置 repositor
 Global Uninstall 只移除 package-managed Global Kit targets，并保留 Project Catalog 和
 repository state。
 
-用户级 Bearing skill 在任何仓库中都保留显式 Bearing 或 Setup 入口。普通 repository work
-只有在 Setup 写入该仓库的 managed Agent Surface pointer，且 package-owned 只读检查确认
-manifest 为 Active 后，才会自动激活 Bearing。Fresh 与 Deactivated 仓库会继续普通工作，
-不会调用 Bearing。
+用户级 Bearing skill 在任何仓库中都保留显式 Bearing 或 Repository Configuration 入口。
+已配置 repository 的 pointer 使用 context，而不是重复 CLI preflight：显式 Bearing concept、可靠
+continuation，或有实质 planning/governance relevance 的工作可以 nominate Bearing。Ordinary code
+work 与 working-directory context 本身不会 nominate Bearing。
 
 ## 启用一个仓库
 
@@ -40,7 +40,8 @@ manifest 为 Active 后，才会自动激活 Bearing。Fresh 与 Deactivated 仓
 
 ```bash
 bearing --help
-bearing setup --repo . --surface agent-skills
+bearing configure inspect --repo .
+bearing configure
 ```
 
 ## 建立最低基线

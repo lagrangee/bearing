@@ -4,7 +4,7 @@ export const AGENT_SURFACES = ["agent-skills", "claude"] as const;
 export const BEARING_MANAGED_START = "<!-- bearing:managed-start -->";
 export const BEARING_MANAGED_END = "<!-- bearing:managed-end -->";
 export const BEARING_POINTER =
-  "For a new request whose correct answer or action may depend on this repository, first run `$HOME/.bearing/bin/bearing activation check --origin model-invoked --repo <repository-root>`. Load the global `bearing` skill only for `invoke-bearing`; continue without it for `continue-without-bearing`; stop and request explicit `/bearing` for `stop-for-explicit-entry`. Explicit `/bearing` loads the skill directly. Reuse visibly reliable Bearing orientation only for a direct continuation of the same request and repository. Clear repository-independent conversation does not check or load Bearing.";
+  "For a new request whose correct answer or action may depend on this repository, load the global `bearing` skill through this managed pointer. The skill must run `bearing configure inspect --repo <repository-root>` and continue model-invoked work only when the typed lifecycle is Active. Fresh and Deactivated model-invoked work stops without Bearing; Invalid or Unsupported requires explicit `/bearing` for reviewed platform removal. Explicit `/bearing` loads the skill directly. Reuse visibly reliable Bearing orientation only for a direct continuation of the same request and repository. Clear repository-independent conversation does not load Bearing.";
 
 const MANAGED_BLOCK = `${BEARING_MANAGED_START}\n${BEARING_POINTER}\n${BEARING_MANAGED_END}`;
 

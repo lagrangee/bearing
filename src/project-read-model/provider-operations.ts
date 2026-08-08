@@ -13,6 +13,7 @@ import {
   sameMattNativeBindingDefinition,
 } from "../providers/matt-skills-v1/native-subject";
 import { mattObjects } from "../providers/matt-skills-v1/projection";
+import { assertActiveRepositoryIntegration } from "../repository-integration-lifecycle";
 import type { StructuralDiagnostic } from "../types";
 import { materializeProjectReadModelCandidate, prepareProjectReadModelCandidate } from "./inspect";
 import {
@@ -112,6 +113,7 @@ const acquisition = async (
   dependencies: Dependencies,
 ) => {
   const root = await resolveRepositoryRoot(repoRoot);
+  await assertActiveRepositoryIntegration(root, "provider");
   const local = await localStore(root);
   if (local.state === "unavailable") {
     return {
@@ -276,6 +278,7 @@ export const reconcileProjectNative = async (
   dependencies: Dependencies = {},
 ) => {
   const root = await resolveRepositoryRoot(repoRoot);
+  await assertActiveRepositoryIntegration(root, "reconcile-native");
   const request = normalizeNativeReconciliationRequest(input);
   const local = await localStore(root);
   if (local.state === "unavailable") {
@@ -413,6 +416,7 @@ export const rebuildProjectReadModel = async (
   }>
 > => {
   const root = await resolveRepositoryRoot(repoRoot);
+  await assertActiveRepositoryIntegration(root, "cache-rebuild");
   const state = await inspectProjectReadModel(root);
   if (state.state === "need-update") {
     return {
