@@ -278,7 +278,7 @@ test("applies the accepted browser security policy to every Portal response surf
     createReadyApp().request("http://127.0.0.1:4178/healthz"),
     createReadyApp().request("http://127.0.0.1:4178/favicon.ico"),
     createReadyApp().request("http://127.0.0.1:4178/api/v1/missing"),
-    failedApp.request("http://127.0.0.1:4178/api/v1/projects/entry-bearing/snapshot"),
+    failedApp.request("http://127.0.0.1:4178/api/v1/projects/entry-bearing/read-model"),
   ]);
 
   // When each response is inspected, then one bounded policy governs the Host
@@ -332,7 +332,7 @@ test("bootstraps the API-scoped Portal session before concurrent API reads", asy
   const requestCookie = cookie.split(";", 1)[0] ?? cookie;
   const [catalog, project] = await Promise.all([
     app.request(`${LOCAL_ORIGIN}/api/v1/catalog`, { headers: { Cookie: requestCookie } }),
-    app.request(`${LOCAL_ORIGIN}/api/v1/projects/entry-bearing/snapshot`, {
+    app.request(`${LOCAL_ORIGIN}/api/v1/projects/entry-bearing/read-model`, {
       headers: { Cookie: requestCookie },
     }),
   ]);

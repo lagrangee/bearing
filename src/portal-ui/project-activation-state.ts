@@ -1,12 +1,8 @@
-import type {
-  ProjectFailureView,
-  ProjectOperationError,
-  ProjectSyncEnvelope,
-  ProjectView,
-} from "./project-contract";
+import type { PortalProjectReadEnvelope } from "../portal-project-read-wire";
+import type { ProjectOperationError, ProjectView } from "./project-contract";
 
 export type ProjectConfirmation = "up-to-date" | "updated" | "checked-recently";
-type UnavailableEnvelope = Extract<ProjectSyncEnvelope, Readonly<{ state: "unavailable" }>>;
+type UnavailableEnvelope = Extract<PortalProjectReadEnvelope, Readonly<{ state: "unavailable" }>>;
 export type ProjectUnavailableState = Readonly<{
   kind: "unavailable";
   project: UnavailableEnvelope["project"];
@@ -32,12 +28,13 @@ export type ActivationAction =
   | Readonly<{ type: "syncing"; view?: ProjectView }>
   | Readonly<{ type: "settled"; confirmation: ProjectConfirmation; view: ProjectView }>
   | Readonly<{ type: "refreshing"; view: ProjectView }>
-  | (Readonly<{
+  | Readonly<{
       type: "failed";
       operation: "check" | "sync";
       error: ProjectOperationError;
-    }> &
-      ProjectFailureView)
+      view?: ProjectView;
+      viewDisposition?: "discard";
+    }>
   | Readonly<{
       type: "unavailable";
       project: ProjectUnavailableState["project"];
@@ -95,76 +92,5 @@ export const projectActivationReducer = (
     }
     case "unavailable":
       return { kind: "unavailable", project: action.project, diagnostic: action.diagnostic };
-  }
-};
-
-export type SyncTransition = Readonly<{
-  action: ActivationAction;
-  confirmation?: Readonly<{ value: ProjectConfirmation; delayMs: number }>;
-}>;
-
-export const transitionForSyncResult = (result: ProjectSyncEnvelope): SyncTransition => {
-  switch (result.state) {
-    case "cooldown":
-      return {
-        action: {
-          type: "settled",
-          confirmation: "checked-recently",
-          view: result.view,
-        },
-      };
-    case "unavailable":
-      return {
-        action: {
-          type: "unavailable",
-          project: result.project,
-          diagnostic: result.diagnostic,
-        },
-      };
-    case "failed": {
-      const presentation: ProjectFailureView =
-        result.view === undefined
-          ? result.viewDisposition === "discard"
-            ? { viewDisposition: "discard" }
-            : {}
-          : { view: result.view };
-      return {
-        action: {
-          type: "failed",
-          operation:
-            result.mode === "force" || result.error.code === "sync-failed" ? "sync" : "check",
-          error: result.error,
-          ...presentation,
-        },
-      };
-    }
-    case "completed":
-      switch (result.outcome) {
-        case "materialized":
-          return {
-            action: { type: "refreshing", view: result.view },
-            confirmation: { value: "up-to-date", delayMs: 650 },
-          };
-        case "applied":
-          return {
-            action: { type: "syncing", view: result.view },
-            confirmation: { value: "updated", delayMs: 650 },
-          };
-        case "synced":
-          if (result.reconciliation === "applied") {
-            return {
-              action: { type: "syncing", view: result.view },
-              confirmation: { value: "updated", delayMs: 650 },
-            };
-          }
-          return {
-            action: { type: "settled", confirmation: "up-to-date", view: result.view },
-          };
-        case "checked":
-        case "no-op":
-          return {
-            action: { type: "settled", confirmation: "up-to-date", view: result.view },
-          };
-      }
   }
 };

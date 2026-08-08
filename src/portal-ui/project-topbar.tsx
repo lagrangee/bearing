@@ -3,14 +3,14 @@ import { Icons } from "./icons";
 import { Action } from "./primitives";
 import type { ActivationState, ProjectConfirmation } from "./project-activation-state";
 
-function SettledSyncLabel({ confirmation }: { readonly confirmation: ProjectConfirmation }) {
+function SettledReadLabel({ confirmation }: { readonly confirmation: ProjectConfirmation }) {
   const [visible, setVisible] = useState(confirmation === "updated");
   useEffect(() => {
     if (!visible) return undefined;
     const timer = window.setTimeout(() => setVisible(false), 1_600);
     return () => window.clearTimeout(timer);
   }, [visible]);
-  return visible ? "Updated" : "Sync";
+  return visible ? "Updated" : "Refresh";
 }
 
 const syncPresentation = (state: ActivationState) => {
@@ -62,7 +62,7 @@ export function ProjectTopbar({
   const sync = syncPresentation(state);
   const syncLabel =
     state.kind === "settled" ? (
-      <SettledSyncLabel key={state.confirmation} confirmation={state.confirmation} />
+      <SettledReadLabel key={state.confirmation} confirmation={state.confirmation} />
     ) : (
       sync.label
     );

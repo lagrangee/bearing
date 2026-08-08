@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
-import type { ProjectSnapshot } from "../project-snapshot/contract";
 import {
   ASSET_EVIDENCE_FILTERS,
   type AssetEvidenceFilter,
@@ -12,6 +11,7 @@ import { AssetRow } from "./asset-row";
 import { Action } from "./primitives";
 import { buildProjectAssetsModel, filterAssetRows } from "./project-assets-model";
 import { readProjectCanvasHistory, updateAssetCanvasFilters } from "./project-canvas-history";
+import type { AssetsModelData } from "./project-data";
 
 export function AssetsPage({
   entryId,
@@ -20,7 +20,7 @@ export function AssetsPage({
 }: {
   readonly entryId: string;
   readonly onNavigate: (href: string) => void;
-  readonly snapshot: ProjectSnapshot;
+  readonly snapshot: AssetsModelData;
 }) {
   const [query, setQuery] = useState(
     () => readProjectCanvasHistory(entryId, "assets")?.assets?.query ?? "",

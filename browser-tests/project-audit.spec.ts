@@ -10,32 +10,34 @@ import {
   createZeroProjectAuditFixture,
 } from "../tests/fixtures/project-audit";
 import { browserArtifactPath } from "./browser-artifact-output";
+import {
+  projectRowEnvelope,
+  projectSectionFromRequest,
+  projectTargetFromRequest,
+} from "./project-row-fixture";
 
-const envelope = (snapshot: ProjectSnapshot) => ({
-  version: 1,
-  state: "ready",
-  view: {
-    project: { entryId: "audit", displayName: "Audit fixture", availability: "available" },
-    cache: {
-      snapshot: { state: "available", snapshot },
-      receipt: {
-        schemaVersion: 1,
-        producer: { packageName: "@lagrangee/bearing", packageVersion: "0.0.0-test" },
-        completedAt: "2026-07-14T12:00:00+08:00",
-        sitemap: { version: 1, fingerprint: snapshot.basis.sitemapFingerprint },
-        reconciliation: "no-op",
-      },
-      retained: false,
-    },
-    diagnosticCounts: { blocking: 0, nonBlocking: 0, total: 0 },
-  },
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-  session: { csrfToken: "ticket-39-csrf" },
-});
+const envelope = (
+  snapshot: ProjectSnapshot,
+  section: Parameters<typeof projectRowEnvelope>[0]["section"],
+  target?: Parameters<typeof projectRowEnvelope>[0]["target"],
+) =>
+  projectRowEnvelope({
+    snapshot,
+    section,
+    target,
+    entryId: "audit",
+    displayName: "Audit fixture",
+  });
 
 const serveSnapshot = async (page: Page, current: () => ProjectSnapshot): Promise<void> => {
-  await page.route("**/api/v1/projects/audit/snapshot", (route) =>
-    route.fulfill({ json: envelope(current()) }),
+  await page.route("**/api/v1/projects/audit/read-model?section=*", (route) =>
+    route.fulfill({
+      json: envelope(
+        current(),
+        projectSectionFromRequest(route.request().url()),
+        projectTargetFromRequest(route.request().url()),
+      ),
+    }),
   );
 };
 

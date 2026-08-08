@@ -4,7 +4,6 @@ import type {
   RequestedPlanningLineageSubject,
 } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
-import type { ProjectSnapshot } from "../project-snapshot/contract";
 import type {
   MattNativeEventTime,
   MattSemanticSectionAvailability,
@@ -32,6 +31,7 @@ import {
 } from "./planning-lineage-model";
 import { Action } from "./primitives";
 import { projectCanvasFocusKey } from "./project-canvas-history";
+import type { LineageModelData } from "./project-data";
 import { SourceEventTimeValue } from "./source-event-time";
 import type { TechnicalDetailsSelection } from "./technical-details";
 
@@ -71,7 +71,7 @@ const technicalDetailsSelection = (
     ReturnType<typeof buildPlanningLineageSubjectModel>,
     { state: "available" | "partial" }
   >,
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
 ): TechnicalDetailsSelection => {
   const source = model.subject.source;
   const diagnostics = snapshot.diagnostics.filter(
@@ -1171,7 +1171,7 @@ export function PlanningLineagePage({
   ) => void;
   readonly requested: RequestedPlanningLineageSubject;
   readonly semanticAnchor?: string | undefined;
-  readonly snapshot: ProjectSnapshot;
+  readonly snapshot: LineageModelData;
   readonly inspectionOperation?: Readonly<{
     state: "idle" | "running" | "failed";
     subjectKey?: string | undefined;

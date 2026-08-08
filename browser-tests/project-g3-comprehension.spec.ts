@@ -28,6 +28,12 @@ import {
   withRebuiltPlanningLineage,
 } from "../tests/planning-lineage-fixture";
 import {
+  projectFindEnvelope,
+  projectRowEnvelope,
+  projectSectionFromRequest,
+  projectTargetFromRequest,
+} from "./project-row-fixture";
+import {
   type RunningTestPortal,
   runHarnessCommand,
   startBuiltPortal,
@@ -36,58 +42,6 @@ import {
 } from "./real-host-test-support";
 
 const entryId = "g3-comprehension";
-
-const projectView = (snapshot: ProjectSnapshot) => ({
-  project: { entryId, displayName: "G3 Comprehension Project", availability: "available" },
-  cache: {
-    snapshot: { state: "available", snapshot },
-    receipt: {
-      schemaVersion: 1,
-      producer: { packageName: "@lagrangee/bearing", packageVersion: "0.0.0-test" },
-      completedAt: "2026-07-31T10:00:00+08:00",
-      sitemap: { version: 1, fingerprint: snapshot.basis.sitemapFingerprint },
-      reconciliation: "no-op",
-    },
-    retained: false,
-  },
-  diagnosticCounts: { blocking: 0, nonBlocking: 0, total: 0 },
-});
-
-const readyEnvelope = (snapshot: ProjectSnapshot) => ({
-  version: 1,
-  state: "ready",
-  view: projectView(snapshot),
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-  session: { csrfToken: "ticket-24-csrf" },
-});
-
-const forcedEnvelope = (snapshot: ProjectSnapshot) => ({
-  version: 1,
-  state: "completed",
-  mode: "force",
-  outcome: "applied",
-  reconciliation: "applied",
-  snapshotDisposition: "materialized",
-  view: projectView(snapshot),
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-});
-
-const failedSyncEnvelope = () => ({
-  version: 1,
-  state: "failed",
-  mode: "force",
-  outcome: "failed",
-  error: {
-    code: "snapshot-write-failed",
-    message: "Project cache could not be saved.",
-  },
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-});
-
-const failedInspectionEnvelope = (snapshot: ProjectSnapshot) => ({
-  ...failedSyncEnvelope(),
-  view: projectView(snapshot),
-});
 
 const withProjectBrief = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   const source = createSourceRecord(snapshot.basis.sitemapFingerprint, {
@@ -850,10 +804,10 @@ test.beforeAll(async () => {
   delete commandEnvironment["FORCE_COLOR"];
   const baseline = await runHarnessCommand(
     "node",
-    ["dist/cli.js", "sync", "--repo", fixtureRoot, "--initialize-provider-observations"],
-    { environment: commandEnvironment, label: "G3 real Host baseline" },
+    ["dist/cli.js", "provider", "capture", "--repo", fixtureRoot, "--scope", ".scratch/work"],
+    { environment: commandEnvironment, label: "G3 exact provider capture" },
   );
-  if (baseline.exitCode !== 0) throw new Error(`G3 baseline failed: ${baseline.stderr}`);
+  if (baseline.exitCode !== 0) throw new Error(`G3 provider capture failed: ${baseline.stderr}`);
   sourcesBeforeExactReconciliation = await sourceState(fixtureRoot);
   exactReconciliation = await runHarnessCommand(
     "node",
@@ -916,11 +870,21 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       standalone: github.standalone,
     },
   ];
-  expect(exactReconciliation?.exitCode).toBe(0);
+  if (exactReconciliation?.exitCode !== 0) {
+    throw new Error(
+      `Exact reconciliation failed: ${exactReconciliation?.stderr ?? "missing result"}\n${exactReconciliation?.stdout ?? ""}`,
+    );
+  }
   expect(exactReconciliation?.stderr).toBe("");
-  expect(exactReconciliation?.stdout).toContain("Diagnostics: 0");
-  expect(exactReconciliation?.stdout).toContain("Reconciliation: succeeded");
-  expect(exactReconciliation?.stdout).toContain("Snapshot: materialized");
+  const reconciliationOutput = JSON.parse(exactReconciliation.stdout) as {
+    outcome?: string;
+    diagnostics?: unknown[];
+    result?: { scopedDiagnosticCount?: number; acquisitionCount?: number };
+  };
+  expect(reconciliationOutput.outcome).toBe("complete");
+  expect(reconciliationOutput.diagnostics).toEqual([]);
+  expect(reconciliationOutput.result?.scopedDiagnosticCount).toBe(0);
+  expect(reconciliationOutput.result?.acquisitionCount).toBe(1);
   expect(sourcesAfterExactReconciliation).toEqual(sourcesBeforeExactReconciliation);
   await page.goto(host.url);
   await page
@@ -929,7 +893,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     .click();
   await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
   const actualSnapshotResponse = await page.request.get(
-    `${host.url}/api/v1/projects/${entryId}/snapshot`,
+    `${host.url}/api/v1/projects/${entryId}/read-model?section=overview`,
   );
   expect(actualSnapshotResponse.ok()).toBe(true);
   const actualSnapshotBody = JSON.stringify(await actualSnapshotResponse.json());
@@ -957,8 +921,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     page.getByRole("heading", { name: "Verify repository isolation", level: 1 }),
   ).toBeVisible();
   let activeSnapshot = local.snapshot;
-  let syncTarget = degradedSnapshot(local.snapshot);
-  let syncAttempts = 0;
+  let refreshTarget = degradedSnapshot(local.snapshot);
   let inspectionTarget = withRefreshedEffortDetails(
     withDegradedEffortObservation(local.snapshot, "stale"),
   );
@@ -968,30 +931,38 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
   page.on("request", (request) => {
     if (request.method() === "POST") posts.push(request.url());
   });
-  await page.route(`**/api/v1/projects/${entryId}/snapshot`, (route) =>
-    route.fulfill({ json: readyEnvelope(activeSnapshot) }),
-  );
-  await page.route(`**/api/v1/projects/${entryId}/sync`, (route) => {
-    syncAttempts += 1;
+  await page.route(`**/api/v1/projects/${entryId}/read-model?section=*`, (route) => {
     return route.fulfill({
-      json: syncAttempts === 1 ? failedSyncEnvelope() : forcedEnvelope(syncTarget),
+      json: projectRowEnvelope({
+        snapshot: activeSnapshot,
+        section: projectSectionFromRequest(route.request().url()),
+        target: projectTargetFromRequest(route.request().url()),
+        entryId,
+        displayName: "G3 Comprehension Project",
+      }),
     });
   });
+  await page.route(`**/api/v1/projects/${entryId}/find?*`, (route) =>
+    route.fulfill({
+      json: projectFindEnvelope(
+        activeSnapshot,
+        entryId,
+        new URL(route.request().url()).searchParams.get("query") ?? "",
+      ),
+    }),
+  );
   await page.route(`**/api/v1/projects/${entryId}/inspect-native-scope`, async (route) => {
     inspectionBodies.push(route.request().postDataJSON());
     await new Promise((resolve) => setTimeout(resolve, 150));
-    return route.fulfill({
-      json: inspectionFails
-        ? failedInspectionEnvelope(activeSnapshot)
-        : forcedEnvelope(inspectionTarget),
-    });
+    if (inspectionFails) return route.fulfill({ status: 409, json: { state: "failed" } });
+    activeSnapshot = inspectionTarget;
+    return route.fulfill({ status: 204 });
   });
   const beforeSources = await sourceState(fixtureRoot);
 
   for (const scenario of scenarios) {
     activeSnapshot = scenario.snapshot;
-    syncTarget = degradedSnapshot(scenario.snapshot);
-    syncAttempts = 0;
+    refreshTarget = degradedSnapshot(scenario.snapshot);
     inspectionFails = false;
     posts.length = 0;
     inspectionBodies.length = 0;
@@ -1460,7 +1431,9 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     const previewTab = context.waitForEvent("page");
     await page.getByRole("link", { name: /View Content/u }).click();
     const previewPage = await previewTab;
-    await expect(previewPage.getByText("Uncited Fixture Evidence", { exact: false })).toBeVisible();
+    await expect(
+      previewPage.getByRole("heading", { name: "Uncited Fixture Evidence" }),
+    ).toBeVisible();
     await expect(previewPage.getByText("current-checkout content", { exact: false })).toBeVisible();
     await expect(
       previewPage.getByRole("button", { name: "Return to Asset detail" }),
@@ -1503,19 +1476,14 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       id: "gate:one",
     });
     await page.goto(`${host.url}${degradedGateHref}`);
-    await page.getByRole("button", { name: "Sync" }).click();
-    await expect(page.getByRole("alert")).toContainText("Cached project content remains visible");
-    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
-    await page.getByRole("button", { name: "Retry" }).click();
+    activeSnapshot = refreshTarget;
+    await page.getByRole("button", { name: "Refresh" }).click();
     await expect(page.getByRole("heading", { name: "Gate unavailable", level: 1 })).toBeVisible();
     await expect(
       page.getByText("Partial collection coverage cannot establish", { exact: false }),
     ).toBeVisible();
     await expect(page.getByRole("link", { name: "Return to project Overview" })).toBeVisible();
-    expect(posts.filter((url) => url.endsWith("/sync"))).toEqual([
-      `${host.url}/api/v1/projects/${entryId}/sync`,
-      `${host.url}/api/v1/projects/${entryId}/sync`,
-    ]);
+    expect(posts.filter((url) => url.endsWith("/sync"))).toEqual([]);
   }
 
   expect(await sourceState(fixtureRoot)).toEqual(beforeSources);

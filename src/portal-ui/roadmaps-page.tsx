@@ -1,4 +1,4 @@
-import type { ProjectSnapshot } from "../project-snapshot/contract";
+import type { RoadmapsModelData } from "./project-data";
 import { RoadmapsIndex } from "./roadmaps-index";
 
 export function RoadmapsPage({
@@ -8,7 +8,7 @@ export function RoadmapsPage({
 }: {
   readonly entryId: string;
   readonly onNavigate: (href: string) => void;
-  readonly snapshot: ProjectSnapshot;
+  readonly snapshot: RoadmapsModelData;
 }) {
   return <RoadmapsIndex entryId={entryId} onNavigate={onNavigate} snapshot={snapshot} />;
 }

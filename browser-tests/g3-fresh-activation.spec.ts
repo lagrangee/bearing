@@ -63,19 +63,31 @@ test("Fresh Local activation keeps Scope Review transient and Portal read-only",
     await writeStandardMattLocalRepository(root);
     const beforeNativeSources = await sourceBytes(root);
     const entryName = basename(root);
-    const setup = await runDevelopmentCli(home, [
-      "setup",
+    const configurationArguments = [
+      "--intent",
+      "activate",
       "--repo",
       root,
       "--surface",
       "agent-skills",
       "--provider-contract",
       "docs/agents/issue-tracker.md",
+      "--executor-mode",
+      "skip",
+    ] as const;
+    const planned = await runDevelopmentCli(home, ["configure", "plan", ...configurationArguments]);
+    expectSuccessful(planned);
+    const planToken = (JSON.parse(planned.stdout) as { sealedPlanToken?: unknown }).sealedPlanToken;
+    if (typeof planToken !== "string") throw new Error("Configure plan returned no seal.");
+    const configured = await runDevelopmentCli(home, [
+      "configure",
+      "apply",
+      ...configurationArguments,
+      "--plan-token",
+      planToken,
     ]);
-    expectSuccessful(setup);
-    expect(setup.stdout).toContain("Outcome: applied");
-    expect(setup.stdout).toContain("Repository: applied");
-    expect(setup.stdout).toContain("Catalog: applied");
+    expectSuccessful(configured);
+    expect(JSON.parse(configured.stdout)).toMatchObject({ outcome: "applied" });
     const afterSetupNativeSources = await sourceBytes(root);
     const afterSetupAgents = afterSetupNativeSources["AGENTS.md"];
     expect(afterSetupAgents).toBeDefined();
@@ -92,25 +104,13 @@ test("Fresh Local activation keeps Scope Review transient and Portal read-only",
       ),
     );
 
-    const baseline = await runDevelopmentCli(home, [
-      "sync",
-      "--repo",
-      root,
-      "--initialize-provider-observations",
-    ]);
-    expectSuccessful(baseline);
-    expect(baseline.stdout).toContain("Diagnostics: 0");
-    expect(baseline.stdout).toContain("Provider observations: initial-baseline/acquired");
-    expect(baseline.stdout).toContain(
-      "Native scope inspection: none/not-requested (0 acquisitions)",
-    );
-
-    const ordinary = await runDevelopmentCli(home, ["sync", "--repo", root]);
-    expectSuccessful(ordinary);
-    expect(ordinary.stdout).toContain(
-      "Provider observations: ordinary-sync/reused (0 acquisitions)",
-    );
-    expect(ordinary.stdout).toContain("Outcome: no-op");
+    const rebuilt = await runDevelopmentCli(home, ["cache", "rebuild", "--repo", root]);
+    expectSuccessful(rebuilt);
+    expect(JSON.parse(rebuilt.stdout)).toMatchObject({
+      command: "cache-rebuild",
+      outcome: "complete",
+      result: { acquisitionCount: 0, missingEvidenceScopes: [] },
+    });
 
     const stateBytes = await readRepositorySourceBytes(root);
     expect(Object.keys(stateBytes).some((locator) => locator.startsWith(".bearing/state/"))).toBe(

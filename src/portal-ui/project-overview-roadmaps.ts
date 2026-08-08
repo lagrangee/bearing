@@ -1,10 +1,10 @@
 import type {
   MilestoneGate,
   ProjectionIssue,
-  ProjectSnapshot,
   Roadmap,
   SourceRecord,
 } from "../project-snapshot/contract";
+import type { OverviewModelData } from "./project-data";
 
 export type OverviewRoadmap = Readonly<{
   roadmap: Roadmap;
@@ -51,11 +51,11 @@ const indexBy = <Item>(items: readonly Item[], key: (item: Item) => string): Map
   return index;
 };
 
-const gateItems = (snapshot: ProjectSnapshot): readonly MilestoneGate[] =>
+const gateItems = (snapshot: OverviewModelData): readonly MilestoneGate[] =>
   snapshot.gates.validity === "invalid" ? [] : snapshot.gates.items;
 
 export const buildOverviewRoadmaps = (
-  snapshot: ProjectSnapshot,
+  snapshot: OverviewModelData,
   sources: ReadonlyMap<string, SourceRecord>,
 ): OverviewRoadmaps => {
   if (snapshot.roadmapIndex.validity === "absent") {

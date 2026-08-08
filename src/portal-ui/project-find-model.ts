@@ -39,7 +39,7 @@ const NON_CJK_TOKEN_PATTERN = /[\p{L}\p{N}_:-]+/gu;
 const CJK_TOKEN_PATTERN =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
-type FindFieldKey =
+export type FindFieldKey =
   | "identity"
   | "title"
   | "intent"
@@ -49,7 +49,7 @@ type FindFieldKey =
   | "nativeBody"
   | "summary";
 
-type FindField = Readonly<{
+export type FindField = Readonly<{
   key: FindFieldKey;
   label: string;
   text: string;
@@ -68,7 +68,7 @@ type FuseFindDocument = Readonly<{
   summary: string;
 }>;
 
-type FindDocument = Readonly<{
+export type FindDocument = Readonly<{
   id: string;
   subject: ProjectFindSubject;
   subjectType: string;
@@ -256,7 +256,7 @@ const managedNativeSubjectKeys = (snapshot: ProjectSnapshot): ReadonlySet<string
   return keys;
 };
 
-const projectFindScopeState = (snapshot: ProjectSnapshot): ProjectFindScopeState => {
+export const projectFindScopeState = (snapshot: ProjectSnapshot): ProjectFindScopeState => {
   const canonicalCollections = [
     ["Roadmap", snapshot.roadmaps],
     ["Gate", snapshot.gates],
@@ -273,7 +273,7 @@ const projectFindScopeState = (snapshot: ProjectSnapshot): ProjectFindScopeState
       state: "invalid",
       cause: `${label} content is unavailable.`,
       impact: "Readable managed content remains searchable, but results can omit that area.",
-      nextStep: "Close Find and run Sync from the project header.",
+      nextStep: "Close Find and repair the affected project source in Agent Surface.",
     };
   }
   const partial = canonicalCollections.find(([, collection]) => collection.validity === "partial");
@@ -283,7 +283,7 @@ const projectFindScopeState = (snapshot: ProjectSnapshot): ProjectFindScopeState
       state: "partial",
       cause: `${label} coverage is incomplete.`,
       impact: "Confirmed managed content remains searchable, but some results may be missing.",
-      nextStep: "Close Find and run Sync from the project header.",
+      nextStep: "Close Find and complete the affected project source in Agent Surface.",
     };
   }
   if (snapshot.audit.validity === "absent") {
@@ -841,11 +841,12 @@ export const buildProjectFindDocuments = (
   ];
 };
 
-export const buildProjectFindIndex = (
-  snapshot: ProjectSnapshot,
+export const buildProjectFindIndexFromDocuments = (
+  documents: readonly FindDocument[],
   entryId: string,
+  fingerprint: string,
+  scopeState: ProjectFindScopeState,
 ): ProjectFindIndex => {
-  const documents = buildProjectFindDocuments(snapshot, entryId);
   const fuseDocuments = documents.map(toFuseDocument);
   const byIndex = new Map(documents.map((document, index) => [index, document]));
   const fuse = new Fuse(fuseDocuments, {
@@ -866,9 +867,9 @@ export const buildProjectFindIndex = (
     minMatchCharLength: 1,
   });
   return {
-    fingerprint: snapshot.basis.sitemapFingerprint,
+    fingerprint,
     documentCount: documents.length,
-    scopeState: projectFindScopeState(snapshot),
+    scopeState,
     search: (query) => {
       const trimmed = query.trim();
       const tokens = tokenizeProjectFindText(trimmed);
@@ -951,3 +952,14 @@ export const buildProjectFindIndex = (
     },
   };
 };
+
+export const buildProjectFindIndex = (
+  snapshot: ProjectSnapshot,
+  entryId: string,
+): ProjectFindIndex =>
+  buildProjectFindIndexFromDocuments(
+    buildProjectFindDocuments(snapshot, entryId),
+    entryId,
+    snapshot.basis.sitemapFingerprint,
+    projectFindScopeState(snapshot),
+  );

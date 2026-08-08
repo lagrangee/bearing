@@ -49,7 +49,7 @@ test.beforeAll(async () => {
         `  - ID: asset:g3-prototype\n    Title: G3 Prototype\n    Kind: prototype\n    Location: prototypes/demo\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-reading-document\n    Title: G3 Reading Document\n    Kind: document\n    Location: docs/reading.html\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-directory\n    Title: G3 Directory Asset\n    Kind: context\n    Location: docs/bundle\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n  - ID: asset:g3-unsupported\n    Title: G3 Unsupported Content\n    Kind: binary\n    Location: docs/payload.bin\n    Owner: effort:fixture\n    Producer:\n      Kind: agent\n      Name: fixture\n    Lifecycle source: registry\n    Disposition: available\n`,
     ),
   );
-  await runBuiltBearing(["sync", "--repo", fixtureRoot, "--initialize-provider-observations"]);
+  await runBuiltBearing(["provider", "capture", "--repo", fixtureRoot, "--scope", ".scratch/work"]);
 
   homeRoot = await mkdtemp(join(tmpdir(), "bearing-g3-preview-browser-home-"));
   await mkdir(join(homeRoot, ".bearing"), { recursive: true });

@@ -4,10 +4,12 @@ import MarkdownIt from "markdown-it";
 import sanitizeHtml from "sanitize-html";
 import { probeContainedInput } from "../input-boundary";
 import { readContainedFile } from "../path-boundary";
-import { readProjectSnapshotCache } from "../project-snapshot/cache";
+import {
+  PortalProjectReadModelUnavailableError,
+  queryPortalAssetRow,
+} from "../project-read-model/portal";
 import type { AssetProjection } from "../project-snapshot/contract";
 import { assetIdSchema } from "../project-snapshot/schema-primitives";
-import { readProjectSitemapCache } from "../sitemap-cache";
 import type { CatalogReadResult } from "./contract";
 import { resolveProjectEntry } from "./project-entry";
 
@@ -26,12 +28,13 @@ export type AssetPreviewAvailability =
 
 export type AssetPreviewUnavailableCode =
   | "project-unavailable"
-  | "snapshot-unavailable"
+  | "project-data-unavailable"
+  | "project-data-needs-rebuild"
+  | "project-data-needs-update"
   | "asset-not-registered"
   | "preview-not-offered"
   | "content-missing"
   | "content-unreadable"
-  | "stale-registration"
   | "unsupported-filesystem-type"
   | "unsafe-content"
   | "unsupported-content"
@@ -67,6 +70,11 @@ type PreviewRepresentation =
 export type AssetPreviewService = Readonly<{
   resolve(entryId: string, assetId: string): Promise<AssetPreviewResolution>;
 }>;
+
+export type AssetPreviewRowReader = (
+  repoRoot: string,
+  assetId: string,
+) => ReturnType<typeof queryPortalAssetRow>;
 
 const markdown = new MarkdownIt({
   breaks: false,
@@ -153,6 +161,13 @@ export const assetPreviewUnavailableDocument = (
   const returnControl = returnToAssetDetailControl(assetDetailHref(entryId, assetId));
   if (result.code === "preview-not-offered") {
     return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>Preview not offered</title></head><body><header>${returnControl}</header><main><h1>Preview not offered</h1><p>Cause: ${safeText(result.message)}</p><p>Impact: Bearing exposes no content or runtime resources for this Asset.</p><p>Return to Asset detail to read its semantic information or inspect provenance in Technical Details.</p></main></body></html>`;
+  }
+  if (result.code === "project-data-needs-rebuild" || result.code === "project-data-needs-update") {
+    const recovery =
+      result.code === "project-data-needs-rebuild"
+        ? "Use the Agent Surface to rebuild project data, then open this Asset again."
+        : "Install a compatible Bearing runtime, then open this Asset again.";
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>Content unavailable</title></head><body><header>${returnControl}<p>View Content · current-checkout content</p></header><main><h1>Content unavailable</h1><p>Cause: ${safeText(result.message)}</p><p>Impact: this Asset content cannot be read on the current content surface.</p><p>Recovery: ${recovery}</p></main></body></html>`;
   }
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ASSET_PREVIEW_CONTENT_SECURITY_POLICY}"><title>Content unavailable</title></head><body><header>${returnControl}<p>View Content · current-checkout content</p></header><main><h1>Content unavailable</h1><p>Cause: ${safeText(result.message)}</p><p>Impact: this Asset content cannot be read on the current content surface.</p><p>Recovery: return to Asset detail, open Technical Details, repair the registered source, then run Sync.</p></main></body></html>`;
 };
@@ -292,6 +307,7 @@ const resolveRegisteredAsset = async (
   entryId: string,
   assetId: string,
   readCatalog: () => Promise<CatalogReadResult>,
+  readAssetRow: AssetPreviewRowReader,
 ): Promise<RegisteredAssetResult> => {
   const parsedAssetId = assetIdSchema.safeParse(assetId);
   if (!parsedAssetId.success) {
@@ -315,45 +331,44 @@ const resolveRegisteredAsset = async (
       ) as UnavailableResolution,
     };
   }
-  const sitemap = await readProjectSitemapCache(entry.entry.repoRoot);
-  if (sitemap.kind !== "available") {
+  let assetRow: Awaited<ReturnType<typeof queryPortalAssetRow>>;
+  try {
+    assetRow = await readAssetRow(entry.entry.repoRoot, parsedAssetId.data);
+  } catch (error) {
+    if (error instanceof PortalProjectReadModelUnavailableError) {
+      return {
+        kind: "unavailable",
+        resolution: unavailable(
+          error.reason === "need-rebuild"
+            ? "project-data-needs-rebuild"
+            : "project-data-needs-update",
+          error.reason === "need-rebuild"
+            ? "Project data needs an explicit rebuild."
+            : "Project data needs a compatible Bearing runtime.",
+          "unavailable",
+        ) as UnavailableResolution,
+      };
+    }
     return {
       kind: "unavailable",
       resolution: unavailable(
-        "snapshot-unavailable",
-        "The current project generation is unavailable.",
+        "project-data-unavailable",
+        "Project data is unavailable.",
         "unavailable",
       ) as UnavailableResolution,
     };
   }
-  const cache = await readProjectSnapshotCache(
-    entry.entry.repoRoot,
-    sitemap.envelope.inputFingerprint,
-  );
-  if (cache.kind !== "available") {
+  if (assetRow.state === "unavailable") {
     return {
       kind: "unavailable",
       resolution: unavailable(
-        "stale-registration",
-        "The registered Asset does not have matching current revision evidence.",
-        "unavailable",
-      ) as UnavailableResolution,
-    };
-  }
-  if (cache.snapshot.assets.validity === "invalid") {
-    return {
-      kind: "unavailable",
-      resolution: unavailable(
-        "snapshot-unavailable",
+        "project-data-unavailable",
         "The Asset projection is unavailable.",
         "unavailable",
       ) as UnavailableResolution,
     };
   }
-  const asset = cache.snapshot.assets.items.find(
-    (candidate) => candidate.id === parsedAssetId.data,
-  );
-  if (asset === undefined) {
+  if (assetRow.state === "missing") {
     return {
       kind: "unavailable",
       resolution: unavailable(
@@ -363,6 +378,7 @@ const resolveRegisteredAsset = async (
       ) as UnavailableResolution,
     };
   }
+  const asset = assetRow.asset;
   if (asset.kind === "prototype") {
     return {
       kind: "unavailable",
@@ -551,10 +567,16 @@ const fileResolution = async (
 
 export const createAssetPreviewService = (options: {
   readonly readCatalog: () => Promise<CatalogReadResult>;
+  readonly readAssetRow?: AssetPreviewRowReader;
 }): AssetPreviewService =>
   Object.freeze({
     async resolve(entryId: string, assetId: string): Promise<AssetPreviewResolution> {
-      const registered = await resolveRegisteredAsset(entryId, assetId, options.readCatalog);
+      const registered = await resolveRegisteredAsset(
+        entryId,
+        assetId,
+        options.readCatalog,
+        options.readAssetRow ?? queryPortalAssetRow,
+      );
       if (registered.kind === "unavailable") return registered.resolution;
       return fileResolution(registered.context, entryId);
     },

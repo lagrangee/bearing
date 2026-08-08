@@ -1,9 +1,5 @@
-import type {
-  AlignmentCheck,
-  AuditFinding,
-  PlanningReview,
-  ProjectSnapshot,
-} from "../project-snapshot/contract";
+import type { AlignmentCheck, AuditFinding, PlanningReview } from "../project-snapshot/contract";
+import type { AuditModelData } from "./project-data";
 
 type AuditPromotion = NonNullable<AuditFinding["promotion"]>;
 
@@ -57,7 +53,7 @@ const decisionRelation = (
   };
 };
 
-export const buildProjectAuditModel = (snapshot: ProjectSnapshot): ProjectAuditModel => {
+export const buildProjectAuditModel = (snapshot: AuditModelData): ProjectAuditModel => {
   if (snapshot.audit.validity === "absent") return { state: "absent" };
   if (snapshot.audit.validity === "invalid") {
     return { state: "invalid", issueCount: snapshot.audit.issues.length };

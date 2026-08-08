@@ -15,41 +15,17 @@ import { mattNativeScopeSubject } from "../src/providers/matt-skills-v1/native-s
 import { createMattReferenceProjection } from "../tests/fixtures/matt-reference-scenario";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { parseRebuiltPlanningLineageFixture } from "../tests/planning-lineage-fixture";
+import {
+  projectRowEnvelope,
+  projectSectionFromRequest,
+  projectTargetFromRequest,
+} from "./project-row-fixture";
 
-const projectView = (snapshot: ProjectSnapshot) => ({
-  project: { entryId: "lineage", displayName: "Bearing fixture", availability: "available" },
-  cache: {
-    snapshot: { state: "available", snapshot },
-    receipt: {
-      schemaVersion: 1,
-      producer: { packageName: "@lagrangee/bearing", packageVersion: "0.0.0-test" },
-      completedAt: "2026-07-31T10:00:00+08:00",
-      sitemap: { version: 1, fingerprint: snapshot.basis.sitemapFingerprint },
-      reconciliation: "no-op",
-    },
-    retained: false,
-  },
-  diagnosticCounts: { blocking: 0, nonBlocking: 0, total: 0 },
-});
-
-const readyEnvelope = (snapshot: ProjectSnapshot) => ({
-  version: 1,
-  state: "ready",
-  view: projectView(snapshot),
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-  session: { csrfToken: "ticket-11-csrf" },
-});
-
-const forcedEnvelope = (snapshot: ProjectSnapshot) => ({
-  version: 1,
-  state: "completed",
-  mode: "force",
-  outcome: "applied",
-  reconciliation: "applied",
-  snapshotDisposition: "materialized",
-  view: projectView(snapshot),
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-});
+const readyEnvelope = (
+  snapshot: ProjectSnapshot,
+  section: Parameters<typeof projectRowEnvelope>[0]["section"],
+  target?: Parameters<typeof projectRowEnvelope>[0]["target"],
+) => projectRowEnvelope({ snapshot, section, entryId: "lineage", target });
 
 const fixture = (): ProjectSnapshot => {
   const snapshot = createProjectOverviewFixture();
@@ -289,8 +265,14 @@ const withoutRequestedGate = (snapshot: ProjectSnapshot): ProjectSnapshot => {
 };
 
 const serveSnapshot = async (page: Page, snapshot: ProjectSnapshot): Promise<void> => {
-  await page.route("**/api/v1/projects/lineage/snapshot", (route) =>
-    route.fulfill({ json: readyEnvelope(snapshot) }),
+  await page.route("**/api/v1/projects/lineage/read-model?section=*", (route) =>
+    route.fulfill({
+      json: readyEnvelope(
+        snapshot,
+        projectSectionFromRequest(route.request().url()),
+        projectTargetFromRequest(route.request().url()),
+      ),
+    }),
   );
 };
 
@@ -391,7 +373,7 @@ test("stable durable-subject routes survive direct entry and keep failures scope
   ] as const;
 
   for (const nativeCase of nativeCases) {
-    await page.unroute("**/api/v1/projects/lineage/snapshot");
+    await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
     await serveSnapshot(page, nativeCase.snapshot);
     const scopeHref = planningLineageSubjectHref("lineage", nativeCase.scope);
     await page.goto(scopeHref);
@@ -455,7 +437,7 @@ test("stable durable-subject routes survive direct entry and keep failures scope
   });
   await page.goto(missingNative);
   await expect(page).toHaveURL(missingNative);
-  await expect(page.getByRole("heading", { name: "Native Subject not found" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Native Subject unavailable" })).toBeVisible();
 
   await page.goto("/projects/lineage/lineage/gate/not-a-gate");
   await expect(page).toHaveURL(/\/lineage\/gate\/not-a-gate$/u);
@@ -477,9 +459,15 @@ test("Source Event Time stays source-precise while browser-relative updates rema
     if (request.method() === "POST") posts.push(request.url());
   });
   await page.clock.install({ time: new Date("2026-07-31T10:05:00Z") });
-  await page.route("**/api/v1/projects/lineage/snapshot", (route) => {
+  await page.route("**/api/v1/projects/lineage/read-model?section=*", (route) => {
     snapshotReads += 1;
-    return route.fulfill({ json: readyEnvelope(snapshot) });
+    return route.fulfill({
+      json: readyEnvelope(
+        snapshot,
+        projectSectionFromRequest(route.request().url()),
+        projectTargetFromRequest(route.request().url()),
+      ),
+    });
   });
 
   await page.goto(
@@ -632,7 +620,7 @@ test("semantic detail owns the reading contract while Technical Details stays tr
   await expect(trigger).toBeFocused();
 });
 
-test("a same-route Snapshot transition sends an unavailable semantic anchor back to subject top", async ({
+test("a same-route row transition sends an unavailable semantic anchor back to subject top", async ({
   page,
 }) => {
   const initial = fixture();
@@ -656,9 +644,6 @@ test("a same-route Snapshot transition sends an unavailable semantic anchor back
     window.scrollTo = interceptedScrollTo as typeof window.scrollTo;
   });
   await serveSnapshot(page, initial);
-  await page.route("**/api/v1/projects/lineage/sync", (route) =>
-    route.fulfill({ json: forcedEnvelope(updated) }),
-  );
   await page.goto(
     `${planningLineageSubjectHref("lineage", {
       kind: "gate",
@@ -666,7 +651,9 @@ test("a same-route Snapshot transition sends an unavailable semantic anchor back
     })}#gate.exit-criteria`,
   );
   await expect(page.getByRole("heading", { name: "Model ready", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: "Sync" }).click();
+  await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
+  await serveSnapshot(page, updated);
+  await page.getByRole("button", { name: "Refresh" }).click();
   await expect(page.getByRole("heading", { name: "Gate unavailable", level: 1 })).toBeVisible();
   await expect
     .poll(() =>
@@ -856,6 +843,7 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(workHistoryDetails).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open Technical Details" })).toBeFocused();
   const subjectLink = page
     .getByRole("link", { name: "Review the Roadmap journey", exact: true })
     .first();

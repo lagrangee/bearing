@@ -6,7 +6,7 @@ import {
 import {
   projectSnapshotEnvelopeSchema as browserSnapshotSchema,
   projectSyncEnvelopeSchema as browserSyncSchema,
-} from "../src/portal-ui/project-contract";
+} from "../src/portal-project-wire";
 
 test("server and browser consume the same Project v1 runtime contract", () => {
   expect(serverSnapshotSchema).toBe(browserSnapshotSchema);

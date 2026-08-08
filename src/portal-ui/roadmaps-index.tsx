@@ -1,11 +1,11 @@
 import type { MouseEvent } from "react";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
-import type { ProjectSnapshot } from "../project-snapshot/contract";
 import {
   gateLifecycleEvents,
   latestPlanningLineageEvent,
   roadmapLifecycleEvents,
 } from "./planning-lineage-events";
+import type { RoadmapsModelData } from "./project-data";
 import { buildRoadmapIndexModel } from "./project-roadmap-model";
 import { type Gate, RoadmapIndexRow } from "./roadmap-primitives";
 
@@ -30,7 +30,7 @@ export function RoadmapsIndex({
 }: {
   readonly entryId: string;
   readonly onNavigate: (href: string) => void;
-  readonly snapshot: ProjectSnapshot;
+  readonly snapshot: RoadmapsModelData;
 }) {
   const model = buildRoadmapIndexModel(snapshot);
   if (model.state === "invalid") {

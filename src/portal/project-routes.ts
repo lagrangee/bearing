@@ -1,5 +1,7 @@
 import type { Context, Hono } from "hono";
 import { normalizeNativeReconciliationRequest } from "../native-reconciliation-contract";
+import { planningLineageSubjectSchema } from "../planning-lineage-route";
+import { portalProjectSectionSchema } from "../portal-project-read-wire";
 import {
   ASSET_PREVIEW_CONTENT_SECURITY_POLICY,
   type AssetPreviewService,
@@ -9,22 +11,20 @@ import type { PortalDiagnostic } from "./contract";
 import {
   type ProjectFailureView,
   type ProjectOperationError,
-  type ProjectSnapshotApiResponse,
   type ProjectSyncApiResponse,
   type ProjectSyncRequest,
   projectNativeReconciliationRequestSchema,
   projectNativeScopeInspectionRequestSchema,
   projectSyncRequestSchema,
 } from "./project-contract";
+import type { PortalProjectQueryService } from "./project-query-service";
 import type { ProjectService } from "./project-service";
-import type {
-  ProjectReadServiceResult,
-  ProjectSyncServiceResult,
-} from "./project-service-contract";
+import type { ProjectSyncServiceResult } from "./project-service-contract";
 import type { PortalSessionManager } from "./session";
 
 type RouteOptions = Readonly<{
   assetPreview: AssetPreviewService;
+  projectQueries: PortalProjectQueryService;
   projects: ProjectService;
   sessions: PortalSessionManager;
 }>;
@@ -67,64 +67,6 @@ const sanitizeError = (
   return fixedError(code);
 };
 const validationUnavailable = { due: true, cooldownRemainingMs: 0, inFlight: false } as const;
-
-const readResponse = (
-  context: Context,
-  result: ProjectReadServiceResult,
-  session: Readonly<{ csrfToken: string }>,
-): Response => {
-  switch (result.kind) {
-    case "ready": {
-      const response: ProjectSnapshotApiResponse = {
-        version: 1,
-        state: "ready",
-        view: result.view,
-        validation: result.validation,
-        session,
-      };
-      return context.json(response);
-    }
-    case "unavailable": {
-      const response: ProjectSnapshotApiResponse = {
-        version: 1,
-        state: "unavailable",
-        project: result.project,
-        diagnostic: sanitizeError(result.diagnostic, "project-unavailable"),
-        session,
-      };
-      return context.json(response);
-    }
-    case "invalid-id":
-    case "not-found": {
-      const response: ProjectSnapshotApiResponse = {
-        version: 1,
-        state: "failed",
-        error: result.kind === "invalid-id" ? requestFailure() : fixedError("project-unavailable"),
-        session,
-      };
-      return context.json(response, result.kind === "invalid-id" ? 400 : 404);
-    }
-    case "catalog-failed": {
-      const response: ProjectSnapshotApiResponse = {
-        version: 1,
-        state: "failed",
-        error: requestFailure(),
-        session,
-      };
-      return context.json(response, 503);
-    }
-    case "read-failed":
-      return context.json(
-        {
-          version: 1,
-          state: "failed",
-          error: sanitizeError(result.error),
-          session,
-        } satisfies ProjectSnapshotApiResponse,
-        500,
-      );
-  }
-};
 
 const syncResponse = (
   context: Context,
@@ -256,15 +198,65 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
     );
   });
 
-  app.get("/api/v1/projects/:entryId/snapshot", async (context) => {
+  app.get("/api/v1/projects/:entryId/read-model", async (context) => {
     noStore(context);
     const session = establishSession(context, options.sessions);
     try {
-      return readResponse(
-        context,
-        await options.projects.read(context.req.param("entryId")),
-        session,
+      const section = portalProjectSectionSchema.safeParse(
+        context.req.query("section") ?? "overview",
       );
+      if (!section.success) {
+        return context.json({ version: 1, state: "failed", error: requestFailure(), session }, 400);
+      }
+      const targetKind = context.req.query("targetKind");
+      const targetId = context.req.query("targetId");
+      const target =
+        targetKind === undefined && targetId === undefined
+          ? undefined
+          : planningLineageSubjectSchema.safeParse({ kind: targetKind, id: targetId });
+      if (
+        (target !== undefined && !target.success) ||
+        (section.data !== "lineage" && target !== undefined)
+      ) {
+        return context.json({ version: 1, state: "failed", error: requestFailure(), session }, 400);
+      }
+      const result = await options.projectQueries.read(
+        context.req.param("entryId"),
+        section.data,
+        target?.data,
+      );
+      switch (result.kind) {
+        case "ready":
+          return context.json({
+            version: 1,
+            state: "ready",
+            project: result.project,
+            rows: result.rows,
+            session,
+          });
+        case "unavailable":
+          return context.json({
+            version: 1,
+            state: "unavailable",
+            project: result.project,
+            diagnostic: result.diagnostic,
+            session,
+          });
+        case "invalid-id":
+        case "not-found":
+          return context.json(
+            { version: 1, state: "failed", error: requestFailure(), session },
+            result.kind === "invalid-id" ? 400 : 404,
+          );
+        case "catalog-failed":
+        case "read-failed":
+          return context.json(
+            { version: 1, state: "failed", error: requestFailure(), session },
+            503,
+          );
+        case "read-model-unavailable":
+          return context.json({ version: 1, state: "failed", error: result.error, session }, 503);
+      }
     } catch {
       return context.json(
         {
@@ -272,10 +264,27 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
           state: "failed",
           error: requestFailure(),
           session,
-        } satisfies ProjectSnapshotApiResponse,
+        },
         500,
       );
     }
+  });
+
+  app.get("/api/v1/projects/:entryId/find", async (context) => {
+    noStore(context);
+    const query = context.req.query("query") ?? "";
+    if (query.length > 200) {
+      return context.json({ version: 1, state: "failed", error: requestFailure() }, 400);
+    }
+    const result = await options.projectQueries.search(context.req.param("entryId"), query);
+    if (result.kind === "ready") {
+      return context.json({ version: 1, state: "ready", ...result.find });
+    }
+    if (result.kind === "read-model-unavailable") {
+      return context.json({ version: 1, state: "failed", error: result.error }, 503);
+    }
+    const status = result.kind === "invalid-id" ? 400 : result.kind === "not-found" ? 404 : 503;
+    return context.json({ version: 1, state: "failed", error: requestFailure() }, status);
   });
 
   app.post("/api/v1/projects/:entryId/sync", async (context) => {

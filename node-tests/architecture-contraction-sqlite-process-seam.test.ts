@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { createBenchmarkFixture } from "../scripts/sync-benchmark-lib";
 import { readCatalogDocument, upsertCatalogEntry } from "../src/catalog/store";
 import { resolveRepositoryRoot } from "../src/path-boundary";
+import { PROJECT_READ_MODEL_PROJECTION_VERSION } from "../src/project-read-model/contract";
 import {
   currentBasisFingerprint,
   inspectProject,
@@ -319,7 +320,7 @@ test("Project Read Model classifies missing, compatible-obsolete, older, newer, 
 
     const newerProjection = new DatabaseSync(path);
     newerProjection.exec(
-      "UPDATE read_model_metadata SET projection_version = 2 WHERE singleton = 1",
+      `UPDATE read_model_metadata SET projection_version = ${PROJECT_READ_MODEL_PROJECTION_VERSION + 1} WHERE singleton = 1`,
     );
     newerProjection.exec(
       "UPDATE project_objects SET payload_json = '{\"futureField\":true}' WHERE reference = 'project-summary:current'",
@@ -328,12 +329,12 @@ test("Project Read Model classifies missing, compatible-obsolete, older, newer, 
     assert.deepEqual(await inspectProjectReadModel(fixture.root), {
       state: "need-update",
       storageVersion: 1,
-      projectionVersion: 2,
+      projectionVersion: PROJECT_READ_MODEL_PROJECTION_VERSION + 1,
     });
 
     const currentProjection = new DatabaseSync(path);
     currentProjection.exec(
-      "UPDATE read_model_metadata SET projection_version = 1 WHERE singleton = 1",
+      `UPDATE read_model_metadata SET projection_version = ${PROJECT_READ_MODEL_PROJECTION_VERSION} WHERE singleton = 1`,
     );
     currentProjection
       .prepare(

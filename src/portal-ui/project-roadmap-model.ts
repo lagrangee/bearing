@@ -1,9 +1,5 @@
-import type {
-  MilestoneGate,
-  ProjectSnapshot,
-  Roadmap,
-  SourceRecord,
-} from "../project-snapshot/contract";
+import type { MilestoneGate, Roadmap, SourceRecord } from "../project-snapshot/contract";
+import type { RoadmapsModelData } from "./project-data";
 
 export type RoadmapGateModel = Readonly<{
   gate: MilestoneGate;
@@ -38,7 +34,7 @@ const items = <Item>(
 const indexBy = <Item>(values: readonly Item[], key: (item: Item) => string): Map<string, Item> =>
   new Map(values.map((item) => [key(item), item]));
 
-const sourcesFor = (snapshot: ProjectSnapshot): ReadonlyMap<string, SourceRecord> =>
+const sourcesFor = (snapshot: RoadmapsModelData): ReadonlyMap<string, SourceRecord> =>
   indexBy(snapshot.sources, (source) => source.reference);
 
 const gateSummary = (
@@ -61,7 +57,7 @@ const gateSummary = (
   };
 };
 
-export const buildRoadmapIndexModel = (snapshot: ProjectSnapshot): RoadmapIndexModel => {
+export const buildRoadmapIndexModel = (snapshot: RoadmapsModelData): RoadmapIndexModel => {
   if (snapshot.roadmapIndex.validity === "absent") return { state: "absent", groups: [] };
   if (snapshot.roadmapIndex.validity === "invalid" || snapshot.roadmaps.validity === "invalid") {
     const issueCount =

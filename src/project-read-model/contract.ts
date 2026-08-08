@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { nativeReferenceSchema } from "../native-reconciliation-contract";
+import { planningLineageSubjectSchema } from "../planning-lineage-route";
 import {
+  alignmentCheckSchema,
   authoritySchema,
   effortSchema,
   gateSchema,
@@ -9,17 +11,34 @@ import {
   structuralDiagnosticSchema,
 } from "../project-snapshot/schema";
 import { assetProjectionSchema } from "../project-snapshot/schema-asset";
+import { planningAuditSchema } from "../project-snapshot/schema-audit";
 import { projectBriefSchema } from "../project-snapshot/schema-brief";
 import {
   planningLineageParentPathSchema,
   planningLineageRelationSchema,
   planningLineageSemanticSectionSchema,
 } from "../project-snapshot/schema-planning-lineage";
+import {
+  projectionIssueSchema,
+  singletonProjectionSchema,
+} from "../project-snapshot/schema-projection";
+import { roadmapIndexSchema } from "../project-snapshot/schema-roadmap-index";
 import { projectSummarySchema } from "../project-snapshot/schema-summary";
 import { sourceRecordSchema } from "../project-snapshot/source-schema";
+import {
+  providerObservationSelectionFreshnessIsCoherent,
+  providerObservationSelectionSchema,
+} from "../provider-observation-contract";
+import {
+  mattNativeObjectForSubject,
+  mattNativeScopeKey,
+  mattNativeScopeSubject,
+  sameMattNativeBindingDefinition,
+} from "../providers/matt-skills-v1/native-subject";
+import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 
 export const PROJECT_READ_MODEL_STORAGE_VERSION = 1 as const;
-export const PROJECT_READ_MODEL_PROJECTION_VERSION = 1 as const;
+export const PROJECT_READ_MODEL_PROJECTION_VERSION = 3 as const;
 export const PROJECT_INSPECT_ENVELOPE_VERSION = 1 as const;
 
 export const projectReadModelReceiptSchema = z.strictObject({
@@ -128,9 +147,253 @@ export const projectReadModelObjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("gate"), value: gateSchema }),
   z.strictObject({ kind: z.literal("effort"), value: effortSchema }),
   z.strictObject({ kind: z.literal("authority"), value: authoritySchema }),
+  z.strictObject({ kind: z.literal("alignment-check"), value: alignmentCheckSchema }),
   z.strictObject({ kind: z.literal("asset"), value: assetProjectionSchema }),
   z.strictObject({ kind: z.literal("planning-review"), value: planningReviewSchema }),
+  z.strictObject({
+    kind: z.literal("portal-native-evidence"),
+    value: z.strictObject({
+      id: z.string().startsWith("portal-native-evidence:"),
+      subjectReference: z.string().min(1),
+      role: z.enum(["bound", "detail"]),
+      selection: providerObservationSelectionSchema,
+      observation: mattSkillsV1ProviderObservationSchema.optional(),
+    }),
+  }),
+  z.strictObject({
+    kind: z.literal("portal-reference-title"),
+    value: z.strictObject({
+      id: z.string().startsWith("portal-reference-title:"),
+      reference: z.string().min(1),
+      title: z.string().min(1),
+    }),
+  }),
+  z.strictObject({
+    kind: z.literal("portal-find-document"),
+    value: z.strictObject({
+      id: z.string().startsWith("portal-find-document:"),
+      document: z.strictObject({
+        id: z.string().min(1),
+        subject: z.union([
+          planningLineageSubjectSchema,
+          z.strictObject({ kind: z.literal("audit"), id: z.literal("planning-audit:current") }),
+        ]),
+        subjectType: z.string().min(1),
+        title: z.string().min(1),
+        parentPath: z.array(z.string()).max(20),
+        fields: z
+          .array(
+            z.strictObject({
+              key: z.enum([
+                "identity",
+                "title",
+                "intent",
+                "criteria",
+                "passage",
+                "decision",
+                "nativeBody",
+                "summary",
+              ]),
+              label: z.string().min(1),
+              text: z.string().max(16_384),
+              anchor: z.string().optional(),
+              anchorAvailable: z.boolean().optional(),
+            }),
+          )
+          .max(40),
+        fallbackExcerpt: z.string(),
+      }),
+    }),
+  }),
+  z.strictObject({
+    kind: z.literal("portal-find-state"),
+    value: z.strictObject({
+      id: z.literal("portal-find-state:current"),
+      scopeState: z.union([
+        z.strictObject({ state: z.literal("available") }),
+        z.strictObject({
+          state: z.enum(["invalid", "partial", "stale", "unavailable"]),
+          cause: z.string(),
+          impact: z.string(),
+          nextStep: z.string(),
+        }),
+      ]),
+    }),
+  }),
+  z.strictObject({
+    kind: z.literal("portal-projection-state"),
+    value: z.strictObject({
+      id: z.string().startsWith("portal-projection:"),
+      projection: z.enum([
+        "summary",
+        "brief",
+        "roadmaps",
+        "gates",
+        "efforts",
+        "authorities",
+        "assets",
+        "checks",
+        "reviews",
+      ]),
+      validity: z.enum(["available", "absent", "partial", "invalid"]),
+      issues: z.array(projectionIssueSchema).max(100).optional(),
+    }),
+  }),
+  z.strictObject({
+    kind: z.literal("portal-roadmap-index"),
+    value: z.strictObject({
+      id: z.literal("portal-projection:roadmap-index"),
+      projection: singletonProjectionSchema(roadmapIndexSchema),
+    }),
+  }),
+  z.strictObject({
+    kind: z.literal("portal-audit"),
+    value: z.strictObject({
+      id: z.literal("portal-projection:audit"),
+      projection: singletonProjectionSchema(planningAuditSchema),
+    }),
+  }),
 ]);
+
+export type ProjectReadModelObject = z.infer<typeof projectReadModelObjectSchema>;
+export type ProjectReadModelProjectionName = Extract<
+  ProjectReadModelObject,
+  { kind: "portal-projection-state" }
+>["value"]["projection"];
+
+export const assertProjectReadModelObjectIdentity = (
+  reference: string,
+  object: ProjectReadModelObject,
+): void => {
+  if (object.value.id !== reference) {
+    throw new Error("Project Read Model object identity is inconsistent.");
+  }
+  const expectedReference = (() => {
+    switch (object.kind) {
+      case "portal-native-evidence":
+        return `portal-native-evidence:${object.value.role}:${object.value.subjectReference}`;
+      case "portal-reference-title":
+        return `portal-reference-title:${object.value.reference}`;
+      case "portal-find-document":
+        return `portal-find-document:${object.value.document.id}`;
+      case "portal-projection-state":
+        return `portal-projection:${object.value.projection}`;
+      default:
+        return object.value.id;
+    }
+  })();
+  if (reference !== expectedReference) {
+    throw new Error("Project Read Model object identity is inconsistent.");
+  }
+  if (object.kind !== "portal-native-evidence") return;
+  const { observation, selection, subjectReference } = object.value;
+  if (
+    selection.observationId !== (observation?.id ?? null) ||
+    (observation !== undefined &&
+      (!sameMattNativeBindingDefinition(selection, observation.binding) ||
+        !providerObservationSelectionFreshnessIsCoherent(selection, observation)))
+  ) {
+    throw new Error("Project Read Model native evidence identity is inconsistent.");
+  }
+  if (subjectReference.startsWith("native-scope:")) {
+    if (subjectReference !== `native-scope:${mattNativeScopeSubject({ binding: selection }).id}`) {
+      throw new Error("Project Read Model native evidence subject is inconsistent.");
+    }
+    return;
+  }
+  if (subjectReference.startsWith("native-subject:")) {
+    const subjectId = subjectReference.slice("native-subject:".length);
+    if (
+      observation === undefined ||
+      mattNativeObjectForSubject([observation], { kind: "native-subject", id: subjectId }) ===
+        undefined
+    ) {
+      throw new Error("Project Read Model native evidence subject is inconsistent.");
+    }
+    return;
+  }
+  if (!/^effort:[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(subjectReference)) {
+    throw new Error("Project Read Model native evidence subject is inconsistent.");
+  }
+};
+
+export const assertProjectReadModelObjectRelationships = (
+  objects: readonly ProjectReadModelObject[],
+  options: Readonly<{
+    requiredProjections?: readonly ProjectReadModelProjectionName[];
+    completeProjections?: readonly ProjectReadModelProjectionName[];
+  }> = {},
+): void => {
+  const efforts = new Map<string, Extract<ProjectReadModelObject, { kind: "effort" }>["value"]>(
+    objects.flatMap((object) =>
+      object.kind === "effort" ? [[object.value.id, object.value] as const] : [],
+    ),
+  );
+  for (const object of objects) {
+    if (
+      object.kind !== "portal-native-evidence" ||
+      !object.value.subjectReference.startsWith("effort:")
+    ) {
+      continue;
+    }
+    const effort = efforts.get(object.value.subjectReference);
+    if (
+      effort?.workBinding === undefined ||
+      mattNativeScopeKey(effort.workBinding) !== mattNativeScopeKey(object.value.selection)
+    ) {
+      throw new Error("Project Read Model native evidence subject is inconsistent.");
+    }
+  }
+  const projectionKinds = {
+    summary: "project-summary",
+    brief: "project-brief",
+    roadmaps: "roadmap",
+    gates: "gate",
+    efforts: "effort",
+    authorities: "authority",
+    assets: "asset",
+    checks: "alignment-check",
+    reviews: "planning-review",
+  } as const satisfies Readonly<Record<ProjectReadModelProjectionName, string>>;
+  const allProjections = Object.keys(projectionKinds) as ProjectReadModelProjectionName[];
+  const requiredProjections = options.requiredProjections ?? allProjections;
+  const completeProjections = new Set(options.completeProjections ?? allProjections);
+  for (const projection of requiredProjections) {
+    const state = objects.find(
+      (object) =>
+        object.kind === "portal-projection-state" && object.value.projection === projection,
+    );
+    if (state?.kind !== "portal-projection-state") {
+      throw new Error("Project Read Model projection state is missing.");
+    }
+    const count = objects.filter((object) => object.kind === projectionKinds[projection]).length;
+    const singleton = projection === "summary" || projection === "brief";
+    if (singleton) {
+      const expectsValue =
+        state.value.validity === "available" || state.value.validity === "partial";
+      if (count !== (expectsValue ? 1 : 0)) {
+        throw new Error("Project Read Model singleton projection cardinality is inconsistent.");
+      }
+      continue;
+    }
+    if (state.value.validity === "absent") {
+      throw new Error("Project Read Model collection projection state is inconsistent.");
+    }
+    if (state.value.validity === "invalid" && count !== 0) {
+      throw new Error("Project Read Model collection projection cardinality is inconsistent.");
+    }
+    if (completeProjections.has(projection) && state.value.validity === "partial" && count === 0) {
+      throw new Error("Project Read Model collection projection cardinality is inconsistent.");
+    }
+  }
+  if (options.requiredProjections === undefined) {
+    for (const kind of ["portal-find-state", "portal-roadmap-index", "portal-audit"] as const) {
+      if (objects.filter((object) => object.kind === kind).length !== 1) {
+        throw new Error("Project Read Model singleton Portal object is missing.");
+      }
+    }
+  }
+};
 
 export const planningInspectResultSchema = z.strictObject({
   target: projectReadModelObjectSchema,

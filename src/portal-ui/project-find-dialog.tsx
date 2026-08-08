@@ -1,11 +1,15 @@
 import type { RefObject } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectSnapshot } from "../project-snapshot/contract";
-import {
-  buildProjectFindIndex,
-  type ProjectFindIndex,
-  type ProjectFindResult,
-} from "./project-find-model";
+import { useEffect, useRef, useState } from "react";
+import { findProjectRows, ProjectDataRecoveryError } from "./project-contract";
+
+type ProjectFindResult = Readonly<{
+  subject: Readonly<{ kind: string; id: string }>;
+  subjectType: string;
+  title: string;
+  parentPath: readonly string[];
+  excerpt: string;
+  href: string;
+}>;
 
 const resultId = (index: number): string => `project-find-result-${index}`;
 
@@ -64,7 +68,6 @@ export function ProjectFindDialog({
   onNavigate,
   onQueryChange,
   returnFocusRef,
-  snapshot,
 }: {
   readonly entryId: string;
   readonly initialQuery: string;
@@ -72,29 +75,42 @@ export function ProjectFindDialog({
   readonly onNavigate: (href: string) => void;
   readonly onQueryChange: (query: string) => void;
   readonly returnFocusRef: RefObject<HTMLButtonElement | null>;
-  readonly snapshot: ProjectSnapshot;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState(initialQuery);
   const [activeIndex, setActiveIndex] = useState(0);
-  const fingerprint = snapshot.basis.sitemapFingerprint;
-  const snapshotForIndexRef = useRef(snapshot);
-  snapshotForIndexRef.current = snapshot;
-  const { index, indexError } = useMemo<{
-    index: ProjectFindIndex | null;
-    indexError: boolean;
-  }>(() => {
-    if (fingerprint.length === 0) return { index: null, indexError: true };
-    try {
-      return {
-        index: buildProjectFindIndex(snapshotForIndexRef.current, entryId),
-        indexError: false,
-      };
-    } catch {
-      return { index: null, indexError: true };
+  const [results, setResults] = useState<readonly ProjectFindResult[]>([]);
+  const [scopeState, setScopeState] = useState<
+    Awaited<ReturnType<typeof findProjectRows>>["scopeState"]
+  >({ state: "available" });
+  const [indexError, setIndexError] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    if (query.trim().length === 0) {
+      setResults([]);
+      setIndexError(undefined);
+      return () => controller.abort();
     }
-  }, [entryId, fingerprint]);
-  const results = useMemo(() => (index === null ? [] : index.search(query)), [index, query]);
+    void findProjectRows(entryId, query, controller.signal)
+      .then((result) => {
+        setResults(result.results);
+        setScopeState(result.scopeState);
+        setIndexError(undefined);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setResults([]);
+        setIndexError(
+          error instanceof ProjectDataRecoveryError
+            ? error.recovery === "explicit-rebuild"
+              ? "Project data needs an explicit rebuild before Find can run."
+              : "Find needs a compatible Bearing runtime."
+            : "Find is unavailable. Use the Agent Surface to inspect project diagnostics.",
+        );
+      });
+    return () => controller.abort();
+  }, [entryId, query]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -180,17 +196,24 @@ export function ProjectFindDialog({
           }}
         />
         <p className="project-find-status" role="status" aria-live="polite">
-          {indexError
-            ? "Find is unavailable. Close Find and Sync, then try again."
+          {indexError !== undefined
+            ? indexError
             : query.trim().length === 0
               ? "Search is limited to Bearing-managed project content."
-              : `${results.length} result${results.length === 1 ? "" : "s"}`}
+              : scopeState.state === "available"
+                ? `${results.length} result${results.length === 1 ? "" : "s"}`
+                : `${results.length} result${results.length === 1 ? "" : "s"}. ${scopeState.impact}`}
         </p>
-        {query.trim().length === 0 || indexError ? null : results.length === 0 ? (
+        {query.trim().length === 0 || scopeState.state === "available" ? null : (
+          <div className="project-find-scope-state">
+            <strong>{scopeState.cause}</strong>
+            <p>{scopeState.impact}</p>
+            <p>{scopeState.nextStep}</p>
+          </div>
+        )}
+        {query.trim().length === 0 || indexError !== undefined ? null : results.length === 0 ? (
           <p className="project-find-empty">
-            {index !== null && index.scopeState.state !== "available"
-              ? `No matches in the currently readable managed content. ${index.scopeState.cause} ${index.scopeState.impact} ${index.scopeState.nextStep}`
-              : "No matches in Bearing-managed scope. Try another title, phrase, or internal ID."}
+            No matches in Bearing-managed scope. Try another title, phrase, or internal ID.
           </p>
         ) : (
           <div

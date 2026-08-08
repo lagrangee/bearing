@@ -8,8 +8,9 @@ import {
 } from "../src/portal/asset-preview";
 import type { PortalAssets } from "../src/portal/assets";
 import type { CatalogReadResult } from "../src/portal/contract";
-import { createProjectMaterializer } from "../src/portal/project-materializer";
-import { runSync } from "../src/sync";
+import { materializeProjectReadModelCandidate } from "../src/project-read-model/inspect";
+import { PortalProjectReadModelUnavailableError } from "../src/project-read-model/portal";
+import type { ProjectReadModelCandidate } from "../src/project-read-model/store";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
 const catalogFor =
@@ -24,6 +25,26 @@ const catalogFor =
         availability: "available",
       },
     ],
+  });
+
+const candidates = new Map<string, ProjectReadModelCandidate>();
+
+const previewService = (repoRoot: string) =>
+  createAssetPreviewService({
+    readCatalog: catalogFor(repoRoot),
+    readAssetRow: async (root, assetId) => {
+      const candidate = candidates.get(root);
+      if (candidate === undefined) throw new Error("Preview fixture has no typed rows.");
+      const state = candidate.objects.find((row) => row.reference === "portal-projection:assets");
+      if (state === undefined) throw new Error("Preview fixture has no Assets state.");
+      const stateValue = JSON.parse(state.payload) as { validity?: string };
+      if (stateValue.validity === "invalid") return { state: "unavailable" };
+      const row = candidate.objects.find(
+        (candidateRow) => candidateRow.kind === "asset" && candidateRow.reference === assetId,
+      );
+      if (row !== undefined) return { state: "available", asset: JSON.parse(row.payload) };
+      return stateValue.validity === "partial" ? { state: "unavailable" } : { state: "missing" };
+    },
   });
 
 const writeAssetRegistry = async (
@@ -76,11 +97,7 @@ const finishPreviewRepo = async (
       "Citations:\n  - Asset: asset:preview\n    Note: Preview test evidence.",
     ),
   );
-  await runSync(repoRoot, {
-    completedAt: "2026-07-31T12:00:00.000Z",
-    providerObservationIntent: "initial-baseline",
-  });
-  await createProjectMaterializer({ packageVersion: "0.0.0-test" }).run(repoRoot, "ensure-current");
+  candidates.set(repoRoot, await materializeProjectReadModelCandidate(repoRoot));
 };
 
 const prepareDirectoryRepo = async (
@@ -100,8 +117,7 @@ const prepareDirectoryRepo = async (
 const resolvePreview = async (
   repoRoot: string,
   assetId = "asset:preview",
-): Promise<AssetPreviewResolution> =>
-  createAssetPreviewService({ readCatalog: catalogFor(repoRoot) }).resolve("project-one", assetId);
+): Promise<AssetPreviewResolution> => previewService(repoRoot).resolve("project-one", assetId);
 
 const portalAssets: PortalAssets = {
   manifest: {
@@ -196,19 +212,16 @@ test("rejects unsupported content without reading it as executable", async () =>
   }
 });
 
-test("does not preview a stale registration as historical Snapshot bytes", async () => {
+test("reads current registered rows and current-checkout bytes without historical Snapshot data", async () => {
   const repoRoot = await prepareRepo("docs/preview.txt", "before\n");
   try {
     await writeFixture(repoRoot, "docs/preview.txt", "after\n");
-    await runSync(repoRoot, {
-      completedAt: "2026-07-31T12:01:00.000Z",
-      providerObservationIntent: "ordinary-sync",
-    });
-    await expect(resolvePreview(repoRoot)).resolves.toMatchObject({
-      kind: "unavailable",
-      code: "stale-registration",
-      availability: "unavailable",
-    });
+    candidates.set(repoRoot, await materializeProjectReadModelCandidate(repoRoot));
+    const preview = await resolvePreview(repoRoot);
+    expect(preview).toMatchObject({ kind: "available", source: "current-checkout" });
+    if (preview.kind !== "available") throw new Error("Expected current Asset content.");
+    expect(preview.body.toString("utf8")).toContain("after");
+    expect(preview.body.toString("utf8")).not.toContain("before");
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }
@@ -219,6 +232,7 @@ test("serves preview in a credential-free isolated Host surface", async () => {
   try {
     const app = createPortalApp({
       assets: portalAssets,
+      assetPreviewService: previewService(repoRoot),
       readCatalog: catalogFor(repoRoot),
       sessions: { secret: "ticket-21-preview-session-secret-32-bytes" },
     });
@@ -254,6 +268,71 @@ test("serves preview in a credential-free isolated Host surface", async () => {
   }
 });
 
+test("keeps an unproven Asset absence unavailable under partial coverage", async () => {
+  const repoRoot = await prepareRepo("docs/preview.md", "# Partial coverage\n");
+  try {
+    const partialService = createAssetPreviewService({
+      readCatalog: catalogFor(repoRoot),
+      readAssetRow: async () => ({ state: "unavailable" }),
+    });
+    await expect(partialService.resolve("project-one", "asset:missing")).resolves.toMatchObject({
+      kind: "unavailable",
+      code: "project-data-unavailable",
+    });
+    const app = createPortalApp({
+      assets: portalAssets,
+      assetPreviewService: partialService,
+      readCatalog: catalogFor(repoRoot),
+      sessions: { secret: "ticket-11-partial-preview-secret-32-bytes" },
+    });
+    const response = await app.request(
+      "http://127.0.0.1:4178/preview/projects/project-one/assets/asset%3Amissing",
+    );
+    expect(response.status).toBe(409);
+    expect(response.headers.get("x-bearing-preview-availability")).toBe("unavailable");
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("preserves typed Project data recovery on the Asset preview surface", async () => {
+  const repoRoot = await prepareRepo("docs/preview.md", "# Typed recovery\n");
+  try {
+    for (const [reason, code, recovery] of [
+      [
+        "need-rebuild",
+        "project-data-needs-rebuild",
+        "Use the Agent Surface to rebuild project data",
+      ],
+      ["need-update", "project-data-needs-update", "Install a compatible Bearing runtime"],
+    ] as const) {
+      const service = createAssetPreviewService({
+        readCatalog: catalogFor(repoRoot),
+        readAssetRow: async () => {
+          throw new PortalProjectReadModelUnavailableError(reason);
+        },
+      });
+      await expect(service.resolve("project-one", "asset:preview")).resolves.toMatchObject({
+        kind: "unavailable",
+        code,
+      });
+      const app = createPortalApp({
+        assets: portalAssets,
+        assetPreviewService: service,
+        readCatalog: catalogFor(repoRoot),
+        sessions: { secret: `ticket-11-${reason}-preview-secret-32-bytes` },
+      });
+      const response = await app.request(
+        "http://127.0.0.1:4178/preview/projects/project-one/assets/asset%3Apreview",
+      );
+      expect(response.status).toBe(409);
+      expect(await response.text()).toContain(recovery);
+    }
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("does not offer Preview for an ordinary directory Asset", async () => {
   const repoRoot = await prepareDirectoryRepo("docs/bundle", {
     "README.md": "# Bundle README\n",
@@ -269,6 +348,7 @@ test("does not offer Preview for an ordinary directory Asset", async () => {
 
     const app = createPortalApp({
       assets: portalAssets,
+      assetPreviewService: previewService(repoRoot),
       readCatalog: catalogFor(repoRoot),
       sessions: { secret: "ticket-38-directory-preview-secret-32-bytes" },
     });
@@ -325,6 +405,7 @@ test("Host returns typed not-offered responses without serving prototype content
   try {
     const app = createPortalApp({
       assets: portalAssets,
+      assetPreviewService: previewService(repoRoot),
       readCatalog: catalogFor(repoRoot),
       sessions: { secret: "ticket-22-preview-session-secret-32-bytes" },
     });

@@ -9,30 +9,18 @@ import {
   withRebuiltPlanningLineage,
 } from "../tests/planning-lineage-fixture";
 import { browserArtifactPath } from "./browser-artifact-output";
+import {
+  projectFindEnvelope,
+  projectRowEnvelope,
+  projectSectionFromRequest,
+  projectTargetFromRequest,
+} from "./project-row-fixture";
 
-const projectView = (snapshot: ProjectSnapshot) => ({
-  project: { entryId: "assets", displayName: "Bearing fixture", availability: "available" },
-  cache: {
-    snapshot: { state: "available", snapshot },
-    receipt: {
-      schemaVersion: 1,
-      producer: { packageName: "@lagrangee/bearing", packageVersion: "0.0.0-test" },
-      completedAt: "2026-07-14T12:00:00+08:00",
-      sitemap: { version: 1, fingerprint: snapshot.basis.sitemapFingerprint },
-      reconciliation: "no-op",
-    },
-    retained: false,
-  },
-  diagnosticCounts: { blocking: 0, nonBlocking: 0, total: 0 },
-});
-
-const envelope = (snapshot: ProjectSnapshot) => ({
-  version: 1,
-  state: "ready",
-  view: projectView(snapshot),
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-  session: { csrfToken: "ticket-13-csrf" },
-});
+const envelope = (
+  snapshot: ProjectSnapshot,
+  section: Parameters<typeof projectRowEnvelope>[0]["section"],
+  target?: Parameters<typeof projectRowEnvelope>[0]["target"],
+) => projectRowEnvelope({ snapshot, section, entryId: "assets", target });
 
 const assetsFixture = (): ProjectSnapshot => {
   const snapshot = createProjectOverviewFixture();
@@ -161,8 +149,14 @@ const emptyFixture = (): ProjectSnapshot => {
 };
 
 const serveSnapshot = async (page: Page, current: () => ProjectSnapshot): Promise<void> => {
-  await page.route("**/api/v1/projects/assets/snapshot", (route) =>
-    route.fulfill({ json: envelope(current()) }),
+  await page.route("**/api/v1/projects/assets/read-model?section=*", (route) =>
+    route.fulfill({
+      json: envelope(
+        current(),
+        projectSectionFromRequest(route.request().url()),
+        projectTargetFromRequest(route.request().url()),
+      ),
+    }),
   );
 };
 
@@ -493,6 +487,15 @@ test("Project Find recovers typed identity and semantic context without leaving 
     if (request.method() === "POST") posts.push(request.url());
   });
   await serveSnapshot(page, () => snapshot);
+  await page.route("**/api/v1/projects/assets/find?*", (route) =>
+    route.fulfill({
+      json: projectFindEnvelope(
+        snapshot,
+        "assets",
+        new URL(route.request().url()).searchParams.get("query") ?? "",
+      ),
+    }),
+  );
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/projects/assets/assets");
 
@@ -617,7 +620,9 @@ test("Project Find recovers typed identity and semantic context without leaving 
     degradedDialog.getByText("Asset content is unavailable", { exact: false }),
   ).toBeVisible();
   await expect(
-    degradedDialog.getByText("run Sync from the project header", { exact: false }),
+    degradedDialog.getByText("repair the affected project source in Agent Surface", {
+      exact: false,
+    }),
   ).toBeVisible();
   expect(posts).toEqual([]);
 });

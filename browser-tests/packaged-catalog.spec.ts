@@ -81,23 +81,41 @@ test("a freshly reconciled repository is selectable through the packed installed
     expect(installed.exitCode, installed.stderr).toBe(0);
 
     const installedCli = join(homeDirectory, ".bearing/bin/bearing");
-    const reconciled = await runHarnessCommand(
+    const configurationArguments = [
+      "--intent",
+      "activate",
+      "--repo",
+      repoRoot,
+      "--surface",
+      "agent-skills",
+      "--provider-contract",
+      "docs/agents/issue-tracker.md",
+      "--executor-mode",
+      "skip",
+    ];
+    const planned = await runHarnessCommand(
       installedCli,
-      [
-        "setup",
-        "--repo",
-        repoRoot,
-        "--surface",
-        "agent-skills",
-        "--provider-contract",
-        "docs/agents/issue-tracker.md",
-      ],
-      { environment, label: "packaged Bearing setup", timeoutMs: 30_000 },
+      ["configure", "plan", ...configurationArguments],
+      { environment, label: "packaged Bearing configure plan", timeoutMs: 30_000 },
     );
-    expect(reconciled.exitCode, reconciled.stderr).toBe(0);
-    expect(reconciled.stdout).toContain("Catalog: applied");
+    expect(planned.exitCode, planned.stderr).toBe(0);
+    const planToken = (JSON.parse(planned.stdout) as { sealedPlanToken?: unknown }).sealedPlanToken;
+    if (typeof planToken !== "string") throw new Error("Configure plan returned no seal.");
+    const configured = await runHarnessCommand(
+      installedCli,
+      ["configure", "apply", ...configurationArguments, "--plan-token", planToken],
+      { environment, label: "packaged Bearing configure apply", timeoutMs: 30_000 },
+    );
+    expect(configured.exitCode, configured.stderr).toBe(0);
+    expect(JSON.parse(configured.stdout)).toMatchObject({ outcome: "applied" });
     await rename(retainedState, join(repoRoot, ".bearing/state"));
     await rename(retainedScratch, join(repoRoot, ".scratch"));
+    const rebuilt = await runHarnessCommand(
+      installedCli,
+      ["cache", "rebuild", "--repo", repoRoot],
+      { environment, label: "packaged Project Read Model rebuild", timeoutMs: 30_000 },
+    );
+    expect(rebuilt.exitCode, rebuilt.stderr || rebuilt.stdout).toBe(0);
 
     const port = await reservePort();
     const runningPortal = spawnHarnessProcess(installedCli, ["portal", "--port", String(port)], {
@@ -160,7 +178,7 @@ test("a freshly reconciled repository is selectable through the packed installed
     const snapshotResponsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&
-        /\/api\/v1\/projects\/[^/]+\/snapshot$/u.test(new URL(response.url()).pathname),
+        /\/api\/v1\/projects\/[^/]+\/read-model$/u.test(new URL(response.url()).pathname),
     );
     await entry.click();
     const snapshotResponse = await snapshotResponsePromise;
@@ -198,22 +216,16 @@ test("a freshly reconciled repository is selectable through the packed installed
     await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
     await expect(page.getByRole("button", { name: "Refresh work details" })).toBeVisible();
 
-    const sync = page.getByRole("button", { name: "Sync", exact: true });
-    await expect(sync).toBeEnabled();
-    const syncResponsePromise = page.waitForResponse((response) => {
-      if (
-        response.request().method() !== "POST" ||
-        !/\/api\/v1\/projects\/[^/]+\/sync$/u.test(new URL(response.url()).pathname)
-      ) {
-        return false;
-      }
-      return response.request().postDataJSON()?.mode === "force";
-    });
-    await sync.click();
-    const syncResponse = await syncResponsePromise;
-    expect(syncResponse.status()).toBe(200);
-    expect(await syncResponse.json()).toMatchObject({ state: "completed", mode: "force" });
-    await expect(page.locator(".topbar-sync")).toContainText(/Sync|Updated/u);
+    const refresh = page.getByRole("button", { name: "Refresh", exact: true });
+    await expect(refresh).toBeEnabled();
+    const refreshResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        /\/api\/v1\/projects\/[^/]+\/read-model$/u.test(new URL(response.url()).pathname),
+    );
+    await refresh.click();
+    expect((await refreshResponsePromise).status()).toBe(200);
+    await expect(page.locator(".topbar-sync")).toContainText("Refresh");
 
     await page.screenshot({
       path: join(evidence, "installed-product-overview-1280.png"),

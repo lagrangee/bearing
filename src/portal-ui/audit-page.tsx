@@ -1,8 +1,8 @@
 import { planningLineageSubjectHref } from "../planning-lineage-route";
-import type { ProjectSnapshot } from "../project-snapshot/contract";
 import { AuditFindingRow } from "./audit-finding-row";
 import { Icons } from "./icons";
 import { buildProjectAuditModel, type ProjectAuditModel } from "./project-audit-model";
+import type { AuditModelData } from "./project-data";
 
 type ReadableAudit = Extract<ProjectAuditModel, { state: "available" | "partial" }>;
 
@@ -192,7 +192,7 @@ export function AuditPage({
   snapshot,
 }: {
   readonly entryId: string;
-  readonly snapshot: ProjectSnapshot;
+  readonly snapshot: AuditModelData;
 }) {
   const model = buildProjectAuditModel(snapshot);
   return (

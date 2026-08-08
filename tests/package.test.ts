@@ -308,11 +308,31 @@ test("the packed CLI runs through offline local npm exec", async () => {
     expect(browserAsset.status).toBe(200);
     const entryId = catalogBody.entries[0]?.entryId;
     if (entryId === undefined) throw new Error("Packaged Portal Catalog contains no project.");
-    const firstSnapshot = await fetch(
-      `http://127.0.0.1:${portalPort}/api/v1/projects/${entryId}/snapshot`,
+    const firstRead = await fetch(
+      `http://127.0.0.1:${portalPort}/api/v1/projects/${entryId}/read-model`,
     );
-    const cookie = firstSnapshot.headers.get("set-cookie");
-    const csrf = firstSnapshot.headers.get("x-bearing-csrf-token");
+    const firstReadBody = JSON.parse(await firstRead.text()) as {
+      readonly state: string;
+      readonly rows?: Readonly<{
+        section: string;
+        objects: readonly unknown[];
+      }>;
+    };
+    expect(firstRead.status).toBe(200);
+    expect(firstReadBody.state).toBe("ready");
+    if (
+      firstReadBody.rows === undefined ||
+      !Array.isArray(firstReadBody.rows.objects) ||
+      firstReadBody.rows.section !== "overview"
+    ) {
+      throw new Error(`Packaged Portal returned no typed rows: ${JSON.stringify(firstReadBody)}`);
+    }
+    expect(firstReadBody.rows.objects.length > 0).toBe(true);
+    expect(JSON.stringify(firstReadBody.rows)).not.toContain("basisFingerprint");
+    expect(JSON.stringify(firstReadBody.rows)).not.toContain("providerEvidence");
+    expect(firstReadBody).not.toHaveProperty("snapshot");
+    const cookie = firstRead.headers.get("set-cookie");
+    const csrf = firstRead.headers.get("x-bearing-csrf-token");
     if (cookie === null || csrf === null) throw new Error("Packaged Portal created no session.");
     const portalSync = await fetch(
       `http://127.0.0.1:${portalPort}/api/v1/projects/${entryId}/sync`,

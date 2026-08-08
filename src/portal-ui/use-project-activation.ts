@@ -1,34 +1,36 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  createDeferredActivation,
-  interactionNeedsActivation,
-  manualActionOwnsActivation,
-  visibilityReturnNeedsActivation,
-} from "./project-activation-events";
+  type PlanningLineageSubject,
+  planningLineageSubjectSchema,
+} from "../planning-lineage-route";
+import type { PortalProjectSection } from "../portal-project-read-wire";
 import {
-  type ActivationAction,
   type ActivationState,
   activationStateForEntry,
   projectActivationReducer,
-  transitionForSyncResult,
   visibleProjectView,
 } from "./project-activation-state";
 import {
-  InvalidProjectSessionError,
-  inspectNativeScope,
+  ProjectDataRecoveryError,
   type ProjectOperationError,
   type ProjectView,
-  readProjectSnapshot,
-  syncProject,
+  readProjectRows,
+  requestNativeScopeInspection,
 } from "./project-contract";
 
-const requestFailure = (operation: "check" | "sync"): ProjectOperationError => ({
-  code: "sync-failed",
-  message:
-    operation === "check"
-      ? "Project currency could not be checked."
-      : "Project reconciliation could not be completed.",
-});
+const requestFailure = (error: unknown): ProjectOperationError =>
+  error instanceof ProjectDataRecoveryError
+    ? {
+        code:
+          error.recovery === "explicit-rebuild"
+            ? "project-data-needs-rebuild"
+            : "project-data-needs-update",
+        message: error.message,
+      }
+    : {
+        code: "project-read-failed",
+        message: "Project data could not be read.",
+      };
 
 export type ProjectActivation = Readonly<{
   state: ActivationState;
@@ -46,98 +48,54 @@ export type ProjectActivation = Readonly<{
   ) => void;
 }>;
 
-export const useProjectActivation = (entryId: string): ProjectActivation => {
+export const useProjectActivation = (
+  entryId: string,
+  section: PortalProjectSection,
+  target?: PlanningLineageSubject | undefined,
+): ProjectActivation => {
+  const targetKind = target?.kind;
+  const targetId = target?.id;
+  const queryTarget = useMemo<PlanningLineageSubject | undefined>(
+    () =>
+      targetKind === undefined || targetId === undefined
+        ? undefined
+        : planningLineageSubjectSchema.parse({ kind: targetKind, id: targetId }),
+    [targetId, targetKind],
+  );
   const [state, dispatch] = useReducer(projectActivationReducer, { kind: "loading-cache" });
-  const [inspection, setInspection] = useState<
-    Readonly<{
-      state: "idle" | "running" | "failed";
-      subjectKey?: string | undefined;
-    }>
-  >({ state: "idle" });
+  const [inspection, setInspection] = useState<ProjectActivation["inspection"]>({ state: "idle" });
   const stateRef = useRef(state);
   const stateEntryIdRef = useRef(entryId);
   const csrfTokenRef = useRef<string | undefined>(undefined);
   const requestIdRef = useRef(0);
-  const busyRequestRef = useRef<number | undefined>(undefined);
-  const automaticRequestRef = useRef<number | undefined>(undefined);
   const controllersRef = useRef(new Set<AbortController>());
-  const confirmationTimerRef = useRef<number | undefined>(undefined);
+  const matchesQuery = useCallback(
+    (view: ProjectView): boolean =>
+      view.data.section === section &&
+      (section !== "lineage" ||
+        (view.data.section === "lineage" &&
+          view.data.target?.kind === queryTarget?.kind &&
+          view.data.target?.id === queryTarget?.id)),
+    [queryTarget, section],
+  );
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
 
-  const dispatchCurrent = useCallback((requestId: number, action: ActivationAction): boolean => {
-    if (requestId !== requestIdRef.current) return false;
-    dispatch(action);
-    return true;
-  }, []);
-
-  const applySyncResult = useCallback(
-    (requestId: number, result: Awaited<ReturnType<typeof syncProject>>) => {
-      const transition = transitionForSyncResult(result);
-      if (!dispatchCurrent(requestId, transition.action)) return;
-      if (transition.confirmation === undefined) return;
-      const view = result.state === "completed" ? result.view : undefined;
-      if (view === undefined) return;
-      if (confirmationTimerRef.current !== undefined) {
-        window.clearTimeout(confirmationTimerRef.current);
-      }
-      confirmationTimerRef.current = window.setTimeout(() => {
-        dispatchCurrent(requestId, {
-          type: "settled",
-          confirmation: transition.confirmation?.value ?? "up-to-date",
-          view,
-        });
-      }, transition.confirmation.delayMs);
-    },
-    [dispatchCurrent],
-  );
-
-  const withController = useCallback(
-    async <Result>(run: (signal: AbortSignal) => Promise<Result>): Promise<Result> => {
-      const controller = new AbortController();
-      controllersRef.current.add(controller);
-      try {
-        return await run(controller.signal);
-      } finally {
-        controllersRef.current.delete(controller);
-      }
-    },
-    [],
-  );
-
-  const withSessionRecovery = useCallback(
-    async function withSessionRecovery<Result>(
-      csrfToken: string,
-      signal: AbortSignal,
-      run: (currentCsrfToken: string, currentSignal: AbortSignal) => Promise<Result>,
-    ): Promise<Result> {
-      try {
-        return await run(csrfToken, signal);
-      } catch (error) {
-        if (!(error instanceof InvalidProjectSessionError)) throw error;
-        const envelope = await readProjectSnapshot(entryId, signal);
-        const currentCsrfToken = envelope.session.csrfToken;
-        csrfTokenRef.current = currentCsrfToken;
-        return run(currentCsrfToken, signal);
-      }
-    },
-    [entryId],
-  );
-
-  const activate = useCallback(async () => {
-    if (busyRequestRef.current !== undefined) return;
-    stateEntryIdRef.current = entryId;
+  const read = useCallback(async () => {
     const requestId = ++requestIdRef.current;
-    busyRequestRef.current = requestId;
-    automaticRequestRef.current = requestId;
+    stateEntryIdRef.current = entryId;
     const candidate = visibleProjectView(stateRef.current);
-    const cached = candidate?.project.entryId === entryId ? candidate : undefined;
-    let retained = cached;
-    dispatch(cached === undefined ? { type: "load-started" } : { type: "checking", view: cached });
+    const retained =
+      candidate?.project.entryId === entryId && matchesQuery(candidate) ? candidate : undefined;
+    dispatch(
+      retained === undefined ? { type: "load-started" } : { type: "checking", view: retained },
+    );
+    const controller = new AbortController();
+    controllersRef.current.add(controller);
     try {
-      const envelope = await withController((signal) => readProjectSnapshot(entryId, signal));
+      const envelope = await readProjectRows(entryId, section, queryTarget, controller.signal);
       if (requestId !== requestIdRef.current) return;
       csrfTokenRef.current = envelope.session.csrfToken;
       if (envelope.state === "unavailable") {
@@ -148,220 +106,75 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
         });
         return;
       }
-      retained = envelope.view;
-      if (!envelope.validation.due && !envelope.validation.inFlight) {
-        dispatch({
-          type: "settled",
-          confirmation: "checked-recently",
-          view: envelope.view,
-        });
-        return;
-      }
-      dispatch({ type: "checking", view: envelope.view });
-      const result = await withController((signal) =>
-        withSessionRecovery(envelope.session.csrfToken, signal, (currentCsrfToken, currentSignal) =>
-          syncProject(entryId, "ensure-current", currentCsrfToken, currentSignal),
-        ),
-      );
-      applySyncResult(requestId, result);
+      dispatch({ type: "settled", confirmation: "checked-recently", view: envelope.view });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      dispatchCurrent(requestId, {
+      if (requestId !== requestIdRef.current) return;
+      dispatch({
         type: "failed",
         operation: "check",
-        error: requestFailure("check"),
+        error: requestFailure(error),
         ...(retained === undefined ? {} : { view: retained }),
       });
     } finally {
-      if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
-      if (automaticRequestRef.current === requestId) automaticRequestRef.current = undefined;
+      controllersRef.current.delete(controller);
     }
-  }, [applySyncResult, dispatchCurrent, entryId, withController, withSessionRecovery]);
+  }, [entryId, matchesQuery, queryTarget, section]);
 
-  const forceSync = useCallback(() => {
-    const csrfToken = csrfTokenRef.current;
-    const busyRequest = busyRequestRef.current;
-    if (
-      csrfToken === undefined ||
-      (busyRequest !== undefined && busyRequest !== automaticRequestRef.current)
-    ) {
-      return;
-    }
-    const requestId = ++requestIdRef.current;
-    if (busyRequest !== undefined) {
+  useEffect(() => {
+    csrfTokenRef.current = undefined;
+    setInspection({ state: "idle" });
+    void read();
+    return () => {
+      requestIdRef.current += 1;
       for (const controller of controllersRef.current) controller.abort();
       controllersRef.current.clear();
-    }
-    busyRequestRef.current = requestId;
-    automaticRequestRef.current = undefined;
-    const candidate = visibleProjectView(stateRef.current);
-    const cached = candidate?.project.entryId === entryId ? candidate : undefined;
-    dispatch(cached === undefined ? { type: "syncing" } : { type: "syncing", view: cached });
-    void withController((signal) =>
-      withSessionRecovery(csrfToken, signal, (currentCsrfToken, currentSignal) =>
-        syncProject(entryId, "force", currentCsrfToken, currentSignal),
-      ),
-    )
-      .then((result) => applySyncResult(requestId, result))
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        dispatchCurrent(requestId, {
-          type: "failed",
-          operation: "sync",
-          error: requestFailure("sync"),
-          ...(cached === undefined ? {} : { view: cached }),
-        });
-      })
-      .finally(() => {
-        if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
-      });
-  }, [applySyncResult, dispatchCurrent, entryId, withController, withSessionRecovery]);
+    };
+  }, [read]);
 
-  const inspectScope = useCallback(
+  const inspectNativeScope = useCallback(
     (
       subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
       target: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
       refresh: boolean,
     ) => {
       const csrfToken = csrfTokenRef.current;
-      const subjectKey = `${subject.kind}:${subject.id}`;
       if (csrfToken === undefined || inspection.state === "running") return;
-      const requestId = ++requestIdRef.current;
-      busyRequestRef.current = requestId;
-      automaticRequestRef.current = undefined;
-      const candidate = visibleProjectView(stateRef.current);
-      const cached = candidate?.project.entryId === entryId ? candidate : undefined;
+      const subjectKey = `${subject.kind}:${subject.id}`;
+      const controller = new AbortController();
+      controllersRef.current.add(controller);
       setInspection({ state: "running", subjectKey });
-      void withController((signal) =>
-        withSessionRecovery(csrfToken, signal, (currentCsrfToken, currentSignal) =>
-          inspectNativeScope(entryId, subject, target, refresh, currentCsrfToken, currentSignal),
-        ),
+      void requestNativeScopeInspection(
+        entryId,
+        subject,
+        target,
+        refresh,
+        csrfToken,
+        controller.signal,
       )
-        .then((result) => {
-          applySyncResult(requestId, result);
-          setInspection(
-            result.state === "failed"
-              ? { state: "failed", subjectKey }
-              : { state: "idle", subjectKey },
-          );
+        .then(async () => {
+          await read();
+          setInspection({ state: "idle", subjectKey });
         })
         .catch((error: unknown) => {
-          if (error instanceof DOMException && error.name === "AbortError") {
-            setInspection({ state: "idle" });
-            return;
-          }
+          if (error instanceof DOMException && error.name === "AbortError") return;
           setInspection({ state: "failed", subjectKey });
-          if (cached !== undefined) {
-            dispatchCurrent(requestId, {
-              type: "settled",
-              confirmation: "checked-recently",
-              view: cached,
-            });
-          }
         })
-        .finally(() => {
-          if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
-        });
+        .finally(() => controllersRef.current.delete(controller));
     },
-    [
-      applySyncResult,
-      dispatchCurrent,
-      entryId,
-      inspection.state,
-      withController,
-      withSessionRecovery,
-    ],
+    [entryId, inspection.state, read],
   );
-
-  useEffect(() => {
-    csrfTokenRef.current = undefined;
-    setInspection({ state: "idle" });
-    void activate();
-    return () => {
-      requestIdRef.current += 1;
-      busyRequestRef.current = undefined;
-      automaticRequestRef.current = undefined;
-      for (const controller of controllersRef.current) controller.abort();
-      controllersRef.current.clear();
-      if (confirmationTimerRef.current !== undefined) {
-        window.clearTimeout(confirmationTimerRef.current);
-      }
-    };
-  }, [activate]);
-
-  useEffect(() => {
-    let lastActivityAt = Date.now();
-    let previousVisibilityState = document.visibilityState;
-    let hiddenAt = previousVisibilityState === "hidden" ? Date.now() : undefined;
-    const deferredActivation = createDeferredActivation(() => void activate());
-    const queueActivation = () => {
-      if (busyRequestRef.current === undefined) deferredActivation.schedule();
-    };
-    const visibilityChanged = () => {
-      const currentActivityAt = Date.now();
-      const currentVisibilityState = document.visibilityState;
-      if (previousVisibilityState !== "hidden" && currentVisibilityState === "hidden") {
-        hiddenAt = currentActivityAt;
-      }
-      const shouldActivate = visibilityReturnNeedsActivation(
-        previousVisibilityState,
-        currentVisibilityState,
-        hiddenAt,
-        currentActivityAt,
-      );
-      previousVisibilityState = currentVisibilityState;
-      if (currentVisibilityState === "visible") hiddenAt = undefined;
-      if (shouldActivate) queueActivation();
-    };
-    const interaction = (event: PointerEvent | KeyboardEvent) => {
-      const currentActivityAt = Date.now();
-      const shouldActivate = interactionNeedsActivation(lastActivityAt, currentActivityAt);
-      lastActivityAt = currentActivityAt;
-      if (manualActionOwnsActivation(event)) {
-        deferredActivation.cancel();
-        return;
-      }
-      if (shouldActivate) queueActivation();
-    };
-    window.addEventListener("online", queueActivation);
-    document.addEventListener("visibilitychange", visibilityChanged);
-    window.addEventListener("pointerdown", interaction, true);
-    window.addEventListener("keydown", interaction, true);
-    return () => {
-      window.removeEventListener("online", queueActivation);
-      document.removeEventListener("visibilitychange", visibilityChanged);
-      window.removeEventListener("pointerdown", interaction, true);
-      window.removeEventListener("keydown", interaction, true);
-      deferredActivation.cancel();
-    };
-  }, [activate]);
-
-  const retry = useCallback(() => {
-    const current = stateRef.current;
-    if (current.kind === "failed" && csrfTokenRef.current !== undefined) {
-      forceSync();
-      return;
-    }
-    void activate();
-  }, [activate, forceSync]);
 
   const scopedState = activationStateForEntry(state, stateEntryIdRef.current, entryId);
   const candidate = visibleProjectView(scopedState);
-  const view = candidate?.project.entryId === entryId ? candidate : undefined;
-  return view === undefined
-    ? {
-        state: scopedState,
-        forceSync,
-        retry,
-        inspection,
-        inspectNativeScope: inspectScope,
-      }
-    : {
-        state: scopedState,
-        view,
-        forceSync,
-        retry,
-        inspection,
-        inspectNativeScope: inspectScope,
-      };
+  const view =
+    candidate?.project.entryId === entryId && matchesQuery(candidate) ? candidate : undefined;
+  const result = {
+    state: scopedState,
+    forceSync: () => void read(),
+    retry: () => void read(),
+    inspection,
+    inspectNativeScope,
+  };
+  return view === undefined ? result : { ...result, view };
 };

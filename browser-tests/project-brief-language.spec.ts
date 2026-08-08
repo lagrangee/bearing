@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { createSourceRecord } from "../src/project-snapshot/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
+import { projectRowEnvelope } from "./project-row-fixture";
 
 test("Project Brief applies only authored per-part language metadata", async ({ page }) => {
   // Given: a Chinese Purpose explicitly declares zh-CN while English Current Stage is undeclared.
@@ -27,32 +28,14 @@ test("Project Brief applies only authored per-part language metadata", async ({ 
     },
     sources: [...snapshot.sources, briefSource],
   };
-  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
+  await page.route("**/api/v1/projects/overview/read-model?section=overview", (route) =>
     route.fulfill({
-      json: {
-        version: 1,
-        state: "ready",
-        view: {
-          project: { entryId: "overview", displayName: "Bearing", availability: "available" },
-          cache: {
-            snapshot: { state: "available", snapshot: localizedSnapshot },
-            receipt: {
-              schemaVersion: 1,
-              producer: {
-                packageName: "@lagrangee/bearing",
-                packageVersion: "0.0.0-test",
-              },
-              completedAt: "2026-07-14T12:00:00+08:00",
-              sitemap: { version: 1, fingerprint: snapshot.basis.sitemapFingerprint },
-              reconciliation: "no-op",
-            },
-            retained: false,
-          },
-          diagnosticCounts: { blocking: 0, nonBlocking: 0, total: 0 },
-        },
-        validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-        session: { csrfToken: "language-contract-csrf" },
-      },
+      json: projectRowEnvelope({
+        snapshot: localizedSnapshot,
+        section: "overview",
+        entryId: "overview",
+        displayName: "Bearing",
+      }),
     }),
   );
 

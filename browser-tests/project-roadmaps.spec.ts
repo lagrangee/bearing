@@ -8,34 +8,27 @@ import { createSourceRecord } from "../src/project-snapshot/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { withRebuiltPlanningLineage } from "../tests/planning-lineage-fixture";
 import { browserArtifactPath } from "./browser-artifact-output";
+import {
+  projectRowEnvelope,
+  projectSectionFromRequest,
+  projectTargetFromRequest,
+} from "./project-row-fixture";
 
-const projectView = (snapshot: ProjectSnapshot) => ({
-  project: { entryId: "roadmaps", displayName: "Bearing fixture", availability: "available" },
-  cache: {
-    snapshot: { state: "available", snapshot },
-    receipt: {
-      schemaVersion: 1,
-      producer: { packageName: "@lagrangee/bearing", packageVersion: "0.0.0-test" },
-      completedAt: "2026-07-14T10:00:00+08:00",
-      sitemap: { version: 1, fingerprint: snapshot.basis.sitemapFingerprint },
-      reconciliation: "no-op",
-    },
-    retained: false,
-  },
-  diagnosticCounts: { blocking: 0, nonBlocking: 0, total: 0 },
-});
-
-const readyEnvelope = (snapshot: ProjectSnapshot) => ({
-  version: 1,
-  state: "ready",
-  view: projectView(snapshot),
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-  session: { csrfToken: "ticket-12-csrf" },
-});
+const readyEnvelope = (
+  snapshot: ProjectSnapshot,
+  section: Parameters<typeof projectRowEnvelope>[0]["section"],
+  target?: Parameters<typeof projectRowEnvelope>[0]["target"],
+) => projectRowEnvelope({ snapshot, section, entryId: "roadmaps", target });
 
 const serveSnapshot = async (page: Page, snapshot: ProjectSnapshot): Promise<void> => {
-  await page.route("**/api/v1/projects/roadmaps/snapshot", (route) =>
-    route.fulfill({ json: readyEnvelope(snapshot) }),
+  await page.route("**/api/v1/projects/roadmaps/read-model?section=*", (route) =>
+    route.fulfill({
+      json: readyEnvelope(
+        snapshot,
+        projectSectionFromRequest(route.request().url()),
+        projectTargetFromRequest(route.request().url()),
+      ),
+    }),
   );
 };
 
@@ -634,7 +627,7 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
             },
     }),
   );
-  await page.unroute("**/api/v1/projects/roadmaps/snapshot");
+  await page.unroute("**/api/v1/projects/roadmaps/read-model?section=*");
   await serveSnapshot(page, partial);
   await page.reload();
   await expect(page.getByText("Gate unavailable", { exact: true })).toBeVisible();
@@ -666,7 +659,7 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
       ),
     }),
   );
-  await page.unroute("**/api/v1/projects/roadmaps/snapshot");
+  await page.unroute("**/api/v1/projects/roadmaps/read-model?section=*");
   await serveSnapshot(page, mapPartial);
   await page.goto(
     planningLineageSubjectHref("roadmaps", {
@@ -702,7 +695,7 @@ test("Roadmaps keeps planned, absent, and invalid states explicit", async ({ pag
   await page.goBack();
 
   const base = createProjectOverviewFixture();
-  await page.unroute("**/api/v1/projects/roadmaps/snapshot");
+  await page.unroute("**/api/v1/projects/roadmaps/read-model?section=*");
   await serveSnapshot(
     page,
     projectSnapshotSchema.parse({ ...base, roadmapIndex: { validity: "absent" } }),
@@ -710,7 +703,7 @@ test("Roadmaps keeps planned, absent, and invalid states explicit", async ({ pag
   await page.reload();
   await expect(page.getByText("No canonical Roadmap Index is available")).toBeVisible();
 
-  await page.unroute("**/api/v1/projects/roadmaps/snapshot");
+  await page.unroute("**/api/v1/projects/roadmaps/read-model?section=*");
   await serveSnapshot(
     page,
     projectSnapshotSchema.parse({

@@ -32,6 +32,8 @@ import type { StructuralDiagnostic } from "../types";
 import {
   nativeInspectResultSchema,
   PROJECT_INSPECT_ENVELOPE_VERSION,
+  PROJECT_READ_MODEL_PROJECTION_VERSION,
+  PROJECT_READ_MODEL_STORAGE_VERSION,
   type ProjectInspectEnvelope,
   type ProjectInspectRequest,
   planningInspectResultSchema,
@@ -257,8 +259,8 @@ const ensureCurrent = async (repoRoot: string) => {
   return {
     state: "ready" as const,
     metadata: {
-      storageVersion: 1,
-      projectionVersion: 1,
+      storageVersion: PROJECT_READ_MODEL_STORAGE_VERSION,
+      projectionVersion: PROJECT_READ_MODEL_PROJECTION_VERSION,
       basisFingerprint: candidate.basisFingerprint,
       basisInputs: candidate.basisInputs,
       basisObservations: candidate.basisObservations,

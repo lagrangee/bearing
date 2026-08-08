@@ -11,7 +11,6 @@ import type {
   MilestoneGate,
   PlanningLineageSubjectProjection,
   PlanningReview,
-  ProjectSnapshot,
   Roadmap,
   PlanningLineageRelation as SnapshotLineageRelation,
   SourceRecord,
@@ -62,6 +61,7 @@ import {
   planningLineageRelationEvent,
 } from "./planning-lineage-events";
 import { semanticTitleForPlanningReference } from "./planning-reference-title";
+import type { LineageModelData } from "./project-data";
 import { assetPreviewHref } from "./project-route";
 
 const RELATION_PREVIEW_LIMIT = 3;
@@ -292,7 +292,7 @@ type ReadablePlanningLineageSubjectModel = Readonly<{
   nativeInspection?:
     | Readonly<{
         freshness: "current" | "stale" | "undetermined";
-        latestAttempt: ProjectSnapshot["nativeScopeInspections"]["selections"][number]["latestAttempt"];
+        latestAttempt: LineageModelData["nativeScopeInspections"]["selections"][number]["latestAttempt"];
       }>
     | undefined;
   semanticAvailability: ReadonlyMap<string, MattSemanticSectionAvailability>;
@@ -326,10 +326,10 @@ const isNativeSubject = (subject: PlanningLineageSubject): subject is MattNative
   subject.kind.startsWith("native-");
 
 type NativeObservation =
-  | ProjectSnapshot["providerObservations"][number]
-  | ProjectSnapshot["nativeScopeInspections"]["observations"][number];
+  | LineageModelData["providerObservations"][number]
+  | LineageModelData["nativeScopeInspections"]["observations"][number];
 
-const nativeObservations = (snapshot: ProjectSnapshot): readonly NativeObservation[] => {
+const nativeObservations = (snapshot: LineageModelData): readonly NativeObservation[] => {
   const byScope = new Map(
     snapshot.nativeScopeInspections.observations.map((observation) => [
       mattNativeScopeKey(observation.binding),
@@ -342,7 +342,7 @@ const nativeObservations = (snapshot: ProjectSnapshot): readonly NativeObservati
   return [...byScope.values()];
 };
 
-const nativeSelections = (snapshot: ProjectSnapshot) => {
+const nativeSelections = (snapshot: LineageModelData) => {
   const byScope = new Map(
     snapshot.nativeScopeInspections.selections.map((selection) => [
       mattNativeScopeKey(selection),
@@ -355,19 +355,19 @@ const nativeSelections = (snapshot: ProjectSnapshot) => {
   return [...byScope.values()];
 };
 
-const nativeEvidenceAssessment = (snapshot: ProjectSnapshot, observation: NativeObservation) =>
+const nativeEvidenceAssessment = (snapshot: LineageModelData, observation: NativeObservation) =>
   assessMattNativeEvidence(observation, nativeSelections(snapshot));
 
 const hasCompleteNativeEvidence = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   observation: NativeObservation,
 ): boolean => hasCompleteMattNativeEvidence(observation, nativeSelections(snapshot));
 
-const providerSubjectRecords = (snapshot: ProjectSnapshot): readonly NativeRecord[] =>
+const providerSubjectRecords = (snapshot: LineageModelData): readonly NativeRecord[] =>
   mattNativeRecords(nativeObservations(snapshot), snapshot.sources);
 
 const nativeCollectionFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   kind: MattNativeSubject["kind"],
 ): CollectionState => {
   const records = providerSubjectRecords(snapshot).filter((record) =>
@@ -392,7 +392,7 @@ const nativeCollectionFor = (
 };
 
 const collectionFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   kind: PlanningLineageSubject["kind"],
 ): CollectionState => {
   switch (kind) {
@@ -417,7 +417,7 @@ const collectionFor = (
 };
 
 const recordFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   subject: PlanningLineageSubject,
 ): SubjectRecord | undefined => {
   const collection = collectionFor(snapshot, subject.kind);
@@ -426,19 +426,19 @@ const recordFor = (
     : collection.items.find((candidate) => String(candidate.id) === subject.id);
 };
 
-const sourceIndex = (snapshot: ProjectSnapshot): ReadonlyMap<string, SourceRecord> =>
+const sourceIndex = (snapshot: LineageModelData): ReadonlyMap<string, SourceRecord> =>
   new Map(snapshot.sources.map((source) => [source.reference, source]));
 
-const projectTitle = (snapshot: ProjectSnapshot): string =>
+const projectTitle = (snapshot: LineageModelData): string =>
   snapshot.summary.validity === "available" || snapshot.summary.validity === "partial"
     ? snapshot.summary.value.title
     : "Project";
 
-const titleFor = (snapshot: ProjectSnapshot, subject: PlanningLineageSubject): string =>
+const titleFor = (snapshot: LineageModelData, subject: PlanningLineageSubject): string =>
   recordFor(snapshot, subject)?.title ?? subject.id;
 
 const relationItem = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   entryId: string,
   owner: PlanningLineageSubject,
   relationKey: PlanningLineageRelationKey,
@@ -469,7 +469,7 @@ const relationItem = (
 };
 
 const relationForDisplay = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   entryId: string,
   owner: PlanningLineageSubject,
   relation: SnapshotLineageRelation,
@@ -530,7 +530,7 @@ const boundedFrontierSummary = (region: MattNativeWorkRegionModel): string => {
 };
 
 const contributingEffortsSection = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   effortIds: readonly string[],
   entryId: string,
 ): PlanningLineageSection => {
@@ -584,7 +584,7 @@ const outcomeSpineLayout = (
     : "vertical";
 
 const roadmapOutcomeSpine = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   roadmap: Roadmap,
   entryId: string,
 ): PlanningLineageOutcomeSpine => {
@@ -624,7 +624,7 @@ const roadmapOutcomeSpine = (
 };
 
 const gateSections = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   gate: MilestoneGate,
   entryId: string,
 ): readonly PlanningLineageSection[] => [
@@ -771,7 +771,7 @@ const planningReviewSections = (review: PlanningReview): readonly PlanningLineag
 ];
 
 const assetSections = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   asset: AssetProjection,
   entryId: string,
   lineage: PlanningLineageSubjectProjection,
@@ -970,7 +970,7 @@ const sourceAnchorLabel = (anchor: Readonly<{ kind: string; target: string }>): 
   `${anchor.kind}: ${anchor.target}`;
 
 const nativeTrustSections = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   record: NativeRecord,
 ): readonly PlanningLineageSection[] => {
   const observation = record.observation;
@@ -1301,7 +1301,7 @@ const incomingSections = (issue: MattIncomingIssue): readonly PlanningLineageSec
 ];
 
 const nativeSections = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   record: NativeRecord,
 ): readonly PlanningLineageSection[] => {
   if (record.recordKind === "native-scope") return [];
@@ -1357,7 +1357,7 @@ const nativeSourceHref = (record: NativeRecord): string | undefined => {
 };
 
 const sectionsFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   lineage: PlanningLineageSubjectProjection,
   record: SubjectRecord,
   entryId: string,
@@ -1384,7 +1384,7 @@ const sectionsFor = (
 };
 
 const parentPathForDisplay = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   entryId: string,
   lineage: PlanningLineageSubjectProjection,
 ): readonly PlanningLineageParentCrumb[] => {
@@ -1409,17 +1409,17 @@ const parentPathForDisplay = (
   return [project, ...collection, ...ancestors];
 };
 
-const readableEfforts = (snapshot: ProjectSnapshot): readonly Effort[] =>
+const readableEfforts = (snapshot: LineageModelData): readonly Effort[] =>
   snapshot.efforts.validity === "invalid" ? [] : snapshot.efforts.items;
 
 const scopeContextFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   observation: NativeObservation,
 ): MattNativeWorkRegionContext | undefined =>
   mattNativeWorkReadingContextForScope(readableEfforts(snapshot), observation);
 
 const effortWorkRegion = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   effort: Effort,
   readingState?: MattNativeWorkReadingState | undefined,
 ): MattNativeWorkRegionModel | undefined => {
@@ -1450,7 +1450,7 @@ const effortWorkRegion = (
 };
 
 const workRegionFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   subject: PlanningLineageSubject,
   record: SubjectRecord,
   readingState?: MattNativeWorkReadingState | undefined,
@@ -1544,7 +1544,7 @@ const effortOutputTimes = (asset: AssetProjection): readonly PlanningLineageTime
 };
 
 const effortOutputsFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   effort: Effort,
   entryId: string,
 ): PlanningLineageEffortLens["outputs"] => {
@@ -1575,7 +1575,7 @@ const effortOutputsFor = (
 };
 
 const effortGovernanceFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   effort: Effort,
   entryId: string,
 ): PlanningLineageEffortLens["governance"] => {
@@ -1604,7 +1604,7 @@ const effortGovernanceFor = (
 };
 
 const effortLensFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   effort: Effort,
   workRegion: MattNativeWorkRegionModel | undefined,
   entryId: string,
@@ -1805,12 +1805,19 @@ const effortLensFor = (
 };
 
 export const buildPlanningLineageSubjectModel = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   subject: PlanningLineageSubject,
   entryId: string,
 ): PlanningLineageSubjectModel => {
   const lineage = findPlanningLineageSubjectProjection(snapshot.lineage, subject);
   if (lineage === undefined) {
+    if (isNativeSubject(subject) && snapshot.nativeTargetState === "covered-missing") {
+      return {
+        state: "missing",
+        requested: subject,
+        reason: "This persistent identity is not present in the current Project Snapshot.",
+      };
+    }
     const collection = collectionFor(snapshot, subject.kind);
     if (collection.validity === "available") {
       return {

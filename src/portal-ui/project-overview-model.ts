@@ -5,7 +5,6 @@ import type {
   PlanningReview,
   ProjectBrief,
   ProjectionIssue,
-  ProjectSnapshot,
   ProjectSummary,
   SnapshotDiagnostic,
   SourceRecord,
@@ -13,6 +12,7 @@ import type {
 } from "../project-snapshot/contract";
 import { targetWithinNativeScope } from "../project-snapshot/managed-attention";
 import { mattNativeScopeSubject } from "../providers/matt-skills-v1/native-subject";
+import type { OverviewModelData } from "./project-data";
 import { buildOverviewRoadmaps, type OverviewRoadmaps } from "./project-overview-roadmaps";
 
 type ScopedValue<T> =
@@ -90,7 +90,7 @@ const attentionModel = (
   checks: ReadonlyMap<string, AlignmentCheck>,
   reviews: ReadonlyMap<string, PlanningReview>,
   sources: ReadonlyMap<string, SourceRecord>,
-  efforts: ProjectSnapshot["efforts"],
+  efforts: OverviewModelData["efforts"],
 ): OverviewAttentionItem => {
   switch (item.kind) {
     case "structural-diagnostic": {
@@ -169,7 +169,7 @@ const attentionModel = (
   }
 };
 
-export const buildProjectOverviewModel = (snapshot: ProjectSnapshot): ProjectOverviewModel => {
+export const buildProjectOverviewModel = (snapshot: OverviewModelData): ProjectOverviewModel => {
   const sources = indexBy(snapshot.sources, (source) => source.reference);
   const diagnostics = indexBy(snapshot.diagnostics, (diagnostic) => diagnostic.reference);
   const checks = indexBy(projectionItems(snapshot.checks), (check) => check.id);

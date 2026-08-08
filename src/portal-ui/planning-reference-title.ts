@@ -1,7 +1,14 @@
-import type { ProjectSnapshot } from "../project-snapshot/contract";
-import { mattNativeRecords } from "../providers/matt-skills-v1/native-read-model";
+import type { LineageModelData } from "./project-data";
 
-const canonicalRecords = (snapshot: ProjectSnapshot) => [
+type PlanningReferenceData = Pick<
+  LineageModelData,
+  "roadmaps" | "gates" | "efforts" | "authorities" | "checks" | "reviews" | "assets" | "sources"
+> &
+  Readonly<{
+    referenceTitles?: readonly Readonly<{ reference: string; title: string }>[] | undefined;
+  }>;
+
+const canonicalRecords = (snapshot: PlanningReferenceData) => [
   ...(snapshot.roadmaps.validity === "invalid" ? [] : snapshot.roadmaps.items),
   ...(snapshot.gates.validity === "invalid" ? [] : snapshot.gates.items),
   ...(snapshot.efforts.validity === "invalid" ? [] : snapshot.efforts.items),
@@ -12,14 +19,13 @@ const canonicalRecords = (snapshot: ProjectSnapshot) => [
 ];
 
 export const semanticTitleForPlanningReference = (
-  snapshot: ProjectSnapshot,
+  snapshot: PlanningReferenceData,
   reference: string,
 ): string => {
   const canonical = canonicalRecords(snapshot).find((record) => String(record.id) === reference);
   if (canonical !== undefined) return canonical.title;
 
-  const nativeMatches = mattNativeRecords(snapshot.providerObservations, snapshot.sources).filter(
-    (record) => record.recordKind === "native-object" && String(record.object.ref) === reference,
+  return (
+    snapshot.referenceTitles?.find((record) => record.reference === reference)?.title ?? reference
   );
-  return nativeMatches.length === 1 ? (nativeMatches[0]?.title ?? reference) : reference;
 };

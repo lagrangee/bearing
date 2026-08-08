@@ -174,7 +174,7 @@ export function ProjectNavigation({
         })}
         <div className="nav-footer">
           <span>Read only</span>
-          <small>Normalized snapshot</small>
+          <small>Current project view</small>
         </div>
       </nav>
       <button className="nav-scrim" type="button" onClick={close} aria-label="Close navigation" />

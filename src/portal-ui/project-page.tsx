@@ -10,7 +10,6 @@ import {
 } from "../providers/matt-skills-v1/native-subject";
 import { AssetsPage } from "./assets-page";
 import { AuditPage } from "./audit-page";
-import { Icons } from "./icons";
 import { OverviewPage } from "./overview-page";
 import { PlanningLineagePage } from "./planning-lineage-page";
 import { Action, EmptyState, LoadingState } from "./primitives";
@@ -21,7 +20,7 @@ import {
 } from "./project-canvas-history";
 import { ProjectFindDialog } from "./project-find-dialog";
 import { ProjectNavigation, type ProjectSection } from "./project-navigation";
-import { cacheStateCopy, snapshotFor, snapshotTitle } from "./project-page-read-model";
+import { projectTitle as titleForProject } from "./project-page-read-model";
 import { ProjectTopbar } from "./project-topbar";
 import { RoadmapsPage } from "./roadmaps-page";
 import { TechnicalDetails, type TechnicalDetailsSelection } from "./technical-details";
@@ -48,7 +47,11 @@ export function ProjectPage({
   readonly section: ProjectSection;
   readonly subject?: RequestedPlanningLineageSubject | undefined;
 }) {
-  const activation = useProjectActivation(entryId);
+  const activation = useProjectActivation(
+    entryId,
+    section,
+    subject?.validity === "valid" ? subject.value : undefined,
+  );
   const narrow = useNarrowViewport();
   const [navOpen, setNavOpen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -61,18 +64,19 @@ export function ProjectPage({
   const technicalDetailsHistoryTokenRef = useRef<string | null>(null);
   const technicalDetailsScrollRef = useRef(0);
   const view = activation.view;
-  const snapshot = snapshotFor(view);
+  const snapshot = view?.data;
+  const lineage = snapshot?.section === "lineage" ? snapshot : undefined;
   const requestedNativeInspectionSubject =
     subject?.validity === "valid" &&
     (subject.value.kind === "native-scope" || subject.value.kind === "native-subject")
       ? subject.value
       : undefined;
   const effortInspectionBinding =
-    snapshot === undefined || subject?.validity !== "valid" || subject.value.kind !== "effort"
+    lineage === undefined || subject?.validity !== "valid" || subject.value.kind !== "effort"
       ? undefined
-      : snapshot.efforts.validity === "invalid"
+      : lineage.efforts.validity === "invalid"
         ? undefined
-        : snapshot.efforts.items.find((effort) => effort.id === subject.value.id)?.workBinding;
+        : lineage.efforts.items.find((effort) => effort.id === subject.value.id)?.workBinding;
   const inspectionSubject =
     requestedNativeInspectionSubject ??
     (effortInspectionBinding === undefined
@@ -92,9 +96,9 @@ export function ProjectPage({
   const inspectionAttemptedForSubject =
     inspectionSubjectKey !== undefined && activation.inspection.subjectKey === inspectionSubjectKey;
   const inspectionTarget =
-    snapshot !== undefined && requestedNativeInspectionSubject !== undefined
+    lineage !== undefined && requestedNativeInspectionSubject !== undefined
       ? mattNativeObservationForSubject(
-          [...snapshot.providerObservations, ...snapshot.nativeScopeInspections.observations],
+          [...lineage.providerObservations, ...lineage.nativeScopeInspections.observations],
           requestedNativeInspectionSubject,
         )
       : undefined;
@@ -102,9 +106,9 @@ export function ProjectPage({
     requestedNativeInspectionSubject !== undefined && inspectionTarget !== undefined;
   const inspectionTargetBinding = effortInspectionBinding ?? inspectionTarget?.binding;
   const inspectionSelection =
-    snapshot === undefined || inspectionTarget === undefined
+    lineage === undefined || inspectionTarget === undefined
       ? undefined
-      : snapshot.nativeScopeInspections.selections.find(
+      : lineage.nativeScopeInspections.selections.find(
           (selection) =>
             selection.provider === inspectionTarget.binding.provider &&
             selection.nativeScope === inspectionTarget.binding.nativeScope,
@@ -114,9 +118,9 @@ export function ProjectPage({
       ? inspectionSelection.latestAttempt
       : undefined;
   const inspectionDetailPresent =
-    snapshot !== undefined &&
+    lineage !== undefined &&
     requestedNativeInspectionSubject !== undefined &&
-    snapshot.lineage.subjects.some(
+    lineage.lineage.subjects.some(
       (candidate) =>
         candidate.identity.kind === requestedNativeInspectionSubject.kind &&
         candidate.identity.id === requestedNativeInspectionSubject.id,
@@ -127,7 +131,6 @@ export function ProjectPage({
     entryId,
     routeIdentity: section === "lineage" ? routeIdentity : undefined,
     section,
-    snapshotFingerprint: snapshot?.basis.sitemapFingerprint,
   };
   const selection = currentTechnicalDetailsSelection(capturedSelection, technicalDetailsContext);
   const projectLabel =
@@ -135,7 +138,7 @@ export function ProjectPage({
     (activation.state.kind === "unavailable"
       ? activation.state.project.displayName
       : "Loading project");
-  const projectTitle = snapshotTitle(snapshot) ?? projectLabel;
+  const projectTitle = titleForProject(snapshot) ?? projectLabel;
   const overlayOpen = findOpen || (narrow && (navOpen || selection !== null));
   const currentFocusKey = (): string | undefined =>
     document.activeElement instanceof HTMLElement
@@ -273,19 +276,23 @@ export function ProjectPage({
   let content: ReactNode;
   if (snapshot !== undefined) {
     content =
-      section === "overview" ? (
+      section === "overview" && snapshot.section === "overview" ? (
         <OverviewPage
           entryId={entryId}
           onNavigate={navigateFromProject}
           onOpenRoadmap={openRoadmap}
           snapshot={snapshot}
         />
-      ) : section === "roadmaps" ? (
+      ) : section === "roadmaps" && snapshot.section === "roadmaps" ? (
         <RoadmapsPage entryId={entryId} onNavigate={navigateFromProject} snapshot={snapshot} />
-      ) : section === "assets" ? (
+      ) : section === "assets" && snapshot.section === "assets" ? (
         <AssetsPage entryId={entryId} onNavigate={navigateFromProject} snapshot={snapshot} />
-      ) : section === "audit" ? (
+      ) : section === "audit" && snapshot.section === "audit" ? (
         <AuditPage entryId={entryId} snapshot={snapshot} />
+      ) : snapshot.section !== "lineage" ? (
+        <div className="page project-state-page">
+          <LoadingState />
+        </div>
       ) : subject === undefined ? (
         <div className="page project-state-page">
           <EmptyState
@@ -363,28 +370,16 @@ export function ProjectPage({
         />
       </div>
     );
-  } else if (view !== undefined) {
-    const copy = cacheStateCopy(view);
-    content = (
-      <div className="page project-state-page">
-        <EmptyState
-          title={copy.title}
-          detail={copy.detail}
-          action={
-            <Action tone="primary" data-project-activation-action="manual" onClick={runSync}>
-              <Icons.refresh /> Sync project
-            </Action>
-          }
-        />
-      </div>
-    );
   } else if (activation.state.kind === "failed") {
+    const detail =
+      activation.state.error.code === "project-data-needs-rebuild"
+        ? "Use the Agent Surface to rebuild project data, then retry."
+        : activation.state.error.code === "project-data-needs-update"
+          ? "Install a compatible Bearing runtime, then retry."
+          : "Use Retry to read this project again.";
     content = (
       <div className="page project-state-page">
-        <EmptyState
-          title="Project could not be loaded"
-          detail="Use the Sync control to try loading this project again."
-        />
+        <EmptyState title="Project could not be loaded" detail={detail} />
       </div>
     );
   } else {
@@ -400,7 +395,7 @@ export function ProjectPage({
       className={`portal-shell${navOpen ? " nav-open" : ""}${selection ? " has-technical-details" : ""}`}
     >
       <ProjectTopbar
-        attentionCount={snapshot?.attention.length}
+        attentionCount={snapshot?.attentionCount}
         findDisabled={snapshot === undefined}
         findRef={findTriggerRef}
         menuRef={menuRef}
@@ -446,7 +441,6 @@ export function ProjectPage({
           onNavigate={navigateFromFind}
           onQueryChange={setFindQuery}
           returnFocusRef={findTriggerRef}
-          snapshot={snapshot}
         />
       ) : null}
     </div>

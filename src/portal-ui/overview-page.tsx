@@ -1,9 +1,9 @@
 import type { MouseEvent } from "react";
 import { useMemo } from "react";
-import type { ProjectSnapshot } from "../project-snapshot/contract";
 import { OverviewAttention } from "./overview-attention";
 import { OverviewBrief } from "./overview-brief";
 import { OverviewRoadmaps } from "./overview-roadmaps";
+import type { OverviewModelData } from "./project-data";
 import { buildProjectOverviewModel } from "./project-overview-model";
 
 export function OverviewPage({
@@ -15,7 +15,7 @@ export function OverviewPage({
   readonly entryId: string;
   readonly onNavigate: (href: string) => void;
   readonly onOpenRoadmap: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
-  readonly snapshot: ProjectSnapshot;
+  readonly snapshot: OverviewModelData;
 }) {
   const model = useMemo(() => buildProjectOverviewModel(snapshot), [snapshot]);
   return (

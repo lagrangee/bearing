@@ -1,8 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, test } from "@playwright/test";
+import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import { createSourceRecord } from "../src/project-snapshot/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { browserArtifactPath } from "./browser-artifact-output";
+import { projectRowEnvelope } from "./project-row-fixture";
 
 const completedAt = "2026-07-13T20:00:00+08:00";
 
@@ -26,7 +28,7 @@ const projectView = () => {
     cache: {
       snapshot: {
         state: "available",
-        snapshot: {
+        snapshot: projectSnapshotSchema.parse({
           ...snapshot,
           brief: {
             validity: "available",
@@ -49,7 +51,7 @@ const projectView = () => {
             },
           },
           sources: [...snapshot.sources, briefSource],
-        },
+        }),
       },
       receipt: {
         schemaVersion: 1,
@@ -64,71 +66,37 @@ const projectView = () => {
   };
 };
 
-const readyEnvelope = (due: boolean) => ({
-  version: 1,
-  state: "ready",
-  view: projectView(),
-  validation: { due, cooldownRemainingMs: due ? 0 : 30_000, inFlight: false },
-  session: { csrfToken: "ticket-11-csrf" },
-});
+const projectSnapshot = () => {
+  const view = projectView();
+  if (view.cache.snapshot.state !== "available") throw new Error("Expected project Snapshot.");
+  return view.cache.snapshot.snapshot;
+};
 
-const completedEnvelope = () => ({
-  version: 1,
-  state: "completed",
-  mode: "ensure-current",
-  outcome: "checked",
-  snapshotDisposition: "reused",
-  view: projectView(),
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-});
-
-const failedEnvelope = () => ({
-  version: 1,
-  state: "failed",
-  mode: "ensure-current",
-  outcome: "failed",
-  error: { code: "snapshot-write-failed", message: "Automatic validation failed." },
-  view: {
-    ...projectView(),
-    cache: { ...projectView().cache, retained: true },
-  },
-  validation: { due: true, cooldownRemainingMs: 30_000, inFlight: false },
-});
-
-const forcedEnvelope = () => ({
-  version: 1,
-  state: "completed",
-  mode: "force",
-  outcome: "no-op",
-  reconciliation: "no-op",
-  snapshotDisposition: "reused",
-  view: projectView(),
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-});
+const readyEnvelope = (section: "overview" | "roadmaps" = "overview") =>
+  projectRowEnvelope({
+    snapshot: projectSnapshot(),
+    section,
+    entryId: "overview",
+    displayName: "Bearing 控制台",
+  });
 
 test("Overview is Brief-first, keeps managed context stable, and stays responsive", async ({
   page,
 }, testInfo) => {
-  let syncCalls = 0;
-  let releaseSync = () => {};
-  const syncGate = new Promise<void>((resolve) => {
-    releaseSync = resolve;
+  const posts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(request.url());
   });
-  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
-    route.fulfill({ json: readyEnvelope(true) }),
+  await page.route("**/api/v1/projects/overview/read-model?section=overview", (route) =>
+    route.fulfill({ json: readyEnvelope() }),
   );
-  await page.route("**/api/v1/projects/overview/sync", async (route) => {
-    syncCalls += 1;
-    await syncGate;
-    await route.fulfill({ json: completedEnvelope() });
-  });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/projects/overview");
 
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
   await expect(page.locator(".project-switcher code")).toHaveText("Bearing 控制台");
   await expect(page.locator(".project-switcher strong")).toHaveText("Portal Project");
-  await expect(page.locator(".topbar-sync")).toContainText("Checking");
+  await expect(page.locator(".topbar-sync")).toContainText("Refresh");
   const briefTab = page.getByRole("tab", { name: "Brief", exact: true });
   const summaryTab = page.getByRole("tab", { name: "Project Summary", exact: true });
   await expect(briefTab).toHaveAttribute("aria-selected", "true");
@@ -176,11 +144,8 @@ test("Overview is Brief-first, keeps managed context stable, and stays responsiv
     "underline",
   );
   await page.mouse.move(0, 0);
-  releaseSync();
-  await expect(page.locator(".topbar-sync")).toHaveText("Sync");
-
-  await expect.poll(() => syncCalls).toBe(1);
-  await expect(page.locator(".topbar-sync")).toHaveText("Sync");
+  expect(posts).toEqual([]);
+  await expect(page.locator(".topbar-sync")).toHaveText("Refresh");
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   });
@@ -228,21 +193,17 @@ test("Overview is Brief-first, keeps managed context stable, and stays responsiv
   await expect(navigation.getByRole("button", { name: "Close navigation" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).toBeFocused();
-  const syncBox = await page.getByRole("button", { name: "Sync" }).boundingBox();
-  if (syncBox === null) throw new Error("Expected the mobile Sync target.");
+  const syncBox = await page.getByRole("button", { name: "Refresh" }).boundingBox();
+  if (syncBox === null) throw new Error("Expected the mobile Refresh target.");
   expect(syncBox.x + syncBox.width).toBeLessThanOrEqual(365);
 });
 
 test("ordinary in-project navigation does not reactivate validation", async ({ page }) => {
   let snapshotReads = 0;
-  let syncCalls = 0;
-  await page.route("**/api/v1/projects/overview/snapshot", (route) => {
+  await page.route("**/api/v1/projects/overview/read-model?section=*", (route) => {
     snapshotReads += 1;
-    return route.fulfill({ json: readyEnvelope(false) });
-  });
-  await page.route("**/api/v1/projects/overview/sync", (route) => {
-    syncCalls += 1;
-    return route.fulfill({ json: completedEnvelope() });
+    const section = new URL(route.request().url()).searchParams.get("section");
+    return route.fulfill({ json: readyEnvelope(section === "roadmaps" ? "roadmaps" : "overview") });
   });
   await page.goto("/projects/overview");
   await page.getByRole("link", { name: "Roadmaps", exact: true }).click();
@@ -250,34 +211,7 @@ test("ordinary in-project navigation does not reactivate validation", async ({ p
   await expect(page.getByRole("heading", { name: "Roadmaps", level: 1 })).toBeVisible();
   await page.goBack();
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
-  expect(snapshotReads).toBe(1);
-  expect(syncCalls).toBe(0);
-});
-
-test("retained cache stays readable and Retry performs a forced reconciliation", async ({
-  page,
-}) => {
-  const requestBodies: string[] = [];
-  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
-    route.fulfill({ json: readyEnvelope(true) }),
-  );
-  await page.route("**/api/v1/projects/overview/sync", (route) => {
-    requestBodies.push(route.request().postData() ?? "");
-    return route.fulfill({
-      json: requestBodies.length === 1 ? failedEnvelope() : forcedEnvelope(),
-    });
-  });
-  await page.goto("/projects/overview");
-
-  const banner = page.getByRole("alert");
-  await expect(banner).toContainText("Cached project content remains visible");
-  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
-  await page.locator(".topbar-sync").click();
-  await expect(banner).toHaveCount(0);
-  expect(requestBodies).toEqual([
-    JSON.stringify({ version: 1, mode: "ensure-current" }),
-    JSON.stringify({ version: 1, mode: "force" }),
-  ]);
+  expect(snapshotReads).toBe(3);
 });
 
 test("invalid and absent semantic projections stay scoped to their Overview sections", async ({
@@ -290,38 +224,38 @@ test("invalid and absent semantic projections stay scoped to their Overview sect
   ) {
     throw new Error("Expected available browser fixture.");
   }
+  const scopedSnapshot = projectSnapshotSchema.parse({
+    ...view.cache.snapshot.snapshot,
+    summary: {
+      validity: "invalid",
+      issues: [
+        {
+          code: "invalid-summary",
+          target: "project-summary",
+          message: "Summary sections are malformed.",
+        },
+      ],
+    },
+    brief: { validity: "absent" },
+  });
   const scopedView = {
     ...view,
     cache: {
       ...view.cache,
       snapshot: {
         state: "available",
-        snapshot: {
-          ...view.cache.snapshot.snapshot,
-          summary: {
-            validity: "invalid",
-            issues: [
-              {
-                code: "invalid-summary",
-                target: "project-summary",
-                message: "Summary sections are malformed.",
-              },
-            ],
-          },
-          brief: { validity: "absent" },
-        },
+        snapshot: scopedSnapshot,
       },
     },
   };
-  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
+  await page.route("**/api/v1/projects/overview/read-model?section=overview", (route) =>
     route.fulfill({
-      json: {
-        version: 1,
-        state: "ready",
-        view: scopedView,
-        validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-        session: { csrfToken: "ticket-11-csrf" },
-      },
+      json: projectRowEnvelope({
+        snapshot: scopedView.cache.snapshot.snapshot,
+        section: "overview",
+        entryId: "overview",
+        displayName: "Bearing 控制台",
+      }),
     }),
   );
   await page.goto("/projects/overview");
@@ -350,27 +284,17 @@ test("legacy Summary records omit unavailable Updated time without leaving a pla
     throw new Error("Expected available orientation fixtures.");
   }
   const { updatedAt: _updatedAt, ...summaryValue } = view.cache.snapshot.snapshot.summary.value;
-  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
+  await page.route("**/api/v1/projects/overview/read-model?section=overview", (route) =>
     route.fulfill({
-      json: {
-        version: 1,
-        state: "ready",
-        view: {
-          ...view,
-          cache: {
-            ...view.cache,
-            snapshot: {
-              state: "available",
-              snapshot: {
-                ...view.cache.snapshot.snapshot,
-                summary: { validity: "available", value: summaryValue },
-              },
-            },
-          },
+      json: projectRowEnvelope({
+        snapshot: {
+          ...view.cache.snapshot.snapshot,
+          summary: { validity: "available", value: summaryValue },
         },
-        validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-        session: { csrfToken: "ticket-11-csrf" },
-      },
+        section: "overview",
+        entryId: "overview",
+        displayName: "Bearing 控制台",
+      }),
     }),
   );
   await page.goto("/projects/overview");

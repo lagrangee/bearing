@@ -1,4 +1,4 @@
-import type { AssetProjection, ProjectSnapshot, SourceRecord } from "../project-snapshot/contract";
+import type { AssetProjection, SourceRecord } from "../project-snapshot/contract";
 import {
   ASSET_EVIDENCE_FILTERS,
   type AssetEvidenceFilter,
@@ -6,6 +6,7 @@ import {
   assetEvidenceFilterContract,
 } from "./asset-evidence-filter";
 import { semanticTitleForPlanningReference } from "./planning-reference-title";
+import type { AssetsModelData } from "./project-data";
 
 export type AssetEvidenceFilterCoverage = "complete" | "incomplete";
 
@@ -61,7 +62,7 @@ const wordsFor = (asset: AssetProjection, ownerTitle: string): string =>
     .join(" ")
     .toLocaleLowerCase();
 
-export const buildProjectAssetsModel = (snapshot: ProjectSnapshot): ProjectAssetsModel => {
+export const buildProjectAssetsModel = (snapshot: AssetsModelData): ProjectAssetsModel => {
   if (snapshot.assets.validity === "invalid") {
     return { state: "invalid", issueCount: snapshot.assets.issues.length, rows: [] };
   }

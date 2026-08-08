@@ -5,11 +5,10 @@ import { createPortalApp } from "../src/portal/app";
 import type { PortalAssets } from "../src/portal/assets";
 import type { CatalogReadResult } from "../src/portal/contract";
 import type { ProjectView } from "../src/portal/project-contract";
+import type { PortalProjectQueryService } from "../src/portal/project-query-service";
 import type { ProjectService } from "../src/portal/project-service";
-import {
-  projectSnapshotEnvelopeSchema,
-  projectSyncEnvelopeSchema,
-} from "../src/portal-ui/project-contract";
+import { portalProjectReadEnvelopeSchema } from "../src/portal-project-read-wire";
+import { projectSyncEnvelopeSchema } from "../src/portal-project-wire";
 import { runSync } from "../src/sync";
 import { createValidBearingRepo } from "./helpers";
 
@@ -51,13 +50,18 @@ const catalogFor =
     ],
   });
 
-const appFor = (readCatalog: () => Promise<CatalogReadResult>, projectService?: ProjectService) =>
+const appFor = (
+  readCatalog: () => Promise<CatalogReadResult>,
+  projectService?: ProjectService,
+  projectQueryService?: PortalProjectQueryService,
+) =>
   createPortalApp({
     assets,
     readCatalog,
     sessions: { secret: SESSION_SECRET },
     operationExecutorFor: () => (operation) => operation((_phase, write) => write()),
     ...(projectService === undefined ? {} : { projectService }),
+    ...(projectQueryService === undefined ? {} : { projectQueryService }),
   });
 
 const emptyView: ProjectView = {
@@ -67,7 +71,7 @@ const emptyView: ProjectView = {
 };
 
 const establish = async (app: ReturnType<typeof createPortalApp>) => {
-  const response = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/snapshot`);
+  const response = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/read-model`);
   const cookie = response.headers.get("set-cookie");
   const csrfToken = response.headers.get("x-bearing-csrf-token");
   if (cookie === null || csrfToken === null) throw new Error("Session was not established.");
@@ -81,7 +85,26 @@ test("direct project GET establishes a session and remains strictly cache-only",
       completedAt: "2026-07-13T12:00:00.000Z",
       providerObservationIntent: "initial-baseline",
     });
-    const app = appFor(catalogFor(root));
+    const projectQueryService: PortalProjectQueryService = {
+      read: async () => ({
+        kind: "ready",
+        project: { entryId: PROJECT_ID, displayName: "Fixture", availability: "available" },
+        rows: {
+          section: "overview",
+          objects: [],
+          lineage: [],
+          attentionCount: 0,
+          attention: [],
+          diagnostics: [],
+          sources: [],
+        },
+      }),
+      search: async () => ({
+        kind: "ready",
+        find: { results: [], scopeState: { state: "available" } },
+      }),
+    };
+    const app = appFor(catalogFor(root), undefined, projectQueryService);
 
     const { response } = await establish(app);
     const body = await response.json();
@@ -91,12 +114,11 @@ test("direct project GET establishes a session and remains strictly cache-only",
     expect(body).toMatchObject({
       version: 1,
       state: "ready",
-      view: {
-        project: { entryId: PROJECT_ID, displayName: "Fixture" },
-        cache: { snapshot: { state: "missing" } },
-      },
-      validation: { due: true, inFlight: false },
+      project: { entryId: PROJECT_ID, displayName: "Fixture" },
+      rows: { section: "overview" },
     });
+    expect(JSON.stringify(body)).not.toContain("basisFingerprint");
+    expect(JSON.stringify(body)).not.toContain("providerEvidence");
     expect(JSON.stringify(body)).not.toContain(root);
     expect(JSON.stringify(body)).not.toContain("repoRoot");
     await expect(access(join(root, ".bearing/cache/project-snapshot.json"))).rejects.toThrow();
@@ -123,19 +145,59 @@ test("GET read failures keep the typed server and browser contract aligned with 
   };
   const app = appFor(catalogFor(root), projects);
 
-  const response = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/snapshot`);
+  const response = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/read-model`);
   const body = await response.json();
   const csrfToken = response.headers.get("x-bearing-csrf-token");
 
-  expect(response.status).toBe(500);
+  expect(response.status).toBe(503);
   expect(response.headers.get("set-cookie")).toContain("bearing_session=");
   expect(body).toEqual({
     version: 1,
     state: "failed",
-    error: { code: "input-validation-failed", message: "Project inputs could not be validated." },
+    error: { code: "request-failed", message: "Portal request failed." },
     session: { csrfToken },
   });
-  expect(projectSnapshotEnvelopeSchema.safeParse(body).success).toBe(true);
+  expect(portalProjectReadEnvelopeSchema.safeParse(body).success).toBe(true);
+});
+
+test("lineage GET forwards one typed target dossier query", async () => {
+  const root = await realpath(await createValidBearingRepo());
+  try {
+    const calls: unknown[][] = [];
+    const projectQueryService: PortalProjectQueryService = {
+      read: async (...args) => {
+        calls.push(args);
+        return {
+          kind: "ready",
+          project: { entryId: PROJECT_ID, displayName: "Fixture", availability: "available" },
+          rows: {
+            section: "lineage",
+            target: { kind: "effort", id: "effort:portal" },
+            objects: [],
+            lineage: [],
+            attentionCount: 0,
+            attention: [],
+            diagnostics: [],
+            sources: [],
+          },
+        };
+      },
+      search: async () => ({
+        kind: "ready",
+        find: { results: [], scopeState: { state: "available" } },
+      }),
+    };
+    const app = appFor(catalogFor(root), undefined, projectQueryService);
+
+    const response = await app.request(
+      `${ORIGIN}/api/v1/projects/${PROJECT_ID}/read-model?section=lineage&targetKind=effort&targetId=effort%3Aportal`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([[PROJECT_ID, "lineage", { kind: "effort", id: "effort:portal" }]]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("Catalog failure stays inside the sanitized public Project API contract", async () => {
@@ -155,7 +217,7 @@ test("Catalog failure stays inside the sanitized public Project API contract", a
     error: { code: "request-failed", message: "Portal request failed." },
     session: { csrfToken: established.csrfToken },
   });
-  expect(projectSnapshotEnvelopeSchema.safeParse(readBody).success).toBe(true);
+  expect(portalProjectReadEnvelopeSchema.safeParse(readBody).success).toBe(true);
 
   const syncResponse = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/sync`, {
     method: "POST",
@@ -198,14 +260,11 @@ test("entry failures use only sanitized v1 error and diagnostic codes", async ()
 
   expect(readBody).toMatchObject({
     version: 1,
-    state: "unavailable",
-    diagnostic: {
-      code: "project-unavailable",
-      message: "The registered project is currently unavailable.",
-    },
+    state: "failed",
+    error: { code: "request-failed", message: "Portal request failed." },
     session: { csrfToken: established.csrfToken },
   });
-  expect(projectSnapshotEnvelopeSchema.safeParse(readBody).success).toBe(true);
+  expect(portalProjectReadEnvelopeSchema.safeParse(readBody).success).toBe(true);
 
   const syncResponse = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/sync`, {
     method: "POST",
@@ -243,9 +302,9 @@ test("unexpected project request exceptions stay typed and do not disclose inter
   };
   const app = appFor(catalogFor(root), projects);
 
-  const failedRead = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/snapshot`);
+  const failedRead = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/read-model`);
   const failedReadBody = await failedRead.json();
-  expect(failedRead.status).toBe(500);
+  expect(failedRead.status).toBe(503);
   expect(failedReadBody).toMatchObject({
     version: 1,
     state: "failed",
@@ -697,7 +756,7 @@ test("project identity failures remain typed and never expose registered paths",
     });
     const app = appFor(unavailableCatalog);
 
-    const unavailable = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/snapshot`);
+    const unavailable = await app.request(`${ORIGIN}/api/v1/projects/${PROJECT_ID}/read-model`);
     const unavailableBody = await unavailable.json();
     expect(unavailable.status).toBe(200);
     expect(unavailableBody).toMatchObject({
@@ -708,23 +767,23 @@ test("project identity failures remain typed and never expose registered paths",
     });
     expect(JSON.stringify(unavailableBody)).not.toContain(root);
 
-    const unknown = await app.request(`${ORIGIN}/api/v1/projects/unknown/snapshot`);
+    const unknown = await app.request(`${ORIGIN}/api/v1/projects/unknown/read-model`);
     const unknownBody = await unknown.json();
     expect(unknown.status).toBe(404);
     expect(unknownBody).toEqual({
       version: 1,
       state: "failed",
       error: {
-        code: "project-unavailable",
-        message: "The registered project is currently unavailable.",
+        code: "request-failed",
+        message: "Portal request failed.",
       },
       session: { csrfToken: expect.any(String) },
     });
-    expect(projectSnapshotEnvelopeSchema.safeParse(unknownBody).success).toBe(true);
+    expect(portalProjectReadEnvelopeSchema.safeParse(unknownBody).success).toBe(true);
 
-    const invalid = await app.request(`${ORIGIN}/api/v1/projects/%2E%2E%2Fescape/snapshot`);
+    const invalid = await app.request(`${ORIGIN}/api/v1/projects/%2E%2E%2Fescape/read-model`);
     expect(invalid.status).toBe(400);
-    expect(projectSnapshotEnvelopeSchema.safeParse(await invalid.json()).success).toBe(true);
+    expect(portalProjectReadEnvelopeSchema.safeParse(await invalid.json()).success).toBe(true);
 
     const { cookie, csrfToken } = await establish(app);
     const unknownSync = await app.request(`${ORIGIN}/api/v1/projects/unknown/sync`, {

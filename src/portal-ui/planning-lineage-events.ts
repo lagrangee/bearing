@@ -6,10 +6,10 @@ import type {
   Effort,
   MilestoneGate,
   PlanningReview,
-  ProjectSnapshot,
   Roadmap,
 } from "../project-snapshot/contract";
 import type { SourceEventTime } from "../source-event-time";
+import type { LineageModelData } from "./project-data";
 
 export type PlanningLineageEventTime = SourceEventTime | Readonly<{ availability: "unsupported" }>;
 
@@ -50,7 +50,7 @@ const trustedItems = <T>(
     | Readonly<{ validity: "invalid"; issues: readonly unknown[] }>,
 ): readonly T[] => (collection.validity === "invalid" ? [] : collection.items);
 
-const acceptedDecisionTime = (snapshot: ProjectSnapshot, reference: string): SourceEventTime => {
+const acceptedDecisionTime = (snapshot: LineageModelData, reference: string): SourceEventTime => {
   if (reference.startsWith("alignment-check:")) {
     return (
       trustedItems(snapshot.checks).find((check) => check.id === reference)?.resolution
@@ -63,11 +63,11 @@ const acceptedDecisionTime = (snapshot: ProjectSnapshot, reference: string): Sou
   );
 };
 
-const assetTitle = (snapshot: ProjectSnapshot, id: string): string =>
+const assetTitle = (snapshot: LineageModelData, id: string): string =>
   trustedItems(snapshot.assets).find((asset) => asset.id === id)?.title ?? id;
 
 const authorityAdoptionEvent = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   authority: Authority,
   assetId: string,
 ): PlanningLineageEvent | undefined => {
@@ -83,7 +83,7 @@ const authorityAdoptionEvent = (
 };
 
 const targetRecord = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   subject: PlanningLineageSubject,
 ): SubjectRecord | undefined => {
   switch (subject.kind) {
@@ -154,7 +154,7 @@ export const assetLifecycleEvents = (asset: AssetProjection): readonly PlanningL
 ];
 
 export const planningLineageEventsFor = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   subject: PlanningLineageSubject,
   record: SubjectRecord,
 ): readonly PlanningLineageEvent[] => {
@@ -205,7 +205,7 @@ export const latestPlanningLineageEvent = (
 ): PlanningLineageEvent | undefined => events.at(-1);
 
 export const planningLineageRelationEvent = (
-  snapshot: ProjectSnapshot,
+  snapshot: LineageModelData,
   owner: PlanningLineageSubject,
   ownerRecord: SubjectRecord,
   relationKey: PlanningLineageRelationKey,

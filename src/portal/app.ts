@@ -1,8 +1,12 @@
 import { Hono } from "hono";
 import type { PortalCatalogEnvelope } from "../portal-catalog-wire";
-import { createAssetPreviewService } from "./asset-preview";
+import { type AssetPreviewService, createAssetPreviewService } from "./asset-preview";
 import { type PortalAssets, PROJECT_SNAPSHOT_VERSION } from "./assets";
 import type { CatalogReadResult } from "./contract";
+import {
+  createPortalProjectQueryService,
+  type PortalProjectQueryService,
+} from "./project-query-service";
 import { registerProjectRoutes } from "./project-routes";
 import {
   createProjectService,
@@ -16,7 +20,9 @@ type PortalAppOptions = Readonly<{
   readCatalog: () => Promise<CatalogReadResult>;
   sessions: Readonly<{ secret: string }> | PortalSessionManager;
   projectService?: ProjectService;
+  projectQueryService?: PortalProjectQueryService;
   operationExecutorFor?: ProjectOperationExecutorFactory;
+  assetPreviewService?: AssetPreviewService;
 }>;
 
 const isSessionManager = (value: PortalAppOptions["sessions"]): value is PortalSessionManager =>
@@ -82,7 +88,11 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
         ? {}
         : { operationExecutorFor: options.operationExecutorFor }),
     });
-  const assetPreview = createAssetPreviewService({ readCatalog: options.readCatalog });
+  const assetPreview =
+    options.assetPreviewService ?? createAssetPreviewService({ readCatalog: options.readCatalog });
+  const projectQueries =
+    options.projectQueryService ??
+    createPortalProjectQueryService({ readCatalog: options.readCatalog });
 
   app.onError((_error, context) => {
     if (new URL(context.req.url).pathname.startsWith("/api/")) {
@@ -178,7 +188,7 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     return context.json(response);
   });
 
-  registerProjectRoutes(app, { assetPreview, projects, sessions });
+  registerProjectRoutes(app, { assetPreview, projectQueries, projects, sessions });
 
   app.all("/api/*", (context) =>
     context.json({ code: "not-found", message: "No such Portal product action." }, 404),

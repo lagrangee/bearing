@@ -4,6 +4,7 @@ import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
 import { z } from "zod";
 import type { AssetContentObservation } from "../asset-inputs";
 import type { FingerprintObservation } from "../fingerprint";
+import { buildProjectFindDocuments, projectFindScopeState } from "../portal-ui/project-find-model";
 import type { ProjectSnapshot } from "../project-snapshot/contract";
 import {
   attentionItemSchema,
@@ -17,17 +18,23 @@ import {
 import { sourceRecordSchema } from "../project-snapshot/source-schema";
 import {
   type ProviderObservationSelection,
+  providerObservationSelectionFreshnessIsCoherent,
   providerObservationSelectionSchema,
 } from "../provider-observation-contract";
 import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
+import { mattNativeRecords } from "../providers/matt-skills-v1/native-read-model";
 import {
   mattNativeScopeKey,
+  mattNativeScopeSubject,
   sameMattNativeBindingDefinition,
 } from "../providers/matt-skills-v1/native-subject";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import {
+  assertProjectReadModelObjectIdentity,
+  assertProjectReadModelObjectRelationships,
   PROJECT_READ_MODEL_PROJECTION_VERSION,
   PROJECT_READ_MODEL_STORAGE_VERSION,
+  type ProjectReadModelObject,
   type ProjectReadModelReceipt,
   projectReadModelObjectSchema,
   projectReadModelReceiptSchema,
@@ -253,7 +260,12 @@ export const compileProjectReadModel = (input: {
     kind: string,
     projection: { readonly validity: string; readonly value?: unknown },
   ) => {
-    if (projection.validity !== "available" || projection.value === undefined) return;
+    if (
+      (projection.validity !== "available" && projection.validity !== "partial") ||
+      projection.value === undefined
+    ) {
+      return;
+    }
     const value = projection.value as { readonly id: string };
     objects.push({ reference: value.id, kind, ordinal: 0, payload: json(value) });
   };
@@ -272,8 +284,70 @@ export const compileProjectReadModel = (input: {
   appendCollection("gate", snapshot.gates);
   appendCollection("effort", snapshot.efforts);
   appendCollection("authority", snapshot.authorities);
+  appendCollection("alignment-check", snapshot.checks);
   appendCollection("asset", snapshot.assets);
   appendCollection("planning-review", snapshot.reviews);
+  for (const [ordinal, document] of buildProjectFindDocuments(snapshot, "project").entries()) {
+    const value = { id: `portal-find-document:${document.id}`, document };
+    objects.push({
+      reference: value.id,
+      kind: "portal-find-document",
+      ordinal,
+      payload: json(value),
+    });
+  }
+  objects.push({
+    reference: "portal-find-state:current",
+    kind: "portal-find-state",
+    ordinal: 0,
+    payload: json({ id: "portal-find-state:current", scopeState: projectFindScopeState(snapshot) }),
+  });
+  const appendProjectionState = (
+    projection:
+      | "summary"
+      | "brief"
+      | "roadmaps"
+      | "gates"
+      | "efforts"
+      | "authorities"
+      | "assets"
+      | "checks"
+      | "reviews",
+    value: { readonly validity: string; readonly issues?: readonly unknown[] },
+  ) => {
+    objects.push({
+      reference: `portal-projection:${projection}`,
+      kind: "portal-projection-state",
+      ordinal: 0,
+      payload: json({
+        id: `portal-projection:${projection}`,
+        projection,
+        validity: value.validity,
+        ...(value.issues === undefined ? {} : { issues: value.issues }),
+      }),
+    });
+  };
+  appendProjectionState("summary", snapshot.summary);
+  appendProjectionState("brief", snapshot.brief);
+  appendProjectionState("roadmaps", snapshot.roadmaps);
+  appendProjectionState("gates", snapshot.gates);
+  appendProjectionState("efforts", snapshot.efforts);
+  appendProjectionState("authorities", snapshot.authorities);
+  appendProjectionState("assets", snapshot.assets);
+  appendProjectionState("checks", snapshot.checks);
+  appendProjectionState("reviews", snapshot.reviews);
+  objects.push({
+    reference: "portal-projection:roadmap-index",
+    kind: "portal-roadmap-index",
+    ordinal: 0,
+    payload: json({ id: "portal-projection:roadmap-index", projection: snapshot.roadmapIndex }),
+  });
+  objects.push({
+    reference: "portal-projection:audit",
+    kind: "portal-audit",
+    ordinal: 0,
+    payload: json({ id: "portal-projection:audit", projection: snapshot.audit }),
+  });
 
   const relations: RelationRow[] = [];
   const subjectContexts: PayloadRow[] = [];
@@ -329,6 +403,93 @@ export const compileProjectReadModel = (input: {
         selection: json(selection),
       };
     });
+  const appendPortalEvidence = (
+    role: ProjectProviderEvidenceRow["role"],
+    selections:
+      | ProjectSnapshot["providerObservationSelections"]
+      | ProjectSnapshot["nativeScopeInspections"]["selections"],
+    observations:
+      | ProjectSnapshot["providerObservations"]
+      | ProjectSnapshot["nativeScopeInspections"]["observations"],
+  ) => {
+    for (const selection of selections) {
+      const observation = observations.find(
+        (candidate) => mattNativeScopeKey(candidate.binding) === mattNativeScopeKey(selection),
+      );
+      const subjectReferences = new Set<string>([
+        `native-scope:${mattNativeScopeSubject({ binding: selection }).id}`,
+        ...(snapshot.efforts.validity === "invalid"
+          ? []
+          : snapshot.efforts.items
+              .filter(
+                (effort) =>
+                  effort.workBinding !== undefined &&
+                  mattNativeScopeKey(effort.workBinding) === mattNativeScopeKey(selection),
+              )
+              .map((effort) => String(effort.id))),
+        ...(observation === undefined
+          ? []
+          : mattNativeRecords([observation], snapshot.sources).map((record) =>
+              record.recordKind === "native-scope"
+                ? `native-scope:${record.id}`
+                : `native-subject:${record.id}`,
+            )),
+      ]);
+      for (const subjectReference of subjectReferences) {
+        const id = `portal-native-evidence:${role}:${subjectReference}`;
+        objects.push({
+          reference: id,
+          kind: "portal-native-evidence",
+          ordinal: 0,
+          payload: json({
+            id,
+            subjectReference,
+            role,
+            selection,
+            ...(observation === undefined ? {} : { observation }),
+          }),
+        });
+      }
+    }
+  };
+  appendPortalEvidence(
+    "bound",
+    snapshot.providerObservationSelections,
+    snapshot.providerObservations,
+  );
+  appendPortalEvidence(
+    "detail",
+    snapshot.nativeScopeInspections.selections,
+    snapshot.nativeScopeInspections.observations,
+  );
+  const referenceTitles = new Map<string, string>();
+  for (const record of mattNativeRecords(
+    [...snapshot.providerObservations, ...snapshot.nativeScopeInspections.observations],
+    snapshot.sources,
+  )) {
+    referenceTitles.set(record.id, record.title);
+  }
+  for (const [reference, title] of referenceTitles) {
+    const id = `portal-reference-title:${reference}`;
+    objects.push({
+      reference: id,
+      kind: "portal-reference-title",
+      ordinal: 0,
+      payload: json({ id, reference, title }),
+    });
+  }
+  const providerEvidence = [
+    ...providerEvidenceRows(
+      "bound",
+      snapshot.providerObservationSelections,
+      snapshot.providerObservations,
+    ),
+    ...providerEvidenceRows(
+      "detail",
+      snapshot.nativeScopeInspections.selections,
+      snapshot.nativeScopeInspections.observations,
+    ),
+  ];
   return {
     basisFingerprint: input.basisFingerprint,
     basisInputs: [...input.basisInputs],
@@ -351,18 +512,7 @@ export const compileProjectReadModel = (input: {
       kind: source.kind,
       payload: json(source),
     })),
-    providerEvidence: [
-      ...providerEvidenceRows(
-        "bound",
-        snapshot.providerObservationSelections,
-        snapshot.providerObservations,
-      ),
-      ...providerEvidenceRows(
-        "detail",
-        snapshot.nativeScopeInspections.selections,
-        snapshot.nativeScopeInspections.observations,
-      ),
-    ],
+    providerEvidence,
   };
 };
 
@@ -405,7 +555,33 @@ const readMetadata = (database: DatabaseSync, storageVersion: number): ProjectRe
   return metadata;
 };
 
+const validateProviderEvidenceRow = (row: Readonly<Record<string, SQLOutputValue>>): void => {
+  const selection = providerObservationSelectionSchema.parse(parseJson(row["selection_json"]));
+  if (
+    mattNativeScopeKey(selection) !== row["binding_key"] ||
+    selection.observationId !== row["observation_id"]
+  ) {
+    throw new Error("Project Read Model provider selection identity is inconsistent.");
+  }
+  if (typeof row["observation_json"] === "string") {
+    const observation = mattSkillsV1ProviderObservationSchema.parse(
+      parseJson(row["observation_json"]),
+    );
+    if (
+      observation.id !== row["observation_id"] ||
+      (observation.sourceRevision ?? null) !== row["source_revision"] ||
+      !sameMattNativeBindingDefinition(selection, observation.binding) ||
+      !providerObservationSelectionFreshnessIsCoherent(selection, observation)
+    ) {
+      throw new Error("Project Read Model provider observation identity is inconsistent.");
+    }
+  } else if (row["observation_id"] !== null || row["source_revision"] !== null) {
+    throw new Error("Project Read Model provider observation payload is missing.");
+  }
+};
+
 const validatePayloads = (database: DatabaseSync): void => {
+  const objects: ProjectReadModelObject[] = [];
   for (const row of database
     .prepare("SELECT reference, kind, payload_json FROM project_objects")
     .all()) {
@@ -413,10 +589,10 @@ const validatePayloads = (database: DatabaseSync): void => {
       kind: row["kind"],
       value: parseJson(row["payload_json"]),
     });
-    if (parsed.value.id !== row["reference"]) {
-      throw new Error("Project Read Model object identity is inconsistent.");
-    }
+    assertProjectReadModelObjectIdentity(z.string().parse(row["reference"]), parsed);
+    objects.push(parsed);
   }
+  assertProjectReadModelObjectRelationships(objects);
   const relationRows = database
     .prepare(
       "SELECT source_reference, relation_key, target_reference, ordinal, payload_json FROM project_relations",
@@ -498,26 +674,7 @@ const validatePayloads = (database: DatabaseSync): void => {
       "SELECT binding_key, observation_id, source_revision, observation_json, selection_json FROM provider_evidence",
     )
     .all()) {
-    const selection = providerObservationSelectionSchema.parse(parseJson(row["selection_json"]));
-    if (
-      mattNativeScopeKey(selection) !== row["binding_key"] ||
-      selection.observationId !== row["observation_id"]
-    ) {
-      throw new Error("Project Read Model provider selection identity is inconsistent.");
-    }
-    if (typeof row["observation_json"] === "string") {
-      const observation = mattSkillsV1ProviderObservationSchema.parse(
-        parseJson(row["observation_json"]),
-      );
-      if (
-        observation.id !== row["observation_id"] ||
-        (observation.sourceRevision ?? null) !== row["source_revision"]
-      ) {
-        throw new Error("Project Read Model provider observation identity is inconsistent.");
-      }
-    } else if (row["observation_id"] !== null || row["source_revision"] !== null) {
-      throw new Error("Project Read Model provider observation payload is missing.");
-    }
+    validateProviderEvidenceRow(row);
   }
 };
 
@@ -575,16 +732,18 @@ const insertCandidate = (
   const currentBindingKeys = new Set(
     candidate.providerEvidence.filter((row) => row.role === "bound").map((row) => row.bindingKey),
   );
-  const retainedDetailEvidence = database
-    .prepare(
-      "SELECT binding_key, role, observation_id, source_revision, observation_json, selection_json FROM provider_evidence WHERE role = 'detail'",
-    )
-    .all()
-    .filter(
-      (row) =>
-        currentBindingKeys.has(z.string().parse(row["binding_key"])) &&
-        matchesCurrentBinding(z.string().parse(row["selection_json"])),
-    );
+  const retainedDetailEvidence =
+    currentBindingKeys.size === 0
+      ? []
+      : database
+          .prepare(
+            `SELECT binding_key, role, observation_id, source_revision, observation_json, selection_json FROM provider_evidence WHERE role = 'detail' AND binding_key IN (${[...currentBindingKeys].map(() => "?").join(", ")})`,
+          )
+          .all(...currentBindingKeys)
+          .filter((row) => {
+            validateProviderEvidenceRow(row);
+            return matchesCurrentBinding(z.string().parse(row["selection_json"]));
+          });
   for (const table of [
     "project_objects",
     "project_relations",
@@ -679,6 +838,27 @@ const insertCandidate = (
     );
 };
 
+const validateProjectReadModelCandidate = async (
+  candidate: ProjectReadModelCandidate,
+): Promise<void> => {
+  const database = await openDatabase(":memory:");
+  try {
+    initializeSchema(database);
+    insertCandidate(
+      database,
+      candidate,
+      projectReadModelReceiptSchema.parse({
+        basisFingerprint: candidate.basisFingerprint,
+        publishedAt: "1970-01-01T00:00:00.000Z",
+        publicationCount: 1,
+      }),
+    );
+    validatePayloads(database);
+  } finally {
+    database.close();
+  }
+};
+
 export const publishProjectReadModel = async (
   repoRoot: string,
   candidate: ProjectReadModelCandidate,
@@ -687,6 +867,7 @@ export const publishProjectReadModel = async (
     faultAt?: "before-commit";
   }> = {},
 ): Promise<ProjectReadModelReceipt> => {
+  await validateProjectReadModelCandidate(candidate);
   const cacheRoot = dirname(projectReadModelPath(repoRoot));
   const bearingRoot = dirname(cacheRoot);
   const bearingMetadata = await lstat(bearingRoot);
