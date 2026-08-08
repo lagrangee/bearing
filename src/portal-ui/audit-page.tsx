@@ -1,24 +1,16 @@
 import { planningLineageSubjectHref } from "../planning-lineage-route";
+import type { PlanningReview } from "../project-snapshot/contract";
 import { AuditFindingRow } from "./audit-finding-row";
 import { Icons } from "./icons";
 import { buildProjectAuditModel, type ProjectAuditModel } from "./project-audit-model";
 import type { AuditModelData } from "./project-data";
 
-type ReadableAudit = Extract<ProjectAuditModel, { state: "available" | "partial" }>;
+type CurrentAudit = ProjectAuditModel["current"];
+type ReadableAudit = Extract<CurrentAudit, { state: "available" | "partial" }>;
 
 const titleCase = (value: string): string => `${value[0]?.toUpperCase()}${value.slice(1)}`;
 
-function AbsentAudit() {
-  return (
-    <section className="audit-empty scoped-state">
-      <h2>No current Audit</h2>
-      <p>Generate a Planning Audit in Agent Surface to inspect the project.</p>
-    </section>
-  );
-}
-
 function AuditMetadata({ model }: { readonly model: ReadableAudit }) {
-  const findingCount = model.findings.length;
   return (
     <dl className="audit-metadata" aria-label="Planning Audit metadata">
       <div>
@@ -34,156 +26,121 @@ function AuditMetadata({ model }: { readonly model: ReadableAudit }) {
       <div>
         <dt>Findings</dt>
         <dd>
-          {findingCount} {findingCount === 1 ? "finding" : "findings"}
+          {model.findings.length} {model.findings.length === 1 ? "finding" : "findings"}
         </dd>
       </div>
       <div>
         <dt>Coverage</dt>
         <dd>{titleCase(model.coverage)} coverage</dd>
       </div>
-      {model.state === "partial" ? (
-        <div>
-          <dt>Projection</dt>
-          <dd>Partial projection</dd>
-        </div>
-      ) : null}
     </dl>
   );
 }
 
-function AuditFindings({
+function CurrentProjectReview({
   entryId,
   model,
 }: {
   readonly entryId: string;
-  readonly model: ReadableAudit;
+  readonly model: CurrentAudit;
 }) {
   return (
-    <section className="audit-findings" aria-labelledby="audit-findings-title">
+    <section aria-labelledby="current-project-review-title" className="audit-findings">
       <div className="section-heading">
-        <h2 id="audit-findings-title">Findings</h2>
+        <h2 id="current-project-review-title">Current Project Review</h2>
       </div>
-      {model.findings.length === 0 ? (
-        <div className="audit-zero-findings">
-          <Icons.check aria-hidden="true" />
-          <div>
-            <h3>No findings</h3>
-            <p>No findings were reported in this Audit.</p>
-          </div>
+      {model.state === "absent" ? (
+        <div className="scoped-state">
+          <h3>No current Audit</h3>
+          <p>Ask Agent Surface to run an explicit Planning Audit.</p>
+        </div>
+      ) : model.state === "invalid" ? (
+        <div className="scoped-state audit-unavailable">
+          <h3>Planning Audit unavailable</h3>
+          <p>
+            {model.issueCount} projection{" "}
+            {model.issueCount === 1 ? "issue prevents" : "issues prevent"} a trustworthy current
+            review. Ask Agent Surface to inspect and replace the Audit.
+          </p>
         </div>
       ) : (
-        <div className="audit-finding-list">
-          {model.findings.map((row) => {
-            const promotion = row.promotion;
-            const href =
-              promotion?.available === true
-                ? planningLineageSubjectHref(
-                    entryId,
-                    promotion.kind === "alignment-check"
-                      ? { kind: "alignment-check", id: promotion.id }
-                      : { kind: "planning-review", id: promotion.id },
-                  )
-                : undefined;
-            return <AuditFindingRow href={href} key={row.finding.id} row={row} />;
-          })}
-        </div>
+        <>
+          <AuditMetadata model={model} />
+          {model.findings.length === 0 ? (
+            <div className="audit-zero-findings">
+              <Icons.check aria-hidden="true" />
+              <div>
+                <h3>No findings</h3>
+                <p>No material findings were reported in this Audit.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="audit-finding-list">
+              {model.findings.map((row) => (
+                <AuditFindingRow
+                  href={
+                    row.promotion?.available === true
+                      ? planningLineageSubjectHref(entryId, {
+                          kind: "planning-review",
+                          id: row.promotion.id,
+                        })
+                      : undefined
+                  }
+                  key={row.finding.id}
+                  row={row}
+                />
+              ))}
+            </div>
+          )}
+          {model.coverage === "incomplete" || model.state === "partial" ? (
+            <div className="audit-scope-detail">
+              <h3>{model.state === "partial" ? "Partial projection" : "Incomplete coverage"}</h3>
+              {model.state === "partial" ? (
+                <p>
+                  {model.issueCount} projection {model.issueCount === 1 ? "issue" : "issues"}{" "}
+                  limited this view.
+                </p>
+              ) : null}
+              {model.skippedTargets.length > 0 ? (
+                <p>Skipped targets: {model.skippedTargets.join(" · ")}</p>
+              ) : null}
+              <p>
+                Ask Agent Surface to inspect the reported sources and run an explicit Planning
+                Audit.
+              </p>
+            </div>
+          ) : null}
+        </>
       )}
     </section>
   );
 }
 
-function AuditCoverage({ model }: { readonly model: ReadableAudit }) {
-  if (model.coverage === "complete" && model.state !== "partial") return null;
-  const partial = model.state === "partial";
-  return (
-    <section className="audit-scope" aria-labelledby="audit-coverage-title">
-      <div className="section-heading">
-        <h2 id="audit-coverage-title">{partial ? "Partial projection" : "Incomplete coverage"}</h2>
-      </div>
-      <div className="audit-scope-detail">
-        {model.coverage === "incomplete" ? (
-          <section>
-            <h3>Skipped scope</h3>
-            <ul>
-              {model.skippedTargets.map((target) => (
-                <li key={target}>
-                  <code>{target}</code>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-        {partial ? (
-          <section>
-            <h3>Projection issues</h3>
-            <p>
-              {model.issueCount} projection {model.issueCount === 1 ? "issue" : "issues"} isolated
-              from the trustworthy findings above.
-            </p>
-          </section>
-        ) : null}
-        <section>
-          <h3>Impact</h3>
-          <p>
-            {partial
-              ? "Some Audit material could not be projected; the findings above remain readable but the Audit is not complete."
-              : "The declared Audit scope is incomplete; findings do not cover the skipped targets."}
-          </p>
-        </section>
-        <section>
-          <h3>Recovery</h3>
-          <p>
-            {partial
-              ? "Correct the reported source and run Planning Audit again in Agent Surface."
-              : "Run Planning Audit again when the skipped targets can be inspected."}
-          </p>
-        </section>
-      </div>
-    </section>
-  );
-}
+const reviewScope = (review: PlanningReview): string =>
+  review.scope.kind === "project" ? "Whole project" : `Target: ${review.scope.target}`;
 
-function ReadableAuditPage({
+function ReviewList({
   entryId,
-  model,
+  reviews,
+  empty,
 }: {
   readonly entryId: string;
-  readonly model: ReadableAudit;
+  readonly reviews: readonly PlanningReview[];
+  readonly empty: string;
 }) {
+  if (reviews.length === 0) return <p>{empty}</p>;
   return (
-    <>
-      <AuditMetadata model={model} />
-      <AuditFindings entryId={entryId} model={model} />
-      <p className="audit-advisory-boundary">
-        Audit is advisory; decisions remain in Alignment Checks and Planning Reviews.
-      </p>
-      <AuditCoverage model={model} />
-    </>
-  );
-}
-
-function InvalidAudit({ issueCount }: { readonly issueCount: number }) {
-  return (
-    <section className="scoped-state audit-unavailable">
-      <h2>Planning Audit unavailable</h2>
-      <dl className="audit-recovery-detail">
-        <div>
-          <dt>Cause</dt>
-          <dd>
-            {issueCount} projection {issueCount === 1 ? "issue prevents" : "issues prevent"} a
-            trustworthy Audit reading.
-          </dd>
-        </div>
-        <div>
-          <dt>Impact</dt>
-          <dd>Findings are hidden because the Audit cannot be normalized safely.</dd>
-        </div>
-        <div>
-          <dt>Recovery</dt>
-          <dd>Correct the reported source and run Planning Audit again in Agent Surface.</dd>
-        </div>
-      </dl>
-    </section>
+    <ul className="audit-review-list">
+      {reviews.map((review) => (
+        <li key={review.id}>
+          <a href={planningLineageSubjectHref(entryId, { kind: "planning-review", id: review.id })}>
+            {review.title}
+          </a>
+          <p>{review.question}</p>
+          <p>{reviewScope(review)}</p>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -200,13 +157,33 @@ export function AuditPage({
       <header className="document-header audit-document-header">
         <h1>Planning Audit</h1>
       </header>
-      {model.state === "absent" ? (
-        <AbsentAudit />
-      ) : model.state === "invalid" ? (
-        <InvalidAudit issueCount={model.issueCount} />
-      ) : (
-        <ReadableAuditPage entryId={entryId} model={model} />
-      )}
+      <CurrentProjectReview entryId={entryId} model={model.current} />
+      <section aria-labelledby="decisions-attention-title">
+        <div className="section-heading">
+          <h2 id="decisions-attention-title">Decisions Awaiting Attention</h2>
+        </div>
+        <ReviewList
+          entryId={entryId}
+          reviews={model.pendingReviews}
+          empty="No decisions await attention."
+        />
+        {model.pendingReviews.length > 0 ? (
+          <p>
+            Continue these decisions in Agent Surface. Portal does not accept, resolve, reopen, or
+            refresh Reviews.
+          </p>
+        ) : null}
+      </section>
+      <section aria-labelledby="past-decisions-title">
+        <div className="section-heading">
+          <h2 id="past-decisions-title">Past Accepted Decisions</h2>
+        </div>
+        <ReviewList
+          entryId={entryId}
+          reviews={model.completedReviews}
+          empty="No accepted Planning Review history is available."
+        />
+      </section>
     </div>
   );
 }

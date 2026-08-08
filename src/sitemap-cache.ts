@@ -53,7 +53,6 @@ const envelopeSchema = z.strictObject({
   "Input fingerprint": z.string().regex(FINGERPRINT_PATTERN),
   "Advisory freshness": z.strictObject({
     "planning-audit:current": z.enum(FRESHNESS_VALUES).optional(),
-    "next-work-guidance:current": z.enum(FRESHNESS_VALUES).optional(),
   }),
 });
 
@@ -163,9 +162,6 @@ export const readProjectSitemapCache = async (
     ...(parsedFreshness["planning-audit:current"] === undefined
       ? {}
       : { "planning-audit:current": parsedFreshness["planning-audit:current"] }),
-    ...(parsedFreshness["next-work-guidance:current"] === undefined
-      ? {}
-      : { "next-work-guidance:current": parsedFreshness["next-work-guidance:current"] }),
   };
   return {
     kind: "available",

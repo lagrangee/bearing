@@ -6,7 +6,6 @@ import { collectAssetDirectEvidence } from "./project-snapshot/asset-direct-evid
 import { rebuildAssetReverseRelations } from "./project-snapshot/asset-reverse-relations";
 import { buildAssetProjection } from "./project-snapshot/assets";
 import type {
-  AlignmentCheck,
   AssetProjection,
   Authority,
   CollectionProjection,
@@ -59,7 +58,6 @@ export type PlanningGraphEffortContext = Readonly<{
   authorities: readonly PlanningGraphValue<Authority>[];
   providerCapture?: ProviderScopeObservation;
   nativeWorkReadingState?: MattNativeWorkReadingState;
-  alignmentChecks: readonly PlanningGraphValue<AlignmentCheck>[];
   evidence: readonly PlanningGraphValue<AssetProjection>[];
 }>;
 
@@ -164,7 +162,6 @@ type GraphCollections = Readonly<{
   efforts: CollectionProjection<Effort>;
   authorities: CollectionProjection<Authority>;
   assets: CollectionProjection<AssetProjection>;
-  checks: CollectionProjection<AlignmentCheck>;
   reviews: CollectionProjection<PlanningReview>;
   providerObservations: readonly ProviderScopeObservation[];
   providerObservationSelections: readonly ProviderObservationSelection[];
@@ -380,7 +377,6 @@ class ImmutablePlanningGraph implements PlanningGraph {
   readonly #sourceByReference: ReadonlyMap<string, SourceRecord>;
   readonly #knownKinds: ReadonlyMap<string, ReadonlySet<string>>;
   readonly #knownSources: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly #checkTargetBySource: ReadonlyMap<string, string>;
   readonly #assetOwnersBySource: ReadonlyMap<string, ReadonlySet<string>>;
   readonly #globalProviderIssues: readonly PlanningGraphIssue[];
   readonly #instrumentation: PlanningGraphInstrumentation | undefined;
@@ -393,7 +389,6 @@ class ImmutablePlanningGraph implements PlanningGraph {
     sources: readonly SourceRecord[],
     knownKinds: ReadonlyMap<string, ReadonlySet<string>>,
     knownSources: ReadonlyMap<string, ReadonlySet<string>>,
-    checkTargetBySource: ReadonlyMap<string, string>,
     assetOwnersBySource: ReadonlyMap<string, ReadonlySet<string>>,
     globalProviderIssues: readonly PlanningGraphIssue[],
     instrumentation?: PlanningGraphInstrumentation,
@@ -426,7 +421,6 @@ class ImmutablePlanningGraph implements PlanningGraph {
     this.#sourceByReference = new Map(sources.map((source) => [source.reference, source]));
     this.#knownKinds = knownKinds;
     this.#knownSources = knownSources;
-    this.#checkTargetBySource = checkTargetBySource;
     this.#assetOwnersBySource = assetOwnersBySource;
     this.#globalProviderIssues = deepFreeze([...globalProviderIssues]);
     this.#instrumentation = instrumentation;
@@ -637,23 +631,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
         ),
       );
     }
-    const relevantTargets = new Set<string>([
-      effort.id,
-      effort.roadmapId,
-      effort.targetGateId,
-      ...effort.authorityIds,
-    ]);
-    const checks = trusted(this.#collections.checks)
-      .filter((candidate) => relevantTargets.has(candidate.target))
-      .sort((left, right) => compareUtf8(left.id, right.id));
     const citedAssetIds = new Set<string>(effort.citations.map((citation) => citation.assetId));
-    closureIssues.push(
-      ...issues(this.#collections.checks).filter((issue) => {
-        const target =
-          issue.source === undefined ? undefined : this.#checkTargetBySource.get(issue.source);
-        return target !== undefined && relevantTargets.has(target);
-      }),
-    );
     const evidence = trusted(this.#collections.assets)
       .filter((candidate) => candidate.owner === effort.id || citedAssetIds.has(candidate.id))
       .sort((left, right) => compareUtf8(left.id, right.id));
@@ -709,7 +687,6 @@ class ImmutablePlanningGraph implements PlanningGraph {
       authorities: authorityValues,
       ...(providerCapture === undefined ? {} : { providerCapture }),
       ...(nativeWorkReadingState === undefined ? {} : { nativeWorkReadingState }),
-      alignmentChecks: checks.map((check) => valueWithSource(check, sourceByReference)),
       evidence: evidence.map((asset) => valueWithSource(asset, sourceByReference)),
     };
   }
@@ -724,7 +701,7 @@ class ImmutablePlanningGraph implements PlanningGraph {
       references.add(context.effort.value.source);
       if (context.roadmap !== undefined) references.add(context.roadmap.value.source);
       if (context.targetGate !== undefined) references.add(context.targetGate.value.source);
-      for (const value of [...context.authorities, ...context.alignmentChecks, ...context.evidence])
+      for (const value of [...context.authorities, ...context.evidence])
         references.add(value.source.reference);
       for (const object of mattObjects(context.providerCapture)) {
         const source = this.#sources.find(
@@ -1071,7 +1048,6 @@ export const buildPlanningGraph = async (
     gates: planningProjection.gates,
     efforts: planningProjection.efforts,
     authorities: governance.authorities,
-    checks: decisions.checks,
     reviews: decisions.reviews,
     directEvidence: collectAssetDirectEvidence(input.decoded.records),
   });
@@ -1083,7 +1059,6 @@ export const buildPlanningGraph = async (
     efforts: overlayNormalizedItems(governance.efforts, planningProjection.efforts),
     authorities: governance.authorities,
     assets: rebuiltAssets,
-    checks: decisions.checks,
     reviews: decisions.reviews,
     providerObservations: input.providerObservations,
     providerObservationSelections,
@@ -1094,7 +1069,6 @@ export const buildPlanningGraph = async (
     efforts: planningProjection.efforts,
     authorities: governance.authorities,
     assets: rebuiltAssets,
-    checks: decisions.checks,
     reviews: decisions.reviews,
     providerObservations: input.providerObservations,
     providerObservationSelections,
@@ -1106,7 +1080,6 @@ export const buildPlanningGraph = async (
   });
   const knownKinds = new Map<string, Set<string>>();
   const knownSources = new Map<string, Set<string>>();
-  const checkTargetBySource = new Map<string, string>();
   for (const record of input.decoded.records) {
     const data = record.data;
     if (data === undefined || data.Type === "asset-registry" || data.Type === "roadmap-index")
@@ -1117,9 +1090,6 @@ export const buildPlanningGraph = async (
     const sourceReferences = knownSources.get(data.ID) ?? new Set<string>();
     sourceReferences.add(record.source.reference);
     knownSources.set(data.ID, sourceReferences);
-    if (data.Type === "alignment-check") {
-      checkTargetBySource.set(record.source.reference, data.Target);
-    }
   }
   return new ImmutablePlanningGraph(
     input.fingerprint,
@@ -1129,7 +1099,6 @@ export const buildPlanningGraph = async (
     sources,
     knownKinds,
     knownSources,
-    checkTargetBySource,
     assetOwnersBySource,
     [],
     input.instrumentation,

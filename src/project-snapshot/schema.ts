@@ -14,7 +14,6 @@ import { planningLineageProjectionSchema } from "./schema-planning-lineage";
 import {
   assetIdSchema,
   authorityIdSchema,
-  checkIdSchema,
   diagnosticReferenceSchema,
   effortIdSchema,
   fingerprintSchema,
@@ -37,7 +36,7 @@ export { planningLineageProjectionSchema } from "./schema-planning-lineage";
 export { diagnosticReferenceSchema } from "./schema-primitives";
 export { projectionIssueSchema } from "./schema-projection";
 export { projectSummarySchema } from "./schema-summary";
-export const PROJECT_SNAPSHOT_VERSION = 19 as const;
+export const PROJECT_SNAPSHOT_VERSION = 20 as const;
 const resolutionSchema = z.strictObject({
   acceptedDecision: semanticPlainTextSchema,
   acceptedAt: bearingSourceEventTimeSchema,
@@ -251,25 +250,31 @@ export const authoritySchema = z.strictObject({
   adoptions: uniqueIdentityArraySchema(
     z.strictObject({
       assetId: assetIdSchema,
-      decisionReference: z.union([checkIdSchema, reviewIdSchema]),
+      decisionReference: reviewIdSchema,
     }),
     (adoption) => adoption.assetId,
   ),
 });
-export const alignmentCheckSchema = z.strictObject({
-  id: checkIdSchema,
-  ...citedNodeShape,
-  status: z.enum(["open", "resolved"]),
-  target: planningReferenceSchema,
-  resolution: resolutionSchema.optional(),
-});
-export const planningReviewSchema = z.strictObject({
-  id: reviewIdSchema,
-  ...citedNodeShape,
-  status: z.enum(["pending", "completed"]),
-  scope: semanticPlainTextSchema,
-  resolution: resolutionSchema.optional(),
-});
+export const planningReviewSchema = z
+  .strictObject({
+    id: reviewIdSchema,
+    ...citedNodeShape,
+    status: z.enum(["pending", "completed"]),
+    question: semanticPlainTextSchema,
+    scope: z.discriminatedUnion("kind", [
+      z.strictObject({ kind: z.literal("project") }),
+      z.strictObject({ kind: z.literal("exact-target"), target: planningReferenceSchema }),
+    ]),
+    resolution: resolutionSchema.optional(),
+  })
+  .superRefine((review, context) => {
+    if ((review.status === "completed") === (review.resolution !== undefined)) return;
+    context.addIssue({
+      code: "custom",
+      path: ["resolution"],
+      message: "Planning Review resolution applicability must match completed status.",
+    });
+  });
 
 export const structuralDiagnosticSchema = z.strictObject({
   reference: diagnosticReferenceSchema,
@@ -279,7 +284,7 @@ export const structuralDiagnosticSchema = z.strictObject({
   message: semanticPlainTextSchema,
   source: sourceReferenceSchema.optional(),
 });
-type DecisionKind = "alignment-check" | "planning-review";
+type DecisionKind = "planning-review";
 const decisionAttention = <K extends DecisionKind, I extends z.ZodType>(kind: K, id: I) =>
   z.strictObject({ kind: z.literal(kind), id, ...titledSourceShape });
 export const attentionItemSchema = z.discriminatedUnion("kind", [
@@ -287,7 +292,6 @@ export const attentionItemSchema = z.discriminatedUnion("kind", [
     kind: z.literal("structural-diagnostic"),
     diagnosticReference: diagnosticReferenceSchema,
   }),
-  decisionAttention("alignment-check", checkIdSchema),
   decisionAttention("planning-review", reviewIdSchema),
 ]);
 
@@ -304,7 +308,6 @@ export const projectSnapshotSchema = z
     efforts: collectionProjectionSchema(effortSchema, (effort) => effort.id),
     authorities: collectionProjectionSchema(authoritySchema, (authority) => authority.id),
     assets: collectionProjectionSchema(assetProjectionSchema, (asset) => asset.id),
-    checks: collectionProjectionSchema(alignmentCheckSchema, (check) => check.id),
     reviews: collectionProjectionSchema(planningReviewSchema, (review) => review.id),
     lineage: planningLineageProjectionSchema,
     audit: singletonProjectionSchema(planningAuditSchema),

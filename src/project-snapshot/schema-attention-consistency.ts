@@ -9,7 +9,7 @@ type Decision = Readonly<{ id: string; title: string; source: string; status: st
 type AttentionItem =
   | Readonly<{ kind: "structural-diagnostic"; diagnosticReference: string }>
   | Readonly<{
-      kind: "alignment-check" | "planning-review";
+      kind: "planning-review";
       id: string;
       title: string;
       source: string;
@@ -35,7 +35,6 @@ export type AttentionConsistencySnapshot = Readonly<{
     displayLocator: string;
     binding?: Readonly<{ role: string }> | undefined;
   }>[];
-  checks: Collection<Decision>;
   reviews: Collection<Decision>;
   attention: readonly AttentionItem[];
 }>;
@@ -84,14 +83,6 @@ export const validateAttentionConsistency = (
       diagnosticReference: diagnostic.reference,
     }));
   expected.push(
-    ...trustedItems(snapshot.checks)
-      .filter((check) => check.status === "open")
-      .map((check) => ({
-        kind: "alignment-check" as const,
-        id: check.id,
-        title: check.title,
-        source: check.source,
-      })),
     ...trustedItems(snapshot.reviews)
       .filter((review) => review.status === "pending")
       .map((review) => ({

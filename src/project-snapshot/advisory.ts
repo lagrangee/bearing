@@ -2,7 +2,6 @@ import type { AdvisoryFreshness } from "../types";
 import { projectAuditFindings } from "./audit-findings";
 import { type ParsedCanonicalRecord, parseCanonicalRecord } from "./canonical-record";
 import type {
-  AlignmentCheck,
   CollectionProjection,
   PlanningAudit,
   PlanningReview,
@@ -17,7 +16,6 @@ type Input = Readonly<{
   records: readonly SnapshotSourceInput[];
   sitemapFingerprint: string;
   advisoryFreshness: AdvisoryFreshness;
-  checks: CollectionProjection<AlignmentCheck>;
   reviews: CollectionProjection<PlanningReview>;
 }>;
 type AdvisoryProjection = Readonly<{
@@ -72,7 +70,6 @@ const auditProjection = (
     auditSource: parsed.value.source.reference,
     findings: body.result.value.findings,
     invalidFindings: body.result.value.invalidFindings,
-    checks: input.checks,
     reviews: input.reviews,
   });
   const projected = planningAuditSchema.safeParse({

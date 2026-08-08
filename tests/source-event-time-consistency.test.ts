@@ -30,7 +30,6 @@ const snapshot = (
       },
     ],
   },
-  checks: { validity: "available", items: [] },
   reviews,
 });
 

@@ -38,16 +38,6 @@ const otherSource = createSourceReference({
   kind: "canonical",
   displayLocator: ".bearing/state/other.md",
 });
-const openCheckRecord = boundRecord(
-  ".bearing/state/alignment-checks/open-check.md",
-  "alignment-check",
-  "alignment-check:open-check",
-);
-const resolvedCheckRecord = boundRecord(
-  ".bearing/state/alignment-checks/resolved-check.md",
-  "alignment-check",
-  "alignment-check:resolved-check",
-);
 const pendingReviewRecord = boundRecord(
   ".bearing/state/planning-reviews/pending-review.md",
   "planning-review",
@@ -80,7 +70,7 @@ const supersededRoadmapRecord = boundRecord(
 );
 const emptyItems = { validity: "available", items: [] } as const;
 const emptySnapshot = {
-  schemaVersion: 19,
+  schemaVersion: 20,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -91,7 +81,6 @@ const emptySnapshot = {
   efforts: emptyItems,
   authorities: emptyItems,
   assets: emptyItems,
-  checks: emptyItems,
   reviews: emptyItems,
   lineage: { subjects: [] },
   audit: { validity: "absent" },
@@ -111,8 +100,6 @@ const emptySnapshot = {
       kind: "canonical" as const,
       displayLocator: ".bearing/state/other.md",
     },
-    openCheckRecord,
-    resolvedCheckRecord,
     pendingReviewRecord,
     completedReviewRecord,
     roadmapIndexRecord,
@@ -124,42 +111,33 @@ const emptySnapshot = {
 
 const blockingReference = `diagnostic:${"a".repeat(64)}`;
 const nonBlockingReference = `diagnostic:${"b".repeat(64)}`;
-const openCheck = {
-  id: "alignment-check:open-check",
-  title: "Open alignment check",
-  source: openCheckRecord.reference,
-  citations: [],
-  status: "open" as const,
-  target: "roadmap:active",
-};
-const resolvedCheck = {
-  ...openCheck,
-  id: "alignment-check:resolved-check",
-  source: resolvedCheckRecord.reference,
-  status: "resolved" as const,
-};
 const pendingReview = {
   id: "planning-review:pending-review",
   title: "Pending planning review",
   source: pendingReviewRecord.reference,
   citations: [],
   status: "pending" as const,
-  scope: "Review the whole project.",
+  question: "Should the whole project direction continue?",
+  scope: { kind: "project" as const },
 };
 const completedReview = {
   ...pendingReview,
   id: "planning-review:completed-review",
   source: completedReviewRecord.reference,
   status: "completed" as const,
+  resolution: {
+    acceptedDecision: "Keep the current direction.",
+    acceptedAt: {
+      availability: "available" as const,
+      value: "2026-08-08T00:00:00.000Z",
+      precision: "fractional-second" as const,
+    },
+    rationale: "The current direction remains valid.",
+    changedReferences: ["roadmap:active"],
+  },
 };
 const exactAttention = [
   { kind: "structural-diagnostic", diagnosticReference: blockingReference },
-  {
-    kind: "alignment-check",
-    id: openCheck.id,
-    title: openCheck.title,
-    source: openCheck.source,
-  },
   {
     kind: "planning-review",
     id: pendingReview.id,
@@ -169,7 +147,6 @@ const exactAttention = [
 ];
 const attentionSnapshotCandidate = {
   ...emptySnapshot,
-  checks: { validity: "available" as const, items: [openCheck, resolvedCheck] },
   reviews: { validity: "available" as const, items: [pendingReview, completedReview] },
   diagnostics: [
     {
@@ -200,17 +177,11 @@ test("accepts Attention derived exactly from trustworthy unresolved inputs", () 
   expect(projectSnapshotSchema.safeParse(attentionSnapshot).success).toBe(true);
 });
 
-test("rejects Attention sourced from non-blocking or resolved inputs", () => {
+test("rejects Attention sourced from non-blocking or completed inputs", () => {
   const variants = [
     {
       kind: "structural-diagnostic",
       diagnosticReference: nonBlockingReference,
-    },
-    {
-      kind: "alignment-check",
-      id: resolvedCheck.id,
-      title: resolvedCheck.title,
-      source: resolvedCheck.source,
     },
     {
       kind: "planning-review",
@@ -234,7 +205,7 @@ test("rejects missing, extra, and identity-mismatched Attention items", () => {
     kind: "structural-diagnostic",
     diagnosticReference: `diagnostic:${"d".repeat(64)}`,
   };
-  const wrongIdentity = { ...exactAttention[1], id: "alignment-check:other" };
+  const wrongIdentity = { ...exactAttention[1], id: "planning-review:other" };
   expect(
     projectSnapshotSchema.safeParse({ ...attentionSnapshot, attention: exactAttention.slice(1) })
       .success,
@@ -248,7 +219,7 @@ test("rejects missing, extra, and identity-mismatched Attention items", () => {
   expect(
     projectSnapshotSchema.safeParse({
       ...attentionSnapshot,
-      attention: [exactAttention[0], wrongIdentity, exactAttention[2]],
+      attention: [exactAttention[0], wrongIdentity],
     }).success,
   ).toBe(false);
 });
@@ -260,7 +231,7 @@ test("rejects Attention title or source drift for the same decision ID", () => {
     expect(
       projectSnapshotSchema.safeParse({
         ...attentionSnapshot,
-        attention: [exactAttention[0], item, exactAttention[2]],
+        attention: [exactAttention[0], item],
       }).success,
     ).toBe(false);
   }

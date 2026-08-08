@@ -27,7 +27,6 @@ type ForwardRelations = Readonly<{
   gates: Collection<Gate>;
   efforts: Collection<CitedNode>;
   authorities: Collection<Authority>;
-  checks: Collection<CitedNode>;
   reviews: Collection<CitedNode>;
   directEvidence?: AssetDirectEvidence | undefined;
 }>;
@@ -43,7 +42,6 @@ const citedNodes = (input: ForwardRelations): readonly CitedNode[] => [
   ...trustworthy(input.gates),
   ...trustworthy(input.efforts),
   ...trustworthy(input.authorities),
-  ...trustworthy(input.checks),
   ...trustworthy(input.reviews),
 ];
 
@@ -82,14 +80,9 @@ const rebuildAsset = (asset: AssetProjection, input: ForwardRelations): AssetPro
   const citations = mergeRecords(
     observedCitations,
     input.directEvidence === undefined &&
-      [
-        input.roadmaps,
-        input.gates,
-        input.efforts,
-        input.authorities,
-        input.checks,
-        input.reviews,
-      ].some((collection) => collection.validity !== "available")
+      [input.roadmaps, input.gates, input.efforts, input.authorities, input.reviews].some(
+        (collection) => collection.validity !== "available",
+      )
       ? asset.citations
       : [],
     (citation) => `${citation.citingReference}\0${citation.note}\0${citation.source}`,

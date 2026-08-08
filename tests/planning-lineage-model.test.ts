@@ -149,7 +149,7 @@ test("forces the complete Outcome Spine vertical when title content exceeds read
   expect(model.outcomeSpine?.gates[0]?.title).toContain("mixed 中文 English");
 });
 
-test("builds Effort, Asset, Alignment Check, and Planning Review routes from their own truth", () => {
+test("builds Effort, Asset, and Planning Review routes from their own truth", () => {
   const snapshot = fixture();
   const expectations = [
     [
@@ -163,20 +163,9 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
       ["production.owner", "planning-use.cited-by", "passage.used-by"],
     ],
     [
-      { kind: "alignment-check", id: "alignment-check:portal" },
-      [
-        "alignment-check.target",
-        "alignment-check.lifecycle",
-        "alignment-check.resolution",
-        "alignment-check.rationale",
-        "alignment-check.changed-references",
-        "alignment-check.evidence",
-      ],
-      ["planning-use.citations"],
-    ],
-    [
       { kind: "planning-review", id: "planning-review:sequence" },
       [
+        "planning-review.question",
         "planning-review.scope",
         "planning-review.lifecycle",
         "planning-review.resolution",
@@ -286,14 +275,14 @@ test("builds Effort, Asset, Alignment Check, and Planning Review routes from the
       id: "asset:planning-model-evidence",
     })?.semanticSections,
   ).not.toContainEqual(expect.objectContaining({ role: "asset.content" }));
-  const check = readable(
+  const review = readable(
     buildPlanningLineageSubjectModel(
       snapshot,
-      { kind: "alignment-check", id: "alignment-check:portal" },
+      { kind: "planning-review", id: "planning-review:sequence" },
       "bearing",
     ),
   );
-  expect(check.events).toEqual([]);
+  expect(review.events).toEqual([]);
 });
 
 test("binds Adoption relation time to the exact Asset decision instead of Authority recency", () => {
@@ -334,7 +323,8 @@ test("binds Adoption relation time to the exact Asset decision instead of Author
     source: firstReviewSource.reference,
     citations: [],
     status: "completed",
-    scope: "Adopt first evidence.",
+    question: "Should the project adopt the first evidence?",
+    scope: { kind: "project" },
     resolution: {
       acceptedDecision: "Adopt first evidence.",
       acceptedAt: accepted("2026-07-31T09:00:00Z"),
@@ -348,7 +338,8 @@ test("binds Adoption relation time to the exact Asset decision instead of Author
     source: secondReviewSource.reference,
     citations: [],
     status: "completed",
-    scope: "Adopt second evidence.",
+    question: "Should the project adopt the second evidence?",
+    scope: { kind: "project" },
     resolution: {
       acceptedDecision: "Adopt second evidence.",
       acceptedAt: accepted("2026-07-31T10:00:00Z"),

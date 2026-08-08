@@ -65,27 +65,30 @@ ${body}
 `,
 });
 
-const checkRecord = (status: "open" | "resolved") => ({
-  locator: ".bearing/state/alignment-checks/portal.md",
+const exactReviewRecord = (status: "pending" | "completed") => ({
+  locator: ".bearing/state/planning-reviews/portal.md",
   source: `---
-Type: alignment-check
-ID: alignment-check:portal
+Type: planning-review
+ID: planning-review:portal
 Title: Confirm the Portal direction
 Status: ${status}
+Question: Should the Portal direction continue?
+Scope: exact-target
 Target: roadmap:test
 Inputs: []
 Input fingerprint: sha256:${"b".repeat(64)}
 ${
-  status === "resolved"
+  status === "completed"
     ? `Resolution:
   Accepted decision: Alignment is confirmed.
+  Accepted at: 2026-07-14T02:05:00Z
   Rationale: The reviewed direction is accepted.
   Changed references: []`
     : ""
 }
 ---
 
-# Alignment Check
+# Planning Review
 `,
 });
 
@@ -96,13 +99,15 @@ Type: planning-review
 ID: planning-review:portfolio
 Title: Review the portfolio direction
 Status: ${status}
-Scope: Whole project
+Question: Should the portfolio direction continue?
+Scope: project
 Inputs: []
 Input fingerprint: sha256:${"c".repeat(64)}
 ${
   status === "completed"
     ? `Resolution:
   Accepted decision: Continue the current direction.
+  Accepted at: 2026-07-14T02:06:00Z
   Rationale: The current balance is accepted.
   Changed references: []`
     : ""
@@ -125,7 +130,6 @@ const project = (
       records,
       sitemapFingerprint: BASIS,
       advisoryFreshness: { "planning-audit:current": "current" },
-      checks: decisions.checks,
       reviews: decisions.reviews,
     }),
   };
@@ -144,18 +148,20 @@ test("projects stable findings, evidence Sources, and canonical promotion IDs", 
   const { advisory, decisions } = project(
     [
       finding("Scoped direction", {
-        promotion: "Alignment Check: `alignment-check:portal`",
+        promotion: "Planning Review: `planning-review:portal`",
       }),
       finding("Portfolio balance", {
         promotion: "Planning Review: `planning-review:portfolio`",
       }),
     ].join("\n\n"),
-    [checkRecord("resolved"), reviewRecord("completed")],
+    [exactReviewRecord("completed"), reviewRecord("completed")],
   );
-  expect(decisions.checks.validity).toBe("available");
   expect(decisions.reviews).toMatchObject({
     validity: "available",
-    items: [{ id: "planning-review:portfolio" }],
+    items: [
+      { id: "planning-review:portal", scope: { kind: "exact-target", target: "roadmap:test" } },
+      { id: "planning-review:portfolio", scope: { kind: "project" } },
+    ],
   });
   expect(advisory.audit).toMatchObject({
     validity: "available",
@@ -163,7 +169,7 @@ test("projects stable findings, evidence Sources, and canonical promotion IDs", 
       findings: [
         {
           id: createAuditFindingId(BASIS, AUDIT_LOCATOR, "finding-1"),
-          promotion: { kind: "alignment-check", id: "alignment-check:portal" },
+          promotion: { kind: "planning-review", id: "planning-review:portal" },
         },
         {
           id: createAuditFindingId(BASIS, AUDIT_LOCATOR, "finding-2"),
@@ -223,7 +229,7 @@ test("invalidates an Audit when every authored finding is malformed", () => {
 test("retains a finding but makes the Audit partial when its promotion is unavailable", () => {
   const projected = project(
     finding("Missing decision", {
-      promotion: "Alignment Check: `alignment-check:missing`",
+      promotion: "Planning Review: `planning-review:missing`",
     }),
   ).advisory;
   expect(projected.audit).toMatchObject({
@@ -232,7 +238,7 @@ test("retains a finding but makes the Audit partial when its promotion is unavai
       findings: [
         {
           title: "Missing decision",
-          promotion: { kind: "alignment-check", id: "alignment-check:missing" },
+          promotion: { kind: "planning-review", id: "planning-review:missing" },
         },
       ],
     },
@@ -249,15 +255,15 @@ test("retains a finding but makes the Audit partial when its promotion is unavai
 test("keeps Attention owned only by canonical unresolved decisions", () => {
   const { decisions, advisory } = project(
     finding("Open decision", {
-      promotion: "Alignment Check: `alignment-check:portal`",
+      promotion: "Planning Review: `planning-review:portal`",
     }),
-    [checkRecord("open")],
+    [exactReviewRecord("pending")],
   );
   expect(advisory.audit).toMatchObject({ validity: "available" });
   expect(decisions.attention).toHaveLength(1);
   expect(decisions.attention[0]).toMatchObject({
-    kind: "alignment-check",
-    id: "alignment-check:portal",
+    kind: "planning-review",
+    id: "planning-review:portal",
   });
   expect("attention" in advisory).toBe(false);
 });
@@ -266,14 +272,18 @@ test("builds findings and de-duplicated Attention through the complete Snapshot 
   const root = await createValidBearingRepo();
   const body = [
     finding("Scoped direction", {
-      promotion: "Alignment Check: `alignment-check:portal`",
+      promotion: "Planning Review: `planning-review:portal`",
     }),
     finding("Portfolio balance", {
       promotion: "Planning Review: `planning-review:portfolio`",
     }),
   ].join("\n\n");
   await writeFixture(root, AUDIT_LOCATOR, auditRecord(body).source);
-  await writeFixture(root, checkRecord("open").locator, checkRecord("open").source);
+  await writeFixture(
+    root,
+    exactReviewRecord("pending").locator,
+    exactReviewRecord("pending").source,
+  );
   await writeFixture(root, reviewRecord("completed").locator, reviewRecord("completed").source);
   const sync = await runSync(root, {
     providerObservationIntent: "initial-baseline",
@@ -291,13 +301,13 @@ test("builds findings and de-duplicated Attention through the complete Snapshot 
     validity: "available",
     value: {
       findings: [
-        { promotion: { kind: "alignment-check", id: "alignment-check:portal" } },
+        { promotion: { kind: "planning-review", id: "planning-review:portal" } },
         { promotion: { kind: "planning-review", id: "planning-review:portfolio" } },
       ],
     },
   });
   expect(snapshot.attention).toMatchObject([
-    { kind: "alignment-check", id: "alignment-check:portal" },
+    { kind: "planning-review", id: "planning-review:portal" },
   ]);
   expect(snapshot.sources.some((source) => source.kind === "evidence")).toBe(true);
 });

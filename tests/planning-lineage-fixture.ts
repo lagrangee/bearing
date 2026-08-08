@@ -29,7 +29,6 @@ export const parseRebuiltPlanningLineageFixture = (candidate: ProjectSnapshot): 
       gates: planning.gates,
       efforts: planning.efforts,
       authorities: candidate.authorities,
-      checks: candidate.checks,
       reviews: candidate.reviews,
     }),
   };

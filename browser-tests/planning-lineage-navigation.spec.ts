@@ -309,7 +309,6 @@ test("stable durable-subject routes survive direct entry and keep failures scope
     [{ kind: "gate", id: "gate:one" }, "Model ready"],
     [{ kind: "effort", id: "effort:portal" }, "Web Portal Validation"],
     [{ kind: "authority", id: "authority:architecture" }, "Architecture"],
-    [{ kind: "alignment-check", id: "alignment-check:portal" }, "Confirm the Portal revision"],
     [{ kind: "planning-review", id: "planning-review:sequence" }, "Review the current sequence"],
     [{ kind: "asset", id: "asset:planning-model-evidence" }, "Planning Model Evidence"],
     [{ kind: "native-scope", id: ".scratch/portal" }, "Contributing Work"],

@@ -35,7 +35,6 @@ export type SourceBindingConsistencySnapshot = Readonly<{
   efforts: Collection<IdentifiedSource>;
   authorities: Collection<IdentifiedSource>;
   assets: Collection<IdentifiedSource>;
-  checks: Collection<IdentifiedSource>;
   reviews: Collection<IdentifiedSource>;
   audit: Singleton<IdentifiedSource>;
   providerObservations: readonly unknown[];
@@ -93,7 +92,7 @@ const validateBinding = (
 const validateCanonicalCollection = (
   snapshot: SourceBindingConsistencySnapshot,
   index: ReadonlyMap<string, SourceRecord>,
-  name: "roadmaps" | "gates" | "efforts" | "authorities" | "checks" | "reviews",
+  name: "roadmaps" | "gates" | "efforts" | "authorities" | "reviews",
   role: SourceBindingRole,
   bearingType: string,
   context: RefinementCtx,
@@ -225,7 +224,6 @@ export const validateSourceBindingConsistency = (
     ["gates", "milestone-gate", "milestone-gate"],
     ["efforts", "effort", "effort"],
     ["authorities", "authority", "authority"],
-    ["checks", "alignment-check", "alignment-check"],
     ["reviews", "planning-review", "planning-review"],
   ] as const) {
     validateCanonicalCollection(snapshot, index, name, role, bearingType, context);

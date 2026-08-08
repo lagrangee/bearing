@@ -161,22 +161,11 @@ export const analyzeDecodedBearingArtifact = (
       break;
     case "asset-registry":
       break;
-    case "alignment-check":
-      nodes.push({ id: data.ID, locator });
-      references.push(...stableReference(locator, data.Target));
-      references.push(...stableReferences(locator, data.Resolution?.["Changed references"] ?? []));
-      addPlanningCitations(data.Citations);
-      if (data.Status === "resolved" && data.Resolution === undefined) {
-        diagnostics.push({
-          code: "resolved-check-missing-resolution",
-          impact: "blocking",
-          target: locator,
-          message: "Resolved Alignment Check requires Resolution.",
-        });
-      }
-      break;
     case "planning-review":
       nodes.push({ id: data.ID, locator });
+      if (data.Scope === "exact-target" && data.Target !== undefined) {
+        references.push(...stableReference(locator, data.Target));
+      }
       references.push(...stableReferences(locator, data.Resolution?.["Changed references"] ?? []));
       addPlanningCitations(data.Citations);
       if (data.Status === "completed" && data.Resolution === undefined) {
@@ -199,20 +188,6 @@ export const analyzeDecodedBearingArtifact = (
             references.push({ source, target: finding.promotion.target });
           }
         }
-      }
-      break;
-    case "next-work-guidance":
-      nodes.push({ id: data.ID, locator });
-      if (data["Based on audit"] !== undefined) {
-        references.push({ source: locator, target: data["Based on audit"] });
-      }
-      if (content.kind === "next-work-guidance" && content.result.ok) {
-        references.push(
-          ...stableReferences(locator, content.result.value.primary.supportingReferences),
-          ...content.result.value.alternatives.flatMap((item) =>
-            stableReferences(locator, item.supportingReferences),
-          ),
-        );
       }
       break;
   }

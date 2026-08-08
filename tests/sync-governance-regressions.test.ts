@@ -40,12 +40,6 @@ describe("sync governance review regressions", () => {
       ".bearing/state/planning-audit.md",
       `---\nType: planning-audit\nID: planning-audit:wrong\nGenerated at: now\nInputs: []\nInput fingerprint: sha256:${"a".repeat(64)}\nCoverage: impossible\nSkipped targets: []\n---\n\n# Audit\n`,
     );
-    await writeFixture(
-      root,
-      ".bearing/state/next-work-guidance.md",
-      `---\nType: next-work-guidance\nID: next-work-guidance:current\nGenerated at: now\nInputs: []\nInput fingerprint: sha256:${"b".repeat(64)}\nSemantic coverage: complete\n---\n\n# Guidance\n\n## Primary Recommendation\n\nContinue.\n\n## Alternatives\n\n1. One.\n2. Two.\n`,
-    );
-
     await expect(runSync(root)).rejects.toThrow(/requires an Active Repository Configuration/iu);
   });
 
@@ -63,43 +57,6 @@ describe("sync governance review regressions", () => {
     );
 
     await expect(runSync(root)).rejects.toThrow(/requires an Active Repository Configuration/iu);
-  });
-
-  test("diagnoses Next Work Guidance with more than two alternatives", async () => {
-    const root = await createValidBearingRepo();
-    await writeFixture(
-      root,
-      ".bearing/state/next-work-guidance.md",
-      `---\nType: next-work-guidance\nID: next-work-guidance:current\nGenerated at: now\nInputs: []\nInput fingerprint: sha256:${"b".repeat(64)}\nSemantic coverage: absent\n---\n\n# Guidance\n\n## Primary Recommendation\n\n### Continue\n\nContinue the current work.\n\n#### Supporting References\n\n- \`roadmap:test\`\n\n## Alternatives\n\n### First\n\nUse the first alternative.\n\n#### Supporting References\n\n- \`roadmap:test\`\n\n### Second\n\nUse the second alternative.\n\n#### Supporting References\n\n- \`roadmap:test\`\n\n### Third\n\nUse the third alternative.\n\n#### Supporting References\n\n- \`roadmap:test\`\n`,
-    );
-
-    const result = await runSync(root);
-
-    expect(result.diagnostics).toContainEqual({
-      code: "invalid-next-work-alternatives",
-      impact: "blocking",
-      target: ".bearing/state/next-work-guidance.md",
-      message: "Next Work Guidance permits zero to two Alternatives.",
-    });
-  });
-
-  test("diagnoses prose-shaped Next Work Guidance instead of inferring item semantics", async () => {
-    const root = await createValidBearingRepo();
-    await writeFixture(
-      root,
-      ".bearing/state/next-work-guidance.md",
-      `---\nType: next-work-guidance\nID: next-work-guidance:current\nGenerated at: now\nInputs: []\nInput fingerprint: sha256:${"b".repeat(64)}\nSemantic coverage: absent\n---\n\n# Guidance\n\n## Primary Recommendation\n\nContinue.\n\n## Alternatives\n\n1. One.\n2. Two.\n`,
-    );
-
-    const result = await runSync(root);
-
-    expect(result.diagnostics).toContainEqual({
-      code: "invalid-next-work-body",
-      impact: "blocking",
-      target: ".bearing/state/next-work-guidance.md",
-      message:
-        "Next Work Guidance requires exact Title, Rationale, and Supporting References structure.",
-    });
   });
 
   test("validates an Audit promotion as a scoped canonical reference", async () => {
@@ -144,7 +101,7 @@ The Audit does not accept or resolve the question.
 
 #### Promotion
 
-Alignment Check: \`alignment-check:missing\`
+Planning Review: \`planning-review:missing\`
 `,
     );
 

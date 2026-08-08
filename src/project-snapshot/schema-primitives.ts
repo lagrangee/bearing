@@ -13,7 +13,6 @@ export const gateIdSchema = stableIdSchema("gate", "GateId");
 export const effortIdSchema = stableIdSchema("effort", "EffortId");
 export const authorityIdSchema = stableIdSchema("authority", "AuthorityId");
 export const assetIdSchema = stableIdSchema("asset", "AssetId");
-export const checkIdSchema = stableIdSchema("alignment-check", "AlignmentCheckId");
 export const reviewIdSchema = stableIdSchema("planning-review", "PlanningReviewId");
 export const trackerReferenceSchema = displaySourceLocatorSchema.brand("TrackerReference");
 export const diagnosticReferenceSchema = brandedStringSchema(

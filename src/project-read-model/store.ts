@@ -284,7 +284,6 @@ export const compileProjectReadModel = (input: {
   appendCollection("gate", snapshot.gates);
   appendCollection("effort", snapshot.efforts);
   appendCollection("authority", snapshot.authorities);
-  appendCollection("alignment-check", snapshot.checks);
   appendCollection("asset", snapshot.assets);
   appendCollection("planning-review", snapshot.reviews);
   for (const [ordinal, document] of buildProjectFindDocuments(snapshot, "project").entries()) {
@@ -311,7 +310,6 @@ export const compileProjectReadModel = (input: {
       | "efforts"
       | "authorities"
       | "assets"
-      | "checks"
       | "reviews",
     value: { readonly validity: string; readonly issues?: readonly unknown[] },
   ) => {
@@ -334,7 +332,6 @@ export const compileProjectReadModel = (input: {
   appendProjectionState("efforts", snapshot.efforts);
   appendProjectionState("authorities", snapshot.authorities);
   appendProjectionState("assets", snapshot.assets);
-  appendProjectionState("checks", snapshot.checks);
   appendProjectionState("reviews", snapshot.reviews);
   objects.push({
     reference: "portal-projection:roadmap-index",

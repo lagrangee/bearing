@@ -15,16 +15,19 @@ import { createProjectOverviewFixture } from "./fixtures/project-overview";
 const render = (snapshot: ProjectSnapshot): string =>
   renderToStaticMarkup(createElement(AuditPage, { entryId: "audit", snapshot }));
 
-test("keeps an absent Planning Audit short and truthful without a fake handoff", () => {
+test("keeps an absent Planning Audit truthful inside the three-section Portal", () => {
   const snapshot = createProjectOverviewFixture();
   const html = render({ ...snapshot, audit: { validity: "absent" } });
 
   expect(html).toContain("<h1>Planning Audit</h1>");
   expect(html).toContain("No current Audit");
-  expect(html).toContain("Generate a Planning Audit in Agent Surface");
+  expect(html).toContain("Ask Agent Surface to run an explicit Planning Audit");
+  expect(html).toContain("Current Project Review");
+  expect(html).toContain("Decisions Awaiting Attention");
+  expect(html).toContain("Past Accepted Decisions");
   expect(html).not.toContain("What a Planning Audit provides");
   expect(html).not.toContain("Resume Audit in Agent Surface");
-  expect(html).not.toContain("href=");
+  expect(html).not.toMatch(/<button|<form|Accept Review|Resolve Review|Reopen Review/iu);
 });
 
 test("puts Audit metadata and Findings before degraded coverage detail", () => {
@@ -35,9 +38,8 @@ test("puts Audit metadata and Findings before degraded coverage detail", () => {
     "2026-07-14T09:30:00+08:00",
     "Stale",
     "1 finding",
-    "Findings",
-    "Portal direction needs a decision path",
     "Incomplete coverage",
+    "Portal direction needs a decision path",
     "authority:architecture",
   ];
   let cursor = -1;
@@ -50,20 +52,23 @@ test("puts Audit metadata and Findings before degraded coverage detail", () => {
   expect(html).toContain("<dt>Scope</dt>");
   expect(html).toContain("2 affected references");
   expect(html).toContain("<dt>Impact</dt>");
-  expect(html).toContain("The question should remain visible until the Check is resolved.");
-  expect(html).toContain('href="/projects/audit/lineage/alignment-check/alignment-check%3Aportal"');
-  expect(html).toContain("Confirm the Portal revision");
+  expect(html).toContain("The question should remain visible until the Review is completed.");
+  expect(html).toContain(
+    'href="/projects/audit/lineage/planning-review/planning-review%3Asequence"',
+  );
+  expect(html).toContain("Review the current sequence");
   expect(html).not.toContain("Advisory snapshot");
   expect(html).not.toContain("Decision truth");
 });
 
-test("keeps exactly one advisory decision boundary", () => {
+test("keeps exactly one Agent handoff and no mutation controls", () => {
   const html = render(createProjectAuditFixture());
-  const boundary = "Audit is advisory; decisions remain in Alignment Checks and Planning Reviews.";
+  const boundary = "Portal does not accept, resolve, reopen, or refresh Reviews.";
 
   expect(
     html.match(new RegExp(boundary.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "gu")),
   ).toHaveLength(1);
+  expect(html).not.toMatch(/<button|<form/iu);
   expect(html).not.toMatch(/human acceptance|Gate Passage|Diagnostics 0|receipt|ready/iu);
 });
 
@@ -72,7 +77,7 @@ test("keeps complete coverage compact and zero findings healthy but brief", () =
 
   expect(html).toContain("Complete coverage");
   expect(html).toContain("No findings");
-  expect(html).toContain("No findings were reported in this Audit.");
+  expect(html).toContain("No material findings were reported in this Audit.");
   expect(html).not.toContain("Skipped scope");
   expect(html).not.toContain("Projection issues");
   expect(html).not.toContain("No skipped targets are declared");
@@ -82,15 +87,13 @@ test("keeps complete coverage compact and zero findings healthy but brief", () =
 test("expands projection impact and recovery only for partial or invalid Audit states", () => {
   const partialHtml = render(createPartialProjectAuditFixture());
   expect(partialHtml).toContain("Partial projection");
-  expect(partialHtml).toContain("Projection issues");
-  expect(partialHtml).toContain("Some Audit material could not be projected");
-  expect(partialHtml).toContain("Correct the reported source and run Planning Audit again");
+  expect(partialHtml).toContain("1 projection issue limited this view");
+  expect(partialHtml).toContain("Ask Agent Surface to inspect the reported sources");
   expect(partialHtml).toContain("Portal direction needs a decision path");
 
   const invalidHtml = render(createInvalidProjectAuditFixture());
   expect(invalidHtml).toContain("Planning Audit unavailable");
-  expect(invalidHtml).toContain("Impact");
-  expect(invalidHtml).toContain("Recovery");
+  expect(invalidHtml).toContain("Ask Agent Surface to inspect and replace the Audit");
   expect(invalidHtml).not.toContain("Generated time unavailable");
   expect(invalidHtml).not.toContain("Portal direction needs a decision path");
 });
@@ -119,9 +122,9 @@ test("presents current, stale, and unknown semantic freshness without readiness 
 test("keeps an unavailable decision target scoped without inventing navigation", () => {
   const html = render(createUnavailableAuditPromotionFixture());
 
-  expect(html).toContain("Alignment Check unavailable");
-  expect(html).toContain("alignment-check:portal");
+  expect(html).toContain("Planning Review unavailable");
+  expect(html).toContain("planning-review:sequence");
   expect(html).not.toContain(
-    'href="/projects/audit/lineage/alignment-check/alignment-check%3Aportal"',
+    'href="/projects/audit/lineage/planning-review/planning-review%3Asequence"',
   );
 });

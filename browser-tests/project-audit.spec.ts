@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import { projectSnapshotSchema } from "../src/project-snapshot/schema";
 import {
   createAbsentProjectAuditFixture,
   createInvalidProjectAuditFixture,
@@ -9,6 +10,7 @@ import {
   createProjectAuditFixture,
   createZeroProjectAuditFixture,
 } from "../tests/fixtures/project-audit";
+import { withRebuiltPlanningLineage } from "../tests/planning-lineage-fixture";
 import { browserArtifactPath } from "./browser-artifact-output";
 import {
   projectRowEnvelope,
@@ -48,7 +50,7 @@ const minimumTarget = async (target: Locator, size: number): Promise<void> => {
   expect(box.height).toBeGreaterThanOrEqual(size);
 };
 
-test("Audit is findings-first and a promoted finding navigates directly", async ({
+test("Audit has three user sections and a promoted Review navigates directly", async ({
   page,
 }, testInfo) => {
   const snapshot = createProjectAuditFixture();
@@ -63,21 +65,24 @@ test("Audit is findings-first and a promoted finding navigates directly", async 
   await expect(page.getByRole("heading", { name: "Planning Audit", level: 1 })).toBeVisible();
   await expect(page.getByText("Stale", { exact: true })).toBeVisible();
   await expect(page.getByText("1 finding", { exact: true })).toBeVisible();
-  const findings = page.getByRole("region", { name: "Findings" });
+  await expect(page.getByRole("heading", { name: "Current Project Review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Decisions Awaiting Attention" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Past Accepted Decisions" })).toBeVisible();
+  const findings = page.getByRole("region", { name: "Current Project Review" });
   await expect(findings.getByText("Severity", { exact: true })).toHaveCount(0);
   await expect(findings.getByText("2 affected references", { exact: true })).toBeVisible();
   await expect(
-    findings.getByText("The question should remain visible until the Check is resolved."),
+    findings.getByText("The question should remain visible until the Review is completed."),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Incomplete coverage" })).toBeVisible();
-  await expect(page.getByText("authority:architecture", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Skipped targets: authority:architecture/u)).toBeVisible();
   await expect(page.getByText("Advisory snapshot", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Decision truth", { exact: true })).toHaveCount(0);
 
   const target = findings.getByRole("link", { name: /Portal direction needs a decision path/u });
   await expect(target).toHaveAttribute(
     "href",
-    "/projects/audit/lineage/alignment-check/alignment-check%3Aportal",
+    "/projects/audit/lineage/planning-review/planning-review%3Asequence",
   );
   await minimumTarget(target, 40);
   await page.screenshot({
@@ -86,9 +91,9 @@ test("Audit is findings-first and a promoted finding navigates directly", async 
   });
   await target.click();
   await expect(page).toHaveURL(
-    /\/projects\/audit\/lineage\/alignment-check\/alignment-check%3Aportal$/u,
+    /\/projects\/audit\/lineage\/planning-review\/planning-review%3Asequence$/u,
   );
-  await expect(page.getByRole("heading", { name: "Confirm the Portal revision" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review the current sequence" })).toBeVisible();
 
   expect(posts).toEqual([]);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
@@ -103,23 +108,20 @@ test("Audit distinguishes complete, incomplete, partial, absent, and invalid sta
 
   await expect(page.getByText("Complete coverage", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "No findings" })).toBeVisible();
-  await expect(page.getByText("Skipped scope", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Projection issues", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Skipped targets:/u)).toHaveCount(0);
+  await expect(page.getByText(/projection issue/u)).toHaveCount(0);
 
   snapshot = createProjectAuditFixture();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Incomplete coverage" })).toBeVisible();
-  await expect(page.getByText("Skipped scope", { exact: true })).toBeVisible();
-  await expect(page.getByText("Projection issues", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Skipped targets: authority:architecture/u)).toBeVisible();
+  await expect(page.getByText(/projection issue/u)).toHaveCount(0);
 
   snapshot = createPartialProjectAuditFixture();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Partial projection" })).toBeVisible();
-  await expect(page.getByText("Projection issues", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Some Audit material could not be projected/u)).toBeVisible();
-  await expect(
-    page.getByText(/Correct the reported source and run Planning Audit again/u),
-  ).toBeVisible();
+  await expect(page.getByText(/1 projection issue limited this view/u)).toBeVisible();
+  await expect(page.getByText(/Ask Agent Surface to inspect the reported sources/u)).toBeVisible();
 
   snapshot = createAbsentProjectAuditFixture();
   await page.reload();
@@ -130,13 +132,66 @@ test("Audit distinguishes complete, incomplete, partial, absent, and invalid sta
   await page.reload();
   await expect(page.getByRole("heading", { name: "Planning Audit unavailable" })).toBeVisible();
   await expect(page.getByText("Generated time unavailable", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Recovery", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Ask Agent Surface to inspect and replace the Audit/u)).toBeVisible();
 
   snapshot = createMissingGeneratedTimeAuditFixture();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Planning Audit unavailable" })).toBeVisible();
   await expect(page.getByText("Generated time unavailable", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Generated", { exact: true })).toHaveCount(0);
+});
+
+test("Review completion leaves Attention only after an explicit accepted Snapshot", async ({
+  page,
+}) => {
+  let snapshot = createProjectAuditFixture();
+  const posts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(request.url());
+  });
+  await serveSnapshot(page, () => snapshot);
+  await page.goto("/projects/audit/audit");
+
+  const awaiting = page.getByRole("region", { name: "Decisions Awaiting Attention" });
+  const history = page.getByRole("region", { name: "Past Accepted Decisions" });
+  await expect(awaiting.getByRole("listitem")).toHaveCount(1);
+  await expect(
+    history.getByText("No accepted Planning Review history is available."),
+  ).toBeVisible();
+
+  if (snapshot.reviews.validity === "invalid") throw new Error("Expected Planning Review fixture.");
+  const review = snapshot.reviews.items[0];
+  if (review === undefined) throw new Error("Expected one Planning Review fixture.");
+  snapshot = projectSnapshotSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      reviews: {
+        validity: "available",
+        items: [
+          {
+            ...review,
+            status: "completed",
+            resolution: {
+              acceptedDecision: "Keep the current sequence.",
+              acceptedAt: {
+                availability: "available",
+                precision: "second",
+                value: "2026-08-08T14:21:36Z",
+              },
+              rationale: "The user accepted the current sequence.",
+              changedReferences: [],
+            },
+          },
+        ],
+      },
+      attention: snapshot.attention.filter((item) => item.kind !== "planning-review"),
+    }),
+  );
+  await page.reload();
+
+  await expect(awaiting.getByText("No decisions await attention.")).toBeVisible();
+  await expect(history.getByRole("link", { name: "Review the current sequence" })).toBeVisible();
+  expect(posts).toEqual([]);
 });
 
 test("Audit findings remain readable and directly navigable at narrow widths", async ({

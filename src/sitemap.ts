@@ -14,10 +14,8 @@ const SECTION_ORDER = [
   "Efforts",
   "Authorities",
   "Assets",
-  "Alignment Checks",
   "Planning Reviews",
   "Planning Audits",
-  "Next Work Guidance",
   "Maps",
   "Specs",
   "Tickets",
@@ -51,7 +49,7 @@ const serializeProjectSitemap = (
   const derived = [
     "## Derived Signals",
     "",
-    `- Attention: ${model.blocking} blocking diagnostic(s), ${model.openChecks} open alignment check(s), ${model.pendingReviews} pending planning review(s).`,
+    `- Attention: ${model.blocking} blocking diagnostic(s), ${model.pendingReviews} pending planning review(s).`,
     ...model.readiness,
   ].join("\n");
   return Buffer.from(

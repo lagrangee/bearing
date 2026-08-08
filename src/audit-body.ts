@@ -10,9 +10,7 @@ import {
 } from "./markdown-document";
 import { displaySourceLocatorSchema, planningReferenceSchema } from "./reference-schema";
 
-export type AuditFindingPromotion =
-  | Readonly<{ kind: "alignment-check"; target: string }>
-  | Readonly<{ kind: "planning-review"; target: string }>;
+export type AuditFindingPromotion = Readonly<{ kind: "planning-review"; target: string }>;
 
 export type AuditBodyFinding = Readonly<{
   ordinal: number;
@@ -70,10 +68,6 @@ const parseList = (
 const parsePromotion = (source: string): AuditFindingPromotion | undefined => {
   const content = source.trim();
   if (content.length === 0 || content.includes("\n")) return undefined;
-  const check = /^Alignment Check: `(alignment-check:[a-z0-9]+(?:-[a-z0-9]+)*)`$/u.exec(
-    content,
-  )?.[1];
-  if (check !== undefined) return { kind: "alignment-check", target: check };
   const review = /^Planning Review: `(planning-review:[a-z0-9]+(?:-[a-z0-9]+)*)`$/u.exec(
     content,
   )?.[1];

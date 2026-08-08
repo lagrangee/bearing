@@ -40,7 +40,6 @@ export type PlanningLineageBuildInput = Pick<
   | "efforts"
   | "authorities"
   | "assets"
-  | "checks"
   | "reviews"
   | "providerObservations"
   | "providerObservationSelections"
@@ -87,7 +86,6 @@ const normalizedInput = (input: PlanningLineageBuildInput): Input => {
     efforts: input.efforts,
     authorities: input.authorities,
     assets: input.assets,
-    checks: input.checks,
     reviews: input.reviews,
     sources: input.sources,
     boundProviderObservations: input.providerObservations.map((observation) =>
@@ -110,7 +108,6 @@ type GateRecord = CollectionItem<Input["gates"]>;
 type EffortRecord = CollectionItem<Input["efforts"]>;
 type AuthorityRecord = CollectionItem<Input["authorities"]>;
 type AssetRecord = CollectionItem<Input["assets"]>;
-type AlignmentCheckRecord = CollectionItem<Input["checks"]>;
 type PlanningReviewRecord = CollectionItem<Input["reviews"]>;
 type NativeObservation = Input["providerObservations"][number];
 type NativeRecord = MattNativeRecord;
@@ -120,7 +117,6 @@ type SubjectRecord =
   | EffortRecord
   | AuthorityRecord
   | AssetRecord
-  | AlignmentCheckRecord
   | PlanningReviewRecord
   | NativeRecord;
 type Collection<T> =
@@ -177,8 +173,6 @@ const collectionFor = (
       return input.efforts;
     case "authority":
       return input.authorities;
-    case "alignment-check":
-      return input.checks;
     case "planning-review":
       return input.reviews;
     case "asset":
@@ -544,7 +538,6 @@ const parentPathFor = (
   if (
     subject.kind === "roadmap" ||
     subject.kind === "authority" ||
-    subject.kind === "alignment-check" ||
     subject.kind === "planning-review" ||
     subject.kind === "asset"
   ) {
@@ -871,30 +864,6 @@ const semanticSectionsFor = (
         section("authority.superseded-context", "unavailable"),
       ];
     }
-    case "alignment-check": {
-      const check = record as AlignmentCheckRecord;
-      return [
-        section("alignment-check.target"),
-        section("alignment-check.lifecycle"),
-        section("alignment-check.resolution"),
-        section(
-          "alignment-check.rationale",
-          check.resolution === undefined ? "confirmed-empty" : "available",
-        ),
-        section(
-          "alignment-check.event-time",
-          check.resolution === undefined ? "confirmed-empty" : "available",
-        ),
-        section(
-          "alignment-check.changed-references",
-          (check.resolution?.changedReferences.length ?? 0) === 0 ? "confirmed-empty" : "available",
-        ),
-        section(
-          "alignment-check.evidence",
-          check.citations.length === 0 ? "confirmed-empty" : "available",
-        ),
-      ];
-    }
     case "planning-review": {
       const review = record as PlanningReviewRecord;
       return [
@@ -1087,28 +1056,15 @@ const relationsForAuthority = (
   citationRelation(input, authority.citations),
 ];
 
-const relationsForCheck = (
-  input: Input,
-  check: AlignmentCheckRecord,
-): PlanningLineageRelation[] => [
-  directRelation(input, "governance.target", "Target", "checks alignment of", "one", [
-    check.target,
-  ]),
-  directRelation(
-    input,
-    "governance.changed-references",
-    "Changed References",
-    "accepted changes to",
-    "many",
-    check.resolution?.changedReferences ?? [],
-  ),
-  citationRelation(input, check.citations),
-];
-
 const relationsForReview = (
   input: Input,
   review: PlanningReviewRecord,
 ): PlanningLineageRelation[] => [
+  review.scope.kind === "project"
+    ? confirmedNone("governance.target", "Target", "reviews", "one")
+    : presentRelation("governance.target", "Target", "reviews", "one", [
+        targetForPlanningOrNativeReference(input, review.scope.target),
+      ]),
   directRelation(
     input,
     "governance.changed-references",
@@ -1138,7 +1094,7 @@ const relationsForAsset = (input: Input, asset: AssetRecord): PlanningLineageRel
       reference: citation.citingReference,
       note: citation.note,
     })),
-    [input.roadmaps, input.gates, input.efforts, input.authorities, input.checks, input.reviews],
+    [input.roadmaps, input.gates, input.efforts, input.authorities, input.reviews],
   ),
   reverseReferenceRelation(
     input,
@@ -1408,8 +1364,6 @@ const relationsFor = (
       return relationsForEffort(input, record as EffortRecord);
     case "authority":
       return relationsForAuthority(input, record as AuthorityRecord);
-    case "alignment-check":
-      return relationsForCheck(input, record as AlignmentCheckRecord);
     case "planning-review":
       return relationsForReview(input, record as PlanningReviewRecord);
     case "asset":
@@ -1520,7 +1474,6 @@ const projectSubjects = (input: Input) => {
     ["gate", input.gates],
     ["effort", input.efforts],
     ["authority", input.authorities],
-    ["alignment-check", input.checks],
     ["planning-review", input.reviews],
     ["asset", input.assets],
   ] as const;

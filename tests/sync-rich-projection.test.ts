@@ -85,28 +85,13 @@ The current mock.
     );
     await writeFixture(
       root,
-      ".bearing/state/alignment-checks/design.md",
-      `---
-Type: alignment-check
-ID: alignment-check:design
-Title: Design alignment
-Status: open
-Target: effort:test
-Inputs: []
-Input fingerprint: ${fingerprint}
----
-
-# Alignment Check: Design
-`,
-    );
-    await writeFixture(
-      root,
       ".bearing/state/planning-reviews/balance.md",
       `---
 Type: planning-review
 ID: planning-review:balance
 Title: Portfolio balance
 Status: pending
+Question: Should the project keep its current portfolio balance?
 Scope: project
 Inputs: []
 Input fingerprint: ${fingerprint}
@@ -138,50 +123,6 @@ No material findings.
     );
     await writeFixture(
       root,
-      ".bearing/state/next-work-guidance.md",
-      `---
-Type: next-work-guidance
-ID: next-work-guidance:current
-Title: Current Guidance
-Generated at: 2026-07-12T09:05:00Z
-Inputs: []
-Input fingerprint: ${fingerprint}
-Semantic coverage: absent
----
-
-# Next Work Guidance
-
-## Primary Recommendation
-
-### Resolve the design check
-
-Resolve the open design decision before advancing the current Gate.
-
-#### Supporting References
-
-- \`alignment-check:design\`
-
-## Alternatives
-
-### Continue the current map
-
-Advance the remaining native work in the current Effort.
-
-#### Supporting References
-
-- \`.scratch/work/map.md\`
-
-### Review the Gate
-
-Inspect the accepted Gate outcome and its remaining evidence.
-
-#### Supporting References
-
-- \`gate:test\`
-`,
-    );
-    await writeFixture(
-      root,
       ".scratch/work/issues/02-follow-up.md",
       `# Follow Up
 
@@ -205,14 +146,10 @@ What follows the completed fixture?
     expect(sitemap).toContain("`authority:product-design` | Product Design | current");
     expect(sitemap).toContain("`asset:design` | Current Mock | available");
     expect(sitemap).toContain("citation-count=1");
-    expect(sitemap).toContain("`alignment-check:design` | Design alignment | open");
     expect(sitemap).toContain("`planning-review:balance` | Portfolio balance | pending");
     expect(sitemap).toContain("`planning-audit:current` | Current Audit | stale");
-    expect(sitemap).toContain("`next-work-guidance:current` | Current Guidance | stale");
     expect(sitemap).toContain("blocked-by: `.scratch/work/issues/01-finish.md`");
-    expect(sitemap).toContain(
-      "Attention: 0 blocking diagnostic(s), 1 open alignment check(s), 1 pending planning review(s).",
-    );
+    expect(sitemap).toContain("Attention: 0 blocking diagnostic(s), 1 pending planning review(s).");
     expect(sitemap).toContain("Gate readiness: `gate:test` = not-ready");
   });
 });

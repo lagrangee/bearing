@@ -70,7 +70,7 @@ type AuditBasis = Readonly<{
     evidenceSourceReferences: readonly string[];
     promotion?:
       | Readonly<{
-          kind: "alignment-check" | "planning-review";
+          kind: "planning-review";
           id: string;
         }>
       | undefined;
@@ -108,10 +108,6 @@ type GovernanceSnapshot = EventTimeConsistencySnapshot &
     providerObservationSelections: PlanningDerivationConsistencySnapshot["providerObservationSelections"];
     roadmapIndex: Singleton<RoadmapIndex>;
     diagnostics: PlanningDerivationConsistencySnapshot["diagnostics"];
-    checks: Collection<
-      CollectionItem<AttentionConsistencySnapshot["checks"]> &
-        CollectionItem<AssetConsistencySnapshot["checks"]>
-    >;
     reviews: Collection<
       CollectionItem<AttentionConsistencySnapshot["reviews"]> &
         CollectionItem<AssetConsistencySnapshot["reviews"]>

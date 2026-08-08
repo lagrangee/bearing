@@ -3,7 +3,6 @@ import { catalogEntryIdSchema } from "./catalog/entry-id";
 import {
   assetIdSchema,
   authorityIdSchema,
-  checkIdSchema,
   effortIdSchema,
   gateIdSchema,
   reviewIdSchema,
@@ -15,7 +14,6 @@ export const planningLineageSubjectKindSchema = z.enum([
   "gate",
   "effort",
   "authority",
-  "alignment-check",
   "planning-review",
   "asset",
   "native-scope",
@@ -46,7 +44,6 @@ export const planningLineageSubjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("gate"), id: unbrandedId(gateIdSchema) }),
   z.strictObject({ kind: z.literal("effort"), id: unbrandedId(effortIdSchema) }),
   z.strictObject({ kind: z.literal("authority"), id: unbrandedId(authorityIdSchema) }),
-  z.strictObject({ kind: z.literal("alignment-check"), id: unbrandedId(checkIdSchema) }),
   z.strictObject({ kind: z.literal("planning-review"), id: unbrandedId(reviewIdSchema) }),
   z.strictObject({ kind: z.literal("asset"), id: unbrandedId(assetIdSchema) }),
   ...nativeScopeInspectionSubjectSchema.options,
@@ -104,8 +101,6 @@ const idSchemaFor = (kind: PlanningLineageSubjectKind) => {
       return effortIdSchema;
     case "authority":
       return authorityIdSchema;
-    case "alignment-check":
-      return checkIdSchema;
     case "planning-review":
       return reviewIdSchema;
     case "asset":
@@ -243,7 +238,6 @@ export const planningLineageSubjectForReference = (
     prefix === "gate" ||
     prefix === "effort" ||
     prefix === "authority" ||
-    prefix === "alignment-check" ||
     prefix === "planning-review" ||
     prefix === "asset"
       ? prefix

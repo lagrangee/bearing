@@ -10,7 +10,6 @@ import { type ParsedAsset, parseAssetRegistry } from "./asset-records";
 import { type PlanningAuditBodyResult, parsePlanningAuditBody } from "./audit-body";
 import { analyzeDecodedBearingArtifact } from "./bearing-record-analysis";
 import { parseExactSections, parsePlainText, parseUnorderedList } from "./bearing-record-sections";
-import { type GuidanceBodyResult, parseNextWorkGuidanceBody } from "./guidance-body";
 import { parseMarkdownEnvelope } from "./markdown-document";
 import type { SourceBinding, SourceRecord } from "./project-snapshot/contract";
 import { createSourceRecord } from "./project-snapshot/source-records";
@@ -31,8 +30,7 @@ export type DecodedBearingRecordContent =
       assets: readonly ParsedAsset[];
       invalidEntries: readonly Readonly<{ key: string; title: string }>[];
     }>
-  | Readonly<{ kind: "planning-audit"; result: PlanningAuditBodyResult }>
-  | Readonly<{ kind: "next-work-guidance"; result: GuidanceBodyResult }>;
+  | Readonly<{ kind: "planning-audit"; result: PlanningAuditBodyResult }>;
 
 type DecodedRecordBase = Readonly<{
   locator: string;
@@ -84,10 +82,8 @@ const DEFAULT_DISPLAY_TITLE: Readonly<Record<BearingRecordType, string>> = {
   effort: "Effort",
   authority: "Authority",
   "asset-registry": "Asset Registry",
-  "alignment-check": "Alignment Check",
   "planning-review": "Planning Review",
   "planning-audit": "Audit",
-  "next-work-guidance": "Guidance",
 };
 
 const displayTitleFor = (type: BearingRecordType, value: unknown): string => {
@@ -279,27 +275,15 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
       };
     case "asset-registry":
       return { Type: data.Type, Assets: data.Assets.map(normalizeAsset) };
-    case "alignment-check":
-      return {
-        Type: data.Type,
-        ID: data.ID,
-        Title: data.Title,
-        Status: data.Status,
-        Target: data.Target,
-        Inputs: [...data.Inputs],
-        "Input fingerprint": data["Input fingerprint"],
-        ...(data.Resolution === undefined
-          ? {}
-          : { Resolution: normalizeResolution(data.Resolution) }),
-        ...(data.Citations === undefined ? {} : { Citations: normalizeCitations(data.Citations) }),
-      };
     case "planning-review":
       return {
         Type: data.Type,
         ID: data.ID,
         Title: data.Title,
         Status: data.Status,
+        Question: data.Question,
         Scope: data.Scope,
+        ...(data.Target === undefined ? {} : { Target: data.Target }),
         Inputs: [...data.Inputs],
         "Input fingerprint": data["Input fingerprint"],
         ...(data.Resolution === undefined
@@ -317,19 +301,6 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         "Input fingerprint": data["Input fingerprint"],
         Coverage: data.Coverage,
         "Skipped targets": [...data["Skipped targets"]],
-      };
-    case "next-work-guidance":
-      return {
-        Type: data.Type,
-        ID: data.ID,
-        ...(data.Title === undefined ? {} : { Title: data.Title }),
-        "Generated at": data["Generated at"],
-        Inputs: [...data.Inputs],
-        "Input fingerprint": data["Input fingerprint"],
-        "Semantic coverage": data["Semantic coverage"],
-        ...(data["Based on audit"] === undefined
-          ? {}
-          : { "Based on audit": data["Based on audit"] }),
       };
   }
 };
@@ -508,41 +479,14 @@ const decodeContent = (
             ],
       };
     }
-    case "next-work-guidance": {
-      const result = parseNextWorkGuidanceBody(body);
-      return {
-        content: { kind: "next-work-guidance", result },
-        diagnostics: result.ok
-          ? []
-          : result.reason === "alternatives-count"
-            ? [
-                {
-                  code: "invalid-next-work-alternatives",
-                  impact: "blocking",
-                  target: locator,
-                  message: "Next Work Guidance permits zero to two Alternatives.",
-                },
-              ]
-            : [
-                {
-                  code: "invalid-next-work-body",
-                  impact: "blocking",
-                  target: locator,
-                  message:
-                    "Next Work Guidance requires exact Title, Rationale, and Supporting References structure.",
-                },
-              ],
-      };
-    }
     case "roadmap-index":
-    case "alignment-check":
     case "planning-review":
       return { content: { kind: "none" }, diagnostics: [] };
   }
 };
 
 const sourceBinding = (data: BearingArtifact | undefined): SourceBinding | undefined => {
-  if (data === undefined || data.Type === "asset-registry" || data.Type === "next-work-guidance") {
+  if (data === undefined || data.Type === "asset-registry") {
     return undefined;
   }
   if (data.Type === "roadmap-index") {
@@ -766,7 +710,6 @@ const singletonDiagnostics = (records: readonly DecodedBearingRecord[]): Structu
     "roadmap-index",
     "asset-registry",
     "planning-audit",
-    "next-work-guidance",
   ]);
   return [
     ...groupBy(

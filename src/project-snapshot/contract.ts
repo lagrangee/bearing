@@ -1,7 +1,6 @@
 import type { z } from "zod";
 import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
 import {
-  type alignmentCheckSchema,
   type assetProjectionSchema,
   type attentionItemSchema,
   type auditFindingSchema,
@@ -65,7 +64,6 @@ export type MilestoneGate = DeepReadonly<z.infer<typeof gateSchema>>;
 export type Effort = DeepReadonly<z.infer<typeof effortSchema>>;
 export type Authority = DeepReadonly<z.infer<typeof authoritySchema>>;
 export type AssetProjection = DeepReadonly<z.infer<typeof assetProjectionSchema>>;
-export type AlignmentCheck = DeepReadonly<z.infer<typeof alignmentCheckSchema>>;
 export type PlanningReview = DeepReadonly<z.infer<typeof planningReviewSchema>>;
 export type AuditFinding = DeepReadonly<z.infer<typeof auditFindingSchema>>;
 export type PlanningAudit = DeepReadonly<z.infer<typeof planningAuditSchema>>;

@@ -22,10 +22,8 @@ const gateIdSchema = stableIdSchema("gate");
 const effortIdSchema = stableIdSchema("effort");
 const authorityIdSchema = stableIdSchema("authority");
 const assetIdSchema = stableIdSchema("asset");
-const alignmentCheckIdSchema = stableIdSchema("alignment-check");
 const planningReviewIdSchema = stableIdSchema("planning-review");
 const requiredBearingOwnedEventTimeSchema = bearingOwnedEventTimeSchema.unwrap();
-const PLANNING_AUDIT_INPUT = ".bearing/state/planning-audit.md";
 const requiredPlainTextSchema = z
   .string()
   .refine((value) => value.trim().length > 0 && markdownPlainText(value) !== undefined, {
@@ -111,49 +109,6 @@ const planningAuditSchema = z
       path: ["Skipped targets"],
       message: "Audit coverage must match its skipped targets.",
     });
-  });
-const nextWorkGuidanceSchema = z
-  .strictObject({
-    Type: z.literal("next-work-guidance"),
-    ID: z.literal("next-work-guidance:current"),
-    Title: z.string().min(1).optional(),
-    "Generated at": nonBlankStringSchema,
-    Inputs: advisoryInputsSchema,
-    "Input fingerprint": fingerprintSchema,
-    "Semantic coverage": z.enum(["absent", "partial", "complete"]),
-    "Based on audit": z.literal("planning-audit:current").optional(),
-  })
-  .superRefine((guidance, context) => {
-    const basedOnAudit = guidance["Based on audit"];
-    const includesAudit = guidance.Inputs.includes(PLANNING_AUDIT_INPUT);
-    if (guidance["Semantic coverage"] === "absent" && basedOnAudit !== undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["Based on audit"],
-        message: "Absent semantic coverage cannot reference an Audit.",
-      });
-    }
-    if (guidance["Semantic coverage"] !== "absent" && basedOnAudit === undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["Based on audit"],
-        message: "Partial or complete semantic coverage requires the current Audit.",
-      });
-    }
-    if (guidance["Semantic coverage"] === "absent" && includesAudit) {
-      context.addIssue({
-        code: "custom",
-        path: ["Inputs"],
-        message: "Absent semantic coverage cannot include the current Audit input.",
-      });
-    }
-    if (guidance["Semantic coverage"] !== "absent" && !includesAudit) {
-      context.addIssue({
-        code: "custom",
-        path: ["Inputs"],
-        message: "Partial or complete semantic coverage requires the current Audit input.",
-      });
-    }
   });
 export const assetSchema = z
   .looseObject({
@@ -376,7 +331,7 @@ export const bearingSchema = z.discriminatedUnion("Type", [
         .array(
           z.strictObject({
             Asset: assetIdSchema,
-            Decision: z.union([alignmentCheckIdSchema, planningReviewIdSchema]),
+            Decision: planningReviewIdSchema,
           }),
         )
         .optional(),
@@ -407,30 +362,37 @@ export const bearingSchema = z.discriminatedUnion("Type", [
     Type: z.literal("asset-registry"),
     Assets: z.array(assetSchema),
   }),
-  z.looseObject({
-    Type: z.literal("alignment-check"),
-    ID: alignmentCheckIdSchema,
-    Title: requiredPlainTextSchema,
-    Status: z.enum(["open", "resolved"]),
-    Target: planningReferenceSchema,
-    Inputs: z.array(z.string()),
-    "Input fingerprint": fingerprintSchema,
-    Resolution: resolutionSchema.optional(),
-    Citations: citationsSchema,
-  }),
-  z.looseObject({
-    Type: z.literal("planning-review"),
-    ID: planningReviewIdSchema,
-    Title: requiredPlainTextSchema,
-    Status: z.enum(["pending", "completed"]),
-    Scope: requiredPlainTextSchema,
-    Inputs: z.array(z.string()),
-    "Input fingerprint": fingerprintSchema,
-    Resolution: resolutionSchema.optional(),
-    Citations: citationsSchema,
-  }),
+  z
+    .looseObject({
+      Type: z.literal("planning-review"),
+      ID: planningReviewIdSchema,
+      Title: requiredPlainTextSchema,
+      Status: z.enum(["pending", "completed"]),
+      Question: requiredPlainTextSchema,
+      Scope: z.enum(["project", "exact-target"]),
+      Target: planningReferenceSchema.optional(),
+      Inputs: z.array(z.string()),
+      "Input fingerprint": fingerprintSchema,
+      Resolution: resolutionSchema.optional(),
+      Citations: citationsSchema,
+    })
+    .superRefine((review, context) => {
+      if ((review.Scope === "exact-target") !== (review.Target !== undefined)) {
+        context.addIssue({
+          code: "custom",
+          path: ["Target"],
+          message: "An exact-target Review requires one Target; a project Review has none.",
+        });
+      }
+      if ((review.Status === "completed") !== (review.Resolution !== undefined)) {
+        context.addIssue({
+          code: "custom",
+          path: ["Resolution"],
+          message: "Planning Review Resolution applicability must match completed status.",
+        });
+      }
+    }),
   planningAuditSchema,
-  nextWorkGuidanceSchema,
 ]);
 
 export const manifestSchema = z.strictObject({

@@ -117,7 +117,6 @@ export const buildProjectAssetsModel = (snapshot: AssetsModelData): ProjectAsset
     snapshot.gates,
     snapshot.efforts,
     snapshot.authorities,
-    snapshot.checks,
     snapshot.reviews,
   ].every((collection) => collection.validity === "available")
     ? "complete"

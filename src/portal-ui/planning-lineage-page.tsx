@@ -1328,7 +1328,7 @@ export function PlanningLineagePage({
       ? []
       : model.events.filter((event) => event.time.availability === "available");
   const eventHistoryAnchor =
-    model.subject.kind === "alignment-check" || model.subject.kind === "planning-review"
+    model.subject.kind === "planning-review"
       ? `${model.subject.kind}.event-time`
       : model.subject.kind === "native-subject"
         ? "native.event-history"

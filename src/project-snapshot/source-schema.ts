@@ -13,7 +13,6 @@ export const SOURCE_BINDING_ROLES = [
   "effort",
   "authority",
   "asset",
-  "alignment-check",
   "planning-review",
   "planning-audit",
   "audit-finding",

@@ -19,18 +19,11 @@ type Authority = Readonly<{
 
 export type EventTimeConsistencySnapshot = Readonly<{
   authorities: Collection<Authority>;
-  checks: Collection<Decision>;
   reviews: Collection<Decision>;
 }>;
 
 const trustedItems = <T>(collection: Collection<T>): readonly T[] =>
   collection.validity === "invalid" ? [] : collection.items;
-
-const decisionCollectionFor = (
-  snapshot: EventTimeConsistencySnapshot,
-  reference: string,
-): Collection<Decision> =>
-  reference.startsWith("alignment-check:") ? snapshot.checks : snapshot.reviews;
 
 export const validateEventTimeConsistency = (
   snapshot: EventTimeConsistencySnapshot,
@@ -52,7 +45,7 @@ export const validateEventTimeConsistency = (
           message: "Authority Adoption must belong to the current baseline.",
         });
       }
-      const collection = decisionCollectionFor(snapshot, adoption.decisionReference);
+      const collection = snapshot.reviews;
       if (collection.validity === "invalid") continue;
       const decision = collection.items.find(
         (candidate) => candidate.id === adoption.decisionReference,

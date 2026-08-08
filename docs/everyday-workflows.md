@@ -55,7 +55,7 @@ Review whether this Gate is ready for passage and list evidence and exceptions.
 
 ## Run Planning Audit or Next Work
 
-Planning Audit looks for material drift. Next Work Guidance suggests one primary direction and two alternatives. Neither one starts implementation by itself.
+An explicit Planning Audit looks for material drift and may promote one deduplicated pending Planning Review. A Next Work request returns transient Agent judgment with one evidence-backed direction and only meaningful alternatives. Neither one starts implementation by itself.
 
 ## Review Bearing Scope
 
@@ -63,4 +63,4 @@ Bearing Scope Review is narrower than Project Orientation: it only compares the 
 
 ## Use Portal
 
-Use Portal when visual inspection helps: Project Brief, Project Summary, active Roadmap focus, managed-scope Attention, managed contributing work, and evidence provenance. Standalone native-work inventory does not enter Portal. Keep Next Work Guidance and mutations in the owning Agent Surface flow.
+Use Portal when visual inspection helps: Project Brief, Project Summary, active Roadmap focus, managed-scope Attention, managed contributing work, and evidence provenance. The Planning Audit view has current review, decisions awaiting attention, and accepted decision history. Standalone native-work inventory does not enter Portal. Keep transient Next Work judgment and every mutation in the owning Agent Surface flow.

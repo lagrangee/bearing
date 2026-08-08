@@ -1,6 +1,5 @@
 import type { PlanningLineageRelationKey, PlanningLineageSubject } from "../planning-lineage-route";
 import type {
-  AlignmentCheck,
   AssetProjection,
   Authority,
   Effort,
@@ -26,7 +25,6 @@ type SubjectRecord =
   | MilestoneGate
   | Effort
   | Authority
-  | AlignmentCheck
   | PlanningReview
   | AssetProjection;
 
@@ -51,12 +49,6 @@ const trustedItems = <T>(
 ): readonly T[] => (collection.validity === "invalid" ? [] : collection.items);
 
 const acceptedDecisionTime = (snapshot: LineageModelData, reference: string): SourceEventTime => {
-  if (reference.startsWith("alignment-check:")) {
-    return (
-      trustedItems(snapshot.checks).find((check) => check.id === reference)?.resolution
-        ?.acceptedAt ?? unavailableTime
-    );
-  }
   return (
     trustedItems(snapshot.reviews).find((review) => review.id === reference)?.resolution
       ?.acceptedAt ?? unavailableTime
@@ -95,8 +87,6 @@ const targetRecord = (
       return trustedItems(snapshot.efforts).find((candidate) => candidate.id === subject.id);
     case "authority":
       return trustedItems(snapshot.authorities).find((candidate) => candidate.id === subject.id);
-    case "alignment-check":
-      return trustedItems(snapshot.checks).find((candidate) => candidate.id === subject.id);
     case "planning-review":
       return trustedItems(snapshot.reviews).find((candidate) => candidate.id === subject.id);
     case "asset":
@@ -179,12 +169,6 @@ export const planningLineageEventsFor = (
         ),
       );
     }
-    case "alignment-check": {
-      const check = record as AlignmentCheck;
-      return check.resolution === undefined
-        ? []
-        : [event("alignment-check.accepted", "Accepted decision", check.resolution.acceptedAt)];
-    }
     case "planning-review": {
       const review = record as PlanningReview;
       return review.resolution === undefined
@@ -247,12 +231,6 @@ export const planningLineageRelationEvent = (
         : event("asset.superseded", "Superseded", supersededAt);
     }
     case "governance.changed-references": {
-      if (owner.kind === "alignment-check") {
-        const resolution = (ownerRecord as AlignmentCheck).resolution;
-        return resolution === undefined
-          ? undefined
-          : event("alignment-check.accepted", "Accepted decision", resolution.acceptedAt);
-      }
       if (owner.kind === "planning-review") {
         const resolution = (ownerRecord as PlanningReview).resolution;
         return resolution === undefined

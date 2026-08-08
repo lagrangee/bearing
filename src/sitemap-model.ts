@@ -30,7 +30,6 @@ export type ProjectSitemapModel = Readonly<{
   nodes: readonly SitemapNode[];
   readiness: readonly string[];
   blocking: number;
-  openChecks: number;
   pendingReviews: number;
 }>;
 
@@ -43,10 +42,8 @@ const SECTION_BY_TYPE: Readonly<Record<BearingRecordType, string | undefined>> =
   effort: "Efforts",
   authority: "Authorities",
   "asset-registry": "Assets",
-  "alignment-check": "Alignment Checks",
   "planning-review": "Planning Reviews",
   "planning-audit": "Planning Audits",
-  "next-work-guidance": "Next Work Guidance",
 };
 
 const DEFAULT_TITLE: Readonly<Record<BearingRecordType, string>> = {
@@ -58,10 +55,8 @@ const DEFAULT_TITLE: Readonly<Record<BearingRecordType, string>> = {
   effort: "Invalid Effort",
   authority: "Invalid Authority",
   "asset-registry": "Invalid Asset Registry",
-  "alignment-check": "Invalid Alignment Check",
   "planning-review": "Invalid Planning Review",
   "planning-audit": "Invalid Planning Audit",
-  "next-work-guidance": "Invalid Next Work Guidance",
 };
 
 const invalidNode = (
@@ -155,22 +150,14 @@ const bearingNodes = (
       for (const asset of data.Baseline) node.links.push({ label: "baseline", target: asset });
       return [node];
     }
-    case "alignment-check": {
-      const node = base(data.ID);
-      node.links.push({ label: "target", target: data.Target });
-      return [node];
-    }
     case "planning-review": {
       const node = base(data.ID);
-      node.annotations.push(`scope=${data.Scope}`);
+      node.annotations.push(
+        data.Scope === "project" ? "scope=project" : `target=${data.Target ?? "unavailable"}`,
+      );
       return [node];
     }
     case "planning-audit": {
-      const node = base(data.ID);
-      node.state = advisoryFreshness[data.ID] ?? "unknown";
-      return [node];
-    }
-    case "next-work-guidance": {
       const node = base(data.ID);
       node.state = advisoryFreshness[data.ID] ?? "unknown";
       return [node];
@@ -256,8 +243,6 @@ export const buildProjectSitemapModelFromGeneration = (
     nodes,
     readiness,
     blocking: diagnostics.filter((diagnostic) => diagnostic.impact === "blocking").length,
-    openChecks: nodes.filter((node) => node.type === "Alignment Checks" && node.state === "open")
-      .length,
     pendingReviews: nodes.filter(
       (node) => node.type === "Planning Reviews" && node.state === "pending",
     ).length,

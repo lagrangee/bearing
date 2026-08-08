@@ -2,7 +2,6 @@ import { z } from "zod";
 import { nativeReferenceSchema } from "../native-reconciliation-contract";
 import { planningLineageSubjectSchema } from "../planning-lineage-route";
 import {
-  alignmentCheckSchema,
   authoritySchema,
   effortSchema,
   gateSchema,
@@ -38,7 +37,7 @@ import {
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 
 export const PROJECT_READ_MODEL_STORAGE_VERSION = 1 as const;
-export const PROJECT_READ_MODEL_PROJECTION_VERSION = 3 as const;
+export const PROJECT_READ_MODEL_PROJECTION_VERSION = 4 as const;
 export const PROJECT_INSPECT_ENVELOPE_VERSION = 1 as const;
 
 export const projectReadModelReceiptSchema = z.strictObject({
@@ -147,7 +146,6 @@ export const projectReadModelObjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("gate"), value: gateSchema }),
   z.strictObject({ kind: z.literal("effort"), value: effortSchema }),
   z.strictObject({ kind: z.literal("authority"), value: authoritySchema }),
-  z.strictObject({ kind: z.literal("alignment-check"), value: alignmentCheckSchema }),
   z.strictObject({ kind: z.literal("asset"), value: assetProjectionSchema }),
   z.strictObject({ kind: z.literal("planning-review"), value: planningReviewSchema }),
   z.strictObject({
@@ -232,7 +230,6 @@ export const projectReadModelObjectSchema = z.discriminatedUnion("kind", [
         "efforts",
         "authorities",
         "assets",
-        "checks",
         "reviews",
       ]),
       validity: z.enum(["available", "absent", "partial", "invalid"]),
@@ -352,7 +349,6 @@ export const assertProjectReadModelObjectRelationships = (
     efforts: "effort",
     authorities: "authority",
     assets: "asset",
-    checks: "alignment-check",
     reviews: "planning-review",
   } as const satisfies Readonly<Record<ProjectReadModelProjectionName, string>>;
   const allProjections = Object.keys(projectionKinds) as ProjectReadModelProjectionName[];

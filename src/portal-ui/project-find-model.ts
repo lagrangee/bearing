@@ -2,7 +2,6 @@ import Fuse from "fuse.js";
 import type { PlanningLineageSubject } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type {
-  AlignmentCheck,
   AssetProjection,
   Authority,
   Effort,
@@ -120,8 +119,6 @@ const subjectTypeLabel = (snapshot: ProjectSnapshot, subject: ProjectFindSubject
       return "Effort";
     case "authority":
       return "Authority";
-    case "alignment-check":
-      return "Alignment Check";
     case "planning-review":
       return "Planning Review";
     case "asset":
@@ -183,8 +180,6 @@ const itemsFor = (
       return snapshot.efforts.validity === "invalid" ? [] : snapshot.efforts.items;
     case "authority":
       return snapshot.authorities.validity === "invalid" ? [] : snapshot.authorities.items;
-    case "alignment-check":
-      return snapshot.checks.validity === "invalid" ? [] : snapshot.checks.items;
     case "planning-review":
       return snapshot.reviews.validity === "invalid" ? [] : snapshot.reviews.items;
     case "asset":
@@ -262,7 +257,6 @@ export const projectFindScopeState = (snapshot: ProjectSnapshot): ProjectFindSco
     ["Gate", snapshot.gates],
     ["Effort", snapshot.efforts],
     ["Authority", snapshot.authorities],
-    ["Alignment Check", snapshot.checks],
     ["Planning Review", snapshot.reviews],
     ["Asset", snapshot.assets],
   ] as const;
@@ -422,7 +416,7 @@ const canonicalFields = (
   subject: PlanningLineageSubject,
 ): readonly FindField[] => {
   const record = canonicalRecordFor<
-    Roadmap | MilestoneGate | Effort | Authority | AlignmentCheck | PlanningReview | AssetProjection
+    Roadmap | MilestoneGate | Effort | Authority | PlanningReview | AssetProjection
   >(snapshot, subject);
   if (record === undefined) return [];
   const fields: (FindField | undefined)[] = [];
@@ -519,28 +513,32 @@ const canonicalFields = (
       );
       break;
     }
-    case "alignment-check":
     case "planning-review": {
-      const decision = record as AlignmentCheck | PlanningReview;
-      const prefix = subject.kind;
+      const decision = record as PlanningReview;
       fields.push(
         contentField(snapshot, subject, {
           key: "summary",
-          label: "Scope / target",
-          text: "target" in decision ? decision.target : decision.scope,
-          anchor: `${prefix}.${"target" in decision ? "target" : "scope"}`,
+          label: "Question",
+          text: decision.question,
+          anchor: "planning-review.question",
+        }),
+        contentField(snapshot, subject, {
+          key: "summary",
+          label: "Scope",
+          text: decision.scope.kind === "project" ? "Whole project" : decision.scope.target,
+          anchor: "planning-review.scope",
         }),
         contentField(snapshot, subject, {
           key: "decision",
           label: "Accepted decision",
           text: decision.resolution?.acceptedDecision ?? "",
-          anchor: `${prefix}.resolution`,
+          anchor: "planning-review.resolution",
         }),
         contentField(snapshot, subject, {
           key: "summary",
           label: "Rationale",
           text: decision.resolution?.rationale ?? "",
-          anchor: `${prefix}.rationale`,
+          anchor: "planning-review.rationale",
         }),
       );
       break;

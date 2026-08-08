@@ -57,7 +57,6 @@ export const buildProjectSnapshot = async (
     records,
     sitemapFingerprint: input.sitemapFingerprint,
     advisoryFreshness: input.advisoryFreshness,
-    checks: decisions.checks,
     reviews: decisions.reviews,
   });
   const boundScopeKeys = new Set(
@@ -95,11 +94,6 @@ export const buildProjectSnapshot = async (
     advisory.sources,
     buildMattNativeSourceRecords([...lineageObservationByScope.values()], input.sitemapFingerprint),
   ]);
-  const portalDiagnostics = input.diagnostics.filter(
-    (diagnostic) =>
-      diagnostic.target !== ".bearing/state/next-work-guidance.md" &&
-      !diagnostic.target.startsWith(".bearing/state/next-work-guidance.md#"),
-  );
   const diagnosticProjection = buildSnapshotDiagnostics({
     sitemapFingerprint: input.sitemapFingerprint,
     managedTargets: [
@@ -117,7 +111,7 @@ export const buildProjectSnapshot = async (
         source.kind === "tracker" && source.binding !== undefined ? [source.displayLocator] : [],
       ),
     ],
-    diagnostics: portalDiagnostics,
+    diagnostics: input.diagnostics,
     sourceLocators: sources.map((source) => ({
       kind: source.kind,
       locator: source.displayLocator,
@@ -130,7 +124,6 @@ export const buildProjectSnapshot = async (
     gates: planning.gates,
     efforts: planning.efforts,
     authorities: governance.authorities,
-    checks: decisions.checks,
     reviews: decisions.reviews,
     directEvidence: collectAssetDirectEvidence(records),
   });
@@ -146,7 +139,6 @@ export const buildProjectSnapshot = async (
     efforts: planning.efforts,
     authorities: governance.authorities,
     assets,
-    checks: decisions.checks,
     reviews: decisions.reviews,
     lineage: input.planningGraph.lineageProjection(),
     audit: advisory.audit,

@@ -1,4 +1,4 @@
-import type { AlignmentCheck, AuditFinding, PlanningReview } from "../project-snapshot/contract";
+import type { AuditFinding, PlanningReview } from "../project-snapshot/contract";
 import type { AuditModelData } from "./project-data";
 
 type AuditPromotion = NonNullable<AuditFinding["promotion"]>;
@@ -6,8 +6,8 @@ type AuditPromotion = NonNullable<AuditFinding["promotion"]>;
 export type AuditDecisionRelation = Readonly<{
   available: boolean;
   id: string;
-  kind: AuditPromotion["kind"];
-  status: string | undefined;
+  kind: "planning-review";
+  status: "pending" | "completed" | undefined;
   title: string | undefined;
 }>;
 
@@ -24,11 +24,17 @@ type ReadableAudit = Readonly<{
   skippedTargets: readonly string[];
 }>;
 
-export type ProjectAuditModel =
+type CurrentAudit =
   | Readonly<{ state: "absent" }>
   | Readonly<{ state: "invalid"; issueCount: number }>
   | (ReadableAudit & Readonly<{ state: "available" }>)
   | (ReadableAudit & Readonly<{ state: "partial"; issueCount: number }>);
+
+export type ProjectAuditModel = Readonly<{
+  current: CurrentAudit;
+  pendingReviews: readonly PlanningReview[];
+  completedReviews: readonly PlanningReview[];
+}>;
 
 const trustedItems = <Item>(
   projection:
@@ -38,45 +44,48 @@ const trustedItems = <Item>(
 
 const decisionRelation = (
   promotion: AuditPromotion | undefined,
-  checks: ReadonlyMap<string, AlignmentCheck>,
   reviews: ReadonlyMap<string, PlanningReview>,
 ): AuditDecisionRelation | undefined => {
   if (promotion === undefined) return undefined;
-  const decision =
-    promotion.kind === "alignment-check" ? checks.get(promotion.id) : reviews.get(promotion.id);
+  const decision = reviews.get(promotion.id);
   return {
     available: decision !== undefined,
     id: promotion.id,
-    kind: promotion.kind,
+    kind: "planning-review",
     status: decision?.status,
     title: decision?.title,
   };
 };
 
 export const buildProjectAuditModel = (snapshot: AuditModelData): ProjectAuditModel => {
-  if (snapshot.audit.validity === "absent") return { state: "absent" };
-  if (snapshot.audit.validity === "invalid") {
-    return { state: "invalid", issueCount: snapshot.audit.issues.length };
+  const reviewItems = trustedItems(snapshot.reviews);
+  const reviews = new Map(reviewItems.map((review) => [String(review.id), review]));
+  const pendingReviews = reviewItems.filter((review) => review.status === "pending");
+  const completedReviews = reviewItems.filter((review) => review.status === "completed");
+  if (snapshot.audit.validity === "absent") {
+    return { current: { state: "absent" }, pendingReviews, completedReviews };
   }
-  const checks = new Map(trustedItems(snapshot.checks).map((check) => [String(check.id), check]));
-  const reviews = new Map(
-    trustedItems(snapshot.reviews).map((review) => [String(review.id), review]),
-  );
+  if (snapshot.audit.validity === "invalid") {
+    return {
+      current: { state: "invalid", issueCount: snapshot.audit.issues.length },
+      pendingReviews,
+      completedReviews,
+    };
+  }
   const audit = snapshot.audit.value;
   const readable = {
     coverage: audit.coverage,
     findings: audit.findings.map((finding) => ({
       finding,
-      promotion: decisionRelation(finding.promotion, checks, reviews),
+      promotion: decisionRelation(finding.promotion, reviews),
     })),
     generatedAt: audit.generatedAt,
     semanticFreshness: audit.semanticFreshness,
     skippedTargets: audit.skippedTargets,
   };
-  return snapshot.audit.validity === "partial"
-    ? { ...readable, state: "partial", issueCount: snapshot.audit.issues.length }
-    : { ...readable, state: "available" };
+  const current =
+    snapshot.audit.validity === "partial"
+      ? { ...readable, state: "partial" as const, issueCount: snapshot.audit.issues.length }
+      : { ...readable, state: "available" as const };
+  return { current, pendingReviews, completedReviews };
 };
-
-export const decisionKindLabel = (kind: AuditPromotion["kind"]): string =>
-  kind === "alignment-check" ? "Alignment Check" : "Planning Review";

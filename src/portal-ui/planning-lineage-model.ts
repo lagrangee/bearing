@@ -4,7 +4,6 @@ import {
   planningLineageSubjectHref,
 } from "../planning-lineage-route";
 import type {
-  AlignmentCheck,
   AssetProjection,
   Authority,
   Effort,
@@ -71,7 +70,6 @@ type CanonicalSubjectRecord =
   | MilestoneGate
   | Effort
   | Authority
-  | AlignmentCheck
   | PlanningReview
   | AssetProjection;
 type NativeScopeRecord = MattNativeScopeRecord;
@@ -404,8 +402,6 @@ const collectionFor = (
       return snapshot.efforts;
     case "authority":
       return snapshot.authorities;
-    case "alignment-check":
-      return snapshot.checks;
     case "planning-review":
       return snapshot.reviews;
     case "asset":
@@ -703,7 +699,7 @@ const authoritySections = (authority: Authority): readonly PlanningLineageSectio
 ];
 
 const resolutionSections = (
-  prefix: "alignment-check" | "planning-review",
+  prefix: "planning-review",
   status: string,
   pendingContext: string,
   resolution:
@@ -748,19 +744,13 @@ const resolutionSections = (
   ];
 };
 
-const alignmentCheckSections = (check: AlignmentCheck): readonly PlanningLineageSection[] => [
-  { anchor: "alignment-check.target", title: "Target", body: check.target },
-  ...resolutionSections(
-    "alignment-check",
-    check.status,
-    check.title,
-    check.resolution,
-    check.citations.length,
-  ),
-];
-
 const planningReviewSections = (review: PlanningReview): readonly PlanningLineageSection[] => [
-  { anchor: "planning-review.scope", title: "Scope", body: review.scope },
+  { anchor: "planning-review.question", title: "Question", body: review.question },
+  {
+    anchor: "planning-review.scope",
+    title: "Scope",
+    body: review.scope.kind === "project" ? "Whole project" : review.scope.target,
+  },
   ...resolutionSections(
     "planning-review",
     review.status,
@@ -797,8 +787,6 @@ const assetSections = (
         return "Effort";
       case "authority":
         return "Authority";
-      case "alignment-check":
-        return "Alignment Check";
       case "planning-review":
         return "Planning Review";
       case "asset":
@@ -1371,8 +1359,6 @@ const sectionsFor = (
       return [];
     case "authority":
       return authoritySections(record as Authority);
-    case "alignment-check":
-      return alignmentCheckSections(record as AlignmentCheck);
     case "planning-review":
       return planningReviewSections(record as PlanningReview);
     case "asset":

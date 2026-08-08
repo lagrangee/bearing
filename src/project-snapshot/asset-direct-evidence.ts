@@ -52,7 +52,6 @@ export const collectAssetDirectEvidence = (
         case "milestone-gate":
         case "effort":
         case "authority":
-        case "alignment-check":
         case "planning-review":
           return data.Citations ?? [];
         default:

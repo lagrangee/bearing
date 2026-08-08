@@ -13,7 +13,7 @@ export type FingerprintResult = Readonly<{
 }>;
 
 export type SemanticFreshness = "current" | "stale" | "unknown";
-export type AdvisoryId = "planning-audit:current" | "next-work-guidance:current";
+export type AdvisoryId = "planning-audit:current";
 export type AdvisoryFreshness = Readonly<Partial<Record<AdvisoryId, SemanticFreshness>>>;
 
 import type { NativeScopeInspectionPlan } from "./native-scope-inspection";

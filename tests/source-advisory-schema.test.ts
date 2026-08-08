@@ -20,44 +20,25 @@ const completeAudit = {
   Coverage: "complete",
   "Skipped targets": [],
 };
+const pendingReview = {
+  Type: "planning-review",
+  ID: "planning-review:sequence",
+  Title: "Review sequence",
+  Status: "pending",
+  Question: "Should the sequence change?",
+  Scope: "project",
+  Inputs: [],
+  "Input fingerprint": FINGERPRINT,
+};
+const completedResolution = {
+  "Accepted decision": "Keep the sequence.",
+  "Accepted at": "2026-08-08T00:00:00.000Z",
+  Rationale: "The current sequence remains valid.",
+  "Changed references": ["roadmap:test"],
+};
 
-test("requires an Audit input for partial or complete Guidance coverage", () => {
-  // Given: Guidance declares the current Audit as its semantic basis.
-  const withoutAuditInput = {
-    ...auditBasedGuidance,
-    Inputs: [".bearing/state/project-summary.md"],
-  };
-
-  // When / Then: only an exact declared Audit input satisfies the source contract.
-  expect(bearingSchema.safeParse(auditBasedGuidance).success).toBe(true);
-  expect(bearingSchema.safeParse(withoutAuditInput).success).toBe(false);
-  expect(
-    bearingSchema.safeParse({ ...withoutAuditInput, "Semantic coverage": "partial" }).success,
-  ).toBe(false);
-});
-
-test("rejects an Audit input for absent coverage and requires normalized unique Inputs", () => {
-  // Given: the same structural Audit locator appears in impossible source states.
-  const absentWithAuditInput = {
-    ...auditBasedGuidance,
-    "Semantic coverage": "absent",
-    "Based on audit": undefined,
-  };
-
-  // When / Then: coverage, basis, and the normalized input set remain one coherent contract.
-  expect(bearingSchema.safeParse(absentWithAuditInput).success).toBe(false);
-  expect(
-    bearingSchema.safeParse({
-      ...auditBasedGuidance,
-      Inputs: [".bearing/state/planning-audit.md", ".bearing/state/planning-audit.md"],
-    }).success,
-  ).toBe(false);
-  expect(
-    bearingSchema.safeParse({
-      ...auditBasedGuidance,
-      Inputs: [".bearing/state/../state/planning-audit.md"],
-    }).success,
-  ).toBe(false);
+test("rejects the retired persisted Next Work Guidance record", () => {
+  expect(bearingSchema.safeParse(auditBasedGuidance).success).toBe(false);
 });
 
 test("keeps Planning Audit coverage and skipped targets exact", () => {
@@ -94,4 +75,19 @@ test("requires unique safe Planning Audit inputs and skipped targets", () => {
   expect(
     bearingSchema.safeParse({ ...incomplete, "Skipped targets": ["../outside.md"] }).success,
   ).toBe(false);
+});
+
+test("keeps Planning Review status and Resolution lifecycle exact", () => {
+  expect(bearingSchema.safeParse(pendingReview).success).toBe(true);
+  expect(
+    bearingSchema.safeParse({
+      ...pendingReview,
+      Status: "completed",
+      Resolution: completedResolution,
+    }).success,
+  ).toBe(true);
+  expect(
+    bearingSchema.safeParse({ ...pendingReview, Resolution: completedResolution }).success,
+  ).toBe(false);
+  expect(bearingSchema.safeParse({ ...pendingReview, Status: "completed" }).success).toBe(false);
 });

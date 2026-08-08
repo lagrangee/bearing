@@ -74,7 +74,7 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   });
 
   expect(snapshot).toMatchObject({
-    schemaVersion: 19,
+    schemaVersion: 20,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapFingerprint: sync.fingerprint },
     summary: {
@@ -94,7 +94,7 @@ test("builds one repository-scoped semantic Snapshot without Catalog identity", 
   expect(snapshot).not.toHaveProperty("repoRoot");
   expect(snapshot).toHaveProperty("authorities");
   expect(snapshot).toHaveProperty("assets");
-  expect(snapshot).toHaveProperty("checks");
+  expect(snapshot).not.toHaveProperty("checks");
   expect(snapshot).toHaveProperty("reviews");
   expect(snapshot).toHaveProperty("providerObservations");
   expect(snapshot).not.toHaveProperty("maps");
@@ -260,18 +260,20 @@ Assets:
   );
   await writeFixture(
     root,
-    ".bearing/state/alignment-checks/invalid-target.md",
+    ".bearing/state/planning-reviews/invalid-target.md",
     `---
-Type: alignment-check
-ID: alignment-check:invalid-target
+Type: planning-review
+ID: planning-review:invalid-target
 Title: Confirm the target
-Status: open
+Status: pending
+Question: Should this target remain current?
+Scope: exact-target
 Target: asset:**bad**
 Inputs: []
 Input fingerprint: sha256:${"a".repeat(64)}
 ---
 
-# Alignment Check
+# Planning Review
 `,
   );
 
@@ -330,7 +332,7 @@ Input fingerprint: sha256:${"a".repeat(64)}
       `${code}:${target ?? "no-target"}`,
     ).toBe(true);
   }
-  expect(snapshot.checks).toMatchObject({
+  expect(snapshot.reviews).toMatchObject({
     validity: "invalid",
     issues: [{ code: "invalid-bearing-schema" }],
   });

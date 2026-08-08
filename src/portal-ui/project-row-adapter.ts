@@ -106,12 +106,6 @@ export const portalRowsToProjectData = (rows: PortalProjectRows): ProjectData =>
       "assets",
       rows.objects.flatMap((object) => (object.kind === "asset" ? [object.value] : [])),
     );
-  const checks = () =>
-    collection(
-      rows,
-      "checks",
-      rows.objects.flatMap((object) => (object.kind === "alignment-check" ? [object.value] : [])),
-    );
   const reviews = () =>
     collection(
       rows,
@@ -134,7 +128,6 @@ export const portalRowsToProjectData = (rows: PortalProjectRows): ProjectData =>
         roadmaps: roadmaps(),
         gates: gates(),
         efforts: efforts(),
-        checks: checks(),
         reviews: reviews(),
         diagnostics: rows.diagnostics,
         sources: rows.sources,
@@ -160,7 +153,6 @@ export const portalRowsToProjectData = (rows: PortalProjectRows): ProjectData =>
         efforts: efforts(),
         authorities: authorities(),
         assets: assets(),
-        checks: checks(),
         reviews: reviews(),
         referenceTitles: rows.objects.flatMap((object) =>
           object.kind === "portal-reference-title"
@@ -175,7 +167,6 @@ export const portalRowsToProjectData = (rows: PortalProjectRows): ProjectData =>
         ...context,
         section: "audit",
         audit: audit.value.projection,
-        checks: checks(),
         reviews: reviews(),
       };
     }
@@ -192,7 +183,6 @@ export const portalRowsToProjectData = (rows: PortalProjectRows): ProjectData =>
         efforts: efforts(),
         authorities: authorities(),
         assets: assets(),
-        checks: checks(),
         reviews: reviews(),
         lineage: { subjects: rows.lineage },
         providerObservations: boundEvidence.flatMap((evidence) =>

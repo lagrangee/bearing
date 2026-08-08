@@ -24,11 +24,11 @@ export const AUDIT_FINDING_ID = createAuditFindingId(
 
 export const createProjectAuditFixture = (): ProjectSnapshot => {
   const snapshot = createProjectOverviewFixture();
-  const check =
-    snapshot.checks.validity === "invalid"
+  const review =
+    snapshot.reviews.validity === "invalid"
       ? undefined
-      : snapshot.checks.items.find((candidate) => candidate.id === "alignment-check:portal");
-  if (check === undefined) throw new Error("Expected Alignment Check fixture.");
+      : snapshot.reviews.items.find((candidate) => candidate.id === "planning-review:sequence");
+  if (review === undefined) throw new Error("Expected Planning Review fixture.");
   const findingSource = createSourceRecord(snapshot.basis.sitemapFingerprint, {
     kind: "canonical",
     locator: AUDIT_LOCATOR,
@@ -58,9 +58,9 @@ export const createProjectAuditFixture = (): ProjectSnapshot => {
             summary: "The accepted direction and current implementation need an explicit review.",
             affectedReferences: ["roadmap:portal", ".scratch/portal/map.md"],
             evidenceSourceReferences: [evidenceSource.reference],
-            consequence: "The question should remain visible until the Check is resolved.",
+            consequence: "The question should remain visible until the Review is completed.",
             confidenceBoundary: "The Audit does not decide whether the revision is accepted.",
-            promotion: { kind: "alignment-check", id: check.id },
+            promotion: { kind: "planning-review", id: review.id },
           },
         ],
       },
@@ -115,7 +115,7 @@ export const createUnavailableAuditPromotionFixture = (): ProjectSnapshot => {
   return projectSnapshotSchema.parse(
     withRebuiltPlanningLineage({
       ...snapshot,
-      checks: { validity: "available", items: [] },
+      reviews: { validity: "available", items: [] },
       audit: {
         validity: "partial",
         value: snapshot.audit.value,
@@ -129,7 +129,7 @@ export const createUnavailableAuditPromotionFixture = (): ProjectSnapshot => {
         ],
       },
       attention: snapshot.attention.filter(
-        (item) => !(item.kind === "alignment-check" && item.id === "alignment-check:portal"),
+        (item) => !(item.kind === "planning-review" && item.id === "planning-review:sequence"),
       ),
     }),
   );
@@ -182,7 +182,6 @@ No material findings.
     records,
     sitemapFingerprint: snapshot.basis.sitemapFingerprint,
     advisoryFreshness: {},
-    checks: decisions.checks,
     reviews: decisions.reviews,
   });
   const projectedReferences = new Set(advisory.sources.map((source) => source.reference));

@@ -1,6 +1,5 @@
 import type { NativeScopeInspectionSubject } from "../native-scope-inspection";
 import type {
-  AlignmentCheck,
   AttentionItem,
   PlanningReview,
   ProjectBrief,
@@ -28,7 +27,7 @@ type ScopedValue<T> =
 
 export type OverviewAttentionItem = Readonly<{
   key: string;
-  kind: "diagnostic" | "alignment" | "review";
+  kind: "diagnostic" | "review";
   state: "available" | "unresolved";
   title: string;
   detail: string | undefined;
@@ -87,7 +86,6 @@ const scopedValue = <Item extends Readonly<{ source: SourceReference }>>(
 const attentionModel = (
   item: AttentionItem,
   diagnostics: ReadonlyMap<string, SnapshotDiagnostic>,
-  checks: ReadonlyMap<string, AlignmentCheck>,
   reviews: ReadonlyMap<string, PlanningReview>,
   sources: ReadonlyMap<string, SourceRecord>,
   efforts: OverviewModelData["efforts"],
@@ -146,16 +144,6 @@ const attentionModel = (
             })(),
           };
     }
-    case "alignment-check": {
-      const check = checks.get(item.id);
-      return {
-        key: item.id,
-        kind: "alignment",
-        state: check === undefined ? "unresolved" : "available",
-        title: item.title,
-        detail: undefined,
-      };
-    }
     case "planning-review": {
       const review = reviews.get(item.id);
       return {
@@ -163,7 +151,8 @@ const attentionModel = (
         kind: "review",
         state: review === undefined ? "unresolved" : "available",
         title: item.title,
-        detail: review?.scope,
+        detail:
+          review?.scope.kind === "project" ? "Whole project" : `Target: ${review?.scope.target}`,
       };
     }
   }
@@ -172,13 +161,12 @@ const attentionModel = (
 export const buildProjectOverviewModel = (snapshot: OverviewModelData): ProjectOverviewModel => {
   const sources = indexBy(snapshot.sources, (source) => source.reference);
   const diagnostics = indexBy(snapshot.diagnostics, (diagnostic) => diagnostic.reference);
-  const checks = indexBy(projectionItems(snapshot.checks), (check) => check.id);
   const reviews = indexBy(projectionItems(snapshot.reviews), (review) => review.id);
   return {
     brief: scopedValue(snapshot.brief, sources),
     summary: scopedValue(snapshot.summary, sources),
     attention: snapshot.attention.map((item) =>
-      attentionModel(item, diagnostics, checks, reviews, sources, snapshot.efforts),
+      attentionModel(item, diagnostics, reviews, sources, snapshot.efforts),
     ),
     roadmaps: buildOverviewRoadmaps(snapshot, sources),
     sources,

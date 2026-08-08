@@ -21,14 +21,7 @@ const rebuild = (candidate: ProjectSnapshotInput): ProjectSnapshot =>
 
 const relationFor = (
   snapshot: ProjectSnapshot,
-  kind:
-    | "roadmap"
-    | "gate"
-    | "effort"
-    | "authority"
-    | "alignment-check"
-    | "planning-review"
-    | "asset",
+  kind: "roadmap" | "gate" | "effort" | "authority" | "planning-review" | "asset",
   id: string,
   key: PlanningLineageRelation["key"],
 ): PlanningLineageRelation => {
@@ -322,31 +315,33 @@ test("keeps provider-native Produced For opaque and Authority adoption provenanc
   ).toMatchObject({ state: "confirmed-none" });
 });
 
-test("keeps unresolved planning references scoped unavailable", () => {
+test("keeps unresolved exact Review targets scoped unavailable", () => {
   const snapshot = createProjectOverviewFixture();
-  if (snapshot.checks.validity === "invalid") throw new Error("Expected Alignment Checks.");
+  if (snapshot.reviews.validity === "invalid") throw new Error("Expected Planning Reviews.");
   const candidate: ProjectSnapshotInput = {
     ...snapshot,
-    checks: {
-      ...snapshot.checks,
-      items: snapshot.checks.items.map((check) => ({
-        ...check,
-        target: ".scratch/example/PRD.md",
+    reviews: {
+      ...snapshot.reviews,
+      items: snapshot.reviews.items.map((review) => ({
+        ...review,
+        scope: { kind: "exact-target" as const, target: ".scratch/example/PRD.md" },
       })),
     },
   };
   const projected = rebuild(candidate);
   expect(
-    relationFor(projected, "alignment-check", "alignment-check:portal", "governance.target"),
+    relationFor(projected, "planning-review", "planning-review:sequence", "governance.target"),
   ).toMatchObject({
     state: "present",
     targets: [
       {
         reference: ".scratch/example/PRD.md",
         availability: "unavailable",
-        note: "Stable detail route unavailable for this planning reference in the current Snapshot.",
+        label: ".scratch/example/PRD.md",
+        note: "Provider-native route unavailable in the current Snapshot.",
       },
     ],
+    total: { count: 1, coverage: "complete" },
   });
 });
 

@@ -66,7 +66,8 @@ Type: planning-review
 ID: planning-review:adopt-test
 Title: Adopt the test evidence
 Status: completed
-Scope: Test
+Question: Should the project adopt the test evidence?
+Scope: project
 Inputs: []
 Input fingerprint: sha256:${"a".repeat(64)}
 Resolution:
@@ -148,7 +149,7 @@ Assets:
     advisoryFreshness: sync.advisoryFreshness,
   });
 
-  expect(snapshot.schemaVersion).toBe(19);
+  expect(snapshot.schemaVersion).toBe(20);
   expect(snapshot.roadmaps.validity).toBe("available");
   expect(
     snapshot.roadmaps.validity === "invalid" ? undefined : snapshot.roadmaps.items[0],

@@ -61,7 +61,6 @@ const objectKinds: Readonly<Record<PortalProjectSection, readonly string[]>> = {
     "roadmap",
     "gate",
     "effort",
-    "alignment-check",
     "planning-review",
     "portal-projection-state",
     "portal-roadmap-index",
@@ -80,18 +79,11 @@ const objectKinds: Readonly<Record<PortalProjectSection, readonly string[]>> = {
     "effort",
     "asset",
     "authority",
-    "alignment-check",
     "planning-review",
     "portal-reference-title",
     "portal-projection-state",
   ],
-  audit: [
-    "project-summary",
-    "alignment-check",
-    "planning-review",
-    "portal-projection-state",
-    "portal-audit",
-  ],
+  audit: ["project-summary", "planning-review", "portal-projection-state", "portal-audit"],
   lineage: [
     "project-summary",
     "project-brief",
@@ -104,29 +96,20 @@ const objectKinds: Readonly<Record<PortalProjectSection, readonly string[]>> = {
 const requiredProjections: Readonly<
   Record<PortalProjectSection, readonly ProjectReadModelProjectionName[]>
 > = {
-  overview: ["summary", "brief", "roadmaps", "gates", "efforts", "checks", "reviews"],
+  overview: ["summary", "brief", "roadmaps", "gates", "efforts", "reviews"],
   roadmaps: ["summary", "roadmaps", "gates"],
-  assets: ["summary", "roadmaps", "gates", "efforts", "authorities", "assets", "checks", "reviews"],
-  audit: ["summary", "checks", "reviews"],
-  lineage: [
-    "summary",
-    "roadmaps",
-    "gates",
-    "efforts",
-    "authorities",
-    "assets",
-    "checks",
-    "reviews",
-  ],
+  assets: ["summary", "roadmaps", "gates", "efforts", "authorities", "assets", "reviews"],
+  audit: ["summary", "reviews"],
+  lineage: ["summary", "roadmaps", "gates", "efforts", "authorities", "assets", "reviews"],
 };
 
 const completeProjections: Readonly<
   Record<PortalProjectSection, readonly ProjectReadModelProjectionName[]>
 > = {
-  overview: ["summary", "brief", "roadmaps", "gates", "efforts", "checks", "reviews"],
+  overview: ["summary", "brief", "roadmaps", "gates", "efforts", "reviews"],
   roadmaps: ["summary", "roadmaps", "gates"],
-  assets: ["summary", "roadmaps", "gates", "efforts", "authorities", "assets", "checks", "reviews"],
-  audit: ["summary", "checks", "reviews"],
+  assets: ["summary", "roadmaps", "gates", "efforts", "authorities", "assets", "reviews"],
+  audit: ["summary", "reviews"],
   lineage: ["summary"],
 };
 

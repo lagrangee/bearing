@@ -6,7 +6,6 @@ import { titledSourceShape } from "./schema-node";
 import {
   assetIdSchema,
   authorityIdSchema,
-  checkIdSchema,
   effortIdSchema,
   gateIdSchema,
   nonEmptyStringSchema,
@@ -28,7 +27,6 @@ const citingReferenceSchema = z.union([
   gateIdSchema,
   effortIdSchema,
   authorityIdSchema,
-  checkIdSchema,
   reviewIdSchema,
 ]);
 
@@ -41,7 +39,7 @@ const reverseCitationSchema = z.strictObject({
 
 const reverseAuthorityAdoptionSchema = z.strictObject({
   authorityId: authorityIdSchema,
-  decisionReference: z.union([checkIdSchema, reviewIdSchema]),
+  decisionReference: reviewIdSchema,
   source: sourceReferenceSchema,
 });
 

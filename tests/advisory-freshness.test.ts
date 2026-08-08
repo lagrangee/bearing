@@ -30,93 +30,53 @@ No material findings.
   );
 };
 
-const writeGuidance = async (
-  root: string,
-  inputs: readonly string[],
-  fingerprint: string,
-): Promise<void> => {
-  const inputLines = inputs.map((input) => `  - ${input}`).join("\n");
-  await writeFixture(
-    root,
-    ".bearing/state/next-work-guidance.md",
-    `---
-Type: next-work-guidance
-ID: next-work-guidance:current
-Title: Current Guidance
-Generated at: 2026-07-13T20:00:00+0800
-Inputs:
-${inputLines}
-Input fingerprint: ${fingerprint}
-Semantic coverage: absent
----
-
-# Next Work Guidance
-
-## Primary Recommendation
-
-### Continue the Roadmap
-
-Advance the current focused Gate.
-
-#### Supporting References
-
-- \`roadmap:test\`
-
-## Alternatives
-
-### Inspect the Gate
-
-Review its remaining exit criteria.
-
-#### Supporting References
-
-- \`gate:test\`
-
-### Review the native Map
-
-Inspect the current Effort frontier.
-
-#### Supporting References
-
-- \`.scratch/work/map.md\`
-`,
-  );
-};
-
-test("Sync computes and persists advisory freshness independently", async () => {
+test("Sync computes and persists Planning Audit freshness", async () => {
   const root = await createValidBearingRepo();
   const summary = await fingerprintFiles(root, [".bearing/state/project-summary.md"]);
-  const roadmap = await fingerprintFiles(root, [".bearing/state/roadmaps/test.md"]);
   await writeAudit(root, summary.fingerprint);
-  await writeGuidance(root, roadmap.inputs, roadmap.fingerprint);
 
   const current = await runSync(root);
-  expect(current.advisoryFreshness).toEqual({
-    "planning-audit:current": "current",
-    "next-work-guidance:current": "current",
-  });
+  expect(current.advisoryFreshness).toEqual({ "planning-audit:current": "current" });
 
   await writeFixture(root, ".bearing/state/project-summary.md", "changed\n");
   const mixed = await runSync(root);
-  expect(mixed.advisoryFreshness).toEqual({
-    "planning-audit:current": "stale",
-    "next-work-guidance:current": "current",
-  });
+  expect(mixed.advisoryFreshness).toEqual({ "planning-audit:current": "stale" });
   const sitemap = parseMarkdownEnvelope(await readFile(mixed.sitemapPath, "utf8"));
   expect(sitemap.ok).toBe(true);
   if (!sitemap.ok) throw new Error("Expected a valid Sitemap envelope.");
   expect(sitemap.data["Advisory freshness"]).toEqual(mixed.advisoryFreshness);
 });
 
-test("Sync records unknown when a valid advisory basis cannot be checked", async () => {
+test("Sync records unknown when a valid Audit basis cannot be checked", async () => {
   const root = await createValidBearingRepo();
-  await writeGuidance(root, ["docs/missing.md"], `sha256:${"a".repeat(64)}`);
+  await writeFixture(
+    root,
+    ".bearing/state/planning-audit.md",
+    `---
+Type: planning-audit
+ID: planning-audit:current
+Title: Current Audit
+Generated at: 2026-07-13T20:00:00+0800
+Inputs:
+  - docs/missing.md
+Input fingerprint: sha256:${"a".repeat(64)}
+Coverage: complete
+Skipped targets: []
+---
+
+# Planning Audit
+
+## Findings
+
+No material findings.
+`,
+  );
 
   const result = await runSync(root);
 
-  expect(result.advisoryFreshness).toEqual({ "next-work-guidance:current": "unknown" });
+  expect(result.advisoryFreshness).toEqual({ "planning-audit:current": "unknown" });
   expect(await readFile(result.sitemapPath, "utf8")).toContain(
-    "`next-work-guidance:current` | Current Guidance | unknown",
+    "`planning-audit:current` | Current Audit | unknown",
   );
 });
 
@@ -124,10 +84,16 @@ test("Sync preserves freshness for a contained advisory basis outside Sitemap di
   const root = await createValidBearingRepo();
   await writeFixture(root, "notes/advisory-basis.md", "# Advisory basis\n");
   const basis = await fingerprintFiles(root, ["notes/advisory-basis.md"]);
-  await writeGuidance(root, basis.inputs, basis.fingerprint);
+  await writeAudit(root, basis.fingerprint);
+  const audit = await readFile(`${root}/.bearing/state/planning-audit.md`, "utf8");
+  await writeFixture(
+    root,
+    ".bearing/state/planning-audit.md",
+    audit.replace(".bearing/state/project-summary.md", "notes/advisory-basis.md"),
+  );
 
   const result = await runSync(root);
 
-  expect(result.advisoryFreshness).toEqual({ "next-work-guidance:current": "current" });
+  expect(result.advisoryFreshness).toEqual({ "planning-audit:current": "current" });
   expect(result.inputs).toContain("notes/advisory-basis.md");
 });

@@ -700,13 +700,6 @@ const withLongMixedLineageContent = (snapshot: ProjectSnapshot): ProjectSnapshot
 const healthySnapshot = (snapshot: ProjectSnapshot): ProjectSnapshot =>
   projectSnapshotSchema.parse({
     ...snapshot,
-    checks:
-      snapshot.checks.validity === "available"
-        ? {
-            ...snapshot.checks,
-            items: snapshot.checks.items.map((check) => ({ ...check, status: "resolved" })),
-          }
-        : snapshot.checks,
     reviews:
       snapshot.reviews.validity === "available"
         ? {

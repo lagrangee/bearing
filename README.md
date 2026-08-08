@@ -2,7 +2,7 @@
 
 ## Stay on the same page with your coding agents.
 
-Bearing gives long-running coding-agent projects a local, inspectable project-governance layer. It keeps accepted direction, decisions, evidence, and alignment checks visible to you and your agents, so new work can start from the same project picture instead of from a fragile memory of old chats.
+Bearing gives long-running coding-agent projects a local, inspectable project-governance layer. It keeps accepted direction, Planning Reviews, evidence, and current Audit findings visible to you and your agents, so new work can start from the same project picture instead of from a fragile memory of old chats.
 
 Local-first · Open-source Public Preview · Codex verified path · Claude Code target surface pending maintainer verification · Matt-native local Markdown work management
 
@@ -32,7 +32,7 @@ Matt-native Maps and Tickets
 Portal reads the same project picture
 ```
 
-Bearing owns durable project governance: Project Summary, Roadmaps, Milestone Gates, Effort bindings, Authorities, Assets, Alignment Checks, Planning Audit, and evidence relationships.
+Bearing owns durable project governance: Project Summary, Roadmaps, Milestone Gates, Effort bindings, Authorities, Assets, Planning Reviews, Planning Audit, and evidence relationships.
 
 Your work-management adapter still owns Maps, Tickets, dependencies, claims, blockers, and resolution. Your executor still owns implementation and verification. Bearing keeps those layers connected without pretending to be all of them.
 

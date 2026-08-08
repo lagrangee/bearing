@@ -14,22 +14,26 @@ import {
 test("preserves Audit finding order and resolves its canonical decision path", () => {
   const model = buildProjectAuditModel(createProjectAuditFixture());
 
-  expect(model.state).toBe("available");
-  if (model.state !== "available") throw new Error("Expected available Audit.");
-  expect(model.generatedAt).toBe("2026-07-14T09:30:00+08:00");
-  expect(model.semanticFreshness).toBe("stale");
-  expect(model.coverage).toBe("incomplete");
-  expect(model.skippedTargets).toEqual(["authority:architecture"]);
-  expect(model.findings.map((row) => row.finding.title)).toEqual([
+  expect(model.current.state).toBe("available");
+  if (model.current.state !== "available") throw new Error("Expected available Audit.");
+  expect(model.current.generatedAt).toBe("2026-07-14T09:30:00+08:00");
+  expect(model.current.semanticFreshness).toBe("stale");
+  expect(model.current.coverage).toBe("incomplete");
+  expect(model.current.skippedTargets).toEqual(["authority:architecture"]);
+  expect(model.current.findings.map((row) => row.finding.title)).toEqual([
     "Portal direction needs a decision path",
   ]);
-  expect(model.findings[0]?.promotion).toMatchObject({
+  expect(model.current.findings[0]?.promotion).toMatchObject({
     available: true,
-    kind: "alignment-check",
-    id: "alignment-check:portal",
-    title: "Confirm the Portal revision",
-    status: "open",
+    kind: "planning-review",
+    id: "planning-review:sequence",
+    title: "Review the current sequence",
+    status: "pending",
   });
+  expect(model.pendingReviews.map((review) => String(review.id))).toEqual([
+    "planning-review:sequence",
+  ]);
+  expect(model.completedReviews).toEqual([]);
 });
 
 test("resolves a completed Planning Review without turning its Audit finding into Attention", () => {
@@ -65,8 +69,8 @@ test("resolves a completed Planning Review without turning its Audit finding int
   } as ProjectSnapshot;
 
   const model = buildProjectAuditModel(completed);
-  if (model.state !== "available") throw new Error("Expected available Audit.");
-  expect(model.findings[0]?.promotion).toMatchObject({
+  if (model.current.state !== "available") throw new Error("Expected available Audit.");
+  expect(model.current.findings[0]?.promotion).toMatchObject({
     available: true,
     kind: "planning-review",
     id: "planning-review:sequence",
@@ -78,8 +82,8 @@ test("resolves a completed Planning Review without turning its Audit finding int
 
 test("distinguishes absent, invalid, zero-finding, and trustworthy partial Audits", () => {
   const snapshot = createProjectAuditFixture();
-  expect(buildProjectAuditModel({ ...snapshot, audit: { validity: "absent" } })).toEqual({
-    state: "absent",
+  expect(buildProjectAuditModel({ ...snapshot, audit: { validity: "absent" } })).toMatchObject({
+    current: { state: "absent" },
   });
   expect(
     buildProjectAuditModel({
@@ -89,14 +93,14 @@ test("distinguishes absent, invalid, zero-finding, and trustworthy partial Audit
         issues: [{ code: "invalid-planning-audit", target: "audit", message: "Audit is invalid." }],
       },
     } as ProjectSnapshot),
-  ).toEqual({ state: "invalid", issueCount: 1 });
+  ).toMatchObject({ current: { state: "invalid", issueCount: 1 } });
 
   if (snapshot.audit.validity !== "available") throw new Error("Expected available Audit.");
   const zero = buildProjectAuditModel({
     ...snapshot,
     audit: { validity: "available", value: { ...snapshot.audit.value, findings: [] } },
   });
-  expect(zero.state === "available" && zero.findings).toEqual([]);
+  expect(zero.current.state === "available" && zero.current.findings).toEqual([]);
 
   const partial = buildProjectAuditModel({
     ...snapshot,
@@ -112,20 +116,20 @@ test("distinguishes absent, invalid, zero-finding, and trustworthy partial Audit
       ],
     },
   } as ProjectSnapshot);
-  expect(partial.state).toBe("partial");
-  expect(partial.state === "partial" && partial.issueCount).toBe(1);
-  expect(partial.state === "partial" && partial.findings).toHaveLength(1);
+  expect(partial.current.state).toBe("partial");
+  expect(partial.current.state === "partial" && partial.current.issueCount).toBe(1);
+  expect(partial.current.state === "partial" && partial.current.findings).toHaveLength(1);
 });
 
 test("keeps a schema-valid unavailable promotion visible without inventing a target", () => {
   const model = buildProjectAuditModel(createUnavailableAuditPromotionFixture());
-  if (model.state !== "partial") throw new Error("Expected partial Audit.");
-  const row = model.findings[0];
+  if (model.current.state !== "partial") throw new Error("Expected partial Audit.");
+  const row = model.current.findings[0];
   if (row === undefined) throw new Error("Expected retained finding.");
 
   expect(row.promotion).toMatchObject({
     available: false,
-    id: "alignment-check:portal",
+    id: "planning-review:sequence",
     title: undefined,
     status: undefined,
   });

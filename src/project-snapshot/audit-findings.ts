@@ -2,7 +2,6 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import type { AuditBodyFinding, InvalidAuditFinding } from "../audit-body";
 import type {
-  AlignmentCheck,
   CollectionProjection,
   PlanningReview,
   ProjectionIssue,
@@ -32,7 +31,6 @@ export const createAuditFindingId = (
   );
 
 type Decisions = Readonly<{
-  checks: CollectionProjection<AlignmentCheck>;
   reviews: CollectionProjection<PlanningReview>;
 }>;
 type ProjectedFinding = Readonly<{
@@ -44,9 +42,7 @@ type ProjectedFinding = Readonly<{
   evidenceSourceReferences: readonly SourceReference[];
   consequence: string;
   confidenceBoundary: string;
-  promotion?:
-    | Readonly<{ kind: "alignment-check"; id: string }>
-    | Readonly<{ kind: "planning-review"; id: string }>;
+  promotion?: Readonly<{ kind: "planning-review"; id: string }>;
 }>;
 type Input = Decisions &
   Readonly<{
@@ -59,12 +55,6 @@ type Input = Decisions &
 
 const promotionAvailable = (finding: AuditBodyFinding, decisions: Decisions): boolean => {
   if (finding.promotion === undefined) return true;
-  if (finding.promotion.kind === "alignment-check") {
-    return (
-      decisions.checks.validity !== "invalid" &&
-      decisions.checks.items.some((decision) => decision.id === finding.promotion?.target)
-    );
-  }
   return (
     decisions.reviews.validity !== "invalid" &&
     decisions.reviews.items.some((decision) => decision.id === finding.promotion?.target)

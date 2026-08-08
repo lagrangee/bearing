@@ -37,7 +37,7 @@ const findingSnapshot = () => {
             evidenceSourceReferences: [evidenceSource.reference],
             consequence: "The question remains visible until the evidence is reviewed.",
             confidenceBoundary: "The Audit does not accept or resolve the decision.",
-            promotion: { kind: "alignment-check", id: "alignment-check:portal" },
+            promotion: { kind: "planning-review", id: "planning-review:sequence" },
           },
         ],
       },
@@ -51,7 +51,7 @@ const parses = (snapshot: unknown): boolean => projectSnapshotSchema.safeParse(s
 test("accepts a finding whose identity, Sources, promotion, and Attention are exact", () => {
   const snapshot = findingSnapshot();
   expect(parses(snapshot)).toBe(true);
-  expect(snapshot.attention.filter((item) => item.kind === "alignment-check")).toHaveLength(1);
+  expect(snapshot.attention.filter((item) => item.kind === "planning-review")).toHaveLength(1);
 });
 
 test("rejects forged finding identity, primary Source, evidence Source, and basis", () => {
@@ -200,7 +200,7 @@ test("requires unresolved promotions to make the Audit partial with the exact is
     findings: [
       {
         ...finding,
-        promotion: { kind: "alignment-check", id: "alignment-check:missing" },
+        promotion: { kind: "planning-review", id: "planning-review:missing" },
       },
     ],
   } as const;

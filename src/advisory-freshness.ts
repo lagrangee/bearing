@@ -5,25 +5,15 @@ import type { AdvisoryFreshness, AdvisoryId, SemanticFreshness } from "./types";
 
 type CapturedInputRecord = SyncInputRecord;
 
-const advisoryIdentity = (type: "planning-audit" | "next-work-guidance"): AdvisoryId =>
-  type === "planning-audit" ? "planning-audit:current" : "next-work-guidance:current";
-
 const advisories = (decoded: DecodedBearingRecordGeneration) =>
-  decoded.records.filter(
-    (record) =>
-      record.data !== undefined &&
-      (record.data.Type === "planning-audit" || record.data.Type === "next-work-guidance"),
-  );
+  decoded.records.filter((record) => record.data?.Type === "planning-audit");
 
 export const advisoryBasisInputsFromGeneration = (
   decoded: DecodedBearingRecordGeneration,
 ): readonly string[] => [
   ...new Set(
     advisories(decoded).flatMap((record) =>
-      record.data !== undefined &&
-      (record.data.Type === "planning-audit" || record.data.Type === "next-work-guidance")
-        ? record.data.Inputs
-        : [],
+      record.data?.Type === "planning-audit" ? record.data.Inputs : [],
     ),
   ),
 ];
@@ -51,15 +41,12 @@ export const deriveAdvisoryFreshnessFromGeneration = (
   Object.fromEntries(
     advisories(decoded).flatMap((record): readonly [AdvisoryId, SemanticFreshness][] => {
       const data = record.data;
-      if (
-        data === undefined ||
-        (data.Type !== "planning-audit" && data.Type !== "next-work-guidance")
-      ) {
+      if (data?.Type !== "planning-audit") {
         return [];
       }
       return [
         [
-          advisoryIdentity(data.Type),
+          "planning-audit:current",
           capturedFreshnessFor(records, data.Inputs, data["Input fingerprint"]),
         ],
       ];

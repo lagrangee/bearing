@@ -186,9 +186,6 @@ test("Gate closure returns every inbound Effort with native, governance, evidenc
   expect(secondCapture.projection.wayfinderTickets.map((ticket) => String(ticket.ref))).toEqual([
     ".scratch/second/issues/01-finish.md",
   ]);
-  expect(second.alignmentChecks.map(({ value }) => String(value.id))).toEqual([
-    "alignment-check:second",
-  ]);
   expect(second.evidence.map(({ value }) => String(value.id))).toEqual(["asset:second-evidence"]);
   expect(second.source.displayLocator).toBe(".bearing/state/efforts/second.md");
   expect(result.context.sources.every((source) => source.reference.startsWith("source:"))).toBe(

@@ -6,6 +6,7 @@ import { buildPlanningLineageProjection } from "../src/project-snapshot/planning
 import {
   assetProjectionSchema,
   gateSchema,
+  planningReviewSchema,
   projectBriefSchema,
   projectSnapshotSchema,
   projectSummarySchema,
@@ -69,7 +70,7 @@ const assetRecord = boundRecord(
 const source = summaryRecord.reference;
 const availableItems = { validity: "available", items: [] } as const;
 const validSnapshot = {
-  schemaVersion: 19,
+  schemaVersion: 20,
   producer: { packageVersion: "0.0.0-test" },
   basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
   summary: { validity: "absent" },
@@ -80,7 +81,6 @@ const validSnapshot = {
   efforts: availableItems,
   authorities: availableItems,
   assets: availableItems,
-  checks: availableItems,
   reviews: availableItems,
   lineage: { subjects: [] },
   audit: { validity: "absent" },
@@ -139,7 +139,6 @@ test("parses a repository-scoped Snapshot with the complete domain breadth", () 
     "efforts",
     "authorities",
     "assets",
-    "checks",
     "reviews",
     "lineage",
     "audit",
@@ -735,6 +734,30 @@ test("preserves the complete accepted Gate Passage decision", () => {
     passage: { ...gate.passage, acceptedDecision: undefined },
   };
   expect(gateSchema.safeParse(withoutDecision).success).toBe(false);
+});
+
+test("keeps normalized Planning Review status and resolution lifecycle exact", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.reviews.validity !== "available") throw new Error("Expected Review fixture.");
+  const pending = snapshot.reviews.items[0];
+  if (pending === undefined) throw new Error("Expected one Review fixture.");
+  const resolution = {
+    acceptedDecision: "Keep the sequence.",
+    acceptedAt: {
+      availability: "available",
+      value: "2026-08-08T00:00:00.000Z",
+      precision: "fractional-second",
+    },
+    rationale: "The current sequence remains valid.",
+    changedReferences: ["roadmap:portal"],
+  };
+
+  expect(planningReviewSchema.safeParse(pending).success).toBe(true);
+  expect(
+    planningReviewSchema.safeParse({ ...pending, status: "completed", resolution }).success,
+  ).toBe(true);
+  expect(planningReviewSchema.safeParse({ ...pending, resolution }).success).toBe(false);
+  expect(planningReviewSchema.safeParse({ ...pending, status: "completed" }).success).toBe(false);
 });
 
 test("rejects formatting in semantic Snapshot text without treating structural strings as prose", () => {

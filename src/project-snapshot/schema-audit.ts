@@ -4,7 +4,6 @@ import { uniqueIdentityArraySchema } from "./projection-identity";
 import { titledSourceShape } from "./schema-node";
 import {
   auditFindingIdSchema,
-  checkIdSchema,
   nonEmptyStringSchema,
   planningReferenceSchema,
   reviewIdSchema,
@@ -13,10 +12,10 @@ import {
 } from "./schema-primitives";
 import { sourceReferenceSchema } from "./source-schema";
 
-const auditPromotionSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("alignment-check"), id: checkIdSchema }),
-  z.strictObject({ kind: z.literal("planning-review"), id: reviewIdSchema }),
-]);
+const auditPromotionSchema = z.strictObject({
+  kind: z.literal("planning-review"),
+  id: reviewIdSchema,
+});
 const affectedReferencesSchema = uniqueIdentityArraySchema(
   planningReferenceSchema,
   (reference) => reference,

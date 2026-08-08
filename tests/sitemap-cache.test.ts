@@ -15,7 +15,6 @@ Inputs:
 Input fingerprint: ${fingerprint}
 Advisory freshness:
   planning-audit:current: stale
-  next-work-guidance:current: current
 ---
 
 This prose is deliberately not a valid Sitemap node line.
@@ -48,7 +47,6 @@ describe("Project Sitemap cache envelope", () => {
         inputFingerprint: fingerprint,
         advisoryFreshness: {
           "planning-audit:current": "stale",
-          "next-work-guidance:current": "current",
         },
       },
     });

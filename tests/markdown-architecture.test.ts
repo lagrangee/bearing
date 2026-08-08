@@ -68,11 +68,7 @@ test("removes compatibility readers and keeps domain decoders on the shared boun
     );
   }
 
-  for (const file of [
-    "src/audit-body.ts",
-    "src/guidance-body.ts",
-    "src/bearing-record-sections.ts",
-  ]) {
+  for (const file of ["src/audit-body.ts", "src/bearing-record-sections.ts"]) {
     const source = await readFile(file, "utf8");
     expect(source).toMatch(/from ["']\.\/markdown-document["']/u);
     expect(source, `${file} still line-parses Markdown structure`).not.toMatch(

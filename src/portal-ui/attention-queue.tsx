@@ -2,7 +2,7 @@ import type { MouseEvent } from "react";
 import { assertNever } from "./assert-never";
 import { Icons } from "./icons";
 
-export type AttentionKind = "diagnostic" | "alignment" | "review";
+export type AttentionKind = "diagnostic" | "review";
 
 export type AttentionQueueItem = {
   readonly detail?: string;
@@ -17,8 +17,6 @@ function attentionKindLabel(kind: AttentionKind): string {
   switch (kind) {
     case "diagnostic":
       return "Blocking diagnostic";
-    case "alignment":
-      return "Alignment Check";
     case "review":
       return "Planning Review";
     default:

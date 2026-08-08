@@ -4,10 +4,7 @@ import { retainContainedInputs } from "./input-boundary";
 import { resolveRepositoryRoot } from "./path-boundary";
 import type { StructuralDiagnostic } from "./types";
 
-const ADVISORY_INPUTS = [
-  ".bearing/state/planning-audit.md",
-  ".bearing/state/next-work-guidance.md",
-];
+const ADVISORY_INPUTS = [".bearing/state/planning-audit.md"];
 
 export const discoverProjectSitemapInputs = async (repoRoot: string): Promise<DiscoveryResult> => {
   const root = await resolveRepositoryRoot(repoRoot);

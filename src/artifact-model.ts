@@ -36,7 +36,7 @@ export type ArtifactAnalysis = Readonly<{
 }>;
 
 export const isBearingStableIdReference = (value: string): boolean =>
-  /^(?:roadmap|gate|effort|authority|asset|planning-audit|alignment-check|planning-review|next-work-guidance|project-summary|project-brief):[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(
+  /^(?:roadmap|gate|effort|authority|asset|planning-audit|planning-review|project-summary|project-brief):[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(
     value,
   );
 
@@ -50,10 +50,8 @@ export const expectedBearingType = (locator: string): string | undefined => {
   if (locator.startsWith(".bearing/state/roadmaps/")) return "roadmap";
   if (locator.startsWith(".bearing/state/milestone-gates/")) return "milestone-gate";
   if (locator.startsWith(".bearing/state/authorities/")) return "authority";
-  if (locator.startsWith(".bearing/state/alignment-checks/")) return "alignment-check";
   if (locator.startsWith(".bearing/state/planning-reviews/")) return "planning-review";
   if (locator === ".bearing/state/planning-audit.md") return "planning-audit";
-  if (locator === ".bearing/state/next-work-guidance.md") return "next-work-guidance";
   return undefined;
 };
 

@@ -64,7 +64,8 @@ test("Authority Adoption reuses Accepted Decision time without inventing an adop
     source: source.reference,
     citations: [],
     status: "completed",
-    scope: "Adopt the baseline.",
+    question: "Should the project adopt the baseline?",
+    scope: { kind: "project" },
     resolution: {
       acceptedDecision: "Adopt it.",
       acceptedAt: available("2026-07-31T09:00:00Z"),

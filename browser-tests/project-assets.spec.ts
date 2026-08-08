@@ -78,7 +78,8 @@ const assetsFixture = (): ProjectSnapshot => {
             source: adoptionReviewSource.reference,
             citations: [],
             status: "completed",
-            scope: "Adopt the product-design baseline.",
+            question: "Should the project adopt the product-design baseline?",
+            scope: { kind: "project" },
             resolution: {
               acceptedDecision: "Adopt the product-design Asset.",
               acceptedAt: { availability: "unavailable" },

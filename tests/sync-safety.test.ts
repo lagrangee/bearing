@@ -253,7 +253,7 @@ Assets:
 
   test("isolates a wrong-shaped optional state directory", async () => {
     const root = await createValidBearingRepo();
-    await writeFixture(root, ".bearing/state/alignment-checks", "not a directory\n");
+    await writeFixture(root, ".bearing/state/planning-reviews", "not a directory\n");
 
     const result = await runSync(root);
     const sitemap = await readFile(result.sitemapPath, "utf8");
@@ -261,7 +261,7 @@ Assets:
     expect(result.diagnostics).toContainEqual({
       code: "invalid-input-directory",
       impact: "blocking",
-      target: ".bearing/state/alignment-checks",
+      target: ".bearing/state/planning-reviews",
       message: "Repository input must be a directory.",
     });
     expect(sitemap).toContain("`roadmap:test` | Test Roadmap | active");

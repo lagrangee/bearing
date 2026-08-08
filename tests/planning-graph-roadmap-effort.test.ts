@@ -312,9 +312,6 @@ test("Effort closure returns full nested context and fails a bound absent scope 
       blockingDiagnosticCount: 0,
     },
   });
-  expect(complete.context.alignmentChecks.map(({ value }) => String(value.id))).toEqual([
-    "alignment-check:test-effort",
-  ]);
   expect(complete.context.evidence.map(({ value }) => String(value.id))).toEqual([
     "asset:test-evidence",
   ]);
@@ -715,7 +712,7 @@ Assets:
   expect(result.issues.some((issue) => issue.target.includes("unrelated-duplicate"))).toBe(false);
 });
 
-test("Effort closure reports invalid and duplicate Alignment Checks targeting the Effort", async () => {
+test("Effort closure ignores retired Alignment Check records", async () => {
   const root = await createValidBearingRepo();
   const duplicateCheck = `---
 Type: alignment-check
@@ -753,14 +750,6 @@ Input fingerprint: sha256:${"d".repeat(64)}
     id: "effort:test",
   });
 
-  expect(result.state).toBe("partial");
-  if (result.state === "invalid") throw new Error("Expected partial Effort context.");
-  expect(result.context.alignmentChecks).toEqual([]);
-  expect(result.issues.filter((issue) => issue.code === "duplicate-stable-id")).toHaveLength(2);
-  expect(result.issues).toContainEqual({
-    code: "resolved-check-missing-resolution",
-    target: ".bearing/state/alignment-checks/invalid.md",
-    message: "Resolved Alignment Check requires Resolution.",
-    source: expect.stringMatching(/^source:/u),
-  });
+  expect(result.state).toBe("complete");
+  expect(result.issues).toEqual([]);
 });

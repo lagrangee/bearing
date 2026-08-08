@@ -131,32 +131,21 @@ Assets:
   });
 });
 
-test("isolates colliding decision identities before deriving Attention", async () => {
-  // Given: two Checks and two Reviews independently declare one ID per decision type.
+test("isolates colliding Review identities before deriving Attention", async () => {
+  // Given: two Reviews independently declare one stable ID.
   const root = await createValidBearingRepo();
   const fingerprint = `sha256:${"a".repeat(64)}`;
-  const check = `---
-Type: alignment-check
-ID: alignment-check:duplicate
-Title: Confirm one decision
-Status: open
-Target: roadmap:test
-Inputs: []
-Input fingerprint: ${fingerprint}
----
-`;
   const review = `---
 Type: planning-review
 ID: planning-review:duplicate
 Title: Review one decision
 Status: pending
-Scope: Current project direction
+Question: Should the current project direction continue?
+Scope: project
 Inputs: []
 Input fingerprint: ${fingerprint}
 ---
 `;
-  await writeFixture(root, ".bearing/state/alignment-checks/one.md", check);
-  await writeFixture(root, ".bearing/state/alignment-checks/two.md", check);
   await writeFixture(root, ".bearing/state/planning-reviews/one.md", review);
   await writeFixture(root, ".bearing/state/planning-reviews/two.md", review);
 
@@ -164,8 +153,7 @@ Input fingerprint: ${fingerprint}
   const { snapshot, duplicateDiagnosticCount } = await materialize(root);
 
   // Then: ambiguous decisions are invalid and cannot become last-wins Attention items.
-  expect(duplicateDiagnosticCount).toBe(4);
-  expect(snapshot.checks).toMatchObject({ validity: "invalid" });
+  expect(duplicateDiagnosticCount).toBe(2);
   expect(snapshot.reviews).toMatchObject({ validity: "invalid" });
   expect(snapshot.attention.filter((item) => item.kind !== "structural-diagnostic")).toEqual([]);
 });

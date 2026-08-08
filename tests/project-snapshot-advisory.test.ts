@@ -18,7 +18,6 @@ const project = async (root: string) => {
     records,
     sitemapFingerprint: sync.fingerprint,
     advisoryFreshness: sync.advisoryFreshness,
-    checks: { validity: "available", items: [] },
     reviews: { validity: "available", items: [] },
   });
 };

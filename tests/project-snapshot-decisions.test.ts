@@ -6,40 +6,23 @@ import { captureDecodedSourceInputs } from "./project-snapshot-fixture";
 
 const FINGERPRINT = `sha256:${"a".repeat(64)}`;
 
-test("projects open Checks and pending Reviews into typed Attention", async () => {
-  const root = await createValidBearingRepo();
-  await writeFixture(
-    root,
-    ".bearing/state/alignment-checks/design.md",
-    `---
-Type: alignment-check
-ID: alignment-check:design
-Title: Confirm design
-Status: open
-Target: effort:test
-Inputs: []
-Input fingerprint: ${FINGERPRINT}
----
-
-# Alignment Check
-`,
-  );
-  await writeFixture(
-    root,
-    ".bearing/state/planning-reviews/balance.md",
-    `---
+const projectReview = (overrides = "") => `---
 Type: planning-review
 ID: planning-review:balance
 Title: Review balance
 Status: pending
+Question: Should the project rebalance the current work?
 Scope: project
 Inputs: []
 Input fingerprint: ${FINGERPRINT}
----
+${overrides}---
 
 # Planning Review
-`,
-  );
+`;
+
+const project = async (review: string) => {
+  const root = await createValidBearingRepo();
+  await writeFixture(root, ".bearing/state/planning-reviews/balance.md", review);
   const sync = await runSync(root);
   const records = await captureDecodedSourceInputs({
     repoRoot: root,
@@ -49,97 +32,73 @@ Input fingerprint: ${FINGERPRINT}
     diagnostics: sync.diagnostics,
     advisoryFreshness: sync.advisoryFreshness,
   });
-  const projected = buildDecisionProjection({ records, sitemapFingerprint: sync.fingerprint });
-  expect(projected.checks).toMatchObject({
-    validity: "available",
-    items: [{ id: "alignment-check:design", status: "open", target: "effort:test" }],
-  });
+  return buildDecisionProjection({ records, sitemapFingerprint: sync.fingerprint });
+};
+
+test("projects one project-wide pending Review into Attention", async () => {
+  const projected = await project(projectReview());
+
   expect(projected.reviews).toMatchObject({
     validity: "available",
-    items: [{ id: "planning-review:balance", status: "pending", scope: "project" }],
+    items: [
+      {
+        id: "planning-review:balance",
+        question: "Should the project rebalance the current work?",
+        scope: { kind: "project" },
+        status: "pending",
+      },
+    ],
   });
-  expect(projected.attention.map((item) => item.kind)).toEqual([
-    "alignment-check",
-    "planning-review",
+  expect(projected.attention).toMatchObject([
+    { kind: "planning-review", id: "planning-review:balance" },
   ]);
 });
 
-test("completed decisions remain readable without occupying Attention", async () => {
-  const root = await createValidBearingRepo();
-  await writeFixture(
-    root,
-    ".bearing/state/planning-reviews/done.md",
-    `---
-Type: planning-review
-ID: planning-review:done
-Title: Completed review
-Status: completed
-Scope: project
-Inputs: []
-Input fingerprint: ${FINGERPRINT}
-Resolution:
-  Accepted decision: Continue.
-  Rationale: The balance is accepted.
-  Changed references: []
----
-
-# Planning Review
-`,
+test("projects one exact-target Review through the same lifecycle", async () => {
+  const review = projectReview().replace(
+    "Scope: project",
+    "Scope: exact-target\nTarget: effort:test",
   );
-  const sync = await runSync(root);
-  const records = await captureDecodedSourceInputs({
-    repoRoot: root,
-    packageVersion: "0.0.0-test",
-    inputs: sync.inputs,
-    sitemapFingerprint: sync.fingerprint,
-    diagnostics: sync.diagnostics,
-    advisoryFreshness: sync.advisoryFreshness,
-  });
-  const projected = buildDecisionProjection({ records, sitemapFingerprint: sync.fingerprint });
+  const projected = await project(review);
+
   expect(projected.reviews).toMatchObject({
     validity: "available",
-    items: [{ status: "completed", resolution: { acceptedDecision: "Continue." } }],
+    items: [{ scope: { kind: "exact-target", target: "effort:test" } }],
+  });
+});
+
+test("completed Review remains immutable history and leaves Attention", async () => {
+  const completed = projectReview(
+    `Resolution:\n  Accepted decision: Continue.\n  Accepted at: 2026-08-08T00:00:00.000Z\n  Rationale: The balance is accepted.\n  Changed references:\n    - effort:test\n`,
+  ).replace("Status: pending", "Status: completed");
+  const projected = await project(completed);
+
+  expect(projected.reviews).toMatchObject({
+    validity: "available",
+    items: [
+      {
+        status: "completed",
+        resolution: {
+          acceptedDecision: "Continue.",
+          acceptedAt: {
+            availability: "available",
+            precision: "fractional-second",
+            value: "2026-08-08T00:00:00.000Z",
+          },
+        },
+      },
+    ],
   });
   expect(projected.attention).toEqual([]);
 });
 
-test("isolates a formatted Check without hiding an independent pending Review", async () => {
-  // Given: one open Check has a formatted title and one pending Review is trustworthy.
+test("rejects removed Alignment Check records instead of projecting compatibility state", async () => {
   const root = await createValidBearingRepo();
   await writeFixture(
     root,
-    ".bearing/state/alignment-checks/formatted.md",
-    `---
-Type: alignment-check
-ID: alignment-check:formatted
-Title: "**Confirm alignment**"
-Status: open
-Target: effort:test
-Inputs: []
-Input fingerprint: ${FINGERPRINT}
----
-
-# Alignment Check
-`,
+    ".bearing/state/alignment-checks/legacy.md",
+    `---\nType: alignment-check\nID: alignment-check:legacy\nTitle: Legacy check\nStatus: open\nTarget: effort:test\nInputs: []\nInput fingerprint: ${FINGERPRINT}\n---\n`,
   );
-  await writeFixture(
-    root,
-    ".bearing/state/planning-reviews/trustworthy.md",
-    `---
-Type: planning-review
-ID: planning-review:trustworthy
-Title: Review sequence
-Status: pending
-Scope: Entire project
-Inputs: []
-Input fingerprint: ${FINGERPRINT}
----
-
-# Planning Review
-`,
-  );
-
-  // When: decisions are projected into their scoped collections and Attention.
   const sync = await runSync(root);
   const records = await captureDecodedSourceInputs({
     repoRoot: root,
@@ -151,112 +110,7 @@ Input fingerprint: ${FINGERPRINT}
   });
   const projected = buildDecisionProjection({ records, sitemapFingerprint: sync.fingerprint });
 
-  // Then: the Check is invalid, the Review remains available, and only it reaches Attention.
-  expect(projected.checks.validity).toBe("invalid");
-  expect(projected.reviews.validity).toBe("available");
-  expect(projected.attention).toMatchObject([
-    { kind: "planning-review", id: "planning-review:trustworthy" },
-  ]);
-});
-
-test("isolates structurally invalid Check and Review references per record", async () => {
-  // Given: each collection has one healthy decision and one invalid projected reference.
-  const root = await createValidBearingRepo();
-  await writeFixture(
-    root,
-    ".bearing/state/alignment-checks/healthy.md",
-    `---
-Type: alignment-check
-ID: alignment-check:healthy
-Title: Confirm healthy alignment
-Status: open
-Target: effort:test
-Inputs: []
-Input fingerprint: ${FINGERPRINT}
----
-
-# Alignment Check
-`,
-  );
-  await writeFixture(
-    root,
-    ".bearing/state/alignment-checks/outside.md",
-    `---
-Type: alignment-check
-ID: alignment-check:outside
-Title: Confirm outside alignment
-Status: open
-Target: ../outside.md
-Inputs: []
-Input fingerprint: ${FINGERPRINT}
----
-
-# Alignment Check
-`,
-  );
-  await writeFixture(
-    root,
-    ".bearing/state/planning-reviews/healthy.md",
-    `---
-Type: planning-review
-ID: planning-review:healthy
-Title: Review healthy sequence
-Status: pending
-Scope: Entire project
-Inputs: []
-Input fingerprint: ${FINGERPRINT}
----
-
-# Planning Review
-`,
-  );
-  await writeFixture(
-    root,
-    ".bearing/state/planning-reviews/outside.md",
-    `---
-Type: planning-review
-ID: planning-review:outside
-Title: Review outside change
-Status: completed
-Scope: Entire project
-Inputs: []
-Input fingerprint: ${FINGERPRINT}
-Resolution:
-  Accepted decision: Keep the project boundary.
-  Rationale: The outside reference is not trustworthy.
-  Changed references:
-    - ../outside.md
----
-
-# Planning Review
-`,
-  );
-
-  // When: the records cross their collection projection boundaries.
-  const sync = await runSync(root);
-  const records = await captureDecodedSourceInputs({
-    repoRoot: root,
-    packageVersion: "0.0.0-test",
-    inputs: sync.inputs,
-    sitemapFingerprint: sync.fingerprint,
-    diagnostics: sync.diagnostics,
-    advisoryFreshness: sync.advisoryFreshness,
-  });
-  const projected = buildDecisionProjection({ records, sitemapFingerprint: sync.fingerprint });
-
-  // Then: each collection remains partial and only trustworthy open decisions reach Attention.
-  expect(projected.checks).toMatchObject({
-    validity: "partial",
-    items: [{ id: "alignment-check:healthy" }],
-    issues: [{ code: "invalid-bearing-schema" }],
-  });
-  expect(projected.reviews).toMatchObject({
-    validity: "partial",
-    items: [{ id: "planning-review:healthy" }],
-    issues: [{ code: "invalid-bearing-schema" }],
-  });
-  expect(projected.attention).toMatchObject([
-    { kind: "alignment-check", id: "alignment-check:healthy" },
-    { kind: "planning-review", id: "planning-review:healthy" },
-  ]);
+  expect(projected.reviews).toEqual({ validity: "available", items: [] });
+  expect(projected.attention).toEqual([]);
+  expect(records.some((record) => record.locator.includes("/alignment-checks/"))).toBe(false);
 });

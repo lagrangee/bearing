@@ -1,6 +1,5 @@
 import type { z } from "zod";
 import type {
-  AlignmentCheck,
   AssetProjection,
   AttentionItem,
   Authority,
@@ -52,7 +51,6 @@ export type OverviewModelData = ProjectContext &
     roadmaps: CollectionProjection<Roadmap>;
     gates: CollectionProjection<MilestoneGate>;
     efforts: CollectionProjection<Effort>;
-    checks: CollectionProjection<AlignmentCheck>;
     reviews: CollectionProjection<PlanningReview>;
     diagnostics: readonly SnapshotDiagnostic[];
     sources: readonly SourceRecord[];
@@ -77,7 +75,6 @@ export type AssetsModelData = ProjectContext &
     efforts: CollectionProjection<Effort>;
     authorities: CollectionProjection<Authority>;
     assets: CollectionProjection<AssetProjection>;
-    checks: CollectionProjection<AlignmentCheck>;
     reviews: CollectionProjection<PlanningReview>;
     referenceTitles?: readonly Readonly<{ reference: string; title: string }>[] | undefined;
     sources: readonly SourceRecord[];
@@ -88,7 +85,6 @@ export type AssetsProjectData = AssetsModelData &
 export type AuditModelData = ProjectContext &
   Readonly<{
     audit: SingletonProjection<PlanningAudit>;
-    checks: CollectionProjection<AlignmentCheck>;
     reviews: CollectionProjection<PlanningReview>;
   }>;
 export type AuditProjectData = AuditModelData &
@@ -101,7 +97,6 @@ export type LineageModelData = ProjectContext &
     efforts: CollectionProjection<Effort>;
     authorities: CollectionProjection<Authority>;
     assets: CollectionProjection<AssetProjection>;
-    checks: CollectionProjection<AlignmentCheck>;
     reviews: CollectionProjection<PlanningReview>;
     lineage: PlanningLineageProjection;
     providerObservations: readonly ProviderObservation[];

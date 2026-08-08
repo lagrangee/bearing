@@ -110,11 +110,6 @@ const auditRecord = canonicalRecord(
   "planning-audit",
   "planning-audit:current",
 );
-const checkRecord = canonicalRecord(
-  ".bearing/state/alignment-checks/portal.md",
-  "alignment-check",
-  "alignment-check:portal",
-);
 const reviewRecord = canonicalRecord(
   ".bearing/state/planning-reviews/sequence.md",
   "planning-review",
@@ -130,7 +125,6 @@ const effortModelSource = effortModelRecord.reference;
 const effortPortalSource = effortPortalRecord.reference;
 const assetSource = assetRecord.reference;
 const auditSource = auditRecord.reference;
-const checkSource = checkRecord.reference;
 const reviewSource = reviewRecord.reference;
 const diagnosticReference = `diagnostic:${"c".repeat(64)}`;
 const availableItems = { validity: "available", items: [] } as const;
@@ -348,7 +342,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 19,
+    schemaVersion: 20,
     producer: { packageVersion: "0.0.0-test" },
     basis: { sitemapVersion: 1, sitemapFingerprint: BASIS },
     summary: {
@@ -528,19 +522,6 @@ export const createProjectOverviewFixture = () => {
         },
       ],
     },
-    checks: {
-      validity: "available",
-      items: [
-        {
-          id: "alignment-check:portal",
-          title: "Confirm the Portal revision",
-          source: checkSource,
-          citations: [],
-          status: "open",
-          target: "roadmap:portal",
-        },
-      ],
-    },
     reviews: {
       validity: "available",
       items: [
@@ -550,7 +531,8 @@ export const createProjectOverviewFixture = () => {
           source: reviewSource,
           citations: [],
           status: "pending",
-          scope: "Current Roadmap sequencing",
+          question: "Should the current Roadmap sequence change?",
+          scope: { kind: "exact-target", target: "roadmap:portal" },
         },
       ],
     },
@@ -624,12 +606,6 @@ export const createProjectOverviewFixture = () => {
     attention: [
       { kind: "structural-diagnostic", diagnosticReference },
       {
-        kind: "alignment-check",
-        id: "alignment-check:portal",
-        title: "Confirm the Portal revision",
-        source: checkSource,
-      },
-      {
         kind: "planning-review",
         id: "planning-review:sequence",
         title: "Review the current sequence",
@@ -657,7 +633,6 @@ export const createProjectOverviewFixture = () => {
       portalSpecRecord,
       portalIncomingRecord,
       auditRecord,
-      checkRecord,
       reviewRecord,
     ],
   } as const;
@@ -678,7 +653,6 @@ export const createProjectOverviewFixture = () => {
       efforts: candidate.efforts,
       authorities: candidate.authorities,
       assets: candidate.assets,
-      checks: candidate.checks,
       reviews: candidate.reviews,
       providerObservations: candidate.providerObservations,
       providerObservationSelections,

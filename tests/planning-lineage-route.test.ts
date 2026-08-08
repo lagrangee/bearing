@@ -12,7 +12,6 @@ const subjects: readonly PlanningLineageSubject[] = [
   { kind: "gate", id: "gate:two" },
   { kind: "effort", id: "effort:portal" },
   { kind: "authority", id: "authority:architecture" },
-  { kind: "alignment-check", id: "alignment-check:portal" },
   { kind: "planning-review", id: "planning-review:sequence" },
   { kind: "asset", id: "asset:planning-model-evidence" },
 ];

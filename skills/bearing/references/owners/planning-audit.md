@@ -17,14 +17,16 @@ and coordinate their promotion, but it cannot accept decisions or mutate other p
    finding states consequence and evidence.
 3. Replace only the current Audit result authorized by this explicit operation. A material
    unresolved finding may create or refresh one evidence-matched pending Review only when Planning
-   Review is already in the accepted write set. Completion: ordinary findings stay advisory and
-   material questions have one owner.
+   Review is already in the accepted write set. Reuse an equivalent pending Question, Scope, and
+   exact `Target` when the Scope is `exact-target` instead of creating a duplicate. Completion:
+   ordinary findings stay advisory and material questions have one owner.
 
 ## After this operation
 
 - **Required:** Validate Audit and any co-owned Review through affected-target inspection.
 - **Consider:** Offer owner-specific changes only as recommendations.
 - **Do not infer:** Audit evidence accepts a decision, changes lifecycle, or repairs planning.
+- **Do not infer:** Sync, inspection, Portal use, or a changed input starts or replaces an Audit.
 
 ## Completion criterion
 

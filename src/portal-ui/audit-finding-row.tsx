@@ -1,5 +1,5 @@
 import { Icons } from "./icons";
-import { decisionKindLabel, type ProjectAuditFindingRow } from "./project-audit-model";
+import type { ProjectAuditFindingRow } from "./project-audit-model";
 
 const rowContent = (row: ProjectAuditFindingRow) => {
   const affectedCount = row.finding.affectedReferences.length;
@@ -9,7 +9,7 @@ const rowContent = (row: ProjectAuditFindingRow) => {
       ? "No decision target"
       : promotion.available
         ? `${promotion.title} · ${promotion.status}`
-        : `${decisionKindLabel(promotion.kind)} unavailable · ${promotion.id}`;
+        : `Planning Review unavailable · ${promotion.id}`;
   return (
     <>
       <span className="audit-finding-copy">

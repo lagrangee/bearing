@@ -21,7 +21,6 @@ const STATE_DIRECTORIES = [
   ".bearing/state/roadmaps",
   ".bearing/state/milestone-gates",
   ".bearing/state/authorities",
-  ".bearing/state/alignment-checks",
   ".bearing/state/planning-reviews",
 ];
 

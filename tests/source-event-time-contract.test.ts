@@ -135,7 +135,8 @@ test("records one accepted decision time and references it from Authority adopti
     ID: "planning-review:test",
     Title: "Test",
     Status: "completed",
-    Scope: "Project",
+    Question: "Should the project adopt the Asset?",
+    Scope: "project",
     Inputs: [],
     "Input fingerprint": `sha256:${"a".repeat(64)}`,
     Resolution: {

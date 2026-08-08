@@ -74,7 +74,8 @@ const authorityFixture = (): ProjectSnapshot => {
             source: reviewSource,
             citations: [],
             status: "completed",
-            scope: "Adopt the design baseline.",
+            question: "Should the project adopt the design baseline?",
+            scope: { kind: "project" },
             resolution: {
               acceptedDecision: "Adopt the design.",
               acceptedAt: { availability: "unavailable" },

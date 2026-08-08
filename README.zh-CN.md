@@ -2,7 +2,7 @@
 
 ## 始终与你的 coding agents 保持在同一页上。
 
-Bearing 为长期 coding-agent 项目提供一个本地、可检查的项目治理层。它把已经接受的方向、决策、证据和 alignment checks 保持可见，让你和 agent 每次开始新工作时都能回到同一幅项目全貌，而不是依赖旧对话里脆弱的记忆。
+Bearing 为长期 coding-agent 项目提供一个本地、可检查的项目治理层。它把已经接受的方向、Planning Reviews、证据和 current Audit findings 保持可见，让你和 agent 每次开始新工作时都能回到同一幅项目全貌，而不是依赖旧对话里脆弱的记忆。
 
 Local-first · 开源 Public Preview · Codex verified path · Claude Code target surface 等待维护者验证 · Matt-native 本地 Markdown work management
 
@@ -32,7 +32,7 @@ Matt-native Maps 与 Tickets
 Portal 读取同一幅项目全貌
 ```
 
-Bearing 负责长期项目治理：Project Summary、Roadmaps、Milestone Gates、Effort bindings、Authorities、Assets、Alignment Checks、Planning Audit，以及证据关系。
+Bearing 负责长期项目治理：Project Summary、Roadmaps、Milestone Gates、Effort bindings、Authorities、Assets、Planning Reviews、Planning Audit，以及证据关系。
 
 你的 work-management adapter 继续负责 Maps、Tickets、依赖、claims、blockers 与 resolution。你的 executor 继续负责实现和验证。Bearing 连接这些层次，但不会伪装成它们的全部。
 

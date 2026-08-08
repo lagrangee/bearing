@@ -44,7 +44,6 @@ export type AssetConsistencySnapshot = Readonly<{
   efforts: Collection<CitedNode>;
   authorities: Collection<Authority>;
   assets: Collection<Asset>;
-  checks: Collection<CitedNode>;
   reviews: Collection<CitedNode>;
   sources: readonly Readonly<{
     reference: string;
@@ -53,7 +52,7 @@ export type AssetConsistencySnapshot = Readonly<{
     binding?: Readonly<{ role: string; identity: string }> | undefined;
   }>[];
 }>;
-type CitedCollectionName = "roadmaps" | "gates" | "efforts" | "authorities" | "checks" | "reviews";
+type CitedCollectionName = "roadmaps" | "gates" | "efforts" | "authorities" | "reviews";
 type CitedCollection = readonly [CitedCollectionName, Collection<CitedNode>];
 const trusted = <T>(collection: Collection<T>): readonly T[] =>
   collection.validity === "invalid" ? [] : collection.items;
@@ -65,7 +64,6 @@ const citedCollections = (snapshot: AssetConsistencySnapshot): readonly CitedCol
   ["gates", snapshot.gates],
   ["efforts", snapshot.efforts],
   ["authorities", snapshot.authorities],
-  ["checks", snapshot.checks],
   ["reviews", snapshot.reviews],
 ];
 const addIssue = (context: RefinementCtx, path: readonly (string | number)[], message: string) =>
@@ -77,9 +75,6 @@ const canonicalRoleFor = (
   if (reference.startsWith("gate:")) return { role: "milestone-gate", type: "milestone-gate" };
   if (reference.startsWith("effort:")) return { role: "effort", type: "effort" };
   if (reference.startsWith("authority:")) return { role: "authority", type: "authority" };
-  if (reference.startsWith("alignment-check:")) {
-    return { role: "alignment-check", type: "alignment-check" };
-  }
   if (reference.startsWith("planning-review:")) {
     return { role: "planning-review", type: "planning-review" };
   }

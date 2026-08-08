@@ -55,7 +55,7 @@ Review 这个 Gate 是否 ready for passage，并列出 evidence 与 exceptions�
 
 ## 运行 Planning Audit 或 Next Work
 
-Planning Audit 查找实质 drift。Next Work Guidance 给出一个主方向和两个 alternatives。它们本身都不会启动实现。
+显式 Planning Audit 查找实质 drift，并可 promotion 一个去重后的 pending Planning Review。Next Work 请求只返回 transient Agent judgment：一个有证据的方向，以及确有意义的 alternatives。它们本身都不会启动实现。
 
 ## 检查 Bearing Scope
 
@@ -63,4 +63,4 @@ Bearing Scope Review 比 Project Orientation 更窄：它只比较当前 managed
 
 ## 使用 Portal
 
-当你需要视觉化检查 Project Brief、Project Summary、active Roadmap focus、managed-scope Attention、managed contributing work 和 evidence provenance 时使用 Portal。Standalone native-work inventory 不进入 Portal。Next Work Guidance 与 mutation 仍应留在所属 Agent Surface flow 中。
+当你需要视觉化检查 Project Brief、Project Summary、active Roadmap focus、managed-scope Attention、managed contributing work 和 evidence provenance 时使用 Portal。Planning Audit 页面分为 current review、等待 attention 的 decisions，以及 accepted decision history。Standalone native-work inventory 不进入 Portal。Transient Next Work judgment 与所有 mutation 仍应留在所属 Agent Surface flow 中。

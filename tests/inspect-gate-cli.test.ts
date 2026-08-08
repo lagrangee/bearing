@@ -152,22 +152,6 @@ Use deterministic local modules.
   );
   await writeFixture(
     root,
-    ".bearing/state/alignment-checks/second.md",
-    `---
-Type: alignment-check
-ID: alignment-check:second
-Title: Second Effort Alignment
-Status: open
-Target: effort:second
-Inputs: []
-Input fingerprint: sha256:${"a".repeat(64)}
----
-
-# Alignment Check
-`,
-  );
-  await writeFixture(
-    root,
     ".bearing/state/assets.md",
     `---
 Type: asset-registry
@@ -254,7 +238,6 @@ test("real inspect gate command returns one structured captured closure and writ
         blockingDiagnosticCount: 0,
       },
     },
-    alignmentChecks: [{ value: { id: "alignment-check:second" } }],
     evidence: [{ value: { id: "asset:second-evidence" } }],
     source: { displayLocator: ".bearing/state/efforts/second.md" },
   });
@@ -339,7 +322,6 @@ test("real inspect roadmap and effort commands use the same complete typed closu
     ".bearing/state/milestone-gates/test.md",
     "evidence/second.md",
     ".bearing/state/assets.md",
-    ".bearing/state/alignment-checks/second.md",
     ".bearing/state/authorities/architecture.md",
     ".scratch/second/map.md",
     ".scratch/second/issues/01-finish.md",
@@ -405,7 +387,6 @@ test("real inspect roadmap and effort commands use the same complete typed closu
         conclusion: "Complete",
         binding: { state: "bound", effortIds: ["effort:second"] },
       },
-      alignmentChecks: [{ value: { id: "alignment-check:second" } }],
       evidence: [{ value: { id: "asset:second-evidence" } }],
     },
   });

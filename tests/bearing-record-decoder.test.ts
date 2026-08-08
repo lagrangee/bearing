@@ -15,12 +15,10 @@ test("decodes every owned Bearing Record once behind one generation interface", 
   const decoded = decodeBearingRecordGeneration(generation);
 
   expect(decoded.records.map((record) => record.type)).toEqual([
-    "alignment-check",
     "asset-registry",
     "authority",
     "effort",
     "milestone-gate",
-    "next-work-guidance",
     "planning-audit",
     "planning-review",
     "project-summary",
@@ -30,8 +28,8 @@ test("decodes every owned Bearing Record once behind one generation interface", 
   expect(decoded.records.every((record) => record.trust === "available")).toBe(true);
   expect(decoded.metrics).toEqual({
     capturedInputCount: generation.records.length,
-    bearingRecordCount: 11,
-    decodeCount: 11,
+    bearingRecordCount: 9,
+    decodeCount: 9,
   });
   expect(decoded.records.some((record) => record.locator.endsWith("/map.md"))).toBe(false);
   expect(decoded.records.some((record) => record.locator.endsWith("/issues/01-finish.md"))).toBe(
@@ -157,12 +155,14 @@ test("checks generation-wide Bearing Record identity, singleton, and reference i
   await addRemainingRecordTypes(root);
   await writeFixture(
     root,
-    ".bearing/state/alignment-checks/missing.md",
+    ".bearing/state/planning-reviews/missing.md",
     `---
-Type: alignment-check
-ID: alignment-check:missing
+Type: planning-review
+ID: planning-review:missing
 Title: Missing target
-Status: open
+Status: pending
+Question: Should the missing target remain current?
+Scope: exact-target
 Target: effort:missing
 Inputs: []
 Input fingerprint: ${fingerprint}
@@ -321,31 +321,6 @@ test("strips unknown frontmatter fields from normalized Decoder output", async (
   expect(JSON.stringify(decoded.records[0])).not.toContain("leak");
 });
 
-test("checks stable references decoded from Guidance body content", async () => {
-  const root = await createValidBearingRepo();
-  await addRemainingRecordTypes(root);
-  const locator = ".bearing/state/next-work-guidance.md";
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
-  const guidance = generation.records.find((record) => record.locator === locator);
-  if (guidance === undefined) throw new Error("Missing Guidance fixture.");
-  const source = guidance.source
-    .replace("roadmap:test", "roadmap:missing")
-    .replace("gate:test", "gate:missing")
-    .replace("effort:test", "effort:missing");
-  const record = { ...guidance, source, bytes: Buffer.from(source, "utf8") };
-
-  const decoded = decodeBearingRecordGeneration({
-    fingerprint: generation.fingerprint,
-    records: [record],
-  });
-
-  expect(decoded.records[0]?.trust).toBe("available");
-  expect(
-    decoded.diagnostics.filter((entry) => entry.code === "broken-canonical-reference"),
-  ).toHaveLength(3);
-});
-
 test("checks every stable ID prefix carried by Asset references", async () => {
   const root = await createValidBearingRepo();
   await writeFixture(
@@ -358,12 +333,12 @@ Assets:
     Title: Review evidence
     Kind: verification-report
     Location: evidence/review.md
-    Owner: planning-review:missing
+    Owner: effort:missing
     Producer:
       Kind: agent
       Name: fixture
     Lifecycle source: native
-    Produced for: next-work-guidance:missing
+    Produced for: planning-review:missing
 ---
 
 # Asset Registry
@@ -403,29 +378,14 @@ No additional baseline is adopted.
   );
   await writeFixture(
     root,
-    ".bearing/state/alignment-checks/test.md",
-    `---
-Type: alignment-check
-ID: alignment-check:test
-Title: Confirm the test
-Status: open
-Target: effort:test
-Inputs: []
-Input fingerprint: ${fingerprint}
----
-
-# Alignment Check
-`,
-  );
-  await writeFixture(
-    root,
     ".bearing/state/planning-reviews/test.md",
     `---
 Type: planning-review
 ID: planning-review:test
 Title: Review the test
 Status: pending
-Scope: Entire test project
+Question: Should the test project continue?
+Scope: project
 Inputs: []
 Input fingerprint: ${fingerprint}
 ---
@@ -452,50 +412,6 @@ Skipped targets: []
 ## Findings
 
 No material findings.
-`,
-  );
-  await writeFixture(
-    root,
-    ".bearing/state/next-work-guidance.md",
-    `---
-Type: next-work-guidance
-ID: next-work-guidance:current
-Title: Current Guidance
-Generated at: 2026-07-18T00:00:00Z
-Inputs: []
-Input fingerprint: ${fingerprint}
-Semantic coverage: absent
----
-
-# Next Work Guidance
-
-## Primary Recommendation
-
-### Continue the test
-
-Keep the current fixture coherent.
-
-#### Supporting References
-
-- \`roadmap:test\`
-
-## Alternatives
-
-### Review the Gate
-
-Inspect the active decision boundary.
-
-#### Supporting References
-
-- \`gate:test\`
-
-### Review the Effort
-
-Inspect the current native work scope.
-
-#### Supporting References
-
-- \`effort:test\`
 `,
   );
 };

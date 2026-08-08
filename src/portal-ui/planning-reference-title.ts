@@ -2,7 +2,7 @@ import type { LineageModelData } from "./project-data";
 
 type PlanningReferenceData = Pick<
   LineageModelData,
-  "roadmaps" | "gates" | "efforts" | "authorities" | "checks" | "reviews" | "assets" | "sources"
+  "roadmaps" | "gates" | "efforts" | "authorities" | "reviews" | "assets" | "sources"
 > &
   Readonly<{
     referenceTitles?: readonly Readonly<{ reference: string; title: string }>[] | undefined;
@@ -13,7 +13,6 @@ const canonicalRecords = (snapshot: PlanningReferenceData) => [
   ...(snapshot.gates.validity === "invalid" ? [] : snapshot.gates.items),
   ...(snapshot.efforts.validity === "invalid" ? [] : snapshot.efforts.items),
   ...(snapshot.authorities.validity === "invalid" ? [] : snapshot.authorities.items),
-  ...(snapshot.checks.validity === "invalid" ? [] : snapshot.checks.items),
   ...(snapshot.reviews.validity === "invalid" ? [] : snapshot.reviews.items),
   ...(snapshot.assets.validity === "invalid" ? [] : snapshot.assets.items),
 ];

@@ -284,6 +284,23 @@ describe("public Bearing Agent surface", () => {
     }
   });
 
+  test("Next Work, Audit, and Review preserve the explicit decision lifecycle", async () => {
+    const nextWork = await readRuntime("references/journeys/next-work.md");
+    const audit = await readRuntime("references/owners/planning-audit.md");
+    const review = await readRuntime("references/owners/planning-review.md");
+
+    expect(nextWork).toMatch(/transient Agent judgment[\s\S]*conversation only/iu);
+    expect(nextWork).toMatch(/no snapshot[\s\S]*queue[\s\S]*selection is persisted/iu);
+    expect(audit).toMatch(/explicit Planning Audit request[\s\S]*Replace only the current Audit/iu);
+    expect(audit).toMatch(/create or refresh[\s\S]*Question, Scope[\s\S]*exact `Target`/iu);
+    expect(audit).toMatch(/reuse[\s\S]*instead of creating a duplicate/iu);
+    expect(review).toMatch(/clear direct instruction[\s\S]*accepts one candidate/iu);
+    expect(review).toMatch(/completed Review history[\s\S]*later question gets a new identity/iu);
+    expect(review).toMatch(
+      /Audit, Sync, inspection, Portal use, or evidence completion[\s\S]*changes\s+Review\s+status/iu,
+    );
+  });
+
   test("fresh-Agent contract cases expose exact one-hop selection and observable effects", async () => {
     const { body } = await readSkill();
     const cases = [

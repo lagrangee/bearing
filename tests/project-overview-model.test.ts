@@ -33,14 +33,9 @@ test("projects Overview in accepted semantic order without re-sorting planning t
 test("resolves Attention and provenance only from typed Snapshot references", () => {
   const model = buildProjectOverviewModel(snapshotFixture());
 
-  expect(model.attention.map((item) => item.state)).toEqual([
-    "available",
-    "available",
-    "available",
-  ]);
+  expect(model.attention.map((item) => item.state)).toEqual(["available", "available"]);
   expect(model.attention.map((item) => item.title)).toEqual([
     "Project Summary has one malformed section.",
-    "Confirm the Portal revision",
     "Review the current sequence",
   ]);
   expect(model.summary.source?.displayLocator).toBe(".bearing/state/project-summary.md");

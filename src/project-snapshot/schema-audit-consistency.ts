@@ -35,7 +35,7 @@ type Finding = Readonly<{
   evidenceSourceReferences: readonly string[];
   promotion?:
     | Readonly<{
-        kind: "alignment-check" | "planning-review";
+        kind: "planning-review";
         id: string;
       }>
     | undefined;
@@ -44,7 +44,6 @@ type Audit = Readonly<{ source: string; findings: readonly Finding[] }>;
 
 export type AuditConsistencySnapshot = Readonly<{
   basis: Readonly<{ sitemapFingerprint: string }>;
-  checks: Collection<Readonly<{ id: string }>>;
   reviews: Collection<Readonly<{ id: string }>>;
   audit: Singleton<Audit>;
   sources: readonly SourceRecord[];
@@ -64,9 +63,7 @@ const fragmentOrdinal = (fragment: string | undefined): number | undefined => {
 
 const promotionAvailable = (finding: Finding, snapshot: AuditConsistencySnapshot): boolean => {
   if (finding.promotion === undefined) return true;
-  const collection =
-    finding.promotion.kind === "alignment-check" ? snapshot.checks : snapshot.reviews;
-  return trustedItems(collection).some((decision) => decision.id === finding.promotion?.id);
+  return trustedItems(snapshot.reviews).some((decision) => decision.id === finding.promotion?.id);
 };
 
 const validateFinding = (
