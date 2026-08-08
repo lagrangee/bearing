@@ -8,7 +8,8 @@ Most users should start with:
 npx @lagrangee/bearing
 ```
 
-The wizard is the public install path. The explicit commands below are for agents, smoke tests, and advanced recovery.
+The wizard is the public Global Kit maintenance path. The explicit commands below are for agents,
+smoke tests, and advanced recovery.
 
 ## Help
 
@@ -17,7 +18,11 @@ bearing --help
 bearing --version
 ```
 
-## Install user-level kit
+## Maintain the user-level Global Kit
+
+Run `bearing` with no arguments in an interactive terminal. Select Install, Update, Repair, or
+Global Uninstall. Cancellation writes nothing. Install, Update, and Repair use the same complete
+bundle transaction described below.
 
 ```bash
 bearing install --surface agent-skills
@@ -175,8 +180,13 @@ Portal runs in the foreground and prints a loopback URL. `BEARING_PORT` can over
 
 Use `bearing catalog --help` and current command help for rename, forget, remove, relink, and confirmed reset operations. Reset creates an empty SQLite Catalog; run Setup again to re-register repositories. Catalog operations can affect user-level project registration; do not run them blindly.
 
-## Package uninstall boundary
+## Global Uninstall and package-manager boundary
 
-Bearing has no repository-scoped package-uninstall command. Remove an npm-owned package installation
-with the package manager that installed it, for example `npm uninstall -g @lagrangee/bearing`.
-Package removal does not deactivate or purge repositories and does not delete Project Catalog data.
+Wizard Global Uninstall removes `$HOME/.bearing/kit/current`, the canonical CLI shim, and only
+Bearing-managed Agent Surface pointers. It does not read or change the Project Catalog,
+repository canonical state, Provider Configuration, profiles, artifacts, or native work. It is not
+repository Deactivation or repository-state removal, and Bearing has no repository-scoped package
+uninstall command.
+
+An npm-owned package installation remains owned by npm. Remove it separately with the package
+manager that installed it, for example `npm uninstall -g @lagrangee/bearing`.

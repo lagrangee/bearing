@@ -82,12 +82,16 @@ Issues and Discussions are public GitHub data. Do not submit tokens, secrets, pr
 npx @lagrangee/bearing
 ```
 
-The public Preview install path is a no-argument wizard. It previews managed targets before writing, installs the version-compatible CLI and single `bearing` Agent Surface skill, and does not initialize a repository or launch Portal during global installation.
+The public Preview maintenance path is one no-argument terminal wizard with Install, Update,
+Repair, and Global Uninstall choices. Install, Update, and Repair preview the managed targets and
+reuse one version-compatible bundle transaction. They do not initialize a repository or launch
+Portal. Global Uninstall removes only that bundle, its CLI shim, and Bearing-managed Agent Surface
+pointers; it preserves the Project Catalog and every repository.
 
 Rerun the same command when you choose to update or repair Bearing. Updates stage one complete bundle
 and either switch it as a unit or restore the previous complete bundle. Bearing performs no
-background update check. Repository deactivation, repository-state purge, explicit package
-downgrade, and package-manager uninstall are separate recovery operations; see
+background update check. Repository deactivation, repository-state removal, explicit package
+downgrade, and package-manager uninstall are separate operations; see
 [Troubleshooting](docs/troubleshooting.md).
 
 Advanced users and agents can use explicit commands; see [CLI reference](docs/cli.md).

@@ -34,6 +34,15 @@ export type InstalledProduct = Readonly<{
       environment?: NodeJS.ProcessEnv;
     }>,
   ) => Promise<InstalledProductCommandResult>;
+  runTerminal: (
+    args: readonly string[],
+    input: string,
+    options?: Readonly<{
+      cwd?: string;
+      observeRoots?: readonly string[];
+      environment?: NodeJS.ProcessEnv;
+    }>,
+  ) => Promise<InstalledProductCommandResult>;
   dispose: () => Promise<void>;
 }>;
 
@@ -41,15 +50,20 @@ type CommandResult = Readonly<{ exitCode: number; stdout: string; stderr: string
 
 const runCommand = async (
   command: readonly string[],
-  options: Readonly<{ cwd: string; environment: NodeJS.ProcessEnv }>,
+  options: Readonly<{ cwd: string; environment: NodeJS.ProcessEnv; input?: string }>,
 ): Promise<CommandResult> => {
   const child = Bun.spawn([...command], {
     cwd: options.cwd,
     env: options.environment,
-    stdin: "ignore",
+    stdin: options.input === undefined ? "ignore" : "pipe",
     stdout: "pipe",
     stderr: "pipe",
   });
+  if (options.input !== undefined) {
+    if (child.stdin === undefined) throw new Error("Interactive command stdin is unavailable.");
+    child.stdin.write(options.input);
+    child.stdin.end();
+  }
   const [exitCode, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -57,6 +71,25 @@ const runCommand = async (
   ]);
   return { exitCode, stdout, stderr };
 };
+
+const terminalCommand = (command: readonly string[]): readonly string[] => [
+  "python3",
+  "-c",
+  [
+    "import os, pty, sys",
+    "pid, master = pty.fork()",
+    "if pid == 0: os.execv(sys.argv[1], sys.argv[1:])",
+    "os.write(master, sys.stdin.buffer.read())",
+    "while True:",
+    "  try: data = os.read(master, 4096)",
+    "  except OSError: break",
+    "  if not data: break",
+    "  sys.stdout.buffer.write(data); sys.stdout.buffer.flush()",
+    "_, status = os.waitpid(pid, 0)",
+    "sys.exit(os.waitstatus_to_exitcode(status))",
+  ].join("\n"),
+  ...command,
+];
 
 const hash = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
@@ -175,6 +208,21 @@ export const installPackedProduct = async (): Promise<InstalledProduct> => {
         const result = await runCommand([cliPath, ...args], {
           cwd: options.cwd ?? projectRoot,
           environment: { ...environment, ...options.environment },
+        });
+        const after = await snapshotRoots(observeRoots);
+        return {
+          exitClass: exitClass(result),
+          ...result,
+          effects: compareSnapshots(before, after),
+        };
+      },
+      runTerminal: async (args, input, options = {}) => {
+        const observeRoots = options.observeRoots ?? [];
+        const before = await snapshotRoots(observeRoots);
+        const result = await runCommand(terminalCommand([cliPath, ...args]), {
+          cwd: options.cwd ?? projectRoot,
+          environment: { ...environment, ...options.environment },
+          input,
         });
         const after = await snapshotRoots(observeRoots);
         return {

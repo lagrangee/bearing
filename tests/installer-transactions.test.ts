@@ -2,7 +2,12 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { access, chmod, lstat, mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildInstallPlans } from "../src/install-manifest";
-import { applyInstallPlans, installKit, writeInstallTarget } from "../src/installer";
+import {
+  applyInstallPlans,
+  installKit,
+  uninstallGlobalKit,
+  writeInstallTarget,
+} from "../src/installer";
 import { makeTemporaryDirectory } from "./helpers";
 
 describe("Bearing kit installer", () => {
@@ -138,5 +143,31 @@ describe("Bearing kit installer", () => {
 
     await expect(access(join(homeDir, ".agents"))).rejects.toThrow();
     await expect(access(join(homeDir, ".bearing"))).rejects.toThrow();
+  });
+
+  test("reports exact cleanup locations and keeps exact-candidate Repair available", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-uninstall-cleanup-");
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+
+    await expect(
+      uninstallGlobalKit(homeDir, {
+        removeDetachedBundle: async () => {
+          throw new Error("injected cleanup failure");
+        },
+      }),
+    ).rejects.toThrow(/Outcome: partial[\s\S]*\.uninstall-bundle-[\s\S]*\.uninstall-links-/u);
+    await expect(access(join(homeDir, ".bearing/kit/current"))).rejects.toThrow();
+    await expect(access(join(homeDir, ".bearing/bin/bearing"))).rejects.toThrow();
+    await expect(access(join(homeDir, ".agents/skills/bearing"))).rejects.toThrow();
+
+    const repaired = await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills"],
+    });
+    expect(repaired.outcome).toBe("applied");
+    await access(join(homeDir, ".bearing/kit/current/package.json"));
+    await access(join(homeDir, ".bearing/bin/bearing"));
+    await access(join(homeDir, ".agents/skills/bearing/SKILL.md"));
   });
 });

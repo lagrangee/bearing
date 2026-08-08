@@ -30,7 +30,7 @@ import type {
   TargetPlan,
 } from "./install-manifest";
 import { buildBundlePlans } from "./install-manifest";
-import type { AgentSurface, InstallOptions, InstallResult } from "./types";
+import type { AgentSurface, GlobalUninstallResult, InstallOptions, InstallResult } from "./types";
 
 type FileSnapshot = Readonly<{
   kind: "file";
@@ -469,6 +469,21 @@ const removeEmptyDirectoryWhenPresent = async (target: string): Promise<void> =>
   }
 };
 
+const removeEmptyDirectoryIfEmpty = async (target: string): Promise<void> => {
+  try {
+    await rmdir(target);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTEMPTY")
+    ) {
+      return;
+    }
+    throw error;
+  }
+};
+
 const inspectManagedLink = async (
   target: string,
   expectedSource: string,
@@ -492,6 +507,28 @@ const inspectManagedLink = async (
     return { kind: "legacy-cli", target, bytes, mode: state.mode & 0o7777 };
   }
   throw new Error(`Installation symlink target conflicts with existing content: ${target}`);
+};
+
+const inspectOwnedInstalledEntry = async (
+  target: string,
+  expectedSource: string,
+  legacySource?: string,
+): Promise<ManagedLinkSnapshot | undefined> => {
+  const state = await inspectInstallPath(target);
+  if (state.kind === "missing") return undefined;
+  if (state.kind === "symbolic-link") {
+    const source = await readlink(target);
+    return source === expectedSource || normalizedLinkTarget(target, source) === expectedSource
+      ? { kind: "symlink", target, source }
+      : undefined;
+  }
+  if (legacySource === undefined || state.kind !== "file" || state.linkCount !== 1) {
+    return undefined;
+  }
+  const [bytes, legacyBytes] = await Promise.all([readFile(target), readFile(legacySource)]);
+  return bytes.equals(legacyBytes)
+    ? { kind: "legacy-cli", target, bytes, mode: state.mode & 0o7777 }
+    : undefined;
 };
 
 const restoreQuarantinedEntry = async (quarantine: string, target: string): Promise<void> => {
@@ -638,6 +675,38 @@ const removeManagedLink = async (
     throw new Error(`Managed-link removal requires an owned symlink: ${snapshot.target}`);
   }
   await quarantineExpectedSymlink(snapshot.target, snapshot.source, quarantine);
+  return {
+    original: snapshot,
+    expected: { kind: "missing" },
+    retiredOriginal: quarantine,
+  };
+};
+
+const removeManagedEntry = async (
+  snapshot: ManagedLinkSnapshot,
+  quarantine: string,
+): Promise<ManagedLinkMutation> => {
+  if (snapshot.kind === "symlink") return removeManagedLink(snapshot, quarantine);
+  if (snapshot.kind !== "legacy-cli") {
+    throw new Error(`Managed entry removal requires an owned target: ${snapshot.target}`);
+  }
+  await rename(snapshot.target, quarantine);
+  const state = await inspectInstallPath(quarantine);
+  if (
+    state.kind !== "file" ||
+    state.linkCount !== 1 ||
+    (state.mode & 0o7777) !== snapshot.mode ||
+    !(await readFile(quarantine)).equals(snapshot.bytes)
+  ) {
+    try {
+      await restoreQuarantinedEntry(quarantine, snapshot.target);
+    } catch (restoreError) {
+      throw new Error(`Managed entry removal preserved changed content: ${quarantine}`, {
+        cause: restoreError,
+      });
+    }
+    throw new Error(`Managed entry removal found changed content: ${snapshot.target}`);
+  }
   return {
     original: snapshot,
     expected: { kind: "missing" },
@@ -798,6 +867,10 @@ export type InstallTransactionHooks = Readonly<{
   afterObsoleteLinksInspected?: () => Promise<void> | void;
   afterObsoleteLinkQuarantined?: (target: string) => Promise<void> | void;
   afterCurrentMoved?: () => Promise<void> | void;
+}>;
+
+export type GlobalUninstallTransactionHooks = Readonly<{
+  removeDetachedBundle?: (target: string) => Promise<void>;
 }>;
 
 export const installKit = async (
@@ -994,5 +1067,91 @@ export const installKit = async (
     outcome: "applied",
     cliPath: cliTarget,
     changedTargets,
+  };
+};
+
+export const uninstallGlobalKit = async (
+  homeDirectory: string,
+  hooks: GlobalUninstallTransactionHooks = {},
+): Promise<GlobalUninstallResult> => {
+  const homeDir = resolve(homeDirectory);
+  const kitRoot = join(homeDir, ".bearing/kit");
+  const current = join(kitRoot, "current");
+  const currentState = await inspectInstallPath(current);
+  if (currentState.kind === "symbolic-link" || currentState.kind === "file") {
+    throw new Error(`Bearing current bundle must be a real directory: ${current}`);
+  }
+
+  const cliTarget = join(homeDir, ".bearing/bin/bearing");
+  const cliSource = join(current, "dist/cli.js");
+  const candidates = [
+    { target: cliTarget, source: cliSource, legacySource: cliSource },
+    ...managedSurfaceTargets(homeDir),
+    ...obsoleteSurfaceTargets(homeDir),
+  ];
+  const ownedEntries = (
+    await Promise.all(
+      candidates.map((candidate) =>
+        inspectOwnedInstalledEntry(
+          candidate.target,
+          candidate.source,
+          currentState.kind === "directory" && "legacySource" in candidate
+            ? candidate.legacySource
+            : undefined,
+        ),
+      ),
+    )
+  ).filter((entry): entry is ManagedLinkSnapshot => entry !== undefined);
+
+  if (currentState.kind === "missing" && ownedEntries.length === 0) {
+    return { outcome: "no-op", removedTargets: [] };
+  }
+
+  const transaction = randomUUID();
+  const linkTransaction = join(kitRoot, `.uninstall-links-${transaction}`);
+  const detachedBundle = join(kitRoot, `.uninstall-bundle-${transaction}`);
+  await ensureInstallDirectoryTargets(homeDir, [join(linkTransaction, "entry")]);
+  await mkdir(linkTransaction, { mode: 0o700 });
+  const mutations: ManagedLinkMutation[] = [];
+  let bundleDetached = false;
+  try {
+    for (const [index, entry] of ownedEntries.entries()) {
+      mutations.push(await removeManagedEntry(entry, join(linkTransaction, `entry-${index}`)));
+    }
+    if (currentState.kind === "directory") {
+      await rename(current, detachedBundle);
+      bundleDetached = true;
+    }
+  } catch (error) {
+    if (bundleDetached) await rename(detachedBundle, current);
+    for (const [index, mutation] of [...mutations].reverse().entries()) {
+      await restoreManagedLinkMutation(mutation, join(linkTransaction, `rollback-${index}`));
+    }
+    await removeEmptyDirectoryWhenPresent(linkTransaction);
+    throw new Error("Bearing Global Kit uninstall failed; managed targets were restored.", {
+      cause: error,
+    });
+  }
+
+  try {
+    if (bundleDetached) {
+      await (hooks.removeDetachedBundle ?? removeExactTree)(detachedBundle);
+    }
+    for (const mutation of mutations) await discardRetiredOriginal(mutation);
+    await removeEmptyDirectoryWhenPresent(linkTransaction);
+    await removeEmptyDirectoryIfEmpty(kitRoot);
+  } catch (error) {
+    throw new Error(
+      `Outcome: partial\nBearing Global Kit targets were detached, but cleanup is incomplete. Inspect only these exact recovery locations: ${detachedBundle}, ${linkTransaction}. Reinstall or Repair from the exact package candidate remains supported.`,
+      { cause: error },
+    );
+  }
+
+  return {
+    outcome: "applied",
+    removedTargets: [
+      ...(currentState.kind === "directory" ? [relative(homeDir, current)] : []),
+      ...ownedEntries.map((entry) => relative(homeDir, entry.target)),
+    ].sort(),
   };
 };

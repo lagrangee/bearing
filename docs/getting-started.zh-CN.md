@@ -18,7 +18,10 @@
 npx @lagrangee/bearing
 ```
 
-普通安装使用无参数 wizard。它会在写入前预览 managed targets，安装用户级 CLI 和 skill assets；不会自动初始化所有仓库。
+Global Kit maintenance 使用无参数 wizard。它提供 Install、Update、Repair 和 Global
+Uninstall。安装 actions 会预览 managed targets，且不会配置 repository 或启动 Portal。
+Global Uninstall 只移除 package-managed Global Kit targets，并保留 Project Catalog 和
+repository state。
 
 用户级 Bearing skill 在任何仓库中都保留显式 Bearing 或 Setup 入口。普通 repository work
 只有在 Setup 写入该仓库的 managed Agent Surface pointer，且 package-owned 只读检查确认

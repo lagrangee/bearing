@@ -18,7 +18,7 @@ import {
   resolveExecutorWritebackProfile,
 } from "./executor-registration";
 import { writeInspectBenchmarkMetrics } from "./inspect-benchmark";
-import { installKit } from "./installer";
+import { installKit, uninstallGlobalKit } from "./installer";
 import {
   nativeReferenceSchema,
   nativeWorkAffectedRelationSchema,
@@ -66,7 +66,7 @@ Usage:
   bearing --version
 
 Commands:
-  <none>   Run the install/update wizard for the detected local Agent Surfaces.
+  <none>   Run Global Kit Install, Update, Repair, or Uninstall in one terminal wizard.
   install  Install the global bundle, CLI, and skills for selected Agent Surfaces.
   setup    Enable Bearing in one repository without copying package-owned contracts or skills into it.
   activation  Check read-only repository eligibility and routing before Bearing activation.
@@ -107,12 +107,27 @@ const describeSurfaces = (surfaces: readonly AgentSurface[]): string =>
     .map((surface) => (surface === "agent-skills" ? "Codex/Agent Skills" : "Claude Code"))
     .join(", ");
 
-const confirmWizard = async (message: string): Promise<boolean> => {
-  if (!process.stdin.isTTY) return true;
+type GlobalKitAction = "Install" | "Update" | "Repair" | "Global Uninstall";
+
+const selectGlobalKitAction = async (): Promise<GlobalKitAction | undefined> => {
+  process.stdout.write("1) Install\n2) Update\n3) Repair\n4) Global Uninstall\nq) Cancel\n");
+  if (!process.stdin.isTTY) {
+    process.stdout.write(
+      "Interactive terminal required. Automation can use `bearing install --surface <surface>`.\n",
+    );
+    return undefined;
+  }
   const input = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = await input.question(`${message} [Y/n] `);
-    return answer.trim() === "" || answer.trim().toLowerCase() === "y";
+    while (true) {
+      const answer = (await input.question("Select an action [1-4, q]: ")).trim().toLowerCase();
+      if (answer === "1") return "Install";
+      if (answer === "2") return "Update";
+      if (answer === "3") return "Repair";
+      if (answer === "4") return "Global Uninstall";
+      if (answer === "" || answer === "q") return undefined;
+      process.stdout.write("Select 1, 2, 3, 4, or q.\n");
+    }
   } finally {
     input.close();
   }
@@ -121,7 +136,7 @@ const confirmWizard = async (message: string): Promise<boolean> => {
 const runInstallWizard = async (): Promise<void> => {
   const homeDir = homeDirectory();
   const surfaces = detectedSurfaces(homeDir);
-  process.stdout.write(`Bearing install/update wizard\n`);
+  process.stdout.write(`Bearing Global Kit maintenance\n`);
   process.stdout.write(`Home: ${homeDir}\n`);
   process.stdout.write(`Agent Surfaces: ${describeSurfaces(surfaces)}\n`);
   process.stdout.write(`Managed bundle: ${join(homeDir, ".bearing/kit/current")}\n`);
@@ -132,8 +147,17 @@ const runInstallWizard = async (): Promise<void> => {
   process.stdout.write(
     "Network: npm may download this package before the wizard starts; Bearing itself performs no telemetry, analytics, crash upload, repository upload, or update polling.\n",
   );
-  if (!(await confirmWizard("Install or update these managed targets?"))) {
+  const action = await selectGlobalKitAction();
+  if (action === undefined) {
     process.stdout.write("Outcome: cancelled\n");
+    return;
+  }
+  process.stdout.write(`Action: ${action}\n`);
+  if (action === "Global Uninstall") {
+    const result = await uninstallGlobalKit(homeDir);
+    process.stdout.write(
+      `Outcome: ${result.outcome}\nRemoved targets: ${result.removedTargets.length}\nPreserved: Project Catalog, repository state, provider configuration, profiles, artifacts, and native work.\n`,
+    );
     return;
   }
   const result = await installKit({

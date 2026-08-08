@@ -6,7 +6,8 @@
 
 ## 安装目标冲突
 
-重新运行 install wizard 并阅读 target preview。Bearing 会拒绝冲突文件和 symbolic links，而不是静默覆盖。
+运行 Global Kit wizard，选择 Install、Update 或 Repair，并阅读 target preview。Bearing 会拒绝
+冲突文件和 symbolic links，而不是静默覆盖。
 
 ## Update 中断或 bundle 损坏
 
@@ -94,6 +95,10 @@ Purge 在原子 detach `.bearing` 时提交。如果后续递归 cleanup 失败�
 精确的 partial quarantine 路径。Repository 保持已 purge，Catalog removal 仍会尝试执行，并且
 这份 quarantine 明确不是可恢复 backup。只能检查并移除命令报告的精确路径；不要把部分删除的
 bytes rename 回 `.bearing`。
+
+Wizard Global Uninstall 只移除 Global Kit bundle、CLI shim 与 Bearing-managed Agent Surface
+pointers。它保留 Project Catalog 与 repository state。Repository Deactivation 与
+repository-state removal 是不同的 Agent-owned lifecycle operations。
 
 Package uninstall 仍由 package manager 负责，例如 global npm installation 使用
 `npm uninstall -g @lagrangee/bearing`。它不会移除 Project Catalog 或 repository state。不要用

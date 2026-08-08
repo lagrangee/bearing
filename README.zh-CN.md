@@ -82,12 +82,16 @@ Issues 与 Discussions 都是公开 GitHub 数据。请勿提交 tokens、secret
 npx @lagrangee/bearing
 ```
 
-Public Preview 的安装入口是无参数 wizard。它会在写入前预览 managed targets，安装版本匹配的 CLI 与唯一的 `bearing` Agent Surface skill；全局安装期间不会初始化仓库或启动 Portal。
+Public Preview 的 maintenance 入口是一个无参数 terminal wizard，其中有 Install、Update、
+Repair 和 Global Uninstall 四个选择。Install、Update 与 Repair 会预览 managed targets，并复用
+同一套版本匹配的 bundle transaction；它们不会初始化仓库或启动 Portal。Global Uninstall
+只移除该 bundle、CLI shim 与 Bearing-managed Agent Surface pointers；它保留 Project Catalog
+和所有 repository。
 
 当你主动选择 update 或 repair Bearing 时，重新运行同一个命令。Update 会 stage 一份完整
 bundle，并把它作为整体切换，或恢复上一份完整 bundle。Bearing 不会在后台检查更新。
-Repository deactivation、repository-state purge、显式 package downgrade 与 package-manager
-uninstall 是彼此独立的恢复操作；见 [故障排查](docs/troubleshooting.zh-CN.md)。
+Repository deactivation、repository-state removal、显式 package downgrade 与 package-manager
+uninstall 是彼此独立的操作；见 [故障排查](docs/troubleshooting.zh-CN.md)。
 
 高级用户和 agents 可以使用显式命令；见 [CLI reference](docs/cli.zh-CN.md)。
 

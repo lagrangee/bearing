@@ -52,6 +52,11 @@ export type InstallResult = Readonly<{
   changedTargets: readonly string[];
 }>;
 
+export type GlobalUninstallResult = Readonly<{
+  outcome: "applied" | "no-op";
+  removedTargets: readonly string[];
+}>;
+
 export type RepositorySetupOptions = Readonly<{
   repoRoot: string;
   packageRoot: string;

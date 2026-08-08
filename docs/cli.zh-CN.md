@@ -8,7 +8,7 @@
 npx @lagrangee/bearing
 ```
 
-Wizard 是公开安装路径。下面的显式命令面向 agents、smoke tests 和高级恢复。
+Wizard 是公开的 Global Kit maintenance 路径。下面的显式命令面向 agents、smoke tests 和高级恢复。
 
 ## Help
 
@@ -17,7 +17,11 @@ bearing --help
 bearing --version
 ```
 
-## 安装用户级 kit
+## 维护用户级 Global Kit
+
+在 interactive terminal 中无参数运行 `bearing`，然后选择 Install、Update、Repair 或 Global
+Uninstall。取消不产生写入。Install、Update 与 Repair 使用下文所述的同一套完整 bundle
+transaction。
 
 ```bash
 bearing install --surface agent-skills
@@ -170,8 +174,13 @@ Portal 前台运行并打印 loopback URL。安装版本支持时，可用 `BEAR
 
 对 rename、forget、remove、relink 与需明确确认的 reset 等操作，使用 `bearing catalog --help` 和当前命令 help。Reset 会创建空的 SQLite Catalog；随后需再次运行 Setup 注册 repository。Catalog 操作会影响用户级 project registration；不要盲目执行。
 
-## Package uninstall 边界
+## Global Uninstall 与 package-manager 边界
 
-Bearing 不提供 repository-scoped package-uninstall 命令。npm-owned package installation 应由
-安装它的 package manager 移除，例如 `npm uninstall -g @lagrangee/bearing`。移除 package
-不会 deactivate 或 purge 仓库，也不会删除 Project Catalog data。
+Wizard Global Uninstall 会移除 `$HOME/.bearing/kit/current`、canonical CLI shim，以及仅由
+Bearing 管理的 Agent Surface pointers。它不读取或修改 Project Catalog、repository canonical
+state、Provider Configuration、profiles、artifacts 或 native work。它不是 repository
+Deactivation 或 repository-state removal；Bearing 也不提供 repository-scoped package-uninstall
+命令。
+
+npm-owned package installation 仍由 npm 管理。请另外使用安装它的 package manager 移除，
+例如 `npm uninstall -g @lagrangee/bearing`。

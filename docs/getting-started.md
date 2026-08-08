@@ -18,7 +18,10 @@ This guide gets you to the first real Bearing alignment loop.
 npx @lagrangee/bearing
 ```
 
-Use the no-argument wizard for normal installation. It previews managed targets before writing. It installs user-level CLI and skill assets; it does not initialize every repository automatically.
+Use the no-argument wizard for Global Kit maintenance. It offers Install, Update, Repair, and
+Global Uninstall. Installation actions preview managed targets and do not configure a repository or
+start Portal. Global Uninstall removes only package-managed Global Kit targets and preserves the
+Project Catalog and repository state.
 
 The user-level Bearing skill remains available for an explicit Bearing or Setup request in any
 repository. Ordinary repository work activates it automatically only after Setup has installed the

@@ -6,7 +6,8 @@ When something goes wrong, preserve source truth first.
 
 ## Installation target conflict
 
-Re-run the install wizard and read the target preview. Bearing refuses conflicting files and symbolic links rather than silently overwriting them.
+Run the Global Kit wizard, select Install, Update, or Repair, and read the target preview. Bearing
+refuses conflicting files and symbolic links rather than silently overwriting them.
 
 ## Interrupted update or corrupted bundle
 
@@ -98,6 +99,10 @@ Purge commits when `.bearing` is atomically detached. If later recursive cleanup
 returns blocked with an exact partial quarantine path. The repository remains purged, the Catalog
 removal is still attempted, and the quarantine is explicitly not a restorable backup. Inspect and
 remove only that reported path; do not rename partially deleted bytes back to `.bearing`.
+
+Wizard Global Uninstall removes only the Global Kit bundle, CLI shim, and Bearing-managed Agent
+Surface pointers. It preserves the Project Catalog and repository state. Repository Deactivation
+and repository-state removal are separate Agent-owned lifecycle operations.
 
 Package uninstall remains owned by the package manager, for example
 `npm uninstall -g @lagrangee/bearing` for a global npm installation. It does not remove the Project
