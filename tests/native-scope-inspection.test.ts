@@ -463,12 +463,13 @@ test("detail reopen reuses cache, Refresh reacquires, and failure retains prior 
       snapshot: retainedSnapshot,
       onInspect: () => {},
       onNavigate: () => {},
-      inspectionOperation: { state: "failed" },
-      onRefreshDetails: () => {},
+      observationActionLabel: "Load source",
+      observationBusy: false,
+      onObserveSource: () => {},
     }),
   );
   expect(html).toContain("Latest refresh failed; retained verified work remains visible.");
-  expect(html).toContain("Refresh work details");
+  expect(html).toContain("Load source");
   expect(html).toContain("2026-07-31T02:05:00.000Z");
 
   const thrown = await prepareSync(root, {

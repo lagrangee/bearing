@@ -125,7 +125,7 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.native-inspection-actions {
+.source-observation-action {
   display: flex;
   grid-column: 1 / -1;
   flex-wrap: wrap;
@@ -137,9 +137,19 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
 }
-.native-inspection-actions p {
+.source-observation-action strong,
+.source-observation-action dl,
+.source-observation-action dt,
+.source-observation-action dd {
   margin: 0;
+}
+.source-observation-action dt,
+.source-observation-action dd {
+  display: inline;
   color: var(--muted);
+}
+.source-observation-action dt::after {
+  content: ": ";
 }
 .effort-observation-recovery {
   display: flex;

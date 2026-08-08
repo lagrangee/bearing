@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createElement } from "react";
+import { createElement, createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import type {
@@ -9,6 +9,8 @@ import type {
   RequestedPlanningLineageSubject,
 } from "../src/planning-lineage-route";
 import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
+import { ProviderObservationStatus } from "../src/portal-ui/provider-observation-status";
+import { ProviderObservationTime } from "../src/portal-ui/provider-observation-time";
 import type { ProjectSnapshot } from "../src/project-snapshot/contract";
 import { effortSchema } from "../src/project-snapshot/schema";
 import { assetProjectionSchema } from "../src/project-snapshot/schema-asset";
@@ -18,14 +20,30 @@ import { parseRebuiltPlanningLineageFixture } from "./planning-lineage-fixture";
 
 const withLineage = parseRebuiltPlanningLineageFixture;
 
+test("formats Provider Observation Time as local minutes with relative context", () => {
+  const markup = renderToStaticMarkup(
+    createElement(ProviderObservationTime, {
+      value: "2026-07-31T08:09:10.123+08:00",
+      now: Date.parse("2026-07-31T00:10:00Z"),
+      locale: "en-US",
+      timeZone: "UTC",
+    }),
+  );
+  expect(markup).toContain(">Jul 31, 2026 at 12:09 AM<");
+  expect(markup).toContain(">1 minute ago<");
+  expect(markup).toContain('dateTime="2026-07-31T08:09:10.123+08:00"');
+  expect(markup).not.toContain(">2026-07-31T08:09:10.123+08:00<");
+});
+
 const render = (
   requested: RequestedPlanningLineageSubject,
   options: Readonly<{
     snapshot?: ProjectSnapshot;
     semanticAnchor?: string;
     filteredView?: RequestedPlanningLineageFilteredView;
-    onRefreshDetails?: (subject: { kind: "native-scope" | "native-subject"; id: string }) => void;
-    inspectionOperation?: Readonly<{ state: "idle" | "running" | "failed" }>;
+    observationActionLabel?: "Load source" | "Refresh item";
+    observationBusy?: boolean;
+    onObserveSource?: () => void;
   }> = {},
 ): string =>
   renderToStaticMarkup(
@@ -35,12 +53,15 @@ const render = (
       snapshot: options.snapshot ?? createProjectOverviewFixture(),
       onInspect: () => {},
       onNavigate: () => {},
-      ...(options.onRefreshDetails === undefined
+      ...(options.observationActionLabel === undefined
         ? {}
-        : { onRefreshDetails: options.onRefreshDetails }),
-      ...(options.inspectionOperation === undefined
+        : { observationActionLabel: options.observationActionLabel }),
+      ...(options.observationBusy === undefined
         ? {}
-        : { inspectionOperation: options.inspectionOperation }),
+        : { observationBusy: options.observationBusy }),
+      ...(options.onObserveSource === undefined
+        ? {}
+        : { onObserveSource: options.onObserveSource }),
       ...(options.semanticAnchor === undefined ? {} : { semanticAnchor: options.semanticAnchor }),
       ...(options.filteredView === undefined ? {} : { filteredView: options.filteredView }),
     }),
@@ -470,12 +491,16 @@ test("renders a quiet human-readable Work History and scopes degraded recovery t
   });
   const degraded = render(
     { validity: "valid", value: { kind: "native-scope", id: ".scratch/portal" } },
-    { snapshot: degradedSnapshot, onRefreshDetails: () => {} },
+    {
+      snapshot: degradedSnapshot,
+      observationActionLabel: "Load source",
+      onObserveSource: () => {},
+    },
   );
   expect(degraded).toContain('class="work-history-attention"');
   expect(degraded).toContain("<strong>Needs attention</strong>");
   expect(degraded).toContain(
-    'Return to <a href="/projects/bearing/lineage/effort/effort%3Aportal">Web Portal Validation</a> to refresh work details.',
+    'Return to <a href="/projects/bearing/lineage/effort/effort%3Aportal">Web Portal Validation</a> to load the bound provider source.',
   );
   expect(degraded).not.toContain("Refresh details");
 
@@ -672,7 +697,11 @@ test("renders first acquisition failure as bound-unresolved with its concrete ca
   });
   const html = render(
     { validity: "valid", value: { kind: "effort", id: "effort:portal" } },
-    { snapshot: failed, onRefreshDetails: () => {} },
+    {
+      snapshot: failed,
+      observationActionLabel: "Load source",
+      onObserveSource: () => {},
+    },
   );
 
   expect(html).toContain('<dd data-health="needs-attention">Needs attention</dd>');
@@ -680,7 +709,7 @@ test("renders first acquisition failure as bound-unresolved with its concrete ca
   expect(html).toContain("Managed work needs attention. Cause:");
   expect(html).toContain("The provider contract is unsupported.");
   expect(html).toContain("The declared Work Binding does not resolve to a provider observation.");
-  expect(html).toContain("Refresh work details");
+  expect(html).toContain("Load source");
   expect(html).toContain("run exact Targeted Native Reconciliation separately");
   expect(html).not.toContain("No nonterminal managed work is established");
   expect(html).not.toContain('class="matt-work-region');
@@ -715,8 +744,8 @@ test("renders one degraded Effort indication and a bound-scope work-details reco
     { validity: "valid", value: { kind: "effort", id: "effort:portal" } },
     {
       snapshot: candidate,
-      onRefreshDetails: () => {},
-      inspectionOperation: { state: "idle" },
+      observationActionLabel: "Load source",
+      onObserveSource: () => {},
     },
   );
 
@@ -725,12 +754,12 @@ test("renders one degraded Effort indication and a bound-scope work-details reco
   );
   expect(html.match(/Managed work details are stale/gu)).toHaveLength(1);
   expect(html).toContain("<dt>Last verified</dt><dd>2026-07-28T00:00:00.000Z</dd>");
-  expect(html).toContain("Refresh work details");
+  expect(html).toContain("Load source");
   expect(html).toContain("Build the Roadmap journey");
   expect(html).not.toContain("Source Event Time");
 });
 
-test("keeps degraded refresh feedback truthful for running and failed operations", () => {
+test("keeps provider observation feedback truthful for running and failed operations", () => {
   const snapshot = createProjectOverviewFixture();
   const portal = snapshot.providerObservations.find(
     (observation) => observation.binding.nativeScope === ".scratch/portal",
@@ -759,17 +788,45 @@ test("keeps degraded refresh feedback truthful for running and failed operations
   expect(
     render(subject, {
       snapshot: candidate,
-      onRefreshDetails: () => {},
-      inspectionOperation: { state: "running" },
+      observationActionLabel: "Load source",
+      observationBusy: true,
+      onObserveSource: () => {},
     }),
-  ).toContain("Refreshing work details");
-  expect(
-    render(subject, {
-      snapshot: candidate,
-      onRefreshDetails: () => {},
-      inspectionOperation: { state: "failed" },
+  ).toContain("Observing source");
+  const failed = renderToStaticMarkup(
+    createElement(ProviderObservationStatus, {
+      statusRef: createRef<HTMLDivElement>(),
+      application: {
+        state: "settled",
+        result: {
+          version: 1,
+          state: "attention",
+          action: "source-load",
+          condition: "provider-network",
+          acquisitionCount: 1,
+          observations: [
+            {
+              scope: ".scratch/portal",
+              disposition: "retained-after-failure",
+              observedAt: "2026-07-28T00:00:00.000Z",
+            },
+          ],
+          diagnostics: [
+            {
+              reference: "matt.github.acquisition.network",
+              summary: "Provider observation needs Agent Surface attention.",
+            },
+          ],
+          explanation: "The provider network was unavailable for this observation.",
+          nextAction: "Open Bearing in the Agent Surface to diagnose provider connectivity.",
+        },
+      },
     }),
-  ).toContain("Latest refresh failed; retained verified work remains visible.");
+  );
+  expect(failed).toContain("Last valid observation:");
+  expect(failed).toContain('dateTime="2026-07-28T00:00:00.000Z"');
+  expect(failed).not.toContain("Last valid observation: 2026-07-28T00:00:00.000Z");
+  expect(failed).toContain("matt.github.acquisition.network");
 });
 
 test("renders provider subject diagnostics beside the affected native content", () => {

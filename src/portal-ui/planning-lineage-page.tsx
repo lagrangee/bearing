@@ -1,4 +1,4 @@
-import { type MouseEvent, useEffect, useRef } from "react";
+import { type MouseEvent, useEffect } from "react";
 import type {
   RequestedPlanningLineageFilteredView,
   RequestedPlanningLineageSubject,
@@ -32,6 +32,7 @@ import {
 import { Action } from "./primitives";
 import { projectCanvasFocusKey } from "./project-canvas-history";
 import type { LineageModelData } from "./project-data";
+import { ProviderObservationTime } from "./provider-observation-time";
 import { SourceEventTimeValue } from "./source-event-time";
 import type { TechnicalDetailsSelection } from "./technical-details";
 
@@ -1009,7 +1010,7 @@ function MattNativeWorkRegion({
           <p>{reading.impact}</p>
           {owner === undefined ? null : (
             <p>
-              Return to <a href={owner.href}>{owner.title}</a> to refresh work details.
+              Return to <a href={owner.href}>{owner.title}</a> to load the bound provider source.
             </p>
           )}
         </div>
@@ -1156,35 +1157,26 @@ export function PlanningLineagePage({
   filteredView,
   onInspect,
   onNavigate,
-  onRefreshDetails,
+  observationActionLabel,
+  observationBusy,
+  observationObservedAt,
+  onObserveSource,
   requested,
   semanticAnchor,
   snapshot,
-  inspectionOperation,
 }: {
   readonly entryId: string;
   readonly filteredView?: RequestedPlanningLineageFilteredView | undefined;
   readonly onInspect: Inspect;
   readonly onNavigate: Navigate;
-  readonly onRefreshDetails?: (
-    subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
-  ) => void;
+  readonly observationActionLabel?: "Load source" | "Refresh item" | undefined;
+  readonly observationBusy?: boolean | undefined;
+  readonly observationObservedAt?: string | undefined;
+  readonly onObserveSource?: (() => void) | undefined;
   readonly requested: RequestedPlanningLineageSubject;
   readonly semanticAnchor?: string | undefined;
   readonly snapshot: LineageModelData;
-  readonly inspectionOperation?: Readonly<{
-    state: "idle" | "running" | "failed";
-    subjectKey?: string | undefined;
-  }>;
 }) {
-  const refreshWorkDetailsRef = useRef<HTMLButtonElement>(null);
-  const priorInspectionStateRef = useRef(inspectionOperation?.state);
-  useEffect(() => {
-    if (priorInspectionStateRef.current === "running" && inspectionOperation?.state !== "running") {
-      refreshWorkDetailsRef.current?.focus();
-    }
-    priorInspectionStateRef.current = inspectionOperation?.state;
-  }, [inspectionOperation?.state]);
   const anchorProjectionState =
     semanticAnchor === undefined
       ? "not-requested"
@@ -1270,15 +1262,12 @@ export function PlanningLineagePage({
   }
   const ownerHref = planningLineageSubjectHref(entryId, requested.value);
   const effortObservation = model.effortLens?.managedWorkObservation;
-  const refreshEffortWorkDetails = () => {
-    if (effortObservation?.refreshTarget !== undefined) {
-      onRefreshDetails?.(effortObservation.refreshTarget);
-    }
-  };
-  const requestedNativeSubject =
-    requested.value.kind === "native-scope" || requested.value.kind === "native-subject"
-      ? requested.value
-      : undefined;
+  const observedAt = (() => {
+    if (observationObservedAt !== undefined) return observationObservedAt;
+    const workObservation = model.workRegion?.readingState.observation.observedAt;
+    if (workObservation?.availability === "available") return workObservation.value;
+    return effortObservation?.lastVerified;
+  })();
   if (filteredView !== undefined) {
     if (filteredView.validity === "invalid") {
       return (
@@ -1420,16 +1409,37 @@ export function PlanningLineagePage({
           </button>
         </div>
       </header>
+      {onObserveSource === undefined || observationActionLabel === undefined ? null : (
+        <div className="source-observation-action">
+          <div>
+            <strong>Provider observation</strong>
+            <dl>
+              <div>
+                <dt>Observed</dt>
+                <dd>
+                  {observedAt === undefined ? (
+                    "No usable observation"
+                  ) : (
+                    <ProviderObservationTime value={observedAt} />
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </div>
+          <Action disabled={observationBusy} onClick={onObserveSource}>
+            <Icons.refresh className={observationBusy ? "is-spinning" : ""} />
+            {observationBusy ? "Observing source" : observationActionLabel}
+          </Action>
+        </div>
+      )}
       {effortObservation === undefined ? null : (
         <div className="effort-observation-recovery" role="status">
           <div>
             <p>{effortObservation.indication}</p>
-            {inspectionOperation?.state === "failed" ||
-            effortObservation.latestRefreshFailed === true ? (
+            {effortObservation.latestRefreshFailed === true ? (
               <p>Latest refresh failed; retained verified work remains visible.</p>
             ) : null}
-            {inspectionOperation?.state !== "failed" &&
-            effortObservation.latestRefreshSucceeded === true ? (
+            {effortObservation.latestRefreshSucceeded === true ? (
               <p>
                 Work details refreshed for the bound scope; canonical Managed Work authority remains
                 degraded.
@@ -1444,43 +1454,6 @@ export function PlanningLineagePage({
               </dl>
             )}
           </div>
-          {onRefreshDetails === undefined ||
-          effortObservation.refreshTarget === undefined ? null : (
-            <Action
-              ref={refreshWorkDetailsRef}
-              disabled={inspectionOperation?.state === "running"}
-              onClick={refreshEffortWorkDetails}
-            >
-              <Icons.refresh
-                className={inspectionOperation?.state === "running" ? "is-spinning" : ""}
-              />
-              {inspectionOperation?.state === "running"
-                ? "Refreshing work details"
-                : "Refresh work details"}
-            </Action>
-          )}
-        </div>
-      )}
-      {model.subject.kind !== "native-subject" ||
-      model.nativeInspection === undefined ||
-      onRefreshDetails === undefined ||
-      requestedNativeSubject === undefined ? null : (
-        <div className="native-inspection-actions">
-          <p>
-            Inspected detail · {model.nativeInspection.freshness}
-            {model.nativeInspection.latestAttempt?.outcome === "failed"
-              ? " · latest refresh failed"
-              : ""}
-          </p>
-          <Action
-            disabled={inspectionOperation?.state === "running"}
-            onClick={() => onRefreshDetails(requestedNativeSubject)}
-          >
-            <Icons.refresh
-              className={inspectionOperation?.state === "running" ? "is-spinning" : ""}
-            />
-            {inspectionOperation?.state === "running" ? "Refreshing details" : "Refresh details"}
-          </Action>
         </div>
       )}
       {availableEvents.length === 0 ? null : (

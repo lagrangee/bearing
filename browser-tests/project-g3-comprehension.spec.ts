@@ -922,11 +922,11 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
   ).toBeVisible();
   let activeSnapshot = local.snapshot;
   let refreshTarget = degradedSnapshot(local.snapshot);
-  let inspectionTarget = withRefreshedEffortDetails(
+  let providerTarget = withRefreshedEffortDetails(
     withDegradedEffortObservation(local.snapshot, "stale"),
   );
-  let inspectionFails = false;
-  const inspectionBodies: unknown[] = [];
+  let providerFails = false;
+  const providerBodies: unknown[] = [];
   const posts: string[] = [];
   page.on("request", (request) => {
     if (request.method() === "POST") posts.push(request.url());
@@ -951,21 +951,52 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       ),
     }),
   );
-  await page.route(`**/api/v1/projects/${entryId}/inspect-native-scope`, async (route) => {
-    inspectionBodies.push(route.request().postDataJSON());
+  await page.route(`**/api/v1/projects/${entryId}/provider-observation`, async (route) => {
+    const body = route.request().postDataJSON() as {
+      action: "item-refresh" | "source-load" | "all-sources-refresh";
+    };
+    providerBodies.push(body);
     await new Promise((resolve) => setTimeout(resolve, 150));
-    if (inspectionFails) return route.fulfill({ status: 409, json: { state: "failed" } });
-    activeSnapshot = inspectionTarget;
-    return route.fulfill({ status: 204 });
+    if (providerFails) {
+      return route.fulfill({
+        json: {
+          version: 1,
+          state: "attention",
+          action: body.action,
+          condition: "provider-network",
+          acquisitionCount: 1,
+          observations: [],
+          diagnostics: [
+            {
+              reference: "matt.github.acquisition.network",
+              summary: "Provider observation needs Agent Surface attention.",
+            },
+          ],
+          explanation: "The provider network was unavailable for this observation.",
+          nextAction: "Open Bearing in the Agent Surface to diagnose provider connectivity.",
+        },
+      });
+    }
+    activeSnapshot = providerTarget;
+    return route.fulfill({
+      json: {
+        version: 1,
+        state: "completed",
+        action: body.action,
+        acquisitionCount: 1,
+        observations: [],
+        diagnostics: [],
+      },
+    });
   });
   const beforeSources = await sourceState(fixtureRoot);
 
   for (const scenario of scenarios) {
     activeSnapshot = scenario.snapshot;
     refreshTarget = degradedSnapshot(scenario.snapshot);
-    inspectionFails = false;
+    providerFails = false;
     posts.length = 0;
-    inspectionBodies.length = 0;
+    providerBodies.length = 0;
     const roadmapHref = planningLineageSubjectHref(entryId, {
       kind: "roadmap",
       id: "roadmap:portal",
@@ -1118,7 +1149,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(page.getByText("Claimed", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Blocked", { exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Refresh work details" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Load source" })).toBeVisible();
     await expectCalmOrdinarySurface(page);
     const targetGateReturn = page
       .getByRole("link", { name: "Overview proven", exact: true })
@@ -1179,46 +1210,48 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       page.getByLabel("Effort governance status").getByText("Needs attention", { exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Refresh work details" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Load source" })).toBeVisible();
 
     const staleSnapshot = withDegradedEffortObservation(scenario.snapshot, "stale");
     activeSnapshot = staleSnapshot;
-    inspectionTarget = withRefreshedEffortDetails(staleSnapshot);
+    providerTarget = withRefreshedEffortDetails(staleSnapshot);
     await page.goto(`${host.url}${effortHref}`);
     await expect(page.getByText("Managed work details are stale", { exact: false })).toHaveCount(1);
     await expect(page.getByText("Last verified", { exact: true })).toBeVisible();
-    const refreshWorkDetails = page.getByRole("button", { name: "Refresh work details" });
+    const loadSource = page.getByRole("button", { name: "Load source" });
     const syncPostsBeforeRefresh = posts.filter((url) => url.endsWith("/sync")).length;
-    const successClick = refreshWorkDetails.click();
-    await expect(page.getByRole("button", { name: "Refreshing work details" })).toBeDisabled();
+    const successClick = loadSource.click();
+    await expect(page.getByRole("button", { name: "Observing source" })).toBeDisabled();
     await successClick;
-    await expect(
-      page.getByText("Work details refreshed for the bound scope", { exact: false }),
-    ).toBeVisible();
-    await expect(refreshWorkDetails).toBeFocused();
-    expect(inspectionBodies.at(-1)).toEqual({
+    await expect(page.locator(".provider-observation-status")).toContainText(
+      "1 provider source observed",
+    );
+    await expect(loadSource).toBeFocused();
+    expect(providerBodies.at(-1)).toEqual({
       version: 1,
-      subject: { kind: "native-scope", id: scenario.nativeScope.id },
-      target: {
+      action: "source-load",
+      binding: {
         provider: "matt-skills/v1",
         nativeScope: portalObservation(staleSnapshot).binding.nativeScope,
       },
-      refresh: true,
     });
     expect(posts.filter((url) => url.endsWith("/sync"))).toHaveLength(syncPostsBeforeRefresh);
 
     activeSnapshot = withoutEffortObservation(scenario.snapshot, "retained");
-    inspectionFails = true;
+    providerFails = true;
     await page.goto(`${host.url}${effortHref}`);
     await expect(page.getByText("Latest refresh failed", { exact: false })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
     await expect(page.getByText("Last verified", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Refresh work details" }).click();
+    await page.getByRole("button", { name: "Load source" }).click();
     await expect(page.getByText("Latest refresh failed", { exact: false })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Refresh work details" })).toBeFocused();
+    await expect(page.locator(".provider-observation-status")).toContainText(
+      "provider network was unavailable",
+    );
+    await expect(page.getByRole("button", { name: "Load source" })).toBeFocused();
 
     activeSnapshot = withoutEffortObservation(scenario.snapshot, "none");
-    inspectionFails = false;
+    providerFails = false;
     await page.goto(`${host.url}${effortHref}`);
     await expect(
       page.getByText("Managed work details are unavailable", { exact: false }),
@@ -1231,7 +1264,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(
       page.getByText("this Effort has no declared Work Binding", { exact: false }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Refresh work details" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Load source" })).toHaveCount(0);
     await expect(page.locator("main")).not.toContainText("Not bound");
 
     activeSnapshot = scenario.snapshot;
@@ -1477,7 +1510,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     });
     await page.goto(`${host.url}${degradedGateHref}`);
     activeSnapshot = refreshTarget;
-    await page.getByRole("button", { name: "Refresh" }).click();
+    await page.reload();
     await expect(page.getByRole("heading", { name: "Gate unavailable", level: 1 })).toBeVisible();
     await expect(
       page.getByText("Partial collection coverage cannot establish", { exact: false }),

@@ -1,36 +1,6 @@
-import { type RefObject, useEffect, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { Icons } from "./icons";
 import { Action } from "./primitives";
-import type { ActivationState, ProjectConfirmation } from "./project-activation-state";
-
-function SettledReadLabel({ confirmation }: { readonly confirmation: ProjectConfirmation }) {
-  const [visible, setVisible] = useState(confirmation === "updated");
-  useEffect(() => {
-    if (!visible) return undefined;
-    const timer = window.setTimeout(() => setVisible(false), 1_600);
-    return () => window.clearTimeout(timer);
-  }, [visible]);
-  return visible ? "Updated" : "Refresh";
-}
-
-const syncPresentation = (state: ActivationState) => {
-  switch (state.kind) {
-    case "loading-cache":
-      return { busy: true, disabled: true, label: "Loading" } as const;
-    case "checking":
-      return { busy: true, disabled: false, label: "Checking" } as const;
-    case "refreshing":
-      return { busy: true, disabled: true, label: "Refreshing" } as const;
-    case "syncing":
-      return { busy: true, disabled: true, label: "Syncing" } as const;
-    case "failed":
-      return { busy: false, disabled: false, label: "Retry" } as const;
-    case "unavailable":
-      return { busy: false, disabled: true, label: "Unavailable" } as const;
-    case "settled":
-      return { busy: false, disabled: false, label: undefined } as const;
-  }
-};
 
 export function ProjectTopbar({
   attentionCount,
@@ -40,10 +10,11 @@ export function ProjectTopbar({
   navOpen,
   onOpenNavigation,
   onOpenFind,
-  onSync,
+  onRefreshAllSources,
+  providerBusy,
+  providerRefreshAvailable,
   projectLabel,
   projectTitle,
-  state,
   suspended,
 }: {
   readonly attentionCount: number | undefined;
@@ -53,19 +24,25 @@ export function ProjectTopbar({
   readonly navOpen: boolean;
   readonly onOpenNavigation: () => void;
   readonly onOpenFind: () => void;
-  readonly onSync: () => void;
+  readonly onRefreshAllSources: (returnFocus: HTMLButtonElement | null) => void;
+  readonly providerBusy: boolean;
+  readonly providerRefreshAvailable: boolean;
   readonly projectLabel: string;
   readonly projectTitle: string;
-  readonly state: ActivationState;
   readonly suspended: boolean;
 }) {
-  const sync = syncPresentation(state);
-  const syncLabel =
-    state.kind === "settled" ? (
-      <SettledReadLabel key={state.confirmation} confirmation={state.confirmation} />
-    ) : (
-      sync.label
-    );
+  const [confirming, setConfirming] = useState(false);
+  const refreshTriggerRef = useRef<HTMLButtonElement>(null);
+  const refreshDialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (!confirming) return;
+    const dialog = refreshDialogRef.current;
+    if (dialog !== null && !dialog.open) dialog.showModal();
+    return () => {
+      if (dialog?.open === true) dialog.close();
+      refreshTriggerRef.current?.focus();
+    };
+  }, [confirming]);
   return (
     <header className="topbar" inert={suspended} aria-hidden={suspended}>
       <button
@@ -93,7 +70,7 @@ export function ProjectTopbar({
         <Icons.chevron aria-hidden="true" />
       </a>
       <strong className="project-title-narrow">{projectTitle}</strong>
-      <div className={`topbar-status${sync.busy ? " is-busy" : ""}`}>
+      <div className={`topbar-status${providerBusy ? " is-busy" : ""}`}>
         {attentionCount !== undefined && attentionCount > 0 ? (
           <a
             className="attention-compact attention-present"
@@ -114,26 +91,51 @@ export function ProjectTopbar({
           <Icons.search />
           <span>Find</span>
         </Action>
-        <div className="sync-control">
-          <Action
-            className="topbar-sync"
-            tone={state.kind === "failed" ? "quiet" : "primary"}
-            data-project-activation-action="manual"
-            disabled={sync.disabled}
-            onClick={onSync}
-            aria-describedby={state.kind === "failed" ? "sync-failure-detail" : undefined}
-          >
-            <Icons.refresh className={sync.busy ? "is-spinning" : ""} />
-            <span aria-live="polite">{syncLabel}</span>
-          </Action>
-          {state.kind === "failed" ? (
-            <span id="sync-failure-detail" className="sync-failure-detail" role="alert">
-              {state.error.message}
-              {state.view === undefined ? null : " Cached project content remains visible."}
-            </span>
-          ) : null}
-        </div>
+        {providerRefreshAvailable ? (
+          <div className="sync-control">
+            <Action
+              ref={refreshTriggerRef}
+              className="topbar-sync"
+              tone="primary"
+              disabled={providerBusy}
+              onClick={() => setConfirming(true)}
+            >
+              <Icons.refresh className={providerBusy ? "is-spinning" : ""} />
+              <span>Refresh all sources</span>
+            </Action>
+          </div>
+        ) : null}
       </div>
+      {!confirming ? null : (
+        <dialog
+          ref={refreshDialogRef}
+          aria-labelledby="refresh-all-sources-title"
+          className="provider-refresh-dialog"
+          onCancel={(event) => {
+            event.preventDefault();
+            setConfirming(false);
+          }}
+        >
+          <h2 id="refresh-all-sources-title">Refresh all sources</h2>
+          <p>
+            This reads every current Work Binding. It can be slow and can use provider rate limits.
+          </p>
+          <div>
+            <Action autoFocus tone="quiet" onClick={() => setConfirming(false)}>
+              Cancel
+            </Action>
+            <Action
+              tone="primary"
+              onClick={() => {
+                setConfirming(false);
+                onRefreshAllSources(refreshTriggerRef.current);
+              }}
+            >
+              Confirm refresh all sources
+            </Action>
+          </div>
+        </dialog>
+      )}
     </header>
   );
 }

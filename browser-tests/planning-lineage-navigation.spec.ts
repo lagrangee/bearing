@@ -653,7 +653,7 @@ test("a same-route row transition sends an unavailable semantic anchor back to s
   await expect(page.getByRole("heading", { name: "Model ready", level: 1 })).toBeVisible();
   await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
   await serveSnapshot(page, updated);
-  await page.getByRole("button", { name: "Refresh" }).click();
+  await page.reload();
   await expect(page.getByRole("heading", { name: "Gate unavailable", level: 1 })).toBeVisible();
   await expect
     .poll(() =>
@@ -889,7 +889,7 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
-test("degraded Work History returns recovery to its owning Effort without native refresh", async ({
+test("degraded Work History returns recovery to its owning Effort with contextual source loading", async ({
   page,
 }) => {
   await serveSnapshot(page, degradedWorkHistoryFixture());
@@ -906,9 +906,9 @@ test("degraded Work History returns recovery to its owning Effort without native
   await expect(attention).toContainText("Needs attention");
   const owner = attention.getByRole("link", { name: "Web Portal Validation", exact: true });
   await expect(owner).toHaveAttribute("href", effortHref);
-  await expect(page.getByRole("button", { name: "Refresh work details" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Load source" })).toBeVisible();
   await expect(page.getByText("Native Work Reading State", { exact: true })).toHaveCount(0);
   await owner.click();
   await expect(page).toHaveURL(effortHref);
-  await expect(page.getByRole("button", { name: "Refresh work details" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Load source" })).toBeVisible();
 });

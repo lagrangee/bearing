@@ -35,7 +35,7 @@ export type ProviderOperationEnvelope<Result> = Readonly<{
   diagnostics: readonly StructuralDiagnostic[];
 }>;
 
-type Dependencies = Readonly<{
+export type ProviderOperationDependencies = Readonly<{
   providerFactory?: MattProviderFactory;
   now?: () => string;
 }>;
@@ -110,7 +110,7 @@ const acquisition = async (
   repoRoot: string,
   scopes: readonly string[],
   intent: "exact-scope-capture" | "all-scope-verification",
-  dependencies: Dependencies,
+  dependencies: ProviderOperationDependencies,
 ) => {
   const root = await resolveRepositoryRoot(repoRoot);
   await assertActiveRepositoryIntegration(root, "provider");
@@ -266,16 +266,18 @@ const acquisition = async (
 export const captureProjectProviderScopes = (
   repoRoot: string,
   scopes: readonly string[],
-  dependencies: Dependencies = {},
+  dependencies: ProviderOperationDependencies = {},
 ) => acquisition(repoRoot, scopes, "exact-scope-capture", dependencies);
 
-export const verifyAllProjectProviderScopes = (repoRoot: string, dependencies: Dependencies = {}) =>
-  acquisition(repoRoot, [], "all-scope-verification", dependencies);
+export const verifyAllProjectProviderScopes = (
+  repoRoot: string,
+  dependencies: ProviderOperationDependencies = {},
+) => acquisition(repoRoot, [], "all-scope-verification", dependencies);
 
 export const reconcileProjectNative = async (
   repoRoot: string,
   input: Omit<NativeReconciliationRequest, "schemaVersion">,
-  dependencies: Dependencies = {},
+  dependencies: ProviderOperationDependencies = {},
 ) => {
   const root = await resolveRepositoryRoot(repoRoot);
   await assertActiveRepositoryIntegration(root, "reconcile-native");

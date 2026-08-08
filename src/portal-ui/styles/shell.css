@@ -111,6 +111,68 @@
 .sync-control {
   position: relative;
 }
+.provider-refresh-dialog {
+  position: fixed;
+  z-index: 100;
+  top: 50%;
+  left: 50%;
+  width: min(440px, calc(100vw - var(--space-6)));
+  padding: var(--space-6);
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 20px 60px color-mix(in oklch, var(--ink) 24%, transparent);
+  transform: translate(-50%, -50%);
+}
+.provider-refresh-dialog::backdrop {
+  background: color-mix(in oklch, var(--ink) 32%, transparent);
+}
+.provider-refresh-dialog h2,
+.provider-refresh-dialog p {
+  margin-top: 0;
+}
+.provider-refresh-dialog > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.provider-observation-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  margin: var(--space-4) var(--space-6) 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+}
+.provider-observation-attention {
+  border-left-color: var(--warning);
+}
+.provider-observation-time {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: baseline;
+}
+.provider-observation-time small {
+  color: var(--muted);
+}
+.provider-diagnostic {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.provider-diagnostic button {
+  min-height: var(--control-size);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  cursor: pointer;
+}
 .sync-failure-detail {
   position: absolute;
   top: calc(100% + var(--space-2));

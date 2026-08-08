@@ -4,10 +4,7 @@ import type {
   RequestedPlanningLineageFilteredView,
   RequestedPlanningLineageSubject,
 } from "../planning-lineage-route";
-import {
-  mattNativeObservationForSubject,
-  mattNativeScopeSubject,
-} from "../providers/matt-skills-v1/native-subject";
+import { mattNativeObservationForSubject } from "../providers/matt-skills-v1/native-subject";
 import { AssetsPage } from "./assets-page";
 import { AuditPage } from "./audit-page";
 import { OverviewPage } from "./overview-page";
@@ -22,6 +19,7 @@ import { ProjectFindDialog } from "./project-find-dialog";
 import { ProjectNavigation, type ProjectSection } from "./project-navigation";
 import { projectTitle as titleForProject } from "./project-page-read-model";
 import { ProjectTopbar } from "./project-topbar";
+import { CopyDiagnosticReference, ProviderObservationStatus } from "./provider-observation-status";
 import { RoadmapsPage } from "./roadmaps-page";
 import { TechnicalDetails, type TechnicalDetailsSelection } from "./technical-details";
 import {
@@ -63,68 +61,79 @@ export function ProjectPage({
   const technicalDetailsTriggerRef = useRef<HTMLElement | null>(null);
   const technicalDetailsHistoryTokenRef = useRef<string | null>(null);
   const technicalDetailsScrollRef = useRef(0);
+  const providerActionTriggerRef = useRef<HTMLElement | null>(null);
+  const providerStatusRef = useRef<HTMLDivElement>(null);
+  const projectReadAttentionRef = useRef<HTMLDivElement>(null);
+  const priorProviderStateRef = useRef(activation.providerApplication.state);
+  const priorReadFailureRef = useRef(activation.readFailure);
   const view = activation.view;
   const snapshot = view?.data;
   const lineage = snapshot?.section === "lineage" ? snapshot : undefined;
-  const requestedNativeInspectionSubject =
+  const requestedNativeSubject =
     subject?.validity === "valid" &&
     (subject.value.kind === "native-scope" || subject.value.kind === "native-subject")
       ? subject.value
       : undefined;
-  const effortInspectionBinding =
+  const effortBinding =
     lineage === undefined || subject?.validity !== "valid" || subject.value.kind !== "effort"
       ? undefined
       : lineage.efforts.validity === "invalid"
         ? undefined
         : lineage.efforts.items.find((effort) => effort.id === subject.value.id)?.workBinding;
-  const inspectionSubject =
-    requestedNativeInspectionSubject ??
-    (effortInspectionBinding === undefined
-      ? undefined
-      : {
-          kind: "native-scope" as const,
-          id: mattNativeScopeSubject({ binding: effortInspectionBinding }).id,
-        });
-  const inspectionSubjectKey =
-    inspectionSubject === undefined
-      ? undefined
-      : `${inspectionSubject.kind}:${inspectionSubject.id}`;
-  const inspectionStateForSubject =
-    inspectionSubjectKey !== undefined && activation.inspection.subjectKey === inspectionSubjectKey
-      ? activation.inspection.state
-      : "idle";
-  const inspectionAttemptedForSubject =
-    inspectionSubjectKey !== undefined && activation.inspection.subjectKey === inspectionSubjectKey;
-  const inspectionTarget =
-    lineage !== undefined && requestedNativeInspectionSubject !== undefined
-      ? mattNativeObservationForSubject(
-          [...lineage.providerObservations, ...lineage.nativeScopeInspections.observations],
-          requestedNativeInspectionSubject,
-        )
+  const nativeObservation =
+    lineage !== undefined && requestedNativeSubject !== undefined
+      ? mattNativeObservationForSubject(lineage.providerObservations, requestedNativeSubject)
       : undefined;
-  const inspectionTargetAvailable =
-    requestedNativeInspectionSubject !== undefined && inspectionTarget !== undefined;
-  const inspectionTargetBinding = effortInspectionBinding ?? inspectionTarget?.binding;
-  const inspectionSelection =
-    lineage === undefined || inspectionTarget === undefined
-      ? undefined
-      : lineage.nativeScopeInspections.selections.find(
-          (selection) =>
-            selection.provider === inspectionTarget.binding.provider &&
-            selection.nativeScope === inspectionTarget.binding.nativeScope,
-        );
-  const inspectionLatestFailure =
-    inspectionSelection?.latestAttempt?.outcome === "failed"
-      ? inspectionSelection.latestAttempt
-      : undefined;
-  const inspectionDetailPresent =
+  const providerBinding = effortBinding ?? nativeObservation?.binding;
+  const nativeDetailPresent =
     lineage !== undefined &&
-    requestedNativeInspectionSubject !== undefined &&
+    requestedNativeSubject !== undefined &&
     lineage.lineage.subjects.some(
       (candidate) =>
-        candidate.identity.kind === requestedNativeInspectionSubject.kind &&
-        candidate.identity.id === requestedNativeInspectionSubject.id,
+        candidate.identity.kind === requestedNativeSubject.kind &&
+        candidate.identity.id === requestedNativeSubject.id,
     );
+  const providerBusy = activation.providerApplication.state === "running";
+  const providerStructuralAttention =
+    activation.providerApplication.state === "settled" &&
+    activation.providerApplication.result.state === "attention" &&
+    ["storage-recovery-required", "need-update", "removal-required"].includes(
+      activation.providerApplication.result.condition,
+    );
+  const readStructuralAttention =
+    activation.readFailure !== undefined &&
+    ["project-data-needs-rebuild", "project-data-needs-update"].includes(
+      activation.readFailure.code,
+    );
+  const structuralAttention = providerStructuralAttention || readStructuralAttention;
+  const applyProviderObservation = (
+    request: Parameters<typeof activation.applyProviderObservation>[0],
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  ) => {
+    providerActionTriggerRef.current = returnFocus;
+    activation.applyProviderObservation(request);
+  };
+  const observeCurrentSource = () => {
+    if (providerBinding === undefined || requestedNativeSubject === undefined) return;
+    applyProviderObservation(
+      requestedNativeSubject.kind === "native-subject"
+        ? {
+            version: 1,
+            action: "item-refresh",
+            binding: providerBinding,
+            subject: requestedNativeSubject.id,
+          }
+        : { version: 1, action: "source-load", binding: providerBinding },
+    );
+  };
+  const loadEffortSource = () => {
+    if (providerBinding === undefined) return;
+    applyProviderObservation({
+      version: 1,
+      action: "source-load",
+      binding: providerBinding,
+    });
+  };
   const routeIdentity =
     section === "lineage" ? JSON.stringify({ subject, filteredView, semanticAnchor }) : section;
   const technicalDetailsContext = {
@@ -196,10 +205,6 @@ export function ProjectPage({
     event.preventDefault();
     navigateFromProject(href);
   };
-  const runSync = () => {
-    if (activation.state.kind === "failed") activation.retry();
-    else activation.forceSync();
-  };
   const navigateFromFind = (href: string) => {
     const state =
       typeof window.history.state === "object" && window.history.state !== null
@@ -213,6 +218,38 @@ export function ProjectPage({
     setFindOpen(false);
     onNavigate(href);
   };
+
+  useEffect(() => {
+    const priorState = priorProviderStateRef.current;
+    const nextState = activation.providerApplication.state;
+    priorProviderStateRef.current = nextState;
+    if (nextState === "running") {
+      providerStatusRef.current?.focus();
+      return;
+    }
+    if (priorState !== "running" || nextState !== "settled") return;
+    const trigger = providerActionTriggerRef.current;
+    if (
+      !structuralAttention &&
+      trigger?.isConnected === true &&
+      !(trigger instanceof HTMLButtonElement && trigger.disabled)
+    ) {
+      trigger.focus();
+      return;
+    }
+    providerStatusRef.current?.focus();
+  }, [activation.providerApplication.state, structuralAttention]);
+
+  useEffect(() => {
+    const priorFailure = priorReadFailureRef.current;
+    priorReadFailureRef.current = activation.readFailure;
+    if (
+      activation.readFailure !== undefined &&
+      (priorFailure === undefined || priorFailure.code !== activation.readFailure.code)
+    ) {
+      projectReadAttentionRef.current?.focus();
+    }
+  }, [activation.readFailure]);
 
   useEffect(() => {
     if (capturedSelection !== null && selection === null) {
@@ -251,28 +288,6 @@ export function ProjectPage({
     return restoreProjectCanvas(entryId, section);
   }, [entryId, routeIdentity, section, snapshot]);
 
-  useEffect(() => {
-    if (
-      requestedNativeInspectionSubject === undefined ||
-      inspectionTargetBinding === undefined ||
-      inspectionDetailPresent ||
-      inspectionSelection !== undefined ||
-      inspectionStateForSubject !== "idle" ||
-      inspectionAttemptedForSubject
-    ) {
-      return;
-    }
-    activation.inspectNativeScope(requestedNativeInspectionSubject, inspectionTargetBinding, false);
-  }, [
-    activation,
-    inspectionDetailPresent,
-    inspectionSelection,
-    inspectionAttemptedForSubject,
-    inspectionStateForSubject,
-    requestedNativeInspectionSubject,
-    inspectionTargetBinding,
-  ]);
-
   let content: ReactNode;
   if (snapshot !== undefined) {
     content =
@@ -300,32 +315,17 @@ export function ProjectPage({
             detail="The requested subject identity is missing from this route."
           />
         </div>
-      ) : inspectionTargetAvailable &&
-        !inspectionDetailPresent &&
-        inspectionStateForSubject === "running" ? (
-        <div className="page project-state-page">
-          <LoadingState
-            title="Inspecting native scope"
-            detail="Acquiring this target's full native detail. No other bound scope is inspected."
-          />
-        </div>
-      ) : inspectionTargetAvailable &&
-        !inspectionDetailPresent &&
-        (inspectionStateForSubject === "failed" || inspectionLatestFailure !== undefined) ? (
+      ) : requestedNativeSubject !== undefined &&
+        providerBinding !== undefined &&
+        !nativeDetailPresent ? (
         <div className="page project-state-page">
           <EmptyState
-            title="Native scope detail unavailable"
-            detail={`The latest targeted inspection failed. Detail freshness is ${
-              inspectionSelection?.effectiveFreshness ?? "undetermined"
-            }; the managed scope summary remains available.`}
+            title="Native detail is not in the current observation"
+            detail="Load only this exact provider source. This does not inspect other Work Bindings."
             action={
-              inspectionSubject === undefined ? undefined : (
-                <Action
-                  onClick={() =>
-                    activation.inspectNativeScope(inspectionSubject, inspectionTarget.binding, true)
-                  }
-                >
-                  Retry details
+              structuralAttention ? undefined : (
+                <Action disabled={providerBusy} onClick={observeCurrentSource}>
+                  Load source
                 </Action>
               )
             }
@@ -340,19 +340,17 @@ export function ProjectPage({
           requested={subject}
           semanticAnchor={semanticAnchor}
           snapshot={snapshot}
-          inspectionOperation={{
-            state: inspectionStateForSubject,
-            ...(inspectionAttemptedForSubject && inspectionSubjectKey !== undefined
-              ? { subjectKey: inspectionSubjectKey }
-              : {}),
-          }}
-          {...(inspectionTargetBinding === undefined
+          observationBusy={providerBusy}
+          observationObservedAt={nativeObservation?.observedAt}
+          {...(providerBinding === undefined || structuralAttention
             ? {}
             : {
-                onRefreshDetails: (nextSubject: {
-                  kind: "native-scope" | "native-subject";
-                  id: string;
-                }) => activation.inspectNativeScope(nextSubject, inspectionTargetBinding, true),
+                observationActionLabel:
+                  requestedNativeSubject?.kind === "native-subject"
+                    ? ("Refresh item" as const)
+                    : ("Load source" as const),
+                onObserveSource:
+                  requestedNativeSubject === undefined ? loadEffortSource : observeCurrentSource,
               })}
         />
       );
@@ -363,9 +361,12 @@ export function ProjectPage({
           title="Project is unavailable"
           detail={activation.state.diagnostic.message}
           action={
-            <a className="action action-quiet" href="/">
-              Return to Project Catalog
-            </a>
+            <>
+              <CopyDiagnosticReference reference={activation.state.diagnostic.code} />
+              <a className="action action-quiet" href="/">
+                Return to Project Catalog
+              </a>
+            </>
           }
         />
       </div>
@@ -373,13 +374,17 @@ export function ProjectPage({
   } else if (activation.state.kind === "failed") {
     const detail =
       activation.state.error.code === "project-data-needs-rebuild"
-        ? "Use the Agent Surface to rebuild project data, then retry."
+        ? "Project data storage requires explicit recovery. Use the Agent Surface to review the recovery action."
         : activation.state.error.code === "project-data-needs-update"
-          ? "Install a compatible Bearing runtime, then retry."
-          : "Use Retry to read this project again.";
+          ? "This project needs a compatible Bearing runtime. Use the Agent Surface to update Bearing."
+          : "Use the Agent Surface to inspect the typed project diagnostic.";
     content = (
       <div className="page project-state-page">
-        <EmptyState title="Project could not be loaded" detail={detail} />
+        <EmptyState
+          title="Project could not be loaded"
+          detail={detail}
+          action={<CopyDiagnosticReference reference={activation.state.error.code} />}
+        />
       </div>
     );
   } else {
@@ -402,10 +407,20 @@ export function ProjectPage({
         navOpen={navOpen}
         onOpenFind={() => setFindOpen(true)}
         onOpenNavigation={() => setNavOpen(true)}
-        onSync={runSync}
+        onRefreshAllSources={(returnFocus) =>
+          applyProviderObservation(
+            {
+              version: 1,
+              action: "all-sources-refresh",
+              confirmation: "refresh-all-current-sources",
+            },
+            returnFocus,
+          )
+        }
+        providerBusy={providerBusy}
+        providerRefreshAvailable={snapshot !== undefined && !structuralAttention}
         projectLabel={projectLabel}
         projectTitle={projectTitle}
-        state={activation.state}
         suspended={overlayOpen}
       />
       <ProjectNavigation
@@ -424,6 +439,26 @@ export function ProjectPage({
         inert={overlayOpen}
         aria-hidden={overlayOpen}
       >
+        <ProviderObservationStatus
+          application={activation.providerApplication}
+          statusRef={providerStatusRef}
+        />
+        {snapshot === undefined || activation.readFailure === undefined ? null : (
+          <div
+            ref={projectReadAttentionRef}
+            className="provider-observation-status provider-observation-attention"
+            role="alert"
+            tabIndex={-1}
+          >
+            <strong>Project data could not be re-read.</strong>
+            <span>
+              {readStructuralAttention
+                ? "Use the Agent Surface to resolve this structural Project data condition."
+                : "The last valid Project data remains visible. Use the Agent Surface to inspect the read diagnostic."}
+            </span>
+            <CopyDiagnosticReference reference={activation.readFailure.code} />
+          </div>
+        )}
         {content}
       </main>
       {selection === null ? null : (

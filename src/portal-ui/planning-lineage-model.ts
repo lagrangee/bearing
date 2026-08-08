@@ -1731,7 +1731,7 @@ const effortLensFor = (
           recovery:
             binding === undefined
               ? "declare exactly one supported Work Binding in the canonical Effort record, then Sync."
-              : "refresh work details for this exact declared scope; after any Matt transaction, run exact Targeted Native Reconciliation separately.",
+              : "load this exact declared provider source; after any Matt transaction, run exact Targeted Native Reconciliation separately.",
         }
       : effort.lifecycle === "concluded" && workItems.length === 0
         ? undefined

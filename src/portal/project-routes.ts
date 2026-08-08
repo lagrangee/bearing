@@ -2,6 +2,7 @@ import type { Context, Hono } from "hono";
 import { normalizeNativeReconciliationRequest } from "../native-reconciliation-contract";
 import { planningLineageSubjectSchema } from "../planning-lineage-route";
 import { portalProjectSectionSchema } from "../portal-project-read-wire";
+import { portalProviderApplicationRequestSchema } from "../portal-provider-application-wire";
 import {
   ASSET_PREVIEW_CONTENT_SECURITY_POLICY,
   type AssetPreviewService,
@@ -20,11 +21,13 @@ import {
 import type { PortalProjectQueryService } from "./project-query-service";
 import type { ProjectService } from "./project-service";
 import type { ProjectSyncServiceResult } from "./project-service-contract";
+import type { PortalProviderApplicationService } from "./provider-application";
 import type { PortalSessionManager } from "./session";
 
 type RouteOptions = Readonly<{
   assetPreview: AssetPreviewService;
   projectQueries: PortalProjectQueryService;
+  providerApplication: PortalProviderApplicationService;
   projects: ProjectService;
   sessions: PortalSessionManager;
 }>;
@@ -140,6 +143,20 @@ const syncResponse = (
 };
 
 export const registerProjectRoutes = (app: Hono, options: RouteOptions): void => {
+  const parseAction = async (context: Context): Promise<unknown | Response> => {
+    const mediaType = context.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    if (mediaType !== "application/json") {
+      return context.json(
+        { code: "unsupported-media-type", message: "Expected application/json." },
+        415,
+      );
+    }
+    try {
+      return await context.req.json();
+    } catch {
+      return context.json({ code: "invalid-request", message: "Request body is not JSON." }, 400);
+    }
+  };
   const previewHeaders = (
     context: Context,
     result: Awaited<ReturnType<AssetPreviewService["resolve"]>>,
@@ -285,6 +302,30 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
     }
     const status = result.kind === "invalid-id" ? 400 : result.kind === "not-found" ? 404 : 503;
     return context.json({ version: 1, state: "failed", error: requestFailure() }, status);
+  });
+
+  app.post("/api/v1/projects/:entryId/provider-observation", async (context) => {
+    noStore(context);
+    if (
+      !options.sessions.verify(
+        context.req.header("cookie"),
+        context.req.header("x-bearing-csrf-token"),
+      )
+    ) {
+      return context.json({ code: "invalid-csrf-token", message: "CSRF check failed." }, 403);
+    }
+    const input = await parseAction(context);
+    if (input instanceof Response) return input;
+    const parsed = portalProviderApplicationRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return context.json(
+        { code: "invalid-request", message: "Provider observation request is invalid." },
+        400,
+      );
+    }
+    return context.json(
+      await options.providerApplication.apply(context.req.param("entryId"), parsed.data),
+    );
   });
 
   app.post("/api/v1/projects/:entryId/sync", async (context) => {

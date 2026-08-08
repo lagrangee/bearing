@@ -23,8 +23,7 @@ export type CoordinatedResult<T> =
 type Active<T> = Readonly<{
   mode: ProjectOperationMode;
   locatorRevision?: string;
-  nativeScopeInspectionIntent: NativeScopeInspectionIntent;
-  nativeScopeInspectionKey: string;
+  operationKey: string;
   promise: Promise<T>;
 }>;
 type ProjectState<T> = {
@@ -43,8 +42,11 @@ const nativeScopeInspectionKey = (intent: NativeScopeInspectionIntent): string =
         )}`
       : `${mattNativeBindingDefinitionKey(intent.target)}\0${intent.refresh ? "refresh" : "reuse"}`;
 
-export type ProjectCoordinator<T> = Readonly<{
-  execute(operation: ProjectOperation): Promise<CoordinatedResult<T>>;
+export type ProjectCoordinator<
+  T,
+  Operation extends ProjectOperation = ProjectOperation,
+> = Readonly<{
+  execute(operation: Operation): Promise<CoordinatedResult<T>>;
   status(identity: Readonly<{ entryId: string }>): Readonly<{
     due: boolean;
     cooldownRemainingMs: number;
@@ -52,11 +54,15 @@ export type ProjectCoordinator<T> = Readonly<{
   }>;
 }>;
 
-export const createProjectCoordinator = <T>(options: {
-  readonly run: (operation: ProjectOperation) => Promise<T>;
+export const createProjectCoordinator = <
+  T,
+  Operation extends ProjectOperation = ProjectOperation,
+>(options: {
+  readonly run: (operation: Operation) => Promise<T>;
+  readonly operationKey?: (operation: Operation) => string;
   readonly clock?: () => number;
   readonly cooldownMs?: number;
-}): ProjectCoordinator<T> => {
+}): ProjectCoordinator<T, Operation> => {
   const clock = options.clock ?? Date.now;
   const cooldownMs = options.cooldownMs ?? 30_000;
   const states = new Map<string, ProjectState<T>>();
@@ -71,7 +77,10 @@ export const createProjectCoordinator = <T>(options: {
     if (state.lastAttemptAt === undefined) return 0;
     return Math.max(0, cooldownMs - (clock() - state.lastAttemptAt));
   };
-  const begin = (state: ProjectState<T>, operation: ProjectOperation): Promise<T> => {
+  const keyFor = (operation: Operation): string =>
+    options.operationKey?.(operation) ??
+    nativeScopeInspectionKey(operation.nativeScopeInspectionIntent ?? { kind: "none" });
+  const begin = (state: ProjectState<T>, operation: Operation): Promise<T> => {
     state.lastAttemptAt = clock();
     const running = options.run(operation);
     let promise: Promise<T>;
@@ -91,10 +100,7 @@ export const createProjectCoordinator = <T>(options: {
       ...(operation.locatorRevision === undefined
         ? {}
         : { locatorRevision: operation.locatorRevision }),
-      nativeScopeInspectionIntent: operation.nativeScopeInspectionIntent ?? { kind: "none" },
-      nativeScopeInspectionKey: nativeScopeInspectionKey(
-        operation.nativeScopeInspectionIntent ?? { kind: "none" },
-      ),
+      operationKey: keyFor(operation),
       promise,
     };
     return promise;
@@ -115,16 +121,16 @@ export const createProjectCoordinator = <T>(options: {
       const state = stateFor(operation.entryId);
       const active = state.active;
       const inspectionIntent = operation.nativeScopeInspectionIntent ?? { kind: "none" };
-      const inspectionKey = nativeScopeInspectionKey(inspectionIntent);
+      const operationKey = keyFor(operation);
       if (
         active !== undefined &&
         active.locatorRevision === operation.locatorRevision &&
-        active.nativeScopeInspectionKey === inspectionKey &&
+        active.operationKey === operationKey &&
         (operation.mode === "ensure-current" || active.mode === "force")
       ) {
         return completed(active.promise, active.mode, true);
       }
-      const queueKey = `force:${operation.locatorRevision ?? "unknown"}:${inspectionKey}`;
+      const queueKey = `force:${operation.locatorRevision ?? "unknown"}:${operationKey}`;
       const existingQueue = state.queuedForces?.get(queueKey);
       if (existingQueue !== undefined) return completed(existingQueue, "force", true);
       const predecessor = state.queueTail ?? active?.promise;
@@ -137,13 +143,13 @@ export const createProjectCoordinator = <T>(options: {
               ...operation,
               mode: "force",
               nativeScopeInspectionIntent: inspectionIntent,
-            }),
+            } as Operation),
           () =>
             begin(state, {
               ...operation,
               mode: "force",
               nativeScopeInspectionIntent: inspectionIntent,
-            }),
+            } as Operation),
         );
         let queued: Promise<T>;
         const clearQueue = <Value>(continuation: () => Value): Value => {

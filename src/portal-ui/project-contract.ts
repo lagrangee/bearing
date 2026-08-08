@@ -6,6 +6,11 @@ import {
   portalProjectFindEnvelopeSchema,
   portalProjectReadEnvelopeSchema,
 } from "../portal-project-read-wire";
+import {
+  type PortalProviderApplicationRequest,
+  type PortalProviderApplicationResponse,
+  portalProviderApplicationResponseSchema,
+} from "../portal-provider-application-wire";
 import type { ProjectData } from "./project-data";
 import { portalRowsToProjectData } from "./project-row-adapter";
 
@@ -147,6 +152,35 @@ export const findProjectRows = async (
     throw new ProjectResponseError("Project Find is unavailable.");
   }
   return { results: envelope.results, scopeState: envelope.scopeState };
+};
+
+export const requestProviderObservation = async (
+  entryId: string,
+  request: PortalProviderApplicationRequest,
+  csrfToken: string,
+  signal: AbortSignal,
+): Promise<PortalProviderApplicationResponse> => {
+  const response = await window.fetch(
+    `/api/v1/projects/${encodeURIComponent(entryId)}/provider-observation`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Bearing-CSRF-Token": csrfToken,
+      },
+      body: JSON.stringify(request),
+      signal,
+    },
+  );
+  const envelope = await parsedResponse(response, (input) =>
+    portalProviderApplicationResponseSchema.safeParse(input),
+  );
+  if (!response.ok) {
+    throw new ProjectResponseError("Provider observation is unavailable.");
+  }
+  return envelope;
 };
 
 export const requestNativeScopeInspection = async (

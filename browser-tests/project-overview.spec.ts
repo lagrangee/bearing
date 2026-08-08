@@ -96,7 +96,7 @@ test("Overview is Brief-first, keeps managed context stable, and stays responsiv
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
   await expect(page.locator(".project-switcher code")).toHaveText("Bearing 控制台");
   await expect(page.locator(".project-switcher strong")).toHaveText("Portal Project");
-  await expect(page.locator(".topbar-sync")).toContainText("Refresh");
+  await expect(page.locator(".topbar-sync")).toContainText("Refresh all sources");
   const briefTab = page.getByRole("tab", { name: "Brief", exact: true });
   const summaryTab = page.getByRole("tab", { name: "Project Summary", exact: true });
   await expect(briefTab).toHaveAttribute("aria-selected", "true");
@@ -145,7 +145,7 @@ test("Overview is Brief-first, keeps managed context stable, and stays responsiv
   );
   await page.mouse.move(0, 0);
   expect(posts).toEqual([]);
-  await expect(page.locator(".topbar-sync")).toHaveText("Refresh");
+  await expect(page.locator(".topbar-sync")).toHaveText("Refresh all sources");
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   });
@@ -193,8 +193,8 @@ test("Overview is Brief-first, keeps managed context stable, and stays responsiv
   await expect(navigation.getByRole("button", { name: "Close navigation" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).toBeFocused();
-  const syncBox = await page.getByRole("button", { name: "Refresh" }).boundingBox();
-  if (syncBox === null) throw new Error("Expected the mobile Refresh target.");
+  const syncBox = await page.getByRole("button", { name: "Refresh all sources" }).boundingBox();
+  if (syncBox === null) throw new Error("Expected the mobile source refresh target.");
   expect(syncBox.x + syncBox.width).toBeLessThanOrEqual(365);
 });
 

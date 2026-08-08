@@ -13,6 +13,10 @@ import {
   type ProjectOperationExecutorFactory,
   type ProjectService,
 } from "./project-service";
+import {
+  createPortalProviderApplicationService,
+  type PortalProviderApplicationService,
+} from "./provider-application";
 import { createPortalSessionManager, type PortalSessionManager } from "./session";
 
 type PortalAppOptions = Readonly<{
@@ -21,6 +25,7 @@ type PortalAppOptions = Readonly<{
   sessions: Readonly<{ secret: string }> | PortalSessionManager;
   projectService?: ProjectService;
   projectQueryService?: PortalProjectQueryService;
+  providerApplicationService?: PortalProviderApplicationService;
   operationExecutorFor?: ProjectOperationExecutorFactory;
   assetPreviewService?: AssetPreviewService;
 }>;
@@ -93,6 +98,9 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
   const projectQueries =
     options.projectQueryService ??
     createPortalProjectQueryService({ readCatalog: options.readCatalog });
+  const providerApplication =
+    options.providerApplicationService ??
+    createPortalProviderApplicationService({ readCatalog: options.readCatalog });
 
   app.onError((_error, context) => {
     if (new URL(context.req.url).pathname.startsWith("/api/")) {
@@ -188,7 +196,13 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     return context.json(response);
   });
 
-  registerProjectRoutes(app, { assetPreview, projectQueries, projects, sessions });
+  registerProjectRoutes(app, {
+    assetPreview,
+    projectQueries,
+    providerApplication,
+    projects,
+    sessions,
+  });
 
   app.all("/api/*", (context) =>
     context.json({ code: "not-found", message: "No such Portal product action." }, 404),

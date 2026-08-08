@@ -4,6 +4,10 @@ import {
   planningLineageSubjectSchema,
 } from "../planning-lineage-route";
 import type { PortalProjectSection } from "../portal-project-read-wire";
+import type {
+  PortalProviderApplicationRequest,
+  PortalProviderApplicationResponse,
+} from "../portal-provider-application-wire";
 import {
   type ActivationState,
   activationStateForEntry,
@@ -15,7 +19,7 @@ import {
   type ProjectOperationError,
   type ProjectView,
   readProjectRows,
-  requestNativeScopeInspection,
+  requestProviderObservation,
 } from "./project-contract";
 
 const requestFailure = (error: unknown): ProjectOperationError =>
@@ -35,17 +39,15 @@ const requestFailure = (error: unknown): ProjectOperationError =>
 export type ProjectActivation = Readonly<{
   state: ActivationState;
   view?: ProjectView;
-  forceSync: () => void;
-  retry: () => void;
-  inspection: Readonly<{
-    state: "idle" | "running" | "failed";
-    subjectKey?: string | undefined;
-  }>;
-  inspectNativeScope: (
-    subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
-    target: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
-    refresh: boolean,
-  ) => void;
+  readFailure?: ProjectOperationError;
+  providerApplication:
+    | Readonly<{ state: "idle" }>
+    | Readonly<{ state: "running"; action: PortalProviderApplicationRequest["action"] }>
+    | Readonly<{
+        state: "settled";
+        result: PortalProviderApplicationResponse;
+      }>;
+  applyProviderObservation: (request: PortalProviderApplicationRequest) => void;
 }>;
 
 export const useProjectActivation = (
@@ -63,12 +65,16 @@ export const useProjectActivation = (
     [targetId, targetKind],
   );
   const [state, dispatch] = useReducer(projectActivationReducer, { kind: "loading-cache" });
-  const [inspection, setInspection] = useState<ProjectActivation["inspection"]>({ state: "idle" });
+  const [providerApplication, setProviderApplication] = useState<
+    ProjectActivation["providerApplication"]
+  >({ state: "idle" });
   const stateRef = useRef(state);
   const stateEntryIdRef = useRef(entryId);
+  const providerEntryIdRef = useRef(entryId);
   const csrfTokenRef = useRef<string | undefined>(undefined);
   const requestIdRef = useRef(0);
-  const controllersRef = useRef(new Set<AbortController>());
+  const readControllersRef = useRef(new Set<AbortController>());
+  const providerControllersRef = useRef(new Set<AbortController>());
   const matchesQuery = useCallback(
     (view: ProjectView): boolean =>
       view.data.section === section &&
@@ -93,7 +99,7 @@ export const useProjectActivation = (
       retained === undefined ? { type: "load-started" } : { type: "checking", view: retained },
     );
     const controller = new AbortController();
-    controllersRef.current.add(controller);
+    readControllersRef.current.add(controller);
     try {
       const envelope = await readProjectRows(entryId, section, queryTarget, controller.signal);
       if (requestId !== requestIdRef.current) return;
@@ -117,52 +123,71 @@ export const useProjectActivation = (
         ...(retained === undefined ? {} : { view: retained }),
       });
     } finally {
-      controllersRef.current.delete(controller);
+      readControllersRef.current.delete(controller);
     }
   }, [entryId, matchesQuery, queryTarget, section]);
+  const latestReadRef = useRef(read);
+  latestReadRef.current = read;
 
   useEffect(() => {
+    if (providerEntryIdRef.current !== entryId) {
+      providerEntryIdRef.current = entryId;
+      setProviderApplication({ state: "idle" });
+    }
     csrfTokenRef.current = undefined;
-    setInspection({ state: "idle" });
     void read();
     return () => {
       requestIdRef.current += 1;
-      for (const controller of controllersRef.current) controller.abort();
-      controllersRef.current.clear();
+      for (const controller of readControllersRef.current) controller.abort();
+      readControllersRef.current.clear();
     };
-  }, [read]);
+  }, [entryId, read]);
 
-  const inspectNativeScope = useCallback(
-    (
-      subject: Readonly<{ kind: "native-scope" | "native-subject"; id: string }>,
-      target: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }>,
-      refresh: boolean,
-    ) => {
+  useEffect(
+    () => () => {
+      for (const controller of providerControllersRef.current) controller.abort();
+      providerControllersRef.current.clear();
+    },
+    [],
+  );
+
+  const applyProviderObservation = useCallback(
+    (request: PortalProviderApplicationRequest) => {
       const csrfToken = csrfTokenRef.current;
-      if (csrfToken === undefined || inspection.state === "running") return;
-      const subjectKey = `${subject.kind}:${subject.id}`;
+      if (csrfToken === undefined || providerApplication.state === "running") return;
       const controller = new AbortController();
-      controllersRef.current.add(controller);
-      setInspection({ state: "running", subjectKey });
-      void requestNativeScopeInspection(
-        entryId,
-        subject,
-        target,
-        refresh,
-        csrfToken,
-        controller.signal,
-      )
-        .then(async () => {
-          await read();
-          setInspection({ state: "idle", subjectKey });
+      providerControllersRef.current.add(controller);
+      setProviderApplication({ state: "running", action: request.action });
+      void requestProviderObservation(entryId, request, csrfToken, controller.signal)
+        .then((result) => {
+          setProviderApplication({ state: "settled", result });
+          void latestReadRef.current();
         })
         .catch((error: unknown) => {
           if (error instanceof DOMException && error.name === "AbortError") return;
-          setInspection({ state: "failed", subjectKey });
+          setProviderApplication({
+            state: "settled",
+            result: {
+              version: 1,
+              state: "attention",
+              action: request.action,
+              condition: "provider-unavailable",
+              acquisitionCount: 0,
+              observations: [],
+              diagnostics: [
+                {
+                  reference: "portal-provider-observation-failed",
+                  summary: "Provider observation needs Agent Surface attention.",
+                },
+              ],
+              explanation: "The provider observation request did not complete.",
+              nextAction: "Open Bearing in the Agent Surface to diagnose the provider action.",
+            },
+          });
         })
-        .finally(() => controllersRef.current.delete(controller));
+        .finally(() => providerControllersRef.current.delete(controller));
     },
-    [entryId, inspection.state, read],
+    [entryId, providerApplication.state],
   );
 
   const scopedState = activationStateForEntry(state, stateEntryIdRef.current, entryId);
@@ -171,10 +196,9 @@ export const useProjectActivation = (
     candidate?.project.entryId === entryId && matchesQuery(candidate) ? candidate : undefined;
   const result = {
     state: scopedState,
-    forceSync: () => void read(),
-    retry: () => void read(),
-    inspection,
-    inspectNativeScope,
+    ...(scopedState.kind === "failed" ? { readFailure: scopedState.error } : {}),
+    providerApplication,
+    applyProviderObservation,
   };
   return view === undefined ? result : { ...result, view };
 };
