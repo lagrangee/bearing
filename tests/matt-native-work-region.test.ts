@@ -125,7 +125,12 @@ test("publishes a complete Map chapter with truthful totals and bounded previews
     reference: ".scratch/portal/map.md",
     destination: {
       availability: "available",
-      value: "Reach the accepted project outcome.",
+      documentBlocks: [
+        {
+          kind: "paragraph",
+          inlines: [{ kind: "text", value: "Reach the accepted project outcome." }],
+        },
+      ],
     },
     lifecycle: "active",
     totals: {
@@ -158,7 +163,14 @@ test("preserves scoped Map Destination availability instead of rendering empty c
         ...observation.projection,
         map: {
           ...map,
-          destination: "",
+          destination: {
+            ...map.destination,
+            sections: map.destination.sections.map((section) => ({
+              ...section,
+              availability: "unavailable" as const,
+              blocks: [],
+            })),
+          },
           semanticSections: map.semanticSections.map((section) =>
             section.role === "map.destination"
               ? { ...section, availability: "unavailable" as const }
@@ -365,7 +377,15 @@ test("preserves anomalies as facts and scoped diagnostics instead of repairing n
             availability: "available" as const,
             content: {
               role: "answer" as const,
-              body: "Answer exists while the native lifecycle remains open.",
+              document: {
+                ...wayfinder.question,
+                sections: wayfinder.question.sections.map((section) => ({
+                  ...section,
+                  sourceIdentity: "wayfinder.answer",
+                  semanticRole: "wayfinder.answer",
+                  title: "Answer",
+                })),
+              },
               authoredAt: { availability: "unsupported" as const },
             },
           },

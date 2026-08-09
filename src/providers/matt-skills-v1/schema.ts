@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { documentPresentationSchema } from "../../document-presentation";
+import {
+  type DocumentPresentation,
+  type DocumentPresentationSection,
+  documentPresentationSchema,
+} from "../../document-presentation";
 import {
   hasConsistentProviderCompletion,
   providerObservationIdentityFor,
@@ -92,6 +96,40 @@ const validateSemanticContent = (
       ? `${role} must be available when its semantic content is present.`
       : `${role} cannot be available when its semantic content is empty.`,
   });
+};
+
+const validateDocumentSemanticAvailability = (
+  sections: readonly SemanticSection[],
+  role: string,
+  availability: "available" | "confirmed-empty" | "unavailable",
+  context: z.RefinementCtx,
+): void => {
+  const position = sections.findIndex((section) => section.role === role);
+  if (position < 0 || sections[position]?.availability === availability) return;
+  context.addIssue({
+    code: "custom",
+    path: ["semanticSections", position, "availability"],
+    message: `${role} document and semantic availability must agree.`,
+  });
+};
+
+const authoredDocumentRoleSection = (
+  document: DocumentPresentation,
+  role: string,
+  context: z.RefinementCtx,
+  path: readonly (string | number)[],
+): DocumentPresentationSection | undefined => {
+  const roleSections = document.sections.filter((section) => section.semanticRole === role);
+  const hasForeignSemanticRole = document.sections.some(
+    (section) => section.semanticRole !== undefined && section.semanticRole !== role,
+  );
+  if (roleSections.length === 1 && !hasForeignSemanticRole) return roleSections[0];
+  context.addIssue({
+    code: "custom",
+    path: [...path],
+    message: `${role} requires one semantic section; additive sections must stay provider-generic.`,
+  });
+  return undefined;
 };
 
 const trackerClosureSchema = z.discriminatedUnion("state", [
@@ -199,7 +237,14 @@ const contentSchema = z.discriminatedUnion("role", [
 const answerSchema = z.discriminatedUnion("availability", [
   z.strictObject({
     availability: z.literal("available"),
-    content: answerContentSchema,
+    content: z.strictObject({
+      role: z.literal("answer"),
+      document: documentPresentationSchema,
+      authoredAt: nativeEventTimeSchema,
+      sourceAnchor: sourceAnchorSchema.optional(),
+      nativeIdentity: nonEmpty.optional(),
+      author: nonEmpty.optional(),
+    }),
   }),
   z.strictObject({
     availability: z.literal("unavailable"),
@@ -212,7 +257,7 @@ const mapSchema = z
     kind: z.literal("map"),
     ref: reference,
     title: nonEmpty,
-    destination: z.string(),
+    destination: documentPresentationSchema,
     notes: z.array(semanticItem),
     decisions: z.array(
       z.strictObject({
@@ -247,12 +292,18 @@ const mapSchema = z
     native: nativeEvidenceSchema,
   })
   .superRefine((map, context) => {
-    validateSemanticContent(
-      map.semanticSections,
-      "map.destination",
-      map.destination.trim().length > 0,
-      context,
-    );
+    const destination = authoredDocumentRoleSection(map.destination, "map.destination", context, [
+      "destination",
+      "sections",
+    ]);
+    if (destination !== undefined) {
+      validateDocumentSemanticAvailability(
+        map.semanticSections,
+        "map.destination",
+        destination.availability,
+        context,
+      );
+    }
     validateSemanticContent(map.semanticSections, "map.notes", map.notes.length > 0, context);
     validateSemanticContent(
       map.semanticSections,
@@ -325,7 +376,7 @@ const wayfinderTicketSchema = z
     ref: reference,
     title: nonEmpty,
     subtype: z.enum(["research", "prototype", "grilling", "task"]),
-    question: z.string(),
+    question: documentPresentationSchema,
     claim: z.discriminatedUnion("state", [
       z.strictObject({ state: z.literal("unclaimed") }),
       z.strictObject({
@@ -335,7 +386,16 @@ const wayfinderTicketSchema = z
       }),
     ]),
     answer: answerSchema,
-    comments: z.array(contentSchema),
+    comments: z.array(
+      z.strictObject({
+        role: z.enum(["ordinary-comment", "agent-brief", "triage-note"]),
+        document: documentPresentationSchema,
+        authoredAt: nativeEventTimeSchema,
+        sourceAnchor: sourceAnchorSchema.optional(),
+        nativeIdentity: nonEmpty.optional(),
+        author: nonEmpty.optional(),
+      }),
+    ),
     lifecycle: z.discriminatedUnion("state", [
       z.strictObject({ state: z.literal("open") }),
       z.strictObject({
@@ -357,25 +417,69 @@ const wayfinderTicketSchema = z
     native: nativeEvidenceSchema,
   })
   .superRefine((ticket, context) => {
-    validateSemanticContent(
-      ticket.semanticSections,
-      "wayfinder.question",
-      ticket.question.trim().length > 0,
-      context,
-    );
     validateSemanticContent(ticket.semanticSections, "wayfinder.claim", true, context);
-    validateSemanticContent(
-      ticket.semanticSections,
-      "wayfinder.answer",
-      ticket.answer.availability === "available" && ticket.answer.content.body.trim().length > 0,
-      context,
-    );
-    validateSemanticContent(
-      ticket.semanticSections,
-      "wayfinder.comments",
-      ticket.comments.length > 0,
-      context,
-    );
+    const question = authoredDocumentRoleSection(ticket.question, "wayfinder.question", context, [
+      "question",
+      "sections",
+    ]);
+    if (question !== undefined) {
+      validateDocumentSemanticAvailability(
+        ticket.semanticSections,
+        "wayfinder.question",
+        question.availability,
+        context,
+      );
+    }
+    if (ticket.answer.availability === "available") {
+      const answerSection = authoredDocumentRoleSection(
+        ticket.answer.content.document,
+        "wayfinder.answer",
+        context,
+        ["answer", "content", "document", "sections"],
+      );
+      if (answerSection !== undefined && answerSection.availability !== "available") {
+        context.addIssue({
+          code: "custom",
+          path: ["answer", "content", "document", "sections"],
+          message:
+            "An available Wayfinder Answer requires one available provider document section.",
+        });
+      } else if (answerSection !== undefined) {
+        validateDocumentSemanticAvailability(
+          ticket.semanticSections,
+          "wayfinder.answer",
+          answerSection.availability,
+          context,
+        );
+      }
+    } else {
+      validateSemanticContent(ticket.semanticSections, "wayfinder.answer", false, context);
+    }
+    for (const [index, comment] of ticket.comments.entries()) {
+      authoredDocumentRoleSection(comment.document, "wayfinder.comments", context, [
+        "comments",
+        index,
+        "document",
+        "sections",
+      ]);
+    }
+    if (ticket.comments.length > 0) {
+      validateDocumentSemanticAvailability(
+        ticket.semanticSections,
+        "wayfinder.comments",
+        ticket.comments.every(
+          (comment) =>
+            comment.document.sections.find(
+              (section) => section.semanticRole === "wayfinder.comments",
+            )?.availability === "available",
+        )
+          ? "available"
+          : "unavailable",
+        context,
+      );
+    } else {
+      validateSemanticContent(ticket.semanticSections, "wayfinder.comments", false, context);
+    }
     if (ticket.trackerClosure.state === "closed") {
       validateNativeTimeBasis(ticket.trackerClosure.closedAt, ticket.native.kind, context, [
         "trackerClosure",

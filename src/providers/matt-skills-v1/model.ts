@@ -81,7 +81,7 @@ export type MattContent =
 export type MattAnswer =
   | Readonly<{
       availability: "available";
-      content: MattContent & Readonly<{ role: "answer" }>;
+      content: MattWayfinderAuthoredDocument & Readonly<{ role: "answer" }>;
     }>
   | Readonly<{
       availability: "unavailable";
@@ -97,11 +97,23 @@ export type MattTrackerClosure =
       actor?: string | undefined;
     }>;
 
+export type MattWayfinderAuthoredDocument = Readonly<{
+  role: "answer" | "ordinary-comment" | "agent-brief" | "triage-note";
+  document: DocumentPresentation;
+  authoredAt: MattNativeEventTime;
+  sourceAnchor?: MattSourceAnchor | undefined;
+  nativeIdentity?: string | undefined;
+  author?: string | undefined;
+}>;
+
+export type MattWayfinderComment = Omit<MattWayfinderAuthoredDocument, "role"> &
+  Readonly<{ role: "ordinary-comment" | "agent-brief" | "triage-note" }>;
+
 export type MattMap = Readonly<{
   kind: "map";
   ref: MattObjectReference;
   title: string;
-  destination: string;
+  destination: DocumentPresentation;
   notes: readonly string[];
   decisions: readonly Readonly<{
     ticket?: MattObjectReference | undefined;
@@ -150,7 +162,7 @@ export type MattWayfinderTicket = Readonly<{
   ref: MattObjectReference;
   title: string;
   subtype: "research" | "prototype" | "grilling" | "task";
-  question: string;
+  question: DocumentPresentation;
   claim:
     | Readonly<{ state: "unclaimed" }>
     | Readonly<{
@@ -159,7 +171,7 @@ export type MattWayfinderTicket = Readonly<{
         claimantAmbiguous?: boolean | undefined;
       }>;
   answer: MattAnswer;
-  comments: readonly MattContent[];
+  comments: readonly MattWayfinderComment[];
   lifecycle:
     | Readonly<{ state: "open" }>
     | Readonly<{

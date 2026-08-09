@@ -1,3 +1,4 @@
+import type { DocumentPresentationBlock } from "../../document-presentation";
 import type { ProviderObservationSelection } from "../../provider-evidence-contract";
 import { assessSelectedProviderObservationEvidence } from "../../provider-evidence-contract";
 import type {
@@ -82,7 +83,10 @@ export type MattNativeWorkRegionMapChapter =
       reference: string;
       title: string;
       destination:
-        | Readonly<{ availability: "available"; value: string }>
+        | Readonly<{
+            availability: "available";
+            documentBlocks: readonly DocumentPresentationBlock[];
+          }>
         | Readonly<{ availability: "confirmed-empty" | "unavailable" | "unsupported" }>;
       lifecycle: MattMap["lifecycle"]["state"];
       totals: Readonly<{
@@ -452,7 +456,12 @@ const mapChapterFor = (
     title: map.title,
     destination:
       destinationAvailability === "available"
-        ? { availability: "available", value: map.destination }
+        ? {
+            availability: "available",
+            documentBlocks:
+              map.destination.sections.find((section) => section.semanticRole === "map.destination")
+                ?.blocks ?? [],
+          }
         : { availability: destinationAvailability },
     lifecycle: map.lifecycle.state,
     totals: {

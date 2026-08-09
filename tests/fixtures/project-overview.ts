@@ -6,7 +6,7 @@ import {
   type SourceBindingRole,
   type SourceKind,
 } from "../../src/project-generation/source-reference";
-import { plainDocumentPresentation } from "./document-presentation";
+import { plainDocumentPresentation, plainProviderDocument } from "./document-presentation";
 
 const BASIS = `sha256:${"b".repeat(64)}`;
 const sourceRecord = (
@@ -143,7 +143,11 @@ const map = (locator: string, title: string, state: "active" | "resolved", fog: 
   kind: "map" as const,
   ref: locator,
   title,
-  destination: "Reach the accepted project outcome.",
+  destination: plainProviderDocument(
+    "map.destination",
+    "Destination",
+    "Reach the accepted project outcome.",
+  ),
   notes: [],
   decisions: [],
   fog,
@@ -173,7 +177,7 @@ const wayfinder = (locator: string, title: string, state: "claimed" | "ready" | 
   ref: locator,
   title,
   subtype: "task" as const,
-  question: title,
+  question: plainProviderDocument("wayfinder.question", "Question", title),
   claim:
     state === "claimed"
       ? ({ state: "claimed", claimant: "lago" } as const)
@@ -184,7 +188,7 @@ const wayfinder = (locator: string, title: string, state: "claimed" | "ready" | 
           availability: "available",
           content: {
             role: "answer",
-            body: "Resolved.",
+            document: plainProviderDocument("wayfinder.answer", "Answer", "Resolved."),
             authoredAt: { availability: "unsupported" },
           },
         } as const)

@@ -93,7 +93,23 @@ const standaloneObservation = (nativeKind: "local" | "github", nativeScope: stri
       map: {
         ...projection.map,
         title: "Unbound Standalone Release Triage",
-        destination: "Triage release work without enrolling it in Bearing Scope.",
+        destination: {
+          ...projection.map.destination,
+          sections: projection.map.destination.sections.map((section) => ({
+            ...section,
+            blocks: [
+              {
+                kind: "paragraph" as const,
+                inlines: [
+                  {
+                    kind: "text" as const,
+                    value: "Triage release work without enrolling it in Bearing Scope.",
+                  },
+                ],
+              },
+            ],
+          })),
+        },
       },
     },
   });

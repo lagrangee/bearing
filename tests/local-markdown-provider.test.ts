@@ -272,7 +272,26 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     expect(result.sourceRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(result.projection?.map).toMatchObject({
       title: "Wayfinder Map: Reference",
-      destination: "Prove one complete Matt-native semantic scope.",
+      destination: {
+        version: 1,
+        sections: [
+          {
+            semanticRole: "map.destination",
+            availability: "available",
+            blocks: [
+              {
+                kind: "paragraph",
+                inlines: [
+                  {
+                    kind: "text",
+                    value: "Prove one complete Matt-native semantic scope.",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
       lifecycle: { state: "resolved" },
       native: {
         createdAt: { availability: "available", basis: "inferred-source-metadata" },

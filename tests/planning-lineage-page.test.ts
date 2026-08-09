@@ -845,7 +845,14 @@ test("keeps Map detail out of Effort Current Work when its optional semantics ar
               ...portal.projection,
               map: {
                 ...map,
-                destination: "",
+                destination: {
+                  ...map.destination,
+                  sections: map.destination.sections.map((section) => ({
+                    ...section,
+                    availability: "unavailable" as const,
+                    blocks: [],
+                  })),
+                },
                 semanticSections: map.semanticSections.map((section) =>
                   section.role === "map.destination"
                     ? { ...section, availability: "unavailable" as const }

@@ -45,6 +45,14 @@ export {
   type GitHubMattNativeScope,
 } from "./github-native-scope";
 
+import {
+  MATT_MAP_DOCUMENT_OWNED_SECTION_TITLES,
+  MATT_WAYFINDER_DOCUMENT_OWNED_SECTION_TITLES,
+  mattAdditiveDocumentSections,
+  mattDocumentSectionAvailability,
+  projectMattAuthoredBodyDocument,
+  projectMattAuthoredSectionDocument,
+} from "./authored-document";
 import type {
   MattAuthoredContent,
   MattBlockedByRelation,
@@ -60,6 +68,8 @@ import type {
   MattSourceAnchor,
   MattSpec,
   MattTrackerClosure,
+  MattWayfinderAuthoredDocument,
+  MattWayfinderComment,
   MattWayfinderTicket,
 } from "./model";
 import {
@@ -1206,6 +1216,55 @@ const commentContent = (comment: GitHubComment): MattAuthoredContent => {
   };
 };
 
+const wayfinderCommentDocument = (
+  comment: GitHubComment,
+  diagnostics: ProviderDiagnostic[],
+  forcedRole?: "answer",
+): MattWayfinderAuthoredDocument => {
+  const source = parseMarkdownDocument(comment.body);
+  const agentBrief =
+    forcedRole === undefined ? queryMarkdownSection(source, { title: "Agent Brief" }) : undefined;
+  const triageNotes =
+    forcedRole === undefined ? queryMarkdownSection(source, { title: "Triage Notes" }) : undefined;
+  const role =
+    forcedRole ??
+    (agentBrief?.state === "found"
+      ? "agent-brief"
+      : triageNotes?.state === "found"
+        ? "triage-note"
+        : "ordinary-comment");
+  const semanticRole = role === "answer" ? "wayfinder.answer" : "wayfinder.comments";
+  const identity = {
+    sourceIdentity: role === "answer" ? "wayfinder.answer" : "wayfinder.comment",
+    semanticRole,
+    title: role === "answer" ? "Answer" : "Comment",
+  };
+  const projected =
+    agentBrief?.state === "found"
+      ? projectMattAuthoredSectionDocument(source, agentBrief.value, identity)
+      : triageNotes?.state === "found"
+        ? projectMattAuthoredSectionDocument(source, triageNotes.value, identity)
+        : projectMattAuthoredBodyDocument(comment.body, identity);
+  if (projected.diagnostic !== undefined) {
+    diagnostics.push(
+      diagnostic(
+        projected.diagnostic.code,
+        "format",
+        comment.html_url,
+        projected.diagnostic.message,
+      ),
+    );
+  }
+  return {
+    role,
+    document: projected.document,
+    nativeIdentity: comment.node_id,
+    author: comment.user.login,
+    authoredAt: projectExpectedNativeSourceEventTime(comment.created_at),
+    sourceAnchor: { kind: role === "answer" ? "answer" : "source", target: comment.html_url },
+  };
+};
+
 type CanonicalGitHubIssueLink = Readonly<{
   number: number;
   commentId?: string;
@@ -1372,6 +1431,30 @@ const decodeMap = (
 ): MattMap | undefined => {
   const destination = section(acquired, "Destination");
   if (destination === undefined) return undefined;
+  const destinationDocument = projectMattAuthoredSectionDocument(
+    acquired.document,
+    destination,
+    {
+      sourceIdentity: "map.destination",
+      semanticRole: "map.destination",
+      title: "Destination",
+    },
+    mattAdditiveDocumentSections(
+      acquired.document,
+      destination.heading.depth,
+      MATT_MAP_DOCUMENT_OWNED_SECTION_TITLES,
+    ),
+  );
+  if (destinationDocument.diagnostic !== undefined) {
+    diagnostics.push(
+      diagnostic(
+        destinationDocument.diagnostic.code,
+        "format",
+        acquired.issue.html_url,
+        destinationDocument.diagnostic.message,
+      ),
+    );
+  }
   const notesSection = compatibleMapSectionItems(acquired, ["Notes"], "map.notes", diagnostics);
   const fogSection = compatibleMapSectionItems(
     acquired,
@@ -1410,7 +1493,7 @@ const decodeMap = (
     kind: "map",
     ref: issueReference(repository, acquired.issue),
     title: acquired.issue.title,
-    destination: destination.markdown,
+    destination: destinationDocument.document,
     notes: notesSection.items.map((item) => item.text),
     decisions: decisions.map((entry) => ({
       ...(entry.ticket === undefined ? {} : { ticket: entry.ticket }),
@@ -1433,7 +1516,7 @@ const decodeMap = (
     semanticSections: [
       semanticSection(
         "map.destination",
-        destination.markdown.trim().length === 0 ? "confirmed-empty" : "available",
+        mattDocumentSectionAvailability(destinationDocument.document, "map.destination"),
       ),
       semanticSection("map.notes", notesSection.availability),
       semanticSection(
@@ -1606,6 +1689,41 @@ const decodeWayfinder = (
           }
         : { state: "claimed", claimantAmbiguous: true };
   const trackerClosure = trackerClosureFor(acquired.issue);
+  const questionDocument = projectMattAuthoredSectionDocument(
+    acquired.document,
+    question,
+    {
+      sourceIdentity: "wayfinder.question",
+      semanticRole: "wayfinder.question",
+      title: "Question",
+    },
+    mattAdditiveDocumentSections(
+      acquired.document,
+      question.heading.depth,
+      MATT_WAYFINDER_DOCUMENT_OWNED_SECTION_TITLES,
+    ),
+  );
+  if (questionDocument.diagnostic !== undefined) {
+    diagnostics.push(
+      diagnostic(
+        questionDocument.diagnostic.code,
+        "format",
+        acquired.issue.html_url,
+        questionDocument.diagnostic.message,
+      ),
+    );
+  }
+  const answerDocument =
+    uniqueAnswer === undefined
+      ? undefined
+      : (wayfinderCommentDocument(
+          uniqueAnswer,
+          diagnostics,
+          "answer",
+        ) as MattWayfinderAuthoredDocument & Readonly<{ role: "answer" }>);
+  const comments = acquired.comments
+    .filter((comment) => comment !== uniqueAnswer)
+    .map((comment) => wayfinderCommentDocument(comment, diagnostics) as MattWayfinderComment);
   if (acquired.issue.assignees.length > 1) {
     diagnostics.push(
       diagnostic(
@@ -1636,10 +1754,10 @@ const decodeWayfinder = (
     ref: reference,
     title: acquired.issue.title,
     subtype: subtypeLabels[0] as MattWayfinderTicket["subtype"],
-    question: question.markdown,
+    question: questionDocument.document,
     claim,
     answer:
-      uniqueAnswer === undefined
+      answerDocument === undefined
         ? {
             availability: "unavailable",
             reason:
@@ -1649,15 +1767,14 @@ const decodeWayfinder = (
                   ? "no-unique-native-reference"
                   : "not-authored",
           }
-        : {
-            availability: "available",
-            content: {
-              ...commentContent(uniqueAnswer),
-              role: "answer",
-              sourceAnchor: { kind: "answer", target: uniqueAnswer.html_url },
+        : mattDocumentSectionAvailability(answerDocument.document, "wayfinder.answer") !==
+            "available"
+          ? { availability: "unavailable", reason: "source-contract-gap" }
+          : {
+              availability: "available",
+              content: answerDocument,
             },
-          },
-    comments: acquired.comments.filter((comment) => comment !== uniqueAnswer).map(commentContent),
+    comments,
     lifecycle:
       trackerClosure.state === "closed" && decision !== undefined
         ? { state: "resolved-on-route", decisionSource: decision.sourceAnchor }
@@ -1674,13 +1791,13 @@ const decodeWayfinder = (
     semanticSections: [
       semanticSection(
         "wayfinder.question",
-        question.markdown.trim().length === 0 ? "confirmed-empty" : "available",
+        mattDocumentSectionAvailability(questionDocument.document, "wayfinder.question"),
       ),
       semanticSection("wayfinder.claim", "available"),
       semanticSection(
         "wayfinder.answer",
-        uniqueAnswer !== undefined
-          ? "available"
+        answerDocument !== undefined
+          ? mattDocumentSectionAvailability(answerDocument.document, "wayfinder.answer")
           : acquired.commentsCapability === "unsupported"
             ? "unsupported"
             : acquired.commentsCapability === "failed"
@@ -1691,8 +1808,14 @@ const decodeWayfinder = (
       ),
       semanticSection(
         "wayfinder.comments",
-        acquired.comments.filter((comment) => comment !== uniqueAnswer).length > 0
-          ? "available"
+        comments.length > 0
+          ? comments.every(
+              (comment) =>
+                mattDocumentSectionAvailability(comment.document, "wayfinder.comments") ===
+                "available",
+            )
+            ? "available"
+            : "unavailable"
           : acquired.commentsCapability === "unsupported"
             ? "unsupported"
             : acquired.commentsCapability === "failed"

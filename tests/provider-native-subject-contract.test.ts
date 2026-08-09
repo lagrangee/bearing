@@ -256,11 +256,13 @@ test("rejects semantic availability that contradicts provider content", () => {
   const map = projection.map;
   const firstDelivery = projection.deliveryTickets[0];
   const firstWayfinder = projection.wayfinderTickets[0];
+  const unansweredWayfinder = projection.wayfinderTickets[1];
   const spec = projection.spec;
   if (
     map === undefined ||
     firstDelivery === undefined ||
     firstWayfinder === undefined ||
+    unansweredWayfinder === undefined ||
     spec === undefined
   ) {
     throw new Error("Expected complete Matt reference projection.");
@@ -280,6 +282,25 @@ test("rejects semantic availability that contradicts provider content", () => {
       },
     }).success,
   ).toBe(false);
+  for (const role of ["wayfinder.answer", "wayfinder.comments"] as const) {
+    expect(
+      mattScopeProjectionSchema.safeParse({
+        ...projection,
+        wayfinderTickets: [
+          projection.wayfinderTickets[0],
+          {
+            ...unansweredWayfinder,
+            semanticSections: replaceAvailability(
+              unansweredWayfinder.semanticSections,
+              role,
+              "available",
+            ),
+          },
+          ...projection.wayfinderTickets.slice(2),
+        ],
+      }).success,
+    ).toBe(false);
+  }
   expect(
     mattScopeProjectionSchema.safeParse({
       ...projection,
@@ -307,7 +328,7 @@ test("rejects semantic availability that contradicts provider content", () => {
       wayfinderTickets: [
         {
           ...firstWayfinder,
-          question: "",
+          question: { ...firstWayfinder.question, sections: [] },
         },
         ...projection.wayfinderTickets.slice(1),
       ],

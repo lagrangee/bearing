@@ -6,7 +6,7 @@ import type {
   MattScopeProjection,
 } from "../../src/providers/matt-skills-v1/model";
 import type { MattReferenceSemanticView } from "../helpers/matt-reference-oracle";
-import { plainDocumentPresentation } from "./document-presentation";
+import { plainDocumentPresentation, plainProviderDocument } from "./document-presentation";
 
 type NativeKind = "local" | "github";
 
@@ -87,7 +87,11 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
       kind: "map",
       ref: mapRef,
       title: "Reference Map",
-      destination: "Prove one complete Matt-native semantic scope.",
+      destination: plainProviderDocument(
+        "map.destination",
+        "Destination",
+        "Prove one complete Matt-native semantic scope.",
+      ),
       notes: ["Keep provider-native identity outside the semantic oracle."],
       decisions: [
         {
@@ -182,13 +186,21 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         ref: researchRef,
         title: "Research the semantic contract",
         subtype: "research",
-        question: "Which semantics are durable?",
+        question: plainProviderDocument(
+          "wayfinder.question",
+          "Question",
+          "Which semantics are durable?",
+        ),
         claim: { state: "claimed", claimant: "lago" },
         answer: {
           availability: "available",
           content: {
             role: "answer",
-            body: "Preserve workflow-specific lifecycle and evidence.",
+            document: plainProviderDocument(
+              "wayfinder.answer",
+              "Answer",
+              "Preserve workflow-specific lifecycle and evidence.",
+            ),
             sourceAnchor: {
               kind: "answer",
               target: nativeKind === "local" ? "research.md#answer" : "comment:answer-1",
@@ -199,7 +211,11 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         comments: [
           {
             role: "ordinary-comment",
-            body: "This comment is not the Answer.",
+            document: plainProviderDocument(
+              "wayfinder.comments",
+              "Comment",
+              "This comment is not the Answer.",
+            ),
             nativeIdentity: nativeKind === "local" ? "comment:local-1" : "comment:github-1",
             authoredAt: nativeTime(nativeKind, "2026-07-03T11:00:00Z"),
           },
@@ -229,7 +245,11 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         ref: prototypeRef,
         title: "Prototype the capture seam",
         subtype: "prototype",
-        question: "Does one capture preserve all axes?",
+        question: plainProviderDocument(
+          "wayfinder.question",
+          "Question",
+          "Does one capture preserve all axes?",
+        ),
         claim: { state: "unclaimed" },
         answer: { availability: "unavailable", reason: "no-unique-native-reference" },
         comments: [],
@@ -247,7 +267,11 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         ref: grillingRef,
         title: "Grill the ontology boundary",
         subtype: "grilling",
-        question: "What must remain provider-specific?",
+        question: plainProviderDocument(
+          "wayfinder.question",
+          "Question",
+          "What must remain provider-specific?",
+        ),
         claim: { state: "claimed", claimant: "blue" },
         answer: { availability: "unavailable", reason: "not-authored" },
         comments: [],
@@ -275,13 +299,21 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         ref: taskRef,
         title: "Record the accepted decision",
         subtype: "task",
-        question: "Can the decision be written durably?",
+        question: plainProviderDocument(
+          "wayfinder.question",
+          "Question",
+          "Can the decision be written durably?",
+        ),
         claim: { state: "claimed", claimant: "lago" },
         answer: { availability: "unavailable", reason: "no-unique-native-reference" },
         comments: [
           {
             role: "agent-brief",
-            body: "Write only the accepted resolution.",
+            document: plainProviderDocument(
+              "wayfinder.comments",
+              "Comment",
+              "Write only the accepted resolution.",
+            ),
             authoredAt: nativeTime(nativeKind, "2026-07-06T10:00:00Z"),
           },
         ],

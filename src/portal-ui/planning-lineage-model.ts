@@ -1,4 +1,4 @@
-import type { DocumentPresentationBlock } from "../document-presentation";
+import type { DocumentPresentation, DocumentPresentationBlock } from "../document-presentation";
 import type { PlanningLineageRelationKey, PlanningLineageSubject } from "../planning-lineage-route";
 import {
   planningLineageFilteredViewHref,
@@ -111,6 +111,19 @@ export type PlanningLineageSection = Readonly<{
   title: string;
   body?: string | undefined;
   documentBlocks?: readonly DocumentPresentationBlock[] | undefined;
+  facts?: readonly PlanningLineageFact[] | undefined;
+  providerDocuments?:
+    | readonly Readonly<{
+        key: string;
+        sections: readonly Readonly<{
+          key: string;
+          title: string;
+          documentBlocks: readonly DocumentPresentationBlock[];
+        }>[];
+        facts: readonly PlanningLineageFact[];
+        times: readonly PlanningLineageTimeFact[];
+      }>[]
+    | undefined;
   copy?: Readonly<{ label: string; value: string }> | undefined;
   items?: readonly string[] | undefined;
   links?:
@@ -140,6 +153,12 @@ export type PlanningLineageSection = Readonly<{
         }>;
       }>[]
     | undefined;
+}>;
+
+export type PlanningLineageFact = Readonly<{
+  key: string;
+  label: string;
+  value: string;
 }>;
 
 export type PlanningLineageTimeFact = Readonly<{
@@ -921,6 +940,9 @@ const nativeSemanticSection = (
     role: string;
     title: string;
     body?: string | undefined;
+    documentBlocks?: readonly DocumentPresentationBlock[] | undefined;
+    facts?: readonly PlanningLineageFact[] | undefined;
+    providerDocuments?: PlanningLineageSection["providerDocuments"];
     items?: readonly string[] | undefined;
     times?: readonly PlanningLineageTimeFact[] | undefined;
     emptyCopy: string;
@@ -937,6 +959,11 @@ const nativeSemanticSection = (
       title: input.title,
       body:
         input.unavailableBody ?? "This semantic section is unavailable in the current source data.",
+      ...(input.documentBlocks === undefined ? {} : { documentBlocks: input.documentBlocks }),
+      ...(input.facts === undefined ? {} : { facts: input.facts }),
+      ...(input.providerDocuments === undefined
+        ? {}
+        : { providerDocuments: input.providerDocuments }),
       ...(input.items === undefined ? {} : { items: input.items }),
       ...(input.times === undefined ? {} : { times: input.times }),
     };
@@ -946,6 +973,7 @@ const nativeSemanticSection = (
       anchor: input.role,
       title: input.title,
       body: "The current source does not support the requested semantic section.",
+      ...(input.facts === undefined ? {} : { facts: input.facts }),
       ...(input.times === undefined ? {} : { times: input.times }),
     };
   }
@@ -953,6 +981,11 @@ const nativeSemanticSection = (
     anchor: input.role,
     title: input.title,
     ...(input.body === undefined ? {} : { body: input.body }),
+    ...(input.documentBlocks === undefined ? {} : { documentBlocks: input.documentBlocks }),
+    ...(input.facts === undefined ? {} : { facts: input.facts }),
+    ...(input.providerDocuments === undefined
+      ? {}
+      : { providerDocuments: input.providerDocuments }),
     ...(input.items === undefined ? {} : { items: input.items }),
     ...(input.times === undefined ? {} : { times: input.times }),
   };
@@ -960,6 +993,32 @@ const nativeSemanticSection = (
 
 const sourceAnchorLabel = (anchor: Readonly<{ kind: string; target: string }>): string =>
   `${anchor.kind}: ${anchor.target}`;
+
+const documentBlocksFor = (
+  document: DocumentPresentation,
+  semanticRole: string,
+): readonly DocumentPresentationBlock[] | undefined => {
+  const section = document.sections.find((candidate) => candidate.semanticRole === semanticRole);
+  return section?.availability === "available" ? section.blocks : undefined;
+};
+
+const additiveDocumentSections = (
+  document: DocumentPresentation,
+  anchorPrefix: string,
+): readonly PlanningLineageSection[] =>
+  document.sections
+    .filter((section) => section.semanticRole === undefined)
+    .map((section) => ({
+      anchor: `${anchorPrefix}.additional.${section.sourceOrder}`,
+      title: section.title,
+      ...(section.availability === "available" ? { documentBlocks: section.blocks } : {}),
+      ...(section.availability === "confirmed-empty"
+        ? { body: `No ${section.title.toLocaleLowerCase()} content is recorded.` }
+        : {}),
+      ...(section.availability === "unavailable"
+        ? { body: "This provider document section is unavailable." }
+        : {}),
+    }));
 
 const nativeTrustSections = (
   snapshot: LineageModelData,
@@ -1014,9 +1073,10 @@ const mapSections = (map: MattMap): readonly PlanningLineageSection[] => [
   nativeSemanticSection(map, {
     role: "map.destination",
     title: "Destination",
-    body: map.destination,
+    documentBlocks: documentBlocksFor(map.destination, "map.destination"),
     emptyCopy: "No Destination is declared.",
   }),
+  ...additiveDocumentSections(map.destination, "map.destination"),
   {
     anchor: "map.lifecycle",
     title: "Map Lifecycle",
@@ -1102,6 +1162,7 @@ const contentTimeFacts = (
     author?: string | undefined;
     authoredAt?: MattNativeEventTime | undefined;
   }>[],
+  positionOffset = 0,
 ): readonly PlanningLineageTimeFact[] =>
   content.flatMap((entry, index) =>
     entry.authoredAt === undefined
@@ -1113,7 +1174,7 @@ const contentTimeFacts = (
               entry.author === undefined ? "" : ` by ${entry.author}`
             }`,
             time: entry.authoredAt,
-            detail: `Native content position ${index + 1}; event time does not reorder content.`,
+            detail: `Native content position ${positionOffset + index + 1}; event time does not reorder content.`,
           },
         ],
   );
@@ -1122,9 +1183,10 @@ const wayfinderSections = (ticket: MattWayfinderTicket): readonly PlanningLineag
   nativeSemanticSection(ticket, {
     role: "wayfinder.question",
     title: "Question",
-    body: ticket.question,
+    documentBlocks: documentBlocksFor(ticket.question, "wayfinder.question"),
     emptyCopy: "No Question is recorded.",
   }),
+  ...additiveDocumentSections(ticket.question, "wayfinder.question"),
   {
     anchor: "wayfinder.lifecycle",
     title: "Lifecycle and Subtype",
@@ -1147,11 +1209,44 @@ const wayfinderSections = (ticket: MattWayfinderTicket): readonly PlanningLineag
     title: "Answer",
     body:
       ticket.answer.availability === "available"
-        ? ticket.answer.content.body
+        ? undefined
         : `Answer unavailable: ${ticket.answer.reason}.`,
-    items:
-      ticket.answer.availability === "available" && ticket.answer.content.sourceAnchor !== undefined
-        ? [sourceAnchorLabel(ticket.answer.content.sourceAnchor)]
+    documentBlocks:
+      ticket.answer.availability === "available"
+        ? documentBlocksFor(ticket.answer.content.document, "wayfinder.answer")
+        : undefined,
+    facts:
+      ticket.answer.availability === "available"
+        ? [
+            { key: "answer-role", label: "Role", value: ticket.answer.content.role },
+            ...(ticket.answer.content.author === undefined
+              ? []
+              : [
+                  {
+                    key: "answer-author",
+                    label: "Actor",
+                    value: ticket.answer.content.author,
+                  },
+                ]),
+            ...(ticket.answer.content.sourceAnchor === undefined
+              ? []
+              : [
+                  {
+                    key: "answer-source-anchor",
+                    label: "Source anchor",
+                    value: sourceAnchorLabel(ticket.answer.content.sourceAnchor),
+                  },
+                ]),
+            ...(ticket.answer.content.nativeIdentity === undefined
+              ? []
+              : [
+                  {
+                    key: "answer-native-identity",
+                    label: "Native identity",
+                    value: ticket.answer.content.nativeIdentity,
+                  },
+                ]),
+          ]
         : undefined,
     ...(ticket.answer.availability === "available" && ticket.answer.content.authoredAt !== undefined
       ? {
@@ -1167,16 +1262,45 @@ const wayfinderSections = (ticket: MattWayfinderTicket): readonly PlanningLineag
       : {}),
     emptyCopy: "No Answer has been authored.",
   }),
+  ...(ticket.answer.availability === "available"
+    ? additiveDocumentSections(ticket.answer.content.document, "wayfinder.answer")
+    : []),
   nativeSemanticSection(ticket, {
     role: "wayfinder.comments",
     title: "Comments",
-    items: ticket.comments.map(
-      (comment) =>
-        `${comment.role}: ${comment.body}${
-          comment.sourceAnchor === undefined ? "" : ` · ${sourceAnchorLabel(comment.sourceAnchor)}`
-        }`,
-    ),
-    times: contentTimeFacts(ticket.comments),
+    providerDocuments: ticket.comments.map((comment, index) => ({
+      key: comment.nativeIdentity ?? `comment-${index + 1}`,
+      sections: comment.document.sections.map((section) => ({
+        key: section.sourceIdentity,
+        title: section.title,
+        documentBlocks: section.availability === "available" ? section.blocks : [],
+      })),
+      facts: [
+        { key: "role", label: "Role", value: comment.role },
+        ...(comment.author === undefined
+          ? []
+          : [{ key: "author", label: "Actor", value: comment.author }]),
+        ...(comment.sourceAnchor === undefined
+          ? []
+          : [
+              {
+                key: "source-anchor",
+                label: "Source anchor",
+                value: sourceAnchorLabel(comment.sourceAnchor),
+              },
+            ]),
+        ...(comment.nativeIdentity === undefined
+          ? []
+          : [
+              {
+                key: "native-identity",
+                label: "Native identity",
+                value: comment.nativeIdentity,
+              },
+            ]),
+      ],
+      times: contentTimeFacts([comment], index),
+    })),
     emptyCopy: "No comments are recorded.",
   }),
   ...(ticket.lifecycle.state === "resolved-on-route"

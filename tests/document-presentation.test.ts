@@ -6,6 +6,7 @@ import {
 } from "../src/document-presentation";
 import {
   markdownDocumentPresentationBlocks,
+  markdownDocumentPresentationBodyBlocks,
   parseMarkdownDocument,
   queryMarkdownSection,
 } from "../src/markdown-document";
@@ -131,6 +132,20 @@ test("rejects authored heading-level jumps below the Portal-owned H2", () => {
   expect(() => documentPresentationSchema.parse({ version: 1, sections: [section] })).toThrow(
     "Document headings must not skip a level",
   );
+
+  expect(
+    markdownDocumentPresentationBodyBlocks(
+      parseMarkdownDocument("# First authored heading\n\n##### Rebased beyond H6\n"),
+    ),
+  ).toMatchObject({ ok: false, reason: "unsupported-block", nodeKind: "heading" });
+});
+
+test("fails closed when a free-standing authored body starts with YAML metadata", () => {
+  expect(
+    markdownDocumentPresentationBodyBlocks(
+      parseMarkdownDocument("---\nsecret: metadata\n---\n\nVisible authored content.\n"),
+    ),
+  ).toMatchObject({ ok: false, reason: "unsupported-block", nodeKind: "yaml" });
 });
 
 test("classifies external links through the shared URL boundary", () => {

@@ -30,6 +30,13 @@ import {
 } from "../../path-boundary";
 import { projectInferredSourceMetadataTime } from "../../source-event-time";
 import {
+  MATT_MAP_DOCUMENT_OWNED_SECTION_TITLES,
+  MATT_WAYFINDER_DOCUMENT_OWNED_SECTION_TITLES,
+  mattAdditiveDocumentSections,
+  mattDocumentSectionAvailability,
+  projectMattAuthoredSectionDocument,
+} from "./authored-document";
+import {
   MATT_SKILLS_V1_PROVIDER_ID,
   type MattSkillsV1Provider,
   type MattSkillsV1ProviderObservation,
@@ -49,6 +56,8 @@ import type {
   MattScopeProjection,
   MattSourceAnchor,
   MattSpec,
+  MattWayfinderAuthoredDocument,
+  MattWayfinderComment,
   MattWayfinderTicket,
 } from "./model";
 import { semanticAvailabilityForItems, semanticSection } from "./semantic-sections";
@@ -334,6 +343,52 @@ const contentSection = (
       : {}),
   };
 };
+
+const wayfinderAuthoredSection = (
+  file: CapturedFile,
+  title: "Answer" | "Comments" | "Agent Brief" | "Triage Notes",
+  role: MattWayfinderAuthoredDocument["role"],
+  diagnostics: CaptureDiagnostic[],
+): MattWayfinderAuthoredDocument | undefined => {
+  const result = queryMarkdownSection(file.document, { title });
+  if (result.state !== "found" || result.value.markdown.length === 0) return undefined;
+  const semanticRole = role === "answer" ? "wayfinder.answer" : "wayfinder.comments";
+  const projected = projectMattAuthoredSectionDocument(file.document, result.value, {
+    sourceIdentity: role === "answer" ? "wayfinder.answer" : "wayfinder.comment",
+    semanticRole,
+    title: role === "answer" ? "Answer" : "Comment",
+  });
+  if (projected.diagnostic !== undefined) {
+    diagnostics.push(
+      diagnostic(projected.diagnostic.code, "format", file.locator, projected.diagnostic.message),
+    );
+  }
+  const anchor = title.toLocaleLowerCase("en").replaceAll(" ", "-");
+  return {
+    role,
+    document: projected.document,
+    authoredAt: role === "answer" ? inferredUpdatedTimeFor(file) : { availability: "unsupported" },
+    sourceAnchor: {
+      kind: role === "answer" ? "answer" : "source",
+      target: `${file.locator}#${anchor}`,
+    },
+  };
+};
+
+const wayfinderComments = (
+  file: CapturedFile,
+  diagnostics: CaptureDiagnostic[],
+): readonly MattWayfinderComment[] =>
+  (
+    [
+      ["Comments", "ordinary-comment"],
+      ["Agent Brief", "agent-brief"],
+      ["Triage Notes", "triage-note"],
+    ] as const
+  ).flatMap(([title, role]) => {
+    const content = wayfinderAuthoredSection(file, title, role, diagnostics);
+    return content === undefined ? [] : [content as MattWayfinderComment];
+  });
 
 const supplementaryContent = (file: CapturedFile): readonly MattContent[] => {
   const roles = [
@@ -648,7 +703,34 @@ const decodeWayfinder = (
     return undefined;
   }
   const claimant = fieldValue(file, "Claimed by", diagnostics);
-  const answer = contentSection(file, "Answer", "answer");
+  const questionDocument = projectMattAuthoredSectionDocument(
+    file.document,
+    question.value,
+    {
+      sourceIdentity: "wayfinder.question",
+      semanticRole: "wayfinder.question",
+      title: "Question",
+    },
+    mattAdditiveDocumentSections(
+      file.document,
+      question.value.heading.depth,
+      MATT_WAYFINDER_DOCUMENT_OWNED_SECTION_TITLES,
+    ),
+  );
+  if (questionDocument.diagnostic !== undefined) {
+    diagnostics.push(
+      diagnostic(
+        questionDocument.diagnostic.code,
+        "format",
+        file.locator,
+        questionDocument.diagnostic.message,
+      ),
+    );
+  }
+  const answer = wayfinderAuthoredSection(file, "Answer", "answer", diagnostics);
+  const projectedAnswer = answer as
+    | (MattWayfinderAuthoredDocument & Readonly<{ role: "answer" }>)
+    | undefined;
   const resolved = status === "resolved";
   if (status !== undefined && status !== "claimed" && !resolved) {
     diagnostics.push(
@@ -660,13 +742,13 @@ const decodeWayfinder = (
       ),
     );
   }
-  const comments = supplementaryContent(file);
+  const comments = wayfinderComments(file, diagnostics);
   return {
     kind: "wayfinder-ticket",
     ref: objectReference(file.locator),
     title,
     subtype: type as MattWayfinderTicket["subtype"],
-    question: question.value.markdown,
+    question: questionDocument.document,
     claim:
       status === "claimed"
         ? {
@@ -675,12 +757,15 @@ const decodeWayfinder = (
           }
         : { state: "unclaimed" },
     answer:
-      answer === undefined
+      projectedAnswer === undefined
         ? { availability: "unavailable", reason: "not-authored" }
-        : {
-            availability: "available",
-            content: answer as MattContent & Readonly<{ role: "answer" }>,
-          },
+        : mattDocumentSectionAvailability(projectedAnswer.document, "wayfinder.answer") !==
+            "available"
+          ? { availability: "unavailable", reason: "source-contract-gap" }
+          : {
+              availability: "available",
+              content: projectedAnswer,
+            },
     comments,
     lifecycle: { state: "open" },
     trackerClosure: resolved
@@ -693,13 +778,26 @@ const decodeWayfinder = (
     semanticSections: [
       semanticSection(
         "wayfinder.question",
-        question.value.markdown.trim().length === 0 ? "confirmed-empty" : "available",
+        mattDocumentSectionAvailability(questionDocument.document, "wayfinder.question"),
       ),
       semanticSection("wayfinder.claim", "available"),
-      semanticSection("wayfinder.answer", answer === undefined ? "confirmed-empty" : "available"),
+      semanticSection(
+        "wayfinder.answer",
+        projectedAnswer === undefined
+          ? "confirmed-empty"
+          : mattDocumentSectionAvailability(projectedAnswer.document, "wayfinder.answer"),
+      ),
       semanticSection(
         "wayfinder.comments",
-        comments.length === 0 ? "confirmed-empty" : "available",
+        comments.length === 0
+          ? "confirmed-empty"
+          : comments.every(
+                (comment) =>
+                  mattDocumentSectionAvailability(comment.document, "wayfinder.comments") ===
+                  "available",
+              )
+            ? "available"
+            : "unavailable",
       ),
     ],
     native: nativeEvidenceFor(file, [
@@ -1078,6 +1176,30 @@ const decodeMap = (
   const title = titleFor(file, diagnostics);
   const destination = requiredSection(file.document, "Destination", file.locator, diagnostics);
   if (title === undefined || destination === undefined) return undefined;
+  const destinationDocument = projectMattAuthoredSectionDocument(
+    file.document,
+    destination,
+    {
+      sourceIdentity: "map.destination",
+      semanticRole: "map.destination",
+      title: "Destination",
+    },
+    mattAdditiveDocumentSections(
+      file.document,
+      destination.heading.depth,
+      MATT_MAP_DOCUMENT_OWNED_SECTION_TITLES,
+    ),
+  );
+  if (destinationDocument.diagnostic !== undefined) {
+    diagnostics.push(
+      diagnostic(
+        destinationDocument.diagnostic.code,
+        "format",
+        file.locator,
+        destinationDocument.diagnostic.message,
+      ),
+    );
+  }
   const notesSection = compatibleSectionList(file, ["Notes"], "map.notes", diagnostics);
   const fogSection = compatibleSectionList(
     file,
@@ -1134,7 +1256,7 @@ const decodeMap = (
     kind: "map",
     ref: objectReference(file.locator),
     title,
-    destination: destination.markdown,
+    destination: destinationDocument.document,
     notes,
     decisions,
     fog,
@@ -1149,7 +1271,7 @@ const decodeMap = (
     semanticSections: [
       semanticSection(
         "map.destination",
-        destination.markdown.trim().length === 0 ? "confirmed-empty" : "available",
+        mattDocumentSectionAvailability(destinationDocument.document, "map.destination"),
       ),
       semanticSection("map.notes", notesSection.availability),
       semanticSection(

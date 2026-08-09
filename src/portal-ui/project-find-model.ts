@@ -562,6 +562,15 @@ const nativeContentFields = (
   subject: PlanningLineageSubject,
   object: MattMap | MattSpec | MattWayfinderTicket | MattDeliveryTicket | MattIncomingIssue,
 ): readonly FindField[] => {
+  const documentText = (
+    document: MattMap["destination"] | MattWayfinderTicket["question"],
+    role: string,
+  ) => {
+    const section = document.sections.find((candidate) => candidate.semanticRole === role);
+    return section?.availability === "available"
+      ? documentPresentationBlocksPlainText(section.blocks)
+      : "";
+  };
   const fields: (FindField | undefined)[] = [];
   switch (object.kind) {
     case "map":
@@ -569,7 +578,7 @@ const nativeContentFields = (
         contentField(snapshot, subject, {
           key: "intent",
           label: "Destination",
-          text: object.destination,
+          text: documentText(object.destination, "map.destination"),
           anchor: "map.destination",
         }),
         contentField(snapshot, subject, {
@@ -599,14 +608,14 @@ const nativeContentFields = (
         contentField(snapshot, subject, {
           key: "intent",
           label: "Question",
-          text: object.question,
+          text: documentText(object.question, "wayfinder.question"),
           anchor: "wayfinder.question",
         }),
         object.answer.availability === "available"
           ? contentField(snapshot, subject, {
               key: "nativeBody",
               label: "Answer",
-              text: object.answer.content.body,
+              text: documentText(object.answer.content.document, "wayfinder.answer"),
               anchor: "wayfinder.answer",
             })
           : undefined,

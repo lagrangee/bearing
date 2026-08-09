@@ -16,6 +16,17 @@ const scenarioAlias = (aliases: Readonly<Record<string, string>>, reference: str
   return alias;
 };
 
+const providerDocumentPlainText = (
+  document: MattScopeProjection["wayfinderTickets"][number]["question"],
+): string =>
+  document.sections
+    .flatMap((section) =>
+      section.availability === "available"
+        ? [documentPresentationBlocksPlainText(section.blocks)]
+        : [],
+    )
+    .join("\n\n");
+
 type DeepReadonly<Value> = Value extends
   | string
   | number
@@ -37,7 +48,7 @@ const answerSemantic = (answer: MattScopeProjection["wayfinderTickets"][number][
   answer.availability === "available"
     ? {
         availability: "available" as const,
-        body: answer.content.body,
+        body: providerDocumentPlainText(answer.content.document),
         sourceKind: answer.content.sourceAnchor?.kind,
       }
     : {
@@ -52,7 +63,7 @@ const contentSemantic = (
     | MattScopeProjection["incomingIssues"][number]["content"][number],
 ) => ({
   role: content.role,
-  body: content.body,
+  body: "document" in content ? providerDocumentPlainText(content.document) : content.body,
   sourceKind: content.sourceAnchor?.kind,
 });
 
@@ -77,7 +88,7 @@ const buildMattReferenceSemanticView = (
       ? undefined
       : {
           title: capture.projection.map.title,
-          destination: capture.projection.map.destination,
+          destination: providerDocumentPlainText(capture.projection.map.destination),
           notes: capture.projection.map.notes,
           decisions: capture.projection.map.decisions.map((decision) => ({
             ...(decision.ticket === undefined
@@ -118,7 +129,7 @@ const buildMattReferenceSemanticView = (
     ref: scenarioAlias(aliases, String(ticket.ref)),
     title: ticket.title,
     subtype: ticket.subtype,
-    question: ticket.question,
+    question: providerDocumentPlainText(ticket.question),
     claim:
       ticket.claim.state === "unclaimed"
         ? { state: "unclaimed" as const }

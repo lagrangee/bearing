@@ -592,11 +592,10 @@ const projectPresentationList = (list: MdastList): ListProjectionResult => {
   };
 };
 
-export const markdownDocumentPresentationBlocks = (
-  document: MarkdownDocument,
-  section: MarkdownSection,
+const projectDocumentPresentationNodes = (
+  nodes: readonly RootContent[],
+  headingLevel?: (depth: MarkdownHeadingDepth) => 3 | 4 | 5 | 6 | undefined,
 ): MarkdownDocumentPresentationResult => {
-  const nodes = nodesWithin(document, section);
   const blocks: DocumentPresentationBlock[] = [];
   for (const node of nodes) {
     if (node.type === "paragraph") {
@@ -606,12 +605,18 @@ export const markdownDocumentPresentationBlocks = (
       continue;
     }
     if (node.type === "heading") {
-      if (node.depth === 1 || node.depth === 2) {
+      const level =
+        headingLevel === undefined
+          ? node.depth >= 3
+            ? (node.depth as 3 | 4 | 5 | 6)
+            : undefined
+          : headingLevel(node.depth);
+      if (level === undefined || level < 3 || level > 6) {
         return { ok: false, reason: "unsupported-block", nodeKind: node.type };
       }
       const inlines = projectPresentationInlines(node.children);
       if (!inlines.ok) return inlines;
-      blocks.push({ kind: "heading", level: node.depth, inlines: inlines.inlines });
+      blocks.push({ kind: "heading", level, inlines: inlines.inlines });
       continue;
     }
     if (node.type === "list") {
@@ -623,6 +628,29 @@ export const markdownDocumentPresentationBlocks = (
     return { ok: false, reason: "unsupported-block", nodeKind: node.type };
   }
   return { ok: true, blocks };
+};
+
+export const markdownDocumentPresentationBlocks = (
+  document: MarkdownDocument,
+  section: MarkdownSection,
+): MarkdownDocumentPresentationResult =>
+  projectDocumentPresentationNodes(nodesWithin(document, section));
+
+export const markdownDocumentPresentationBodyBlocks = (
+  document: MarkdownDocument,
+): MarkdownDocumentPresentationResult => {
+  const nodes = nodesWithin(document);
+  const headingDepths = nodes.flatMap((node) => (node.type === "heading" ? [node.depth] : []));
+  const minimumHeadingDepth = headingDepths.length === 0 ? undefined : Math.min(...headingDepths);
+  return projectDocumentPresentationNodes(
+    nodes,
+    minimumHeadingDepth === undefined
+      ? undefined
+      : (depth) => {
+          const level = depth - minimumHeadingDepth + 3;
+          return level >= 3 && level <= 6 ? (level as 3 | 4 | 5 | 6) : undefined;
+        },
+  );
 };
 
 const PLAIN_TEXT_MARKUP_PATTERNS = [

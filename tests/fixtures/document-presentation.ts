@@ -9,11 +9,12 @@ export const plainDocumentPresentation = (
     title: string;
     body: string;
   }>[],
+  namespace = "spec",
 ): DocumentPresentation => ({
   version: DOCUMENT_PRESENTATION_VERSION,
   sections: sections.map((section, sourceOrder) => ({
-    sourceIdentity: `spec.${section.role}`,
-    semanticRole: `spec.${section.role}`,
+    sourceIdentity: `${namespace}.${section.role}`,
+    semanticRole: `${namespace}.${section.role}`,
     title: section.title,
     sourceOrder,
     availability: "available",
@@ -25,3 +26,14 @@ export const plainDocumentPresentation = (
     ],
   })),
 });
+
+export const plainProviderDocument = (
+  semanticRole: string,
+  title: string,
+  body: string,
+): DocumentPresentation => {
+  const separator = semanticRole.indexOf(".");
+  const namespace = separator === -1 ? "provider" : semanticRole.slice(0, separator);
+  const role = separator === -1 ? semanticRole : semanticRole.slice(separator + 1);
+  return plainDocumentPresentation([{ role, title, body }], namespace);
+};

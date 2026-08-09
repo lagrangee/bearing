@@ -309,6 +309,41 @@ function LineageSections({
           {section.documentBlocks === undefined ? null : (
             <DocumentPresentationBlocks blocks={section.documentBlocks} />
           )}
+          {section.facts === undefined || section.facts.length === 0 ? null : (
+            <dl className="lineage-section-facts">
+              {section.facts.map((fact) => (
+                <div key={`${section.anchor}:${fact.key}`}>
+                  <dt>{fact.label}</dt>
+                  <dd>{fact.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {section.providerDocuments === undefined ? null : (
+            <div className="lineage-provider-documents">
+              {section.providerDocuments.map((document) => (
+                <article key={`${section.anchor}:${document.key}`}>
+                  {document.sections.map((providerSection) => (
+                    <div key={`${document.key}:${providerSection.key}`}>
+                      <h3>{providerSection.title}</h3>
+                      <DocumentPresentationBlocks blocks={providerSection.documentBlocks} />
+                    </div>
+                  ))}
+                  {document.facts.length === 0 ? null : (
+                    <dl className="lineage-section-facts">
+                      {document.facts.map((fact) => (
+                        <div key={`${document.key}:${fact.key}`}>
+                          <dt>{fact.label}</dt>
+                          <dd>{fact.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                  {document.times.length === 0 ? null : <TimeFacts facts={document.times} />}
+                </article>
+              ))}
+            </div>
+          )}
           {section.copy === undefined ? null : (
             <AssetLocationCopy label={section.copy.label} value={section.copy.value} />
           )}
@@ -959,14 +994,12 @@ function MapChapter({
     ["Decisions", chapter.previews.decisions],
     ["Out of scope", chapter.previews.outOfScope],
   ] as const;
-  const destination =
-    chapter.destination.availability === "available"
-      ? chapter.destination.value
-      : chapter.destination.availability === "confirmed-empty"
-        ? "Destination is confirmed empty in the current source data."
-        : chapter.destination.availability === "unsupported"
-          ? "Destination is unsupported by this provider version."
-          : "Destination is unavailable in the current source data.";
+  const destinationFallback =
+    chapter.destination.availability === "confirmed-empty"
+      ? "Destination is confirmed empty in the current source data."
+      : chapter.destination.availability === "unsupported"
+        ? "Destination is unsupported by this provider version."
+        : "Destination is unavailable in the current source data.";
   return (
     <section className="matt-map-chapter" aria-labelledby="matt-map-chapter-title">
       <p className="eyebrow">Map chapter</p>
@@ -975,7 +1008,13 @@ function MapChapter({
           {chapter.title}
         </a>
       </h3>
-      <p data-semantic-availability={chapter.destination.availability}>{destination}</p>
+      <div data-semantic-availability={chapter.destination.availability}>
+        {chapter.destination.availability === "available" ? (
+          <DocumentPresentationBlocks blocks={chapter.destination.documentBlocks} />
+        ) : (
+          <p>{destinationFallback}</p>
+        )}
+      </div>
       <dl>
         <div>
           <dt>Lifecycle</dt>

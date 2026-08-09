@@ -309,7 +309,26 @@ describe("GitHub matt-skills/v1 capture", () => {
     expect(result.diagnostics).toEqual([]);
     expect(result.projection?.map).toMatchObject({
       title: "Reference Map",
-      destination: "Prove one complete Matt-native semantic scope.",
+      destination: {
+        version: 1,
+        sections: [
+          {
+            semanticRole: "map.destination",
+            availability: "available",
+            blocks: [
+              {
+                kind: "paragraph",
+                inlines: [
+                  {
+                    kind: "text",
+                    value: "Prove one complete Matt-native semantic scope.",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
       notes: ["Keep provider-native identity outside the semantic oracle."],
       decisions: [
         {
@@ -344,13 +363,46 @@ describe("GitHub matt-skills/v1 capture", () => {
     expect(result.projection?.wayfinderTickets[0]).toMatchObject({
       title: "Research the semantic contract",
       subtype: "research",
-      question: "Which semantics are durable?",
+      question: {
+        version: 1,
+        sections: [
+          {
+            semanticRole: "wayfinder.question",
+            availability: "available",
+            blocks: [
+              {
+                kind: "paragraph",
+                inlines: [{ kind: "text", value: "Which semantics are durable?" }],
+              },
+            ],
+          },
+        ],
+      },
       claim: { state: "claimed", claimant: "lago" },
       answer: {
         availability: "available",
         content: {
           role: "answer",
-          body: "Preserve workflow-specific lifecycle and evidence.",
+          document: {
+            version: 1,
+            sections: [
+              {
+                semanticRole: "wayfinder.answer",
+                availability: "available",
+                blocks: [
+                  {
+                    kind: "paragraph",
+                    inlines: [
+                      {
+                        kind: "text",
+                        value: "Preserve workflow-specific lifecycle and evidence.",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
           nativeIdentity: "IC_301",
           authoredAt: {
             availability: "available",
@@ -363,7 +415,21 @@ describe("GitHub matt-skills/v1 capture", () => {
       comments: [
         {
           role: "ordinary-comment",
-          body: "This comment is not the Answer.",
+          document: {
+            version: 1,
+            sections: [
+              {
+                semanticRole: "wayfinder.comments",
+                availability: "available",
+                blocks: [
+                  {
+                    kind: "paragraph",
+                    inlines: [{ kind: "text", value: "This comment is not the Answer." }],
+                  },
+                ],
+              },
+            ],
+          },
           nativeIdentity: "IC_302",
           author: "reviewer",
           authoredAt: {
@@ -1981,7 +2047,26 @@ Does closure alone prove resolution?
       comments: [
         {
           role: "ordinary-comment",
-          body: "This ordinary comment is not uniquely referenced.",
+          document: {
+            version: 1,
+            sections: [
+              {
+                semanticRole: "wayfinder.comments",
+                availability: "available",
+                blocks: [
+                  {
+                    kind: "paragraph",
+                    inlines: [
+                      {
+                        kind: "text",
+                        value: "This ordinary comment is not uniquely referenced.",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
           nativeIdentity: "IC_303",
         },
       ],
@@ -2162,7 +2247,21 @@ Which route pointer is canonical?
       comments: [
         {
           role: "ordinary-comment",
-          body: "One comment, two Map references.",
+          document: {
+            version: 1,
+            sections: [
+              {
+                semanticRole: "wayfinder.comments",
+                availability: "available",
+                blocks: [
+                  {
+                    kind: "paragraph",
+                    inlines: [{ kind: "text", value: "One comment, two Map references." }],
+                  },
+                ],
+              },
+            ],
+          },
           nativeIdentity: "IC_303",
         },
       ],
