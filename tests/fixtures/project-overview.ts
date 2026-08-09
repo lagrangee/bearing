@@ -266,7 +266,11 @@ const incoming = (locator: string, title: string) => ({
   content: [
     {
       role: "triage-note" as const,
-      body: "Route this request through the accepted Matt workflow.",
+      document: plainProviderDocument(
+        "incoming.content",
+        "Triage Note",
+        "Route this request through the accepted Matt workflow.",
+      ),
       authoredAt: { availability: "unsupported" as const },
     },
   ],

@@ -132,6 +132,39 @@ const authoredDocumentRoleSection = (
   return undefined;
 };
 
+const validateAuthoredDocumentCollection = (
+  documents: readonly Readonly<{ document: DocumentPresentation }>[],
+  sections: readonly SemanticSection[],
+  role: string,
+  pathKey: "comments" | "content",
+  context: z.RefinementCtx,
+): void => {
+  for (const [index, document] of documents.entries()) {
+    authoredDocumentRoleSection(document.document, role, context, [
+      pathKey,
+      index,
+      "document",
+      "sections",
+    ]);
+  }
+  if (documents.length === 0) {
+    validateSemanticContent(sections, role, false, context);
+    return;
+  }
+  validateDocumentSemanticAvailability(
+    sections,
+    role,
+    documents.every(
+      (document) =>
+        document.document.sections.find((section) => section.semanticRole === role)
+          ?.availability === "available",
+    )
+      ? "available"
+      : "unavailable",
+    context,
+  );
+};
+
 const trackerClosureSchema = z.discriminatedUnion("state", [
   z.strictObject({ state: z.literal("open") }),
   z.strictObject({
@@ -202,48 +235,20 @@ const nativeEvidenceSchema = z.discriminatedUnion("kind", [
   githubEvidenceSchema,
 ]);
 
-const contentBaseShape = {
-  body: z.string(),
+const providerAuthoredDocumentShape = {
+  document: documentPresentationSchema,
+  authoredAt: nativeEventTimeSchema,
   sourceAnchor: sourceAnchorSchema.optional(),
   nativeIdentity: nonEmpty.optional(),
   author: nonEmpty.optional(),
 };
-const answerContentSchema = z.strictObject({
-  ...contentBaseShape,
-  role: z.literal("answer"),
-  authoredAt: nativeEventTimeSchema,
-});
-const contentSchema = z.discriminatedUnion("role", [
-  answerContentSchema,
-  z.strictObject({
-    ...contentBaseShape,
-    role: z.literal("ordinary-comment"),
-    authoredAt: nativeEventTimeSchema,
-  }),
-  z.strictObject({
-    ...contentBaseShape,
-    role: z.literal("agent-brief"),
-    authoredAt: nativeEventTimeSchema,
-  }),
-  z.strictObject({
-    ...contentBaseShape,
-    role: z.literal("triage-note"),
-    authoredAt: nativeEventTimeSchema,
-  }),
-  z.strictObject({ ...contentBaseShape, role: z.literal("issue-body") }),
-  z.strictObject({ ...contentBaseShape, role: z.literal("source-anchor") }),
-]);
 
 const answerSchema = z.discriminatedUnion("availability", [
   z.strictObject({
     availability: z.literal("available"),
     content: z.strictObject({
+      ...providerAuthoredDocumentShape,
       role: z.literal("answer"),
-      document: documentPresentationSchema,
-      authoredAt: nativeEventTimeSchema,
-      sourceAnchor: sourceAnchorSchema.optional(),
-      nativeIdentity: nonEmpty.optional(),
-      author: nonEmpty.optional(),
     }),
   }),
   z.strictObject({
@@ -388,12 +393,8 @@ const wayfinderTicketSchema = z
     answer: answerSchema,
     comments: z.array(
       z.strictObject({
+        ...providerAuthoredDocumentShape,
         role: z.enum(["ordinary-comment", "agent-brief", "triage-note"]),
-        document: documentPresentationSchema,
-        authoredAt: nativeEventTimeSchema,
-        sourceAnchor: sourceAnchorSchema.optional(),
-        nativeIdentity: nonEmpty.optional(),
-        author: nonEmpty.optional(),
       }),
     ),
     lifecycle: z.discriminatedUnion("state", [
@@ -455,31 +456,13 @@ const wayfinderTicketSchema = z
     } else {
       validateSemanticContent(ticket.semanticSections, "wayfinder.answer", false, context);
     }
-    for (const [index, comment] of ticket.comments.entries()) {
-      authoredDocumentRoleSection(comment.document, "wayfinder.comments", context, [
-        "comments",
-        index,
-        "document",
-        "sections",
-      ]);
-    }
-    if (ticket.comments.length > 0) {
-      validateDocumentSemanticAvailability(
-        ticket.semanticSections,
-        "wayfinder.comments",
-        ticket.comments.every(
-          (comment) =>
-            comment.document.sections.find(
-              (section) => section.semanticRole === "wayfinder.comments",
-            )?.availability === "available",
-        )
-          ? "available"
-          : "unavailable",
-        context,
-      );
-    } else {
-      validateSemanticContent(ticket.semanticSections, "wayfinder.comments", false, context);
-    }
+    validateAuthoredDocumentCollection(
+      ticket.comments,
+      ticket.semanticSections,
+      "wayfinder.comments",
+      "comments",
+      context,
+    );
     if (ticket.trackerClosure.state === "closed") {
       validateNativeTimeBasis(ticket.trackerClosure.closedAt, ticket.native.kind, context, [
         "trackerClosure",
@@ -519,7 +502,12 @@ const deliveryTicketSchema = z
       }),
     ]),
     trackerClosure: trackerClosureSchema,
-    comments: z.array(contentSchema),
+    comments: z.array(
+      z.strictObject({
+        ...providerAuthoredDocumentShape,
+        role: z.enum(["ordinary-comment", "agent-brief", "triage-note"]),
+      }),
+    ),
     semanticSections: exactSemanticSections([
       "delivery.what-to-build",
       "delivery.acceptance-criteria",
@@ -547,10 +535,11 @@ const deliveryTicketSchema = z
       ticket.lifecycle.state === "completed" && ticket.lifecycle.evidence.length > 0,
       context,
     );
-    validateSemanticContent(
+    validateAuthoredDocumentCollection(
+      ticket.comments,
       ticket.semanticSections,
       "delivery.comments",
-      ticket.comments.length > 0,
+      "comments",
       context,
     );
     if (ticket.trackerClosure.state === "closed") {
@@ -588,7 +577,12 @@ const incomingIssueSchema = z
       nativeCategory: z.string().optional(),
       nativeState: z.string().optional(),
     }),
-    content: z.array(contentSchema),
+    content: z.array(
+      z.strictObject({
+        ...providerAuthoredDocumentShape,
+        role: z.enum(["issue-body", "ordinary-comment", "agent-brief", "triage-note"]),
+      }),
+    ),
     lifecycle: z.discriminatedUnion("state", [
       z.strictObject({ state: z.literal("open") }),
       z.strictObject({
@@ -611,10 +605,11 @@ const incomingIssueSchema = z
       issue.classification.category === "bug" || issue.classification.category === "enhancement",
       context,
     );
-    validateSemanticContent(
+    validateAuthoredDocumentCollection(
+      issue.content,
       issue.semanticSections,
       "incoming.content",
-      issue.content.length > 0,
+      "content",
       context,
     );
     validateSemanticContent(

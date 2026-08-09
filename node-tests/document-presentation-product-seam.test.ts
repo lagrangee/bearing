@@ -10,6 +10,16 @@ import { portalRowsToProjectData } from "../src/portal-ui/project-row-adapter";
 import { queryPortalProjectRows } from "../src/project-read-model/portal";
 import { captureProjectProviderScopes } from "../src/project-read-model/provider-operations";
 import { projectReadModelPath } from "../src/project-read-model/store";
+import {
+  createGitHubMattRepository,
+  createReferenceGitHubFixtures,
+  FixtureGitHubTransport,
+  githubComment,
+  githubFixtureResponse,
+  githubIssue,
+  githubMattProviderFactoryFor,
+  writeStandardGitHubMattProductRepository,
+} from "../tests/fixtures/github-matt-api";
 import { createValidBearingRepo, writeFixture } from "../tests/helpers";
 
 test("Spec document structure survives capture, SQLite publication, typed query, and Portal markup", async () => {
@@ -308,6 +318,490 @@ The second authored comment stays independent.
     assert.match(mapHtml, /<em>provider title<\/em>/u);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Delivery and Incoming authored documents retain structure without absorbing typed domain facts", async () => {
+  const root = await createValidBearingRepo();
+  try {
+    await writeFixture(
+      root,
+      ".scratch/work/PRD.md",
+      `# Delivery and Incoming reading
+
+Status: ready-for-agent
+
+## Problem Statement
+
+Keep authored native documents readable without flattening typed facts.
+`,
+    );
+    await writeFixture(
+      root,
+      ".scratch/work/issues/20-delivery.md",
+      `# Deliver structured comments
+
+**What to build:** Keep this **typed scalar** unchanged.
+
+Blocked by: None — can start immediately
+
+Status: resolved
+
+- [x] Keep acceptance identity typed.
+- [x] Keep completion evidence typed.
+
+## Answer
+
+The delivery is complete through the typed product seam.
+
+## Comments
+
+The Delivery comment keeps **authored emphasis**.
+
+### Review sequence
+
+1. Read the comment as a document.
+2. Keep provenance outside its blocks.
+`,
+    );
+    await writeFixture(
+      root,
+      ".scratch/work/issues/21-incoming.md",
+      `# Investigate structured incoming content
+
+Category: bug
+
+Status: needs-triage
+
+The Incoming body keeps a [safe source](https://example.com/incoming).
+
+1. Preserve body order.
+2. Preserve typed classification.
+
+## Triage Notes
+
+The triage note stays **independent** from the body.
+
+### Triage context
+
+- Keep this authored list.
+`,
+    );
+
+    const captured = await captureProjectProviderScopes(root, [".scratch/work"], {
+      now: () => "2026-08-09T00:00:00.000Z",
+    });
+    assert.equal(captured.outcome, "complete");
+    const deliveryTarget = {
+      kind: "native-subject" as const,
+      id: ".scratch/work/issues/20-delivery.md",
+    };
+    const typedRows = await queryPortalProjectRows(root, "lineage", deliveryTarget);
+    const typedSnapshot = portalRowsToProjectData(typedRows);
+    if (typedSnapshot.section !== "lineage") {
+      throw new Error("Expected typed Portal lineage rows.");
+    }
+    const observation = typedSnapshot.providerObservations.find(
+      (candidate) => candidate.binding.nativeScope === ".scratch/work",
+    );
+    if (
+      observation === undefined ||
+      (observation.state !== "available" && observation.state !== "partial")
+    ) {
+      throw new Error("Expected typed Delivery and Incoming provider documents.");
+    }
+    const delivery = observation.projection.deliveryTickets[0];
+    const incoming = observation.projection.incomingIssues[0];
+    if (delivery === undefined || incoming === undefined) {
+      throw new Error("Expected Delivery and Incoming fixtures.");
+    }
+    assert.equal(delivery.whatToBuild, "Keep this typed scalar unchanged.");
+    assert.deepEqual(delivery.acceptanceCriteria, [
+      "Keep acceptance identity typed.",
+      "Keep completion evidence typed.",
+    ]);
+    assert.deepEqual(delivery.lifecycle, {
+      state: "completed",
+      evidence: [".scratch/work/issues/20-delivery.md#answer"],
+    });
+    assert.equal(delivery.trackerClosure.state, "closed");
+    assert.equal("claim" in delivery, false);
+    assert.equal(delivery.comments.length, 1);
+    const deliveryComment = delivery.comments[0];
+    if (deliveryComment === undefined) throw new Error("Expected one Delivery comment.");
+    assert.equal("body" in deliveryComment, false);
+    assert.equal("document" in deliveryComment, true);
+    assert.deepEqual(incoming.classification, {
+      category: "bug",
+      state: "needs-triage",
+      nativeCategory: "bug",
+      nativeState: "needs-triage",
+    });
+    assert.equal(incoming.lifecycle.state, "open");
+    assert.equal(incoming.native.kind, "local");
+    if (incoming.native.kind !== "local") throw new Error("Expected Local Incoming evidence.");
+    assert.equal(incoming.native.identity.locator, ".scratch/work/issues/21-incoming.md");
+    assert.deepEqual(incoming.native.sourceAnchors, [
+      { kind: "external", target: "https://example.com/incoming" },
+    ]);
+    assert.deepEqual(
+      incoming.native.rawFacets.filter(
+        (facet) => facet.key === "category" || facet.key === "status",
+      ),
+      [
+        { key: "category", values: ["bug"] },
+        { key: "status", values: ["needs-triage"] },
+      ],
+    );
+    assert.deepEqual(
+      incoming.content.map((content) => content.role),
+      ["issue-body", "triage-note"],
+    );
+    assert.equal(
+      incoming.content.every((content) => !("body" in content)),
+      true,
+    );
+    assert.equal(
+      incoming.content.every((content) => "document" in content),
+      true,
+    );
+
+    for (const [target, expected] of [
+      [
+        { kind: "native-subject" as const, id: ".scratch/work/issues/20-delivery.md" },
+        {
+          headings: ["Comments", "Review sequence"],
+          fragments: [
+            "<strong>authored emphasis</strong>",
+            "<ol>",
+            "<dt>Role</dt><dd>ordinary-comment</dd>",
+            "<h2>Completion Evidence</h2>",
+            ".scratch/work/issues/20-delivery.md#answer",
+          ],
+        },
+      ],
+      [
+        { kind: "native-subject" as const, id: ".scratch/work/issues/21-incoming.md" },
+        {
+          headings: ["Issue Content and Triage Notes", "Triage context"],
+          fragments: [
+            '<a href="https://example.com/incoming" rel="noopener noreferrer" target="_blank">safe source</a>',
+            "<strong>independent</strong>",
+            "<dt>Role</dt><dd>issue-body</dd>",
+            "<dt>Role</dt><dd>triage-note</dd>",
+            "<h2>Routing</h2><p>needs-triage</p>",
+            "<dt>Source anchor</dt><dd>source: .scratch/work/issues/21-incoming.md</dd>",
+          ],
+        },
+      ],
+    ] as const) {
+      const rows = await queryPortalProjectRows(root, "lineage", target);
+      const snapshot = portalRowsToProjectData(rows);
+      if (snapshot.section !== "lineage") throw new Error("Expected typed Portal lineage rows.");
+      const html = renderToStaticMarkup(
+        createElement(PlanningLineagePage, {
+          entryId: "bearing",
+          requested: { validity: "valid", value: target },
+          snapshot,
+          onInspect: () => {},
+          onNavigate: () => {},
+        }),
+      );
+      for (const heading of expected.headings) {
+        assert.match(html, new RegExp(`<h[23]>${heading}</h[23]>`, "u"));
+      }
+      for (const fragment of expected.fragments) assert.ok(html.includes(fragment));
+      assert.doesNotMatch(html, /ordinary-comment:|issue-body:|triage-note:/u);
+    }
+
+    const githubRoot = await createGitHubMattRepository();
+    try {
+      const repository = await writeStandardGitHubMattProductRepository(githubRoot, {
+        title: "GitHub authored document parity",
+        intent: "Prove Delivery and Incoming authored documents through the product seam.",
+        work: "Capture one exact GitHub scope and read it from Portal rows.",
+      });
+      const githubDelivery = githubIssue({
+        number: 4,
+        title: "Deliver structured comments",
+        labels: ["custom-ready"],
+        state: "closed",
+        stateReason: "completed",
+        body: `## What to build
+
+Keep this typed scalar unchanged.
+
+## Acceptance criteria
+
+- [x] Keep acceptance identity typed.
+- [x] Keep completion evidence typed.
+`,
+      });
+      const githubIncoming = githubIssue({
+        number: 5,
+        title: "Investigate structured incoming content",
+        labels: ["custom-bug", "custom-ready", "same-project"],
+        state: "closed",
+        stateReason: "completed",
+        body: `The Incoming body keeps a [safe source](https://example.com/incoming).
+
+1. Preserve body order.
+2. Preserve typed classification.
+`,
+      });
+      const fixtures = createReferenceGitHubFixtures();
+      fixtures["repos/example/reference/issues/4"] = {
+        first: githubFixtureResponse(githubDelivery, '"issue-4-product-v1"'),
+      };
+      fixtures["repos/example/reference/issues/4/comments?per_page=100&page=1"] = {
+        first: githubFixtureResponse(
+          [
+            githubComment({
+              id: 401,
+              issue: 4,
+              author: "delivery-author",
+              body: `The Delivery comment keeps **authored emphasis**.
+
+### Review sequence
+
+1. Read the comment as a document.
+2. Keep provenance outside its blocks.`,
+            }),
+          ],
+          '"comments-4-product-v1"',
+        ),
+      };
+      fixtures["repos/example/reference/issues/5"] = {
+        first: githubFixtureResponse(githubIncoming, '"issue-5-product-v1"'),
+      };
+      fixtures["repos/example/reference/issues/5/comments?per_page=100&page=1"] = {
+        first: githubFixtureResponse(
+          [
+            githubComment({
+              id: 501,
+              issue: 5,
+              author: "triage-author",
+              body: `## Triage Notes
+
+The triage note stays **independent** from the body.
+
+### Triage context
+
+- Keep this authored list.`,
+            }),
+          ],
+          '"comments-5-product-v1"',
+        ),
+      };
+      const transport = new FixtureGitHubTransport(fixtures);
+      const githubCapture = await captureProjectProviderScopes(
+        githubRoot,
+        [repository.nativeScope],
+        { providerFactory: githubMattProviderFactoryFor(transport) },
+      );
+      assert.equal(githubCapture.outcome, "complete");
+      const acquisitionRequestCount = transport.requests.length;
+
+      const githubRows = await queryPortalProjectRows(githubRoot, "lineage", {
+        kind: "native-subject",
+        id: "github:R_reference:I_reference_4",
+      });
+      const githubSnapshot = portalRowsToProjectData(githubRows);
+      if (githubSnapshot.section !== "lineage") {
+        throw new Error("Expected typed GitHub Portal lineage rows.");
+      }
+      const githubObservation = githubSnapshot.providerObservations.find(
+        (candidate) => candidate.binding.nativeScope === repository.nativeScope,
+      );
+      if (
+        githubObservation === undefined ||
+        (githubObservation.state !== "available" && githubObservation.state !== "partial")
+      ) {
+        throw new Error("Expected typed GitHub Delivery and Incoming documents.");
+      }
+      const githubDeliveryProjection = githubObservation.projection.deliveryTickets[0];
+      const githubIncomingProjection = githubObservation.projection.incomingIssues[0];
+      if (githubDeliveryProjection === undefined || githubIncomingProjection === undefined) {
+        throw new Error("Expected GitHub Delivery and Incoming projections.");
+      }
+      const documentReadingView = (
+        documents: readonly Readonly<{
+          role: string;
+          document: Readonly<{ sections: readonly unknown[] }>;
+        }>[],
+      ) =>
+        documents.map((document) => ({
+          role: document.role,
+          sections: document.document.sections,
+        }));
+      assert.deepEqual(
+        documentReadingView(githubDeliveryProjection.comments),
+        documentReadingView(delivery.comments),
+      );
+      assert.deepEqual(
+        documentReadingView(githubIncomingProjection.content),
+        documentReadingView(incoming.content),
+      );
+      assert.deepEqual(githubDeliveryProjection.trackerClosure, {
+        state: "closed",
+        disposition: "completed",
+        closedAt: {
+          availability: "available",
+          value: "2026-07-20T00:00:00Z",
+          precision: "second",
+          basis: "source-event",
+        },
+        actor: "closer",
+      });
+      assert.deepEqual(githubIncomingProjection.classification, {
+        category: "bug",
+        state: "ready-for-agent",
+        nativeCategory: "custom-bug",
+        nativeState: "custom-ready",
+      });
+      assert.equal(githubIncomingProjection.lifecycle.state, "closed");
+      assert.equal(githubIncomingProjection.native.kind, "github");
+      if (githubIncomingProjection.native.kind !== "github") {
+        throw new Error("Expected GitHub Incoming native evidence.");
+      }
+      assert.equal(githubIncomingProjection.native.trackerClosure.state, "closed");
+      assert.equal(
+        githubIncomingProjection.native.sourceAnchors.some(
+          (anchor) => anchor.target === githubIncoming.html_url,
+        ),
+        true,
+      );
+
+      const githubHtml = renderToStaticMarkup(
+        createElement(PlanningLineagePage, {
+          entryId: "bearing",
+          requested: {
+            validity: "valid",
+            value: { kind: "native-subject", id: "github:R_reference:I_reference_4" },
+          },
+          snapshot: githubSnapshot,
+          onInspect: () => {},
+          onNavigate: () => {},
+        }),
+      );
+      for (const fragment of [
+        "<strong>authored emphasis</strong>",
+        "<dt>Actor</dt><dd>delivery-author</dd>",
+        `<dt>Source anchor</dt><dd>source: https://github.com/example/reference/issues/4#issuecomment-401</dd>`,
+        "<dt>Native identity</dt><dd>IC_401</dd>",
+        "<dt>Comment authored by delivery-author</dt>",
+      ]) {
+        assert.ok(githubHtml.includes(fragment));
+      }
+
+      const githubIncomingRows = await queryPortalProjectRows(githubRoot, "lineage", {
+        kind: "native-subject",
+        id: "github:R_reference:I_reference_5",
+      });
+      const githubIncomingSnapshot = portalRowsToProjectData(githubIncomingRows);
+      if (githubIncomingSnapshot.section !== "lineage") {
+        throw new Error("Expected typed GitHub Incoming Portal rows.");
+      }
+      const githubIncomingHtml = renderToStaticMarkup(
+        createElement(PlanningLineagePage, {
+          entryId: "bearing",
+          requested: {
+            validity: "valid",
+            value: { kind: "native-subject", id: "github:R_reference:I_reference_5" },
+          },
+          snapshot: githubIncomingSnapshot,
+          onInspect: () => {},
+          onNavigate: () => {},
+        }),
+      );
+      for (const fragment of [
+        "<h2>Routing</h2><p>ready-for-agent</p>",
+        "<h2>Native Lifecycle</h2><p>closed · completed</p>",
+        "<dt>Actor</dt><dd>reporter</dd>",
+        "<dt>Actor</dt><dd>triage-author</dd>",
+        "<dt>Issue body authored by reporter</dt>",
+        "<dt>Triage note authored by triage-author</dt>",
+      ]) {
+        assert.ok(githubIncomingHtml.includes(fragment));
+      }
+      assert.equal(
+        transport.requests.length,
+        acquisitionRequestCount,
+        "ordinary Portal queries and rendering must not call the provider transport",
+      );
+    } finally {
+      await rm(githubRoot, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("unsafe Delivery and Incoming authored documents fail closed before publication", async () => {
+  for (const scenario of ["delivery-comment", "incoming-body"] as const) {
+    const root = await createValidBearingRepo();
+    try {
+      if (scenario === "delivery-comment") {
+        await writeFixture(
+          root,
+          ".scratch/work/PRD.md",
+          "# Unsafe Delivery\n\nStatus: ready-for-agent\n\n## Problem Statement\n\nFail closed.\n",
+        );
+        await writeFixture(
+          root,
+          ".scratch/work/issues/20-delivery.md",
+          `# Unsafe Delivery comment
+
+**What to build:** Keep typed facts separate.
+
+Blocked by: None — can start immediately
+
+Status: ready-for-agent
+
+- [ ] Reject unsafe authored comments.
+
+## Comments
+
+[unsafe](javascript:alert(1))
+`,
+        );
+      } else {
+        await writeFixture(
+          root,
+          ".scratch/work/issues/21-incoming.md",
+          `# Unsafe Incoming body
+
+Category: bug
+
+Status: needs-triage
+
+<script>alert("unsafe")</script>
+`,
+        );
+      }
+      const captured = await captureProjectProviderScopes(root, [".scratch/work"], {
+        now: () => "2026-08-09T00:00:00.000Z",
+      });
+      assert.equal(captured.outcome, "unfulfilled");
+      const id =
+        scenario === "delivery-comment"
+          ? ".scratch/work/issues/20-delivery.md"
+          : ".scratch/work/issues/21-incoming.md";
+      const rows = await queryPortalProjectRows(root, "lineage", {
+        kind: "native-subject",
+        id,
+      });
+      assert.equal(
+        rows.objects.some(
+          (object) =>
+            object.kind === "portal-native-evidence" &&
+            object.value.observation?.binding.nativeScope === ".scratch/work",
+        ),
+        false,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   }
 });
 

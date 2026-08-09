@@ -629,13 +629,8 @@ export const expectedMattEquivalenceSemantics: MattReferenceEquivalenceView = {
       content: [
         {
           role: "issue-body",
-          body: "<https://example.com/customer-report>",
-          sourceKind: undefined,
-        },
-        {
-          role: "source-anchor",
           body: "https://example.com/customer-report",
-          sourceKind: "external",
+          sourceKind: "source",
         },
       ],
     },

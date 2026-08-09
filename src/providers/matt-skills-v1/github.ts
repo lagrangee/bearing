@@ -49,20 +49,23 @@ import {
   MATT_MAP_DOCUMENT_OWNED_SECTION_TITLES,
   MATT_WAYFINDER_DOCUMENT_OWNED_SECTION_TITLES,
   mattAdditiveDocumentSections,
+  mattAuthoredDocumentCollectionAvailability,
+  mattAuthoredDocumentIdentity,
   mattDocumentSectionAvailability,
   projectMattAuthoredBodyDocument,
   projectMattAuthoredSectionDocument,
 } from "./authored-document";
 import type {
-  MattAuthoredContent,
   MattBlockedByRelation,
-  MattContent,
+  MattDeliveryComment,
   MattDeliveryTicket,
+  MattIncomingDocument,
   MattIncomingIssue,
   MattMap,
   MattNativeEvidence,
   MattObjectReference,
   MattParentChildRelation,
+  MattProviderAuthoredDocument,
   MattRawFacet,
   MattScopeProjection,
   MattSourceAnchor,
@@ -1190,37 +1193,12 @@ const compatibleMapSectionItems = (
   };
 };
 
-const commentContent = (comment: GitHubComment): MattAuthoredContent => {
-  const document = parseMarkdownDocument(comment.body);
-  const agentBrief = queryMarkdownSection(document, { title: "Agent Brief" });
-  const triageNotes = queryMarkdownSection(document, { title: "Triage Notes" });
-  const role =
-    agentBrief.state === "found"
-      ? "agent-brief"
-      : triageNotes.state === "found"
-        ? "triage-note"
-        : "ordinary-comment";
-  const body =
-    agentBrief.state === "found"
-      ? agentBrief.value.markdown
-      : triageNotes.state === "found"
-        ? triageNotes.value.markdown
-        : comment.body;
-  return {
-    role,
-    body,
-    nativeIdentity: comment.node_id,
-    author: comment.user.login,
-    authoredAt: projectExpectedNativeSourceEventTime(comment.created_at),
-    sourceAnchor: { kind: "source", target: comment.html_url },
-  };
-};
-
-const wayfinderCommentDocument = (
+const githubCommentDocument = (
   comment: GitHubComment,
+  semanticRole: string,
   diagnostics: ProviderDiagnostic[],
   forcedRole?: "answer",
-): MattWayfinderAuthoredDocument => {
+): MattProviderAuthoredDocument<"answer" | "ordinary-comment" | "agent-brief" | "triage-note"> => {
   const source = parseMarkdownDocument(comment.body);
   const agentBrief =
     forcedRole === undefined ? queryMarkdownSection(source, { title: "Agent Brief" }) : undefined;
@@ -1233,12 +1211,7 @@ const wayfinderCommentDocument = (
       : triageNotes?.state === "found"
         ? "triage-note"
         : "ordinary-comment");
-  const semanticRole = role === "answer" ? "wayfinder.answer" : "wayfinder.comments";
-  const identity = {
-    sourceIdentity: role === "answer" ? "wayfinder.answer" : "wayfinder.comment",
-    semanticRole,
-    title: role === "answer" ? "Answer" : "Comment",
-  };
+  const identity = mattAuthoredDocumentIdentity(semanticRole, role);
   const projected =
     agentBrief?.state === "found"
       ? projectMattAuthoredSectionDocument(source, agentBrief.value, identity)
@@ -1576,6 +1549,7 @@ const decodeSpec = (
 const decodeDelivery = (
   acquired: AcquiredIssue,
   repository: GitHubRepository,
+  diagnostics: ProviderDiagnostic[],
 ): MattDeliveryTicket | undefined => {
   const whatToBuild = section(acquired, "What to build");
   const acceptance = sectionItems(acquired, "Acceptance criteria");
@@ -1586,6 +1560,10 @@ const decodeDelivery = (
   ) {
     return undefined;
   }
+  const comments = acquired.comments.map(
+    (comment) =>
+      githubCommentDocument(comment, "delivery.comments", diagnostics) as MattDeliveryComment,
+  );
   return {
     kind: "delivery-ticket",
     ref: issueReference(repository, acquired.issue),
@@ -1597,7 +1575,7 @@ const decodeDelivery = (
         ? { state: "open" }
         : { state: "completion-unavailable", reason: "source-contract-gap" },
     trackerClosure: trackerClosureFor(acquired.issue),
-    comments: acquired.comments.map(commentContent),
+    comments,
     semanticSections: [
       semanticSection(
         "delivery.what-to-build",
@@ -1613,13 +1591,12 @@ const decodeDelivery = (
       ),
       semanticSection(
         "delivery.comments",
-        acquired.comments.length > 0
-          ? "available"
-          : acquired.commentsCapability === "unsupported"
+        mattAuthoredDocumentCollectionAvailability(comments, "delivery.comments") ??
+          (acquired.commentsCapability === "unsupported"
             ? "unsupported"
             : acquired.commentsCapability === "failed"
               ? "unavailable"
-              : "confirmed-empty",
+              : "confirmed-empty"),
       ),
     ],
     native: nativeEvidenceForAcquired(repository, acquired),
@@ -1716,14 +1693,18 @@ const decodeWayfinder = (
   const answerDocument =
     uniqueAnswer === undefined
       ? undefined
-      : (wayfinderCommentDocument(
+      : (githubCommentDocument(
           uniqueAnswer,
+          "wayfinder.answer",
           diagnostics,
           "answer",
         ) as MattWayfinderAuthoredDocument & Readonly<{ role: "answer" }>);
   const comments = acquired.comments
     .filter((comment) => comment !== uniqueAnswer)
-    .map((comment) => wayfinderCommentDocument(comment, diagnostics) as MattWayfinderComment);
+    .map(
+      (comment) =>
+        githubCommentDocument(comment, "wayfinder.comments", diagnostics) as MattWayfinderComment,
+    );
   if (acquired.issue.assignees.length > 1) {
     diagnostics.push(
       diagnostic(
@@ -1808,19 +1789,12 @@ const decodeWayfinder = (
       ),
       semanticSection(
         "wayfinder.comments",
-        comments.length > 0
-          ? comments.every(
-              (comment) =>
-                mattDocumentSectionAvailability(comment.document, "wayfinder.comments") ===
-                "available",
-            )
-            ? "available"
-            : "unavailable"
-          : acquired.commentsCapability === "unsupported"
+        mattAuthoredDocumentCollectionAvailability(comments, "wayfinder.comments") ??
+          (acquired.commentsCapability === "unsupported"
             ? "unsupported"
             : acquired.commentsCapability === "failed"
               ? "unavailable"
-              : "confirmed-empty",
+              : "confirmed-empty"),
       ),
     ],
     native: nativeEvidenceForAcquired(repository, acquired),
@@ -1882,22 +1856,41 @@ const incomingIssueFor = (
     states.length === 1
       ? labels.find((label) => vocabulary?.nativeToSemantic.get(label) === states[0])
       : undefined;
-  const content: MattContent[] = [
-    ...(issue.body.trim().length === 0
+  const issueBodyDocument =
+    issue.body.trim().length === 0
+      ? undefined
+      : projectMattAuthoredBodyDocument(markdownNarrative(acquired.document), {
+          sourceIdentity: "incoming.body",
+          semanticRole: "incoming.content",
+          title: "Issue Body",
+        });
+  if (issueBodyDocument?.diagnostic !== undefined) {
+    diagnostics.push(
+      diagnostic(
+        issueBodyDocument.diagnostic.code,
+        "format",
+        issue.html_url,
+        issueBodyDocument.diagnostic.message,
+      ),
+    );
+  }
+  const content: MattIncomingDocument[] = [
+    ...(issueBodyDocument === undefined
       ? []
-      : [{ role: "issue-body" as const, body: markdownNarrative(acquired.document) }]),
-    ...nativeEvidenceForAcquired(repository, acquired).sourceAnchors.flatMap((anchor) =>
-      anchor.kind === "external"
-        ? [
-            {
-              role: "source-anchor",
-              body: anchor.target,
-              sourceAnchor: anchor,
-            } as const,
-          ]
-        : [],
+      : [
+          {
+            role: "issue-body" as const,
+            document: issueBodyDocument.document,
+            nativeIdentity: issue.node_id,
+            author: issue.user.login,
+            authoredAt: projectExpectedNativeSourceEventTime(issue.created_at),
+            sourceAnchor: { kind: "source" as const, target: issue.html_url },
+          },
+        ]),
+    ...acquired.comments.map(
+      (comment) =>
+        githubCommentDocument(comment, "incoming.content", diagnostics) as MattIncomingDocument,
     ),
-    ...acquired.comments.map(commentContent),
   ];
   return {
     kind: "incoming-issue",
@@ -1932,13 +1925,12 @@ const incomingIssueFor = (
       ),
       semanticSection(
         "incoming.content",
-        content.length > 0
-          ? "available"
-          : acquired.commentsCapability === "unsupported"
+        mattAuthoredDocumentCollectionAvailability(content, "incoming.content") ??
+          (acquired.commentsCapability === "unsupported"
             ? "unsupported"
             : acquired.commentsCapability === "failed"
               ? "unavailable"
-              : "confirmed-empty",
+              : "confirmed-empty"),
       ),
       semanticSection(
         "incoming.routing",
@@ -2869,7 +2861,7 @@ const captureGitHubScope = async (
       continue;
     }
     const spec = decodeSpec(entry, repository, vocabulary, diagnostics);
-    const delivery = decodeDelivery(entry, repository);
+    const delivery = decodeDelivery(entry, repository, diagnostics);
     const specStructure = MATT_SPEC_SECTION_DEFINITIONS.flatMap((definition) =>
       [definition.title, ...definition.aliases].map((title) =>
         queryMarkdownSection(entry.document, { title }),
@@ -3500,7 +3492,7 @@ const reconcileGitHubScope = async (
       continue;
     }
     const spec = decodeSpec(entry, repository, vocabulary, diagnostics);
-    const delivery = decodeDelivery(entry, repository);
+    const delivery = decodeDelivery(entry, repository, diagnostics);
     if (spec !== undefined && delivery !== undefined) {
       diagnostics.push(
         diagnostic(

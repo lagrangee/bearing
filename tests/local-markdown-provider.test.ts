@@ -378,15 +378,19 @@ describe("Local Markdown matt-skills/v1 capture", () => {
         nativeState: "custom-ready",
       },
     });
-    expect(result.projection?.incomingIssues[0]?.content).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ role: "triage-note" }),
-        expect.objectContaining({
-          role: "source-anchor",
-          sourceAnchor: { kind: "external", target: "https://example.com/customer-report" },
-        }),
-      ]),
-    );
+    expect(result.projection?.incomingIssues[0]?.content.map((document) => document.role)).toEqual([
+      "issue-body",
+      "triage-note",
+    ]);
+    expect(
+      result.projection?.incomingIssues[0]?.content.every(
+        (document) => document.document.version === 1 && !("body" in document),
+      ),
+    ).toBe(true);
+    expect(result.projection?.incomingIssues[0]?.native.sourceAnchors).toContainEqual({
+      kind: "external",
+      target: "https://example.com/customer-report",
+    });
     expect(
       result.projection?.incomingIssues[0]?.native.rawFacets.map((facet) => facet.key),
     ).not.toContain("markdown");

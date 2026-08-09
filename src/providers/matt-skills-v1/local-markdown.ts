@@ -33,7 +33,10 @@ import {
   MATT_MAP_DOCUMENT_OWNED_SECTION_TITLES,
   MATT_WAYFINDER_DOCUMENT_OWNED_SECTION_TITLES,
   mattAdditiveDocumentSections,
+  mattAuthoredDocumentCollectionAvailability,
+  mattAuthoredDocumentIdentity,
   mattDocumentSectionAvailability,
+  projectMattAuthoredBodyDocument,
   projectMattAuthoredSectionDocument,
 } from "./authored-document";
 import {
@@ -43,21 +46,21 @@ import {
 } from "./capture";
 import { retainTrustedLocalProjection } from "./local-markdown-trust";
 import type {
-  MattAuthoredContent,
   MattBlockedByRelation,
-  MattContent,
   MattDeliveryTicket,
+  MattIncomingDocument,
   MattIncomingIssue,
   MattMap,
   MattNativeEvidence,
   MattObjectReference,
   MattParentChildRelation,
+  MattProviderAuthoredDocument,
+  MattProviderCommentDocument,
   MattRawFacet,
   MattScopeProjection,
   MattSourceAnchor,
   MattSpec,
   MattWayfinderAuthoredDocument,
-  MattWayfinderComment,
   MattWayfinderTicket,
 } from "./model";
 import { semanticAvailabilityForItems, semanticSection } from "./semantic-sections";
@@ -322,42 +325,22 @@ const nativeEvidenceFor = (
   rawFacets: rawFacetsFor(file, extra),
 });
 
-const contentSection = (
-  file: CapturedFile,
-  title: string,
-  role: MattAuthoredContent["role"],
-): MattAuthoredContent | undefined => {
-  const result = queryMarkdownSection(file.document, { title });
-  if (result.state !== "found" || result.value.markdown.length === 0) return undefined;
-  return {
-    role,
-    body: result.value.markdown,
-    authoredAt: role === "answer" ? inferredUpdatedTimeFor(file) : { availability: "unsupported" },
-    ...(role === "answer"
-      ? {
-          sourceAnchor: {
-            kind: "answer" as const,
-            target: `${file.locator}#answer`,
-          },
-        }
-      : {}),
-  };
-};
-
-const wayfinderAuthoredSection = (
+const localAuthoredSection = <
+  Role extends "answer" | "ordinary-comment" | "agent-brief" | "triage-note",
+>(
   file: CapturedFile,
   title: "Answer" | "Comments" | "Agent Brief" | "Triage Notes",
-  role: MattWayfinderAuthoredDocument["role"],
+  role: Role,
+  semanticRole: string,
   diagnostics: CaptureDiagnostic[],
-): MattWayfinderAuthoredDocument | undefined => {
+): MattProviderAuthoredDocument<Role> | undefined => {
   const result = queryMarkdownSection(file.document, { title });
   if (result.state !== "found" || result.value.markdown.length === 0) return undefined;
-  const semanticRole = role === "answer" ? "wayfinder.answer" : "wayfinder.comments";
-  const projected = projectMattAuthoredSectionDocument(file.document, result.value, {
-    sourceIdentity: role === "answer" ? "wayfinder.answer" : "wayfinder.comment",
-    semanticRole,
-    title: role === "answer" ? "Answer" : "Comment",
-  });
+  const projected = projectMattAuthoredSectionDocument(
+    file.document,
+    result.value,
+    mattAuthoredDocumentIdentity(semanticRole, role),
+  );
   if (projected.diagnostic !== undefined) {
     diagnostics.push(
       diagnostic(projected.diagnostic.code, "format", file.locator, projected.diagnostic.message),
@@ -375,10 +358,11 @@ const wayfinderAuthoredSection = (
   };
 };
 
-const wayfinderComments = (
+const localCommentDocuments = (
   file: CapturedFile,
+  semanticRole: string,
   diagnostics: CaptureDiagnostic[],
-): readonly MattWayfinderComment[] =>
+): readonly MattProviderCommentDocument[] =>
   (
     [
       ["Comments", "ordinary-comment"],
@@ -386,32 +370,9 @@ const wayfinderComments = (
       ["Triage Notes", "triage-note"],
     ] as const
   ).flatMap(([title, role]) => {
-    const content = wayfinderAuthoredSection(file, title, role, diagnostics);
-    return content === undefined ? [] : [content as MattWayfinderComment];
+    const content = localAuthoredSection(file, title, role, semanticRole, diagnostics);
+    return content === undefined ? [] : [content];
   });
-
-const supplementaryContent = (file: CapturedFile): readonly MattContent[] => {
-  const roles = [
-    ["Comments", "ordinary-comment"],
-    ["Agent Brief", "agent-brief"],
-    ["Triage Notes", "triage-note"],
-  ] as const;
-  const content: MattContent[] = roles.flatMap(([title, role]) => {
-    const item = contentSection(file, title, role);
-    return item === undefined ? [] : [item];
-  });
-  for (const link of queryMarkdownLinks(file.document)) {
-    content.push({
-      role: "source-anchor",
-      body: link.label,
-      sourceAnchor: {
-        kind: isExternalAnchorTarget(link.target) ? "external" : "source",
-        target: link.target,
-      },
-    });
-  }
-  return content;
-};
 
 export type LocalMattContractLayout = Readonly<{
   specFilename: "spec.md" | "PRD.md";
@@ -727,7 +688,7 @@ const decodeWayfinder = (
       ),
     );
   }
-  const answer = wayfinderAuthoredSection(file, "Answer", "answer", diagnostics);
+  const answer = localAuthoredSection(file, "Answer", "answer", "wayfinder.answer", diagnostics);
   const projectedAnswer = answer as
     | (MattWayfinderAuthoredDocument & Readonly<{ role: "answer" }>)
     | undefined;
@@ -742,7 +703,7 @@ const decodeWayfinder = (
       ),
     );
   }
-  const comments = wayfinderComments(file, diagnostics);
+  const comments = localCommentDocuments(file, "wayfinder.comments", diagnostics);
   return {
     kind: "wayfinder-ticket",
     ref: objectReference(file.locator),
@@ -789,15 +750,8 @@ const decodeWayfinder = (
       ),
       semanticSection(
         "wayfinder.comments",
-        comments.length === 0
-          ? "confirmed-empty"
-          : comments.every(
-                (comment) =>
-                  mattDocumentSectionAvailability(comment.document, "wayfinder.comments") ===
-                  "available",
-              )
-            ? "available"
-            : "unavailable",
+        mattAuthoredDocumentCollectionAvailability(comments, "wayfinder.comments") ??
+          "confirmed-empty",
       ),
     ],
     native: nativeEvidenceFor(file, [
@@ -824,13 +778,14 @@ const decodeDelivery = (
   if (title === undefined || whatToBuild === undefined || acceptance.state !== "found") {
     return undefined;
   }
-  const answer = contentSection(file, "Answer", "answer");
+  const answerSection = queryMarkdownSection(file.document, { title: "Answer" });
+  const hasAnswer = answerSection.state === "found" && answerSection.value.markdown.length > 0;
   const semanticStatus =
     status === undefined ? undefined : vocabulary?.nativeToSemantic.get(status);
   let lifecycle: MattDeliveryTicket["lifecycle"] = { state: "open" };
   let trackerClosure: MattDeliveryTicket["trackerClosure"] = { state: "open" };
   if (status === "resolved") {
-    if (answer === undefined) {
+    if (!hasAnswer) {
       lifecycle = { state: "completion-unavailable", reason: "incomplete-writeback" };
       diagnostics.push(
         diagnostic(
@@ -843,7 +798,7 @@ const decodeDelivery = (
     } else {
       lifecycle = {
         state: "completed",
-        evidence: [answer.sourceAnchor?.target ?? `${file.locator}#answer`],
+        evidence: [`${file.locator}#answer`],
       };
     }
     trackerClosure = {
@@ -872,7 +827,7 @@ const decodeDelivery = (
       ),
     );
   }
-  const comments = supplementaryContent(file);
+  const comments = localCommentDocuments(file, "delivery.comments", diagnostics);
   return {
     kind: "delivery-ticket",
     ref: objectReference(file.locator),
@@ -899,7 +854,11 @@ const decodeDelivery = (
             ? "confirmed-empty"
             : "unavailable",
       ),
-      semanticSection("delivery.comments", comments.length === 0 ? "confirmed-empty" : "available"),
+      semanticSection(
+        "delivery.comments",
+        mattAuthoredDocumentCollectionAvailability(comments, "delivery.comments") ??
+          "confirmed-empty",
+      ),
     ],
     native: nativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
@@ -967,9 +926,36 @@ const decodeIncoming = (
           excludeFields: ["Category", "Status", "Blocked by"],
         })
       : "";
-  const content: readonly MattContent[] = [
-    ...(issueBody.length === 0 ? [] : [{ role: "issue-body" as const, body: issueBody }]),
-    ...supplementaryContent(file),
+  const issueBodyDocument =
+    issueBody.length === 0
+      ? undefined
+      : projectMattAuthoredBodyDocument(issueBody, {
+          sourceIdentity: "incoming.body",
+          semanticRole: "incoming.content",
+          title: "Issue Body",
+        });
+  if (issueBodyDocument?.diagnostic !== undefined) {
+    diagnostics.push(
+      diagnostic(
+        issueBodyDocument.diagnostic.code,
+        "format",
+        file.locator,
+        issueBodyDocument.diagnostic.message,
+      ),
+    );
+  }
+  const content: readonly MattIncomingDocument[] = [
+    ...(issueBodyDocument === undefined
+      ? []
+      : [
+          {
+            role: "issue-body" as const,
+            document: issueBodyDocument.document,
+            authoredAt: inferredCreatedTimeFor(file),
+            sourceAnchor: { kind: "source" as const, target: file.locator },
+          },
+        ]),
+    ...localCommentDocuments(file, "incoming.content", diagnostics),
   ];
   return {
     kind: "incoming-issue",
@@ -995,7 +981,11 @@ const decodeIncoming = (
         "incoming.classification",
         category === "bug" || category === "enhancement" ? "available" : "unavailable",
       ),
-      semanticSection("incoming.content", content.length === 0 ? "confirmed-empty" : "available"),
+      semanticSection(
+        "incoming.content",
+        mattAuthoredDocumentCollectionAvailability(content, "incoming.content") ??
+          "confirmed-empty",
+      ),
       semanticSection(
         "incoming.routing",
         state === "unknown" || state === "ambiguous" ? "unavailable" : "available",

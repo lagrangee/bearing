@@ -21,6 +21,7 @@ import type {
   MattIncomingIssue,
   MattMap,
   MattNativeEventTime,
+  MattProviderAuthoredDocument,
   MattSemanticSectionAvailability,
   MattSpec,
   MattWayfinderTicket,
@@ -1170,14 +1171,59 @@ const contentTimeFacts = (
       : [
           {
             key: `content-authored:${entry.nativeIdentity ?? index}`,
-            label: `${entry.role === "answer" ? "Answer" : "Comment"} authored${
-              entry.author === undefined ? "" : ` by ${entry.author}`
-            }`,
+            label: `${
+              entry.role === "answer"
+                ? "Answer"
+                : entry.role === "issue-body"
+                  ? "Issue body"
+                  : entry.role === "triage-note"
+                    ? "Triage note"
+                    : entry.role === "agent-brief"
+                      ? "Agent brief"
+                      : "Comment"
+            } authored${entry.author === undefined ? "" : ` by ${entry.author}`}`,
             time: entry.authoredAt,
             detail: `Native content position ${positionOffset + index + 1}; event time does not reorder content.`,
           },
         ],
   );
+
+const providerDocumentViews = (
+  documents: readonly MattProviderAuthoredDocument[],
+): NonNullable<PlanningLineageSection["providerDocuments"]> =>
+  documents.map((document, index) => ({
+    key: document.nativeIdentity ?? `${document.role}-${index + 1}`,
+    sections: document.document.sections.map((section) => ({
+      key: section.sourceIdentity,
+      title: section.title,
+      documentBlocks: section.availability === "available" ? section.blocks : [],
+    })),
+    facts: [
+      { key: "role", label: "Role", value: document.role },
+      ...(document.author === undefined
+        ? []
+        : [{ key: "author", label: "Actor", value: document.author }]),
+      ...(document.sourceAnchor === undefined
+        ? []
+        : [
+            {
+              key: "source-anchor",
+              label: "Source anchor",
+              value: sourceAnchorLabel(document.sourceAnchor),
+            },
+          ]),
+      ...(document.nativeIdentity === undefined
+        ? []
+        : [
+            {
+              key: "native-identity",
+              label: "Native identity",
+              value: document.nativeIdentity,
+            },
+          ]),
+    ],
+    times: contentTimeFacts([document], index),
+  }));
 
 const wayfinderSections = (ticket: MattWayfinderTicket): readonly PlanningLineageSection[] => [
   nativeSemanticSection(ticket, {
@@ -1268,39 +1314,7 @@ const wayfinderSections = (ticket: MattWayfinderTicket): readonly PlanningLineag
   nativeSemanticSection(ticket, {
     role: "wayfinder.comments",
     title: "Comments",
-    providerDocuments: ticket.comments.map((comment, index) => ({
-      key: comment.nativeIdentity ?? `comment-${index + 1}`,
-      sections: comment.document.sections.map((section) => ({
-        key: section.sourceIdentity,
-        title: section.title,
-        documentBlocks: section.availability === "available" ? section.blocks : [],
-      })),
-      facts: [
-        { key: "role", label: "Role", value: comment.role },
-        ...(comment.author === undefined
-          ? []
-          : [{ key: "author", label: "Actor", value: comment.author }]),
-        ...(comment.sourceAnchor === undefined
-          ? []
-          : [
-              {
-                key: "source-anchor",
-                label: "Source anchor",
-                value: sourceAnchorLabel(comment.sourceAnchor),
-              },
-            ]),
-        ...(comment.nativeIdentity === undefined
-          ? []
-          : [
-              {
-                key: "native-identity",
-                label: "Native identity",
-                value: comment.nativeIdentity,
-              },
-            ]),
-      ],
-      times: contentTimeFacts([comment], index),
-    })),
+    providerDocuments: providerDocumentViews(ticket.comments),
     emptyCopy: "No comments are recorded.",
   }),
   ...(ticket.lifecycle.state === "resolved-on-route"
@@ -1355,13 +1369,7 @@ const deliverySections = (ticket: MattDeliveryTicket): readonly PlanningLineageS
   nativeSemanticSection(ticket, {
     role: "delivery.comments",
     title: "Comments",
-    items: ticket.comments.map(
-      (comment) =>
-        `${comment.role}: ${comment.body}${
-          comment.sourceAnchor === undefined ? "" : ` · ${sourceAnchorLabel(comment.sourceAnchor)}`
-        }`,
-    ),
-    times: contentTimeFacts(ticket.comments),
+    providerDocuments: providerDocumentViews(ticket.comments),
     emptyCopy: "No comments are recorded.",
   }),
 ];
@@ -1408,13 +1416,7 @@ const incomingSections = (issue: MattIncomingIssue): readonly PlanningLineageSec
   nativeSemanticSection(issue, {
     role: "incoming.content",
     title: "Issue Content and Triage Notes",
-    items: issue.content.map(
-      (content) =>
-        `${content.role}: ${content.body}${
-          content.sourceAnchor === undefined ? "" : ` · ${sourceAnchorLabel(content.sourceAnchor)}`
-        }`,
-    ),
-    times: contentTimeFacts(issue.content),
+    providerDocuments: providerDocumentViews(issue.content),
     emptyCopy: "No issue content or triage notes are recorded.",
   }),
 ];

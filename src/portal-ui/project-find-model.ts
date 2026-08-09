@@ -1,4 +1,5 @@
 import Fuse from "fuse.js";
+import type { DocumentPresentation } from "../document-presentation";
 import { documentPresentationBlocksPlainText } from "../document-presentation";
 import type { PlanningLineageSubject } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
@@ -562,10 +563,7 @@ const nativeContentFields = (
   subject: PlanningLineageSubject,
   object: MattMap | MattSpec | MattWayfinderTicket | MattDeliveryTicket | MattIncomingIssue,
 ): readonly FindField[] => {
-  const documentText = (
-    document: MattMap["destination"] | MattWayfinderTicket["question"],
-    role: string,
-  ) => {
+  const documentText = (document: DocumentPresentation, role: string) => {
     const section = document.sections.find((candidate) => candidate.semanticRole === role);
     return section?.availability === "available"
       ? documentPresentationBlocksPlainText(section.blocks)
@@ -635,6 +633,14 @@ const nativeContentFields = (
           text: object.acceptanceCriteria.join(" · "),
           anchor: "delivery.acceptance-criteria",
         }),
+        contentField(snapshot, subject, {
+          key: "nativeBody",
+          label: "Comments",
+          text: object.comments
+            .map((comment) => documentText(comment.document, "delivery.comments"))
+            .join(" · "),
+          anchor: "delivery.comments",
+        }),
       );
       break;
     case "incoming-issue":
@@ -643,8 +649,7 @@ const nativeContentFields = (
           key: "nativeBody",
           label: "Issue content",
           text: object.content
-            .filter((content) => content.role === "issue-body")
-            .map((content) => content.body)
+            .map((content) => documentText(content.document, "incoming.content"))
             .join(" · "),
           anchor: "incoming.content",
         }),

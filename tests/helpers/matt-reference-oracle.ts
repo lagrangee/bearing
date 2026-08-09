@@ -63,7 +63,7 @@ const contentSemantic = (
     | MattScopeProjection["incomingIssues"][number]["content"][number],
 ) => ({
   role: content.role,
-  body: "document" in content ? providerDocumentPlainText(content.document) : content.body,
+  body: providerDocumentPlainText(content.document),
   sourceKind: content.sourceAnchor?.kind,
 });
 

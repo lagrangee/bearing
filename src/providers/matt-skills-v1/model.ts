@@ -57,26 +57,21 @@ export type MattNativeEvidence =
       rawFacets: readonly MattRawFacet[];
     }>;
 
-type MattContentProvenance = Readonly<{
-  body: string;
+export type MattProviderAuthoredDocument<
+  Role extends "answer" | "issue-body" | "ordinary-comment" | "agent-brief" | "triage-note" =
+    | "answer"
+    | "issue-body"
+    | "ordinary-comment"
+    | "agent-brief"
+    | "triage-note",
+> = Readonly<{
+  role: Role;
+  document: DocumentPresentation;
+  authoredAt: MattNativeEventTime;
   sourceAnchor?: MattSourceAnchor | undefined;
   nativeIdentity?: string | undefined;
   author?: string | undefined;
 }>;
-
-export type MattAuthoredContent = MattContentProvenance &
-  Readonly<{
-    role: "answer" | "ordinary-comment" | "agent-brief" | "triage-note";
-    authoredAt: MattNativeEventTime;
-  }>;
-
-export type MattContent =
-  | MattAuthoredContent
-  | (MattContentProvenance &
-      Readonly<{
-        role: "issue-body" | "source-anchor";
-        authoredAt?: never;
-      }>);
 
 export type MattAnswer =
   | Readonly<{
@@ -97,17 +92,21 @@ export type MattTrackerClosure =
       actor?: string | undefined;
     }>;
 
-export type MattWayfinderAuthoredDocument = Readonly<{
-  role: "answer" | "ordinary-comment" | "agent-brief" | "triage-note";
-  document: DocumentPresentation;
-  authoredAt: MattNativeEventTime;
-  sourceAnchor?: MattSourceAnchor | undefined;
-  nativeIdentity?: string | undefined;
-  author?: string | undefined;
-}>;
+export type MattWayfinderAuthoredDocument = MattProviderAuthoredDocument<
+  "answer" | "ordinary-comment" | "agent-brief" | "triage-note"
+>;
 
-export type MattWayfinderComment = Omit<MattWayfinderAuthoredDocument, "role"> &
-  Readonly<{ role: "ordinary-comment" | "agent-brief" | "triage-note" }>;
+export type MattProviderCommentDocument = MattProviderAuthoredDocument<
+  "ordinary-comment" | "agent-brief" | "triage-note"
+>;
+
+export type MattWayfinderComment = MattProviderCommentDocument;
+
+export type MattDeliveryComment = MattProviderCommentDocument;
+
+export type MattIncomingDocument = MattProviderAuthoredDocument<
+  "issue-body" | "ordinary-comment" | "agent-brief" | "triage-note"
+>;
 
 export type MattMap = Readonly<{
   kind: "map";
@@ -204,7 +203,7 @@ export type MattDeliveryTicket = Readonly<{
         reason: "source-contract-gap" | "incomplete-writeback" | "ambiguous-evidence";
       }>;
   trackerClosure: MattTrackerClosure;
-  comments: readonly MattContent[];
+  comments: readonly MattDeliveryComment[];
   semanticSections: readonly MattSemanticSection[];
   native: MattNativeEvidence;
 }>;
@@ -226,7 +225,7 @@ export type MattIncomingIssue = Readonly<{
     nativeCategory?: string | undefined;
     nativeState?: string | undefined;
   }>;
-  content: readonly MattContent[];
+  content: readonly MattIncomingDocument[];
   lifecycle:
     | Readonly<{ state: "open" }>
     | Readonly<{

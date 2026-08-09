@@ -129,6 +129,66 @@ describe("GitHub matt-skills/v1 capture", () => {
     expect(JSON.stringify(result)).not.toContain("token");
   });
 
+  test("fails Delivery comments and Incoming bodies closed when authored documents are unsafe", async () => {
+    const root = await createRepository();
+    const unsafeDeliveryComment = comment({
+      id: 401,
+      issue: deliveryIssue.number,
+      body: "[unsafe](javascript:alert(1))",
+    });
+    const unsafeIncoming = {
+      ...incomingIssue,
+      body: '<script>alert("unsafe")</script>',
+    };
+    for (const [issue, comments, role] of [
+      [deliveryIssue, [unsafeDeliveryComment], "delivery.comments"],
+      [unsafeIncoming, [], "incoming.content"],
+    ] as const) {
+      const endpoint = `repos/example/reference/issues/${issue.number}`;
+      const transport = new FixtureGitHubTransport({
+        "repos/example/reference": {
+          first: response(repository, '"repo-v1"'),
+        },
+        [endpoint]: {
+          first: response(issue, `"issue-${issue.number}-v1"`),
+        },
+        [`${endpoint}/comments?per_page=100&page=1`]: {
+          first: response(comments, `"comments-${issue.number}-v1"`),
+        },
+        [`${endpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+          first: response([], `"deps-${issue.number}-v1"`),
+        },
+      });
+      const result = await createGitHubMattProvider({
+        repoRoot: root,
+        contractLocator,
+        triageLocator,
+        transport,
+        clock: () => new Date("2026-07-28T00:00:00Z"),
+      }).capture({ provider: "matt-skills/v1", nativeScope: nativeScopeFor(issue) });
+
+      expect(result.state).toBe("partial");
+      expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+        "matt.document-section-unsupported",
+      );
+      const projected =
+        role === "delivery.comments"
+          ? result.projection?.deliveryTickets[0]
+          : result.projection?.incomingIssues[0];
+      expect(
+        projected?.semanticSections.find((section) => section.role === role)?.availability,
+      ).toBe("unavailable");
+      const documents =
+        projected?.kind === "delivery-ticket" ? projected.comments : projected?.content;
+      expect(documents?.every((document) => !("body" in document))).toBe(true);
+      expect(
+        documents?.every((document) =>
+          document.document.sections.every((section) => section.blocks.length === 0),
+        ),
+      ).toBe(true);
+    }
+  });
+
   test("keeps a missing GitHub closure time unavailable instead of falling back to capture time", async () => {
     const root = await createRepository();
     const closed = {
@@ -274,7 +334,23 @@ describe("GitHub matt-skills/v1 capture", () => {
                   author: "reviewer",
                 }),
               ]
-            : [],
+            : issue.number === 4
+              ? [
+                  comment({
+                    id: 401,
+                    issue: 4,
+                    body: "Delivery **comment**.\n\n1. Keep its order.",
+                  }),
+                ]
+              : issue.number === 5
+                ? [
+                    comment({
+                      id: 501,
+                      issue: 5,
+                      body: "## Triage Notes\n\nKeep the **triage note** independent.",
+                    }),
+                  ]
+                : [],
           `"comments-${issue.number}-v1"`,
         ),
       };
@@ -461,10 +537,47 @@ describe("GitHub matt-skills/v1 capture", () => {
       ],
       lifecycle: { state: "open" },
       trackerClosure: { state: "open" },
+      comments: [
+        {
+          role: "ordinary-comment",
+          document: {
+            version: 1,
+            sections: [
+              {
+                semanticRole: "delivery.comments",
+                availability: "available",
+                blocks: [{ kind: "paragraph" }, { kind: "list", style: "ordered" }],
+              },
+            ],
+          },
+          nativeIdentity: "IC_401",
+        },
+      ],
     });
-    expect(result.projection?.incomingIssues[0]?.classification).toMatchObject({
-      category: "enhancement",
-      state: "ready-for-agent",
+    expect(result.projection?.incomingIssues[0]).toMatchObject({
+      classification: {
+        category: "enhancement",
+        state: "ready-for-agent",
+      },
+      content: [
+        {
+          role: "issue-body",
+          document: { version: 1, sections: [{ semanticRole: "incoming.content" }] },
+        },
+        {
+          role: "triage-note",
+          document: {
+            version: 1,
+            sections: [
+              {
+                semanticRole: "incoming.content",
+                blocks: [{ kind: "paragraph" }],
+              },
+            ],
+          },
+          nativeIdentity: "IC_501",
+        },
+      ],
     });
     expect(result.projection?.graph.parentChild.map((relation) => relation.evidence)).toEqual([
       "github-native",

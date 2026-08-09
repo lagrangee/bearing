@@ -24,6 +24,22 @@ type DocumentIdentity = Readonly<{
   semanticRole: string;
 }>;
 
+export const mattAuthoredDocumentIdentity = (
+  semanticRole: string,
+  role: "answer" | "ordinary-comment" | "agent-brief" | "triage-note",
+): DocumentIdentity => ({
+  sourceIdentity: `${semanticRole}.${role}`,
+  semanticRole,
+  title:
+    role === "answer"
+      ? "Answer"
+      : role === "agent-brief"
+        ? "Agent Brief"
+        : role === "triage-note"
+          ? "Triage Note"
+          : "Comment",
+});
+
 export const MATT_MAP_DOCUMENT_OWNED_SECTION_TITLES = [
   "Destination",
   "Notes",
@@ -145,3 +161,16 @@ export const mattDocumentSectionAvailability = (
 ): DocumentPresentationSection["availability"] =>
   document.sections.find((section) => section.semanticRole === semanticRole)?.availability ??
   "unavailable";
+
+export const mattAuthoredDocumentCollectionAvailability = (
+  documents: readonly Readonly<{ document: DocumentPresentation }>[],
+  semanticRole: string,
+): "available" | "unavailable" | undefined =>
+  documents.length === 0
+    ? undefined
+    : documents.every(
+          (document) =>
+            mattDocumentSectionAvailability(document.document, semanticRole) === "available",
+        )
+      ? "available"
+      : "unavailable";

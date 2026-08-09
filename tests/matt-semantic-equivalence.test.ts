@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { lstat, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { documentPresentationBlocksPlainText } from "../src/document-presentation";
 import { createGitHubMattProvider } from "../src/providers/matt-skills-v1/github";
 import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
 import type { MattScopeProjection } from "../src/providers/matt-skills-v1/model";
@@ -262,7 +263,12 @@ ${issueBody}
         local.projection.incomingIssues[0],
         github.projection.incomingIssues[0],
       ]) {
-        expect(incoming?.content).toEqual([{ role: "issue-body", body: issueBody }]);
+        expect(incoming?.content.map((document) => document.role)).toEqual(["issue-body"]);
+        expect(
+          incoming?.content.map((document) =>
+            documentPresentationBlocksPlainText(document.document.sections[0]?.blocks ?? []),
+          ),
+        ).toEqual([issueBody]);
         expect(
           incoming?.semanticSections.find((section) => section.role === "incoming.content"),
         ).toEqual({ role: "incoming.content", availability: "available" });

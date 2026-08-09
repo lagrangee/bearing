@@ -341,7 +341,11 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         comments: [
           {
             role: "triage-note",
-            body: "Delivery completion is not tracker closure.",
+            document: plainProviderDocument(
+              "delivery.comments",
+              "Triage Note",
+              "Delivery completion is not tracker closure.",
+            ),
             authoredAt: nativeTime(nativeKind, "2026-07-07T10:00:00Z"),
           },
         ],
@@ -387,8 +391,13 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         },
         content: [
           {
-            role: "source-anchor",
-            body: "External customer report.",
+            role: "issue-body",
+            document: plainProviderDocument(
+              "incoming.content",
+              "Issue Body",
+              "External customer report.",
+            ),
+            authoredAt: nativeTime(nativeKind, "2026-07-09T10:00:00Z"),
             sourceAnchor: {
               kind: "external",
               target: "https://example.com/customer-report",
@@ -666,7 +675,7 @@ export const expectedMattReferenceSemantics: MattReferenceSemanticView = {
       lifecycle: "open",
       content: [
         {
-          role: "source-anchor",
+          role: "issue-body",
           body: "External customer report.",
           sourceKind: "external",
         },
