@@ -30,23 +30,23 @@ const conditionPresentation: Readonly<
   Record<AttentionCondition, Readonly<{ explanation: string; nextAction: string }>>
 > = {
   "baseline-missing": {
-    explanation: "No usable provider baseline is available for this exact source.",
+    explanation: "No usable baseline is available for this exact source.",
     nextAction: "Open Bearing in the Agent Surface to inspect the Work Binding and evidence.",
   },
   "provider-auth": {
-    explanation: "Provider authorization prevented this observation.",
+    explanation: "Provider authorization prevented this source refresh.",
     nextAction: "Open Bearing in the Agent Surface to restore provider authorization.",
   },
   "provider-rate-limit": {
-    explanation: "The provider rate limit prevented this observation.",
+    explanation: "The provider rate limit prevented this source refresh.",
     nextAction: "Open Bearing in the Agent Surface to inspect the provider limit and timing.",
   },
   "provider-network": {
-    explanation: "The provider network was unavailable for this observation.",
+    explanation: "The provider network was unavailable for this source refresh.",
     nextAction: "Open Bearing in the Agent Surface to diagnose provider connectivity.",
   },
   "provider-unavailable": {
-    explanation: "The provider could not complete this observation.",
+    explanation: "The provider could not complete this source refresh.",
     nextAction: "Open Bearing in the Agent Surface to inspect the provider diagnostic.",
   },
   "storage-recovery-required": {
@@ -89,7 +89,7 @@ const publicDiagnostics = (diagnostics: readonly StructuralDiagnostic[]) => [
       diagnostic.code,
       {
         reference: diagnostic.code,
-        summary: "Provider observation needs Agent Surface attention.",
+        summary: "Source refresh needs Agent Surface attention.",
       },
     ]),
   ).values(),

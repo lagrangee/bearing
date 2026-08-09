@@ -182,7 +182,7 @@ test("turns every untrustworthy evidence axis into Can't verify with concrete ca
     nativeScope: observation.binding.nativeScope,
   });
   expect(missingSelection.conclusion).toBe("Can't verify");
-  expect(missingSelection.why.causes).toContain("No current provider observation is selected.");
+  expect(missingSelection.why.causes).toContain("No current source evidence is selected.");
 
   const mismatchedSelection = buildMattNativeWorkReadingState(
     observation,

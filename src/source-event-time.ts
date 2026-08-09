@@ -39,6 +39,28 @@ export const sourceEventTimeSchema = z.discriminatedUnion("availability", [
   z.strictObject({ availability: z.literal("unavailable") }),
 ]);
 
+const projectedNativeAvailableTimeSchema = z
+  .strictObject({
+    availability: z.literal("available"),
+    value: sourceOwnedEventTimeValueSchema,
+    precision: z.enum(["date", "second", "fractional-second"]),
+    basis: z.enum(["source-event", "inferred-source-metadata"]),
+  })
+  .superRefine((time, context) => {
+    if (time.precision === sourceEventTimePrecision(time.value)) return;
+    context.addIssue({
+      code: "custom",
+      path: ["precision"],
+      message: "Projected native time precision must describe the exact projected value.",
+    });
+  });
+
+export const projectedNativeTimeSchema = z.union([
+  projectedNativeAvailableTimeSchema,
+  z.strictObject({ availability: z.literal("unavailable") }),
+  z.strictObject({ availability: z.literal("unsupported") }),
+]);
+
 export const bearingSourceEventTimeSchema = sourceEventTimeSchema.superRefine((time, context) => {
   if (
     time.availability === "unavailable" ||
@@ -54,9 +76,12 @@ export const bearingSourceEventTimeSchema = sourceEventTimeSchema.superRefine((t
 });
 
 export type SourceEventTime = z.infer<typeof sourceEventTimeSchema>;
+export type ProjectedNativeTime = z.infer<typeof projectedNativeTimeSchema>;
 type SourceEventTimeValue = z.infer<typeof sourceOwnedEventTimeValueSchema>;
 
-const availableSourceEventTime = (value: SourceEventTimeValue): SourceEventTime => ({
+const availableSourceEventTime = (
+  value: SourceEventTimeValue,
+): Extract<SourceEventTime, { availability: "available" }> => ({
   availability: "available",
   value,
   precision: sourceEventTimePrecision(value),
@@ -77,3 +102,17 @@ export const projectOptionalSourceEventTime = (
     : value === null
       ? { availability: "unavailable" }
       : availableSourceEventTime(value);
+
+export const projectExpectedNativeSourceEventTime = (
+  value: SourceEventTimeValue | null | undefined,
+): ProjectedNativeTime => {
+  const time = projectExpectedSourceEventTime(value);
+  return time.availability === "available" ? { ...time, basis: "source-event" } : time;
+};
+
+export const projectInferredSourceMetadataTime = (
+  value: SourceEventTimeValue,
+): ProjectedNativeTime => ({
+  ...availableSourceEventTime(value),
+  basis: "inferred-source-metadata",
+});

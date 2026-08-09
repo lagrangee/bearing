@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { bearingSchema } from "../src/schema-definitions";
 import {
   bearingOwnedEventTimeSchema,
+  projectExpectedNativeSourceEventTime,
   projectExpectedSourceEventTime,
+  projectedNativeTimeSchema,
+  projectInferredSourceMetadataTime,
   projectOptionalSourceEventTime,
   sourceEventTimeSchema,
   sourceOwnedEventTimeValueSchema,
@@ -44,6 +47,29 @@ test("keeps Bearing-owned UTC and generic source-owned date precision separate",
       availability: "available",
       value: INSTANT,
       precision: "second",
+    }).success,
+  ).toBe(false);
+});
+
+test("marks projected native exact and inferred times with their provider-neutral basis", () => {
+  expect(projectExpectedNativeSourceEventTime(INSTANT)).toEqual({
+    availability: "available",
+    value: INSTANT,
+    precision: "fractional-second",
+    basis: "source-event",
+  });
+  expect(projectExpectedNativeSourceEventTime(null)).toEqual({ availability: "unavailable" });
+  expect(projectInferredSourceMetadataTime(INSTANT)).toEqual({
+    availability: "available",
+    value: INSTANT,
+    precision: "fractional-second",
+    basis: "inferred-source-metadata",
+  });
+  expect(
+    projectedNativeTimeSchema.safeParse({
+      availability: "available",
+      value: INSTANT,
+      precision: "fractional-second",
     }).success,
   ).toBe(false);
 });

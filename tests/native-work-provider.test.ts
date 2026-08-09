@@ -5,6 +5,7 @@ import {
   type ProviderConfiguration,
   type WorkBinding,
 } from "../src/native-work-provider";
+import { fingerprintProviderObservationSelection } from "../src/provider-evidence-selection";
 import type { MattSkillsV1Provider } from "../src/providers/matt-skills-v1/capture";
 import {
   createMattReferenceAliases,
@@ -396,6 +397,43 @@ describe("NativeWorkProvider capture contract", () => {
     expect(Object.keys(providerConfiguration).sort()).toEqual(["contractLocator", "provider"]);
     expect(Object.keys(binding).sort()).toEqual(["nativeScope", "provider"]);
   });
+});
+
+test("provider semantic fingerprint is stable when observation ids reorder multiple bindings", () => {
+  const observationFor = (nativeScope: string) =>
+    createProviderScopeObservation({
+      provider: "matt-skills/v1",
+      binding: { provider: "matt-skills/v1", nativeScope },
+      observedAt: "2026-08-09T00:00:00.000Z",
+      sourceRevision: `sha256:${nativeScope}`,
+      freshness: { assessment: "current", evidence: [] },
+      coverage: { assessment: "complete", dimensions: [] },
+      completion: "incomplete",
+      diagnostics: [],
+      state: "available",
+      projection: createMattReferenceProjection("github"),
+    });
+  const left = observationFor("scope:left");
+  const right = observationFor("scope:right");
+  const selectionFor = (observation: typeof left) => ({
+    provider: "matt-skills/v1" as const,
+    nativeScope: observation.binding.nativeScope,
+    observationId: observation.id,
+    effectiveFreshness: "current" as const,
+    latestAttempt: null,
+  });
+
+  expect(
+    fingerprintProviderObservationSelection(
+      [left, right],
+      [selectionFor(left), selectionFor(right)],
+    ),
+  ).toBe(
+    fingerprintProviderObservationSelection(
+      [right, left],
+      [selectionFor(right), selectionFor(left)],
+    ),
+  );
 });
 
 describe("Matt reference scenario oracle", () => {

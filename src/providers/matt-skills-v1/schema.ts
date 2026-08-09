@@ -4,7 +4,7 @@ import {
   hasConsistentProviderCompletion,
   providerObservationIdentityFor,
 } from "../../native-work-provider";
-import { sourceEventTimeSchema } from "../../source-event-time";
+import { projectedNativeTimeSchema } from "../../source-event-time";
 import type { MattObjectReference } from "./model";
 
 const nonEmpty = z.string().min(1);
@@ -28,10 +28,23 @@ const semanticSectionSchema = z.strictObject({
   availability: z.enum(["available", "confirmed-empty", "unavailable", "unsupported"]),
 });
 
-const nativeEventTimeSchema = z.union([
-  sourceEventTimeSchema,
-  z.strictObject({ availability: z.literal("unsupported") }),
-]);
+const nativeEventTimeSchema = projectedNativeTimeSchema;
+
+const validateNativeTimeBasis = (
+  time: z.infer<typeof nativeEventTimeSchema>,
+  nativeKind: "local" | "github",
+  context: z.RefinementCtx,
+  path: readonly (string | number)[],
+): void => {
+  if (time.availability !== "available") return;
+  const expected = nativeKind === "github" ? "source-event" : "inferred-source-metadata";
+  if (time.basis === expected) return;
+  context.addIssue({
+    code: "custom",
+    path: [...path],
+    message: `${nativeKind === "github" ? "GitHub" : "Local Markdown"} projected time must use ${expected} basis.`,
+  });
+};
 
 const exactSemanticSections = (roles: readonly string[]) =>
   z.array(semanticSectionSchema).superRefine((sections, context) => {
@@ -105,40 +118,46 @@ const localEvidenceSchema = z
       ["createdAt", evidence.createdAt],
       ["lastUpdated", evidence.lastUpdated],
     ] as const) {
-      if (time.availability === "unsupported") continue;
-      context.addIssue({
-        code: "custom",
-        path: [key],
-        message: "Local Markdown does not support native Source Event Time.",
-      });
+      validateNativeTimeBasis(time, "local", context, [key]);
     }
   });
 
-const githubEvidenceSchema = z.strictObject({
-  kind: z.literal("github"),
-  identity: z.strictObject({
-    repositoryDatabaseId: nonEmpty,
-    repositoryNodeId: nonEmpty,
-    objectKind: z.enum(["issue", "pull-request"]),
-    objectDatabaseId: nonEmpty,
-    objectNodeId: nonEmpty,
-    number: z.number().int().positive(),
-    url: z
-      .string()
-      .url()
-      .refine((value) => {
-        const protocol = new URL(value).protocol;
-        return protocol === "https:" || protocol === "http:";
-      }),
-    owner: nonEmpty,
-    repository: nonEmpty,
-  }),
-  createdAt: nativeEventTimeSchema,
-  lastUpdated: nativeEventTimeSchema,
-  trackerClosure: trackerClosureSchema,
-  sourceAnchors: z.array(sourceAnchorSchema),
-  rawFacets: z.array(rawFacetSchema),
-});
+const githubEvidenceSchema = z
+  .strictObject({
+    kind: z.literal("github"),
+    identity: z.strictObject({
+      repositoryDatabaseId: nonEmpty,
+      repositoryNodeId: nonEmpty,
+      objectKind: z.enum(["issue", "pull-request"]),
+      objectDatabaseId: nonEmpty,
+      objectNodeId: nonEmpty,
+      number: z.number().int().positive(),
+      url: z
+        .string()
+        .url()
+        .refine((value) => {
+          const protocol = new URL(value).protocol;
+          return protocol === "https:" || protocol === "http:";
+        }),
+      owner: nonEmpty,
+      repository: nonEmpty,
+    }),
+    createdAt: nativeEventTimeSchema,
+    lastUpdated: nativeEventTimeSchema,
+    trackerClosure: trackerClosureSchema,
+    sourceAnchors: z.array(sourceAnchorSchema),
+    rawFacets: z.array(rawFacetSchema),
+  })
+  .superRefine((evidence, context) => {
+    validateNativeTimeBasis(evidence.createdAt, "github", context, ["createdAt"]);
+    validateNativeTimeBasis(evidence.lastUpdated, "github", context, ["lastUpdated"]);
+    if (evidence.trackerClosure.state === "closed") {
+      validateNativeTimeBasis(evidence.trackerClosure.closedAt, "github", context, [
+        "trackerClosure",
+        "closedAt",
+      ]);
+    }
+  });
 
 const nativeEvidenceSchema = z.discriminatedUnion("kind", [
   localEvidenceSchema,
@@ -357,6 +376,27 @@ const wayfinderTicketSchema = z
       ticket.comments.length > 0,
       context,
     );
+    if (ticket.trackerClosure.state === "closed") {
+      validateNativeTimeBasis(ticket.trackerClosure.closedAt, ticket.native.kind, context, [
+        "trackerClosure",
+        "closedAt",
+      ]);
+    }
+    if (ticket.answer.availability === "available") {
+      validateNativeTimeBasis(ticket.answer.content.authoredAt, ticket.native.kind, context, [
+        "answer",
+        "content",
+        "authoredAt",
+      ]);
+    }
+    for (const [index, comment] of ticket.comments.entries()) {
+      if (!("authoredAt" in comment)) continue;
+      validateNativeTimeBasis(comment.authoredAt, ticket.native.kind, context, [
+        "comments",
+        index,
+        "authoredAt",
+      ]);
+    }
   });
 
 const deliveryTicketSchema = z
@@ -409,6 +449,20 @@ const deliveryTicketSchema = z
       ticket.comments.length > 0,
       context,
     );
+    if (ticket.trackerClosure.state === "closed") {
+      validateNativeTimeBasis(ticket.trackerClosure.closedAt, ticket.native.kind, context, [
+        "trackerClosure",
+        "closedAt",
+      ]);
+    }
+    for (const [index, comment] of ticket.comments.entries()) {
+      if (!("authoredAt" in comment)) continue;
+      validateNativeTimeBasis(comment.authoredAt, ticket.native.kind, context, [
+        "comments",
+        index,
+        "authoredAt",
+      ]);
+    }
   });
 
 const incomingIssueSchema = z
@@ -465,6 +519,20 @@ const incomingIssueSchema = z
       issue.classification.state !== "unknown" && issue.classification.state !== "ambiguous",
       context,
     );
+    if (issue.lifecycle.state === "closed") {
+      validateNativeTimeBasis(issue.lifecycle.closedAt, issue.native.kind, context, [
+        "lifecycle",
+        "closedAt",
+      ]);
+    }
+    for (const [index, content] of issue.content.entries()) {
+      if (!("authoredAt" in content)) continue;
+      validateNativeTimeBasis(content.authoredAt, issue.native.kind, context, [
+        "content",
+        index,
+        "authoredAt",
+      ]);
+    }
   });
 
 export const mattScopeProjectionSchema = z

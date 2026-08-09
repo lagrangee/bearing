@@ -53,7 +53,7 @@ import {
   type MattNativeWorkRegionItem,
   type MattNativeWorkRegionModel,
 } from "../providers/matt-skills-v1/work-region";
-import { projectExpectedSourceEventTime } from "../source-event-time";
+import { projectExpectedSourceEventTime, type SourceEventTime } from "../source-event-time";
 import {
   type PlanningLineageEvent,
   type PlanningLineageEventTime,
@@ -130,7 +130,7 @@ export type PlanningLineageSection = Readonly<{
         href?: string | undefined;
         lifecycle?: Effort["lifecycle"] | undefined;
         lifecycleTime?:
-          | Readonly<{ label: "Planned" | "Activated" | "Concluded"; time: MattNativeEventTime }>
+          | Readonly<{ label: "Planned" | "Activated" | "Concluded"; time: SourceEventTime }>
           | undefined;
         counts: Readonly<{
           claimed: MattNativeWorkRegionCount;
@@ -145,7 +145,7 @@ export type PlanningLineageSection = Readonly<{
 export type PlanningLineageTimeFact = Readonly<{
   key: string;
   label: string;
-  time: MattNativeEventTime;
+  time: PlanningLineageEventTime;
   mode?: "compact" | "detail" | undefined;
   detail?: string | undefined;
 }>;
@@ -189,7 +189,7 @@ export type PlanningLineageEffortLens = Readonly<{
     | Readonly<{
         disposition: NonNullable<Effort["conclusion"]>["disposition"];
         rationale: string;
-        concludedAt: MattNativeEventTime;
+        concludedAt: SourceEventTime;
         replacementEffort?:
           | Readonly<{
               title: string;
@@ -407,7 +407,7 @@ const nativeCollectionFor = (
   if (observations.length === 0) {
     return {
       validity: "invalid",
-      issues: ["No provider observation establishes native subject coverage."],
+      issues: ["No current source evidence establishes native subject coverage."],
     };
   }
   const issues = observations.filter(
@@ -556,7 +556,7 @@ const lifecycleTimeForEffort = (
   effort: Effort,
 ): Readonly<{
   label: "Planned" | "Activated" | "Concluded";
-  time: MattNativeEventTime;
+  time: SourceEventTime;
 }> => {
   if (effort.lifecycle === "planned") return { label: "Planned", time: effort.plannedAt };
   if (effort.lifecycle === "active") {
@@ -936,8 +936,7 @@ const nativeSemanticSection = (
       anchor: input.role,
       title: input.title,
       body:
-        input.unavailableBody ??
-        "This semantic section is unavailable in the selected provider observation.",
+        input.unavailableBody ?? "This semantic section is unavailable in the current source data.",
       ...(input.items === undefined ? {} : { items: input.items }),
       ...(input.times === undefined ? {} : { times: input.times }),
     };
@@ -946,7 +945,7 @@ const nativeSemanticSection = (
     return {
       anchor: input.role,
       title: input.title,
-      body: "This provider version does not support the requested semantic section.",
+      body: "The current source does not support the requested semantic section.",
       ...(input.times === undefined ? {} : { times: input.times }),
     };
   }
@@ -1001,7 +1000,7 @@ const nativeTrustSections = (
               { key: "native-created", label: "Created", time: object.native.createdAt },
               {
                 key: "native-last-updated",
-                label: "Last updated",
+                label: "Updated",
                 time: object.native.lastUpdated,
                 detail: "Secondary source metadata; not a lifecycle event.",
               },
@@ -1078,7 +1077,7 @@ const specSections = (spec: MattSpec): readonly PlanningLineageSection[] => [
       ? { body: `No ${section.title.toLocaleLowerCase()} content is recorded.` }
       : {}),
     ...(section.availability === "unavailable"
-      ? { body: "This document section is unavailable in the selected provider observation." }
+      ? { body: "This document section is unavailable in the current source data." }
       : {}),
   })),
 ];
@@ -1482,7 +1481,7 @@ const effortCurrentWorkStatus = (
 
 const invalidBindingCause = (effort: Effort): string => {
   if (effort.workBindingState.state === "bound") {
-    return "the declared Work Binding does not resolve to a readable provider observation.";
+    return "the declared Work Binding does not resolve to readable current source data.";
   }
   switch (effort.workBindingState.reason) {
     case "missing":
@@ -1492,7 +1491,7 @@ const invalidBindingCause = (effort: Effort): string => {
     case "conflicting":
       return "another Effort declares the same stable provider-native identity.";
     case "unresolved":
-      return "the declared Work Binding does not resolve to a provider observation.";
+      return "the declared Work Binding does not resolve to current source data.";
   }
 };
 

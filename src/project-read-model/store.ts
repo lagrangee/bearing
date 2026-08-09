@@ -5,6 +5,10 @@ import { z } from "zod";
 import type { AssetContentObservation } from "../asset-inputs";
 import type { FingerprintObservation } from "../fingerprint";
 import { languageTagSchema } from "../language-tag";
+import {
+  type ProviderStructuralValue,
+  providerObservationIdentityFor,
+} from "../native-work-provider";
 import { buildProjectFindDocuments, projectFindScopeState } from "../portal-ui/project-find-model";
 import type { ProjectGeneration } from "../project-generation/contract";
 import {
@@ -23,6 +27,7 @@ import {
   providerObservationSelectionFreshnessIsCoherent,
   providerObservationSelectionSchema,
 } from "../provider-evidence-contract";
+import { fingerprintProviderObservationSelection } from "../provider-evidence-selection";
 import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
 import { mattNativeRecords } from "../providers/matt-skills-v1/native-read-model";
 import {
@@ -592,11 +597,16 @@ const validateProviderEvidenceRow = (
     throw new Error("Project Read Model provider selection identity is inconsistent.");
   }
   if (typeof row["observation_json"] === "string") {
-    const observation = mattSkillsV1ProviderObservationSchema.parse(
-      parseJson(row["observation_json"]),
-    );
+    const rawObservation = parseJson(row["observation_json"]);
+    const { observation, storedObservationId } =
+      projectionVersion < 8
+        ? parseLegacyProviderObservation(rawObservation)
+        : {
+            observation: mattSkillsV1ProviderObservationSchema.parse(rawObservation),
+            storedObservationId: undefined,
+          };
     if (
-      observation.id !== row["observation_id"] ||
+      (storedObservationId ?? observation.id) !== row["observation_id"] ||
       (observation.sourceRevision ?? null) !== row["source_revision"] ||
       !sameMattNativeBindingDefinition(selection, observation.binding) ||
       !providerObservationSelectionFreshnessIsCoherent(selection, observation)
@@ -606,6 +616,74 @@ const validateProviderEvidenceRow = (
   } else if (row["observation_id"] !== null || row["source_revision"] !== null) {
     throw new Error("Project Read Model provider observation payload is missing.");
   }
+};
+
+const legacyNativeKindFor = (value: unknown): "github" | "local" | undefined => {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const kind = legacyNativeKindFor(item);
+      if (kind !== undefined) return kind;
+    }
+    return undefined;
+  }
+  if (value === null || typeof value !== "object") return undefined;
+  const record = value as Readonly<Record<string, unknown>>;
+  if (record["kind"] === "github" || record["kind"] === "local") return record["kind"];
+  for (const item of Object.values(record)) {
+    const kind = legacyNativeKindFor(item);
+    if (kind !== undefined) return kind;
+  }
+  return undefined;
+};
+
+const withLegacyNativeTimeBasis = (
+  value: unknown,
+  basis: "inferred-source-metadata" | "source-event",
+): unknown => {
+  if (Array.isArray(value)) return value.map((item) => withLegacyNativeTimeBasis(item, basis));
+  if (value === null || typeof value !== "object") return value;
+  const record = value as Readonly<Record<string, unknown>>;
+  const migrated = Object.fromEntries(
+    Object.entries(record).map(([key, item]) => [key, withLegacyNativeTimeBasis(item, basis)]),
+  );
+  return record["availability"] === "available" &&
+    typeof record["value"] === "string" &&
+    typeof record["precision"] === "string" &&
+    record["basis"] === undefined
+    ? { ...migrated, basis }
+    : migrated;
+};
+
+const parseLegacyProviderObservation = (
+  value: unknown,
+): Readonly<{
+  observation: MattSkillsV1ProviderObservation;
+  storedObservationId: string;
+}> => {
+  const raw = z.record(z.string(), z.unknown()).parse(value);
+  const storedObservationId = z.string().parse(raw["id"]);
+  const { id: _id, ...legacyContent } = raw;
+  if (
+    storedObservationId !== providerObservationIdentityFor(legacyContent as ProviderStructuralValue)
+  ) {
+    throw new Error("Legacy provider observation identity is inconsistent.");
+  }
+  const kind = legacyNativeKindFor(legacyContent);
+  const migratedContent =
+    kind === undefined
+      ? legacyContent
+      : withLegacyNativeTimeBasis(
+          legacyContent,
+          kind === "github" ? "source-event" : "inferred-source-metadata",
+        );
+  const content = migratedContent as ProviderStructuralValue;
+  return {
+    observation: mattSkillsV1ProviderObservationSchema.parse({
+      id: providerObservationIdentityFor(content),
+      ...(migratedContent as Record<string, unknown>),
+    }) as MattSkillsV1ProviderObservation,
+    storedObservationId,
+  };
 };
 
 const validatePayloads = (database: DatabaseSync, projectionVersion: number): void => {
@@ -643,6 +721,40 @@ const validatePayloads = (database: DatabaseSync, projectionVersion: number): vo
               }),
         }),
       };
+      assertProjectReadModelObjectIdentity(z.string().parse(row["reference"]), parsed);
+      objects.push(parsed);
+      continue;
+    }
+    if (projectionVersion < 8 && row["kind"] === "portal-native-evidence") {
+      const legacy = z
+        .strictObject({
+          id: z.string().startsWith("portal-native-evidence:"),
+          subjectReference: z.string().min(1),
+          role: z.enum(["bound", "detail"]),
+          selection: providerObservationSelectionSchema,
+          observation: z.unknown().optional(),
+        })
+        .parse(parseJson(row["payload_json"]));
+      const migrated =
+        legacy.observation === undefined
+          ? legacy
+          : (() => {
+              const { observation, storedObservationId } = parseLegacyProviderObservation(
+                legacy.observation,
+              );
+              if (legacy.selection.observationId !== storedObservationId) {
+                throw new Error("Legacy Portal native evidence identity is inconsistent.");
+              }
+              return {
+                ...legacy,
+                selection: { ...legacy.selection, observationId: observation.id },
+                observation,
+              };
+            })();
+      const parsed = projectReadModelObjectSchema.parse({
+        kind: "portal-native-evidence",
+        value: migrated,
+      });
       assertProjectReadModelObjectIdentity(z.string().parse(row["reference"]), parsed);
       objects.push(parsed);
       continue;
@@ -1027,6 +1139,7 @@ export type ProjectProviderEvidence = Readonly<{
 
 const projectProviderEvidence = (
   database: DatabaseSync,
+  projectionVersion: number,
   role?: ProjectProviderEvidence["role"],
 ): readonly ProjectProviderEvidence[] =>
   database
@@ -1041,17 +1154,25 @@ const projectProviderEvidence = (
       const selection = providerObservationSelectionSchema.parse(
         parseJson(row["selection_json"]),
       ) as ProviderObservationSelection;
+      const legacyObservation =
+        projectionVersion < 8 && typeof row["observation_json"] === "string"
+          ? parseLegacyProviderObservation(parseJson(row["observation_json"]))
+          : undefined;
+      const observation =
+        legacyObservation?.observation ??
+        (typeof row["observation_json"] === "string"
+          ? (mattSkillsV1ProviderObservationSchema.parse(
+              parseJson(row["observation_json"]),
+            ) as MattSkillsV1ProviderObservation)
+          : undefined);
       return {
         bindingKey: z.string().parse(row["binding_key"]),
         role: parsedRole,
-        selection,
-        ...(typeof row["observation_json"] === "string"
-          ? {
-              observation: mattSkillsV1ProviderObservationSchema.parse(
-                parseJson(row["observation_json"]),
-              ) as MattSkillsV1ProviderObservation,
-            }
-          : {}),
+        selection:
+          legacyObservation === undefined
+            ? selection
+            : { ...selection, observationId: legacyObservation.observation.id },
+        ...(observation === undefined ? {} : { observation }),
       };
     });
 
@@ -1059,7 +1180,9 @@ export const readProjectProviderEvidence = async (
   repoRoot: string,
   role?: ProjectProviderEvidence["role"],
 ): Promise<readonly ProjectProviderEvidence[]> =>
-  withProjectReadModel(repoRoot, (database) => projectProviderEvidence(database, role));
+  withProjectReadModel(repoRoot, (database, metadata) =>
+    projectProviderEvidence(database, metadata.projectionVersion, role),
+  );
 
 export const replaceProjectProviderEvidence = async (
   repoRoot: string,
@@ -1080,19 +1203,39 @@ export const replaceProjectProviderEvidence = async (
     const observation = evidence.observation;
     const existing = database
       .prepare(
-        "SELECT observation_id, source_revision, observation_json FROM provider_evidence WHERE binding_key = ? AND role = ?",
+        "SELECT observation_id, source_revision, observation_json, selection_json FROM provider_evidence WHERE binding_key = ? AND role = ?",
       )
       .get(evidence.bindingKey, evidence.role);
-    if (
+    const boundObservationChanged =
       evidence.role === "bound" &&
       (existing === undefined ||
         existing["observation_id"] !== (observation?.id ?? null) ||
         existing["source_revision"] !== (observation?.sourceRevision ?? null) ||
-        existing["observation_json"] !== (observation === undefined ? null : json(observation)))
-    ) {
-      throw new Error(
-        "Scoped bound evidence replacement cannot change the selected observation outside generation publication.",
-      );
+        existing["observation_json"] !== (observation === undefined ? null : json(observation)));
+    if (boundObservationChanged) {
+      const existingObservation =
+        typeof existing?.["observation_json"] === "string"
+          ? (mattSkillsV1ProviderObservationSchema.parse(
+              parseJson(existing["observation_json"]),
+            ) as MattSkillsV1ProviderObservation)
+          : undefined;
+      const existingSelection =
+        typeof existing?.["selection_json"] === "string"
+          ? (providerObservationSelectionSchema.parse(
+              parseJson(existing["selection_json"]),
+            ) as ProviderObservationSelection)
+          : undefined;
+      const sameSemanticBasis =
+        existingObservation !== undefined &&
+        existingSelection !== undefined &&
+        observation !== undefined &&
+        fingerprintProviderObservationSelection([existingObservation], [existingSelection]) ===
+          fingerprintProviderObservationSelection([observation], [evidence.selection]);
+      if (!sameSemanticBasis) {
+        throw new Error(
+          "Scoped bound evidence replacement cannot change the selected observation outside generation publication.",
+        );
+      }
     }
     database
       .prepare(
@@ -1106,6 +1249,38 @@ export const replaceProjectProviderEvidence = async (
         observation === undefined ? null : json(observation),
         json(evidence.selection),
       );
+    if (evidence.role === "bound") {
+      const update = database.prepare(
+        "UPDATE project_objects SET payload_json = ? WHERE reference = ? AND kind = 'portal-native-evidence'",
+      );
+      for (const row of database
+        .prepare(
+          "SELECT reference, payload_json FROM project_objects WHERE kind = 'portal-native-evidence'",
+        )
+        .all()) {
+        const object = projectReadModelObjectSchema.parse({
+          kind: "portal-native-evidence",
+          value: parseJson(row["payload_json"]),
+        });
+        if (object.kind !== "portal-native-evidence") {
+          throw new Error("Project Read Model native evidence kind is inconsistent.");
+        }
+        if (
+          object.value.role !== "bound" ||
+          projectProviderEvidenceBindingKey(object.value.selection) !== evidence.bindingKey
+        ) {
+          continue;
+        }
+        update.run(
+          json({
+            ...object.value,
+            selection: evidence.selection,
+            ...(observation === undefined ? {} : { observation }),
+          }),
+          String(row["reference"]),
+        );
+      }
+    }
     validatePayloads(database, metadata.projectionVersion);
     if (readMetadata(database, version).basisFingerprint !== metadata.basisFingerprint) {
       throw new Error("Scoped provider evidence replacement changed the Project generation.");

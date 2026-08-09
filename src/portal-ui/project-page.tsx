@@ -320,12 +320,12 @@ export function ProjectPage({
         !nativeDetailPresent ? (
         <div className="page project-state-page">
           <EmptyState
-            title="Native detail is not in the current observation"
-            detail="Load only this exact provider source. This does not inspect other Work Bindings."
+            title="Native detail is not in the current source"
+            detail="Refresh only this exact source. This does not inspect other Work Bindings."
             action={
               structuralAttention ? undefined : (
                 <Action disabled={providerBusy} onClick={observeCurrentSource}>
-                  Load source
+                  Refresh source
                 </Action>
               )
             }
@@ -345,10 +345,7 @@ export function ProjectPage({
           {...(providerBinding === undefined || structuralAttention
             ? {}
             : {
-                observationActionLabel:
-                  requestedNativeSubject?.kind === "native-subject"
-                    ? ("Refresh item" as const)
-                    : ("Load source" as const),
+                observationActionLabel: "Refresh source" as const,
                 onObserveSource:
                   requestedNativeSubject === undefined ? loadEffortSource : observeCurrentSource,
               })}

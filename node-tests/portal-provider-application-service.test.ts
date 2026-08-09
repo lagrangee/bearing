@@ -73,7 +73,7 @@ test("Provider Application keeps exact item, exact source, and all-sources costs
     assert.deepEqual(unknownItem.diagnostics, [
       {
         reference: "portal-item-refresh-target-unavailable",
-        summary: "Provider observation needs Agent Surface attention.",
+        summary: "Source refresh needs Agent Surface attention.",
       },
     ]);
     assert.deepEqual(capturedScopes, [".scratch/scope-001"]);
@@ -164,7 +164,7 @@ test("failed provider acquisition retains the last valid observed time and a typ
       failed.diagnostics.some(
         (diagnostic) =>
           diagnostic.reference === "provider-acquisition-failed" &&
-          diagnostic.summary === "Provider observation needs Agent Surface attention.",
+          diagnostic.summary === "Source refresh needs Agent Surface attention.",
       ),
     );
     assert.equal(

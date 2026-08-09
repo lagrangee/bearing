@@ -488,7 +488,7 @@ const parentPathFor = (
       return {
         state: "truncated-unavailable",
         ancestors: canonicalAncestors,
-        reason: "Native hierarchy is not trustworthy in the selected provider observation.",
+        reason: "Native hierarchy is not trustworthy in the current source data.",
       };
     }
     const objectByRef = new Map(
@@ -944,7 +944,7 @@ const workBindingRelation = (input: Input, effort: EffortRecord): PlanningLineag
           ? "The canonical Effort Work Binding does not match the supported contract."
           : reason === "conflicting"
             ? "Multiple Efforts declare the same stable provider-native identity."
-            : "The declared Work Binding does not resolve to a provider observation.",
+            : "The declared Work Binding does not resolve to current source data.",
     );
   }
   if (binding === undefined) throw new TypeError("Bound Effort requires its Work Binding.");
@@ -1213,28 +1213,28 @@ const relationsForNative = (
         "Native Parent",
         "belongs under",
         "one",
-        "Native hierarchy is unavailable in the selected provider observation.",
+        "Native hierarchy is unavailable in the current source data.",
       ),
       unavailableRelation(
         "native-work.children",
         "Native Children",
         "contains",
         "many",
-        "Native hierarchy is unavailable in the selected provider observation.",
+        "Native hierarchy is unavailable in the current source data.",
       ),
       unavailableRelation(
         "native-work.blocked-by",
         "Blocked By",
         "is blocked by",
         "many",
-        "Native blocker evidence is unavailable in the selected provider observation.",
+        "Native blocker evidence is unavailable in the current source data.",
       ),
       unavailableRelation(
         "native-work.blocks",
         "Blocks",
         "blocks",
         "many",
-        "Native blocker evidence is unavailable in the selected provider observation.",
+        "Native blocker evidence is unavailable in the current source data.",
       ),
     ];
   }

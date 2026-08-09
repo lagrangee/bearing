@@ -377,6 +377,37 @@ test("requires explicit availability for supported native authored and closure t
   ).toBe(false);
 });
 
+test("requires exact or inferred basis on each available projected native time", () => {
+  const github = createMattReferenceProjection("github");
+  const map = github.map;
+  if (map === undefined || map.native.kind !== "github") {
+    throw new Error("Expected a GitHub Map fixture.");
+  }
+  expect(map.native.createdAt).toMatchObject({ basis: "source-event" });
+  if (map.native.createdAt.availability !== "available") {
+    throw new Error("Expected an available GitHub created time.");
+  }
+  const { basis: _basis, ...withoutBasis } = map.native.createdAt;
+  expect(
+    mattScopeProjectionSchema.safeParse({
+      ...github,
+      map: { ...map, native: { ...map.native, createdAt: withoutBasis } },
+    }).success,
+  ).toBe(false);
+  expect(
+    mattScopeProjectionSchema.safeParse({
+      ...github,
+      map: {
+        ...map,
+        native: {
+          ...map.native,
+          createdAt: { ...map.native.createdAt, basis: "inferred-source-metadata" },
+        },
+      },
+    }).success,
+  ).toBe(false);
+});
+
 test("requires one explicit native structural order and never substitutes object type or identity", () => {
   const projection = createMattReferenceProjection("github");
   const reversed = [...projection.structuralOrder].reverse();

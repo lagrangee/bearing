@@ -392,6 +392,12 @@ test("stable durable-subject routes survive direct entry and keep failures scope
           .locator("xpath=following-sibling::dd"),
       ).toHaveText(nativeCase.source);
     } else {
+      const exactSourceTime = page.locator('time[datetime="2026-07-01T00:00:00Z"]');
+      await expect(exactSourceTime.first()).toBeVisible();
+      await expect(exactSourceTime.first().locator("xpath=ancestor::span[1]")).not.toHaveAttribute(
+        "title",
+        "Approximate time from current source metadata.",
+      );
       const sourceLink = technicalDetails.getByRole("link", { name: nativeCase.source });
       await expect(sourceLink).toHaveAttribute("href", nativeCase.sourceHref);
       await expect(
@@ -478,10 +484,10 @@ test("Source Event Time stays source-precise while browser-relative updates rema
   await page.getByRole("button", { name: "Open Technical Details" }).click();
   const timeDetails = page.getByRole("complementary", { name: "Technical Details" });
   await expect(
-    timeDetails.getByRole("heading", { name: "Source Event Time Provenance", level: 3 }),
+    timeDetails.getByRole("heading", { name: "Time provenance", level: 3 }),
   ).toBeVisible();
   await expect(timeDetails).toContainText(
-    "Passage accepted: 2026-07-31T10:00:00.123Z · Precision fractional-second",
+    "Passage accepted: 2026-07-31T10:00:00.123Z · Basis source-event · Precision fractional-second",
   );
   await page.keyboard.press("Escape");
 
@@ -985,9 +991,9 @@ test("degraded Work History returns recovery to its owning Effort with contextua
   await expect(attention).toContainText("Needs attention");
   const owner = attention.getByRole("link", { name: "Web Portal Validation", exact: true });
   await expect(owner).toHaveAttribute("href", effortHref);
-  await expect(page.getByRole("button", { name: "Load source" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh source" })).toBeVisible();
   await expect(page.getByText("Native Work Reading State", { exact: true })).toHaveCount(0);
   await owner.click();
   await expect(page).toHaveURL(effortHref);
-  await expect(page.getByRole("button", { name: "Load source" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh source" })).toBeVisible();
 });

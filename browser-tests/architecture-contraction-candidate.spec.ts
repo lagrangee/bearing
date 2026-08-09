@@ -96,7 +96,7 @@ test("the exact installed candidate remains coherent through foreground Portal",
     const providerResponse = page.waitForResponse((response) =>
       response.url().endsWith("/provider-observation"),
     );
-    await page.getByRole("button", { name: "Load source", exact: true }).click();
+    await page.getByRole("button", { name: "Refresh source", exact: true }).click();
     expect((await providerRequest).postDataJSON()).toEqual({
       version: 1,
       action: "source-load",
@@ -109,7 +109,7 @@ test("the exact installed candidate remains coherent through foreground Portal",
       action: "source-load",
       acquisitionCount: 1,
     });
-    await expect(page.getByRole("status")).toContainText("1 provider source observed");
+    await expect(page.getByRole("status")).toContainText("1 source checked");
     expect(consoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);
 

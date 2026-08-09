@@ -973,7 +973,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
           diagnostics: [
             {
               reference: "matt.github.acquisition.network",
-              summary: "Provider observation needs Agent Surface attention.",
+              summary: "Source refresh needs Agent Surface attention.",
             },
           ],
           explanation: "The provider network was unavailable for this observation.",
@@ -1153,7 +1153,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(page.getByText("Claimed", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Blocked", { exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Load source" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh source" })).toBeVisible();
     await expectCalmOrdinarySurface(page);
     const targetGateReturn = page
       .getByRole("link", { name: "Overview proven", exact: true })
@@ -1214,7 +1214,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
       page.getByLabel("Effort governance status").getByText("Needs attention", { exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Load source" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh source" })).toBeVisible();
 
     const staleSnapshot = withDegradedEffortObservation(scenario.snapshot, "stale");
     activeSnapshot = staleSnapshot;
@@ -1222,14 +1222,12 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await page.goto(`${host.url}${effortHref}`);
     await expect(page.getByText("Managed work details are stale", { exact: false })).toHaveCount(1);
     await expect(page.getByText("Last verified", { exact: true })).toBeVisible();
-    const loadSource = page.getByRole("button", { name: "Load source" });
+    const loadSource = page.getByRole("button", { name: "Refresh source" });
     const syncPostsBeforeRefresh = posts.filter((url) => url.endsWith("/sync")).length;
     const successClick = loadSource.click();
-    await expect(page.getByRole("button", { name: "Observing source" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Refreshing source" })).toBeDisabled();
     await successClick;
-    await expect(page.locator(".provider-observation-status")).toContainText(
-      "1 provider source observed",
-    );
+    await expect(page.locator(".provider-observation-status")).toContainText("1 source checked");
     await expect(loadSource).toBeFocused();
     expect(providerBodies.at(-1)).toEqual({
       version: 1,
@@ -1247,12 +1245,12 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(page.getByText("Latest refresh failed", { exact: false })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
     await expect(page.getByText("Last verified", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Load source" }).click();
+    await page.getByRole("button", { name: "Refresh source" }).click();
     await expect(page.getByText("Latest refresh failed", { exact: false })).toBeVisible();
     await expect(page.locator(".provider-observation-status")).toContainText(
       "provider network was unavailable",
     );
-    await expect(page.getByRole("button", { name: "Load source" })).toBeFocused();
+    await expect(page.getByRole("button", { name: "Refresh source" })).toBeFocused();
 
     activeSnapshot = withoutEffortObservation(scenario.snapshot, "none");
     providerFails = false;
@@ -1268,7 +1266,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(
       page.getByText("this Effort has no declared Work Binding", { exact: false }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Load source" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Refresh source" })).toHaveCount(0);
     await expect(page.locator("main")).not.toContainText("Not bound");
 
     activeSnapshot = scenario.snapshot;

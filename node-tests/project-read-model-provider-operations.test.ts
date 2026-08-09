@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { providerObservationIdentityFor } from "../src/native-work-provider";
+import { portalRowsToProjectData } from "../src/portal-ui/project-row-adapter";
 import {
   inspectProject,
   materializeProjectReadModelCandidate,
 } from "../src/project-read-model/inspect";
+import { queryPortalProjectRows } from "../src/project-read-model/portal";
 import {
   captureProjectProviderScopes,
   rebuildProjectReadModel,
@@ -28,6 +30,7 @@ import {
   decodeGitHubMattNativeScope,
   encodeGitHubMattNativeScope,
 } from "../src/providers/matt-skills-v1/github-native-scope";
+import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
 import {
   createGitHubMattRepository,
   createReferenceGitHubFixtures,
@@ -94,6 +97,79 @@ test("item refresh publishes detail evidence without changing bound evidence or 
     assert.equal(afterState.state, "ready");
     if (afterState.state !== "ready") throw new Error("Expected a ready Project Read Model.");
     assert.equal(afterState.metadata.basisFingerprint, beforeState.metadata.basisFingerprint);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("metadata-only Local time refresh replaces display evidence without publishing a generation", async () => {
+  const root = await createValidBearingRepo();
+  const now = () => "2026-08-09T00:00:00.000Z";
+  const providerFactory = (input: Parameters<typeof defaultMattProviderFactory>[0]) =>
+    createLocalMarkdownMattProvider({
+      repoRoot: input.repoRoot,
+      contractLocator: input.configuration.contractLocator,
+      capturedDocuments: input.capturedDocuments,
+      clock: () => new Date(now()),
+    });
+  try {
+    assert.equal((await rebuildProjectReadModel(root)).outcome, "complete");
+    assert.equal(
+      (await captureProjectProviderScopes(root, [".scratch/work"], { now, providerFactory }))
+        .outcome,
+      "complete",
+    );
+    const before = await inspectProjectReadModel(root);
+    assert.equal(before.state, "ready");
+
+    const metadataTime = new Date("2026-08-09T01:02:03.000Z");
+    await utimes(`${root}/.scratch/work/issues/01-finish.md`, metadataTime, metadataTime);
+    assert.equal(
+      (await captureProjectProviderScopes(root, [".scratch/work"], { now, providerFactory }))
+        .outcome,
+      "complete",
+    );
+
+    const after = await inspectProjectReadModel(root);
+    assert.equal(after.state, "ready");
+    if (before.state !== "ready" || after.state !== "ready") {
+      throw new Error("Expected a ready generation around metadata-only capture.");
+    }
+    assert.deepEqual(after.metadata.receipt, before.metadata.receipt);
+    const evidence = (await readProjectProviderEvidence(root, "bound"))[0]?.observation;
+    if (
+      evidence === undefined ||
+      (evidence.state !== "available" && evidence.state !== "partial")
+    ) {
+      throw new Error("Expected refreshed Local evidence.");
+    }
+    assert.deepEqual(evidence.projection.wayfinderTickets[0]?.native.lastUpdated, {
+      availability: "available",
+      value: metadataTime.toISOString(),
+      precision: "fractional-second",
+      basis: "inferred-source-metadata",
+    });
+    const portal = portalRowsToProjectData(
+      await queryPortalProjectRows(root, "lineage", {
+        kind: "native-subject",
+        id: ".scratch/work/issues/01-finish.md",
+      }),
+    );
+    if (portal.section !== "lineage") throw new Error("Expected lineage Portal data.");
+    const portalObservation = portal.providerObservations[0];
+    if (
+      portalObservation === undefined ||
+      (portalObservation.state !== "available" && portalObservation.state !== "partial")
+    ) {
+      throw new Error("Expected refreshed Portal evidence.");
+    }
+    assert.equal(
+      portalObservation.projection.wayfinderTickets[0]?.native.lastUpdated.availability ===
+        "available"
+        ? portalObservation.projection.wayfinderTickets[0].native.lastUpdated.value
+        : undefined,
+      metadataTime.toISOString(),
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

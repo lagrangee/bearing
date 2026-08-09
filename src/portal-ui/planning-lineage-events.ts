@@ -7,10 +7,10 @@ import type {
   PlanningReview,
   Roadmap,
 } from "../project-generation/contract";
-import type { SourceEventTime } from "../source-event-time";
+import type { ProjectedNativeTime, SourceEventTime } from "../source-event-time";
 import type { LineageModelData } from "./project-data";
 
-export type PlanningLineageEventTime = SourceEventTime | Readonly<{ availability: "unsupported" }>;
+export type PlanningLineageEventTime = SourceEventTime | ProjectedNativeTime;
 
 export type PlanningLineageEvent<TTime extends PlanningLineageEventTime = SourceEventTime> =
   Readonly<{

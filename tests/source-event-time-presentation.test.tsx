@@ -83,3 +83,41 @@ test("keeps minute-level absolute disclosure on compact relative time", () => {
   expect(markup).toContain('data-absolute="Jul 31, 2026 at 12:09 AM"');
   expect(markup).toContain(">1 hour ago<");
 });
+
+test("discloses inferred source metadata on hover and keyboard focus through generic time presentation", () => {
+  const inferred = {
+    ...instant,
+    basis: "inferred-source-metadata",
+  } as const;
+  const markup = renderToStaticMarkup(
+    <SourceEventTimeValue
+      label="Created"
+      locale="en-US"
+      mode="detail"
+      now={Date.parse("2026-07-31T00:10:00Z")}
+      time={inferred}
+      timeZone="UTC"
+    />,
+  );
+
+  expect(markup).toContain('tabindex="0"');
+  expect(markup).toContain('title="Approximate time from current source metadata."');
+  expect(markup).toContain('aria-describedby="');
+  expect(markup).toContain("Approximate time inferred from current source metadata");
+  expect(markup).not.toContain("github");
+  expect(markup).not.toContain("local markdown");
+
+  const compactMarkup = renderToStaticMarkup(
+    <SourceEventTimeValue
+      label="Created"
+      locale="en-US"
+      mode="compact"
+      now={Date.parse("2026-07-31T01:10:00Z")}
+      time={inferred}
+      timeZone="UTC"
+    />,
+  );
+  expect(compactMarkup).toContain(
+    'title="Jul 31, 2026 at 12:09 AM. Approximate time from current source metadata."',
+  );
+});

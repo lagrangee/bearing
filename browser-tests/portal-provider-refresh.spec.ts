@@ -55,7 +55,7 @@ test("provider observation actions are explicit, costed, contextual, and accessi
             diagnostics: [
               {
                 reference: "matt.github.acquisition.network",
-                summary: "Provider observation needs Agent Surface attention.",
+                summary: "Source refresh needs Agent Surface attention.",
               },
             ],
             explanation: "The provider network was unavailable for this observation.",
@@ -100,10 +100,11 @@ test("provider observation actions are explicit, costed, contextual, and accessi
   await page.getByRole("button", { name: "Refresh all sources" }).click();
   holdAllSources = true;
   await dialog.getByRole("button", { name: "Confirm refresh all sources" }).click();
-  await expect(page.getByRole("status")).toContainText("Observing provider source");
+  await expect(page.getByRole("status")).toContainText("Refreshing source");
   await expect(page.getByRole("status")).toBeFocused();
   releaseAllSources?.();
-  await expect(page.getByRole("status")).toContainText("2 provider sources observed");
+  await expect(page.getByRole("status")).toContainText("Source status");
+  await expect(page.getByRole("status")).toContainText("2 sources checked");
   await expect(page.getByRole("button", { name: "Refresh all sources" })).toBeFocused();
   expect(posts).toEqual([
     {
@@ -118,10 +119,12 @@ test("provider observation actions are explicit, costed, contextual, and accessi
     id: "effort:portal",
   });
   await page.goto(effortHref);
-  await expect(page.getByRole("button", { name: "Load source" })).toBeVisible();
-  await expect(page.getByText("Observed", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh source" })).toBeVisible();
+  await expect(page.getByText("Source status", { exact: true })).toBeVisible();
+  await expect(page.getByText("Checked", { exact: true })).toBeVisible();
+  await expect(page.getByText("Provider observation", { exact: true })).toHaveCount(0);
   expect(posts).toHaveLength(1);
-  await page.getByRole("button", { name: "Load source" }).click();
+  await page.getByRole("button", { name: "Refresh source" }).click();
   expect(posts.at(-1)).toEqual({
     version: 1,
     action: "source-load",
@@ -133,7 +136,7 @@ test("provider observation actions are explicit, costed, contextual, and accessi
     id: ".scratch/portal/issues/02-review.md",
   });
   await page.goto(itemHref);
-  await expect(page.getByRole("button", { name: "Refresh item" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh source" })).toBeVisible();
   await expect(
     page.locator('.source-observation-action time[datetime="2026-07-28T00:00:00.000Z"]'),
   ).toBeVisible();
@@ -141,7 +144,7 @@ test("provider observation actions are explicit, costed, contextual, and accessi
     "2026-07-28T00:00:00.000Z",
   );
   expect(posts).toHaveLength(2);
-  await page.getByRole("button", { name: "Refresh item" }).click();
+  await page.getByRole("button", { name: "Refresh source" }).click();
   expect(posts.at(-1)).toEqual({
     version: 1,
     action: "item-refresh",
@@ -150,7 +153,7 @@ test("provider observation actions are explicit, costed, contextual, and accessi
   });
 
   failure = true;
-  await page.getByRole("button", { name: "Refresh item" }).click();
+  await page.getByRole("button", { name: "Refresh source" }).click();
   const attention = page.getByRole("status");
   await expect(attention).toContainText("provider network was unavailable");
   await expect(attention.locator('time[datetime="2026-07-28T00:00:00.000Z"]')).toBeVisible();
@@ -226,9 +229,7 @@ test("settled structural Provider Application states suppress every repeat obser
           condition,
           acquisitionCount: 0,
           observations: [],
-          diagnostics: [
-            { reference, summary: "Provider observation needs Agent Surface attention." },
-          ],
+          diagnostics: [{ reference, summary: "Source refresh needs Agent Surface attention." }],
           explanation: "This structural condition needs Agent Surface attention.",
           nextAction: "Open Bearing in the Agent Surface to resolve the structural condition.",
         },
@@ -239,12 +240,12 @@ test("settled structural Provider Application states suppress every repeat obser
     await expect(
       page.getByRole("heading", { name: "Web Portal Validation", level: 1 }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Load source" }).click();
+    await page.getByRole("button", { name: "Refresh source" }).click();
     await expect(page.locator(".provider-observation-status")).toContainText(reference);
     await expect(page.locator(".provider-observation-status")).toBeFocused();
     await expect(page.getByRole("button", { name: "Copy diagnostic reference" })).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /Load source|Refresh item|Refresh all sources/u }),
+      page.getByRole("button", { name: /Refresh source|Refresh all sources/u }),
     ).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Retry|Repair/u })).toHaveCount(0);
     expect(posts).toBe(1);

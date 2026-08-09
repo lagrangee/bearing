@@ -4,10 +4,7 @@ import type {
   RequestedPlanningLineageSubject,
 } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
-import type {
-  MattNativeEventTime,
-  MattSemanticSectionAvailability,
-} from "../providers/matt-skills-v1/model";
+import type { MattSemanticSectionAvailability } from "../providers/matt-skills-v1/model";
 import type {
   MattNativeWorkRegionCount,
   MattNativeWorkRegionItem,
@@ -18,6 +15,7 @@ import type {
 import { AssetLocationCopy } from "./asset-location-copy";
 import { DocumentPresentationBlocks } from "./document-presentation";
 import { Icons } from "./icons";
+import type { PlanningLineageEventTime } from "./planning-lineage-events";
 import type {
   PlanningLineageEffortLens,
   PlanningLineageOutcomeSpine,
@@ -122,7 +120,9 @@ const technicalDetailsSelection = (
     event.time.availability !== "available"
       ? []
       : [
-          `${event.label}: ${event.time.value} · Precision ${event.time.precision} · Role ${event.role}${
+          `${event.label}: ${event.time.value} · Basis ${
+            "basis" in event.time ? event.time.basis : "source-event"
+          } · Precision ${event.time.precision} · Role ${event.role}${
             event.decisionReference === undefined ? "" : ` · Decision ${event.decisionReference}`
           }`,
         ],
@@ -168,7 +168,7 @@ const technicalDetailsSelection = (
     sections: [
       ...(sourceEventTimeProvenance.length === 0
         ? []
-        : [{ title: "Source Event Time Provenance", items: sourceEventTimeProvenance }]),
+        : [{ title: "Time provenance", items: sourceEventTimeProvenance }]),
       ...(observationProvenance.length === 0
         ? []
         : [{ title: "Observation provenance", items: observationProvenance }]),
@@ -193,7 +193,7 @@ function PlanningLineageTimeValue({
 }: {
   readonly label: string;
   readonly mode: "compact" | "detail";
-  readonly time: MattNativeEventTime;
+  readonly time: PlanningLineageEventTime;
 }) {
   return time.availability === "unsupported" ? (
     <span className="source-event-time unsupported">Time unsupported</span>
@@ -949,7 +949,7 @@ function MapChapter({
     return (
       <section className="matt-work-role role-unavailable">
         <h3>Map</h3>
-        <p>Map role {chapter.availability} in the selected provider observation.</p>
+        <p>Map role {chapter.availability} in the current source data.</p>
       </section>
     );
   }
@@ -963,10 +963,10 @@ function MapChapter({
     chapter.destination.availability === "available"
       ? chapter.destination.value
       : chapter.destination.availability === "confirmed-empty"
-        ? "Destination is confirmed empty in the selected provider observation."
+        ? "Destination is confirmed empty in the current source data."
         : chapter.destination.availability === "unsupported"
           ? "Destination is unsupported by this provider version."
-          : "Destination is unavailable in the selected provider observation.";
+          : "Destination is unavailable in the current source data.";
   return (
     <section className="matt-map-chapter" aria-labelledby="matt-map-chapter-title">
       <p className="eyebrow">Map chapter</p>
@@ -1248,7 +1248,7 @@ export function PlanningLineagePage({
   readonly filteredView?: RequestedPlanningLineageFilteredView | undefined;
   readonly onInspect: Inspect;
   readonly onNavigate: Navigate;
-  readonly observationActionLabel?: "Load source" | "Refresh item" | undefined;
+  readonly observationActionLabel?: "Refresh source" | undefined;
   readonly observationBusy?: boolean | undefined;
   readonly observationObservedAt?: string | undefined;
   readonly onObserveSource?: (() => void) | undefined;
@@ -1491,13 +1491,13 @@ export function PlanningLineagePage({
       {onObserveSource === undefined || observationActionLabel === undefined ? null : (
         <div className="source-observation-action">
           <div>
-            <strong>Provider observation</strong>
+            <strong>Source status</strong>
             <dl>
               <div>
-                <dt>Observed</dt>
+                <dt>Checked</dt>
                 <dd>
                   {observedAt === undefined ? (
-                    "No usable observation"
+                    "Not checked"
                   ) : (
                     <ProviderObservationTime value={observedAt} />
                   )}
@@ -1507,7 +1507,7 @@ export function PlanningLineagePage({
           </div>
           <Action disabled={observationBusy} onClick={onObserveSource}>
             <Icons.refresh className={observationBusy ? "is-spinning" : ""} />
-            {observationBusy ? "Observing source" : observationActionLabel}
+            {observationBusy ? "Refreshing source" : observationActionLabel}
           </Action>
         </div>
       )}

@@ -239,8 +239,8 @@ const evidenceCauses = (
   why: Omit<MattNativeWorkReadingState["why"], "causes">,
 ): readonly string[] => {
   const causes: string[] = [];
-  if (observation === undefined) causes.push("The provider observation is missing.");
-  if (selection === undefined) causes.push("No current provider observation is selected.");
+  if (observation === undefined) causes.push("Current source evidence is missing.");
+  if (selection === undefined) causes.push("No current source evidence is selected.");
   if (selection?.latestAttempt?.outcome === "failed") {
     causes.push("The latest provider acquisition or verification attempt failed.");
   }
@@ -317,7 +317,7 @@ export const buildMattNativeWorkReadingState = (
   if (context.state === "attention") {
     const reasonByBinding = {
       "binding-conflict": "Multiple Efforts bind the same native scope.",
-      "bound-unresolved": "The declared Work Binding does not resolve to a provider observation.",
+      "bound-unresolved": "The declared Work Binding does not resolve to current source data.",
       "identity-mismatch": "The bound native identity does not match the observed identity.",
       "root-kind-conflict": "The same native root has conflicting binding definitions.",
     } as const;

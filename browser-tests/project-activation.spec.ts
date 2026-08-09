@@ -209,7 +209,7 @@ test("a completed Provider Application result survives a typed-row re-read failu
     .getByRole("button", { name: "Confirm refresh all sources" })
     .click();
 
-  await expect(page.getByRole("status")).toContainText("1 provider source observed");
+  await expect(page.getByRole("status")).toContainText("1 source checked");
   await expect.poll(() => reads).toBe(2);
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("project-read-failed");
@@ -263,12 +263,12 @@ test("an explicit Provider Application survives same-project navigation and re-r
     .getByRole("dialog", { name: "Refresh all sources" })
     .getByRole("button", { name: "Confirm refresh all sources" })
     .click();
-  await expect(page.getByRole("status")).toContainText("Observing provider source");
+  await expect(page.getByRole("status")).toContainText("Refreshing source");
   await page.getByRole("link", { name: "Assets", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Assets", level: 1 })).toBeVisible();
 
   releaseProvider?.();
-  await expect(page.getByRole("status")).toContainText("1 provider source observed");
+  await expect(page.getByRole("status")).toContainText("1 source checked");
   await expect.poll(() => sections).toEqual(["overview", "assets", "assets"]);
   await expect(page.getByRole("heading", { name: "Assets", level: 1 })).toBeVisible();
 });

@@ -18,7 +18,7 @@ const availableSections = (...roles: readonly string[]) =>
 const nativeTime = (nativeKind: NativeKind, value: string) =>
   nativeKind === "local"
     ? ({ availability: "unsupported" } as const)
-    : ({ availability: "available", value, precision: "second" } as const);
+    : ({ availability: "available", value, precision: "second", basis: "source-event" } as const);
 
 const nativeEvidence = (
   nativeKind: NativeKind,

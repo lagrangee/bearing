@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { readCatalogDocument, upsertCatalogEntry } from "../src/catalog/store";
+import {
+  type ProviderStructuralValue,
+  providerObservationIdentityFor,
+} from "../src/native-work-provider";
 import { resolveRepositoryRoot } from "../src/path-boundary";
 import { PROJECT_READ_MODEL_PROJECTION_VERSION } from "../src/project-read-model/contract";
 import {
@@ -14,11 +18,16 @@ import {
   queryCommittedProject,
 } from "../src/project-read-model/inspect";
 import {
+  captureProjectProviderScopes,
+  rebuildProjectReadModel,
+} from "../src/project-read-model/provider-operations";
+import {
   inspectProjectReadModel,
   projectReadModelPath,
   publishProjectReadModel,
 } from "../src/project-read-model/store";
 import { createRepresentativeProject } from "../tests/fixtures/representative-project";
+import { createValidBearingRepo } from "../tests/helpers";
 import { processEvidence, runNodeProcessGroup } from "./product-seams/sqlite-process-harness";
 
 const makeRepository = async (root: string): Promise<void> => {
@@ -32,6 +41,16 @@ const makeRepository = async (root: string): Promise<void> => {
       surfaces: ["agent-skills"],
       executorProfiles: [],
     })}\n`,
+  );
+};
+
+const withoutNativeTimeBasis = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(withoutNativeTimeBasis);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, item]) =>
+      key === "basis" && item !== undefined ? [] : [[key, withoutNativeTimeBasis(item)]],
+    ),
   );
 };
 
@@ -370,7 +389,7 @@ test("Project Read Model classifies missing, compatible-obsolete, older, newer, 
 });
 
 test("a projection v4 raw provider key is compatible-obsolete and rematerializes to the current encoding", async () => {
-  assert.equal(PROJECT_READ_MODEL_PROJECTION_VERSION, 7);
+  assert.equal(PROJECT_READ_MODEL_PROJECTION_VERSION, 8);
   const fixture = await createRepresentativeProject("representative");
   try {
     await publishProjectReadModel(
@@ -420,5 +439,81 @@ test("a projection v4 raw provider key is compatible-obsolete and rematerializes
     }
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("a projection v7 provider observation without native time basis is compatible-obsolete", async () => {
+  const root = await createValidBearingRepo();
+  try {
+    assert.equal((await rebuildProjectReadModel(root)).outcome, "complete");
+    assert.equal((await captureProjectProviderScopes(root, [".scratch/work"])).outcome, "complete");
+    const database = new DatabaseSync(projectReadModelPath(root));
+    try {
+      database.exec("UPDATE read_model_metadata SET projection_version = 7 WHERE singleton = 1");
+      const rows = database
+        .prepare(
+          "SELECT binding_key, role, observation_json, selection_json FROM provider_evidence",
+        )
+        .all();
+      assert.ok(rows.length > 0);
+      assert.ok(rows.some((row) => String(row["observation_json"]).includes('"basis"')));
+      for (const row of rows) {
+        if (typeof row["observation_json"] !== "string") continue;
+        const current = JSON.parse(row["observation_json"]) as Record<string, unknown>;
+        const { id: _id, ...content } = current;
+        const legacyContent = withoutNativeTimeBasis(content) as Record<string, unknown>;
+        const legacyId = providerObservationIdentityFor(legacyContent as ProviderStructuralValue);
+        const selection = JSON.parse(String(row["selection_json"])) as Record<string, unknown>;
+        database
+          .prepare(
+            "UPDATE provider_evidence SET observation_id = ?, observation_json = ?, selection_json = ? WHERE binding_key = ? AND role = ?",
+          )
+          .run(
+            legacyId,
+            JSON.stringify({ id: legacyId, ...legacyContent }),
+            JSON.stringify({ ...selection, observationId: legacyId }),
+            String(row["binding_key"]),
+            String(row["role"]),
+          );
+      }
+      const portalRows = database
+        .prepare(
+          "SELECT reference, payload_json FROM project_objects WHERE kind = 'portal-native-evidence'",
+        )
+        .all();
+      assert.ok(portalRows.length > 0);
+      for (const row of portalRows) {
+        const current = JSON.parse(String(row["payload_json"])) as Record<string, unknown>;
+        if (current["observation"] === undefined) continue;
+        const legacyObservation = withoutNativeTimeBasis(current["observation"]) as Record<
+          string,
+          unknown
+        >;
+        const { id: _id, ...legacyContent } = legacyObservation;
+        const legacyId = providerObservationIdentityFor(legacyContent as ProviderStructuralValue);
+        const selection = current["selection"] as Record<string, unknown>;
+        database.prepare("UPDATE project_objects SET payload_json = ? WHERE reference = ?").run(
+          JSON.stringify({
+            ...current,
+            selection: { ...selection, observationId: legacyId },
+            observation: { id: legacyId, ...legacyContent },
+          }),
+          String(row["reference"]),
+        );
+      }
+    } finally {
+      database.close();
+    }
+
+    assert.equal((await inspectProjectReadModel(root)).state, "obsolete-compatible");
+    const inspected = await inspectProject(root, { kind: "project" });
+    assert.ok(inspected.outcome === "complete" || inspected.outcome === "partial");
+    const current = await inspectProjectReadModel(root);
+    assert.equal(current.state, "ready");
+    if (current.state === "ready") {
+      assert.equal(current.metadata.projectionVersion, PROJECT_READ_MODEL_PROJECTION_VERSION);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

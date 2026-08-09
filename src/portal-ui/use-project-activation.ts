@@ -177,11 +177,11 @@ export const useProjectActivation = (
               diagnostics: [
                 {
                   reference: "portal-provider-observation-failed",
-                  summary: "Provider observation needs Agent Surface attention.",
+                  summary: "Source refresh needs Agent Surface attention.",
                 },
               ],
-              explanation: "The provider observation request did not complete.",
-              nextAction: "Open Bearing in the Agent Surface to diagnose the provider action.",
+              explanation: "The source refresh did not complete.",
+              nextAction: "Open Bearing in the Agent Surface to diagnose the source operation.",
             },
           });
         })

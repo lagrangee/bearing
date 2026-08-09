@@ -29,7 +29,7 @@ import {
   resolveContainedPath,
   resolveRepositoryRoot,
 } from "../../path-boundary";
-import { projectExpectedSourceEventTime } from "../../source-event-time";
+import { projectExpectedNativeSourceEventTime } from "../../source-event-time";
 import { validateMattSkillsV1Contract } from "../matt-skills-v1";
 import {
   MATT_SKILLS_V1_PROVIDER_ID,
@@ -1023,8 +1023,8 @@ const nativeEvidenceFor = (
       owner: repository.owner.login,
       repository: repository.name,
     },
-    createdAt: projectExpectedSourceEventTime(issue.created_at),
-    lastUpdated: projectExpectedSourceEventTime(issue.updated_at),
+    createdAt: projectExpectedNativeSourceEventTime(issue.created_at),
+    lastUpdated: projectExpectedNativeSourceEventTime(issue.updated_at),
     trackerClosure: trackerClosureFor(issue),
     sourceAnchors,
     rawFacets,
@@ -1054,7 +1054,7 @@ const trackerClosureFor = (issue: GitHubIssue): MattTrackerClosure => {
   return {
     state: "closed",
     disposition,
-    closedAt: projectExpectedSourceEventTime(issue.closed_at),
+    closedAt: projectExpectedNativeSourceEventTime(issue.closed_at),
     ...(issue.closed_by === null || issue.closed_by === undefined
       ? {}
       : { actor: issue.closed_by.login }),
@@ -1201,7 +1201,7 @@ const commentContent = (comment: GitHubComment): MattAuthoredContent => {
     body,
     nativeIdentity: comment.node_id,
     author: comment.user.login,
-    authoredAt: projectExpectedSourceEventTime(comment.created_at),
+    authoredAt: projectExpectedNativeSourceEventTime(comment.created_at),
     sourceAnchor: { kind: "source", target: comment.html_url },
   };
 };
@@ -1800,7 +1800,7 @@ const incomingIssueFor = (
                   : issue.state_reason === "completed"
                     ? "completed"
                     : "unknown",
-            closedAt: projectExpectedSourceEventTime(issue.closed_at),
+            closedAt: projectExpectedNativeSourceEventTime(issue.closed_at),
           },
     semanticSections: [
       semanticSection(

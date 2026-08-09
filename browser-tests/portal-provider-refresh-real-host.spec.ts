@@ -78,7 +78,7 @@ test("real Host performs only explicit contextual acquisitions without source or
       response.request().method() === "POST" &&
       new URL(response.url()).pathname.endsWith("/provider-observation"),
   );
-  await page.getByRole("button", { name: "Load source" }).click();
+  await page.getByRole("button", { name: "Refresh source" }).click();
   const sourceResult = await (await sourceResponse).json();
   expect(sourceResult).toMatchObject({
     state: "completed",
@@ -109,12 +109,28 @@ test("real Host performs only explicit contextual acquisitions without source or
     id: ".scratch/work/issues/01-verify-isolation.md",
   });
   await page.goto(`${host.url}${itemHref}`);
+  const inferredTimes = page.locator(
+    '.source-event-time[title="Approximate time from current source metadata."]',
+  );
+  await expect(inferredTimes.first()).toBeVisible();
+  await inferredTimes.first().hover();
+  await inferredTimes.first().focus();
+  await expect(inferredTimes.first()).toBeFocused();
+  const inferredDescription = await inferredTimes.first().getAttribute("aria-describedby");
+  expect(inferredDescription).not.toBeNull();
+  await expect(page.locator(`#${inferredDescription}`)).toContainText(
+    "Approximate time inferred from current source metadata",
+  );
+  await expect(page.getByText("Created", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Tracker closed", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Answer authored", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Updated", { exact: true }).first()).toBeVisible();
   const itemResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
       new URL(response.url()).pathname.endsWith("/provider-observation"),
   );
-  await page.getByRole("button", { name: "Refresh item" }).click();
+  await page.getByRole("button", { name: "Refresh source" }).click();
   const itemResult = await (await itemResponse).json();
   expect(itemResult).toMatchObject({
     state: "completed",

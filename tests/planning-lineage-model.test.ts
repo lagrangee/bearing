@@ -1410,11 +1410,13 @@ test("renders GitHub tracker closure independently for Map and Spec native subje
           availability: "available" as const,
           value: "2026-07-01T00:00:00Z",
           precision: "second" as const,
+          basis: "source-event" as const,
         },
         lastUpdated: {
           availability: "available" as const,
           value: "2026-07-02T00:00:00Z",
           precision: "second" as const,
+          basis: "source-event" as const,
         },
         trackerClosure: {
           state: "closed" as const,
@@ -1423,6 +1425,7 @@ test("renders GitHub tracker closure independently for Map and Spec native subje
             availability: "available" as const,
             value: closedAt,
             precision: "second" as const,
+            basis: "source-event" as const,
           },
         },
         sourceAnchors: [],
@@ -1432,7 +1435,12 @@ test("renders GitHub tracker closure independently for Map and Spec native subje
     expect(nativeLifecycleEventsFor(closedObject)).toContainEqual({
       role: "native.tracker-closed",
       label: "Tracker closed",
-      time: { availability: "available", value: closedAt, precision: "second" },
+      time: {
+        availability: "available",
+        value: closedAt,
+        precision: "second",
+        basis: "source-event",
+      },
     });
     expect(nativeEventHistoryAvailabilityFor(closedObject)).toBe("available");
   }
@@ -1512,7 +1520,7 @@ test("carries provider unsupported availability through validated Snapshot and P
   expect(model.state).toBe("partial");
   expect(model.semanticAvailability.get("map.fog")).toBe("unsupported");
   expect(model.sections.find((section) => section.anchor === "map.fog")?.body).toBe(
-    "This provider version does not support the requested semantic section.",
+    "The current source does not support the requested semantic section.",
   );
 });
 

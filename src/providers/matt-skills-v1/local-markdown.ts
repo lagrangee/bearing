@@ -28,6 +28,7 @@ import {
   resolveContainedPath,
   resolveRepositoryRoot,
 } from "../../path-boundary";
+import { projectInferredSourceMetadataTime } from "../../source-event-time";
 import {
   MATT_SKILLS_V1_PROVIDER_ID,
   type MattSkillsV1Provider,
@@ -67,6 +68,7 @@ type FileStamp = Readonly<{
   ino: string;
   mode: string;
   size: string;
+  birthtimeNs: string;
   mtimeNs: string;
   ctimeNs: string;
 }>;
@@ -143,6 +145,7 @@ const stampFor = async (target: string): Promise<FileStamp> => {
     ino: String(metadata.ino),
     mode: String(metadata.mode),
     size: String(metadata.size),
+    birthtimeNs: String(metadata.birthtimeNs),
     mtimeNs: String(metadata.mtimeNs),
     ctimeNs: String(metadata.ctimeNs),
   };
@@ -153,6 +156,7 @@ const sameStamp = (left: FileStamp, right: FileStamp): boolean =>
   left.ino === right.ino &&
   left.mode === right.mode &&
   left.size === right.size &&
+  left.birthtimeNs === right.birthtimeNs &&
   left.mtimeNs === right.mtimeNs &&
   left.ctimeNs === right.ctimeNs;
 
@@ -284,14 +288,27 @@ const rawFacetsFor = (
   ...extra,
 ];
 
+const instantForNanoseconds = (value: string): string =>
+  new Date(Number(BigInt(value) / 1_000_000n)).toISOString();
+
+const inferredUpdatedTimeFor = (file: CapturedFile) =>
+  projectInferredSourceMetadataTime(instantForNanoseconds(file.stamp.mtimeNs));
+
+const inferredCreatedTimeFor = (file: CapturedFile) =>
+  projectInferredSourceMetadataTime(
+    instantForNanoseconds(
+      BigInt(file.stamp.birthtimeNs) > 0n ? file.stamp.birthtimeNs : file.stamp.mtimeNs,
+    ),
+  );
+
 const nativeEvidenceFor = (
   file: CapturedFile,
   extra: readonly MattRawFacet[] = [],
 ): MattNativeEvidence => ({
   kind: "local",
   identity: { locator: file.locator },
-  createdAt: { availability: "unsupported" },
-  lastUpdated: { availability: "unsupported" },
+  createdAt: inferredCreatedTimeFor(file),
+  lastUpdated: inferredUpdatedTimeFor(file),
   sourceAnchors: anchorsFor(file),
   rawFacets: rawFacetsFor(file, extra),
 });
@@ -306,7 +323,7 @@ const contentSection = (
   return {
     role,
     body: result.value.markdown,
-    authoredAt: { availability: "unsupported" },
+    authoredAt: role === "answer" ? inferredUpdatedTimeFor(file) : { availability: "unsupported" },
     ...(role === "answer"
       ? {
           sourceAnchor: {
@@ -670,7 +687,7 @@ const decodeWayfinder = (
       ? {
           state: "closed",
           disposition: "completed",
-          closedAt: { availability: "unsupported" },
+          closedAt: inferredUpdatedTimeFor(file),
         }
       : { state: "open" },
     semanticSections: [
@@ -734,14 +751,14 @@ const decodeDelivery = (
     trackerClosure = {
       state: "closed",
       disposition: "completed",
-      closedAt: { availability: "unsupported" },
+      closedAt: inferredUpdatedTimeFor(file),
     };
   } else if (semanticStatus === "wontfix") {
     lifecycle = { state: "completion-unavailable", reason: "source-contract-gap" };
     trackerClosure = {
       state: "closed",
       disposition: "wontfix",
-      closedAt: { availability: "unsupported" },
+      closedAt: inferredUpdatedTimeFor(file),
     };
   } else if (
     status === undefined ||
@@ -2215,7 +2232,15 @@ const localReconciliationProjection = async (
           bytes: Buffer.alloc(0),
           source: "",
           document: parseMarkdownDocument(""),
-          stamp: { dev: "", ino: "", mode: "", size: "", mtimeNs: "", ctimeNs: "" },
+          stamp: {
+            dev: "",
+            ino: "",
+            mode: "",
+            size: "",
+            birthtimeNs: "",
+            mtimeNs: "",
+            ctimeNs: "",
+          },
         },
         shortReference: shortReferenceFor(locator) ?? locator,
         role:

@@ -1,9 +1,9 @@
 import type { DocumentPresentation } from "../../document-presentation";
-import type { SourceEventTime } from "../../source-event-time";
+import type { ProjectedNativeTime } from "../../source-event-time";
 
 export type MattObjectReference = string & Readonly<{ __mattObjectReference: true }>;
 
-export type MattNativeEventTime = SourceEventTime | Readonly<{ availability: "unsupported" }>;
+export type MattNativeEventTime = ProjectedNativeTime;
 
 export type MattSourceAnchor = Readonly<{
   kind: "source" | "external" | "decision" | "answer" | "disposition";

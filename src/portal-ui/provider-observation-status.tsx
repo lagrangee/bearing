@@ -2,8 +2,7 @@ import type { RefObject } from "react";
 import type { PortalProviderApplicationResponse } from "../portal-provider-application-wire";
 import { ProviderObservationTime } from "./provider-observation-time";
 
-const observedLabel = (count: number): string =>
-  `${count} provider source${count === 1 ? "" : "s"} observed.`;
+const checkedLabel = (count: number): string => `${count} source${count === 1 ? "" : "s"} checked.`;
 
 export function CopyDiagnosticReference({ reference }: { readonly reference: string }) {
   const copy = (): void => {
@@ -34,7 +33,7 @@ export function ProviderObservationStatus({
   if (application.state === "running") {
     return (
       <div ref={statusRef} className="provider-observation-status" role="status" tabIndex={-1}>
-        Observing provider source…
+        Refreshing source…
       </div>
     );
   }
@@ -42,12 +41,13 @@ export function ProviderObservationStatus({
   if (result.state === "completed") {
     return (
       <div ref={statusRef} className="provider-observation-status" role="status" tabIndex={-1}>
-        <strong>{observedLabel(result.acquisitionCount)}</strong>
+        <strong>Source status</strong>
+        <span>{checkedLabel(result.acquisitionCount)}</span>
         {result.observations.map((observation) =>
           observation.observedAt === undefined ? null : (
             <ProviderObservationTime
               key={observation.scope}
-              label="Observed"
+              label="Checked"
               value={observation.observedAt}
             />
           ),
@@ -62,12 +62,13 @@ export function ProviderObservationStatus({
       role="status"
       tabIndex={-1}
     >
-      <strong>{result.explanation}</strong>
+      <strong>Source status needs attention.</strong>
+      <span>{result.explanation}</span>
       {result.observations.map((observation) =>
         observation.observedAt === undefined ? null : (
           <ProviderObservationTime
             key={observation.scope}
-            label="Last valid observation"
+            label="Last checked"
             value={observation.observedAt}
           />
         ),

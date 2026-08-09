@@ -275,8 +275,8 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       destination: "Prove one complete Matt-native semantic scope.",
       lifecycle: { state: "resolved" },
       native: {
-        createdAt: { availability: "unsupported" },
-        lastUpdated: { availability: "unsupported" },
+        createdAt: { availability: "available", basis: "inferred-source-metadata" },
+        lastUpdated: { availability: "available", basis: "inferred-source-metadata" },
       },
     });
     expect(result.projection?.map?.decisions[0]).toMatchObject({
@@ -318,10 +318,15 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       claim: { state: "unclaimed" },
       answer: {
         availability: "available",
-        content: { authoredAt: { availability: "unsupported" } },
+        content: {
+          authoredAt: { availability: "available", basis: "inferred-source-metadata" },
+        },
       },
       lifecycle: { state: "resolved-on-route" },
-      trackerClosure: { state: "closed", closedAt: { availability: "unsupported" } },
+      trackerClosure: {
+        state: "closed",
+        closedAt: { availability: "available", basis: "inferred-source-metadata" },
+      },
     });
     expect(result.projection?.wayfinderTickets[1]).toMatchObject({
       claim: { state: "claimed", claimant: "lago" },
@@ -558,24 +563,77 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     });
   });
 
-  test("uses Local metadata only as a bounded capture hint, never as native event time", async () => {
+  test("projects current Local birthtime and mtime as read-only approximate display times", async () => {
     const root = await writeReferenceRepository();
-    await utimes(
-      join(root, nativeScope, "map.md"),
-      new Date("2040-01-02T03:04:05Z"),
-      new Date("2040-01-02T03:04:05Z"),
-    );
+    const locator = `${nativeScope}/issues/01-research.md`;
+    const target = join(root, locator);
+    const firstMtime = new Date("2040-01-02T03:04:05Z");
+    await utimes(target, firstMtime, firstMtime);
+    const metadata = await lstat(target);
+    const expectedCreated = new Date(
+      metadata.birthtimeMs > 0 ? metadata.birthtimeMs : metadata.mtimeMs,
+    ).toISOString();
+    const before = await snapshotNativeBytes(root);
 
-    const result = await capture(root, {
+    const first = await capture(root, {
       clock: () => new Date("2099-12-31T23:59:59Z"),
     });
+    const firstTicket = first.projection?.wayfinderTickets[0];
 
-    expect(result.projection?.map?.native).toMatchObject({
-      createdAt: { availability: "unsupported" },
-      lastUpdated: { availability: "unsupported" },
+    expect(firstTicket).toMatchObject({
+      native: {
+        createdAt: {
+          availability: "available",
+          value: expectedCreated,
+          basis: "inferred-source-metadata",
+        },
+        lastUpdated: {
+          availability: "available",
+          value: firstMtime.toISOString(),
+          basis: "inferred-source-metadata",
+        },
+      },
+      answer: {
+        availability: "available",
+        content: {
+          authoredAt: {
+            availability: "available",
+            value: firstMtime.toISOString(),
+            basis: "inferred-source-metadata",
+          },
+        },
+      },
+      trackerClosure: {
+        state: "closed",
+        closedAt: {
+          availability: "available",
+          value: firstMtime.toISOString(),
+          basis: "inferred-source-metadata",
+        },
+      },
     });
-    expect(JSON.stringify(result.projection)).not.toContain("2040-01-02");
-    expect(JSON.stringify(result.projection)).not.toContain("2099-12-31");
+
+    const secondMtime = new Date("2041-02-03T04:05:06Z");
+    await utimes(target, secondMtime, secondMtime);
+    const second = await capture(root, {
+      clock: () => new Date("2099-12-31T23:59:59Z"),
+    });
+    const secondTicket = second.projection?.wayfinderTickets[0];
+
+    expect(second.sourceRevision).toBe(first.sourceRevision);
+    expect(secondTicket?.native.lastUpdated).toMatchObject({
+      value: secondMtime.toISOString(),
+      basis: "inferred-source-metadata",
+    });
+    expect(secondTicket?.trackerClosure).toMatchObject({
+      closedAt: { value: secondMtime.toISOString(), basis: "inferred-source-metadata" },
+    });
+    expect(second.projection?.structuralOrder).toEqual(first.projection?.structuralOrder);
+    expect(second.completion).toBe(first.completion);
+    expect(second.freshness).toEqual(first.freshness);
+    expect(await snapshotNativeBytes(root)).toEqual(before);
+    expect(JSON.stringify(second.projection)).not.toContain("firstObserved");
+    expect(JSON.stringify(second.projection)).not.toContain("2099-12-31");
   });
 
   test("treats absent optional Map and Spec plus untriaged Incoming as fully acquired", async () => {
