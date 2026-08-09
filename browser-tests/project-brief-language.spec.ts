@@ -4,7 +4,7 @@ import { createProjectOverviewFixture } from "../tests/fixtures/project-overview
 import { projectRowEnvelope } from "./project-row-fixture";
 
 test("Project Brief applies only authored per-part language metadata", async ({ page }) => {
-  // Given: a Chinese Purpose explicitly declares zh-CN while English Current Stage is undeclared.
+  // Given: a Chinese At a Glance explicitly declares zh-CN while Current Position is undeclared.
   const snapshot = createProjectOverviewFixture();
   const briefSource = createSourceRecord(snapshot.basis.basisFingerprint, {
     kind: "canonical",
@@ -19,10 +19,10 @@ test("Project Brief applies only authored per-part language metadata", async ({ 
         id: "project-brief:current" as const,
         title: "Project Brief",
         generatedAt: "2026-07-14T08:00:00Z",
-        projectPurpose: "让用户和 agent 每天快速看清 whole project。",
-        currentStage: "One read-oriented governance surface.",
-        materialAchievedState: "Managed planning remains directly readable.",
-        languages: { projectPurpose: "zh-CN" },
+        atAGlance: "让用户和 agent 每天快速看清 whole project。",
+        currentPosition: "One read-oriented governance surface.",
+        establishedBaseline: ["Managed planning remains directly readable."],
+        languages: { atAGlance: "zh-CN" },
         source: briefSource.reference,
       },
     },
@@ -43,11 +43,15 @@ test("Project Brief applies only authored per-part language metadata", async ({ 
   await page.goto("/projects/overview");
 
   // Then: declared Chinese is scoped locally and undeclared English inherits the document language.
-  const purpose = page.getByText("让用户和 agent 每天快速看清 whole project。", { exact: true });
-  await expect(purpose).toHaveAttribute("lang", "zh-CN");
-  const currentStage = page.getByText("One read-oriented governance surface.", { exact: true });
-  await expect(currentStage).not.toHaveAttribute("lang", /.+/u);
+  const atAGlance = page.getByText("让用户和 agent 每天快速看清 whole project。", {
+    exact: true,
+  });
+  await expect(atAGlance).toHaveAttribute("lang", "zh-CN");
+  const currentPosition = page.getByText("One read-oriented governance surface.", {
+    exact: true,
+  });
+  await expect(currentPosition).not.toHaveAttribute("lang", /.+/u);
   expect(
-    await currentStage.evaluate((element) => element.closest("[lang]")?.getAttribute("lang")),
+    await currentPosition.evaluate((element) => element.closest("[lang]")?.getAttribute("lang")),
   ).toBe("en");
 });

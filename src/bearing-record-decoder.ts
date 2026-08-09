@@ -165,15 +165,15 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
           ? {}
           : {
               Languages: {
-                ...(data.Languages["Project Purpose"] === undefined
+                ...(data.Languages["At a Glance"] === undefined
                   ? {}
-                  : { "Project Purpose": data.Languages["Project Purpose"] }),
-                ...(data.Languages["Current Stage"] === undefined
+                  : { "At a Glance": data.Languages["At a Glance"] }),
+                ...(data.Languages["Current Position"] === undefined
                   ? {}
-                  : { "Current Stage": data.Languages["Current Stage"] }),
-                ...(data.Languages["Material Achieved State"] === undefined
+                  : { "Current Position": data.Languages["Current Position"] }),
+                ...(data.Languages["Established Baseline"] === undefined
                   ? {}
-                  : { "Material Achieved State": data.Languages["Material Achieved State"] }),
+                  : { "Established Baseline": data.Languages["Established Baseline"] }),
               },
             }),
       };
@@ -418,11 +418,12 @@ const decodeContent = (
         ["Boundaries", "Future Candidates", "Material Revisions"],
       );
     case "project-brief":
-      return decodePlainSections(locator, body, [
-        "Project Purpose",
-        "Current Stage",
-        "Material Achieved State",
-      ]);
+      return decodePlainSections(
+        locator,
+        body,
+        ["At a Glance", "Current Position"],
+        ["Established Baseline"],
+      );
     case "roadmap":
       return decodePlainSections(locator, body, ["Intent"]);
     case "milestone-gate":

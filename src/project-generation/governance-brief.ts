@@ -6,13 +6,15 @@ export const buildBriefProjection = (input: GovernanceInput): ProjectGenerationI
   const parsed = projectOrientationRecord(input, "project-brief");
   if (parsed.validity !== "available") return parsed;
   const { record } = parsed;
-  const projectPurpose = record.content.values["Project Purpose"];
-  const currentStage = record.content.values["Current Stage"];
-  const materialAchievedState = record.content.values["Material Achieved State"];
+  const atAGlance = record.content.values["At a Glance"];
+  const currentPosition = record.content.values["Current Position"];
+  const establishedBaseline = record.content.values["Established Baseline"];
   if (
-    typeof projectPurpose !== "string" ||
-    typeof currentStage !== "string" ||
-    typeof materialAchievedState !== "string"
+    typeof atAGlance !== "string" ||
+    typeof currentPosition !== "string" ||
+    !Array.isArray(establishedBaseline) ||
+    establishedBaseline.length === 0 ||
+    establishedBaseline.length > 5
   ) {
     return {
       validity: "invalid",
@@ -27,22 +29,22 @@ export const buildBriefProjection = (input: GovernanceInput): ProjectGenerationI
       title: "Project Brief",
       source: record.source.reference,
       generatedAt: record.data["Generated at"],
-      projectPurpose,
-      currentStage,
-      materialAchievedState,
+      atAGlance,
+      currentPosition,
+      establishedBaseline,
       ...(languages === undefined
         ? {}
         : {
             languages: {
-              ...(languages["Project Purpose"] === undefined
+              ...(languages["At a Glance"] === undefined
                 ? {}
-                : { projectPurpose: languages["Project Purpose"] }),
-              ...(languages["Current Stage"] === undefined
+                : { atAGlance: languages["At a Glance"] }),
+              ...(languages["Current Position"] === undefined
                 ? {}
-                : { currentStage: languages["Current Stage"] }),
-              ...(languages["Material Achieved State"] === undefined
+                : { currentPosition: languages["Current Position"] }),
+              ...(languages["Established Baseline"] === undefined
                 ? {}
-                : { materialAchievedState: languages["Material Achieved State"] }),
+                : { establishedBaseline: languages["Established Baseline"] }),
             },
           }),
     }),

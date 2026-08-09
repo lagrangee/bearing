@@ -201,9 +201,9 @@ export const bearingSchema = z.discriminatedUnion("Type", [
     "Generated at": requiredBearingOwnedEventTimeSchema,
     Languages: z
       .strictObject({
-        "Project Purpose": languageTagSchema.optional(),
-        "Current Stage": languageTagSchema.optional(),
-        "Material Achieved State": languageTagSchema.optional(),
+        "At a Glance": languageTagSchema.optional(),
+        "Current Position": languageTagSchema.optional(),
+        "Established Baseline": languageTagSchema.optional(),
       })
       .optional(),
   }),

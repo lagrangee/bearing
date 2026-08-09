@@ -1,12 +1,94 @@
 import { expect, test } from "bun:test";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createRepresentativeProject } from "./fixtures/representative-project";
 import { installPackedProduct } from "./product-seams/installed-product";
+
+const downgradeBriefProjection = async (path: string): Promise<void> => {
+  const child = Bun.spawn(
+    [
+      "node",
+      "--input-type=module",
+      "--eval",
+      `import { DatabaseSync } from "node:sqlite";
+const database = new DatabaseSync(process.argv[1]);
+const row = database.prepare("SELECT payload_json FROM project_objects WHERE reference = 'project-brief:current'").get();
+if (typeof row?.payload_json !== "string") throw new Error("Expected Brief payload.");
+const brief = JSON.parse(row.payload_json);
+database.prepare("UPDATE project_objects SET payload_json = ? WHERE reference = 'project-brief:current'").run(JSON.stringify({
+  id: brief.id,
+  title: brief.title,
+  source: brief.source,
+  generatedAt: brief.generatedAt,
+  projectPurpose: brief.atAGlance,
+  currentStage: brief.currentPosition,
+  materialAchievedState: brief.establishedBaseline.join(" "),
+  languages: {
+    projectPurpose: brief.languages?.atAGlance,
+    currentStage: brief.languages?.currentPosition,
+    materialAchievedState: brief.languages?.establishedBaseline,
+  },
+}));
+database.prepare("UPDATE read_model_metadata SET projection_version = 6").run();
+database.close();`,
+      path,
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  if (exitCode !== 0) throw new Error(stderr);
+};
+
+const attemptAgentOwnedBriefRefresh = async (
+  product: Awaited<ReturnType<typeof installPackedProduct>>,
+  root: string,
+  candidate: string,
+) => {
+  const path = join(root, ".bearing/state/project-brief.md");
+  const previous = await readFile(path, "utf8");
+  await writeFile(path, candidate);
+  const validation = await product.run(["inspect", "project-brief:current", "--repo", "."], {
+    cwd: root,
+    observeRoots: [root],
+  });
+  if (JSON.parse(validation.stdout).outcome !== "complete") await writeFile(path, previous);
+  return validation;
+};
 
 test("packed product seam records public output, exit class, and filesystem effects", async () => {
   const product = await installPackedProduct();
   const fixture = await createRepresentativeProject("representative", product.root);
 
   try {
+    await writeFile(
+      join(fixture.root, ".bearing/state/project-brief.md"),
+      `---
+Type: project-brief
+ID: project-brief:current
+Generated at: 2026-08-09T13:00:00.000Z
+Languages:
+  At a Glance: en
+  Current Position: en
+  Established Baseline: en
+---
+
+# Project Brief
+
+## At a Glance
+
+Keep the project outcome and accepted decisions visible.
+
+## Current Position
+
+Roadmap 001 is active at Gate 001 under the representative delivery commitment.
+
+## Established Baseline
+
+- Canonical planning and native work retain separate owners.
+- Portal reads the same typed project basis as Inspect.
+`,
+    );
+
     expect(product.candidate.identity).toBe(
       product.candidate.sourceState === "clean"
         ? `git:${product.candidate.headCommit}`
@@ -37,6 +119,8 @@ test("packed product seam records public output, exit class, and filesystem effe
     });
     expect(verified.exitClass).toBe("success");
 
+    await downgradeBriefProjection(join(fixture.root, ".bearing/cache/project-read-model.sqlite"));
+
     const inspected = await product.run(["inspect", "project", "--repo", "."], {
       cwd: fixture.root,
       observeRoots: [fixture.root],
@@ -52,9 +136,24 @@ test("packed product seam records public output, exit class, and filesystem effe
       result: {
         basis: { publicationCount: expect.any(Number) },
         summary: { value: { id: "project-summary:current" } },
+        brief: {
+          value: {
+            id: "project-brief:current",
+            atAGlance: "Keep the project outcome and accepted decisions visible.",
+            currentPosition:
+              "Roadmap 001 is active at Gate 001 under the representative delivery commitment.",
+            establishedBaseline: [
+              "Canonical planning and native work retain separate owners.",
+              "Portal reads the same typed project basis as Inspect.",
+            ],
+          },
+        },
         diagnosticCounts: { blocking: 0, nonBlocking: 0 },
       },
     });
+    expect(projectEnvelope.result.brief.value).not.toHaveProperty("projectPurpose");
+    expect(projectEnvelope.result.brief.value).not.toHaveProperty("currentStage");
+    expect(projectEnvelope.result.brief.value).not.toHaveProperty("materialAchievedState");
     expect(projectEnvelope.result.roadmapFocus).toBeArray();
     expect(projectEnvelope.result.scopeOutline).toContainEqual(
       expect.objectContaining({ effortId: "effort:e001" }),
@@ -62,7 +161,11 @@ test("packed product seam records public output, exit class, and filesystem effe
     expect(projectEnvelope.result.attentionCount).toBeNumber();
     expect(projectEnvelope.result.sources).toBeArray();
     expect(projectEnvelope.result.deeperReads).toContain("effort:e001");
-    expect(inspected.effects).toEqual({ created: [], changed: [], removed: [] });
+    expect(inspected.effects).toEqual({
+      created: [],
+      changed: ["root-0/.bearing/cache/project-read-model.sqlite"],
+      removed: [],
+    });
 
     const repeated = await product.run(["inspect", "project", "--repo", "."], {
       cwd: fixture.root,
@@ -71,6 +174,42 @@ test("packed product seam records public output, exit class, and filesystem effe
     expect(repeated.exitClass).toBe("success");
     expect(repeated.effects).toEqual({ created: [], changed: [], removed: [] });
     expect(JSON.parse(repeated.stdout)).toEqual(projectEnvelope);
+
+    const briefPath = join(fixture.root, ".bearing/state/project-brief.md");
+    const acceptedBrief = await readFile(briefPath, "utf8");
+    const rejectedBriefRefresh = await attemptAgentOwnedBriefRefresh(
+      product,
+      fixture.root,
+      acceptedBrief.replace("2026-08-09T13:00:00.000Z", "2026-08-09T14:00:00.000Z").replace(
+        "- Portal reads the same typed project basis as Inspect.",
+        `- Portal reads the same typed project basis as Inspect.
+- First forbidden extra baseline fact.
+- Second forbidden extra baseline fact.
+- Third forbidden extra baseline fact.
+- Fourth forbidden extra baseline fact.`,
+      ),
+    );
+    expect(rejectedBriefRefresh.exitClass).toBe("product-outcome");
+    expect(JSON.parse(rejectedBriefRefresh.stdout)).toMatchObject({
+      outcome: "unfulfilled",
+      request: { kind: "planning-reference", reference: "project-brief:current" },
+    });
+    expect(await readFile(briefPath, "utf8")).toBe(acceptedBrief);
+
+    const afterRejectedRefresh = await product.run(
+      ["inspect", "project-brief:current", "--repo", "."],
+      { cwd: fixture.root, observeRoots: [fixture.root] },
+    );
+    expect(afterRejectedRefresh.exitClass).toBe("success");
+    expect(JSON.parse(afterRejectedRefresh.stdout)).toMatchObject({
+      outcome: "complete",
+      result: {
+        target: {
+          kind: "project-brief",
+          value: projectEnvelope.result.brief.value,
+        },
+      },
+    });
 
     const diagnostics = await product.run(["inspect", "diagnostics", "--repo", "."], {
       cwd: fixture.root,

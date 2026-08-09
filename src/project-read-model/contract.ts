@@ -37,7 +37,7 @@ import {
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 
 export const PROJECT_READ_MODEL_STORAGE_VERSION = 1 as const;
-export const PROJECT_READ_MODEL_PROJECTION_VERSION = 6 as const;
+export const PROJECT_READ_MODEL_PROJECTION_VERSION = 7 as const;
 export const PROJECT_INSPECT_ENVELOPE_VERSION = 1 as const;
 
 export const projectReadModelReceiptSchema = z.strictObject({

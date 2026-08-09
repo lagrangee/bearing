@@ -105,21 +105,27 @@
 .orientation-state > p {
   color: var(--muted);
 }
+.brief-prose,
 .summary-prose {
   display: grid;
   gap: var(--space-5);
 }
+.brief-prose .orientation-heading,
 .summary-prose .orientation-heading {
   margin-bottom: 0;
 }
+.brief-prose section h3,
 .summary-prose section h3 {
   margin-bottom: var(--space-2);
   font-size: var(--type-ui);
 }
+.brief-prose section p,
+.brief-prose ul,
 .summary-prose section p,
 .summary-prose ul {
   margin-bottom: 0;
 }
+.brief-prose ul,
 .summary-prose ul {
   display: grid;
   gap: var(--space-2);

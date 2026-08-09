@@ -370,7 +370,7 @@ test("Project Read Model classifies missing, compatible-obsolete, older, newer, 
 });
 
 test("a projection v4 raw provider key is compatible-obsolete and rematerializes to the current encoding", async () => {
-  assert.equal(PROJECT_READ_MODEL_PROJECTION_VERSION, 6);
+  assert.equal(PROJECT_READ_MODEL_PROJECTION_VERSION, 7);
   const fixture = await createRepresentativeProject("representative");
   try {
     await publishProjectReadModel(

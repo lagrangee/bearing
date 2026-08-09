@@ -4,6 +4,7 @@ import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
 import { z } from "zod";
 import type { AssetContentObservation } from "../asset-inputs";
 import type { FingerprintObservation } from "../fingerprint";
+import { languageTagSchema } from "../language-tag";
 import { buildProjectFindDocuments, projectFindScopeState } from "../portal-ui/project-find-model";
 import type { ProjectGeneration } from "../project-generation/contract";
 import {
@@ -11,6 +12,7 @@ import {
   projectGenerationSchema,
   structuralDiagnosticSchema,
 } from "../project-generation/schema";
+import { projectBriefSchema } from "../project-generation/schema-brief";
 import {
   planningLineageRelationSchema,
   planningLineageSubjectProjectionSchema,
@@ -42,6 +44,23 @@ import {
 } from "./contract";
 
 const BUSY_TIMEOUT_MS = 1_000;
+
+const projectBriefProjectionV6Schema = z.strictObject({
+  id: projectBriefSchema.shape.id,
+  title: projectBriefSchema.shape.title,
+  source: projectBriefSchema.shape.source,
+  generatedAt: projectBriefSchema.shape.generatedAt,
+  projectPurpose: projectBriefSchema.shape.atAGlance,
+  currentStage: projectBriefSchema.shape.currentPosition,
+  materialAchievedState: projectBriefSchema.shape.atAGlance,
+  languages: z
+    .strictObject({
+      projectPurpose: languageTagSchema.optional(),
+      currentStage: languageTagSchema.optional(),
+      materialAchievedState: languageTagSchema.optional(),
+    })
+    .optional(),
+});
 
 export const projectProviderEvidenceBindingKey = (binding: MattNativeScopeBinding): string =>
   Buffer.from(mattNativeScopeKey(binding), "utf8").toString("hex");
@@ -594,6 +613,40 @@ const validatePayloads = (database: DatabaseSync, projectionVersion: number): vo
   for (const row of database
     .prepare("SELECT reference, kind, payload_json FROM project_objects")
     .all()) {
+    if (projectionVersion < 7 && row["kind"] === "project-brief") {
+      // Validate only enough legacy payload to classify the disposable store as obsolete-compatible.
+      const legacy = projectBriefProjectionV6Schema.parse(parseJson(row["payload_json"]));
+      const parsed: ProjectReadModelObject = {
+        kind: "project-brief",
+        value: projectBriefSchema.parse({
+          id: legacy.id,
+          title: legacy.title,
+          source: legacy.source,
+          generatedAt: legacy.generatedAt,
+          atAGlance: legacy.projectPurpose,
+          currentPosition: legacy.currentStage,
+          establishedBaseline: [legacy.materialAchievedState],
+          ...(legacy.languages === undefined
+            ? {}
+            : {
+                languages: {
+                  ...(legacy.languages.projectPurpose === undefined
+                    ? {}
+                    : { atAGlance: legacy.languages.projectPurpose }),
+                  ...(legacy.languages.currentStage === undefined
+                    ? {}
+                    : { currentPosition: legacy.languages.currentStage }),
+                  ...(legacy.languages.materialAchievedState === undefined
+                    ? {}
+                    : { establishedBaseline: legacy.languages.materialAchievedState }),
+                },
+              }),
+        }),
+      };
+      assertProjectReadModelObjectIdentity(z.string().parse(row["reference"]), parsed);
+      objects.push(parsed);
+      continue;
+    }
     const parsed = projectReadModelObjectSchema.parse({
       kind: row["kind"],
       value: parseJson(row["payload_json"]),

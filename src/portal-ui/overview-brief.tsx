@@ -44,7 +44,7 @@ function BriefCanvas({ brief }: { readonly brief: ProjectOverviewModel["brief"] 
     );
   }
   return (
-    <div className="orientation-prose">
+    <div className="orientation-prose brief-prose">
       <div className="orientation-heading">
         <h2>Project Brief</h2>
         <OrientationTime label="Generated" value={brief.value.generatedAt} />
@@ -56,18 +56,30 @@ function BriefCanvas({ brief }: { readonly brief: ProjectOverviewModel["brief"] 
           orientation; correct the source in Agent Surface, then reload this view.
         </p>
       ) : null}
-      <p lang={brief.value.languages?.projectPurpose}>{brief.value.projectPurpose}</p>
-      <p lang={brief.value.languages?.currentStage}>{brief.value.currentStage}</p>
-      <p lang={brief.value.languages?.materialAchievedState}>{brief.value.materialAchievedState}</p>
+      <section>
+        <h3>At a Glance</h3>
+        <p lang={brief.value.languages?.atAGlance}>{brief.value.atAGlance}</p>
+      </section>
+      <section>
+        <h3>Current Position</h3>
+        <p lang={brief.value.languages?.currentPosition}>{brief.value.currentPosition}</p>
+      </section>
+      <SummaryList
+        items={brief.value.establishedBaseline}
+        language={brief.value.languages?.establishedBaseline}
+        title="Established Baseline"
+      />
     </div>
   );
 }
 
 function SummaryList({
   items,
+  language,
   title,
 }: {
   readonly items: readonly string[];
+  readonly language?: string | undefined;
   readonly title: string;
 }) {
   if (items.length === 0) return null;
@@ -80,7 +92,7 @@ function SummaryList({
   return (
     <section>
       <h3>{title}</h3>
-      <ul>
+      <ul lang={language}>
         {entries.map(({ item, key }) => (
           <li key={key}>{item}</li>
         ))}

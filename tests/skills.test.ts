@@ -293,6 +293,19 @@ describe("public Bearing Agent surface", () => {
       /accepted long-horizon project meaning[\s\S]*shared materiality test/iu,
     );
     expect(brief).toMatch(/compress accepted truth[\s\S]*shared materiality test/iu);
+    expect(brief).toMatch(/At a Glance[\s\S]*one sentence[\s\S]*project outcome/iu);
+    expect(brief).toMatch(
+      /Current Position[\s\S]*current Roadmap[\s\S]*Gate[\s\S]*active governing commitment/iu,
+    );
+    expect(brief).toMatch(/Established Baseline[\s\S]*at most five[\s\S]*outcome-level/iu);
+    expect(brief).toMatch(/thirty to sixty seconds[\s\S]*soft budget[\s\S]*materiality/iu);
+    expect(brief).toMatch(/current user's language[\s\S]*no character, word, or token/iu);
+    expect(brief).toMatch(
+      /ticket inventor[\s\S]*test count[\s\S]*commit SHA[\s\S]*session ID[\s\S]*reconciliation log[\s\S]*execution ledger/iu,
+    );
+    expect(brief).toMatch(
+      /validation or publication fails[\s\S]*previous Brief[\s\S]*Generated\s+at/iu,
+    );
     expect(roadmap).toMatch(/Complete Roadmap[\s\S]*Extend Horizon[\s\S]*Leave Active for Now/iu);
     expect(gate).toMatch(/human[\s\S]*Passage[\s\S]*readiness[\s\S]*never/iu);
     expect(effort).toMatch(/Work Binding[\s\S]*Effort owner/iu);

@@ -31,9 +31,12 @@ test("renders Brief-first orientation without Guidance or Discovered Work", () =
         id: "project-brief:current",
         title: "Project Brief",
         generatedAt: "2026-08-03T02:03:04Z",
-        projectPurpose: "Keep the whole project visible.",
-        currentStage: "The revised reading contract is being delivered.",
-        materialAchievedState: "Summary and Brief now have independent lifecycle truth.",
+        atAGlance: "Keep the whole project visible.",
+        currentPosition: "The revised reading contract is being delivered.",
+        establishedBaseline: [
+          "Summary and Brief have independent lifecycle truth.",
+          "Portal remains read-only.",
+        ],
         source: briefSource,
       },
     },
@@ -57,6 +60,11 @@ test("renders Brief-first orientation without Guidance or Discovered Work", () =
   expect(html).toContain('>Project Summary</button>');
   expect(html).toContain("Generated");
   expect(html).toContain('dateTime="2026-08-03T02:03:04Z"');
+  expect(html).toContain("<h3>At a Glance</h3>");
+  expect(html).toContain("<h3>Current Position</h3>");
+  expect(html).toContain("<h3>Established Baseline</h3>");
+  expect(html).toContain("<li>Summary and Brief have independent lifecycle truth.</li>");
+  expect(html).toContain("<li>Portal remains read-only.</li>");
   expect(html).not.toContain("Next Work");
   expect(html).not.toContain("Discovered Work");
   expect(html).not.toContain("View Project Summary");

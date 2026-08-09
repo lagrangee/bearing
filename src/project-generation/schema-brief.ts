@@ -8,14 +8,14 @@ export const projectBriefSchema = z.strictObject({
   id: z.literal("project-brief:current"),
   ...titledSourceShape,
   generatedAt: bearingOwnedEventTimeSchema.unwrap(),
-  projectPurpose: semanticPlainTextSchema,
-  currentStage: semanticPlainTextSchema,
-  materialAchievedState: semanticPlainTextSchema,
+  atAGlance: semanticPlainTextSchema,
+  currentPosition: semanticPlainTextSchema,
+  establishedBaseline: z.array(semanticPlainTextSchema).min(1).max(5),
   languages: z
     .strictObject({
-      projectPurpose: languageTagSchema.optional(),
-      currentStage: languageTagSchema.optional(),
-      materialAchievedState: languageTagSchema.optional(),
+      atAGlance: languageTagSchema.optional(),
+      currentPosition: languageTagSchema.optional(),
+      establishedBaseline: languageTagSchema.optional(),
     })
     .optional(),
 });
