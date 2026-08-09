@@ -6,7 +6,7 @@ import {
   type SourceBindingRole,
   type SourceKind,
 } from "../../src/project-generation/source-reference";
-import { plainDocumentPresentation, plainProviderDocument } from "./document-presentation";
+import { plainProviderSection, plainProviderSemanticSections } from "./provider-semantic-section";
 
 const BASIS = `sha256:${"b".repeat(64)}`;
 const sourceRecord = (
@@ -143,7 +143,7 @@ const map = (locator: string, title: string, state: "active" | "resolved", fog: 
   kind: "map" as const,
   ref: locator,
   title,
-  destination: plainProviderDocument(
+  destination: plainProviderSection(
     "map.destination",
     "Destination",
     "Reach the accepted project outcome.",
@@ -177,7 +177,7 @@ const wayfinder = (locator: string, title: string, state: "claimed" | "ready" | 
   ref: locator,
   title,
   subtype: "task" as const,
-  question: plainProviderDocument("wayfinder.question", "Question", title),
+  question: plainProviderSection("wayfinder.question", "Question", title),
   claim:
     state === "claimed"
       ? ({ state: "claimed", claimant: "lago" } as const)
@@ -188,7 +188,7 @@ const wayfinder = (locator: string, title: string, state: "claimed" | "ready" | 
           availability: "available",
           content: {
             role: "answer",
-            document: plainProviderDocument("wayfinder.answer", "Answer", "Resolved."),
+            document: plainProviderSection("wayfinder.answer", "Answer", "Resolved."),
             authoredAt: { availability: "unsupported" },
           },
         } as const)
@@ -242,7 +242,7 @@ const spec = (locator: string, title: string) => {
     kind: "spec" as const,
     ref: locator,
     title,
-    document: plainDocumentPresentation(
+    document: plainProviderSemanticSections(
       sections.map(([role, title, body]) => ({ role, title, body })),
     ),
     lifecycle: { state: "ready-for-agent" as const },
@@ -266,7 +266,7 @@ const incoming = (locator: string, title: string) => ({
   content: [
     {
       role: "triage-note" as const,
-      document: plainProviderDocument(
+      document: plainProviderSection(
         "incoming.content",
         "Triage Note",
         "Route this request through the accepted Matt workflow.",
@@ -348,7 +348,7 @@ const capture = (
 
 export const createProjectOverviewFixture = () => {
   const candidate = {
-    schemaVersion: 20,
+    schemaVersion: 21,
     producer: { packageVersion: "0.0.0-test" },
     basis: { generationVersion: 1, basisFingerprint: BASIS },
     summary: {

@@ -1,4 +1,4 @@
-import type { DocumentPresentation } from "../../document-presentation";
+import type { ProviderSemanticSection } from "../../provider-semantic-section";
 import type { ProjectedNativeTime } from "../../source-event-time";
 
 export type MattObjectReference = string & Readonly<{ __mattObjectReference: true }>;
@@ -66,7 +66,7 @@ export type MattProviderAuthoredDocument<
     | "triage-note",
 > = Readonly<{
   role: Role;
-  document: DocumentPresentation;
+  document: readonly ProviderSemanticSection[];
   authoredAt: MattNativeEventTime;
   sourceAnchor?: MattSourceAnchor | undefined;
   nativeIdentity?: string | undefined;
@@ -81,6 +81,7 @@ export type MattAnswer =
   | Readonly<{
       availability: "unavailable";
       reason: "not-authored" | "no-unique-native-reference" | "source-contract-gap";
+      document?: readonly ProviderSemanticSection[] | undefined;
     }>;
 
 export type MattTrackerClosure =
@@ -112,7 +113,7 @@ export type MattMap = Readonly<{
   kind: "map";
   ref: MattObjectReference;
   title: string;
-  destination: DocumentPresentation;
+  destination: readonly ProviderSemanticSection[];
   notes: readonly string[];
   decisions: readonly Readonly<{
     ticket?: MattObjectReference | undefined;
@@ -148,7 +149,7 @@ export type MattSpec = Readonly<{
   kind: "spec";
   ref: MattObjectReference;
   title: string;
-  document: DocumentPresentation;
+  document: readonly ProviderSemanticSection[];
   lifecycle: Readonly<{
     state: "draft" | "ready-for-agent" | "superseded";
   }>;
@@ -161,7 +162,7 @@ export type MattWayfinderTicket = Readonly<{
   ref: MattObjectReference;
   title: string;
   subtype: "research" | "prototype" | "grilling" | "task";
-  question: DocumentPresentation;
+  question: readonly ProviderSemanticSection[];
   claim:
     | Readonly<{ state: "unclaimed" }>
     | Readonly<{
@@ -171,6 +172,8 @@ export type MattWayfinderTicket = Readonly<{
       }>;
   answer: MattAnswer;
   comments: readonly MattWayfinderComment[];
+  commentsCapability?: "unsupported" | undefined;
+  commentsDocument?: readonly ProviderSemanticSection[] | undefined;
   lifecycle:
     | Readonly<{ state: "open" }>
     | Readonly<{
@@ -204,6 +207,8 @@ export type MattDeliveryTicket = Readonly<{
       }>;
   trackerClosure: MattTrackerClosure;
   comments: readonly MattDeliveryComment[];
+  commentsCapability?: "unsupported" | undefined;
+  commentsDocument?: readonly ProviderSemanticSection[] | undefined;
   semanticSections: readonly MattSemanticSection[];
   native: MattNativeEvidence;
 }>;
@@ -226,6 +231,8 @@ export type MattIncomingIssue = Readonly<{
     nativeState?: string | undefined;
   }>;
   content: readonly MattIncomingDocument[];
+  commentsCapability?: "unsupported" | undefined;
+  commentsDocument?: readonly ProviderSemanticSection[] | undefined;
   lifecycle:
     | Readonly<{ state: "open" }>
     | Readonly<{

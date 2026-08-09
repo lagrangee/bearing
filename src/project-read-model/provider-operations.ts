@@ -78,7 +78,7 @@ const localStore = async (repoRoot: string): Promise<LocalStore> => {
     await publishProjectReadModel(repoRoot, candidate);
     return { state: "available", evidence: await readProjectProviderEvidence(repoRoot) };
   }
-  if (state.state === "ready" || state.state === "obsolete-compatible") {
+  if (state.state === "ready") {
     return { state: "available", evidence: await readProjectProviderEvidence(repoRoot) };
   }
   const outcome = state.state === "need-update" ? "need-update" : "recovery-required";
@@ -228,14 +228,14 @@ const acquisition = async (
       });
     }
     const state = await inspectProjectReadModel(root);
-    if (state.state !== "ready" && state.state !== "obsolete-compatible") {
+    if (state.state !== "ready") {
       throw new Error("Project Read Model generation became unavailable after provider attempt.");
     }
     generationFingerprint = state.metadata.basisFingerprint;
   } else {
     const state = await inspectProjectReadModel(root);
     if (
-      (state.state === "ready" || state.state === "obsolete-compatible") &&
+      state.state === "ready" &&
       state.metadata.basisFingerprint === prepared.candidate.basisFingerprint
     ) {
       for (const selection of attemptedSelections) {
@@ -438,7 +438,7 @@ export const reconcileProjectNative = async (
     matchingSelection?.latestAttempt?.outcome === "succeeded" &&
     matchingSelection.latestAttempt.requestFingerprint === requestFingerprint;
   const currentState = await inspectProjectReadModel(root);
-  if (currentState.state !== "ready" && currentState.state !== "obsolete-compatible") {
+  if (currentState.state !== "ready") {
     throw new Error("Project Read Model generation became unavailable during reconciliation.");
   }
   let generationFingerprint = currentState.metadata.basisFingerprint;
@@ -464,7 +464,7 @@ export const reconcileProjectNative = async (
       selection: matchingSelection,
     });
     const state = await inspectProjectReadModel(root);
-    if (state.state === "ready" || state.state === "obsolete-compatible") {
+    if (state.state === "ready") {
       generationFingerprint = state.metadata.basisFingerprint;
     }
   }

@@ -93,6 +93,55 @@ test("current product contains no retired command, cache, route, type, or import
   expect(findings).toEqual([]);
 });
 
+test("Portal authored content has one Host-sanitized HTML sink and no browser Markdown engine", async () => {
+  const sourcePaths: string[] = [];
+  const glob = new Bun.Glob("**/*.{ts,tsx}");
+  for await (const relative of glob.scan({ cwd: "src/portal-ui", onlyFiles: true })) {
+    sourcePaths.push(`src/portal-ui/${relative}`);
+  }
+  sourcePaths.push(
+    "src/portal-project-read-wire.ts",
+    "src/portal-provider-application-wire.ts",
+    "src/project-read-model/portal.ts",
+  );
+  const forbiddenSource = [
+    /(?:from|import\()[^\n]*(?:markdown-document|markdown-it|@mdit\/plugin-tasklist|sanitize-html)/u,
+    /\b(?:parseMarkdownDocument|rawBody|markdownBody|displayBody)\b/u,
+  ] as const;
+  const findings: string[] = [];
+  for (const path of sourcePaths) {
+    const body = await readFile(path, "utf8");
+    for (const pattern of forbiddenSource) {
+      if (path === "src/portal-ui/project-find-model.ts" && pattern === forbiddenSource[0]) {
+        continue;
+      }
+      if (pattern.test(body)) findings.push(`${path}: ${pattern.source}`);
+    }
+  }
+  expect(findings).toEqual([]);
+
+  const htmlSinks = (
+    await Promise.all(
+      sourcePaths.map(async (path) => {
+        const body = await readFile(path, "utf8");
+        return [...body.matchAll(/dangerouslySetInnerHTML/gu)].map(() => path);
+      }),
+    )
+  ).flat();
+  expect(htmlSinks).toEqual(["src/portal-ui/sanitized-markdown.tsx"]);
+
+  const dependencyMetadata = JSON.parse(
+    await readFile("dist/bundle-dependencies.json", "utf8"),
+  ) as Readonly<{ bundles: Readonly<{ portal: Readonly<{ packages: readonly string[] }> }> }>;
+  expect(
+    dependencyMetadata.bundles.portal.packages.filter((name) =>
+      /^(?:@mdit\/plugin-tasklist|markdown-it|sanitize-html|mdast-util-|micromark|yaml)@/u.test(
+        name,
+      ),
+    ),
+  ).toEqual([]);
+});
+
 test("local domain overlay keeps Setup vocabulary historical-only when present", async () => {
   let context: string;
   try {

@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { ProviderSemanticSection } from "../../provider-semantic-section";
 import type { MattSkillsV1ProviderObservation } from "./capture";
 import type {
   MattDeliveryTicket,
@@ -51,6 +52,33 @@ type SchemaCapture = MattObservationView;
 type MattPlanningCapture =
   | Pick<Extract<SchemaCapture, { state: "available" | "partial" }>, "state" | "projection">
   | Pick<Extract<SchemaCapture, { state: "absent" | "invalid" }>, "state">;
+
+export const mattProviderSemanticSections = (
+  observation: MattObservationView,
+): readonly ProviderSemanticSection[] => {
+  if (observation.state !== "available" && observation.state !== "partial") return [];
+  const projection = observation.projection;
+  return [
+    ...(projection.map?.destination ?? []),
+    ...(projection.spec?.document ?? []),
+    ...projection.wayfinderTickets.flatMap((ticket) => [
+      ...ticket.question,
+      ...(ticket.answer.availability === "available"
+        ? ticket.answer.content.document
+        : (ticket.answer.document ?? [])),
+      ...ticket.comments.flatMap((comment) => comment.document),
+      ...(ticket.commentsDocument ?? []),
+    ]),
+    ...projection.deliveryTickets.flatMap((ticket) => [
+      ...ticket.comments.flatMap((comment) => comment.document),
+      ...(ticket.commentsDocument ?? []),
+    ]),
+    ...projection.incomingIssues.flatMap((issue) => [
+      ...issue.content.flatMap((document) => document.document),
+      ...(issue.commentsDocument ?? []),
+    ]),
+  ];
+};
 
 export const mattObjectsFromProjection = (
   projection: MattScopeProjection,

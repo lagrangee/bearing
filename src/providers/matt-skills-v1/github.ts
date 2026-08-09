@@ -7,7 +7,6 @@ import { normalizeLocator } from "../../fingerprint";
 import {
   type MarkdownDocument,
   type MarkdownSection,
-  markdownNarrative,
   parseMarkdownDocument,
   queryMarkdownField,
   queryMarkdownLinks,
@@ -54,6 +53,7 @@ import {
   mattDocumentSectionAvailability,
   projectMattAuthoredBodyDocument,
   projectMattAuthoredSectionDocument,
+  projectMattUnsupportedAuthoredDocument,
 } from "./authored-document";
 import type {
   MattBlockedByRelation,
@@ -1196,7 +1196,6 @@ const compatibleMapSectionItems = (
 const githubCommentDocument = (
   comment: GitHubComment,
   semanticRole: string,
-  diagnostics: ProviderDiagnostic[],
   forcedRole?: "answer",
 ): MattProviderAuthoredDocument<"answer" | "ordinary-comment" | "agent-brief" | "triage-note"> => {
   const source = parseMarkdownDocument(comment.body);
@@ -1218,16 +1217,6 @@ const githubCommentDocument = (
       : triageNotes?.state === "found"
         ? projectMattAuthoredSectionDocument(source, triageNotes.value, identity)
         : projectMattAuthoredBodyDocument(comment.body, identity);
-  if (projected.diagnostic !== undefined) {
-    diagnostics.push(
-      diagnostic(
-        projected.diagnostic.code,
-        "format",
-        comment.html_url,
-        projected.diagnostic.message,
-      ),
-    );
-  }
   return {
     role,
     document: projected.document,
@@ -1418,16 +1407,6 @@ const decodeMap = (
       MATT_MAP_DOCUMENT_OWNED_SECTION_TITLES,
     ),
   );
-  if (destinationDocument.diagnostic !== undefined) {
-    diagnostics.push(
-      diagnostic(
-        destinationDocument.diagnostic.code,
-        "format",
-        acquired.issue.html_url,
-        destinationDocument.diagnostic.message,
-      ),
-    );
-  }
   const notesSection = compatibleMapSectionItems(acquired, ["Notes"], "map.notes", diagnostics);
   const fogSection = compatibleMapSectionItems(
     acquired,
@@ -1549,7 +1528,6 @@ const decodeSpec = (
 const decodeDelivery = (
   acquired: AcquiredIssue,
   repository: GitHubRepository,
-  diagnostics: ProviderDiagnostic[],
 ): MattDeliveryTicket | undefined => {
   const whatToBuild = section(acquired, "What to build");
   const acceptance = sectionItems(acquired, "Acceptance criteria");
@@ -1561,8 +1539,7 @@ const decodeDelivery = (
     return undefined;
   }
   const comments = acquired.comments.map(
-    (comment) =>
-      githubCommentDocument(comment, "delivery.comments", diagnostics) as MattDeliveryComment,
+    (comment) => githubCommentDocument(comment, "delivery.comments") as MattDeliveryComment,
   );
   return {
     kind: "delivery-ticket",
@@ -1576,6 +1553,12 @@ const decodeDelivery = (
         : { state: "completion-unavailable", reason: "source-contract-gap" },
     trackerClosure: trackerClosureFor(acquired.issue),
     comments,
+    ...(acquired.commentsCapability === "unsupported"
+      ? {
+          commentsCapability: "unsupported" as const,
+          commentsDocument: projectMattUnsupportedAuthoredDocument("delivery.comments", "Comments"),
+        }
+      : {}),
     semanticSections: [
       semanticSection(
         "delivery.what-to-build",
@@ -1680,31 +1663,17 @@ const decodeWayfinder = (
       MATT_WAYFINDER_DOCUMENT_OWNED_SECTION_TITLES,
     ),
   );
-  if (questionDocument.diagnostic !== undefined) {
-    diagnostics.push(
-      diagnostic(
-        questionDocument.diagnostic.code,
-        "format",
-        acquired.issue.html_url,
-        questionDocument.diagnostic.message,
-      ),
-    );
-  }
   const answerDocument =
     uniqueAnswer === undefined
       ? undefined
       : (githubCommentDocument(
           uniqueAnswer,
           "wayfinder.answer",
-          diagnostics,
           "answer",
         ) as MattWayfinderAuthoredDocument & Readonly<{ role: "answer" }>);
   const comments = acquired.comments
     .filter((comment) => comment !== uniqueAnswer)
-    .map(
-      (comment) =>
-        githubCommentDocument(comment, "wayfinder.comments", diagnostics) as MattWayfinderComment,
-    );
+    .map((comment) => githubCommentDocument(comment, "wayfinder.comments") as MattWayfinderComment);
   if (acquired.issue.assignees.length > 1) {
     diagnostics.push(
       diagnostic(
@@ -1747,6 +1716,11 @@ const decodeWayfinder = (
                 : decision !== undefined || acquired.comments.length > 0
                   ? "no-unique-native-reference"
                   : "not-authored",
+            ...(acquired.commentsCapability === "unsupported"
+              ? {
+                  document: projectMattUnsupportedAuthoredDocument("wayfinder.answer", "Answer"),
+                }
+              : {}),
           }
         : mattDocumentSectionAvailability(answerDocument.document, "wayfinder.answer") !==
             "available"
@@ -1756,6 +1730,15 @@ const decodeWayfinder = (
               content: answerDocument,
             },
     comments,
+    ...(acquired.commentsCapability === "unsupported"
+      ? {
+          commentsCapability: "unsupported" as const,
+          commentsDocument: projectMattUnsupportedAuthoredDocument(
+            "wayfinder.comments",
+            "Comments",
+          ),
+        }
+      : {}),
     lifecycle:
       trackerClosure.state === "closed" && decision !== undefined
         ? { state: "resolved-on-route", decisionSource: decision.sourceAnchor }
@@ -1859,21 +1842,11 @@ const incomingIssueFor = (
   const issueBodyDocument =
     issue.body.trim().length === 0
       ? undefined
-      : projectMattAuthoredBodyDocument(markdownNarrative(acquired.document), {
+      : projectMattAuthoredBodyDocument(issue.body, {
           sourceIdentity: "incoming.body",
           semanticRole: "incoming.content",
           title: "Issue Body",
         });
-  if (issueBodyDocument?.diagnostic !== undefined) {
-    diagnostics.push(
-      diagnostic(
-        issueBodyDocument.diagnostic.code,
-        "format",
-        issue.html_url,
-        issueBodyDocument.diagnostic.message,
-      ),
-    );
-  }
   const content: MattIncomingDocument[] = [
     ...(issueBodyDocument === undefined
       ? []
@@ -1888,8 +1861,7 @@ const incomingIssueFor = (
           },
         ]),
     ...acquired.comments.map(
-      (comment) =>
-        githubCommentDocument(comment, "incoming.content", diagnostics) as MattIncomingDocument,
+      (comment) => githubCommentDocument(comment, "incoming.content") as MattIncomingDocument,
     ),
   ];
   return {
@@ -1903,6 +1875,12 @@ const incomingIssueFor = (
       ...(nativeState === undefined ? {} : { nativeState }),
     },
     content,
+    ...(acquired.commentsCapability === "unsupported"
+      ? {
+          commentsCapability: "unsupported" as const,
+          commentsDocument: projectMattUnsupportedAuthoredDocument("incoming.content", "Comments"),
+        }
+      : {}),
     lifecycle:
       issue.state === "open"
         ? { state: "open" }
@@ -2350,8 +2328,7 @@ const captureGitHubScope = async (
         parentResponse.status !== 404 &&
         parentResponse.status !== 410) ||
       (parentResponse.status === 200 && !parentIdentityValid) ||
-      comments === undefined ||
-      !comments.success ||
+      (commentPages.state !== "unsupported" && (comments === undefined || !comments.success)) ||
       (dependencyPages.state !== "unsupported" &&
         (dependencies === undefined || !dependencies.success))
     ) {
@@ -2861,7 +2838,7 @@ const captureGitHubScope = async (
       continue;
     }
     const spec = decodeSpec(entry, repository, vocabulary, diagnostics);
-    const delivery = decodeDelivery(entry, repository, diagnostics);
+    const delivery = decodeDelivery(entry, repository);
     const specStructure = MATT_SPEC_SECTION_DEFINITIONS.flatMap((definition) =>
       [definition.title, ...definition.aliases].map((title) =>
         queryMarkdownSection(entry.document, { title }),
@@ -3492,7 +3469,7 @@ const reconcileGitHubScope = async (
       continue;
     }
     const spec = decodeSpec(entry, repository, vocabulary, diagnostics);
-    const delivery = decodeDelivery(entry, repository, diagnostics);
+    const delivery = decodeDelivery(entry, repository);
     if (spec !== undefined && delivery !== undefined) {
       diagnostics.push(
         diagnostic(

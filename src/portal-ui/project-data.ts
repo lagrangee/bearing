@@ -108,6 +108,13 @@ export type LineageModelData = ProjectContext &
     referenceTitles?: readonly Readonly<{ reference: string; title: string }>[] | undefined;
     diagnostics: readonly GenerationDiagnostic[];
     sources: readonly SourceRecord[];
+    renderedMarkdown?:
+      | readonly Readonly<{
+          markdown: string;
+          html: string;
+          presentation: "rendered" | "fallback";
+        }>[]
+      | undefined;
     nativeTargetState?: "covered-missing" | "unavailable" | undefined;
     assetSourceProbe?:
       | Readonly<{ kind: "external"; href: string; verification: "unverified" }>
@@ -119,11 +126,16 @@ export type LineageModelData = ProjectContext &
       | undefined;
   }>;
 
-export type LineageProjectData = LineageModelData &
+export type LineageProjectData = Omit<LineageModelData, "renderedMarkdown"> &
   Readonly<{
     section: "lineage";
     attentionCount: number;
     target?: Readonly<{ kind: string; id: string }> | undefined;
+    renderedMarkdown: readonly Readonly<{
+      markdown: string;
+      html: string;
+      presentation: "rendered" | "fallback";
+    }>[];
   }>;
 
 export type ProjectData =

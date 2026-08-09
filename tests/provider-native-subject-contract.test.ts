@@ -278,6 +278,38 @@ test("rejects semantic availability that contradicts provider content", () => {
       ...projection,
       map: {
         ...map,
+        semanticSections: replaceAvailability(
+          map.semanticSections,
+          "map.destination",
+          "unsupported",
+        ),
+      },
+    }).success,
+  ).toBe(false);
+  expect(
+    mattScopeProjectionSchema.safeParse({
+      ...projection,
+      map: {
+        ...map,
+        destination: map.destination.map((section) =>
+          section.semanticRole === "map.destination"
+            ? { ...section, availability: "unsupported" as const, markdown: "" }
+            : section,
+        ),
+        semanticSections: replaceAvailability(
+          map.semanticSections,
+          "map.destination",
+          "unsupported",
+        ),
+      },
+    }).success,
+  ).toBe(true);
+
+  expect(
+    mattScopeProjectionSchema.safeParse({
+      ...projection,
+      map: {
+        ...map,
         semanticSections: replaceAvailability(map.semanticSections, "map.fog", "confirmed-empty"),
       },
     }).success,
@@ -328,7 +360,7 @@ test("rejects semantic availability that contradicts provider content", () => {
       wayfinderTickets: [
         {
           ...firstWayfinder,
-          question: { ...firstWayfinder.question, sections: [] },
+          question: [],
         },
         ...projection.wayfinderTickets.slice(1),
       ],
@@ -489,7 +521,7 @@ test("provider semantic roles survive compatible headings and distinguish empty,
       availability: "available",
     });
     expect(
-      compatible.projection?.spec?.document.sections.map(({ semanticRole, availability }) => ({
+      compatible.projection?.spec?.document.map(({ semanticRole, availability }) => ({
         role: semanticRole?.slice("spec.".length),
         availability,
       })),

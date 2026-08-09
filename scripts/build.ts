@@ -120,6 +120,22 @@ const assertProductionPortal = async (
   }
 };
 
+const assertPortalAuthoredContentBoundary = (moduleIds: readonly string[]): void => {
+  const forbidden = [
+    /(?:^|\/)src\/markdown-document\.ts$/u,
+    /(?:^|\/)src\/providers\/matt-skills-v1\/(?:authored-document|spec-document|local-markdown|github)\.ts$/u,
+    /(?:^|\/)node_modules\/(?:@mdit\/plugin-tasklist|markdown-it|sanitize-html|mdast-util-from-markdown|mdast-util-frontmatter|mdast-util-gfm|micromark(?:-extension-[^/]+)?|yaml)(?:\/|$)/u,
+  ] as const;
+  const findings = moduleIds.filter((moduleId) =>
+    forbidden.some((pattern) => pattern.test(moduleId)),
+  );
+  if (findings.length > 0) {
+    throw new Error(
+      `Portal authored-content bundle contains a source parser or HTML renderer:\n${findings.join("\n")}`,
+    );
+  }
+};
+
 const build = async (): Promise<void> => {
   const identity = randomUUID();
   const stagingRoot = join(projectRoot, `.bearing-build-${identity}`);
@@ -157,6 +173,7 @@ const build = async (): Promise<void> => {
       if (inheritedNodeEnvironment === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = inheritedNodeEnvironment;
     }
+    assertPortalAuthoredContentBoundary(portalModules);
     const portalManifest = await buildPortalAssetManifest(portalRoot, packageMetadata.version);
     await assertProductionPortal(
       portalRoot,

@@ -203,6 +203,7 @@ export const portalRowsToProjectData = (rows: PortalProjectRows): ProjectData =>
         ),
         diagnostics: rows.diagnostics,
         sources: rows.sources,
+        renderedMarkdown: rows.renderedMarkdown,
       };
   }
 };

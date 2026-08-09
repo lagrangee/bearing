@@ -63,7 +63,7 @@ test("clean-cuts obsolete Portal disclosure and persistent discovery compatibili
 test("exposes only the revised versioned Project Generation contract", () => {
   const generation = createProjectOverviewFixture();
 
-  expect(PROJECT_GENERATION_VERSION).toBe(20);
+  expect(PROJECT_GENERATION_VERSION).toBe(21);
   expect("guidance" in generation).toBe(false);
   expect(
     projectGenerationSchema.safeParse({ ...generation, guidance: { validity: "absent" } }).success,

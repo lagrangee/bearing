@@ -1,20 +1,18 @@
 import { createHash } from "node:crypto";
 import {
-  DOCUMENT_PRESENTATION_VERSION,
-  type DocumentPresentation,
-  type DocumentPresentationSection,
-} from "../../document-presentation";
-import {
   type MarkdownDocument,
   markdownCanonicalHeadingTitle,
-  markdownDocumentPresentationBlocks,
   queryMarkdownSections,
 } from "../../markdown-document";
+import {
+  PROVIDER_SEMANTIC_SECTION_VERSION,
+  type ProviderSemanticSection,
+} from "../../provider-semantic-section";
 import type { MattSemanticSection } from "./model";
 import { MATT_SPEC_SECTION_DEFINITIONS, semanticSection } from "./semantic-sections";
 
 export type MattSpecDocumentDiagnostic = Readonly<{
-  code: "matt.spec.document-section-ambiguous" | "matt.spec.document-section-unsupported";
+  code: "matt.spec.document-section-ambiguous";
   title: string;
   message: string;
 }>;
@@ -42,7 +40,7 @@ const unknownSourceIdentity = (title: string, occurrence: number): string => {
 export const projectMattSpecDocument = (
   source: MarkdownDocument,
 ): Readonly<{
-  document: DocumentPresentation;
+  document: readonly ProviderSemanticSection[];
   semanticSections: readonly MattSemanticSection[];
   diagnostics: readonly MattSpecDocumentDiagnostic[];
 }> => {
@@ -58,7 +56,7 @@ export const projectMattSpecDocument = (
   }
   const unknownOccurrences = new Map<string, number>();
   const diagnostics: MattSpecDocumentDiagnostic[] = [];
-  const sections: DocumentPresentationSection[] = sourceSections.map((section, sourceOrder) => {
+  const sections = sourceSections.map((section, sourceOrder): ProviderSemanticSection => {
     const title = titles[sourceOrder] as string;
     const candidateRole = semanticRoles[sourceOrder];
     const semanticRole =
@@ -74,30 +72,14 @@ export const projectMattSpecDocument = (
     }
     const occurrence = (unknownOccurrences.get(title) ?? 0) + 1;
     unknownOccurrences.set(title, occurrence);
-    const sourceIdentity = semanticRole ?? unknownSourceIdentity(title, occurrence);
-    const projected = markdownDocumentPresentationBlocks(source, section);
-    if (!projected.ok) {
-      diagnostics.push({
-        code: "matt.spec.document-section-unsupported",
-        title,
-        message: `Spec section contains unsupported ${projected.reason} content (${projected.nodeKind}).`,
-      });
-      return {
-        sourceIdentity,
-        ...(semanticRole === undefined ? {} : { semanticRole }),
-        title,
-        sourceOrder,
-        availability: "unavailable" as const,
-        blocks: [],
-      };
-    }
     return {
-      sourceIdentity,
+      version: PROVIDER_SEMANTIC_SECTION_VERSION,
+      sourceIdentity: semanticRole ?? unknownSourceIdentity(title, occurrence),
       ...(semanticRole === undefined ? {} : { semanticRole }),
       title,
       sourceOrder,
-      availability: projected.blocks.length === 0 ? "confirmed-empty" : "available",
-      blocks: projected.blocks,
+      availability: section.markdown.length === 0 ? "confirmed-empty" : "available",
+      markdown: section.markdown,
     };
   });
   const semanticSections = MATT_SPEC_SECTION_DEFINITIONS.map((definition) => {
@@ -105,9 +87,5 @@ export const projectMattSpecDocument = (
     const section = sections.find((candidate) => candidate.semanticRole === role);
     return semanticSection(role, section?.availability ?? "unavailable");
   });
-  return {
-    document: { version: DOCUMENT_PRESENTATION_VERSION, sections },
-    semanticSections,
-    diagnostics,
-  };
+  return { document: sections, semanticSections, diagnostics };
 };

@@ -251,9 +251,12 @@ const reservePort = async (): Promise<number> => {
   return address.port;
 };
 
-export const runBuiltBearing = async (args: readonly string[]): Promise<void> => {
+export const runBuiltBearing = async (
+  args: readonly string[],
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<void> => {
   const result = await runHarnessCommand("node", ["dist/cli.js", ...args], {
-    environment: process.env,
+    environment,
     label: "built Bearing command",
   });
   if (result.exitCode !== 0) {

@@ -102,6 +102,7 @@ test("Portal reads bounded typed rows from one committed Project Read Model gene
     const missingSummaryRows = {
       ...rows,
       objects: rows.objects.filter((object) => object.kind !== "project-summary"),
+      renderedMarkdown: [],
     };
     assert.throws(
       () => portalRowsToProjectData(missingSummaryRows),
@@ -420,7 +421,10 @@ test("Portal reads bounded typed rows from one committed Project Read Model gene
         (source) => source.reference === diagnosticOnlySource.reference,
       ),
     );
-    const diagnosticOverviewData = portalRowsToProjectData(diagnosticOverviewRows);
+    const diagnosticOverviewData = portalRowsToProjectData({
+      ...diagnosticOverviewRows,
+      renderedMarkdown: [],
+    });
     assert.equal(diagnosticOverviewData.section, "overview");
     if (diagnosticOverviewData.section !== "overview") {
       throw new Error("Expected Overview Project data.");

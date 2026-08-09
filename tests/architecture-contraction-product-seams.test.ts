@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createRepresentativeProject } from "./fixtures/representative-project";
 import { installPackedProduct } from "./product-seams/installed-product";
 
-const downgradeBriefProjection = async (path: string): Promise<void> => {
+const markV20Projection = async (path: string): Promise<void> => {
   const child = Bun.spawn(
     [
       "node",
@@ -12,24 +12,7 @@ const downgradeBriefProjection = async (path: string): Promise<void> => {
       "--eval",
       `import { DatabaseSync } from "node:sqlite";
 const database = new DatabaseSync(process.argv[1]);
-const row = database.prepare("SELECT payload_json FROM project_objects WHERE reference = 'project-brief:current'").get();
-if (typeof row?.payload_json !== "string") throw new Error("Expected Brief payload.");
-const brief = JSON.parse(row.payload_json);
-database.prepare("UPDATE project_objects SET payload_json = ? WHERE reference = 'project-brief:current'").run(JSON.stringify({
-  id: brief.id,
-  title: brief.title,
-  source: brief.source,
-  generatedAt: brief.generatedAt,
-  projectPurpose: brief.atAGlance,
-  currentStage: brief.currentPosition,
-  materialAchievedState: brief.establishedBaseline.join(" "),
-  languages: {
-    projectPurpose: brief.languages?.atAGlance,
-    currentStage: brief.languages?.currentPosition,
-    materialAchievedState: brief.languages?.establishedBaseline,
-  },
-}));
-database.prepare("UPDATE read_model_metadata SET projection_version = 6").run();
+database.prepare("UPDATE read_model_metadata SET projection_version = 8").run();
 database.close();`,
       path,
     ],
@@ -119,7 +102,26 @@ Roadmap 001 is active at Gate 001 under the representative delivery commitment.
     });
     expect(verified.exitClass).toBe("success");
 
-    await downgradeBriefProjection(join(fixture.root, ".bearing/cache/project-read-model.sqlite"));
+    await markV20Projection(join(fixture.root, ".bearing/cache/project-read-model.sqlite"));
+
+    const incompatible = await product.run(["inspect", "project", "--repo", "."], {
+      cwd: fixture.root,
+      observeRoots: [fixture.root],
+    });
+    expect(incompatible.exitClass).toBe("product-outcome");
+    expect(JSON.parse(incompatible.stdout)).toMatchObject({
+      outcome: "recovery-required",
+    });
+    expect(incompatible.effects).toEqual({ created: [], changed: [], removed: [] });
+
+    const cutoverRebuild = await product.run(["cache", "rebuild", "--repo", "."], {
+      cwd: fixture.root,
+      observeRoots: [fixture.root],
+    });
+    expect(cutoverRebuild.exitClass).toBe("success");
+    expect(cutoverRebuild.effects.changed).toContain(
+      "root-0/.bearing/cache/project-read-model.sqlite",
+    );
 
     const inspected = await product.run(["inspect", "project", "--repo", "."], {
       cwd: fixture.root,
@@ -130,7 +132,7 @@ Roadmap 001 is active at Gate 001 under the representative delivery commitment.
     expect(projectEnvelope).toMatchObject({
       schemaVersion: 1,
       command: "inspect",
-      outcome: "complete",
+      outcome: "partial",
       request: { kind: "project" },
       generation: { publicationCount: expect.any(Number) },
       result: {
@@ -148,7 +150,7 @@ Roadmap 001 is active at Gate 001 under the representative delivery commitment.
             ],
           },
         },
-        diagnosticCounts: { blocking: 0, nonBlocking: 0 },
+        diagnosticCounts: { blocking: 9, nonBlocking: 0 },
       },
     });
     expect(projectEnvelope.result.brief.value).not.toHaveProperty("projectPurpose");
@@ -161,11 +163,7 @@ Roadmap 001 is active at Gate 001 under the representative delivery commitment.
     expect(projectEnvelope.result.attentionCount).toBeNumber();
     expect(projectEnvelope.result.sources).toBeArray();
     expect(projectEnvelope.result.deeperReads).toContain("effort:e001");
-    expect(inspected.effects).toEqual({
-      created: [],
-      changed: ["root-0/.bearing/cache/project-read-model.sqlite"],
-      removed: [],
-    });
+    expect(inspected.effects).toEqual({ created: [], changed: [], removed: [] });
 
     const repeated = await product.run(["inspect", "project", "--repo", "."], {
       cwd: fixture.root,
@@ -219,10 +217,16 @@ Roadmap 001 is active at Gate 001 under the representative delivery commitment.
     expect(JSON.parse(diagnostics.stdout)).toMatchObject({
       schemaVersion: 1,
       command: "inspect",
-      outcome: "complete",
+      outcome: "partial",
       request: { kind: "diagnostics" },
-      result: [],
+      result: expect.arrayContaining([
+        expect.objectContaining({
+          code: "provider-observation-unavailable",
+          impact: "blocking",
+        }),
+      ]),
     });
+    expect(JSON.parse(diagnostics.stdout).result).toHaveLength(9);
 
     const planning = await product.run(["inspect", "effort:e001", "--repo", "."], {
       cwd: fixture.root,

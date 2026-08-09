@@ -1,6 +1,5 @@
 import { lstat } from "node:fs/promises";
 import { extname } from "node:path";
-import MarkdownIt from "markdown-it";
 import sanitizeHtml from "sanitize-html";
 import { probeContainedInput } from "../input-boundary";
 import { readContainedFile } from "../path-boundary";
@@ -11,6 +10,7 @@ import {
   queryPortalAssetRow,
 } from "../project-read-model/portal";
 import type { CatalogReadResult } from "./contract";
+import { sharedMarkdownEngine } from "./markdown-engine";
 import { resolveProjectEntry } from "./project-entry";
 
 export const ASSET_PREVIEW_POLICY_VERSION = 1 as const;
@@ -75,13 +75,6 @@ export type AssetPreviewRowReader = (
   repoRoot: string,
   assetId: string,
 ) => ReturnType<typeof queryPortalAssetRow>;
-
-const markdown = new MarkdownIt({
-  breaks: false,
-  html: false,
-  linkify: false,
-  typographer: false,
-});
 
 const allowedHtmlTags = [
   "a",
@@ -472,7 +465,7 @@ const renderRepresentation = (
   const value = bytes.toString("utf8");
   switch (representation.kind) {
     case "markdown":
-      return previewDocument(title, safeHtml(markdown.render(value)), returnHref);
+      return previewDocument(title, sharedMarkdownEngine.renderFragment(value).html, returnHref);
     case "html":
       return previewDocument(title, safeHtml(value), returnHref);
     case "text":

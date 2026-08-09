@@ -4,11 +4,6 @@ import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
 import { z } from "zod";
 import type { AssetContentObservation } from "../asset-inputs";
 import type { FingerprintObservation } from "../fingerprint";
-import { languageTagSchema } from "../language-tag";
-import {
-  type ProviderStructuralValue,
-  providerObservationIdentityFor,
-} from "../native-work-provider";
 import { buildProjectFindDocuments, projectFindScopeState } from "../portal-ui/project-find-model";
 import type { ProjectGeneration } from "../project-generation/contract";
 import {
@@ -16,7 +11,6 @@ import {
   projectGenerationSchema,
   structuralDiagnosticSchema,
 } from "../project-generation/schema";
-import { projectBriefSchema } from "../project-generation/schema-brief";
 import {
   planningLineageRelationSchema,
   planningLineageSubjectProjectionSchema,
@@ -49,23 +43,6 @@ import {
 } from "./contract";
 
 const BUSY_TIMEOUT_MS = 1_000;
-
-const projectBriefProjectionV6Schema = z.strictObject({
-  id: projectBriefSchema.shape.id,
-  title: projectBriefSchema.shape.title,
-  source: projectBriefSchema.shape.source,
-  generatedAt: projectBriefSchema.shape.generatedAt,
-  projectPurpose: projectBriefSchema.shape.atAGlance,
-  currentStage: projectBriefSchema.shape.currentPosition,
-  materialAchievedState: projectBriefSchema.shape.atAGlance,
-  languages: z
-    .strictObject({
-      projectPurpose: languageTagSchema.optional(),
-      currentStage: languageTagSchema.optional(),
-      materialAchievedState: languageTagSchema.optional(),
-    })
-    .optional(),
-});
 
 export const projectProviderEvidenceBindingKey = (binding: MattNativeScopeBinding): string =>
   Buffer.from(mattNativeScopeKey(binding), "utf8").toString("hex");
@@ -121,7 +98,6 @@ export type ProjectReadModelMetadata = Readonly<{
 export type ProjectReadModelState =
   | Readonly<{ state: "missing" }>
   | Readonly<{ state: "ready"; metadata: ProjectReadModelMetadata }>
-  | Readonly<{ state: "obsolete-compatible"; metadata: ProjectReadModelMetadata }>
   | Readonly<{ state: "recovery-required"; reason: string }>
   | Readonly<{ state: "need-update"; storageVersion: number; projectionVersion?: number }>;
 
@@ -580,16 +556,10 @@ const readMetadata = (database: DatabaseSync, storageVersion: number): ProjectRe
   return metadata;
 };
 
-const validateProviderEvidenceRow = (
-  row: Readonly<Record<string, SQLOutputValue>>,
-  projectionVersion: number,
-): void => {
+const validateProviderEvidenceRow = (row: Readonly<Record<string, SQLOutputValue>>): void => {
   const selection = providerObservationSelectionSchema.parse(parseJson(row["selection_json"]));
   const bindingKey = row["binding_key"];
-  const expectedBindingKeys =
-    projectionVersion < 5
-      ? new Set([mattNativeScopeKey(selection), projectProviderEvidenceBindingKey(selection)])
-      : new Set([projectProviderEvidenceBindingKey(selection)]);
+  const expectedBindingKeys = new Set([projectProviderEvidenceBindingKey(selection)]);
   if (
     !expectedBindingKeys.has(String(bindingKey)) ||
     selection.observationId !== row["observation_id"]
@@ -597,16 +567,11 @@ const validateProviderEvidenceRow = (
     throw new Error("Project Read Model provider selection identity is inconsistent.");
   }
   if (typeof row["observation_json"] === "string") {
-    const rawObservation = parseJson(row["observation_json"]);
-    const { observation, storedObservationId } =
-      projectionVersion < 8
-        ? parseLegacyProviderObservation(rawObservation)
-        : {
-            observation: mattSkillsV1ProviderObservationSchema.parse(rawObservation),
-            storedObservationId: undefined,
-          };
+    const observation = mattSkillsV1ProviderObservationSchema.parse(
+      parseJson(row["observation_json"]),
+    );
     if (
-      (storedObservationId ?? observation.id) !== row["observation_id"] ||
+      observation.id !== row["observation_id"] ||
       (observation.sourceRevision ?? null) !== row["source_revision"] ||
       !sameMattNativeBindingDefinition(selection, observation.binding) ||
       !providerObservationSelectionFreshnessIsCoherent(selection, observation)
@@ -618,147 +583,11 @@ const validateProviderEvidenceRow = (
   }
 };
 
-const legacyNativeKindFor = (value: unknown): "github" | "local" | undefined => {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const kind = legacyNativeKindFor(item);
-      if (kind !== undefined) return kind;
-    }
-    return undefined;
-  }
-  if (value === null || typeof value !== "object") return undefined;
-  const record = value as Readonly<Record<string, unknown>>;
-  if (record["kind"] === "github" || record["kind"] === "local") return record["kind"];
-  for (const item of Object.values(record)) {
-    const kind = legacyNativeKindFor(item);
-    if (kind !== undefined) return kind;
-  }
-  return undefined;
-};
-
-const withLegacyNativeTimeBasis = (
-  value: unknown,
-  basis: "inferred-source-metadata" | "source-event",
-): unknown => {
-  if (Array.isArray(value)) return value.map((item) => withLegacyNativeTimeBasis(item, basis));
-  if (value === null || typeof value !== "object") return value;
-  const record = value as Readonly<Record<string, unknown>>;
-  const migrated = Object.fromEntries(
-    Object.entries(record).map(([key, item]) => [key, withLegacyNativeTimeBasis(item, basis)]),
-  );
-  return record["availability"] === "available" &&
-    typeof record["value"] === "string" &&
-    typeof record["precision"] === "string" &&
-    record["basis"] === undefined
-    ? { ...migrated, basis }
-    : migrated;
-};
-
-const parseLegacyProviderObservation = (
-  value: unknown,
-): Readonly<{
-  observation: MattSkillsV1ProviderObservation;
-  storedObservationId: string;
-}> => {
-  const raw = z.record(z.string(), z.unknown()).parse(value);
-  const storedObservationId = z.string().parse(raw["id"]);
-  const { id: _id, ...legacyContent } = raw;
-  if (
-    storedObservationId !== providerObservationIdentityFor(legacyContent as ProviderStructuralValue)
-  ) {
-    throw new Error("Legacy provider observation identity is inconsistent.");
-  }
-  const kind = legacyNativeKindFor(legacyContent);
-  const migratedContent =
-    kind === undefined
-      ? legacyContent
-      : withLegacyNativeTimeBasis(
-          legacyContent,
-          kind === "github" ? "source-event" : "inferred-source-metadata",
-        );
-  const content = migratedContent as ProviderStructuralValue;
-  return {
-    observation: mattSkillsV1ProviderObservationSchema.parse({
-      id: providerObservationIdentityFor(content),
-      ...(migratedContent as Record<string, unknown>),
-    }) as MattSkillsV1ProviderObservation,
-    storedObservationId,
-  };
-};
-
-const validatePayloads = (database: DatabaseSync, projectionVersion: number): void => {
+const validatePayloads = (database: DatabaseSync): void => {
   const objects: ProjectReadModelObject[] = [];
   for (const row of database
     .prepare("SELECT reference, kind, payload_json FROM project_objects")
     .all()) {
-    if (projectionVersion < 7 && row["kind"] === "project-brief") {
-      // Validate only enough legacy payload to classify the disposable store as obsolete-compatible.
-      const legacy = projectBriefProjectionV6Schema.parse(parseJson(row["payload_json"]));
-      const parsed: ProjectReadModelObject = {
-        kind: "project-brief",
-        value: projectBriefSchema.parse({
-          id: legacy.id,
-          title: legacy.title,
-          source: legacy.source,
-          generatedAt: legacy.generatedAt,
-          atAGlance: legacy.projectPurpose,
-          currentPosition: legacy.currentStage,
-          establishedBaseline: [legacy.materialAchievedState],
-          ...(legacy.languages === undefined
-            ? {}
-            : {
-                languages: {
-                  ...(legacy.languages.projectPurpose === undefined
-                    ? {}
-                    : { atAGlance: legacy.languages.projectPurpose }),
-                  ...(legacy.languages.currentStage === undefined
-                    ? {}
-                    : { currentPosition: legacy.languages.currentStage }),
-                  ...(legacy.languages.materialAchievedState === undefined
-                    ? {}
-                    : { establishedBaseline: legacy.languages.materialAchievedState }),
-                },
-              }),
-        }),
-      };
-      assertProjectReadModelObjectIdentity(z.string().parse(row["reference"]), parsed);
-      objects.push(parsed);
-      continue;
-    }
-    if (projectionVersion < 8 && row["kind"] === "portal-native-evidence") {
-      const legacy = z
-        .strictObject({
-          id: z.string().startsWith("portal-native-evidence:"),
-          subjectReference: z.string().min(1),
-          role: z.enum(["bound", "detail"]),
-          selection: providerObservationSelectionSchema,
-          observation: z.unknown().optional(),
-        })
-        .parse(parseJson(row["payload_json"]));
-      const migrated =
-        legacy.observation === undefined
-          ? legacy
-          : (() => {
-              const { observation, storedObservationId } = parseLegacyProviderObservation(
-                legacy.observation,
-              );
-              if (legacy.selection.observationId !== storedObservationId) {
-                throw new Error("Legacy Portal native evidence identity is inconsistent.");
-              }
-              return {
-                ...legacy,
-                selection: { ...legacy.selection, observationId: observation.id },
-                observation,
-              };
-            })();
-      const parsed = projectReadModelObjectSchema.parse({
-        kind: "portal-native-evidence",
-        value: migrated,
-      });
-      assertProjectReadModelObjectIdentity(z.string().parse(row["reference"]), parsed);
-      objects.push(parsed);
-      continue;
-    }
     const parsed = projectReadModelObjectSchema.parse({
       kind: row["kind"],
       value: parseJson(row["payload_json"]),
@@ -848,7 +677,7 @@ const validatePayloads = (database: DatabaseSync, projectionVersion: number): vo
       "SELECT binding_key, observation_id, source_revision, observation_json, selection_json FROM provider_evidence",
     )
     .all()) {
-    validateProviderEvidenceRow(row, projectionVersion);
+    validateProviderEvidenceRow(row);
   }
 };
 
@@ -880,10 +709,14 @@ export const inspectProjectReadModel = async (repoRoot: string): Promise<Project
         projectionVersion: metadata.projectionVersion,
       };
     }
-    validatePayloads(database, metadata.projectionVersion);
-    return metadata.projectionVersion < PROJECT_READ_MODEL_PROJECTION_VERSION
-      ? { state: "obsolete-compatible", metadata }
-      : { state: "ready", metadata };
+    if (metadata.projectionVersion < PROJECT_READ_MODEL_PROJECTION_VERSION) {
+      return {
+        state: "recovery-required",
+        reason: "Project Read Model projection version is incompatible; rebuild it.",
+      };
+    }
+    validatePayloads(database);
+    return { state: "ready", metadata };
   } catch {
     return { state: "recovery-required", reason: "Project Read Model is corrupt or unreadable." };
   } finally {
@@ -895,6 +728,7 @@ const insertCandidate = (
   database: DatabaseSync,
   candidate: ProjectReadModelCandidate,
   receipt: ProjectReadModelReceipt,
+  preserveDetailEvidence = true,
 ): void => {
   const currentBindings = candidate.providerEvidence
     .filter((row) => row.role === "bound")
@@ -907,7 +741,7 @@ const insertCandidate = (
     candidate.providerEvidence.filter((row) => row.role === "bound").map((row) => row.bindingKey),
   );
   const retainedDetailEvidence =
-    currentBindingKeys.size === 0
+    !preserveDetailEvidence || currentBindingKeys.size === 0
       ? []
       : database
           .prepare(
@@ -915,7 +749,7 @@ const insertCandidate = (
           )
           .all(...currentBindingKeys)
           .filter((row) => {
-            validateProviderEvidenceRow(row, PROJECT_READ_MODEL_PROJECTION_VERSION);
+            validateProviderEvidenceRow(row);
             return matchesCurrentBinding(z.string().parse(row["selection_json"]));
           });
   for (const table of [
@@ -1027,7 +861,7 @@ const validateProjectReadModelCandidate = async (
         publicationCount: 1,
       }),
     );
-    validatePayloads(database, PROJECT_READ_MODEL_PROJECTION_VERSION);
+    validatePayloads(database);
   } finally {
     database.close();
   }
@@ -1086,7 +920,12 @@ export const publishProjectReadModel = async (
       publishedAt: (options.now ?? (() => new Date().toISOString()))(),
       publicationCount: (previousMetadata?.receipt.publicationCount ?? 0) + 1,
     });
-    insertCandidate(database, candidate, receipt);
+    insertCandidate(
+      database,
+      candidate,
+      receipt,
+      previousMetadata?.projectionVersion === PROJECT_READ_MODEL_PROJECTION_VERSION,
+    );
     if (options.faultAt === "before-commit") throw new Error("Injected publication failure.");
     database.exec("COMMIT");
     began = false;
@@ -1139,7 +978,6 @@ export type ProjectProviderEvidence = Readonly<{
 
 const projectProviderEvidence = (
   database: DatabaseSync,
-  projectionVersion: number,
   role?: ProjectProviderEvidence["role"],
 ): readonly ProjectProviderEvidence[] =>
   database
@@ -1154,24 +992,16 @@ const projectProviderEvidence = (
       const selection = providerObservationSelectionSchema.parse(
         parseJson(row["selection_json"]),
       ) as ProviderObservationSelection;
-      const legacyObservation =
-        projectionVersion < 8 && typeof row["observation_json"] === "string"
-          ? parseLegacyProviderObservation(parseJson(row["observation_json"]))
-          : undefined;
       const observation =
-        legacyObservation?.observation ??
-        (typeof row["observation_json"] === "string"
+        typeof row["observation_json"] === "string"
           ? (mattSkillsV1ProviderObservationSchema.parse(
               parseJson(row["observation_json"]),
             ) as MattSkillsV1ProviderObservation)
-          : undefined);
+          : undefined;
       return {
         bindingKey: z.string().parse(row["binding_key"]),
         role: parsedRole,
-        selection:
-          legacyObservation === undefined
-            ? selection
-            : { ...selection, observationId: legacyObservation.observation.id },
+        selection,
         ...(observation === undefined ? {} : { observation }),
       };
     });
@@ -1180,9 +1010,7 @@ export const readProjectProviderEvidence = async (
   repoRoot: string,
   role?: ProjectProviderEvidence["role"],
 ): Promise<readonly ProjectProviderEvidence[]> =>
-  withProjectReadModel(repoRoot, (database, metadata) =>
-    projectProviderEvidence(database, metadata.projectionVersion, role),
-  );
+  withProjectReadModel(repoRoot, (database) => projectProviderEvidence(database, role));
 
 export const replaceProjectProviderEvidence = async (
   repoRoot: string,
@@ -1281,7 +1109,7 @@ export const replaceProjectProviderEvidence = async (
         );
       }
     }
-    validatePayloads(database, metadata.projectionVersion);
+    validatePayloads(database);
     if (readMetadata(database, version).basisFingerprint !== metadata.basisFingerprint) {
       throw new Error("Scoped provider evidence replacement changed the Project generation.");
     }

@@ -205,18 +205,23 @@
 .lineage-sections ol {
   padding-left: var(--space-5);
 }
-.document-presentation h3,
-.document-presentation h4,
-.document-presentation h5,
-.document-presentation h6 {
+.provider-markdown h1,
+.provider-markdown h2,
+.provider-markdown h3,
+.provider-markdown h4,
+.provider-markdown h5,
+.provider-markdown h6 {
   margin: var(--space-5) 0 var(--space-2);
 }
-.document-presentation p,
-.document-presentation ol,
-.document-presentation ul {
+.provider-markdown p,
+.provider-markdown ol,
+.provider-markdown ul,
+.provider-markdown blockquote,
+.provider-markdown pre,
+.provider-markdown table {
   margin-block: var(--space-3);
 }
-.document-presentation a {
+.provider-markdown a {
   color: inherit;
   text-underline-offset: 3px;
 }

@@ -1,13 +1,12 @@
 import { z } from "zod";
 import {
-  type DocumentPresentation,
-  type DocumentPresentationSection,
-  documentPresentationSchema,
-} from "../../document-presentation";
-import {
   hasConsistentProviderCompletion,
   providerObservationIdentityFor,
 } from "../../native-work-provider";
+import {
+  type ProviderSemanticSection,
+  providerSemanticSectionsSchema,
+} from "../../provider-semantic-section";
 import { projectedNativeTimeSchema } from "../../source-event-time";
 import type { MattObjectReference } from "./model";
 
@@ -101,7 +100,7 @@ const validateSemanticContent = (
 const validateDocumentSemanticAvailability = (
   sections: readonly SemanticSection[],
   role: string,
-  availability: "available" | "confirmed-empty" | "unavailable",
+  availability: ProviderSemanticSection["availability"],
   context: z.RefinementCtx,
 ): void => {
   const position = sections.findIndex((section) => section.role === role);
@@ -114,13 +113,13 @@ const validateDocumentSemanticAvailability = (
 };
 
 const authoredDocumentRoleSection = (
-  document: DocumentPresentation,
+  document: readonly ProviderSemanticSection[],
   role: string,
   context: z.RefinementCtx,
   path: readonly (string | number)[],
-): DocumentPresentationSection | undefined => {
-  const roleSections = document.sections.filter((section) => section.semanticRole === role);
-  const hasForeignSemanticRole = document.sections.some(
+): ProviderSemanticSection | undefined => {
+  const roleSections = document.filter((section) => section.semanticRole === role);
+  const hasForeignSemanticRole = document.some(
     (section) => section.semanticRole !== undefined && section.semanticRole !== role,
   );
   if (roleSections.length === 1 && !hasForeignSemanticRole) return roleSections[0];
@@ -133,7 +132,7 @@ const authoredDocumentRoleSection = (
 };
 
 const validateAuthoredDocumentCollection = (
-  documents: readonly Readonly<{ document: DocumentPresentation }>[],
+  documents: readonly Readonly<{ document: readonly ProviderSemanticSection[] }>[],
   sections: readonly SemanticSection[],
   role: string,
   pathKey: "comments" | "content",
@@ -151,16 +150,16 @@ const validateAuthoredDocumentCollection = (
     validateSemanticContent(sections, role, false, context);
     return;
   }
+  const availabilities = documents.map(
+    (document) =>
+      document.document.find((section) => section.semanticRole === role)?.availability ??
+      "unavailable",
+  );
+  const first = availabilities[0] ?? "unavailable";
   validateDocumentSemanticAvailability(
     sections,
     role,
-    documents.every(
-      (document) =>
-        document.document.sections.find((section) => section.semanticRole === role)
-          ?.availability === "available",
-    )
-      ? "available"
-      : "unavailable",
+    availabilities.every((availability) => availability === first) ? first : "unavailable",
     context,
   );
 };
@@ -236,7 +235,7 @@ const nativeEvidenceSchema = z.discriminatedUnion("kind", [
 ]);
 
 const providerAuthoredDocumentShape = {
-  document: documentPresentationSchema,
+  document: providerSemanticSectionsSchema,
   authoredAt: nativeEventTimeSchema,
   sourceAnchor: sourceAnchorSchema.optional(),
   nativeIdentity: nonEmpty.optional(),
@@ -254,6 +253,7 @@ const answerSchema = z.discriminatedUnion("availability", [
   z.strictObject({
     availability: z.literal("unavailable"),
     reason: z.enum(["not-authored", "no-unique-native-reference", "source-contract-gap"]),
+    document: providerSemanticSectionsSchema.optional(),
   }),
 ]);
 
@@ -262,7 +262,7 @@ const mapSchema = z
     kind: z.literal("map"),
     ref: reference,
     title: nonEmpty,
-    destination: documentPresentationSchema,
+    destination: providerSemanticSectionsSchema,
     notes: z.array(semanticItem),
     decisions: z.array(
       z.strictObject({
@@ -336,7 +336,7 @@ const specSchema = z
     kind: z.literal("spec"),
     ref: reference,
     title: nonEmpty,
-    document: documentPresentationSchema,
+    document: providerSemanticSectionsSchema,
     lifecycle: z.strictObject({ state: z.enum(["draft", "ready-for-agent", "superseded"]) }),
     semanticSections: exactSemanticSections([
       "spec.problem",
@@ -351,7 +351,7 @@ const specSchema = z
   })
   .superRefine((spec, context) => {
     const knownRoles = spec.semanticSections.map((section) => section.role);
-    for (const [position, section] of spec.document.sections.entries()) {
+    for (const [position, section] of spec.document.entries()) {
       if (section.semanticRole !== undefined && !knownRoles.includes(section.semanticRole)) {
         context.addIssue({
           code: "custom",
@@ -361,9 +361,7 @@ const specSchema = z
       }
     }
     for (const [position, semantic] of spec.semanticSections.entries()) {
-      const section = spec.document.sections.find(
-        (candidate) => candidate.semanticRole === semantic.role,
-      );
+      const section = spec.document.find((candidate) => candidate.semanticRole === semantic.role);
       const expected = section?.availability ?? "unavailable";
       if (semantic.availability !== expected) {
         context.addIssue({
@@ -381,7 +379,7 @@ const wayfinderTicketSchema = z
     ref: reference,
     title: nonEmpty,
     subtype: z.enum(["research", "prototype", "grilling", "task"]),
-    question: documentPresentationSchema,
+    question: providerSemanticSectionsSchema,
     claim: z.discriminatedUnion("state", [
       z.strictObject({ state: z.literal("unclaimed") }),
       z.strictObject({
@@ -397,6 +395,8 @@ const wayfinderTicketSchema = z
         role: z.enum(["ordinary-comment", "agent-brief", "triage-note"]),
       }),
     ),
+    commentsDocument: providerSemanticSectionsSchema.optional(),
+    commentsCapability: z.literal("unsupported").optional(),
     lifecycle: z.discriminatedUnion("state", [
       z.strictObject({ state: z.literal("open") }),
       z.strictObject({
@@ -419,6 +419,11 @@ const wayfinderTicketSchema = z
   })
   .superRefine((ticket, context) => {
     validateSemanticContent(ticket.semanticSections, "wayfinder.claim", true, context);
+    const wayfinderAnswerPosition = ticket.semanticSections.findIndex(
+      (section) => section.role === "wayfinder.answer",
+    );
+    const wayfinderAnswerAvailability =
+      ticket.semanticSections[wayfinderAnswerPosition]?.availability;
     const question = authoredDocumentRoleSection(ticket.question, "wayfinder.question", context, [
       "question",
       "sections",
@@ -453,8 +458,45 @@ const wayfinderTicketSchema = z
           context,
         );
       }
+    } else if (
+      wayfinderAnswerAvailability === "unsupported" ||
+      ticket.answer.document !== undefined
+    ) {
+      const answerSection = authoredDocumentRoleSection(
+        ticket.answer.document ?? [],
+        "wayfinder.answer",
+        context,
+        ["answer", "document", "sections"],
+      );
+      if (answerSection !== undefined) {
+        if (
+          ticket.answer.reason !== "source-contract-gap" ||
+          answerSection.availability !== "unsupported"
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["answer", "document", "sections"],
+            message:
+              "A Wayfinder Answer document is valid only for an unsupported source contract gap.",
+          });
+        }
+        validateDocumentSemanticAvailability(
+          ticket.semanticSections,
+          "wayfinder.answer",
+          answerSection.availability,
+          context,
+        );
+      }
     } else {
-      validateSemanticContent(ticket.semanticSections, "wayfinder.answer", false, context);
+      const expectedAvailability =
+        ticket.answer.reason === "not-authored" ? "confirmed-empty" : "unavailable";
+      if (wayfinderAnswerAvailability !== expectedAvailability) {
+        context.addIssue({
+          code: "custom",
+          path: ["semanticSections", wayfinderAnswerPosition, "availability"],
+          message: `A ${ticket.answer.reason} Wayfinder Answer must be ${expectedAvailability}.`,
+        });
+      }
     }
     validateAuthoredDocumentCollection(
       ticket.comments,
@@ -463,6 +505,39 @@ const wayfinderTicketSchema = z
       "comments",
       context,
     );
+    const wayfinderCommentsAvailability = ticket.semanticSections.find(
+      (section) => section.role === "wayfinder.comments",
+    )?.availability;
+    if (
+      wayfinderCommentsAvailability === "unsupported" ||
+      ticket.commentsCapability === "unsupported" ||
+      ticket.commentsDocument !== undefined
+    ) {
+      const commentsSection = authoredDocumentRoleSection(
+        ticket.commentsDocument ?? [],
+        "wayfinder.comments",
+        context,
+        ["commentsDocument", "sections"],
+      );
+      if (commentsSection !== undefined) {
+        validateDocumentSemanticAvailability(
+          ticket.semanticSections,
+          "wayfinder.comments",
+          commentsSection.availability,
+          context,
+        );
+      }
+      if (
+        wayfinderCommentsAvailability !== "unsupported" ||
+        ticket.commentsCapability !== "unsupported"
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["commentsCapability"],
+          message: "Wayfinder unsupported comments require matching capability and availability.",
+        });
+      }
+    }
     if (ticket.trackerClosure.state === "closed") {
       validateNativeTimeBasis(ticket.trackerClosure.closedAt, ticket.native.kind, context, [
         "trackerClosure",
@@ -508,6 +583,8 @@ const deliveryTicketSchema = z
         role: z.enum(["ordinary-comment", "agent-brief", "triage-note"]),
       }),
     ),
+    commentsDocument: providerSemanticSectionsSchema.optional(),
+    commentsCapability: z.literal("unsupported").optional(),
     semanticSections: exactSemanticSections([
       "delivery.what-to-build",
       "delivery.acceptance-criteria",
@@ -542,6 +619,39 @@ const deliveryTicketSchema = z
       "comments",
       context,
     );
+    const deliveryCommentsAvailability = ticket.semanticSections.find(
+      (section) => section.role === "delivery.comments",
+    )?.availability;
+    if (
+      deliveryCommentsAvailability === "unsupported" ||
+      ticket.commentsCapability === "unsupported" ||
+      ticket.commentsDocument !== undefined
+    ) {
+      const commentsSection = authoredDocumentRoleSection(
+        ticket.commentsDocument ?? [],
+        "delivery.comments",
+        context,
+        ["commentsDocument", "sections"],
+      );
+      if (commentsSection !== undefined) {
+        validateDocumentSemanticAvailability(
+          ticket.semanticSections,
+          "delivery.comments",
+          commentsSection.availability,
+          context,
+        );
+      }
+      if (
+        deliveryCommentsAvailability !== "unsupported" ||
+        ticket.commentsCapability !== "unsupported"
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["commentsCapability"],
+          message: "Delivery unsupported comments require matching capability and availability.",
+        });
+      }
+    }
     if (ticket.trackerClosure.state === "closed") {
       validateNativeTimeBasis(ticket.trackerClosure.closedAt, ticket.native.kind, context, [
         "trackerClosure",
@@ -583,6 +693,8 @@ const incomingIssueSchema = z
         role: z.enum(["issue-body", "ordinary-comment", "agent-brief", "triage-note"]),
       }),
     ),
+    commentsDocument: providerSemanticSectionsSchema.optional(),
+    commentsCapability: z.literal("unsupported").optional(),
     lifecycle: z.discriminatedUnion("state", [
       z.strictObject({ state: z.literal("open") }),
       z.strictObject({
@@ -612,6 +724,44 @@ const incomingIssueSchema = z
       "content",
       context,
     );
+    const incomingContentAvailability = issue.semanticSections.find(
+      (section) => section.role === "incoming.content",
+    )?.availability;
+    if (
+      incomingContentAvailability === "unsupported" ||
+      issue.commentsCapability === "unsupported" ||
+      issue.commentsDocument !== undefined
+    ) {
+      const commentsSection = authoredDocumentRoleSection(
+        issue.commentsDocument ?? [],
+        "incoming.content",
+        context,
+        ["commentsDocument", "sections"],
+      );
+      if (commentsSection !== undefined) {
+        if (issue.content.length === 0) {
+          validateDocumentSemanticAvailability(
+            issue.semanticSections,
+            "incoming.content",
+            commentsSection.availability,
+            context,
+          );
+        } else if (commentsSection.availability !== "unsupported") {
+          context.addIssue({
+            code: "custom",
+            path: ["commentsDocument", "sections"],
+            message: "Incoming comment capability evidence must remain unsupported.",
+          });
+        }
+      }
+      if (issue.commentsCapability !== "unsupported") {
+        context.addIssue({
+          code: "custom",
+          path: ["commentsCapability"],
+          message: "Incoming unsupported comments require explicit capability evidence.",
+        });
+      }
+    }
     validateSemanticContent(
       issue.semanticSections,
       "incoming.routing",

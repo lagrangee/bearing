@@ -5,8 +5,10 @@ import {
   queryPortalProjectRows,
   searchPortalProjectRows,
 } from "../project-read-model/portal";
+import { mattProviderSemanticSections } from "../providers/matt-skills-v1/projection";
 import { probeExactAssetSource } from "./asset-source-probe";
 import type { CatalogReadResult } from "./contract";
+import { renderProviderMarkdownSections } from "./markdown-engine";
 import { resolveProjectEntry } from "./project-entry";
 
 export const createPortalProjectQueryService = (options: {
@@ -48,7 +50,19 @@ export const createPortalProjectQueryService = (options: {
           displayName: entry.entry.displayName,
           availability: "available" as const,
         },
-        rows: assetSourceProbe === undefined ? rows : { ...rows, assetSourceProbe },
+        rows: {
+          ...rows,
+          ...(assetSourceProbe === undefined ? {} : { assetSourceProbe }),
+          renderedMarkdown: renderProviderMarkdownSections(
+            rows.objects
+              .flatMap((object) =>
+                object.kind === "portal-native-evidence" && object.value.observation !== undefined
+                  ? [object.value.observation]
+                  : [],
+              )
+              .flatMap(mattProviderSemanticSections),
+          ),
+        },
       };
     } catch (error) {
       if (error instanceof PortalProjectReadModelUnavailableError) {

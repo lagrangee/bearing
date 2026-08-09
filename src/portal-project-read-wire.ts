@@ -54,6 +54,13 @@ export const portalProjectRowsSchema = z.strictObject({
   attention: z.array(attentionItemSchema).max(500),
   diagnostics: z.array(structuralDiagnosticSchema).max(500),
   sources: z.array(sourceRecordSchema).max(500),
+  renderedMarkdown: z.array(
+    z.strictObject({
+      markdown: z.string(),
+      html: z.string(),
+      presentation: z.enum(["rendered", "fallback"]),
+    }),
+  ),
 });
 
 export const portalProjectReadEnvelopeSchema = z.discriminatedUnion("state", [

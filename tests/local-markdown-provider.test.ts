@@ -272,26 +272,13 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     expect(result.sourceRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(result.projection?.map).toMatchObject({
       title: "Wayfinder Map: Reference",
-      destination: {
-        version: 1,
-        sections: [
-          {
-            semanticRole: "map.destination",
-            availability: "available",
-            blocks: [
-              {
-                kind: "paragraph",
-                inlines: [
-                  {
-                    kind: "text",
-                    value: "Prove one complete Matt-native semantic scope.",
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
+      destination: [
+        {
+          semanticRole: "map.destination",
+          availability: "available",
+          markdown: "Prove one complete Matt-native semantic scope.",
+        },
+      ],
       lifecycle: { state: "resolved" },
       native: {
         createdAt: { availability: "available", basis: "inferred-source-metadata" },
@@ -315,7 +302,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       "Whether one source comment can be uniquely identified as an Answer.",
     ]);
     expect(
-      result.projection?.spec?.document.sections.map((section) =>
+      result.projection?.spec?.document.map((section) =>
         section.semanticRole?.slice("spec.".length),
       ),
     ).toEqual([
@@ -384,7 +371,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     ]);
     expect(
       result.projection?.incomingIssues[0]?.content.every(
-        (document) => document.document.version === 1 && !("body" in document),
+        (document) => document.document[0]?.version === 1 && !("body" in document),
       ),
     ).toBe(true);
     expect(result.projection?.incomingIssues[0]?.native.sourceAnchors).toContainEqual({

@@ -242,9 +242,7 @@ const ensureCurrent = async (
     if (fingerprint === state.metadata.basisFingerprint) return state;
   }
   const providerEvidence =
-    state.state === "ready" || state.state === "obsolete-compatible"
-      ? await readProjectProviderEvidence(repoRoot)
-      : undefined;
+    state.state === "ready" ? await readProjectProviderEvidence(repoRoot) : undefined;
   const providerObservationStore =
     providerEvidence === undefined
       ? undefined

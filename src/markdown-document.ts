@@ -5,7 +5,6 @@ import type {
   List as MdastList,
   Table as MdastTable,
   Paragraph,
-  PhrasingContent,
   Root,
   RootContent,
 } from "mdast";
@@ -18,12 +17,9 @@ import { frontmatter } from "micromark-extension-frontmatter";
 import { gfm } from "micromark-extension-gfm";
 import { visit } from "unist-util-visit";
 import { parseDocument, stringify } from "yaml";
-import type {
-  DocumentPresentationBlock,
-  DocumentPresentationInline,
-  DocumentPresentationList,
-} from "./document-presentation";
-import { isSafeDocumentPresentationHref } from "./document-presentation";
+import { isSemanticPlainText } from "./markdown-document/semantic-plain-text";
+
+export { isSemanticPlainText } from "./markdown-document/semantic-plain-text";
 
 export type MarkdownDocument = Readonly<{
   kind: "markdown-document";
@@ -122,6 +118,12 @@ const nodesWithin = (
     throw new TypeError("Markdown section queries require a section from the same document.");
   }
   return internals.nodes;
+};
+
+const markdownForNodes = (source: string, nodes: readonly RootContent[]): string => {
+  const start = nodes[0]?.position?.start.offset;
+  const end = nodes.at(-1)?.position?.end.offset;
+  return start === undefined || end === undefined ? "" : source.slice(start, end);
 };
 
 const found = <Value>(value: Value): MarkdownQueryResult<Value> => ({
@@ -373,14 +375,9 @@ export const queryMarkdownPreamble = (
   );
   const endIndex = nextHeadingIndex === -1 ? tree.children.length : nextHeadingIndex;
   const nodes = tree.children.slice(title.index + 1, endIndex);
-  const contentStart = title.node.position?.end.offset;
-  const contentEnd = tree.children[endIndex]?.position?.start.offset ?? source.length;
   const section: MarkdownSection = Object.freeze({
     heading: title.value,
-    markdown:
-      contentStart === undefined || contentEnd === undefined
-        ? ""
-        : source.slice(contentStart, contentEnd).trim(),
+    markdown: markdownForNodes(source, nodes),
   });
   sectionInternals.set(section, { document, heading: title.node, nodes });
   return found(section);
@@ -394,7 +391,6 @@ const sectionFromMatch = (
     index: number;
     scopeNodes: readonly RootContent[];
   }>,
-  within?: MarkdownSection,
 ): MarkdownSection => {
   const { source } = internalsFor(document);
   const nextHeadingIndex = match.scopeNodes.findIndex(
@@ -403,18 +399,10 @@ const sectionFromMatch = (
   );
   const endIndex = nextHeadingIndex === -1 ? match.scopeNodes.length : nextHeadingIndex;
   const nodes = match.scopeNodes.slice(match.index + 1, endIndex);
-  const contentStart = match.node.position?.end.offset;
-  const containingSectionEnd =
-    within === undefined
-      ? source.length
-      : sectionInternals.get(within)?.nodes.at(-1)?.position?.end.offset;
-  const contentEnd =
-    match.scopeNodes[endIndex]?.position?.start.offset ?? containingSectionEnd ?? source.length;
-  const markdown =
-    contentStart === undefined || contentEnd === undefined
-      ? ""
-      : source.slice(contentStart, contentEnd).trim();
-  const section: MarkdownSection = Object.freeze({ heading: match.value, markdown });
+  const section: MarkdownSection = Object.freeze({
+    heading: match.value,
+    markdown: markdownForNodes(source, nodes),
+  });
   sectionInternals.set(section, { document, heading: match.node, nodes });
   return section;
 };
@@ -432,9 +420,7 @@ export const queryMarkdownSection = (
   if (matches.length > 1)
     return { state: "ambiguous", reason: "duplicate", matches: matches.length };
   const match = matches[0];
-  return match === undefined
-    ? { state: "absent" }
-    : found(sectionFromMatch(document, match, query.within));
+  return match === undefined ? { state: "absent" } : found(sectionFromMatch(document, match));
 };
 
 export const queryMarkdownSections = (
@@ -447,13 +433,7 @@ export const queryMarkdownSections = (
       if (node.type !== "heading" || (query.depth !== undefined && node.depth !== query.depth)) {
         return [];
       }
-      return [
-        sectionFromMatch(
-          document,
-          { node, value: headingValue(node), index, scopeNodes },
-          query.within,
-        ),
-      ];
+      return [sectionFromMatch(document, { node, value: headingValue(node), index, scopeNodes })];
     }),
   );
 };
@@ -477,7 +457,7 @@ export const markdownCanonicalHeadingTitle = (
   const prefix = `${"#".repeat(heading.depth)} `;
   if (!authored.startsWith(prefix)) return undefined;
   const title = authored.slice(prefix.length);
-  return title.length > 0 && isDomainPlainText(title) ? title : undefined;
+  return title.length > 0 && isSemanticPlainText(title) ? title : undefined;
 };
 
 export const markdownSectionLead = (
@@ -499,203 +479,22 @@ export const markdownSectionLead = (
     .trimEnd();
 };
 
-export type MarkdownDocumentPresentationResult =
-  | Readonly<{ ok: true; blocks: readonly DocumentPresentationBlock[] }>
-  | Readonly<{
-      ok: false;
-      reason: "unsupported-block" | "unsupported-inline" | "unsafe-link";
-      nodeKind: string;
-    }>;
-
-type InlineProjectionResult =
-  | Readonly<{ ok: true; inlines: readonly DocumentPresentationInline[] }>
-  | Extract<MarkdownDocumentPresentationResult, { ok: false }>;
-
-type ListProjectionResult =
-  | Readonly<{ ok: true; list: DocumentPresentationList }>
-  | Extract<MarkdownDocumentPresentationResult, { ok: false }>;
-
-const projectPresentationInlines = (
-  children: readonly PhrasingContent[],
-): InlineProjectionResult => {
-  const inlines: DocumentPresentationInline[] = [];
-  for (const child of children) {
-    switch (child.type) {
-      case "text":
-        if (child.value.length > 0) inlines.push({ kind: "text", value: child.value });
-        break;
-      case "strong":
-      case "emphasis": {
-        const nested = projectPresentationInlines(child.children);
-        if (!nested.ok) return nested;
-        inlines.push({ kind: child.type, inlines: nested.inlines });
-        break;
-      }
-      case "inlineCode":
-        inlines.push({ kind: "inline-code", value: child.value });
-        break;
-      case "link": {
-        if (!isSafeDocumentPresentationHref(child.url)) {
-          return { ok: false, reason: "unsafe-link", nodeKind: child.type };
-        }
-        const nested = projectPresentationInlines(child.children);
-        if (!nested.ok) return nested;
-        inlines.push({
-          kind: "link",
-          href: child.url,
-          ...(child.title === null || child.title === undefined ? {} : { title: child.title }),
-          inlines: nested.inlines,
-        });
-        break;
-      }
-      default:
-        return { ok: false, reason: "unsupported-inline", nodeKind: child.type };
-    }
-  }
-  return { ok: true, inlines };
-};
-
-const projectPresentationList = (list: MdastList): ListProjectionResult => {
-  const items: DocumentPresentationList["items"][number][] = [];
-  for (const item of list.children) {
-    const [lead, ...rest] = item.children;
-    if (
-      (item.checked !== null && item.checked !== undefined) ||
-      lead?.type !== "paragraph" ||
-      rest.some((child) => child.type !== "list")
-    ) {
-      return { ok: false, reason: "unsupported-block", nodeKind: "listItem" };
-    }
-    const inlines = projectPresentationInlines(lead.children);
-    if (!inlines.ok) return inlines;
-    const children: DocumentPresentationList[] = [];
-    for (const child of rest) {
-      if (child.type !== "list") {
-        return { ok: false, reason: "unsupported-block", nodeKind: child.type };
-      }
-      const nested = projectPresentationList(child);
-      if (!nested.ok) return nested;
-      children.push(nested.list);
-    }
-    items.push({ inlines: inlines.inlines, children });
-  }
-  return {
-    ok: true,
-    list: {
-      kind: "list",
-      style: list.ordered === true ? "ordered" : "unordered",
-      ...(list.ordered === true && list.start !== null && list.start !== undefined
-        ? { start: list.start }
-        : {}),
-      items,
-    },
-  };
-};
-
-const projectDocumentPresentationNodes = (
-  nodes: readonly RootContent[],
-  headingLevel?: (depth: MarkdownHeadingDepth) => 3 | 4 | 5 | 6 | undefined,
-): MarkdownDocumentPresentationResult => {
-  const blocks: DocumentPresentationBlock[] = [];
-  for (const node of nodes) {
-    if (node.type === "paragraph") {
-      const inlines = projectPresentationInlines(node.children);
-      if (!inlines.ok) return inlines;
-      blocks.push({ kind: "paragraph", inlines: inlines.inlines });
-      continue;
-    }
-    if (node.type === "heading") {
-      const level =
-        headingLevel === undefined
-          ? node.depth >= 3
-            ? (node.depth as 3 | 4 | 5 | 6)
-            : undefined
-          : headingLevel(node.depth);
-      if (level === undefined || level < 3 || level > 6) {
-        return { ok: false, reason: "unsupported-block", nodeKind: node.type };
-      }
-      const inlines = projectPresentationInlines(node.children);
-      if (!inlines.ok) return inlines;
-      blocks.push({ kind: "heading", level, inlines: inlines.inlines });
-      continue;
-    }
-    if (node.type === "list") {
-      const list = projectPresentationList(node);
-      if (!list.ok) return list;
-      blocks.push(list.list);
-      continue;
-    }
-    return { ok: false, reason: "unsupported-block", nodeKind: node.type };
-  }
-  return { ok: true, blocks };
-};
-
-export const markdownDocumentPresentationBlocks = (
-  document: MarkdownDocument,
-  section: MarkdownSection,
-): MarkdownDocumentPresentationResult =>
-  projectDocumentPresentationNodes(nodesWithin(document, section));
-
-export const markdownDocumentPresentationBodyBlocks = (
-  document: MarkdownDocument,
-): MarkdownDocumentPresentationResult => {
-  const nodes = nodesWithin(document);
-  const headingDepths = nodes.flatMap((node) => (node.type === "heading" ? [node.depth] : []));
-  const minimumHeadingDepth = headingDepths.length === 0 ? undefined : Math.min(...headingDepths);
-  return projectDocumentPresentationNodes(
-    nodes,
-    minimumHeadingDepth === undefined
-      ? undefined
-      : (depth) => {
-          const level = depth - minimumHeadingDepth + 3;
-          return level >= 3 && level <= 6 ? (level as 3 | 4 | 5 | 6) : undefined;
-        },
-  );
-};
-
-const PLAIN_TEXT_MARKUP_PATTERNS = [
-  /`/u,
-  /!?(?:\[[^\]\n]*\])\([^\n)]*\)/u,
-  /!?(?:\[[^\]\n]+\])\[[^\]\n]*\]/u,
-  /(?:^|\n)[ \t]{0,3}\[[^\]\n]+\]:[ \t]*\S/u,
-  /\*\*\*(?![\s*])[^*\n]*\S\*\*\*/u,
-  /(?<![\p{L}\p{N}_])___(?![\s_])[^_\n]*\S___(?![\p{L}\p{N}_])/u,
-  /\*\*[^*\n]+\*\*/u,
-  /(?<![\p{L}\p{N}_])__(?![\s_])[^_\n]*\S__(?![\p{L}\p{N}_])/u,
-  /~~[^~\n]+~~/u,
-  /\*(?![\s*])[^*\n]*\S\*/u,
-  /(?<![\p{L}\p{N}_])_(?![\s_])[^_\n]*\S_(?![\p{L}\p{N}_])/u,
-  /<!--/u,
-  /<[!?]/u,
-  /<\?[^>\n]*\?>/u,
-  /<![^>\n]*>/u,
-  /<\/?[A-Za-z][^>\n]*>/u,
-  /(?:^|\n)[ \t]{0,3}<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/]|$)/u,
-  /(?:^|\n)[ \t]*(?:#{1,6}[ \t]+|>|(?:[-+*]|\d+[.)])[ \t]+)/u,
-  /(?:^|\n)[ \t]{0,3}(?:#{1,6}|>|[-+*]|\d+[.)])[ \t]*(?=\n|$)/u,
-  /(?:^|\n)[ \t]{0,3}>[ \t]?\S/u,
-  /(?:^|\n)[ \t]*~~~+/u,
-  /(?:^|\n)[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|={3,})[ \t]*(?=\n|$)/u,
-  /(?:^|\n)[ \t]{0,3}(?:=+|-+)[ \t]*(?=\n|$)/u,
-  /(?:^|\n)[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*(?=\n|$)/u,
-  /(?:^|\n)[ \t]*\|[ \t]*:?-+:?[ \t]*\|[ \t]*(?=\n|$)/u,
-  /(?:^|\n)(?: {4,}|\t+)\S/u,
-] as const;
-
-const isDomainPlainText = (source: string): boolean => {
-  const normalized = source.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-  const softWrapped = normalized.replace(/(?<!\n)\n(?!\n)/gu, " ");
-  return [normalized, softWrapped].every((value) =>
-    PLAIN_TEXT_MARKUP_PATTERNS.every((pattern) => !pattern.test(value)),
-  );
-};
+export const markdownSemanticPlainText = (source: string): string =>
+  internalsFor(parseMarkdownDocument(source))
+    .tree.children.flatMap((node) =>
+      node.type === "list"
+        ? node.children.map((item) => mdastToString(item, { includeHtml: false }).trim())
+        : [mdastToString(node, { includeHtml: false }).trim()],
+    )
+    .filter((value) => value.length > 0)
+    .join("\n");
 
 const normalizedPlainParagraph = (source: string, paragraph: Paragraph): string | undefined => {
   const start = paragraph.position?.start.offset;
   const end = paragraph.position?.end.offset;
   if (start === undefined || end === undefined) return undefined;
   const authored = source.slice(start, end);
-  if (!isDomainPlainText(authored)) return undefined;
+  if (!isSemanticPlainText(authored)) return undefined;
   const value = authored
     .split("\n")
     .map((line) => line.trim())
@@ -714,7 +513,7 @@ export const markdownPlainText = (source: string): string | undefined => {
   );
   if (paragraphs.some((paragraph) => paragraph === undefined)) return undefined;
   const value = (paragraphs as string[]).join("\n\n");
-  return isDomainPlainText(value) ? value : undefined;
+  return isSemanticPlainText(value) ? value : undefined;
 };
 
 export const markdownPlainUnorderedList = (source: string): readonly string[] | undefined => {
@@ -791,16 +590,35 @@ export const markdownNarrative = (
     excludeFields?: readonly string[];
   }> = {},
 ): string => {
+  const { source } = internalsFor(document);
   const excluded = query.excludeFields ?? [];
-  const children = nodesWithin(document, query.within).filter(
-    (node) =>
-      node.type !== "paragraph" ||
-      !excluded.some((label) => fieldFromParagraph(node, label, "colon") !== undefined),
-  );
-  return toMarkdown(
-    { type: "root", children },
-    { extensions: [gfmToMarkdown(), frontmatterToMarkdown(["yaml"])] },
-  ).trim();
+  const retained = nodesWithin(document, query.within).flatMap((node, index) => {
+    if (
+      node.type === "paragraph" &&
+      excluded.some((label) => fieldFromParagraph(node, label, "colon") !== undefined)
+    ) {
+      return [];
+    }
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    return start === undefined || end === undefined ? [] : [{ index, start, end }];
+  });
+  const groups: { firstIndex: number; lastIndex: number; start: number; end: number }[] = [];
+  for (const node of retained) {
+    const current = groups.at(-1);
+    if (current !== undefined && node.index === current.lastIndex + 1) {
+      current.lastIndex = node.index;
+      current.end = node.end;
+    } else {
+      groups.push({
+        firstIndex: node.index,
+        lastIndex: node.index,
+        start: node.start,
+        end: node.end,
+      });
+    }
+  }
+  return groups.map((group) => source.slice(group.start, group.end)).join("\n\n");
 };
 
 const markdownListsWithin = (

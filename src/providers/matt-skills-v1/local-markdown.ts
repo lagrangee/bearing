@@ -332,7 +332,6 @@ const localAuthoredSection = <
   title: "Answer" | "Comments" | "Agent Brief" | "Triage Notes",
   role: Role,
   semanticRole: string,
-  diagnostics: CaptureDiagnostic[],
 ): MattProviderAuthoredDocument<Role> | undefined => {
   const result = queryMarkdownSection(file.document, { title });
   if (result.state !== "found" || result.value.markdown.length === 0) return undefined;
@@ -341,11 +340,6 @@ const localAuthoredSection = <
     result.value,
     mattAuthoredDocumentIdentity(semanticRole, role),
   );
-  if (projected.diagnostic !== undefined) {
-    diagnostics.push(
-      diagnostic(projected.diagnostic.code, "format", file.locator, projected.diagnostic.message),
-    );
-  }
   const anchor = title.toLocaleLowerCase("en").replaceAll(" ", "-");
   return {
     role,
@@ -361,7 +355,6 @@ const localAuthoredSection = <
 const localCommentDocuments = (
   file: CapturedFile,
   semanticRole: string,
-  diagnostics: CaptureDiagnostic[],
 ): readonly MattProviderCommentDocument[] =>
   (
     [
@@ -370,7 +363,7 @@ const localCommentDocuments = (
       ["Triage Notes", "triage-note"],
     ] as const
   ).flatMap(([title, role]) => {
-    const content = localAuthoredSection(file, title, role, semanticRole, diagnostics);
+    const content = localAuthoredSection(file, title, role, semanticRole);
     return content === undefined ? [] : [content];
   });
 
@@ -678,17 +671,7 @@ const decodeWayfinder = (
       MATT_WAYFINDER_DOCUMENT_OWNED_SECTION_TITLES,
     ),
   );
-  if (questionDocument.diagnostic !== undefined) {
-    diagnostics.push(
-      diagnostic(
-        questionDocument.diagnostic.code,
-        "format",
-        file.locator,
-        questionDocument.diagnostic.message,
-      ),
-    );
-  }
-  const answer = localAuthoredSection(file, "Answer", "answer", "wayfinder.answer", diagnostics);
+  const answer = localAuthoredSection(file, "Answer", "answer", "wayfinder.answer");
   const projectedAnswer = answer as
     | (MattWayfinderAuthoredDocument & Readonly<{ role: "answer" }>)
     | undefined;
@@ -703,7 +686,7 @@ const decodeWayfinder = (
       ),
     );
   }
-  const comments = localCommentDocuments(file, "wayfinder.comments", diagnostics);
+  const comments = localCommentDocuments(file, "wayfinder.comments");
   return {
     kind: "wayfinder-ticket",
     ref: objectReference(file.locator),
@@ -827,7 +810,7 @@ const decodeDelivery = (
       ),
     );
   }
-  const comments = localCommentDocuments(file, "delivery.comments", diagnostics);
+  const comments = localCommentDocuments(file, "delivery.comments");
   return {
     kind: "delivery-ticket",
     ref: objectReference(file.locator),
@@ -934,16 +917,6 @@ const decodeIncoming = (
           semanticRole: "incoming.content",
           title: "Issue Body",
         });
-  if (issueBodyDocument?.diagnostic !== undefined) {
-    diagnostics.push(
-      diagnostic(
-        issueBodyDocument.diagnostic.code,
-        "format",
-        file.locator,
-        issueBodyDocument.diagnostic.message,
-      ),
-    );
-  }
   const content: readonly MattIncomingDocument[] = [
     ...(issueBodyDocument === undefined
       ? []
@@ -955,7 +928,7 @@ const decodeIncoming = (
             sourceAnchor: { kind: "source" as const, target: file.locator },
           },
         ]),
-    ...localCommentDocuments(file, "incoming.content", diagnostics),
+    ...localCommentDocuments(file, "incoming.content"),
   ];
   return {
     kind: "incoming-issue",
@@ -1180,16 +1153,6 @@ const decodeMap = (
       MATT_MAP_DOCUMENT_OWNED_SECTION_TITLES,
     ),
   );
-  if (destinationDocument.diagnostic !== undefined) {
-    diagnostics.push(
-      diagnostic(
-        destinationDocument.diagnostic.code,
-        "format",
-        file.locator,
-        destinationDocument.diagnostic.message,
-      ),
-    );
-  }
   const notesSection = compatibleSectionList(file, ["Notes"], "map.notes", diagnostics);
   const fogSection = compatibleSectionList(
     file,

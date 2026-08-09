@@ -1,6 +1,5 @@
 import Fuse from "fuse.js";
-import type { DocumentPresentation } from "../document-presentation";
-import { documentPresentationBlocksPlainText } from "../document-presentation";
+import { markdownSemanticPlainText } from "../markdown-document";
 import type { PlanningLineageSubject } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type {
@@ -13,6 +12,7 @@ import type {
   Roadmap,
 } from "../project-generation/contract";
 import { assessSelectedProviderObservationEvidence } from "../provider-evidence-contract";
+import type { ProviderSemanticSection } from "../provider-semantic-section";
 import type {
   MattDeliveryTicket,
   MattIncomingIssue,
@@ -563,22 +563,25 @@ const nativeContentFields = (
   subject: PlanningLineageSubject,
   object: MattMap | MattSpec | MattWayfinderTicket | MattDeliveryTicket | MattIncomingIssue,
 ): readonly FindField[] => {
-  const documentText = (document: DocumentPresentation, role: string) => {
-    const section = document.sections.find((candidate) => candidate.semanticRole === role);
-    return section?.availability === "available"
-      ? documentPresentationBlocksPlainText(section.blocks)
-      : "";
-  };
+  const documentFields = (
+    document: readonly ProviderSemanticSection[],
+    key: FindFieldKey,
+  ): readonly (FindField | undefined)[] =>
+    document.map((section) =>
+      section.availability === "available"
+        ? contentField(snapshot, subject, {
+            key,
+            label: section.title,
+            text: markdownSemanticPlainText(section.markdown),
+            anchor: section.semanticRole ?? section.sourceIdentity,
+          })
+        : undefined,
+    );
   const fields: (FindField | undefined)[] = [];
   switch (object.kind) {
     case "map":
       fields.push(
-        contentField(snapshot, subject, {
-          key: "intent",
-          label: "Destination",
-          text: documentText(object.destination, "map.destination"),
-          anchor: "map.destination",
-        }),
+        ...documentFields(object.destination, "intent"),
         contentField(snapshot, subject, {
           key: "decision",
           label: "Decisions",
@@ -588,36 +591,19 @@ const nativeContentFields = (
       );
       break;
     case "spec":
-      fields.push(
-        ...object.document.sections.map((section) =>
-          section.availability === "available"
-            ? contentField(snapshot, subject, {
-                key: "nativeBody",
-                label: section.title,
-                text: documentPresentationBlocksPlainText(section.blocks),
-                anchor: section.semanticRole ?? section.sourceIdentity,
-              })
-            : undefined,
-        ),
-      );
+      fields.push(...documentFields(object.document, "nativeBody"));
       break;
     case "wayfinder-ticket":
-      fields.push(
-        contentField(snapshot, subject, {
-          key: "intent",
-          label: "Question",
-          text: documentText(object.question, "wayfinder.question"),
-          anchor: "wayfinder.question",
-        }),
-        object.answer.availability === "available"
-          ? contentField(snapshot, subject, {
-              key: "nativeBody",
-              label: "Answer",
-              text: documentText(object.answer.content.document, "wayfinder.answer"),
-              anchor: "wayfinder.answer",
-            })
-          : undefined,
-      );
+      fields.push(...documentFields(object.question, "intent"));
+      if (object.answer.availability === "available") {
+        fields.push(...documentFields(object.answer.content.document, "nativeBody"));
+      } else {
+        fields.push(...documentFields(object.answer.document ?? [], "nativeBody"));
+      }
+      for (const comment of object.comments) {
+        fields.push(...documentFields(comment.document, "nativeBody"));
+      }
+      fields.push(...documentFields(object.commentsDocument ?? [], "nativeBody"));
       break;
     case "delivery-ticket":
       fields.push(
@@ -633,27 +619,17 @@ const nativeContentFields = (
           text: object.acceptanceCriteria.join(" · "),
           anchor: "delivery.acceptance-criteria",
         }),
-        contentField(snapshot, subject, {
-          key: "nativeBody",
-          label: "Comments",
-          text: object.comments
-            .map((comment) => documentText(comment.document, "delivery.comments"))
-            .join(" · "),
-          anchor: "delivery.comments",
-        }),
       );
+      for (const comment of object.comments) {
+        fields.push(...documentFields(comment.document, "nativeBody"));
+      }
+      fields.push(...documentFields(object.commentsDocument ?? [], "nativeBody"));
       break;
     case "incoming-issue":
-      fields.push(
-        contentField(snapshot, subject, {
-          key: "nativeBody",
-          label: "Issue content",
-          text: object.content
-            .map((content) => documentText(content.document, "incoming.content"))
-            .join(" · "),
-          anchor: "incoming.content",
-        }),
-      );
+      for (const content of object.content) {
+        fields.push(...documentFields(content.document, "nativeBody"));
+      }
+      fields.push(...documentFields(object.commentsDocument ?? [], "nativeBody"));
       break;
   }
   return fields.filter((candidate): candidate is FindField => candidate !== undefined);

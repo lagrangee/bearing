@@ -5,10 +5,6 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { readCatalogDocument, upsertCatalogEntry } from "../src/catalog/store";
-import {
-  type ProviderStructuralValue,
-  providerObservationIdentityFor,
-} from "../src/native-work-provider";
 import { resolveRepositoryRoot } from "../src/path-boundary";
 import { PROJECT_READ_MODEL_PROJECTION_VERSION } from "../src/project-read-model/contract";
 import {
@@ -41,16 +37,6 @@ const makeRepository = async (root: string): Promise<void> => {
       surfaces: ["agent-skills"],
       executorProfiles: [],
     })}\n`,
-  );
-};
-
-const withoutNativeTimeBasis = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(withoutNativeTimeBasis);
-  if (value === null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value).flatMap(([key, item]) =>
-      key === "basis" && item !== undefined ? [] : [[key, withoutNativeTimeBasis(item)]],
-    ),
   );
 };
 
@@ -298,7 +284,7 @@ test("Project Read Model publishes atomically, preserves last-good, and stays is
   }
 });
 
-test("Project Read Model classifies missing, compatible-obsolete, older, newer, corrupt, and unsafe stores", async () => {
+test("Project Read Model classifies missing, incompatible, older, newer, corrupt, and unsafe stores", async () => {
   const fixture = await createRepresentativeProject("representative");
   try {
     assert.deepEqual(await inspectProjectReadModel(fixture.root), { state: "missing" });
@@ -335,7 +321,7 @@ test("Project Read Model classifies missing, compatible-obsolete, older, newer, 
       .run();
     database.exec("UPDATE read_model_metadata SET projection_version = 0 WHERE singleton = 1");
     database.close();
-    assert.equal((await inspectProjectReadModel(fixture.root)).state, "obsolete-compatible");
+    assert.equal((await inspectProjectReadModel(fixture.root)).state, "recovery-required");
 
     const newerProjection = new DatabaseSync(path);
     newerProjection.exec(
@@ -388,130 +374,46 @@ test("Project Read Model classifies missing, compatible-obsolete, older, newer, 
   }
 });
 
-test("a projection v4 raw provider key is compatible-obsolete and rematerializes to the current encoding", async () => {
-  assert.equal(PROJECT_READ_MODEL_PROJECTION_VERSION, 8);
-  const fixture = await createRepresentativeProject("representative");
-  try {
-    await publishProjectReadModel(
-      fixture.root,
-      await materializeProjectReadModelCandidate(fixture.root),
-    );
-    const path = projectReadModelPath(fixture.root);
-    const legacy = new DatabaseSync(path);
-    try {
-      legacy.exec("UPDATE read_model_metadata SET projection_version = 4 WHERE singleton = 1");
-      const rows = legacy
-        .prepare("SELECT binding_key, role, selection_json FROM provider_evidence")
-        .all();
-      for (const row of rows) {
-        const selection = JSON.parse(String(row["selection_json"])) as {
-          provider: string;
-          nativeScope: string;
-        };
-        legacy
-          .prepare(
-            "UPDATE provider_evidence SET binding_key = ? WHERE binding_key = ? AND role = ?",
-          )
-          .run(
-            `${selection.provider}\0${selection.nativeScope}`,
-            String(row["binding_key"]),
-            String(row["role"]),
-          );
-      }
-    } finally {
-      legacy.close();
-    }
-
-    assert.equal((await inspectProjectReadModel(fixture.root)).state, "obsolete-compatible");
-    const inspected = await inspectProject(fixture.root, { kind: "project" });
-    assert.ok(inspected.outcome === "complete" || inspected.outcome === "partial");
-    const current = await inspectProjectReadModel(fixture.root);
-    assert.equal(current.state, "ready");
-    if (current.state === "ready") {
-      assert.equal(current.metadata.projectionVersion, PROJECT_READ_MODEL_PROJECTION_VERSION);
-    }
-    const rematerialized = new DatabaseSync(path, { readOnly: true });
-    try {
-      const keys = rematerialized.prepare("SELECT binding_key FROM provider_evidence").all();
-      assert.ok(keys.every((row) => !String(row["binding_key"]).includes("\0")));
-    } finally {
-      rematerialized.close();
-    }
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test("a projection v7 provider observation without native time basis is compatible-obsolete", async () => {
+test("a v20 projection is incompatible and rebuild does not reacquire Provider evidence", async () => {
   const root = await createValidBearingRepo();
   try {
+    assert.equal(PROJECT_READ_MODEL_PROJECTION_VERSION, 9);
     assert.equal((await rebuildProjectReadModel(root)).outcome, "complete");
     assert.equal((await captureProjectProviderScopes(root, [".scratch/work"])).outcome, "complete");
     const database = new DatabaseSync(projectReadModelPath(root));
     try {
-      database.exec("UPDATE read_model_metadata SET projection_version = 7 WHERE singleton = 1");
-      const rows = database
-        .prepare(
-          "SELECT binding_key, role, observation_json, selection_json FROM provider_evidence",
-        )
-        .all();
-      assert.ok(rows.length > 0);
-      assert.ok(rows.some((row) => String(row["observation_json"]).includes('"basis"')));
-      for (const row of rows) {
-        if (typeof row["observation_json"] !== "string") continue;
-        const current = JSON.parse(row["observation_json"]) as Record<string, unknown>;
-        const { id: _id, ...content } = current;
-        const legacyContent = withoutNativeTimeBasis(content) as Record<string, unknown>;
-        const legacyId = providerObservationIdentityFor(legacyContent as ProviderStructuralValue);
-        const selection = JSON.parse(String(row["selection_json"])) as Record<string, unknown>;
-        database
-          .prepare(
-            "UPDATE provider_evidence SET observation_id = ?, observation_json = ?, selection_json = ? WHERE binding_key = ? AND role = ?",
-          )
-          .run(
-            legacyId,
-            JSON.stringify({ id: legacyId, ...legacyContent }),
-            JSON.stringify({ ...selection, observationId: legacyId }),
-            String(row["binding_key"]),
-            String(row["role"]),
-          );
-      }
-      const portalRows = database
-        .prepare(
-          "SELECT reference, payload_json FROM project_objects WHERE kind = 'portal-native-evidence'",
-        )
-        .all();
-      assert.ok(portalRows.length > 0);
-      for (const row of portalRows) {
-        const current = JSON.parse(String(row["payload_json"])) as Record<string, unknown>;
-        if (current["observation"] === undefined) continue;
-        const legacyObservation = withoutNativeTimeBasis(current["observation"]) as Record<
-          string,
-          unknown
-        >;
-        const { id: _id, ...legacyContent } = legacyObservation;
-        const legacyId = providerObservationIdentityFor(legacyContent as ProviderStructuralValue);
-        const selection = current["selection"] as Record<string, unknown>;
-        database.prepare("UPDATE project_objects SET payload_json = ? WHERE reference = ?").run(
-          JSON.stringify({
-            ...current,
-            selection: { ...selection, observationId: legacyId },
-            observation: { id: legacyId, ...legacyContent },
-          }),
-          String(row["reference"]),
-        );
-      }
+      assert.ok(
+        Number(
+          database
+            .prepare(
+              "SELECT COUNT(*) AS count FROM provider_evidence WHERE observation_json IS NOT NULL",
+            )
+            .get()?.["count"],
+        ) > 0,
+      );
+      database.exec("UPDATE read_model_metadata SET projection_version = 8 WHERE singleton = 1");
     } finally {
       database.close();
     }
 
-    assert.equal((await inspectProjectReadModel(root)).state, "obsolete-compatible");
-    const inspected = await inspectProject(root, { kind: "project" });
-    assert.ok(inspected.outcome === "complete" || inspected.outcome === "partial");
+    assert.equal((await inspectProjectReadModel(root)).state, "recovery-required");
+    assert.equal((await rebuildProjectReadModel(root)).outcome, "complete");
     const current = await inspectProjectReadModel(root);
     assert.equal(current.state, "ready");
-    if (current.state === "ready") {
-      assert.equal(current.metadata.projectionVersion, PROJECT_READ_MODEL_PROJECTION_VERSION);
+    const rebuilt = new DatabaseSync(projectReadModelPath(root), { readOnly: true });
+    try {
+      assert.equal(
+        Number(
+          rebuilt
+            .prepare(
+              "SELECT COUNT(*) AS count FROM provider_evidence WHERE observation_json IS NOT NULL",
+            )
+            .get()?.["count"],
+        ),
+        0,
+      );
+    } finally {
+      rebuilt.close();
     }
   } finally {
     await rm(root, { recursive: true, force: true });

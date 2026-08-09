@@ -1,4 +1,4 @@
-import { documentPresentationBlocksPlainText } from "../../src/document-presentation";
+import { markdownSemanticPlainText } from "../../src/markdown-document";
 import type { MattSkillsV1ProviderObservation } from "../../src/providers/matt-skills-v1/capture";
 import type {
   MattScopeProjection,
@@ -19,11 +19,9 @@ const scenarioAlias = (aliases: Readonly<Record<string, string>>, reference: str
 const providerDocumentPlainText = (
   document: MattScopeProjection["wayfinderTickets"][number]["question"],
 ): string =>
-  document.sections
+  document
     .flatMap((section) =>
-      section.availability === "available"
-        ? [documentPresentationBlocksPlainText(section.blocks)]
-        : [],
+      section.availability === "available" ? [markdownSemanticPlainText(section.markdown)] : [],
     )
     .join("\n\n");
 
@@ -113,14 +111,14 @@ const buildMattReferenceSemanticView = (
       : {
           title: capture.projection.spec.title,
           lifecycle: capture.projection.spec.lifecycle.state,
-          sections: capture.projection.spec.document.sections.flatMap((section) =>
+          sections: capture.projection.spec.document.flatMap((section) =>
             section.semanticRole === undefined
               ? []
               : [
                   {
                     role: section.semanticRole.slice("spec.".length),
                     title: section.title,
-                    body: documentPresentationBlocksPlainText(section.blocks),
+                    body: markdownSemanticPlainText(section.markdown),
                   },
                 ],
           ),

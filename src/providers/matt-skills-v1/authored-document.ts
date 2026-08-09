@@ -1,22 +1,12 @@
 import {
-  DOCUMENT_PRESENTATION_VERSION,
-  type DocumentPresentation,
-  type DocumentPresentationSection,
-} from "../../document-presentation";
-import {
   type MarkdownDocument,
-  type MarkdownDocumentPresentationResult,
   type MarkdownSection,
-  markdownDocumentPresentationBlocks,
-  markdownDocumentPresentationBodyBlocks,
-  parseMarkdownDocument,
   queryMarkdownSections,
 } from "../../markdown-document";
-
-export type MattAuthoredDocumentDiagnostic = Readonly<{
-  code: "matt.document-section-unsupported";
-  message: string;
-}>;
+import {
+  PROVIDER_SEMANTIC_SECTION_VERSION,
+  type ProviderSemanticSection,
+} from "../../provider-semantic-section";
 
 type DocumentIdentity = Readonly<{
   sourceIdentity: string;
@@ -26,7 +16,7 @@ type DocumentIdentity = Readonly<{
 
 export const mattAuthoredDocumentIdentity = (
   semanticRole: string,
-  role: "answer" | "ordinary-comment" | "agent-brief" | "triage-note",
+  role: "answer" | "ordinary-comment" | "agent-brief" | "triage-note" | "issue-body",
 ): DocumentIdentity => ({
   sourceIdentity: `${semanticRole}.${role}`,
   semanticRole,
@@ -37,7 +27,9 @@ export const mattAuthoredDocumentIdentity = (
         ? "Agent Brief"
         : role === "triage-note"
           ? "Triage Note"
-          : "Comment",
+          : role === "issue-body"
+            ? "Issue Body"
+            : "Comment",
 });
 
 export const MATT_MAP_DOCUMENT_OWNED_SECTION_TITLES = [
@@ -72,45 +64,27 @@ export const mattAdditiveDocumentSections = (
   );
 };
 
-const documentFromProjection = (
+const sectionEnvelope = (
+  section: MarkdownSection,
   identity: DocumentIdentity,
-  projected: MarkdownDocumentPresentationResult,
-): Readonly<{
-  document: DocumentPresentation;
-  diagnostic?: MattAuthoredDocumentDiagnostic | undefined;
-}> => {
-  const section: DocumentPresentationSection = {
-    ...identity,
-    sourceOrder: 0,
-    availability: projected.ok
-      ? projected.blocks.length === 0
-        ? "confirmed-empty"
-        : "available"
-      : "unavailable",
-    blocks: projected.ok ? projected.blocks : [],
-  };
-  return {
-    document: { version: DOCUMENT_PRESENTATION_VERSION, sections: [section] },
-    ...(projected.ok
-      ? {}
-      : {
-          diagnostic: {
-            code: "matt.document-section-unsupported" as const,
-            message: `Authored document contains unsupported ${projected.reason} content (${projected.nodeKind}).`,
-          },
-        }),
-  };
-};
+  sourceOrder: number,
+  semanticRole = false,
+): ProviderSemanticSection => ({
+  version: PROVIDER_SEMANTIC_SECTION_VERSION,
+  sourceIdentity: identity.sourceIdentity,
+  title: identity.title,
+  sourceOrder,
+  ...(semanticRole ? { semanticRole: identity.semanticRole } : {}),
+  availability: section.markdown.length === 0 ? "confirmed-empty" : "available",
+  markdown: section.markdown,
+});
 
 export const projectMattAuthoredSectionDocument = (
   source: MarkdownDocument,
   section: MarkdownSection,
   identity: DocumentIdentity,
   additiveSections: readonly MarkdownSection[] = [],
-) => {
-  if (additiveSections.length === 0) {
-    return documentFromProjection(identity, markdownDocumentPresentationBlocks(source, section));
-  }
+): Readonly<{ document: readonly ProviderSemanticSection[] }> => {
   const selectedTitles = new Set([
     section.heading.title,
     ...additiveSections.map((candidate) => candidate.heading.title),
@@ -118,59 +92,71 @@ export const projectMattAuthoredSectionDocument = (
   const sections = queryMarkdownSections(source, { depth: section.heading.depth }).filter(
     (candidate) => selectedTitles.has(candidate.heading.title),
   );
-  const diagnostics: MattAuthoredDocumentDiagnostic[] = [];
-  const documentSections = sections.map((candidate, sourceOrder) => {
-    const primary = candidate.heading.title === section.heading.title;
-    const projected = markdownDocumentPresentationBlocks(source, candidate);
-    if (!projected.ok) {
-      diagnostics.push({
-        code: "matt.document-section-unsupported",
-        message: `Authored document contains unsupported ${projected.reason} content (${projected.nodeKind}).`,
-      });
-    }
-    return {
-      sourceIdentity: primary
-        ? identity.sourceIdentity
-        : `${identity.sourceIdentity}.additional.${sourceOrder}`,
-      title: primary ? identity.title : candidate.heading.title,
-      sourceOrder,
-      ...(primary ? { semanticRole: identity.semanticRole } : {}),
-      availability: projected.ok
-        ? projected.blocks.length === 0
-          ? ("confirmed-empty" as const)
-          : ("available" as const)
-        : ("unavailable" as const),
-      blocks: projected.ok ? projected.blocks : [],
-    };
-  });
   return {
-    document: { version: DOCUMENT_PRESENTATION_VERSION, sections: documentSections },
-    ...(diagnostics[0] === undefined ? {} : { diagnostic: diagnostics[0] }),
+    document: sections.map((candidate, sourceOrder) => {
+      const primary = candidate.heading.title === section.heading.title;
+      return sectionEnvelope(
+        candidate,
+        primary
+          ? identity
+          : {
+              sourceIdentity: `${identity.sourceIdentity}.additional.${sourceOrder}`,
+              title: candidate.heading.title,
+              semanticRole: identity.semanticRole,
+            },
+        sourceOrder,
+        primary,
+      );
+    }),
   };
 };
 
-export const projectMattAuthoredBodyDocument = (source: string, identity: DocumentIdentity) =>
-  documentFromProjection(
-    identity,
-    markdownDocumentPresentationBodyBlocks(parseMarkdownDocument(source)),
-  );
+export const projectMattAuthoredBodyDocument = (
+  source: string,
+  identity: DocumentIdentity,
+): Readonly<{ document: readonly ProviderSemanticSection[] }> => {
+  return {
+    document: [
+      {
+        version: PROVIDER_SEMANTIC_SECTION_VERSION,
+        ...identity,
+        sourceOrder: 0,
+        availability: source.trim().length === 0 ? "confirmed-empty" : "available",
+        markdown: source,
+      },
+    ],
+  };
+};
+
+export const projectMattUnsupportedAuthoredDocument = (
+  semanticRole: string,
+  title: string,
+): readonly ProviderSemanticSection[] => [
+  {
+    version: PROVIDER_SEMANTIC_SECTION_VERSION,
+    sourceIdentity: `${semanticRole}.unsupported`,
+    semanticRole,
+    title,
+    sourceOrder: 0,
+    availability: "unsupported",
+    markdown: "",
+  },
+];
 
 export const mattDocumentSectionAvailability = (
-  document: DocumentPresentation,
+  document: readonly ProviderSemanticSection[],
   semanticRole: string,
-): DocumentPresentationSection["availability"] =>
-  document.sections.find((section) => section.semanticRole === semanticRole)?.availability ??
-  "unavailable";
+): ProviderSemanticSection["availability"] =>
+  document.find((section) => section.semanticRole === semanticRole)?.availability ?? "unavailable";
 
 export const mattAuthoredDocumentCollectionAvailability = (
-  documents: readonly Readonly<{ document: DocumentPresentation }>[],
+  documents: readonly Readonly<{ document: readonly ProviderSemanticSection[] }>[],
   semanticRole: string,
-): "available" | "unavailable" | undefined =>
-  documents.length === 0
-    ? undefined
-    : documents.every(
-          (document) =>
-            mattDocumentSectionAvailability(document.document, semanticRole) === "available",
-        )
-      ? "available"
-      : "unavailable";
+): ProviderSemanticSection["availability"] | undefined => {
+  if (documents.length === 0) return undefined;
+  const availabilities = documents.map((document) =>
+    mattDocumentSectionAvailability(document.document, semanticRole),
+  );
+  const first = availabilities[0] ?? "unavailable";
+  return availabilities.every((availability) => availability === first) ? first : "unavailable";
+};

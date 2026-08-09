@@ -109,6 +109,217 @@ test("indexes the managed Audit and inspection-backed bound work", () => {
   });
 });
 
+test("indexes every available Provider Markdown section across native document surfaces", () => {
+  const snapshot = snapshotFixture();
+  const observation = snapshot.providerObservations.find(
+    (candidate) => candidate.binding.nativeScope === ".scratch/portal",
+  );
+  const selection = snapshot.providerObservationSelections.find(
+    (candidate) => candidate.nativeScope === ".scratch/portal",
+  );
+  if (
+    observation === undefined ||
+    selection === undefined ||
+    (observation.state !== "available" && observation.state !== "partial")
+  ) {
+    throw new Error("Expected the bound Portal observation.");
+  }
+  const additive = (
+    sourceIdentity: string,
+    title: string,
+    sourceOrder: number,
+    markdown: string,
+  ) => ({
+    version: 1 as const,
+    sourceIdentity,
+    title,
+    sourceOrder,
+    availability: "available" as const,
+    markdown,
+  });
+  const authoredDocument = (semanticRole: string, title: string, markdown: string) => [
+    {
+      ...additive(`${semanticRole}.ordinary-comment`, title, 0, markdown),
+      semanticRole,
+    },
+    additive(
+      `${semanticRole}.additional.find-proof`,
+      "Additional Find Proof",
+      1,
+      `${markdown} extra`,
+    ),
+  ];
+  const projection = observation.projection;
+  const augmented = createProviderScopeObservation({
+    provider: observation.provider,
+    binding: observation.binding,
+    observedAt: observation.observedAt,
+    ...(observation.sourceRevision === undefined
+      ? {}
+      : { sourceRevision: observation.sourceRevision }),
+    ...(observation.sourceObservedAt === undefined
+      ? {}
+      : { sourceObservedAt: observation.sourceObservedAt }),
+    validators: observation.validators,
+    freshness: observation.freshness,
+    state: observation.state,
+    completion: observation.completion,
+    diagnostics: observation.diagnostics,
+    coverage: {
+      assessment: observation.coverage.assessment,
+      dimensions: observation.coverage.dimensions.map((dimension) => ({
+        key: dimension.key,
+        state: dimension.state,
+        ...(dimension.detail === undefined ? {} : { detail: dimension.detail }),
+      })),
+    },
+    projection: {
+      ...projection,
+      map:
+        projection.map === undefined
+          ? undefined
+          : {
+              ...projection.map,
+              destination: [
+                ...projection.map.destination,
+                additive(
+                  "map.destination.additional.find-proof",
+                  "Map Additive",
+                  1,
+                  "map-additive-find-proof",
+                ),
+              ],
+            },
+      spec:
+        projection.spec === undefined
+          ? undefined
+          : {
+              ...projection.spec,
+              document: [
+                ...projection.spec.document,
+                additive(
+                  "spec.source.find-proof",
+                  "Spec Additive",
+                  projection.spec.document.length,
+                  "spec-additive-find-proof",
+                ),
+              ],
+            },
+      wayfinderTickets: projection.wayfinderTickets.map((ticket, index) =>
+        index === 0
+          ? {
+              ...ticket,
+              question: [
+                ...ticket.question,
+                additive(
+                  "wayfinder.question.additional.find-proof",
+                  "Question Additive",
+                  1,
+                  "wayfinder-question-additive-find-proof",
+                ),
+              ],
+              comments: [
+                ...ticket.comments,
+                {
+                  role: "ordinary-comment" as const,
+                  document: authoredDocument(
+                    "wayfinder.comments",
+                    "Comment",
+                    "wayfinder-comment-find-proof",
+                  ),
+                  nativeIdentity: "comment:find-wayfinder",
+                  authoredAt: { availability: "unsupported" as const },
+                },
+              ],
+              semanticSections: ticket.semanticSections.map((section) =>
+                section.role === "wayfinder.comments"
+                  ? { ...section, availability: "available" as const }
+                  : section,
+              ),
+            }
+          : ticket,
+      ),
+      deliveryTickets: projection.deliveryTickets.map((ticket, index) =>
+        index === 0
+          ? {
+              ...ticket,
+              comments: [
+                ...ticket.comments,
+                {
+                  role: "triage-note" as const,
+                  document: authoredDocument(
+                    "delivery.comments",
+                    "Triage Note",
+                    "delivery-comment-find-proof",
+                  ),
+                  authoredAt: { availability: "unsupported" as const },
+                },
+              ],
+              semanticSections: ticket.semanticSections.map((section) =>
+                section.role === "delivery.comments"
+                  ? { ...section, availability: "available" as const }
+                  : section,
+              ),
+            }
+          : ticket,
+      ),
+      incomingIssues: projection.incomingIssues.map((issue, index) =>
+        index === 0
+          ? {
+              ...issue,
+              content: [
+                ...issue.content.map((content) => ({
+                  ...content,
+                  document: [
+                    ...content.document,
+                    additive(
+                      "incoming.content.additional.find-proof",
+                      "Incoming Additive",
+                      1,
+                      "incoming-additive-find-proof",
+                    ),
+                  ],
+                })),
+                {
+                  role: "ordinary-comment" as const,
+                  document: authoredDocument(
+                    "incoming.content",
+                    "Comment",
+                    "incoming-comment-find-proof",
+                  ),
+                  authoredAt: { availability: "unsupported" as const },
+                },
+              ],
+            }
+          : issue,
+      ),
+    },
+  });
+  const rebuilt = parseRebuiltPlanningLineageFixture({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((candidate) =>
+      candidate.id === observation.id ? augmented : candidate,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((candidate) =>
+      candidate.observationId === observation.id
+        ? { ...candidate, observationId: augmented.id }
+        : candidate,
+    ),
+  });
+  const index = buildProjectFindIndex(rebuilt, "bearing");
+  for (const [phrase, id] of [
+    ["map-additive-find-proof", ".scratch/portal/map.md"],
+    ["spec-additive-find-proof", ".scratch/portal/PRD.md"],
+    ["wayfinder-question-additive-find-proof", ".scratch/portal/issues/01-build.md"],
+    ["wayfinder-comment-find-proof extra", ".scratch/portal/issues/01-build.md"],
+    ["delivery-comment-find-proof extra", ".scratch/portal/issues/03-gate.md"],
+    ["incoming-additive-find-proof", ".scratch/portal/issues/04-incoming.md"],
+    ["incoming-comment-find-proof extra", ".scratch/portal/issues/04-incoming.md"],
+  ] as const) {
+    expect(index.search(phrase)[0]?.subject).toEqual({ kind: "native-subject", id });
+  }
+});
+
 test("recalls exact identities and semantic fields with stable typed routes", () => {
   const snapshot = snapshotFixture();
   const index = buildProjectFindIndex(snapshot, "bearing");

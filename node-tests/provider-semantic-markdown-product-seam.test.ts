@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
-import { readFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { realpath, rm } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { renderProviderMarkdownSections } from "../src/portal/markdown-engine";
+import { createPortalProjectQueryService } from "../src/portal/project-query-service";
+import { portalProjectRowsSchema } from "../src/portal-project-read-wire";
 import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
 import { portalRowsToProjectData } from "../src/portal-ui/project-row-adapter";
 import { queryPortalProjectRows } from "../src/project-read-model/portal";
 import { captureProjectProviderScopes } from "../src/project-read-model/provider-operations";
 import { projectReadModelPath } from "../src/project-read-model/store";
+import { mattProviderSemanticSections } from "../src/providers/matt-skills-v1/projection";
 import {
   createGitHubMattRepository,
   createReferenceGitHubFixtures,
@@ -20,7 +23,24 @@ import {
   githubMattProviderFactoryFor,
   writeStandardGitHubMattProductRepository,
 } from "../tests/fixtures/github-matt-api";
+import { architectureContractionPrdReadingFixture } from "../tests/fixtures/provider-semantic-section";
 import { createValidBearingRepo, writeFixture } from "../tests/helpers";
+
+const portalData = (rows: Awaited<ReturnType<typeof queryPortalProjectRows>>) =>
+  portalRowsToProjectData(
+    portalProjectRowsSchema.parse({
+      ...rows,
+      renderedMarkdown: renderProviderMarkdownSections(
+        rows.objects
+          .flatMap((object) =>
+            object.kind === "portal-native-evidence" && object.value.observation !== undefined
+              ? [object.value.observation]
+              : [],
+          )
+          .flatMap(mattProviderSemanticSections),
+      ),
+    }),
+  );
 
 test("Spec document structure survives capture, SQLite publication, typed query, and Portal markup", async () => {
   const root = await createValidBearingRepo();
@@ -78,7 +98,7 @@ Gate Passage remains human-owned.
 
     const target = { kind: "native-subject" as const, id: ".scratch/work/PRD.md" };
     const rows = await queryPortalProjectRows(root, "lineage", target);
-    const snapshot = portalRowsToProjectData(rows);
+    const snapshot = portalData(rows);
     if (snapshot.section !== "lineage") throw new Error("Expected typed Portal lineage rows.");
     const observation = snapshot.providerObservations.find(
       (candidate) => candidate.binding.nativeScope === ".scratch/work",
@@ -91,7 +111,7 @@ Gate Passage remains human-owned.
       throw new Error("Expected the typed Spec provider observation.");
     }
     const spec = observation.projection.spec;
-    assert.equal(spec.document.version, 1);
+    assert.equal(spec.document[0]?.version, 1);
     assert.equal("sections" in spec, false);
     assert.equal(
       spec.native.rawFacets.some((facet) => facet.key === "markdown"),
@@ -114,17 +134,99 @@ Gate Passage remains human-owned.
     assert.match(html, /<h2>User Stories<\/h2>/u);
     assert.match(html, /<h3>Reading order<\/h3>/u);
     assert.match(html, /<ol start="7">/u);
-    assert.match(html, /<ul><li>Keep one nested bullet\.<ul>/u);
+    assert.match(html, /<ul>[\s\S]*<li>Keep one nested bullet\.[\s\S]*<ul>/u);
     assert.match(html, /<strong>provider-neutral<\/strong>/u);
     assert.match(html, /<em>supporting detail<\/em>/u);
     assert.match(html, /<code>inline code<\/code>/u);
     assert.match(
       html,
-      /<a href="https:\/\/example\.com\/spec" rel="noopener noreferrer" target="_blank">safe link<\/a>/u,
+      /<a href="https:\/\/example\.com\/spec" target="_blank" rel="noopener noreferrer">safe link<\/a>/u,
     );
     assert.match(html, /<h2>Compatibility Notes<\/h2>/u);
     assert.doesNotMatch(html, /<h[12]>Reading order<\/h[12]>/u);
     assert.doesNotMatch(html, /\*\*provider-neutral\*\*/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Host wire keeps every acquired section readable", async () => {
+  const root = await createValidBearingRepo();
+  try {
+    const requiredSections = [
+      ["Problem Statement", "Keep the acquired problem statement."],
+      ["Solution", "Keep the acquired solution."],
+      ["User Stories", "Keep the acquired user stories."],
+      ["Implementation Decisions", "Keep the acquired implementation decisions."],
+      ["Testing Decisions", "Keep the acquired testing decisions."],
+      ["Out of Scope", "Keep the acquired exclusions."],
+      ["Further Notes", "Keep the acquired notes."],
+    ] as const;
+    const additiveSections = Array.from(
+      { length: 10 },
+      (_, index) =>
+        [`Additional Reading ${index}`, `Preserve additional section ${index}.`] as const,
+    );
+    const authored = `# Large valid reading corpus
+
+Status: ready-for-agent
+
+${[...requiredSections, ...additiveSections]
+  .map(([title, body]) => `## ${title}\n\n${body}`)
+  .join("\n\n")}
+`;
+    assert.ok(Buffer.byteLength(authored) < 1_048_576);
+    await writeFixture(root, ".scratch/work/PRD.md", authored);
+
+    const captured = await captureProjectProviderScopes(root, [".scratch/work"], {
+      now: () => "2026-08-09T00:00:00.000Z",
+    });
+    assert.equal(captured.outcome, "complete");
+    const rows = await queryPortalProjectRows(root, "lineage", {
+      kind: "native-subject",
+      id: ".scratch/work/PRD.md",
+    });
+    const snapshot = portalData(rows);
+    if (snapshot.section !== "lineage") throw new Error("Expected typed Spec lineage rows.");
+    const observation = snapshot.providerObservations.find(
+      (candidate) => candidate.binding.nativeScope === ".scratch/work",
+    );
+    if (
+      observation === undefined ||
+      (observation.state !== "available" && observation.state !== "partial")
+    ) {
+      throw new Error("Expected the large acquired Spec observation.");
+    }
+    const acquiredSections = observation.projection.spec?.document.length ?? 0;
+    assert.ok(acquiredSections >= 17);
+    const allAcquiredSections = rows.objects
+      .flatMap((object) =>
+        object.kind === "portal-native-evidence" && object.value.observation !== undefined
+          ? [object.value.observation]
+          : [],
+      )
+      .flatMap(mattProviderSemanticSections);
+    const uniqueAvailableMarkdown = new Set(
+      allAcquiredSections.flatMap((section) =>
+        section.availability === "available" ? [section.markdown] : [],
+      ),
+    );
+    assert.equal(snapshot.renderedMarkdown.length, uniqueAvailableMarkdown.size);
+
+    const html = renderToStaticMarkup(
+      createElement(PlanningLineagePage, {
+        entryId: "bearing",
+        requested: {
+          validity: "valid",
+          value: { kind: "native-subject", id: ".scratch/work/PRD.md" },
+        },
+        snapshot,
+        onInspect: () => {},
+        onNavigate: () => {},
+      }),
+    );
+    assert.match(html, /Additional Reading 9/u);
+    assert.match(html, /Preserve additional section 9\./u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -221,7 +323,7 @@ The second authored comment stays independent.
       id: ".scratch/work/issues/01-finish.md",
     };
     const rows = await queryPortalProjectRows(root, "lineage", target);
-    const snapshot = portalRowsToProjectData(rows);
+    const snapshot = portalData(rows);
     if (snapshot.section !== "lineage") throw new Error("Expected typed Portal lineage rows.");
     const observation = snapshot.providerObservations.find(
       (candidate) => candidate.binding.nativeScope === ".scratch/work",
@@ -236,30 +338,30 @@ The second authored comment stays independent.
     }
     const map = observation.projection.map;
     const ticket = observation.projection.wayfinderTickets[0];
-    assert.equal(map.destination.version, 1);
+    assert.equal(map.destination[0]?.version, 1);
     assert.deepEqual(
-      map.destination.sections.map((section) => section.title),
+      map.destination.map((section) => section.title),
       ["Destination", "Supporting Context"],
     );
     assert.deepEqual(map.notes, ["Notes remain typed."]);
     assert.deepEqual(map.fog, ["Fog remains typed."]);
     assert.equal(map.decisions[0]?.gist, "The route is complete.");
     assert.equal(map.lifecycle.state, "resolved");
-    assert.equal(ticket.question.version, 1);
+    assert.equal(ticket.question[0]?.version, 1);
     assert.deepEqual(
-      ticket.question.sections.map((section) => section.title),
+      ticket.question.map((section) => section.title),
       ["Question", "Reader Context"],
     );
     assert.equal(ticket.answer.availability, "available");
     if (ticket.answer.availability !== "available") throw new Error("Expected an Answer.");
-    assert.equal(ticket.answer.content.document.version, 1);
+    assert.equal(ticket.answer.content.document[0]?.version, 1);
     assert.equal("body" in ticket.answer.content, false);
     assert.deepEqual(
       ticket.comments.map((comment) => comment.role),
       ["ordinary-comment", "agent-brief"],
     );
     assert.equal(
-      ticket.comments.every((comment) => comment.document.version === 1),
+      ticket.comments.every((comment) => comment.document[0]?.version === 1),
       true,
     );
     assert.equal(
@@ -298,7 +400,7 @@ The second authored comment stays independent.
       id: ".scratch/work/map.md",
     };
     const mapRows = await queryPortalProjectRows(root, "lineage", mapTarget);
-    const mapSnapshot = portalRowsToProjectData(mapRows);
+    const mapSnapshot = portalData(mapRows);
     if (mapSnapshot.section !== "lineage") throw new Error("Expected typed Map lineage rows.");
     const mapHtml = renderToStaticMarkup(
       createElement(PlanningLineagePage, {
@@ -397,7 +499,7 @@ The triage note stays **independent** from the body.
       id: ".scratch/work/issues/20-delivery.md",
     };
     const typedRows = await queryPortalProjectRows(root, "lineage", deliveryTarget);
-    const typedSnapshot = portalRowsToProjectData(typedRows);
+    const typedSnapshot = portalData(typedRows);
     if (typedSnapshot.section !== "lineage") {
       throw new Error("Expected typed Portal lineage rows.");
     }
@@ -485,18 +587,18 @@ The triage note stays **independent** from the body.
         {
           headings: ["Issue Content and Triage Notes", "Triage context"],
           fragments: [
-            '<a href="https://example.com/incoming" rel="noopener noreferrer" target="_blank">safe source</a>',
+            '<a href="https://example.com/incoming" target="_blank" rel="noopener noreferrer">safe source</a>',
             "<strong>independent</strong>",
             "<dt>Role</dt><dd>issue-body</dd>",
             "<dt>Role</dt><dd>triage-note</dd>",
-            "<h2>Routing</h2><p>needs-triage</p>",
+            "<dt>Routing</dt><dd>needs-triage</dd>",
             "<dt>Source anchor</dt><dd>source: .scratch/work/issues/21-incoming.md</dd>",
           ],
         },
       ],
     ] as const) {
       const rows = await queryPortalProjectRows(root, "lineage", target);
-      const snapshot = portalRowsToProjectData(rows);
+      const snapshot = portalData(rows);
       if (snapshot.section !== "lineage") throw new Error("Expected typed Portal lineage rows.");
       const html = renderToStaticMarkup(
         createElement(PlanningLineagePage, {
@@ -510,7 +612,9 @@ The triage note stays **independent** from the body.
       for (const heading of expected.headings) {
         assert.match(html, new RegExp(`<h[23]>${heading}</h[23]>`, "u"));
       }
-      for (const fragment of expected.fragments) assert.ok(html.includes(fragment));
+      for (const fragment of expected.fragments) {
+        assert.ok(html.includes(fragment), `Missing Portal fragment: ${fragment}`);
+      }
       assert.doesNotMatch(html, /ordinary-comment:|issue-body:|triage-note:/u);
     }
 
@@ -546,8 +650,7 @@ Keep this typed scalar unchanged.
         body: `The Incoming body keeps a [safe source](https://example.com/incoming).
 
 1. Preserve body order.
-2. Preserve typed classification.
-`,
+2. Preserve typed classification.`,
       });
       const fixtures = createReferenceGitHubFixtures();
       fixtures["repos/example/reference/issues/4"] = {
@@ -606,7 +709,7 @@ The triage note stays **independent** from the body.
         kind: "native-subject",
         id: "github:R_reference:I_reference_4",
       });
-      const githubSnapshot = portalRowsToProjectData(githubRows);
+      const githubSnapshot = portalData(githubRows);
       if (githubSnapshot.section !== "lineage") {
         throw new Error("Expected typed GitHub Portal lineage rows.");
       }
@@ -627,12 +730,12 @@ The triage note stays **independent** from the body.
       const documentReadingView = (
         documents: readonly Readonly<{
           role: string;
-          document: Readonly<{ sections: readonly unknown[] }>;
+          document: readonly unknown[];
         }>[],
       ) =>
         documents.map((document) => ({
           role: document.role,
-          sections: document.document.sections,
+          sections: document.document,
         }));
       assert.deepEqual(
         documentReadingView(githubDeliveryProjection.comments),
@@ -698,7 +801,7 @@ The triage note stays **independent** from the body.
         kind: "native-subject",
         id: "github:R_reference:I_reference_5",
       });
-      const githubIncomingSnapshot = portalRowsToProjectData(githubIncomingRows);
+      const githubIncomingSnapshot = portalData(githubIncomingRows);
       if (githubIncomingSnapshot.section !== "lineage") {
         throw new Error("Expected typed GitHub Incoming Portal rows.");
       }
@@ -715,8 +818,8 @@ The triage note stays **independent** from the body.
         }),
       );
       for (const fragment of [
-        "<h2>Routing</h2><p>ready-for-agent</p>",
-        "<h2>Native Lifecycle</h2><p>closed · completed</p>",
+        "<dt>Routing</dt><dd>ready-for-agent</dd>",
+        "<dt>Disposition</dt><dd>completed</dd>",
         "<dt>Actor</dt><dd>reporter</dd>",
         "<dt>Actor</dt><dd>triage-author</dd>",
         "<dt>Issue body authored by reporter</dt>",
@@ -737,7 +840,103 @@ The triage note stays **independent** from the body.
   }
 });
 
-test("unsafe Delivery and Incoming authored documents fail closed before publication", async () => {
+test("unsupported GitHub comment capability still publishes readable Portal and Find content", async () => {
+  const root = await createGitHubMattRepository();
+  try {
+    const repository = await writeStandardGitHubMattProductRepository(root, {
+      title: "GitHub unsupported comment capability",
+      intent: "Keep readable authored content when the comments endpoint is unsupported.",
+      work: "Capture one exact GitHub scope and publish its partial capability evidence.",
+    });
+    const fixtures = createReferenceGitHubFixtures();
+    for (const issueNumber of [3, 4, 5]) {
+      fixtures[`repos/example/reference/issues/${issueNumber}/comments?per_page=100&page=1`] = {
+        first: { status: 410, headers: {} },
+      };
+    }
+    const transport = new FixtureGitHubTransport(fixtures);
+    const captured = await captureProjectProviderScopes(root, [repository.nativeScope], {
+      providerFactory: githubMattProviderFactoryFor(transport),
+    });
+    assert.equal(captured.outcome, "complete");
+    assert.deepEqual(captured.result.scopes, [
+      { scope: repository.nativeScope, disposition: "captured" },
+    ]);
+
+    const target = {
+      kind: "native-subject" as const,
+      id: "github:R_reference:I_reference_5",
+    };
+    const providerRequestCount = transport.requests.length;
+    const portalRoot = await realpath(root);
+    const service = createPortalProjectQueryService({
+      readCatalog: async () => ({
+        state: "ready",
+        entries: [
+          {
+            entryId: "bearing",
+            displayName: "Bearing",
+            repoRoot: portalRoot,
+            availability: "available",
+          },
+        ],
+      }),
+    });
+    const portalRead = await service.read("bearing", "lineage", target);
+    assert.equal(portalRead.kind, "ready");
+    if (portalRead.kind !== "ready") throw new Error("Expected a production Portal read.");
+    const snapshot = portalRowsToProjectData(portalProjectRowsSchema.parse(portalRead.rows));
+    if (snapshot.section !== "lineage") {
+      throw new Error("Expected typed GitHub Portal lineage rows.");
+    }
+    const observation = snapshot.providerObservations.find(
+      (candidate) => candidate.binding.nativeScope === repository.nativeScope,
+    );
+    if (
+      observation === undefined ||
+      (observation.state !== "available" && observation.state !== "partial")
+    ) {
+      throw new Error("Expected a published GitHub observation with unsupported capabilities.");
+    }
+    assert.equal(observation.freshness.assessment, "current");
+    assert.deepEqual(
+      mattProviderSemanticSections(observation)
+        .filter((section) => section.availability === "unsupported")
+        .map((section) => section.sourceIdentity),
+      [
+        "wayfinder.answer.unsupported",
+        "wayfinder.comments.unsupported",
+        "delivery.comments.unsupported",
+        "incoming.content.unsupported",
+      ],
+    );
+
+    const html = renderToStaticMarkup(
+      createElement(PlanningLineagePage, {
+        entryId: "bearing",
+        requested: { validity: "valid", value: target },
+        snapshot,
+        onInspect: () => {},
+        onNavigate: () => {},
+      }),
+    );
+    assert.match(html, /Reporter prose with/u);
+    assert.match(html, /This provider document section is unsupported\./u);
+    const find = await service.search("bearing", "Reporter prose");
+    assert.equal(find.kind, "ready");
+    if (find.kind !== "ready") throw new Error("Expected a production Project Find read.");
+    assert.ok(
+      find.find.results.some(
+        (result) => result.subject.kind === "native-subject" && result.subject.id === target.id,
+      ),
+    );
+    assert.equal(transport.requests.length, providerRequestCount);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("unsafe Delivery and Incoming Markdown survives capture and is inert in Portal", async () => {
   for (const scenario of ["delivery-comment", "incoming-body"] as const) {
     const root = await createValidBearingRepo();
     try {
@@ -782,7 +981,7 @@ Status: needs-triage
       const captured = await captureProjectProviderScopes(root, [".scratch/work"], {
         now: () => "2026-08-09T00:00:00.000Z",
       });
-      assert.equal(captured.outcome, "unfulfilled");
+      assert.equal(captured.outcome, "complete");
       const id =
         scenario === "delivery-comment"
           ? ".scratch/work/issues/20-delivery.md"
@@ -791,21 +990,27 @@ Status: needs-triage
         kind: "native-subject",
         id,
       });
-      assert.equal(
-        rows.objects.some(
-          (object) =>
-            object.kind === "portal-native-evidence" &&
-            object.value.observation?.binding.nativeScope === ".scratch/work",
-        ),
-        false,
+      const snapshot = portalData(rows);
+      if (snapshot.section !== "lineage") throw new Error("Expected Portal lineage rows.");
+      const html = renderToStaticMarkup(
+        createElement(PlanningLineagePage, {
+          entryId: "bearing",
+          requested: { validity: "valid", value: { kind: "native-subject", id } },
+          snapshot,
+          onInspect: () => {},
+          onNavigate: () => {},
+        }),
       );
+      assert.doesNotMatch(html, /<(?:script|iframe|form|img)\b/iu);
+      assert.doesNotMatch(html, /href="javascript:/iu);
+      assert.match(html, scenario === "delivery-comment" ? /unsafe/u : /&lt;script&gt;/u);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   }
 });
 
-test("unsafe Map and Wayfinder authored documents fail closed before publication", async () => {
+test("unsafe Map and Wayfinder Markdown stays provider truth and renders inert", async () => {
   const root = await createValidBearingRepo();
   try {
     await writeFixture(
@@ -821,13 +1026,35 @@ Status: active
 
 ## Decisions so far
 
+- [Resolve the question](issues/01-finish.md) — Existing route.
+
 ## Fog
 `,
     );
     const unsafeMap = await captureProjectProviderScopes(root, [".scratch/work"], {
       now: () => "2026-08-09T00:00:00.000Z",
     });
-    assert.equal(unsafeMap.outcome, "unfulfilled");
+    assert.equal(unsafeMap.outcome, "complete");
+    const mapRows = await queryPortalProjectRows(root, "lineage", {
+      kind: "native-subject",
+      id: ".scratch/work/map.md",
+    });
+    const mapSnapshot = portalData(mapRows);
+    if (mapSnapshot.section !== "lineage") throw new Error("Expected Map lineage rows.");
+    const mapHtml = renderToStaticMarkup(
+      createElement(PlanningLineagePage, {
+        entryId: "bearing",
+        requested: {
+          validity: "valid",
+          value: { kind: "native-subject", id: ".scratch/work/map.md" },
+        },
+        snapshot: mapSnapshot,
+        onInspect: () => {},
+        onNavigate: () => {},
+      }),
+    );
+    assert.doesNotMatch(mapHtml, /<script\b/iu);
+    assert.match(mapHtml, /&lt;script&gt;/u);
 
     await writeFixture(
       root,
@@ -868,33 +1095,37 @@ Can unsafe authored content publish?
     const unsafeAnswer = await captureProjectProviderScopes(root, [".scratch/work"], {
       now: () => "2026-08-09T00:01:00.000Z",
     });
-    assert.equal(unsafeAnswer.outcome, "unfulfilled");
+    assert.equal(unsafeAnswer.outcome, "complete");
 
     const rows = await queryPortalProjectRows(root, "lineage", {
       kind: "native-subject",
       id: ".scratch/work/issues/01-finish.md",
     });
-    assert.equal(
-      rows.objects.some(
-        (object) =>
-          object.kind === "portal-native-evidence" &&
-          object.value.observation?.binding.nativeScope === ".scratch/work",
-      ),
-      false,
+    const snapshot = portalData(rows);
+    if (snapshot.section !== "lineage") throw new Error("Expected Wayfinder lineage rows.");
+    const html = renderToStaticMarkup(
+      createElement(PlanningLineagePage, {
+        entryId: "bearing",
+        requested: {
+          validity: "valid",
+          value: { kind: "native-subject", id: ".scratch/work/issues/01-finish.md" },
+        },
+        snapshot,
+        onInspect: () => {},
+        onNavigate: () => {},
+      }),
     );
+    assert.doesNotMatch(html, /href="javascript:/iu);
+    assert.match(html, /unsafe link/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("the self-host Architecture Contraction PRD retains its authored reading structure", async () => {
+test("the committed Architecture Contraction PRD corpus retains its authored reading structure", async () => {
   const root = await createValidBearingRepo();
   try {
-    const source = await readFile(
-      join(process.cwd(), ".scratch/bearing-architecture-contraction/PRD.md"),
-      "utf8",
-    );
-    await writeFixture(root, ".scratch/work/PRD.md", source);
+    await writeFixture(root, ".scratch/work/PRD.md", architectureContractionPrdReadingFixture);
     const captured = await captureProjectProviderScopes(root, [".scratch/work"], {
       now: () => "2026-08-09T00:00:00.000Z",
     });
@@ -902,7 +1133,7 @@ test("the self-host Architecture Contraction PRD retains its authored reading st
 
     const target = { kind: "native-subject" as const, id: ".scratch/work/PRD.md" };
     const rows = await queryPortalProjectRows(root, "lineage", target);
-    const snapshot = portalRowsToProjectData(rows);
+    const snapshot = portalData(rows);
     if (snapshot.section !== "lineage") throw new Error("Expected typed Portal lineage rows.");
     const observation = snapshot.providerObservations.find(
       (candidate) => candidate.binding.nativeScope === ".scratch/work",
@@ -912,18 +1143,18 @@ test("the self-host Architecture Contraction PRD retains its authored reading st
       (observation.state !== "available" && observation.state !== "partial") ||
       observation.projection.spec === undefined
     ) {
-      throw new Error("Expected the self-host Spec provider observation.");
+      throw new Error("Expected the committed Spec corpus provider observation.");
     }
-    const userStories = observation.projection.spec.document.sections.find(
+    const userStories = observation.projection.spec.document.find(
       (section) => section.semanticRole === "spec.user-stories",
     );
     assert.equal(userStories?.availability, "available");
-    assert.equal(
-      userStories?.blocks.some(
-        (block) => block.kind === "list" && block.style === "ordered" && block.items.length >= 125,
-      ),
-      true,
-    );
+    assert.deepEqual(userStories?.markdown.match(/^\d+\.[ \t]/gmu), [
+      "126. ",
+      "127. ",
+      "128. ",
+      "129. ",
+    ]);
 
     const html = renderToStaticMarkup(
       createElement(PlanningLineagePage, {
@@ -937,7 +1168,7 @@ test("the self-host Architecture Contraction PRD retains its authored reading st
     assert.match(html, /<h2>User Stories<\/h2>/u);
     assert.match(html, /<h3>Provider-neutral document reading and Project Brief refinement<\/h3>/u);
     assert.match(html, /<li>As a Portal reader, I want ordered lists to remain ordered/u);
-    assert.match(html, /<code>effortIds<\/code>/u);
+    assert.match(html, /Preserve the observed Markdown instead of serializing mdast/u);
     assert.match(html, /<strong>AC-DR-01<\/strong>/u);
     assert.doesNotMatch(html, /## Provider-neutral document reading/u);
   } finally {
@@ -945,7 +1176,7 @@ test("the self-host Architecture Contraction PRD retains its authored reading st
   }
 });
 
-test("unsafe authored content and incompatible stored documents fail closed before Portal query", async () => {
+test("unsafe authored content is sanitized and incompatible stored sections fail closed", async () => {
   const root = await createValidBearingRepo();
   try {
     await writeFixture(
@@ -971,38 +1202,27 @@ Safe context remains available.
     const captured = await captureProjectProviderScopes(root, [".scratch/work"], {
       now: () => "2026-08-09T00:00:00.000Z",
     });
-    assert.equal(captured.outcome, "unfulfilled");
+    assert.equal(captured.outcome, "complete");
 
     const target = { kind: "native-subject" as const, id: ".scratch/work/PRD.md" };
     const unsafeRows = await queryPortalProjectRows(root, "lineage", target);
-    const unsafeSnapshot = portalRowsToProjectData(unsafeRows);
+    const unsafeSnapshot = portalData(unsafeRows);
     if (unsafeSnapshot.section !== "lineage") {
       throw new Error("Expected typed Portal lineage rows.");
     }
-    assert.equal(
-      unsafeSnapshot.providerObservations.some(
-        (observation) => observation.binding.nativeScope === ".scratch/work",
-      ),
-      false,
+    const unsafeHtml = renderToStaticMarkup(
+      createElement(PlanningLineagePage, {
+        entryId: "bearing",
+        requested: { validity: "valid", value: target },
+        snapshot: unsafeSnapshot,
+        onInspect: () => {},
+        onNavigate: () => {},
+      }),
     );
-    await writeFixture(
-      root,
-      ".scratch/work/PRD.md",
-      `# Safe Spec
-
-Status: ready-for-agent
-
-## Problem Statement
-
-Safe context remains available.
-`,
-    );
-    const safeCapture = await captureProjectProviderScopes(root, [".scratch/work"], {
-      now: () => "2026-08-09T00:01:00.000Z",
-    });
-    assert.equal(safeCapture.outcome, "complete");
-    const safeRows = await queryPortalProjectRows(root, "lineage", target);
-    const evidence = safeRows.objects.find(
+    assert.doesNotMatch(unsafeHtml, /<script\b|href="javascript:/iu);
+    assert.match(unsafeHtml, /&lt;script&gt;/u);
+    assert.match(unsafeHtml, /unsafe link/u);
+    const evidence = unsafeRows.objects.find(
       (object) =>
         object.kind === "portal-native-evidence" &&
         object.value.role === "bound" &&
@@ -1024,19 +1244,12 @@ Safe context remains available.
       const storedSpec = stored.projection.spec;
       if (storedSpec === undefined) throw new Error("Expected stored Spec content.");
       const incompatibleDocuments = [
-        { ...storedSpec.document, version: 2 },
-        {
-          ...storedSpec.document,
-          sections: storedSpec.document.sections.map((section, index) =>
-            index === 0
-              ? {
-                  ...section,
-                  availability: "available",
-                  blocks: [{ kind: "html", value: '<script>alert("unsafe")</script>' }],
-                }
-              : section,
-          ),
-        },
+        storedSpec.document.map((section, index) =>
+          index === 0 ? { ...section, version: 2 } : section,
+        ),
+        storedSpec.document.map((section, index) =>
+          index === 0 ? { ...section, html: '<script>alert("unsafe")</script>' } : section,
+        ),
       ];
       for (const document of incompatibleDocuments) {
         const tampered = {

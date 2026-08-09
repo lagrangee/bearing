@@ -6,7 +6,7 @@ import type {
   MattScopeProjection,
 } from "../../src/providers/matt-skills-v1/model";
 import type { MattReferenceSemanticView } from "../helpers/matt-reference-oracle";
-import { plainDocumentPresentation, plainProviderDocument } from "./document-presentation";
+import { plainProviderSection, plainProviderSemanticSections } from "./provider-semantic-section";
 
 type NativeKind = "local" | "github";
 
@@ -87,7 +87,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
       kind: "map",
       ref: mapRef,
       title: "Reference Map",
-      destination: plainProviderDocument(
+      destination: plainProviderSection(
         "map.destination",
         "Destination",
         "Prove one complete Matt-native semantic scope.",
@@ -131,7 +131,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
       kind: "spec",
       ref: specRef,
       title: "Reference Spec",
-      document: plainDocumentPresentation([
+      document: plainProviderSemanticSections([
         {
           role: "problem",
           title: "Problem Statement",
@@ -186,7 +186,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         ref: researchRef,
         title: "Research the semantic contract",
         subtype: "research",
-        question: plainProviderDocument(
+        question: plainProviderSection(
           "wayfinder.question",
           "Question",
           "Which semantics are durable?",
@@ -196,7 +196,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
           availability: "available",
           content: {
             role: "answer",
-            document: plainProviderDocument(
+            document: plainProviderSection(
               "wayfinder.answer",
               "Answer",
               "Preserve workflow-specific lifecycle and evidence.",
@@ -211,7 +211,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         comments: [
           {
             role: "ordinary-comment",
-            document: plainProviderDocument(
+            document: plainProviderSection(
               "wayfinder.comments",
               "Comment",
               "This comment is not the Answer.",
@@ -245,7 +245,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         ref: prototypeRef,
         title: "Prototype the capture seam",
         subtype: "prototype",
-        question: plainProviderDocument(
+        question: plainProviderSection(
           "wayfinder.question",
           "Question",
           "Does one capture preserve all axes?",
@@ -267,7 +267,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         ref: grillingRef,
         title: "Grill the ontology boundary",
         subtype: "grilling",
-        question: plainProviderDocument(
+        question: plainProviderSection(
           "wayfinder.question",
           "Question",
           "What must remain provider-specific?",
@@ -299,7 +299,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         ref: taskRef,
         title: "Record the accepted decision",
         subtype: "task",
-        question: plainProviderDocument(
+        question: plainProviderSection(
           "wayfinder.question",
           "Question",
           "Can the decision be written durably?",
@@ -309,7 +309,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         comments: [
           {
             role: "agent-brief",
-            document: plainProviderDocument(
+            document: plainProviderSection(
               "wayfinder.comments",
               "Comment",
               "Write only the accepted resolution.",
@@ -341,7 +341,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         comments: [
           {
             role: "triage-note",
-            document: plainProviderDocument(
+            document: plainProviderSection(
               "delivery.comments",
               "Triage Note",
               "Delivery completion is not tracker closure.",
@@ -392,7 +392,7 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
         content: [
           {
             role: "issue-body",
-            document: plainProviderDocument(
+            document: plainProviderSection(
               "incoming.content",
               "Issue Body",
               "External customer report.",

@@ -129,7 +129,7 @@ describe("GitHub matt-skills/v1 capture", () => {
     expect(JSON.stringify(result)).not.toContain("token");
   });
 
-  test("fails Delivery comments and Incoming bodies closed when authored documents are unsafe", async () => {
+  test("preserves unsafe authored Markdown as Provider truth for Host sanitization", async () => {
     const root = await createRepository();
     const unsafeDeliveryComment = comment({
       id: 401,
@@ -167,8 +167,7 @@ describe("GitHub matt-skills/v1 capture", () => {
         clock: () => new Date("2026-07-28T00:00:00Z"),
       }).capture({ provider: "matt-skills/v1", nativeScope: nativeScopeFor(issue) });
 
-      expect(result.state).toBe("partial");
-      expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      expect(result.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
         "matt.document-section-unsupported",
       );
       const projected =
@@ -177,15 +176,17 @@ describe("GitHub matt-skills/v1 capture", () => {
           : result.projection?.incomingIssues[0];
       expect(
         projected?.semanticSections.find((section) => section.role === role)?.availability,
-      ).toBe("unavailable");
+      ).toBe("available");
       const documents =
         projected?.kind === "delivery-ticket" ? projected.comments : projected?.content;
       expect(documents?.every((document) => !("body" in document))).toBe(true);
       expect(
-        documents?.every((document) =>
-          document.document.sections.every((section) => section.blocks.length === 0),
-        ),
-      ).toBe(true);
+        documents?.flatMap((document) => document.document.map((section) => section.markdown)),
+      ).toEqual([
+        role === "delivery.comments"
+          ? "[unsafe](javascript:alert(1))"
+          : '<script>alert("unsafe")</script>',
+      ]);
     }
   });
 
@@ -385,26 +386,13 @@ describe("GitHub matt-skills/v1 capture", () => {
     expect(result.diagnostics).toEqual([]);
     expect(result.projection?.map).toMatchObject({
       title: "Reference Map",
-      destination: {
-        version: 1,
-        sections: [
-          {
-            semanticRole: "map.destination",
-            availability: "available",
-            blocks: [
-              {
-                kind: "paragraph",
-                inlines: [
-                  {
-                    kind: "text",
-                    value: "Prove one complete Matt-native semantic scope.",
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
+      destination: [
+        {
+          semanticRole: "map.destination",
+          availability: "available",
+          markdown: "Prove one complete Matt-native semantic scope.",
+        },
+      ],
       notes: ["Keep provider-native identity outside the semantic oracle."],
       decisions: [
         {
@@ -423,7 +411,7 @@ describe("GitHub matt-skills/v1 capture", () => {
       lifecycle: { state: "ready-for-agent" },
     });
     expect(
-      result.projection?.spec?.document.sections.map((section) =>
+      result.projection?.spec?.document.map((section) =>
         section.semanticRole?.slice("spec.".length),
       ),
     ).toEqual([
@@ -439,46 +427,25 @@ describe("GitHub matt-skills/v1 capture", () => {
     expect(result.projection?.wayfinderTickets[0]).toMatchObject({
       title: "Research the semantic contract",
       subtype: "research",
-      question: {
-        version: 1,
-        sections: [
-          {
-            semanticRole: "wayfinder.question",
-            availability: "available",
-            blocks: [
-              {
-                kind: "paragraph",
-                inlines: [{ kind: "text", value: "Which semantics are durable?" }],
-              },
-            ],
-          },
-        ],
-      },
+      question: [
+        {
+          semanticRole: "wayfinder.question",
+          availability: "available",
+          markdown: "Which semantics are durable?",
+        },
+      ],
       claim: { state: "claimed", claimant: "lago" },
       answer: {
         availability: "available",
         content: {
           role: "answer",
-          document: {
-            version: 1,
-            sections: [
-              {
-                semanticRole: "wayfinder.answer",
-                availability: "available",
-                blocks: [
-                  {
-                    kind: "paragraph",
-                    inlines: [
-                      {
-                        kind: "text",
-                        value: "Preserve workflow-specific lifecycle and evidence.",
-                      },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
+          document: [
+            {
+              semanticRole: "wayfinder.answer",
+              availability: "available",
+              markdown: "Preserve workflow-specific lifecycle and evidence.",
+            },
+          ],
           nativeIdentity: "IC_301",
           authoredAt: {
             availability: "available",
@@ -491,21 +458,13 @@ describe("GitHub matt-skills/v1 capture", () => {
       comments: [
         {
           role: "ordinary-comment",
-          document: {
-            version: 1,
-            sections: [
-              {
-                semanticRole: "wayfinder.comments",
-                availability: "available",
-                blocks: [
-                  {
-                    kind: "paragraph",
-                    inlines: [{ kind: "text", value: "This comment is not the Answer." }],
-                  },
-                ],
-              },
-            ],
-          },
+          document: [
+            {
+              semanticRole: "wayfinder.comments",
+              availability: "available",
+              markdown: "This comment is not the Answer.",
+            },
+          ],
           nativeIdentity: "IC_302",
           author: "reviewer",
           authoredAt: {
@@ -540,16 +499,13 @@ describe("GitHub matt-skills/v1 capture", () => {
       comments: [
         {
           role: "ordinary-comment",
-          document: {
-            version: 1,
-            sections: [
-              {
-                semanticRole: "delivery.comments",
-                availability: "available",
-                blocks: [{ kind: "paragraph" }, { kind: "list", style: "ordered" }],
-              },
-            ],
-          },
+          document: [
+            {
+              semanticRole: "delivery.comments",
+              availability: "available",
+              markdown: "Delivery **comment**.\n\n1. Keep its order.",
+            },
+          ],
           nativeIdentity: "IC_401",
         },
       ],
@@ -562,19 +518,11 @@ describe("GitHub matt-skills/v1 capture", () => {
       content: [
         {
           role: "issue-body",
-          document: { version: 1, sections: [{ semanticRole: "incoming.content" }] },
+          document: [{ semanticRole: "incoming.content" }],
         },
         {
           role: "triage-note",
-          document: {
-            version: 1,
-            sections: [
-              {
-                semanticRole: "incoming.content",
-                blocks: [{ kind: "paragraph" }],
-              },
-            ],
-          },
+          document: [{ semanticRole: "incoming.content" }],
           nativeIdentity: "IC_501",
         },
       ],
@@ -2160,26 +2108,13 @@ Does closure alone prove resolution?
       comments: [
         {
           role: "ordinary-comment",
-          document: {
-            version: 1,
-            sections: [
-              {
-                semanticRole: "wayfinder.comments",
-                availability: "available",
-                blocks: [
-                  {
-                    kind: "paragraph",
-                    inlines: [
-                      {
-                        kind: "text",
-                        value: "This ordinary comment is not uniquely referenced.",
-                      },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
+          document: [
+            {
+              semanticRole: "wayfinder.comments",
+              availability: "available",
+              markdown: "This ordinary comment is not uniquely referenced.",
+            },
+          ],
           nativeIdentity: "IC_303",
         },
       ],
@@ -2360,21 +2295,13 @@ Which route pointer is canonical?
       comments: [
         {
           role: "ordinary-comment",
-          document: {
-            version: 1,
-            sections: [
-              {
-                semanticRole: "wayfinder.comments",
-                availability: "available",
-                blocks: [
-                  {
-                    kind: "paragraph",
-                    inlines: [{ kind: "text", value: "One comment, two Map references." }],
-                  },
-                ],
-              },
-            ],
-          },
+          document: [
+            {
+              semanticRole: "wayfinder.comments",
+              availability: "available",
+              markdown: "One comment, two Map references.",
+            },
+          ],
           nativeIdentity: "IC_303",
         },
       ],

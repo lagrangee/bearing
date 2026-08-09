@@ -8,6 +8,7 @@ import type {
   RequestedPlanningLineageFilteredView,
   RequestedPlanningLineageSubject,
 } from "../src/planning-lineage-route";
+import { renderProviderMarkdownSections } from "../src/portal/markdown-engine";
 import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
 import { ProviderObservationStatus } from "../src/portal-ui/provider-observation-status";
 import { ProviderObservationTime } from "../src/portal-ui/provider-observation-time";
@@ -15,6 +16,7 @@ import type { ProjectGeneration } from "../src/project-generation/contract";
 import { effortSchema } from "../src/project-generation/schema";
 import { assetProjectionSchema } from "../src/project-generation/schema-asset";
 import { createSourceRecord } from "../src/project-generation/source-records";
+import { mattProviderSemanticSections } from "../src/providers/matt-skills-v1/projection";
 import {
   createAttentionWithoutActiveWorkFixture,
   createAvailableLifecycleTimeFixture,
@@ -50,13 +52,24 @@ const render = (
     observationActionLabel?: "Refresh source";
     observationBusy?: boolean;
     onObserveSource?: () => void;
+    omitRenderedMarkdown?: boolean;
   }> = {},
 ): string =>
   renderToStaticMarkup(
     createElement(PlanningLineagePage, {
       entryId: "bearing",
       requested,
-      snapshot: options.snapshot ?? createProjectOverviewFixture(),
+      snapshot: (() => {
+        const snapshot = options.snapshot ?? createProjectOverviewFixture();
+        return {
+          ...snapshot,
+          renderedMarkdown: options.omitRenderedMarkdown
+            ? []
+            : renderProviderMarkdownSections(
+                snapshot.providerObservations.flatMap(mattProviderSemanticSections),
+              ),
+        };
+      })(),
       onInspect: () => {},
       onNavigate: () => {},
       ...(options.observationActionLabel === undefined
@@ -96,7 +109,7 @@ test("renders one route-owned Gate dossier and non-duplicated Lineage Context", 
   expect(html).toContain('<p class="lineage-header-status">Gate · Passed · Ready for review</p>');
   expect(html).toContain("Contributing Efforts");
   expect(html).not.toContain('id="relation.outcome.contributing-efforts"');
-  expect(html).toContain("Evidence: .scratch/evidence/planning-model");
+  expect(html).toContain("<dt>Evidence 1</dt><dd>.scratch/evidence/planning-model</dd>");
   expect(html).toContain("Confirmed none");
   expect(html).not.toContain("<h3>Roadmap</h3>");
   expect(html).not.toContain('aria-label="Quick Look Planning Model"');
@@ -220,23 +233,23 @@ test("keeps Asset semantics on detail and routes content outside Technical Detai
   );
 
   expect(html).toContain("Asset Identity");
-  expect(html).toContain("Kind: reference");
+  expect(html).toContain("<dt>Kind</dt><dd>reference</dd>");
   expect(html).toContain("Ownership and Purpose");
   const header = html.match(/<header class="lineage-header"[\s\S]*?<\/header>/u)?.[0];
   expect(header).toBeDefined();
   expect(header).not.toContain('class="action action-primary lineage-primary-action"');
   const ownership = html.match(/<section[^>]*id="asset.ownership"[\s\S]*?<\/section>/u)?.[0];
   expect(ownership).toBeDefined();
-  expect(ownership).toContain("Owner: project-summary:current");
+  expect(ownership).toContain("<dt>Owner</dt><dd>project-summary:current</dd>");
   expect(ownership).not.toMatch(/<a[^>]*>Owner:/u);
   expect(html).toContain("Planning Citation");
-  expect(html).toContain("Current source availability is unavailable");
+  expect(html).toContain("<dt>Availability</dt><dd>unavailable</dd>");
   expect(html).not.toContain('id="asset.content"');
   expect(html).not.toContain("Read this Asset on its bounded, read-only content surface.");
   expect(html).not.toContain("Read-only · current-checkout content · isolated window");
   expect(html).not.toContain('id="relation.production.owner"');
   expect(html).not.toContain('id="relation.production.produced-for"');
-  expect(html).toContain("Locator: .scratch/evidence/planning-model");
+  expect(html).toContain("<dt>Locator</dt><dd>.scratch/evidence/planning-model</dd>");
   expect(html).not.toContain("asset:planning-model-evidence · reference");
   expect(html).not.toContain("<h2>Provenance</h2>");
   expect(html).not.toContain("generic-agent");
@@ -273,7 +286,7 @@ test("keeps Asset semantics on detail and routes content outside Technical Detai
   const unavailableOwnership = unavailableOwnerHtml.match(
     /<section[^>]*id="asset.ownership"[\s\S]*?<\/section>/u,
   )?.[0];
-  expect(unavailableOwnership).toContain("<li>Owner: project-summary:current</li>");
+  expect(unavailableOwnership).toContain("<dt>Owner</dt><dd>project-summary:current</dd>");
   expect(unavailableOwnership).not.toContain('href="/projects/bearing/lineage/gate/gate%3Aone"');
 
   const assets = snapshot.assets;
@@ -434,6 +447,16 @@ test("renders a quiet human-readable Work History and scopes degraded recovery t
     { semanticAnchor: "native-work-current" },
   );
   expect(anchored).not.toContain("Requested section unavailable");
+});
+
+test("keeps Map Destination readable when its Host render result is missing", () => {
+  const html = render(
+    { validity: "valid", value: { kind: "native-scope", id: ".scratch/portal" } },
+    { omitRenderedMarkdown: true },
+  );
+
+  expect(html).toContain("Formatting is unavailable for this section.");
+  expect(html).toContain("<pre>Reach the accepted project outcome.</pre>");
 });
 
 test("renders Effort status, canonical Intent, concluded-only Outcome, and governed Current Work", () => {
@@ -845,14 +868,11 @@ test("keeps Map detail out of Effort Current Work when its optional semantics ar
               ...portal.projection,
               map: {
                 ...map,
-                destination: {
-                  ...map.destination,
-                  sections: map.destination.sections.map((section) => ({
-                    ...section,
-                    availability: "unavailable" as const,
-                    blocks: [],
-                  })),
-                },
+                destination: map.destination.map((section) => ({
+                  ...section,
+                  availability: "unavailable" as const,
+                  markdown: "",
+                })),
                 semanticSections: map.semanticSections.map((section) =>
                   section.role === "map.destination"
                     ? { ...section, availability: "unavailable" as const }

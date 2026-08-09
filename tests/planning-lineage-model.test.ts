@@ -4,6 +4,7 @@ import {
   buildPlanningLineageSubjectModel,
   effortPlanningBasisForWorkRegion,
   nativeLifecycleEventsFor,
+  type PlanningLineageSection,
   type PlanningLineageSubjectModel,
 } from "../src/portal-ui/planning-lineage-model";
 import type { ProjectGeneration } from "../src/project-generation/contract";
@@ -39,6 +40,34 @@ const readable = (
   return model;
 };
 
+const proseFor = (section: PlanningLineageSection | undefined): string | undefined =>
+  section?.content.find((content) => content.kind === "plain-prose")?.value;
+
+const bulletedFactsFor = (
+  section: PlanningLineageSection | undefined,
+): readonly string[] | undefined =>
+  section?.content.find((content) => content.kind === "fact-list" && content.style === "bulleted")
+    ?.values;
+
+const definitionFactsFor = (section: PlanningLineageSection | undefined) =>
+  section?.content.find(
+    (content) => content.kind === "fact-list" && content.style === "definitions",
+  )?.facts;
+
+const providerSectionFor = (section: PlanningLineageSection | undefined) => {
+  const document = section?.content.find(
+    (content) => content.kind === "provider-document",
+  )?.document;
+  if (document === undefined) return undefined;
+  return document.sections[0];
+};
+
+const effortRollupFor = (section: PlanningLineageSection | undefined) =>
+  section?.content.find((content) => content.kind === "effort-rollup")?.rows;
+
+const timeFactsFor = (section: PlanningLineageSection | undefined) =>
+  section?.content.find((content) => content.kind === "time-facts")?.facts;
+
 test("builds a Gate-owned route with trustworthy parents, full content, and typed relations", () => {
   const model = readable(
     buildPlanningLineageSubjectModel(fixture(), { kind: "gate", id: "gate:one" }, "bearing"),
@@ -61,8 +90,9 @@ test("builds a Gate-owned route with trustworthy parents, full content, and type
   ]);
   expect(model.headerStatus).toBe("Gate · Passed · Ready for review");
   expect(
-    model.sections.find((section) => section.anchor === "native-work.effort-summaries")
-      ?.effortRollup,
+    effortRollupFor(
+      model.sections.find((section) => section.anchor === "native-work.effort-summaries"),
+    ),
   ).toEqual([
     {
       id: "effort:model",
@@ -219,9 +249,12 @@ test("builds Effort, Asset, and Planning Review routes from their own truth", ()
       "bearing",
     ),
   );
-  expect(asset.sections.find((section) => section.anchor === "asset.evidence")?.body).toBe(
-    "1 Planning Citation; 0 Authority baselines.",
-  );
+  expect(
+    definitionFactsFor(asset.sections.find((section) => section.anchor === "asset.evidence")),
+  ).toEqual([
+    { key: "citations", label: "Planning Citations", value: "1" },
+    { key: "authority-baselines", label: "Authority baselines", value: "0" },
+  ]);
   expect(asset.relations.map((relation) => relation.key)).not.toContain("production.producer");
   if (snapshot.assets.validity === "invalid") throw new Error("Expected Assets.");
   const prototypeSnapshot = withLineage({
@@ -444,9 +477,9 @@ test("large relation collections expose truthful coverage and a stable filtered 
     "/projects/bearing/lineage/gate/gate%3Aone/relations/outcome_contributing-efforts?filter=all&order=canonical",
   );
   expect(
-    model.sections
-      .find((section) => section.anchor === "native-work.effort-summaries")
-      ?.effortRollup?.map((row) => row.id),
+    effortRollupFor(
+      model.sections.find((section) => section.anchor === "native-work.effort-summaries"),
+    )?.map((row) => row.id),
   ).toEqual(gateOneEffortIds);
 });
 
@@ -479,15 +512,15 @@ test("renders complete provider-native dossiers on stable Local identities witho
       "native.observation-trust",
     ]),
   );
-  expect(map.sections.find((section) => section.anchor === "map.decisions")?.body).toBe(
+  expect(proseFor(map.sections.find((section) => section.anchor === "map.decisions"))).toBe(
     "No decisions are recorded.",
   );
-  expect(map.sections.find((section) => section.anchor === "map.fog")?.items).toEqual([
+  expect(bulletedFactsFor(map.sections.find((section) => section.anchor === "map.fog"))).toEqual([
     "Finish the product journey.",
     "Review the evidence.",
   ]);
   expect(
-    map.sections.find((section) => section.anchor === "native.provenance")?.items,
+    bulletedFactsFor(map.sections.find((section) => section.anchor === "native.provenance")),
   ).toBeUndefined();
   expect(map.semanticAvailability.get("map.lifecycle")).toBe("available");
   expect(map.semanticAvailability.get("native.provenance")).toBe("available");
@@ -724,8 +757,9 @@ test("preserves an available canonical lifecycle time in the Gate rollup", () =>
   );
 
   expect(
-    model.sections.find((section) => section.anchor === "native-work.effort-summaries")
-      ?.effortRollup,
+    effortRollupFor(
+      model.sections.find((section) => section.anchor === "native-work.effort-summaries"),
+    ),
   ).toEqual([
     expect.objectContaining({
       id: "effort:model",
@@ -1042,17 +1076,17 @@ test("keeps Spec, Delivery, Incoming, and native scope semantics independent", (
       "bearing",
     ),
   );
-  expect(spec.sections.find((section) => section.anchor === "spec.lifecycle")?.body).toBe(
-    "ready-for-agent",
-  );
   expect(
-    spec.sections.find((section) => section.anchor === "spec.testing")?.documentBlocks,
-  ).toEqual([
-    {
-      kind: "paragraph",
-      inlines: [{ kind: "text", value: "Exercise the shared route contract." }],
-    },
-  ]);
+    definitionFactsFor(spec.sections.find((section) => section.anchor === "spec.lifecycle")),
+  ).toEqual([{ key: "lifecycle", label: "Lifecycle", value: "ready-for-agent" }]);
+  expect(
+    providerSectionFor(spec.sections.find((section) => section.anchor === "spec.testing")),
+  ).toMatchObject({
+    version: 1,
+    sourceIdentity: "spec.testing",
+    title: "Testing Decisions",
+    availability: "available",
+  });
 
   const delivery = readable(
     buildPlanningLineageSubjectModel(
@@ -1083,8 +1117,15 @@ test("keeps Spec, Delivery, Incoming, and native scope semantics independent", (
     ),
   );
   expect(
-    incoming.sections.find((section) => section.anchor === "incoming.classification")?.body,
-  ).toBe("enhancement · ready-for-agent");
+    definitionFactsFor(
+      incoming.sections.find((section) => section.anchor === "incoming.classification"),
+    ),
+  ).toEqual(
+    expect.arrayContaining([
+      { key: "category", label: "Category", value: "enhancement" },
+      { key: "state", label: "State", value: "ready-for-agent" },
+    ]),
+  );
 
   const scope = readable(
     buildPlanningLineageSubjectModel(
@@ -1124,6 +1165,137 @@ test("keeps Spec, Delivery, Incoming, and native scope semantics independent", (
   ).toMatchObject({
     state: "missing",
   });
+});
+
+test("publishes one discriminated authored-content view model without flattened display bodies", () => {
+  const snapshot = fixture();
+  const read = (id: string) =>
+    readable(buildPlanningLineageSubjectModel(snapshot, { kind: "native-subject", id }, "bearing"));
+  const spec = read(".scratch/portal/PRD.md");
+  const map = read(".scratch/portal/map.md");
+  const wayfinder = read(".scratch/portal/issues/01-build.md");
+  const delivery = read(".scratch/portal/issues/03-gate.md");
+  const incoming = read(".scratch/portal/issues/04-incoming.md");
+
+  for (const model of [spec, map, wayfinder, delivery, incoming]) {
+    for (const section of model.sections) {
+      expect(Object.keys(section).sort()).toEqual(["anchor", "content", "title"]);
+      expect(section.content.every((content) => "kind" in content)).toBe(true);
+    }
+  }
+
+  expect(
+    spec.sections
+      .find((section) => section.anchor === "spec.testing")
+      ?.content.map(({ kind }) => kind),
+  ).toEqual(["provider-document"]);
+  expect(
+    map.sections
+      .find((section) => section.anchor === "map.destination")
+      ?.content.map(({ kind }) => kind),
+  ).toEqual(["provider-document"]);
+  expect(
+    wayfinder.sections
+      .find((section) => section.anchor === "wayfinder.question")
+      ?.content.map(({ kind }) => kind),
+  ).toEqual(["provider-document"]);
+  expect(
+    delivery.sections
+      .find((section) => section.anchor === "delivery.acceptance-criteria")
+      ?.content.map(({ kind }) => kind),
+  ).toEqual(["fact-list"]);
+
+  const incomingDocument = incoming.sections
+    .find((section) => section.anchor === "incoming.content")
+    ?.content.find((content) => content.kind === "provider-document");
+  expect(incomingDocument?.document.provenance.facts).toEqual(
+    expect.arrayContaining([{ key: "role", label: "Role", value: "triage-note" }]),
+  );
+  expect(incomingDocument?.document.sections[0]?.version).toBe(1);
+  expect(JSON.stringify(incomingDocument?.document.sections)).not.toContain("triage-note");
+
+  const gate = readable(
+    buildPlanningLineageSubjectModel(snapshot, { kind: "gate", id: "gate:one" }, "bearing"),
+  );
+  expect(gate.sections.find((section) => section.anchor === "gate.exit-criteria")?.content).toEqual(
+    [expect.objectContaining({ kind: "fact-list", style: "bulleted" })],
+  );
+  expect(
+    gate.sections.find((section) => section.anchor === "gate.exit-criteria")?.content,
+  ).not.toEqual(expect.arrayContaining([expect.objectContaining({ kind: "provider-document" })]));
+
+  const asset = readable(
+    buildPlanningLineageSubjectModel(
+      snapshot,
+      { kind: "asset", id: "asset:planning-model-evidence" },
+      "bearing",
+    ),
+  );
+  const identity = asset.sections.find((section) => section.anchor === "asset.identity");
+  expect(proseFor(identity)).toBe("Keep durable planning-model context available.");
+  expect(definitionFactsFor(identity)).toEqual([
+    { key: "kind", label: "Kind", value: "reference" },
+  ]);
+  expect(JSON.stringify(identity)).not.toContain("Kind: reference. Purpose:");
+});
+
+test("keeps canonical owners and typed facts outside Provider Markdown rendering", () => {
+  const snapshot = fixture();
+  const canonicalSubjects = [
+    { label: "Roadmap", subject: { kind: "roadmap" as const, id: "roadmap:portal" } },
+    { label: "Gate", subject: { kind: "gate" as const, id: "gate:one" } },
+    { label: "Effort", subject: { kind: "effort" as const, id: "effort:portal" } },
+    {
+      label: "Review",
+      subject: { kind: "planning-review" as const, id: "planning-review:sequence" },
+    },
+    {
+      label: "Asset",
+      subject: { kind: "asset" as const, id: "asset:planning-model-evidence" },
+    },
+  ];
+
+  for (const { label, subject } of canonicalSubjects) {
+    const model = readable(buildPlanningLineageSubjectModel(snapshot, subject, "bearing"));
+    expect(
+      model.sections.flatMap((section) =>
+        section.content.filter((content) => content.kind === "provider-document"),
+      ),
+      `${label} canonical content must not enter the Provider renderer`,
+    ).toEqual([]);
+  }
+
+  const map = readable(
+    buildPlanningLineageSubjectModel(
+      snapshot,
+      { kind: "native-subject", id: ".scratch/portal/map.md" },
+      "bearing",
+    ),
+  );
+  expect(
+    map.sections
+      .filter((section) => section.content.some((content) => content.kind === "provider-document"))
+      .map((section) => section.anchor),
+  ).toEqual(["map.destination"]);
+  for (const anchor of ["map.lifecycle", "map.fog", "map.decisions", "map.out-of-scope"]) {
+    expect(
+      map.sections
+        .find((section) => section.anchor === anchor)
+        ?.content.some((content) => content.kind === "provider-document") ?? false,
+      `${anchor} typed facts must not enter the Provider renderer`,
+    ).toBe(false);
+  }
+
+  expect(snapshot.summary.validity).toBe("available");
+  if (snapshot.summary.validity !== "available") throw new Error("Expected Summary fixture.");
+  expect(snapshot.summary.value.purpose).toBe("Keep the whole project visible.");
+  expect(snapshot.brief.validity).toBe("absent");
+  expect(snapshot.authorities.validity).toBe("available");
+  if (snapshot.authorities.validity !== "available") throw new Error("Expected Authority fixture.");
+  expect(snapshot.authorities.items).toEqual([]);
+  expect(snapshot.audit.validity).toBe("available");
+  if (snapshot.audit.validity !== "available") throw new Error("Expected Audit fixture.");
+  expect(snapshot.audit.value.coverage).toBe("complete");
 });
 
 test("keeps unknown and ambiguous Incoming classifications distinct from needs-triage", () => {
@@ -1209,9 +1381,9 @@ test("keeps unknown and ambiguous Incoming classifications distinct from needs-t
         "bearing",
       ),
     );
-    const body = model.sections.find(
-      (section) => section.anchor === "incoming.classification",
-    )?.body;
+    const body = proseFor(
+      model.sections.find((section) => section.anchor === "incoming.classification"),
+    );
     expect(body).toContain(`Classification remains ${classification} · ${classification}`);
     expect(body).not.toContain("needs-triage");
     bodies.push(body ?? "");
@@ -1288,8 +1460,10 @@ test("withholds native hierarchy certainty when the selected observation is not 
   );
   expect(model.state).toBe("partial");
   expect(
-    model.sections.find((section) => section.anchor === "native.observation-trust")?.body,
-  ).toContain("selected evidence withheld");
+    definitionFactsFor(
+      model.sections.find((section) => section.anchor === "native.observation-trust"),
+    ),
+  ).toContainEqual({ key: "selected-evidence", label: "Selected evidence", value: "withheld" });
 });
 
 test("keeps a trustworthy native route readable when an unrelated scope is stale", () => {
@@ -1317,8 +1491,14 @@ test("keeps a trustworthy native route readable when an unrelated scope is stale
     subject: { title: "Portal Validation" },
   });
   expect(
-    trustworthy.sections.find((section) => section.anchor === "native.observation-trust")?.body,
-  ).toContain("selected evidence trustworthy");
+    definitionFactsFor(
+      trustworthy.sections.find((section) => section.anchor === "native.observation-trust"),
+    ),
+  ).toContainEqual({
+    key: "selected-evidence",
+    label: "Selected evidence",
+    value: "trustworthy",
+  });
   expect(
     buildPlanningLineageSubjectModel(
       scoped,
@@ -1353,12 +1533,14 @@ test("discloses selected stale and undetermined freshness without changing nativ
     );
 
     expect(
-      model.sections.find((section) => section.anchor === "native.observation-trust")?.body,
-    ).toContain(`freshness ${freshness}`);
+      definitionFactsFor(
+        model.sections.find((section) => section.anchor === "native.observation-trust"),
+      ),
+    ).toContainEqual({ key: "freshness", label: "Freshness", value: freshness });
     expect(
-      model.sections
-        .find((section) => section.anchor === "native.observation-trust")
-        ?.times?.find((fact) => fact.label === "Verified at")?.time,
+      timeFactsFor(
+        model.sections.find((section) => section.anchor === "native.observation-trust"),
+      )?.find((fact) => fact.label === "Verified at")?.time,
     ).toEqual({
       availability: "available",
       value: "2026-07-28T00:00:00.000Z",
@@ -1483,9 +1665,14 @@ test("carries provider unsupported availability through validated Snapshot and P
       ...portal.projection,
       map: {
         ...portal.projection.map,
+        destination: portal.projection.map.destination.map((section) =>
+          section.semanticRole === "map.destination"
+            ? { ...section, availability: "unsupported" as const, markdown: "" }
+            : section,
+        ),
         fog: [],
         semanticSections: portal.projection.map.semanticSections.map((section) =>
-          section.role === "map.fog"
+          section.role === "map.fog" || section.role === "map.destination"
             ? { ...section, availability: "unsupported" as const }
             : section,
         ),
@@ -1519,7 +1706,10 @@ test("carries provider unsupported availability through validated Snapshot and P
 
   expect(model.state).toBe("partial");
   expect(model.semanticAvailability.get("map.fog")).toBe("unsupported");
-  expect(model.sections.find((section) => section.anchor === "map.fog")?.body).toBe(
+  expect(
+    providerSectionFor(model.sections.find((section) => section.anchor === "map.destination")),
+  ).toMatchObject({ availability: "unsupported", sourceIdentity: "map.destination" });
+  expect(proseFor(model.sections.find((section) => section.anchor === "map.fog"))).toBe(
     "The current source does not support the requested semantic section.",
   );
 });

@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { lstat, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { documentPresentationBlocksPlainText } from "../src/document-presentation";
+import { providerObservationIdentityFor } from "../src/native-work-provider";
 import { createGitHubMattProvider } from "../src/providers/matt-skills-v1/github";
 import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
 import type { MattScopeProjection } from "../src/providers/matt-skills-v1/model";
-import { mattSkillsV1ProviderObservationSchema } from "../src/providers/matt-skills-v1/schema";
+import { mattProviderSemanticSections } from "../src/providers/matt-skills-v1/projection";
+import {
+  mattScopeProjectionSchema,
+  mattSkillsV1ProviderObservationSchema,
+} from "../src/providers/matt-skills-v1/schema";
 import {
   createGitHubMattRepository,
   githubContractLocator,
@@ -194,7 +198,7 @@ describe("Matt Local/GitHub semantic equivalence", () => {
         contractLocator: githubContractLocator,
         triageLocator: githubTriageLocator,
         transport: createMattEquivalenceGitHubTransport({
-          unsupportedCommentsFor: [3],
+          unsupportedCommentsFor: [3, 7, 8],
         }),
         clock: () => new Date("2026-07-28T00:00:00Z"),
       }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope });
@@ -209,7 +213,206 @@ describe("Matt Local/GitHub semantic equivalence", () => {
       expect(research?.answer).toEqual({
         availability: "unavailable",
         reason: "source-contract-gap",
+        document: [
+          {
+            version: 1,
+            sourceIdentity: "wayfinder.answer.unsupported",
+            semanticRole: "wayfinder.answer",
+            title: "Answer",
+            sourceOrder: 0,
+            availability: "unsupported",
+            markdown: "",
+          },
+        ],
       });
+      expect(research?.commentsDocument).toEqual([
+        {
+          version: 1,
+          sourceIdentity: "wayfinder.comments.unsupported",
+          semanticRole: "wayfinder.comments",
+          title: "Comments",
+          sourceOrder: 0,
+          availability: "unsupported",
+          markdown: "",
+        },
+      ]);
+      const delivery = github.projection.deliveryTickets.find(
+        (ticket) => ticket.title === "Implement provider capture",
+      );
+      const incoming = github.projection.incomingIssues.find(
+        (issue) => issue.title === "Support a custom-mapped enhancement",
+      );
+      expect(delivery).toMatchObject({
+        commentsCapability: "unsupported",
+        commentsDocument: [
+          {
+            semanticRole: "delivery.comments",
+            availability: "unsupported",
+            markdown: "",
+          },
+        ],
+      });
+      expect(incoming).toMatchObject({
+        commentsCapability: "unsupported",
+        commentsDocument: [
+          {
+            semanticRole: "incoming.content",
+            availability: "unsupported",
+            markdown: "",
+          },
+        ],
+      });
+      expect(
+        mattProviderSemanticSections(github)
+          .filter((section) => section.availability === "unsupported")
+          .map(({ sourceIdentity, availability }) => ({ sourceIdentity, availability })),
+      ).toEqual([
+        { sourceIdentity: "wayfinder.answer.unsupported", availability: "unsupported" },
+        { sourceIdentity: "wayfinder.comments.unsupported", availability: "unsupported" },
+        { sourceIdentity: "delivery.comments.unsupported", availability: "unsupported" },
+        { sourceIdentity: "incoming.content.unsupported", availability: "unsupported" },
+      ]);
+      if (research === undefined || research.answer.availability !== "unavailable") {
+        throw new Error("Expected the unsupported Wayfinder projection.");
+      }
+      if (research.answer.document === undefined) {
+        throw new Error("Expected the canonical unsupported Wayfinder Answer document.");
+      }
+      const { document: _answerDocument, ...outerOnlyAnswer } = research.answer;
+      const { commentsDocument: _commentsDocument, ...outerOnlyResearch } = research;
+      expect(
+        mattScopeProjectionSchema.safeParse({
+          ...github.projection,
+          wayfinderTickets: github.projection.wayfinderTickets.map((ticket) =>
+            ticket.ref === research.ref ? { ...ticket, answer: outerOnlyAnswer } : ticket,
+          ),
+        }).success,
+      ).toBe(false);
+      expect(
+        mattScopeProjectionSchema.safeParse({
+          ...github.projection,
+          wayfinderTickets: github.projection.wayfinderTickets.map((ticket) =>
+            ticket.ref === research.ref
+              ? { ...outerOnlyResearch, answer: research.answer }
+              : ticket,
+          ),
+        }).success,
+      ).toBe(false);
+      expect(
+        mattScopeProjectionSchema.safeParse({
+          ...github.projection,
+          wayfinderTickets: github.projection.wayfinderTickets.map((ticket) =>
+            ticket.ref === research.ref
+              ? {
+                  ...ticket,
+                  semanticSections: ticket.semanticSections.map((section) =>
+                    section.role === "wayfinder.answer"
+                      ? { ...section, availability: "unavailable" }
+                      : section,
+                  ),
+                }
+              : ticket,
+          ),
+        }).success,
+      ).toBe(false);
+      for (const reason of [
+        "not-authored",
+        "no-unique-native-reference",
+        "source-contract-gap",
+      ] as const) {
+        for (const documentState of ["none", "unsupported", "available"] as const) {
+          for (const semanticAvailability of [
+            "available",
+            "confirmed-empty",
+            "unavailable",
+            "unsupported",
+          ] as const) {
+            const answer = {
+              availability: "unavailable" as const,
+              reason,
+              ...(documentState === "none"
+                ? {}
+                : {
+                    document: research.answer.document.map((section) => ({
+                      ...section,
+                      availability: documentState,
+                      markdown: documentState === "available" ? "Forged available Answer." : "",
+                    })),
+                  }),
+            };
+            const changed = {
+              ...github,
+              projection: {
+                ...github.projection,
+                wayfinderTickets: github.projection.wayfinderTickets.map((ticket) =>
+                  ticket.ref === research.ref
+                    ? {
+                        ...ticket,
+                        answer,
+                        semanticSections: ticket.semanticSections.map((section) =>
+                          section.role === "wayfinder.answer"
+                            ? { ...section, availability: semanticAvailability }
+                            : section,
+                        ),
+                      }
+                    : ticket,
+                ),
+              },
+            };
+            const { id: _id, ...content } = changed;
+            const expected =
+              (reason === "not-authored" &&
+                documentState === "none" &&
+                semanticAvailability === "confirmed-empty") ||
+              ((reason === "no-unique-native-reference" || reason === "source-contract-gap") &&
+                documentState === "none" &&
+                semanticAvailability === "unavailable") ||
+              (reason === "source-contract-gap" &&
+                documentState === "unsupported" &&
+                semanticAvailability === "unsupported");
+            expect(
+              mattSkillsV1ProviderObservationSchema.safeParse({
+                ...content,
+                id: providerObservationIdentityFor(content),
+              }).success,
+              `${reason}/${documentState}/${semanticAvailability}`,
+            ).toBe(expected);
+          }
+        }
+      }
+      if (delivery === undefined || incoming === undefined) {
+        throw new Error("Expected unsupported Delivery and Incoming projections.");
+      }
+      const { commentsDocument: _deliveryDocument, ...outerOnlyDelivery } = delivery;
+      const { commentsDocument: _incomingDocument, ...outerOnlyIncoming } = incoming;
+      expect(
+        mattScopeProjectionSchema.safeParse({
+          ...github.projection,
+          deliveryTickets: github.projection.deliveryTickets.map((ticket) =>
+            ticket.ref === delivery.ref ? outerOnlyDelivery : ticket,
+          ),
+          incomingIssues: github.projection.incomingIssues.map((issue) =>
+            issue.ref === incoming.ref ? outerOnlyIncoming : issue,
+          ),
+        }).success,
+      ).toBe(false);
+      expect(
+        mattScopeProjectionSchema.safeParse({
+          ...github.projection,
+          deliveryTickets: github.projection.deliveryTickets.map((ticket) =>
+            ticket.ref === delivery.ref
+              ? {
+                  ...ticket,
+                  semanticSections: ticket.semanticSections.map((section) =>
+                    section.role === "delivery.comments"
+                      ? { ...section, availability: "unavailable" }
+                      : section,
+                  ),
+                }
+              : ticket,
+          ),
+        }).success,
+      ).toBe(false);
       expect(research?.semanticSections).toEqual(
         expect.arrayContaining([
           { role: "wayfinder.answer", availability: "unsupported" },
@@ -224,7 +427,16 @@ describe("Matt Local/GitHub semantic equivalence", () => {
   test("preserves ordinary Incoming prose as semantic issue content through both production adapters", async () => {
     const localRoot = await writeMattEquivalenceLocalRepository();
     const githubRoot = await createGitHubMattRepository();
-    const issueBody = "Customer cannot finish the workflow after choosing the advanced option.";
+    const hardBreak = "  ";
+    const issueBody = `Customer cannot finish the workflow after choosing the advanced option.
+
+-   Preserve this source marker and spacing.
+    -   Preserve this nested indentation.
+
+Keep this hard break.${hardBreak}
+Continue after the break.
+
+    preserve_indented_code();`;
     try {
       await Bun.write(
         join(localRoot, mattEquivalenceLocalScope, "issues/08-incoming.md"),
@@ -264,11 +476,9 @@ ${issueBody}
         github.projection.incomingIssues[0],
       ]) {
         expect(incoming?.content.map((document) => document.role)).toEqual(["issue-body"]);
-        expect(
-          incoming?.content.map((document) =>
-            documentPresentationBlocksPlainText(document.document.sections[0]?.blocks ?? []),
-          ),
-        ).toEqual([issueBody]);
+        expect(incoming?.content.map((document) => document.document[0]?.markdown)).toEqual([
+          issueBody,
+        ]);
         expect(
           incoming?.semanticSections.find((section) => section.role === "incoming.content"),
         ).toEqual({ role: "incoming.content", availability: "available" });
@@ -335,26 +545,17 @@ ${issueBody}
       }
       expect(local.projection.spec.document).toEqual(github.projection.spec.document);
       expect(
-        local.projection.spec.document.sections.find(
+        local.projection.spec.document.find(
           (section) => section.sourceIdentity === "spec.source.compatibility-notes",
         ),
       ).toEqual({
+        version: 1,
         sourceIdentity: "spec.source.compatibility-notes",
         title: "Compatibility Notes",
         sourceOrder: 2,
         availability: "available",
-        blocks: [
-          {
-            kind: "paragraph",
-            inlines: [
-              {
-                kind: "text",
-                value:
-                  "An additive source section stays readable without provider-specific Portal code.",
-              },
-            ],
-          },
-        ],
+        markdown:
+          "An additive source section stays readable without provider-specific Portal code.",
       });
 
       const localRelations = mattReferenceRelationPartition(local, localAliases);

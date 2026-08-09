@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import { portalProjectRowsSchema } from "../src/portal-project-read-wire";
 import {
   assertProjectReadModelObjectIdentity,
   assertProjectReadModelObjectRelationships,
@@ -31,6 +32,29 @@ test("Portal public read transport has no whole-Snapshot route or browser schema
   expect(assetPreview).not.toContain("readProjectGenerationCache");
   expect(assetPreview).not.toContain("readProjectSitemapCache");
   expect(assetPreview).toContain("queryPortalAssetRow");
+});
+
+test("v21 Portal rows require complete Host rendering without a presentation count limit", () => {
+  const rows = {
+    section: "overview",
+    objects: [],
+    lineage: [],
+    attentionCount: 0,
+    attention: [],
+    diagnostics: [],
+    sources: [],
+  } as const;
+  expect(portalProjectRowsSchema.safeParse(rows).success).toBe(false);
+  expect(
+    portalProjectRowsSchema.safeParse({
+      ...rows,
+      renderedMarkdown: Array.from({ length: 1_001 }, (_, index) => ({
+        markdown: `section ${index}`,
+        html: `<p>section ${index}</p>`,
+        presentation: "rendered" as const,
+      })),
+    }).success,
+  ).toBe(true);
 });
 
 test("composite Portal rows bind their nested identity to the row key", () => {

@@ -12,16 +12,18 @@ import type {
   MattNativeWorkRegionModel,
   MattNativeWorkRegionRoleGroup,
 } from "../providers/matt-skills-v1/work-region";
+import { assertNever } from "./assert-never";
 import { AssetLocationCopy } from "./asset-location-copy";
-import { DocumentPresentationBlocks } from "./document-presentation";
 import { Icons } from "./icons";
 import type { PlanningLineageEventTime } from "./planning-lineage-events";
 import type {
   PlanningLineageEffortLens,
+  PlanningLineageEffortRollupRow,
   PlanningLineageOutcomeSpine,
   PlanningLineageRelation,
   PlanningLineageRelationItem,
   PlanningLineageSection,
+  PlanningLineageSectionContent,
   PlanningLineageTimeFact,
 } from "./planning-lineage-model";
 import {
@@ -32,6 +34,7 @@ import { Action } from "./primitives";
 import { projectCanvasFocusKey } from "./project-canvas-history";
 import type { LineageModelData } from "./project-data";
 import { ProviderObservationTime } from "./provider-observation-time";
+import { SanitizedMarkdownContent } from "./sanitized-markdown";
 import { SourceEventTimeValue } from "./source-event-time";
 import type { TechnicalDetailsSelection } from "./technical-details";
 
@@ -232,7 +235,7 @@ function EffortRollupTable({
   rows,
 }: {
   readonly onNavigate: Navigate;
-  readonly rows: NonNullable<PlanningLineageSection["effortRollup"]>;
+  readonly rows: readonly PlanningLineageEffortRollupRow[];
 }) {
   return (
     <table className="effort-rollup-table">
@@ -285,6 +288,128 @@ function EffortRollupTable({
   );
 }
 
+function LineageSectionContent({
+  anchor,
+  content,
+  onNavigate,
+}: {
+  readonly anchor: string;
+  readonly content: PlanningLineageSectionContent;
+  readonly onNavigate: Navigate;
+}) {
+  switch (content.kind) {
+    case "plain-prose":
+      return <p>{content.value}</p>;
+    case "provider-document": {
+      const { document } = content;
+      return (
+        <article className="lineage-provider-document">
+          {document.sections.map((section) => (
+            <div
+              data-provider-semantic-section-version={section.version}
+              key={`${document.key}:${section.sourceIdentity}`}
+            >
+              {document.showSectionTitles ? <h3>{section.title}</h3> : null}
+              {section.availability === "available" ? (
+                "html" in section ? (
+                  <SanitizedMarkdownContent
+                    html={section.html}
+                    presentation={section.presentation}
+                  />
+                ) : (
+                  <div className="markdown-formatting-fallback">
+                    <p>Formatting is unavailable for this section.</p>
+                    <pre>{section.markdown}</pre>
+                  </div>
+                )
+              ) : section.availability === "confirmed-empty" ? (
+                <p>No {section.title.toLocaleLowerCase()} content is recorded.</p>
+              ) : section.availability === "unsupported" ? (
+                <p>This provider document section is unsupported.</p>
+              ) : (
+                <p>This provider document section is unavailable.</p>
+              )}
+            </div>
+          ))}
+          {document.provenance.facts.length === 0 ? null : (
+            <dl className="lineage-section-facts">
+              {document.provenance.facts.map((fact) => (
+                <div key={`${document.key}:${fact.key}`}>
+                  <dt>{fact.label}</dt>
+                  <dd>{fact.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {document.provenance.times.length === 0 ? null : (
+            <TimeFacts facts={document.provenance.times} />
+          )}
+        </article>
+      );
+    }
+    case "fact-list":
+      return content.style === "definitions" ? (
+        <dl className="lineage-section-facts">
+          {content.facts.map((fact) => (
+            <div key={`${anchor}:${fact.key}`}>
+              <dt>{fact.label}</dt>
+              <dd>{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <ul>
+          {content.values.map((value) => (
+            <li key={`${anchor}:${value}`}>{value}</li>
+          ))}
+        </ul>
+      );
+    case "relation-list":
+      return (
+        <ul className="lineage-section-links">
+          {content.relations.map((relation) => (
+            <li key={`${anchor}:${relation.href}`}>
+              {relation.prefix}
+              {relation.external ? (
+                <a href={relation.href} rel="noopener noreferrer" target="_blank">
+                  {relation.label}
+                </a>
+              ) : (
+                <a
+                  href={relation.href}
+                  onClick={(event) => follow(relation.href, event, onNavigate)}
+                >
+                  {relation.label}
+                </a>
+              )}
+              {relation.detail === undefined ? null : <span> · {relation.detail}</span>}
+            </li>
+          ))}
+        </ul>
+      );
+    case "time-facts":
+      return <TimeFacts facts={content.facts} />;
+    case "actions":
+      return content.actions.map((action) => (
+        <AssetLocationCopy
+          key={`${anchor}:${action.label}`}
+          label={action.label}
+          value={action.value}
+        />
+      ));
+    case "effort-rollup":
+      return <EffortRollupTable onNavigate={onNavigate} rows={content.rows} />;
+    default:
+      return assertNever(content);
+  }
+}
+
+const lineageSectionContentKey = (content: PlanningLineageSectionContent): string => {
+  if (content.kind === "provider-document") return `${content.kind}:${content.document.key}`;
+  if (content.kind === "fact-list") return `${content.kind}:${content.style}`;
+  return content.kind;
+};
+
 function LineageSections({
   beforeSpine = false,
   onNavigate,
@@ -305,80 +430,14 @@ function LineageSections({
           key={section.anchor}
         >
           <h2>{section.title}</h2>
-          {section.body === undefined ? null : <p>{section.body}</p>}
-          {section.documentBlocks === undefined ? null : (
-            <DocumentPresentationBlocks blocks={section.documentBlocks} />
-          )}
-          {section.facts === undefined || section.facts.length === 0 ? null : (
-            <dl className="lineage-section-facts">
-              {section.facts.map((fact) => (
-                <div key={`${section.anchor}:${fact.key}`}>
-                  <dt>{fact.label}</dt>
-                  <dd>{fact.value}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
-          {section.providerDocuments === undefined ? null : (
-            <div className="lineage-provider-documents">
-              {section.providerDocuments.map((document) => (
-                <article key={`${section.anchor}:${document.key}`}>
-                  {document.sections.map((providerSection) => (
-                    <div key={`${document.key}:${providerSection.key}`}>
-                      <h3>{providerSection.title}</h3>
-                      <DocumentPresentationBlocks blocks={providerSection.documentBlocks} />
-                    </div>
-                  ))}
-                  {document.facts.length === 0 ? null : (
-                    <dl className="lineage-section-facts">
-                      {document.facts.map((fact) => (
-                        <div key={`${document.key}:${fact.key}`}>
-                          <dt>{fact.label}</dt>
-                          <dd>{fact.value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  )}
-                  {document.times.length === 0 ? null : <TimeFacts facts={document.times} />}
-                </article>
-              ))}
-            </div>
-          )}
-          {section.copy === undefined ? null : (
-            <AssetLocationCopy label={section.copy.label} value={section.copy.value} />
-          )}
-          {section.items === undefined ? null : (
-            <ul>
-              {section.items.map((item) => (
-                <li key={`${section.anchor}:${item}`}>{item}</li>
-              ))}
-            </ul>
-          )}
-          {section.links === undefined ? null : (
-            <ul className="lineage-section-links">
-              {section.links.map((item) => (
-                <li key={`${section.anchor}:${item.href}`}>
-                  {item.prefix}
-                  {item.external ? (
-                    <a href={item.href} rel="noopener noreferrer" target="_blank">
-                      {item.label}
-                    </a>
-                  ) : (
-                    <a href={item.href} onClick={(event) => follow(item.href, event, onNavigate)}>
-                      {item.label}
-                    </a>
-                  )}
-                  {item.detail === undefined ? null : <span> · {item.detail}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-          {section.times === undefined || section.times.length === 0 ? null : (
-            <TimeFacts facts={section.times} />
-          )}
-          {section.effortRollup === undefined ? null : (
-            <EffortRollupTable onNavigate={onNavigate} rows={section.effortRollup} />
-          )}
+          {section.content.map((content) => (
+            <LineageSectionContent
+              anchor={section.anchor}
+              content={content}
+              key={`${section.anchor}:${lineageSectionContentKey(content)}`}
+              onNavigate={onNavigate}
+            />
+          ))}
         </section>
       ))}
     </div>
@@ -975,10 +1034,12 @@ function MapChapter({
   chapter,
   entryId,
   onNavigate,
+  renderedMarkdown,
 }: {
   readonly chapter: MattNativeWorkRegionMapChapter;
   readonly entryId: string;
   readonly onNavigate: Navigate;
+  readonly renderedMarkdown: NonNullable<LineageModelData["renderedMarkdown"]>;
 }) {
   if (chapter.availability !== "available") {
     return (
@@ -1000,6 +1061,11 @@ function MapChapter({
       : chapter.destination.availability === "unsupported"
         ? "Destination is unsupported by this provider version."
         : "Destination is unavailable in the current source data.";
+  const destination = chapter.destination;
+  const renderedDestination =
+    destination.availability === "available"
+      ? renderedMarkdown.find((entry) => entry.markdown === destination.markdown)
+      : undefined;
   return (
     <section className="matt-map-chapter" aria-labelledby="matt-map-chapter-title">
       <p className="eyebrow">Map chapter</p>
@@ -1008,9 +1074,19 @@ function MapChapter({
           {chapter.title}
         </a>
       </h3>
-      <div data-semantic-availability={chapter.destination.availability}>
-        {chapter.destination.availability === "available" ? (
-          <DocumentPresentationBlocks blocks={chapter.destination.documentBlocks} />
+      <div data-semantic-availability={destination.availability}>
+        {destination.availability === "available" ? (
+          renderedDestination === undefined ? (
+            <div className="markdown-formatting-fallback">
+              <p>Formatting is unavailable for this section.</p>
+              <pre>{destination.markdown}</pre>
+            </div>
+          ) : (
+            <SanitizedMarkdownContent
+              html={renderedDestination.html}
+              presentation={renderedDestination.presentation}
+            />
+          )
         ) : (
           <p>{destinationFallback}</p>
         )}
@@ -1101,11 +1177,13 @@ function MattNativeWorkRegion({
   onNavigate,
   owner,
   region,
+  renderedMarkdown,
 }: {
   readonly entryId: string;
   readonly onNavigate: Navigate;
   readonly owner?: Readonly<{ title: string; href: string }> | undefined;
   readonly region: MattNativeWorkRegionModel;
+  readonly renderedMarkdown: NonNullable<LineageModelData["renderedMarkdown"]>;
 }) {
   const current = region.views[0];
   const history = region.views[1];
@@ -1139,7 +1217,12 @@ function MattNativeWorkRegion({
         <a href="#native-work-all">All · {workRegionCountLabel(all.count)}</a>
       </nav>
       {region.mapChapter === undefined ? null : (
-        <MapChapter chapter={region.mapChapter} entryId={entryId} onNavigate={onNavigate} />
+        <MapChapter
+          chapter={region.mapChapter}
+          entryId={entryId}
+          onNavigate={onNavigate}
+          renderedMarkdown={renderedMarkdown}
+        />
       )}
       <section id="native-work-current" className="matt-work-view">
         <h3>Current</h3>
@@ -1625,6 +1708,7 @@ export function PlanningLineagePage({
           onNavigate={onNavigate}
           owner={model.workHistoryOwner}
           region={model.workRegion}
+          renderedMarkdown={model.renderedMarkdown}
         />
       )}
       {contextRelations.length === 0 ? null : (

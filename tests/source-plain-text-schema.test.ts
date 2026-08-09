@@ -52,6 +52,16 @@ test("canonical source schemas reject formatting in Overview-facing titles and c
   expect(bearingSchema.safeParse({ ...summary, Title: "   " }).success).toBe(false);
   expect(bearingSchema.safeParse({ ...summary, Title: "<div\nclass=note>" }).success).toBe(false);
   expect(bearingSchema.safeParse({ ...summary, Title: "**Split\nSummary**" }).success).toBe(false);
+  const markdownHardBreak = "  ";
+  expect(
+    bearingSchema.safeParse({
+      ...summary,
+      Title: `Hard break${markdownHardBreak}\nSummary`,
+    }).success,
+  ).toBe(false);
+  expect(bearingSchema.safeParse({ ...summary, Title: "Hard break\\\nSummary" }).success).toBe(
+    false,
+  );
   expect(bearingSchema.safeParse({ ...summary, Title: "[Split\nSummary](source)" }).success).toBe(
     false,
   );

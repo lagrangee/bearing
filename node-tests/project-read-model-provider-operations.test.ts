@@ -3,6 +3,7 @@ import { readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { providerObservationIdentityFor } from "../src/native-work-provider";
+import { renderProviderMarkdownSections } from "../src/portal/markdown-engine";
 import { portalRowsToProjectData } from "../src/portal-ui/project-row-adapter";
 import {
   inspectProject,
@@ -31,6 +32,7 @@ import {
   encodeGitHubMattNativeScope,
 } from "../src/providers/matt-skills-v1/github-native-scope";
 import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
+import { mattProviderSemanticSections } from "../src/providers/matt-skills-v1/projection";
 import {
   createGitHubMattRepository,
   createReferenceGitHubFixtures,
@@ -149,12 +151,22 @@ test("metadata-only Local time refresh replaces display evidence without publish
       precision: "fractional-second",
       basis: "inferred-source-metadata",
     });
-    const portal = portalRowsToProjectData(
-      await queryPortalProjectRows(root, "lineage", {
-        kind: "native-subject",
-        id: ".scratch/work/issues/01-finish.md",
-      }),
-    );
+    const portalRows = await queryPortalProjectRows(root, "lineage", {
+      kind: "native-subject",
+      id: ".scratch/work/issues/01-finish.md",
+    });
+    const portal = portalRowsToProjectData({
+      ...portalRows,
+      renderedMarkdown: renderProviderMarkdownSections(
+        portalRows.objects
+          .flatMap((object) =>
+            object.kind === "portal-native-evidence" && object.value.observation !== undefined
+              ? [object.value.observation]
+              : [],
+          )
+          .flatMap(mattProviderSemanticSections),
+      ),
+    });
     if (portal.section !== "lineage") throw new Error("Expected lineage Portal data.");
     const portalObservation = portal.providerObservations[0];
     if (
