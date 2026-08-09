@@ -49,6 +49,7 @@ import {
 import {
   buildMattNativeWorkRegion,
   type MattNativeWorkRegionContext,
+  type MattNativeWorkRegionCount,
   type MattNativeWorkRegionItem,
   type MattNativeWorkRegionModel,
 } from "../providers/matt-skills-v1/work-region";
@@ -122,6 +123,23 @@ export type PlanningLineageSection = Readonly<{
       }>[]
     | undefined;
   times?: readonly PlanningLineageTimeFact[] | undefined;
+  effortRollup?:
+    | readonly Readonly<{
+        id: string;
+        title: string;
+        href?: string | undefined;
+        lifecycle?: Effort["lifecycle"] | undefined;
+        lifecycleTime?:
+          | Readonly<{ label: "Planned" | "Activated" | "Concluded"; time: MattNativeEventTime }>
+          | undefined;
+        counts: Readonly<{
+          claimed: MattNativeWorkRegionCount;
+          ready: MattNativeWorkRegionCount;
+          blocked: MattNativeWorkRegionCount;
+          resolved: MattNativeWorkRegionCount;
+        }>;
+      }>[]
+    | undefined;
 }>;
 
 export type PlanningLineageTimeFact = Readonly<{
@@ -192,6 +210,16 @@ export type PlanningLineageEffortLens = Readonly<{
           attention?: string | undefined;
         }>[];
         historyHref: string;
+        counts: Readonly<{
+          current: MattNativeWorkRegionCount;
+          resolved: MattNativeWorkRegionCount;
+          history: MattNativeWorkRegionCount;
+        }>;
+        emptyState?:
+          | "confirmed-no-managed-work"
+          | "history-only"
+          | "attention-without-active-work"
+          | undefined;
         consistencyWarning?: string | undefined;
       }>
     | Readonly<{
@@ -496,34 +524,48 @@ const relationForDisplay = (
   };
 };
 
-const countByFrontier = (
+const frontierCount = (
   region: MattNativeWorkRegionModel,
   frontier: "claimed" | "ready" | "blocked" | "resolved" | "uncertain",
-): number =>
-  region.roles
-    .filter((role) => role.role === "wayfinder" || role.role === "delivery")
-    .flatMap((role) => role.items)
-    .filter((item) => item.frontier === frontier).length;
-
-const boundedFrontierSummary = (region: MattNativeWorkRegionModel): string => {
-  if (region.context.state === "attention") return region.context.label;
-  const frontierRoles = region.roles.filter(
+): MattNativeWorkRegionCount => {
+  const roles = region.roles.filter(
     (role) => role.role === "wayfinder" || role.role === "delivery",
   );
-  if (frontierRoles.some((role) => role.count.mode === "unavailable")) {
-    return "Native frontier counts unavailable";
+  if (roles.some((role) => role.count.mode === "unavailable")) return { mode: "unavailable" };
+  const value = roles
+    .flatMap((role) => role.items)
+    .filter((item) => item.frontier === frontier).length;
+  return roles.some((role) => role.count.mode === "at-least")
+    ? { mode: "at-least", value }
+    : { mode: "exact", value };
+};
+
+const unavailableFrontierCounts = (): Readonly<{
+  claimed: MattNativeWorkRegionCount;
+  ready: MattNativeWorkRegionCount;
+  blocked: MattNativeWorkRegionCount;
+  resolved: MattNativeWorkRegionCount;
+}> => ({
+  claimed: { mode: "unavailable" },
+  ready: { mode: "unavailable" },
+  blocked: { mode: "unavailable" },
+  resolved: { mode: "unavailable" },
+});
+
+const lifecycleTimeForEffort = (
+  effort: Effort,
+): Readonly<{
+  label: "Planned" | "Activated" | "Concluded";
+  time: MattNativeEventTime;
+}> => {
+  if (effort.lifecycle === "planned") return { label: "Planned", time: effort.plannedAt };
+  if (effort.lifecycle === "active") {
+    return { label: "Activated", time: effort.activatedAt ?? { availability: "unavailable" } };
   }
-  const values = [
-    ["Claimed", countByFrontier(region, "claimed")],
-    ["Ready", countByFrontier(region, "ready")],
-    ...(countByFrontier(region, "uncertain") === 0
-      ? []
-      : ([["Uncertain", countByFrontier(region, "uncertain")]] as const)),
-    ["Blocked", countByFrontier(region, "blocked")],
-    ["Resolved", countByFrontier(region, "resolved")],
-  ] as const;
-  const qualifier = frontierRoles.some((role) => role.count.mode === "at-least") ? "≥" : "";
-  return values.map(([label, value]) => `${label} ${qualifier}${value}`).join(" · ");
+  return {
+    label: "Concluded",
+    time: effort.conclusion?.concludedAt ?? { availability: "unavailable" },
+  };
 };
 
 const contributingEffortsSection = (
@@ -532,31 +574,41 @@ const contributingEffortsSection = (
   entryId: string,
 ): PlanningLineageSection => {
   const efforts = readableEfforts(snapshot);
-  const links = effortIds.flatMap((effortId) => {
+  const effortRollup = effortIds.map((effortId) => {
     const effort = efforts.find((candidate) => candidate.id === effortId);
-    if (effort === undefined) return [];
+    if (effort === undefined) {
+      return {
+        id: effortId,
+        title: "Unavailable contributing Effort",
+        counts: unavailableFrontierCounts(),
+      };
+    }
     const region = effortWorkRegion(snapshot, effort);
-    return [
-      {
-        label: effort.title,
-        detail:
-          region === undefined ? "Native frontier unavailable" : boundedFrontierSummary(region),
-        href: planningLineageSubjectHref(entryId, { kind: "effort", id: effort.id }),
-      },
-    ];
+    return {
+      id: effort.id,
+      title: effort.title,
+      href: planningLineageSubjectHref(entryId, { kind: "effort", id: effort.id }),
+      lifecycle: effort.lifecycle,
+      lifecycleTime: lifecycleTimeForEffort(effort),
+      counts:
+        region === undefined
+          ? unavailableFrontierCounts()
+          : {
+              claimed: frontierCount(region, "claimed"),
+              ready: frontierCount(region, "ready"),
+              blocked: frontierCount(region, "blocked"),
+              resolved: frontierCount(region, "resolved"),
+            },
+    };
   });
-  const missingItems = effortIds
-    .filter((effortId) => !efforts.some((effort) => effort.id === effortId))
-    .map(() => "Unavailable contributing Effort");
   return {
     anchor: "native-work.effort-summaries",
     title: "Contributing Efforts",
     body:
-      links.length === 0 && missingItems.length === 0
+      effortRollup.length === 0
         ? "No trustworthy contributing Effort summary is available."
         : "Each contributing Effort opens its complete lifecycle and bound native work context.",
-    ...(links.length === 0 ? {} : { links }),
-    ...(missingItems.length === 0 ? {} : { items: missingItems }),
+    ...(effortRollup.length === 0 ? {} : { effortRollup }),
   };
 };
 
@@ -1645,6 +1697,32 @@ const effortLensFor = (
     disposableWorkRegion?.views[0].items.filter(
       (item) => item.role === "wayfinder" || item.role === "delivery" || item.role === "incoming",
     ) ?? [];
+  const workCounts =
+    disposableWorkRegion === undefined
+      ? undefined
+      : {
+          current:
+            disposableWorkRegion.views[0].count.mode === "unavailable"
+              ? disposableWorkRegion.views[0].count
+              : { mode: disposableWorkRegion.views[0].count.mode, value: workItems.length },
+          resolved: frontierCount(disposableWorkRegion, "resolved"),
+          history: disposableWorkRegion.views[1].count,
+        };
+  const emptyWorkState =
+    workItems.length > 0 || workCounts === undefined
+      ? undefined
+      : managedWorkHealth === "Needs attention"
+        ? ("attention-without-active-work" as const)
+        : workCounts.history.mode !== "unavailable" && workCounts.history.value > 0
+          ? ("history-only" as const)
+          : workCounts.current.mode === "exact" &&
+              workCounts.current.value === 0 &&
+              workCounts.resolved.mode === "exact" &&
+              workCounts.resolved.value === 0 &&
+              workCounts.history.mode === "exact" &&
+              workCounts.history.value === 0
+            ? ("confirmed-no-managed-work" as const)
+            : undefined;
   const observationUnavailable = disposableWorkRegion?.views[0].count.mode === "unavailable";
   const observationCause =
     disposableWorkRegion === undefined
@@ -1661,7 +1739,10 @@ const effortLensFor = (
           .filter((value, index, values) => values.indexOf(value) === index)
           .join(" ");
   const currentWork =
-    disposableWorkRegion === undefined || binding === undefined || observationUnavailable
+    disposableWorkRegion === undefined ||
+    binding === undefined ||
+    observationUnavailable ||
+    workCounts === undefined
       ? {
           state: "unavailable" as const,
           cause:
@@ -1674,37 +1755,37 @@ const effortLensFor = (
               ? "declare exactly one supported Work Binding in the canonical Effort record, then reload this view."
               : "load this exact declared provider source; after any Matt transaction, run exact Targeted Native Reconciliation separately.",
         }
-      : effort.lifecycle === "concluded" && workItems.length === 0
-        ? undefined
-        : {
-            state: "available" as const,
-            items: workItems.map((item) => ({
-              reference: item.reference,
-              title: item.title,
-              href: planningLineageSubjectHref(entryId, {
-                kind: "native-subject",
-                id: item.reference,
-              }),
-              status: effortCurrentWorkStatus(item),
-              ...(item.frontier === "blocked"
-                ? { blockerImpact: "Blocked by unresolved prerequisite work." }
-                : {}),
-              ...(item.diagnosticMessages === undefined
-                ? {}
-                : { attention: item.diagnosticMessages.join(" ") }),
-            })),
-            historyHref: planningLineageSubjectHref(
-              entryId,
-              { kind: "native-scope", id: binding.nativeScope },
-              "native-work-history",
-            ),
-            ...(effort.lifecycle === "concluded" && workItems.length > 0
-              ? {
-                  consistencyWarning:
-                    "This Effort is concluded, but nonterminal managed work remains in the bound scope.",
-                }
+      : {
+          state: "available" as const,
+          items: workItems.map((item) => ({
+            reference: item.reference,
+            title: item.title,
+            href: planningLineageSubjectHref(entryId, {
+              kind: "native-subject",
+              id: item.reference,
+            }),
+            status: effortCurrentWorkStatus(item),
+            ...(item.frontier === "blocked"
+              ? { blockerImpact: "Blocked by unresolved prerequisite work." }
               : {}),
-          };
+            ...(item.diagnosticMessages === undefined
+              ? {}
+              : { attention: item.diagnosticMessages.join(" ") }),
+          })),
+          counts: workCounts,
+          historyHref: planningLineageSubjectHref(
+            entryId,
+            { kind: "native-scope", id: binding.nativeScope },
+            "native-work-history",
+          ),
+          ...(emptyWorkState === undefined ? {} : { emptyState: emptyWorkState }),
+          ...(effort.lifecycle === "concluded" && workItems.length > 0
+            ? {
+                consistencyWarning:
+                  "This Effort is concluded, but nonterminal managed work remains in the bound scope.",
+              }
+            : {}),
+        };
   const planningBasis = effortPlanningBasisForWorkRegion(workRegion, entryId);
   const outputs = effortOutputsFor(snapshot, effort, entryId);
   const governance = effortGovernanceFor(snapshot, effort, entryId);

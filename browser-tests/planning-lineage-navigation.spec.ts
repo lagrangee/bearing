@@ -12,6 +12,12 @@ import { projectGenerationSchema } from "../src/project-generation/schema";
 import { createSourceRecord } from "../src/project-generation/source-records";
 import { encodeGitHubMattNativeScope } from "../src/providers/matt-skills-v1/github";
 import { mattNativeScopeSubject } from "../src/providers/matt-skills-v1/native-subject";
+import {
+  createAttentionWithoutActiveWorkFixture,
+  createAvailableLifecycleTimeFixture,
+  createConfirmedNoManagedWorkFixture,
+  createHistoryOnlyWorkFixture,
+} from "../tests/fixtures/effort-work-rollup";
 import { createMattReferenceProjection } from "../tests/fixtures/matt-reference-scenario";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { parseRebuiltPlanningLineageFixture } from "../tests/planning-lineage-fixture";
@@ -746,15 +752,70 @@ test("direct contributing Effort links restore lineage focus and scroll", async 
 test("lineage detail and filtered views stay keyboard-readable at narrow and 200 percent zoom", async ({
   page,
 }) => {
-  await serveSnapshot(page, fixture());
+  const rollupSnapshot = createAvailableLifecycleTimeFixture();
+  await serveSnapshot(page, rollupSnapshot);
   const gateHref = planningLineageSubjectHref("lineage", {
     kind: "gate",
     id: "gate:one",
   });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(gateHref);
+  const wideRollup = page.getByRole("table", {
+    name: "Contributing Effort lifecycle and native work counts",
+  });
+  await expect(wideRollup).toBeVisible();
+  await expect(wideRollup.getByRole("columnheader")).toHaveText([
+    "Effort",
+    "Lifecycle",
+    "Claimed",
+    "Ready",
+    "Blocked",
+    "Resolved",
+    "Lifecycle time",
+  ]);
+  await expect(wideRollup.locator('time[datetime="2026-07-31T10:00:00Z"]')).toBeVisible();
+  const wideEffortLink = wideRollup.getByRole("link", { name: "Planning Model", exact: true });
+  await wideEffortLink.focus();
+  await expect(wideEffortLink).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(
+    planningLineageSubjectHref("lineage", { kind: "effort", id: "effort:model" }),
+  );
+  await page.goBack();
+  await expect(page).toHaveURL(gateHref);
+
   // A 1280 CSS-pixel reading surface at 200% browser zoom reflows at 640 CSS pixels.
   await page.setViewportSize({ width: 640, height: 900 });
   await page.goto(gateHref);
   await expect(page.getByRole("heading", { name: "Model ready", level: 1 })).toBeVisible();
+  const narrowRollup = page.getByRole("table", {
+    name: "Contributing Effort lifecycle and native work counts",
+  });
+  await expect(narrowRollup).toBeVisible();
+  await expect(narrowRollup.locator('time[datetime="2026-07-31T10:00:00Z"]')).toBeVisible();
+  const narrowEffortLink = narrowRollup.getByRole("link", {
+    name: "Planning Model",
+    exact: true,
+  });
+  const focusedEffortLinks: string[] = [];
+  for (let index = 0; index < 20 && focusedEffortLinks.length < 1; index += 1) {
+    await page.keyboard.press("Tab");
+    const href = await page.evaluate(() => document.activeElement?.getAttribute("href"));
+    if (href?.includes("/lineage/effort/") === true) focusedEffortLinks.push(href);
+  }
+  expect(focusedEffortLinks).toEqual([
+    planningLineageSubjectHref("lineage", { kind: "effort", id: "effort:model" }),
+  ]);
+  await expect(narrowEffortLink).toBeFocused();
+  const stackedRowFacts = await narrowRollup
+    .locator('td[data-label="Lifecycle"]')
+    .evaluate((element) => ({
+      display: getComputedStyle(element).display,
+      label: getComputedStyle(element, "::before").content,
+      touchHeight: element.closest("tr")?.querySelector("a")?.getBoundingClientRect().height ?? 0,
+    }));
+  expect(stackedRowFacts).toMatchObject({ display: "grid", label: '"Lifecycle"' });
+  expect(stackedRowFacts.touchHeight).toBeGreaterThanOrEqual(44);
   expect(
     await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
   ).toBe(false);
@@ -771,13 +832,42 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   await expect(page.getByLabel("Effort governance status")).toContainText("Healthy");
   await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Planning Basis", level: 2 })).toBeVisible();
-  const workHistory = page.getByRole("link", { name: "Full work history", exact: true });
+  const workHistory = page.getByRole("link", { name: /^Full work history · History /u });
   await workHistory.focus();
   await expect(workHistory).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/#native-work-history$/u);
   await expect(page.getByRole("heading", { name: "History", level: 3 })).toBeInViewport();
   expect(await viewportOverflow(page)).toEqual([]);
+
+  await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
+  await serveSnapshot(page, createConfirmedNoManagedWorkFixture());
+  await page.goto(effortHref);
+  await expect(page.getByText("No managed work is established for this scope.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Full work history · History 0" })).toBeVisible();
+
+  await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
+  await serveSnapshot(page, createHistoryOnlyWorkFixture());
+  await page.goto(planningLineageSubjectHref("lineage", { kind: "effort", id: "effort:model" }));
+  await expect(
+    page.getByText("All managed work is in History; no current work remains."),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Full work history · History 2" })).toBeVisible();
+
+  await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
+  await serveSnapshot(page, createAttentionWithoutActiveWorkFixture());
+  await page.goto(effortHref);
+  await expect(
+    page.getByText(
+      "No current managed work is established. Attention remains and must be reviewed separately.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Full work history · History At least 0" }),
+  ).toBeVisible();
+
+  await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
+  await serveSnapshot(page, rollupSnapshot);
 
   const assetHref = planningLineageSubjectHref("lineage", {
     kind: "asset",
@@ -872,7 +962,9 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   await relationLink.focus();
   await expect(relationLink).toBeFocused();
   await expect(page.getByRole("button", { name: "Quick Look Planning Model" })).toHaveCount(0);
-  await expect(contributingEfforts).toContainText("Resolved 1");
+  await expect(
+    relationLink.locator("xpath=ancestor::tr").getByRole("cell", { name: /Resolved 1/u }),
+  ).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 

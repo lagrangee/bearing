@@ -19,6 +19,12 @@ import {
 } from "../src/project-generation/schema";
 import { assetProjectionSchema } from "../src/project-generation/schema-asset";
 import { createSourceRecord } from "../src/project-generation/source-records";
+import {
+  createAttentionWithoutActiveWorkFixture,
+  createAvailableLifecycleTimeFixture,
+  createConfirmedNoManagedWorkFixture,
+  createHistoryOnlyWorkFixture,
+} from "./fixtures/effort-work-rollup";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import { parseRebuiltPlanningLineageFixture } from "./planning-lineage-fixture";
 
@@ -55,12 +61,21 @@ test("builds a Gate-owned route with trustworthy parents, full content, and type
   ]);
   expect(model.headerStatus).toBe("Gate · Passed · Ready for review");
   expect(
-    model.sections.find((section) => section.anchor === "native-work.effort-summaries")?.links,
+    model.sections.find((section) => section.anchor === "native-work.effort-summaries")
+      ?.effortRollup,
   ).toEqual([
     {
-      label: "Planning Model",
-      detail: "Claimed 0 · Ready 0 · Blocked 0 · Resolved 1",
+      id: "effort:model",
+      title: "Planning Model",
       href: "/projects/bearing/lineage/effort/effort%3Amodel",
+      lifecycle: "concluded",
+      lifecycleTime: { label: "Concluded", time: { availability: "unavailable" } },
+      counts: {
+        claimed: { mode: "exact", value: 0 },
+        ready: { mode: "exact", value: 0 },
+        blocked: { mode: "exact", value: 0 },
+        resolved: { mode: "exact", value: 1 },
+      },
     },
   ]);
   expect(model.relations).toEqual(
@@ -383,7 +398,13 @@ test("large relation collections expose truthful coverage and a stable filtered 
     };
   });
   const extraEfforts = extras.map(({ effort }) => effort);
-  const gateOneEffortIds = [modelEffort.id, ...extraEfforts.map((effort) => effort.id)];
+  const lastExtra = extraEfforts[4];
+  if (lastExtra === undefined) throw new Error("Expected the fifth extra Effort.");
+  const gateOneEffortIds = [
+    lastExtra.id,
+    modelEffort.id,
+    ...extraEfforts.slice(0, 4).map((effort) => effort.id),
+  ];
   const expanded = withLineage({
     ...snapshot,
     sources: [...snapshot.sources, ...extras.map(({ source }) => source)],
@@ -422,6 +443,11 @@ test("large relation collections expose truthful coverage and a stable filtered 
   expect(relation.filteredViewHref).toBe(
     "/projects/bearing/lineage/gate/gate%3Aone/relations/outcome_contributing-efforts?filter=all&order=canonical",
   );
+  expect(
+    model.sections
+      .find((section) => section.anchor === "native-work.effort-summaries")
+      ?.effortRollup?.map((row) => row.id),
+  ).toEqual(gateOneEffortIds);
 });
 
 test("renders complete provider-native dossiers on stable Local identities without file actions", () => {
@@ -574,7 +600,16 @@ test("builds an Effort-first governance lens from canonical lifecycle and nonter
       concludedAt: { availability: "unavailable" },
     },
   });
-  expect(concluded.effortLens?.currentWork).toBeUndefined();
+  expect(concluded.effortLens?.currentWork).toMatchObject({
+    state: "available",
+    items: [],
+    emptyState: "history-only",
+    counts: {
+      current: { mode: "exact", value: 0 },
+      resolved: { mode: "exact", value: 1 },
+      history: { mode: "exact", value: 2 },
+    },
+  });
 });
 
 test("warns when a concluded Effort still has nonterminal native work", () => {
@@ -614,46 +649,96 @@ test("warns when a concluded Effort still has nonterminal native work", () => {
   });
 });
 
-test("keeps an active Effort Current Work section truthful when only planning-basis objects remain", () => {
-  const snapshot = fixture();
-  const portal = snapshot.providerObservations.find(
-    (observation) =>
-      observation.binding.nativeScope === ".scratch/portal" &&
-      (observation.state === "available" || observation.state === "partial"),
-  );
-  if (portal === undefined || (portal.state !== "available" && portal.state !== "partial")) {
-    throw new Error("Expected the Portal observation.");
-  }
-  const emptyCurrent = createProviderScopeObservation({
-    ...portal,
-    projection: {
-      ...portal.projection,
-      wayfinderTickets: [],
-      deliveryTickets: [],
-      incomingIssues: [],
-      structuralOrder: [portal.projection.map?.ref, portal.projection.spec?.ref].filter(
-        (reference) => reference !== undefined,
-      ),
-      graph: { parentChild: [], blockedBy: [] },
-    },
-  } as never) as typeof portal;
-  const candidate = withLineage({
-    ...snapshot,
-    providerObservations: snapshot.providerObservations.map((observation) =>
-      observation.id === portal.id ? emptyCurrent : observation,
-    ),
-    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
-      selection.observationId === portal.id
-        ? { ...selection, observationId: emptyCurrent.id }
-        : selection,
-    ),
-  });
+test("identifies confirmed no managed work independently from planning-basis documents", () => {
   const model = readable(
-    buildPlanningLineageSubjectModel(candidate, { kind: "effort", id: "effort:portal" }, "bearing"),
+    buildPlanningLineageSubjectModel(
+      createConfirmedNoManagedWorkFixture(),
+      { kind: "effort", id: "effort:portal" },
+      "bearing",
+    ),
   );
 
-  expect(model.effortLens?.currentWork).toMatchObject({ state: "available", items: [] });
+  expect(model.effortLens?.currentWork).toMatchObject({
+    state: "available",
+    items: [],
+    emptyState: "confirmed-no-managed-work",
+    counts: {
+      current: { mode: "exact", value: 0 },
+      resolved: { mode: "exact", value: 0 },
+      history: { mode: "exact", value: 0 },
+    },
+  });
   expect(model.effortLens?.managedWorkHealth).toBe("Healthy");
+});
+
+test("identifies history-only managed work without calling all History completed", () => {
+  const model = readable(
+    buildPlanningLineageSubjectModel(
+      createHistoryOnlyWorkFixture(),
+      { kind: "effort", id: "effort:model" },
+      "bearing",
+    ),
+  );
+
+  expect(model.effortLens?.currentWork).toMatchObject({
+    state: "available",
+    items: [],
+    emptyState: "history-only",
+    counts: {
+      current: { mode: "exact", value: 0 },
+      resolved: { mode: "exact", value: 1 },
+      history: { mode: "exact", value: 2 },
+    },
+  });
+});
+
+test("identifies no active work with remaining Attention and preserves uncertain counts", () => {
+  const model = readable(
+    buildPlanningLineageSubjectModel(
+      createAttentionWithoutActiveWorkFixture(),
+      { kind: "effort", id: "effort:portal" },
+      "bearing",
+    ),
+  );
+
+  expect(model.effortLens?.currentWork).toMatchObject({
+    state: "available",
+    items: [],
+    emptyState: "attention-without-active-work",
+    counts: {
+      current: { mode: "at-least", value: 0 },
+      resolved: { mode: "at-least", value: 0 },
+      history: { mode: "at-least", value: 0 },
+    },
+  });
+  expect(model.effortLens?.managedWorkHealth).toBe("Needs attention");
+});
+
+test("preserves an available canonical lifecycle time in the Gate rollup", () => {
+  const model = readable(
+    buildPlanningLineageSubjectModel(
+      createAvailableLifecycleTimeFixture(),
+      { kind: "gate", id: "gate:one" },
+      "bearing",
+    ),
+  );
+
+  expect(
+    model.sections.find((section) => section.anchor === "native-work.effort-summaries")
+      ?.effortRollup,
+  ).toEqual([
+    expect.objectContaining({
+      id: "effort:model",
+      lifecycleTime: {
+        label: "Concluded",
+        time: {
+          availability: "available",
+          value: "2026-07-31T10:00:00Z",
+          precision: "second",
+        },
+      },
+    }),
+  ]);
 });
 
 test("discloses only degraded Effort observation state with exact bound recovery", () => {

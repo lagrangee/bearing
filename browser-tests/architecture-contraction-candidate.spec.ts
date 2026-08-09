@@ -80,7 +80,7 @@ test("the exact installed candidate remains coherent through foreground Portal",
     await page.getByRole("link", { name: "Roadmaps", exact: true }).click();
     await page.getByRole("link", { name: "G1 Fixture Roadmap", exact: true }).click();
     await page.getByRole("link", { name: "G1 Fixture Effort", exact: true }).first().click();
-    await page.getByRole("link", { name: "Full work history", exact: true }).click();
+    await page.getByRole("link", { name: /^Full work history · History /u }).click();
     const workHistory = page.locator("#native-work-history");
     const ticketLink = workHistory.getByRole("link", {
       name: "Choose fixture wording",

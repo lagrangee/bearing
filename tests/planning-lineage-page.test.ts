@@ -15,6 +15,12 @@ import type { ProjectGeneration } from "../src/project-generation/contract";
 import { effortSchema } from "../src/project-generation/schema";
 import { assetProjectionSchema } from "../src/project-generation/schema-asset";
 import { createSourceRecord } from "../src/project-generation/source-records";
+import {
+  createAttentionWithoutActiveWorkFixture,
+  createAvailableLifecycleTimeFixture,
+  createConfirmedNoManagedWorkFixture,
+  createHistoryOnlyWorkFixture,
+} from "./fixtures/effort-work-rollup";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
 import { parseRebuiltPlanningLineageFixture } from "./planning-lineage-fixture";
 
@@ -448,7 +454,10 @@ test("renders Effort status, canonical Intent, concluded-only Outcome, and gover
   expect(active).toContain('Pass the integration gate</a><span data-work-status="blocked"');
   expect(active).toContain("Blocked by unresolved prerequisite work.");
   expect(active).toContain('Route a new Portal request</a><span data-work-status="ready"');
-  expect(active).toContain("Full work history</a>");
+  expect(active).toContain("<dt>Current</dt><dd>4</dd>");
+  expect(active).toContain("<dt>Resolved</dt><dd>0</dd>");
+  expect(active).toContain("<dt>History</dt><dd>0</dd>");
+  expect(active).toContain("Full work history · History 0</a>");
   expect(active).not.toContain("<h2>Outcome</h2>");
   expect(active).not.toContain('class="matt-work-region');
   expect(active).not.toContain('aria-label="Native Work Frontier views"');
@@ -476,55 +485,63 @@ test("renders Effort status, canonical Intent, concluded-only Outcome, and gover
   expect(concluded).toContain("<dt>Disposition</dt><dd>Completed</dd>");
   expect(concluded).toContain("The governed contribution was explicitly accepted as complete.");
   expect(concluded).not.toContain("<dt>Concluded</dt>");
-  expect(concluded).not.toContain("<h2>Current Work</h2>");
+  expect(concluded).toContain("<h2>Current Work</h2>");
+  expect(concluded).toContain("All managed work is in History; no current work remains.");
+  expect(concluded).toContain("Full work history · History 2</a>");
   expect(concluded).not.toContain("Resolve the planning model");
 });
 
 test("renders an explicit empty Current Work state for an active Effort", () => {
-  const snapshot = createProjectOverviewFixture();
-  const portal = snapshot.providerObservations.find(
-    (observation) =>
-      observation.binding.nativeScope === ".scratch/portal" &&
-      (observation.state === "available" || observation.state === "partial"),
-  );
-  if (portal === undefined || (portal.state !== "available" && portal.state !== "partial")) {
-    throw new Error("Expected the Portal observation.");
-  }
-  const emptyCurrent = createProviderScopeObservation({
-    ...portal,
-    projection: {
-      ...portal.projection,
-      wayfinderTickets: [],
-      deliveryTickets: [],
-      incomingIssues: [],
-      structuralOrder: [portal.projection.map?.ref, portal.projection.spec?.ref].filter(
-        (reference) => reference !== undefined,
-      ),
-      graph: { parentChild: [], blockedBy: [] },
-    },
-  } as never) as typeof portal;
-  const candidate = withLineage({
-    ...snapshot,
-    providerObservations: snapshot.providerObservations.map((observation) =>
-      observation.id === portal.id ? emptyCurrent : observation,
-    ),
-    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
-      selection.observationId === portal.id
-        ? { ...selection, observationId: emptyCurrent.id }
-        : selection,
-    ),
-  });
   const html = render(
     { validity: "valid", value: { kind: "effort", id: "effort:portal" } },
-    { snapshot: candidate },
+    { snapshot: createConfirmedNoManagedWorkFixture() },
   );
 
   expect(html).toContain("<h2>Current Work</h2>");
-  expect(html).toContain("No nonterminal managed work is established by this observation.");
+  expect(html).toContain("No managed work is established for this scope.");
+  expect(html).toContain("Full work history · History 0</a>");
   const currentWork = html.match(/<section id="native-work-current">[\s\S]*?<\/section>/u)?.[0];
   expect(currentWork).toBeDefined();
   expect(currentWork).not.toContain("Portal Validation");
   expect(currentWork).not.toContain("Portal Validation PRD");
+});
+
+test("renders history-only managed work without renaming History completed work", () => {
+  const html = render(
+    { validity: "valid", value: { kind: "effort", id: "effort:model" } },
+    { snapshot: createHistoryOnlyWorkFixture() },
+  );
+
+  expect(html).toContain("All managed work is in History; no current work remains.");
+  expect(html).toContain("<dt>Current</dt><dd>0</dd>");
+  expect(html).toContain("<dt>Resolved</dt><dd>1</dd>");
+  expect(html).toContain("<dt>History</dt><dd>2</dd>");
+  expect(html).toContain("Full work history · History 2</a>");
+  expect(html).not.toContain("completed work");
+});
+
+test("renders empty active work with remaining Attention and uncertain independent counts", () => {
+  const html = render(
+    { validity: "valid", value: { kind: "effort", id: "effort:portal" } },
+    { snapshot: createAttentionWithoutActiveWorkFixture() },
+  );
+
+  expect(html).toContain(
+    "No current managed work is established. Attention remains and must be reviewed separately.",
+  );
+  expect(html).toContain("<dt>Current</dt><dd>At least 0</dd>");
+  expect(html).toContain("<dt>Resolved</dt><dd>At least 0</dd>");
+  expect(html).toContain("<dt>History</dt><dd>At least 0</dd>");
+  expect(html).toContain("Full work history · History At least 0</a>");
+});
+
+test("renders an available canonical lifecycle time in its independent Gate column", () => {
+  const html = render(
+    { validity: "valid", value: { kind: "gate", id: "gate:one" } },
+    { snapshot: createAvailableLifecycleTimeFixture() },
+  );
+
+  expect(html).toContain('<time dateTime="2026-07-31T10:00:00Z">');
 });
 
 test("renders bounded Planning Basis, Outputs, and Governance as Effort-owned regions", async () => {
@@ -884,10 +901,27 @@ test("keeps Roadmap and Gate Effort relations in their single semantic owners", 
   expect(gateHtml).toContain("<h2>Contributing Efforts</h2>");
   const sectionStart = gateHtml.indexOf('id="native-work.effort-summaries"');
   const summarySection = gateHtml.slice(sectionStart, gateHtml.indexOf("</section>", sectionStart));
+  expect(summarySection).toContain('<table class="effort-rollup-table">');
+  for (const heading of [
+    "Effort",
+    "Lifecycle",
+    "Claimed",
+    "Ready",
+    "Blocked",
+    "Resolved",
+    "Lifecycle time",
+  ]) {
+    expect(summarySection).toContain(`<th scope="col">${heading}</th>`);
+  }
   expect(summarySection).toContain(
     'href="/projects/bearing/lineage/effort/effort%3Aportal">Web Portal Validation</a>',
   );
-  expect(summarySection).toContain("Claimed 1 · Ready 1 · Blocked 1 · Resolved 0");
+  expect(summarySection).toContain('<td data-label="Lifecycle">Active</td>');
+  expect(summarySection).toContain('<td data-label="Claimed">1</td>');
+  expect(summarySection).toContain('<td data-label="Ready">1</td>');
+  expect(summarySection).toContain('<td data-label="Blocked">1</td>');
+  expect(summarySection).toContain('<td data-label="Resolved">0</td>');
+  expect(summarySection).toContain('<td data-label="Lifecycle time">Unavailable</td>');
   expect(gateHtml).not.toContain('id="relation.outcome.contributing-efforts"');
   for (const html of [roadmapHtml, gateHtml]) {
     expect(html).not.toContain('class="matt-work-region');

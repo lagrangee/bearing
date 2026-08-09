@@ -227,6 +227,64 @@ function TimeFacts({ facts }: { readonly facts: readonly PlanningLineageTimeFact
   );
 }
 
+function EffortRollupTable({
+  onNavigate,
+  rows,
+}: {
+  readonly onNavigate: Navigate;
+  readonly rows: NonNullable<PlanningLineageSection["effortRollup"]>;
+}) {
+  return (
+    <table className="effort-rollup-table">
+      <caption className="sr-only">Contributing Effort lifecycle and native work counts</caption>
+      <thead>
+        <tr>
+          <th scope="col">Effort</th>
+          <th scope="col">Lifecycle</th>
+          <th scope="col">Claimed</th>
+          <th scope="col">Ready</th>
+          <th scope="col">Blocked</th>
+          <th scope="col">Resolved</th>
+          <th scope="col">Lifecycle time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.id}>
+            <th data-label="Effort" scope="row">
+              {row.href === undefined ? (
+                row.title
+              ) : (
+                <a href={row.href} onClick={(event) => follow(row.href ?? "", event, onNavigate)}>
+                  {row.title}
+                </a>
+              )}
+            </th>
+            <td data-label="Lifecycle">
+              {row.lifecycle === undefined ? "Unavailable" : humanizeWorkState(row.lifecycle)}
+            </td>
+            <td data-label="Claimed">{workRegionCountLabel(row.counts.claimed)}</td>
+            <td data-label="Ready">{workRegionCountLabel(row.counts.ready)}</td>
+            <td data-label="Blocked">{workRegionCountLabel(row.counts.blocked)}</td>
+            <td data-label="Resolved">{workRegionCountLabel(row.counts.resolved)}</td>
+            <td data-label="Lifecycle time">
+              {row.lifecycleTime?.time.availability === "available" ? (
+                <PlanningLineageTimeValue
+                  label={row.lifecycleTime.label}
+                  mode="detail"
+                  time={row.lifecycleTime.time}
+                />
+              ) : (
+                "Unavailable"
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function LineageSections({
   beforeSpine = false,
   onNavigate,
@@ -282,6 +340,9 @@ function LineageSections({
           )}
           {section.times === undefined || section.times.length === 0 ? null : (
             <TimeFacts facts={section.times} />
+          )}
+          {section.effortRollup === undefined ? null : (
+            <EffortRollupTable onNavigate={onNavigate} rows={section.effortRollup} />
           )}
         </section>
       ))}
@@ -499,6 +560,14 @@ function EffortGovernanceLens({
   readonly onNavigate: Navigate;
 }) {
   const currentWork = lens.currentWork;
+  const emptyWorkMessage =
+    currentWork?.state !== "available" || currentWork.emptyState === undefined
+      ? undefined
+      : currentWork.emptyState === "confirmed-no-managed-work"
+        ? "No managed work is established for this scope."
+        : currentWork.emptyState === "history-only"
+          ? "All managed work is in History; no current work remains."
+          : "No current managed work is established. Attention remains and must be reviewed separately.";
   return (
     <div className="effort-governance-lens">
       <section id="effort.intent">
@@ -556,7 +625,7 @@ function EffortGovernanceLens({
                 href={currentWork.historyHref}
                 onClick={(event) => follow(currentWork.historyHref, event, onNavigate)}
               >
-                Full work history
+                Full work history · History {workRegionCountLabel(currentWork.counts.history)}
               </a>
             ) : null}
           </div>
@@ -567,13 +636,27 @@ function EffortGovernanceLens({
             </p>
           ) : (
             <>
+              <dl className="effort-work-counts" aria-label="Managed work counts">
+                <div>
+                  <dt>Current</dt>
+                  <dd>{workRegionCountLabel(currentWork.counts.current)}</dd>
+                </div>
+                <div>
+                  <dt>Resolved</dt>
+                  <dd>{workRegionCountLabel(currentWork.counts.resolved)}</dd>
+                </div>
+                <div>
+                  <dt>History</dt>
+                  <dd>{workRegionCountLabel(currentWork.counts.history)}</dd>
+                </div>
+              </dl>
               {currentWork.consistencyWarning === undefined ? null : (
                 <p className="effort-consistency-warning" role="status">
                   {currentWork.consistencyWarning}
                 </p>
               )}
               {currentWork.items.length === 0 ? (
-                <p>No nonterminal managed work is established by this observation.</p>
+                <p>{emptyWorkMessage ?? "Current managed work cannot be confirmed."}</p>
               ) : (
                 <ul className="effort-current-work-list">
                   {currentWork.items.map((item) => (
