@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useRef, useState } from "react";
 import type { ProjectOverviewModel } from "./project-overview-model";
+import { ReadDisclosure } from "./read-disclosure";
 
 type OrientationTab = "brief" | "summary";
 
@@ -58,11 +59,15 @@ function BriefCanvas({ brief }: { readonly brief: ProjectOverviewModel["brief"] 
       ) : null}
       <section>
         <h3>At a Glance</h3>
-        <p lang={brief.value.languages?.atAGlance}>{brief.value.atAGlance}</p>
+        <ReadDisclosure label="At a Glance">
+          <p lang={brief.value.languages?.atAGlance}>{brief.value.atAGlance}</p>
+        </ReadDisclosure>
       </section>
       <section>
         <h3>Current Position</h3>
-        <p lang={brief.value.languages?.currentPosition}>{brief.value.currentPosition}</p>
+        <ReadDisclosure label="Current Position">
+          <p lang={brief.value.languages?.currentPosition}>{brief.value.currentPosition}</p>
+        </ReadDisclosure>
       </section>
       <SummaryList
         items={brief.value.establishedBaseline}
@@ -92,11 +97,13 @@ function SummaryList({
   return (
     <section>
       <h3>{title}</h3>
-      <ul lang={language}>
-        {entries.map(({ item, key }) => (
-          <li key={key}>{item}</li>
-        ))}
-      </ul>
+      <ReadDisclosure label={title}>
+        <ul lang={language}>
+          {entries.map(({ item, key }) => (
+            <li key={key}>{item}</li>
+          ))}
+        </ul>
+      </ReadDisclosure>
     </section>
   );
 }
@@ -136,11 +143,15 @@ function SummaryCanvas({ summary }: { readonly summary: ProjectOverviewModel["su
       ) : null}
       <section>
         <h3>Purpose</h3>
-        <p lang={summary.value.languages?.purpose}>{summary.value.purpose}</p>
+        <ReadDisclosure label="Purpose">
+          <p lang={summary.value.languages?.purpose}>{summary.value.purpose}</p>
+        </ReadDisclosure>
       </section>
       <section>
         <h3>Current Design</h3>
-        <p lang={summary.value.languages?.currentDesign}>{summary.value.currentDesign}</p>
+        <ReadDisclosure label="Current Design">
+          <p lang={summary.value.languages?.currentDesign}>{summary.value.currentDesign}</p>
+        </ReadDisclosure>
       </section>
       <SummaryList items={summary.value.boundaries} title="Boundaries" />
       <SummaryList items={summary.value.futureCandidates} title="Future Candidates" />

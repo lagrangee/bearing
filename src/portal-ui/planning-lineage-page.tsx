@@ -34,6 +34,7 @@ import { Action } from "./primitives";
 import { projectCanvasFocusKey } from "./project-canvas-history";
 import type { LineageModelData } from "./project-data";
 import { ProviderObservationTime } from "./provider-observation-time";
+import { ReadDisclosure } from "./read-disclosure";
 import { SanitizedMarkdownContent } from "./sanitized-markdown";
 import { SourceEventTimeValue } from "./source-event-time";
 import type { TechnicalDetailsSelection } from "./technical-details";
@@ -292,14 +293,20 @@ function LineageSectionContent({
   anchor,
   content,
   onNavigate,
+  sectionTitle,
 }: {
   readonly anchor: string;
   readonly content: PlanningLineageSectionContent;
   readonly onNavigate: Navigate;
+  readonly sectionTitle: string;
 }) {
   switch (content.kind) {
     case "plain-prose":
-      return <p>{content.value}</p>;
+      return (
+        <ReadDisclosure label={sectionTitle}>
+          <p>{content.value}</p>
+        </ReadDisclosure>
+      );
     case "provider-document": {
       const { document } = content;
       return (
@@ -314,13 +321,16 @@ function LineageSectionContent({
                 "html" in section ? (
                   <SanitizedMarkdownContent
                     html={section.html}
+                    label={section.title}
                     presentation={section.presentation}
                   />
                 ) : (
-                  <div className="markdown-formatting-fallback">
-                    <p>Formatting is unavailable for this section.</p>
-                    <pre>{section.markdown}</pre>
-                  </div>
+                  <ReadDisclosure label={section.title}>
+                    <div className="markdown-formatting-fallback">
+                      <p>Formatting is unavailable for this section.</p>
+                      <pre>{section.markdown}</pre>
+                    </div>
+                  </ReadDisclosure>
                 )
               ) : section.availability === "confirmed-empty" ? (
                 <p>No {section.title.toLocaleLowerCase()} content is recorded.</p>
@@ -358,11 +368,13 @@ function LineageSectionContent({
           ))}
         </dl>
       ) : (
-        <ul>
-          {content.values.map((value) => (
-            <li key={`${anchor}:${value}`}>{value}</li>
-          ))}
-        </ul>
+        <ReadDisclosure label={sectionTitle}>
+          <ul>
+            {content.values.map((value) => (
+              <li key={`${anchor}:${value}`}>{value}</li>
+            ))}
+          </ul>
+        </ReadDisclosure>
       );
     case "relation-list":
       return (
@@ -436,6 +448,7 @@ function LineageSections({
               content={content}
               key={`${section.anchor}:${lineageSectionContentKey(content)}`}
               onNavigate={onNavigate}
+              sectionTitle={section.title}
             />
           ))}
         </section>
@@ -1077,13 +1090,16 @@ function MapChapter({
       <div data-semantic-availability={destination.availability}>
         {destination.availability === "available" ? (
           renderedDestination === undefined ? (
-            <div className="markdown-formatting-fallback">
-              <p>Formatting is unavailable for this section.</p>
-              <pre>{destination.markdown}</pre>
-            </div>
+            <ReadDisclosure label="Destination">
+              <div className="markdown-formatting-fallback">
+                <p>Formatting is unavailable for this section.</p>
+                <pre>{destination.markdown}</pre>
+              </div>
+            </ReadDisclosure>
           ) : (
             <SanitizedMarkdownContent
               html={renderedDestination.html}
+              label="Destination"
               presentation={renderedDestination.presentation}
             />
           )
@@ -1684,6 +1700,7 @@ export function PlanningLineagePage({
       {model.subject.kind !== "roadmap" ? null : (
         <LineageSections
           beforeSpine
+          key={`${model.subject.kind}:${model.subject.id}`}
           onNavigate={onNavigate}
           sections={model.sections}
           semanticAvailability={model.semanticAvailability}
@@ -1697,6 +1714,7 @@ export function PlanningLineagePage({
       )}
       {model.subject.kind === "roadmap" ? null : (
         <LineageSections
+          key={`${model.subject.kind}:${model.subject.id}`}
           onNavigate={onNavigate}
           sections={model.sections}
           semanticAvailability={model.semanticAvailability}
@@ -1705,6 +1723,7 @@ export function PlanningLineagePage({
       {model.workRegion === undefined || model.subject.kind === "effort" ? null : (
         <MattNativeWorkRegion
           entryId={entryId}
+          key={`${model.subject.kind}:${model.subject.id}`}
           onNavigate={onNavigate}
           owner={model.workHistoryOwner}
           region={model.workRegion}

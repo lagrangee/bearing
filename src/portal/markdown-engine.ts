@@ -47,6 +47,14 @@ const markdown = new MarkdownIt({
 }).use(tasklist, { disabled: true, label: false });
 markdown.enable("strikethrough");
 markdown.validateLink = () => true;
+markdown.core.ruler.after("task_list", "accessible_task_list", (state) => {
+  for (const token of state.tokens) {
+    if (token.type !== "inline") continue;
+    const checkbox = token.children?.find((child) => child.type === "checkbox_input");
+    if (checkbox === undefined) continue;
+    checkbox.attrSet("aria-label", token.content.slice(3).trim() || "Task list item");
+  }
+});
 
 markdown.renderer.rules.image = (tokens, index) => {
   const token = tokens[index];
@@ -89,7 +97,7 @@ const sanitizerOptions: sanitizeHtml.IOptions = {
   ],
   allowedAttributes: {
     a: ["href", "rel", "target", "title"],
-    input: ["type", "checked", "disabled", "class"],
+    input: ["type", "checked", "disabled", "class", "aria-label"],
     li: ["class"],
     ol: ["start"],
     span: ["class"],
@@ -122,6 +130,9 @@ const sanitizerOptions: sanitizeHtml.IOptions = {
         type: "checkbox",
         disabled: "",
         ...(attributes["checked"] === undefined ? {} : { checked: "" }),
+        ...(attributes["aria-label"] === undefined
+          ? {}
+          : { "aria-label": attributes["aria-label"] }),
         class: "task-list-item-checkbox",
       },
     }),

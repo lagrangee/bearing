@@ -151,6 +151,9 @@ const value = 1;
   expect(result.html).toContain("<s>old</s>");
   expect(result.html).toContain('type="checkbox"');
   expect(result.html).toMatch(/<input[^>]+\bdisabled\b/iu);
+  expect(result.html).toContain('aria-label="Done"');
+  expect(result.html).not.toMatch(/\bid="task-item-/u);
+  expect(result.html).not.toMatch(/\bfor="task-item-/u);
   expect(result.html).toContain('href="https://example.com/spec"');
 });
 

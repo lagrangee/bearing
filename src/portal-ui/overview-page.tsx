@@ -20,7 +20,7 @@ export function OverviewPage({
   const model = useMemo(() => buildProjectOverviewModel(snapshot), [snapshot]);
   return (
     <div className="page overview-page">
-      <OverviewBrief brief={model.brief} summary={model.summary} />
+      <OverviewBrief brief={model.brief} key={entryId} summary={model.summary} />
       <OverviewAttention attention={model.attention} entryId={entryId} onNavigate={onNavigate} />
       <OverviewRoadmaps entryId={entryId} onOpenRoadmap={onOpenRoadmap} roadmaps={model.roadmaps} />
     </div>

@@ -1,6 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { planningLineageSubjectHref } from "../src/planning-lineage-route";
 import { copyPortalProjectFixture } from "../tests/fixtures/repository-fixture";
@@ -63,6 +64,38 @@ const githubTriageMapping = `# Triage Labels
 | \`enhancement\` | \`custom-enhancement\` | Feature |
 `;
 
+const longBriefCurrentPosition =
+  "当前 Roadmap 是 Bearing 0.1.1 Matt-Native Experience，当前 Gate 是 0.1.1 Live Journey Proven。Architecture Contraction 保持 active governing commitment，并收口 Portal 阅读合同。当前验证保持 read-only，provider evidence 与 canonical truth 继续由各自 owner 管理。浏览器只提供 presentation，不执行 Effort、Gate 或 release transition。此段使用多语言文字验证实际 rendered height，而不依赖 character、word 或 token 数量。展开与收起只改变视觉呈现，完整文字始终保留在同一个可搜索、可复制、可打印的 authored content 节点中。响应式宽度、字体缩放和窄屏会重新测量真实布局，但不会写入 Bearing State、Project Read Model、Project Catalog、provider evidence 或 native source。";
+
+const projectBrief = `---
+Type: project-brief
+ID: project-brief:current
+Generated at: 2026-08-10T00:00:00.000Z
+Languages:
+  At a Glance: zh-CN
+  Current Position: zh-CN
+  Established Baseline: zh-CN
+---
+
+# Project Brief
+
+## At a Glance
+
+Portal 保持 read-only。
+
+## Current Position
+
+${longBriefCurrentPosition}
+
+## Established Baseline
+
+- Provider Markdown 保留 authored structure。
+- Canonical prose 保留 typed meaning。
+- Disclosure 只属于当前 route UI session。
+- Human acceptance 仍独立于自动 evidence。
+- Print 和 copy 保留完整 authored content。
+`;
+
 test.beforeAll(async () => {
   fixtureRoot = await realpath(await copyPortalProjectFixture("G3 Preview Project"));
   await mkdir(join(fixtureRoot, "prototypes/demo"), { recursive: true });
@@ -88,7 +121,10 @@ test.beforeAll(async () => {
     writeFile(join(fixtureRoot, "docs/bundle/README.md"), "# Directory member\n"),
   ]);
   const assetsPath = join(fixtureRoot, ".bearing/state/assets.md");
+  const briefPath = join(fixtureRoot, ".bearing/state/project-brief.md");
+  const gatePath = join(fixtureRoot, ".bearing/state/milestone-gates/fixture.md");
   const assets = await readFile(assetsPath, "utf8");
+  const gate = await readFile(gatePath, "utf8");
   const mapPath = join(fixtureRoot, ".scratch/work/map.md");
   const map = await readFile(mapPath, "utf8");
   await writeFile(
@@ -96,6 +132,21 @@ test.beforeAll(async () => {
     assets.replace(
       "---\n\n# Asset Registry",
       `  - ID: asset:g3-prototype\n    Title: G3 Prototype\n    Purpose: Preserve the accepted interaction direction.\n    Kind: prototype\n    Source: prototypes/demo\n    Owner: effort:fixture\n    Added at: null\n    Disposition: active\n  - ID: asset:g3-reading-document\n    Title: G3 Reading Document\n    Purpose: Keep the durable reading reference available.\n    Kind: reference\n    Source: docs/reading.html\n    Owner: effort:fixture\n    Added at: null\n    Disposition: active\n  - ID: asset:g3-directory\n    Title: G3 Directory Asset\n    Purpose: Keep the durable directory reference available.\n    Kind: reference\n    Source: docs/bundle\n    Owner: effort:fixture\n    Added at: null\n    Disposition: active\n  - ID: asset:g3-unsupported\n    Title: G3 Unsupported Content\n    Purpose: Keep the durable opaque reference available.\n    Kind: reference\n    Source: docs/payload.bin\n    Owner: effort:fixture\n    Added at: null\n    Disposition: active\n---\n\n# Asset Registry`,
+    ),
+  );
+  await writeFile(briefPath, projectBrief);
+  await writeFile(
+    gatePath,
+    gate.replace(
+      "- Deterministic fixture checks pass.",
+      `- Deterministic fixture checks pass.
+- Provider Markdown keeps headings.
+- Provider Markdown keeps nested and task lists.
+- Canonical prose keeps its typed meaning.
+- Disclosure uses actual rendered height.
+- Keyboard and pointer behavior are equivalent.
+- Print and copy expose complete content.
+- Portal performs no canonical or native mutation.`,
     ),
   );
   await writeFile(
@@ -138,6 +189,8 @@ test.beforeAll(async () => {
     effort.replace("Native scope: .scratch/work", `Native scope: ${markdownNativeScope}`),
   );
   const githubIssueBody = `# Authored H1
+
+[Visible source](https://example.com/visible)
 
 ## Authored H2
 
@@ -212,7 +265,18 @@ const safe = true;
     "repos/example/reference/issues/5/comments?per_page=100&page=1": {
       status: 200,
       headers: { etag: '"comments-5-markdown-v1"' },
-      body: [],
+      body: [
+        {
+          id: 9501,
+          node_id: "IC_9501",
+          html_url: "https://github.com/example/reference/issues/5#issuecomment-9501",
+          body: "- [ ] Short authored note.",
+          user: { login: "lago", id: 9502, node_id: "U_lago" },
+          created_at: "2026-07-20T00:00:00Z",
+          updated_at: "2026-07-20T00:00:00Z",
+          author_association: "OWNER",
+        },
+      ],
     },
     "repos/example/reference/issues/5/dependencies/blocked_by?per_page=100&page=1": {
       status: 200,
@@ -312,7 +376,10 @@ test("real Provider to v21 to Host render stays safe and read-only", async ({ pa
   await expect(page.locator(".provider-markdown strong")).toContainText("Safe");
   await expect(page.locator(".provider-markdown em")).toContainText("readable");
   await expect(page.locator(".provider-markdown s")).toContainText("retired text");
-  await expect(page.locator('.provider-markdown input[type="checkbox"]')).toBeDisabled();
+  const taskCheckboxes = page.locator('.provider-markdown input[type="checkbox"]');
+  await expect(taskCheckboxes).toHaveCount(2);
+  await expect(taskCheckboxes.nth(0)).toBeDisabled();
+  await expect(taskCheckboxes.nth(1)).toBeDisabled();
   await expect(page.getByRole("link", { name: "Safe source" })).toHaveAttribute(
     "href",
     "https://example.com/spec",
@@ -331,6 +398,216 @@ test("real Provider to v21 to Host render stays safe and read-only", async ({ pa
   ).toBeUndefined();
   expect(posts).toEqual([]);
   expect(remoteImageRequests).toEqual([]);
+});
+
+test("shared disclosure responds to rendered height without changing authored content", async ({
+  page,
+}) => {
+  if (host === undefined) throw new Error("Ticket 26 real Host did not start.");
+  const posts: string[] = [];
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(request.url());
+  });
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(
+    `${host.url}${planningLineageSubjectHref("g3-markdown", {
+      kind: "native-subject",
+      id: "github:R_reference:I_reference_5",
+    })}`,
+  );
+
+  const longMarkdown = page.locator(".read-disclosure", {
+    has: page.getByText("Authored H1", { exact: true }),
+  });
+  const longMarkdownContent = longMarkdown.locator(".read-disclosure-content");
+  const markdownToggle = longMarkdown.locator(".read-disclosure-toggle");
+  await expect(markdownToggle).toHaveCount(1);
+  await expect(markdownToggle).toHaveAccessibleName(/^Show more:/u);
+  await expect(markdownToggle).toHaveAttribute("aria-expanded", "false");
+  const markdownContentId = await longMarkdownContent.getAttribute("id");
+  if (markdownContentId === null) throw new Error("Disclosure content needs a stable control ID.");
+  await expect(markdownToggle).toHaveAttribute("aria-controls", markdownContentId);
+  const collapsedMeasure = await longMarkdownContent.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(collapsedMeasure.scrollHeight).toBeGreaterThan(collapsedMeasure.clientHeight);
+  expect(collapsedMeasure.clientHeight).toBeLessThanOrEqual(collapsedMeasure.lineHeight * 6 + 1);
+  expect(
+    await longMarkdownContent.evaluate(
+      (element) => getComputedStyle(element, "::after").backgroundImage,
+    ),
+  ).not.toBe("none");
+
+  await markdownToggle.focus();
+  await markdownToggle.press("Shift+Tab");
+  await expect(longMarkdown.getByRole("link", { name: "Visible source" })).toBeFocused();
+  await expect(longMarkdown.getByRole("link", { name: "Safe source" })).toHaveAttribute(
+    "tabindex",
+    "-1",
+  );
+  await markdownToggle.focus();
+  await markdownToggle.press("Enter");
+  await expect(markdownToggle).toBeFocused();
+  await expect(markdownToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(markdownToggle).toHaveAccessibleName(/^Show less:/u);
+  expect(
+    await longMarkdownContent.evaluate((element) => element.clientHeight === element.scrollHeight),
+  ).toBe(true);
+  await markdownToggle.press("Shift+Tab");
+  await expect(longMarkdown.locator("a:focus")).toHaveCount(1);
+  await expect(longMarkdown.getByRole("link", { name: "Safe source" })).not.toHaveAttribute(
+    "tabindex",
+    "-1",
+  );
+  await markdownToggle.focus();
+  await markdownToggle.press("Space");
+  await expect(markdownToggle).toBeFocused();
+  await expect(markdownToggle).toHaveAttribute("aria-expanded", "false");
+
+  const selectedText = await longMarkdownContent.evaluate((element) => {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    return selection?.toString() ?? "";
+  });
+  expect(selectedText).toContain("const safe = true;");
+  expect(selectedText).toContain("Remote diagram");
+
+  const shortMarkdown = page.locator(".read-disclosure", {
+    has: page.getByText("Short authored note.", { exact: true }),
+  });
+  await expect(shortMarkdown.getByRole("button")).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Disabled task" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Short authored note." })).toBeVisible();
+  await expect(page.locator('[id^="task-item-"]')).toHaveCount(0);
+
+  await page.emulateMedia({ media: "print" });
+  expect(
+    await longMarkdownContent.evaluate((element) => ({
+      maxHeight: getComputedStyle(element).maxHeight,
+      overflow: getComputedStyle(element).overflow,
+      complete: element.clientHeight === element.scrollHeight,
+    })),
+  ).toEqual({ maxHeight: "none", overflow: "visible", complete: true });
+  await expect(markdownToggle).toBeHidden();
+  await page.emulateMedia({ media: "screen" });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${host.url}/projects/g3-preview`);
+  const shortCanonical = page.locator(".read-disclosure", {
+    has: page.getByText("Portal 保持 read-only。", { exact: true }),
+  });
+  await expect(shortCanonical.getByRole("button")).toHaveCount(0);
+  const longCanonical = page.locator(".read-disclosure", {
+    has: page.getByText(longBriefCurrentPosition, { exact: true }),
+  });
+  const canonicalToggle = longCanonical.locator(".read-disclosure-toggle");
+  await expect(canonicalToggle).toHaveCount(0);
+  // A 1280 CSS-pixel reading surface at 200% browser zoom reflows at 640 CSS pixels.
+  await page.setViewportSize({ width: 640, height: 900 });
+  await expect(canonicalToggle).toHaveAccessibleName(/^Show more:/u);
+  await expect(canonicalToggle).toHaveAttribute("aria-expanded", "false");
+  await canonicalToggle.click();
+  await expect(canonicalToggle).toHaveAccessibleName(/^Show less:/u);
+
+  await page.goto(
+    `${host.url}${planningLineageSubjectHref("g3-preview", {
+      kind: "gate",
+      id: "gate:fixture",
+    })}`,
+  );
+  const exitCriteria = page.getByRole("heading", { name: "Exit Criteria", level: 2 });
+  const exitDisclosure = exitCriteria.locator("xpath=following-sibling::*[1]");
+  await expect(exitDisclosure.getByRole("button", { name: /^Show more:/u })).toBeVisible();
+
+  await page.goto(
+    `${host.url}${planningLineageSubjectHref("g3-preview", {
+      kind: "native-subject",
+      id: ".scratch/work/map.md",
+    })}`,
+  );
+  const destinationDisclosure = page.locator(".read-disclosure", {
+    has: page.getByRole("heading", { name: "Safe reading", level: 3 }),
+  });
+  const destinationToggle = destinationDisclosure.locator(".read-disclosure-toggle");
+  await expect(destinationToggle).toHaveAccessibleName(/^Show more:/u);
+  await destinationToggle.click();
+  await expect(destinationToggle).toHaveAttribute("aria-expanded", "true");
+  const issueHref = planningLineageSubjectHref("g3-preview", {
+    kind: "native-subject",
+    id: ".scratch/work/issues/01-verify-isolation.md",
+  });
+  await page.evaluate((href) => {
+    window.history.pushState(null, "", href);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, issueHref);
+  await expect(
+    page.getByRole("heading", { name: "Verify repository isolation", level: 1 }),
+  ).toBeVisible();
+  const mapHref = planningLineageSubjectHref("g3-preview", {
+    kind: "native-subject",
+    id: ".scratch/work/map.md",
+  });
+  await page.evaluate((href) => {
+    window.history.pushState(null, "", href);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, mapHref);
+  await expect(destinationDisclosure.getByRole("button", { name: /^Show more:/u })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+
+  for (const width of [375, 640]) {
+    await page.setViewportSize({ width, height: width === 375 ? 812 : 450 });
+    await page.goto(
+      `${host.url}${planningLineageSubjectHref("g3-markdown", {
+        kind: "native-subject",
+        id: "github:R_reference:I_reference_5",
+      })}`,
+    );
+    await expect(page.getByRole("button", { name: /^Show more:/u }).first()).toBeVisible();
+    const overflow = await page.locator("body *").evaluateAll((elements) =>
+      elements.flatMap((element) => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.right > window.innerWidth + 0.5
+          ? [{ tag: element.tagName, className: element.className, right: bounds.right }]
+          : [];
+      }),
+    );
+    expect(overflow).toEqual([]);
+  }
+  await page.setViewportSize({ width: 640, height: 900 });
+  await page.goto(`${host.url}/projects/g3-preview`);
+  const responsiveCanonical = page.locator(".read-disclosure", {
+    has: page.getByText(longBriefCurrentPosition, { exact: true }),
+  });
+  await expect(responsiveCanonical.locator(".read-disclosure-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(responsiveCanonical.locator(".read-disclosure-toggle")).toHaveCount(0);
+  await page.locator("body").evaluate((body) => {
+    body.style.fontSize = "200%";
+  });
+  await expect(responsiveCanonical.getByRole("button", { name: /^Show more:/u })).toBeVisible();
+  await page.locator("body").evaluate((body) => {
+    body.style.fontSize = "";
+  });
+  expect(posts).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+  expect(pageErrors).toEqual([]);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
 test("prototype stays semantic-only while an ordinary HTML document keeps inert View Content", async ({
