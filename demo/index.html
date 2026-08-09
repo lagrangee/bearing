@@ -52,6 +52,14 @@
         </svg>
         <span>Roadmaps</span>
       </a>
+      <a class="project-nav-item" href="#/audit">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+          <path d="m9 14 2 2 4-4" />
+        </svg>
+        <span>Audit</span>
+      </a>
       <p class="nav-footer"><span>Read only</span><small>Interactive sample</small></p>
     </nav>
     <button aria-label="Close navigation" class="nav-scrim" type="button"></button>
@@ -139,13 +147,14 @@
             <div><h2 id="attention-title">Attention</h2><p>1 project item</p></div>
           </div>
           <div class="attention-items">
-            <article class="attention-item attention-review is-static">
+            <a class="attention-item attention-review" href="#/attention">
               <span>
                 <small>Planning Review</small>
                 <strong>Review the Public Beta release decision</strong>
                 <span>Confirm the candidate evidence before Gate Passage.</span>
               </span>
-            </article>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg>
+            </a>
           </div>
         </section>
         <section class="roadmap-landscape" aria-labelledby="active-roadmaps-heading">
@@ -295,6 +304,84 @@
             <article class="matt-work-role"><div class="matt-work-role-heading"><h4>Delivery</h4><span>1</span></div><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Delivery ticket</small><strong>Verify clean-install release bundle</strong></div><span>Ready</span></div></li></ul></article>
             <article class="matt-work-role"><div class="matt-work-role-heading"><h4>Incoming</h4><span>1</span></div><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Classified issue</small><strong>Document beta rollback signal</strong></div><span>Enhancement</span></div></li></ul></article>
           </div></section>
+        </section>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="attention-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/overview">Overview</a></li><li><span aria-current="page">Attention</span></li></ol></nav>
+        <header class="list-header">
+          <h1 tabindex="-1">Attention</h1>
+          <p>Read the fixed Northstar items that need judgment, have limited evidence, or add context.</p>
+        </header>
+        <section class="attention-reading-section" aria-labelledby="human-decision-heading">
+          <div class="section-heading"><h2 id="human-decision-heading">Needs a human decision</h2><span>1</span></div>
+          <div class="attention-items">
+            <a class="attention-item attention-review" href="#/reviews/public-beta-release-decision">
+              <span><small>Planning Review</small><strong>Review the Public Beta release decision</strong><span>Confirm whether the fixed candidate evidence is sufficient for owner acceptance.</span></span>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg>
+            </a>
+          </div>
+        </section>
+        <section class="attention-reading-section attention-state-degraded" aria-labelledby="degraded-evidence-heading">
+          <div class="section-heading"><h2 id="degraded-evidence-heading">Degraded evidence</h2><span>1</span></div>
+          <div class="attention-items">
+            <article class="attention-item attention-diagnostic is-static"><span><small>Provider evidence</small><strong>Can't verify</strong><span>Beta Operations keeps the last successful sample as stale after a fixed refresh failure.</span></span></article>
+          </div>
+        </section>
+        <section class="attention-reading-section attention-state-information" aria-labelledby="informational-heading">
+          <div class="section-heading"><h2 id="informational-heading">Informational</h2><span>1</span></div>
+          <div class="attention-items">
+            <article class="attention-item is-static"><span><small>Structural state</small><strong>No blocking diagnostics</strong><span>The sample has no invented invalid state. The pending Review remains a separate human decision.</span></span></article>
+          </div>
+        </section>
+      </section>
+
+      <section class="demo-page lineage-page" data-screen hidden id="public-beta-review-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/attention">Attention</a></li><li><span aria-current="page">Public Beta release decision</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><h1 tabindex="-1">Review the Public Beta release decision</h1></div></header>
+        <div class="lineage-sections">
+          <section aria-labelledby="review-question-heading"><h2 id="review-question-heading">Question</h2><p>Should Northstar accept the current release candidate for Public Beta?</p></section>
+          <section aria-labelledby="review-scope-heading"><h2 id="review-scope-heading">Scope</h2><p>Exact target: Gate · Release candidate ready.</p></section>
+          <section aria-labelledby="review-lifecycle-heading"><h2 id="review-lifecycle-heading">Lifecycle</h2><p>Pending</p></section>
+          <section aria-labelledby="open-context-heading"><h2 id="open-context-heading">Open Context</h2><ul><li>Is the current evidence sufficient for Public Beta owner acceptance?</li><li>Does the stale Beta Operations evidence require a new candidate?</li></ul><p><strong>Decision boundary.</strong> Portal cannot accept or resolve this Review. It remains pending until the owner directly accepts a documented resolution.</p></section>
+          <section aria-labelledby="review-rationale-heading"><h2 id="review-rationale-heading">Rationale</h2><p>No accepted rationale is recorded.</p></section>
+          <section aria-labelledby="changed-references-heading"><h2 id="changed-references-heading">Changed References</h2><p>No accepted changed references are recorded.</p></section>
+          <section aria-labelledby="supporting-evidence-heading"><h2 id="supporting-evidence-heading">Supporting Evidence</h2><ul><li>The release bundle is fixed and repeatable.</li><li>The browser journey passed for the current sample candidate.</li><li>Beta Operations evidence remains stale and cannot contribute to readiness.</li></ul></section>
+        </div>
+      </section>
+
+      <section class="demo-page audit-page" data-screen hidden id="audit-screen">
+        <header class="audit-document-header">
+          <h1 tabindex="-1">Planning Audit</h1>
+        </header>
+        <section class="audit-findings" aria-labelledby="current-project-review-title">
+          <div class="section-heading"><h2 id="current-project-review-title">Current Project Review</h2></div>
+          <dl class="audit-metadata" aria-label="Planning Audit metadata">
+            <div><dt>Generated</dt><dd><time datetime="2026-08-08T10:00:00Z">8 Aug 2026 · 10:00 UTC</time></dd></div>
+            <div><dt>Semantic freshness</dt><dd>Current</dd></div>
+            <div><dt>Findings</dt><dd>1 finding</dd></div>
+            <div><dt>Coverage</dt><dd>Complete coverage</dd></div>
+          </dl>
+          <div class="audit-finding-list">
+            <a class="audit-finding-row is-linked" href="#/reviews/public-beta-release-decision" aria-label="Public Beta release evidence needs a decision, 2 affected references">
+              <span class="audit-finding-copy"><strong class="audit-finding-title">Public Beta release evidence needs a decision</strong><span class="audit-finding-summary">Candidate proof is complete, while Beta Operations evidence remains stale.</span></span>
+              <dl class="audit-finding-facts"><div><dt>Scope</dt><dd><strong>2 affected references</strong><span>gate:release-candidate-ready · effort:beta-operations</span></dd></div><div><dt>Impact</dt><dd>The Gate stays active until the owner reviews the evidence.</dd></div><div><dt>Target</dt><dd>Review the Public Beta release decision · pending</dd></div></dl>
+              <span class="row-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg></span>
+            </a>
+          </div>
+        </section>
+        <section class="audit-decision-section" aria-labelledby="decisions-attention-title">
+          <div class="section-heading"><h2 id="decisions-attention-title">Decisions Awaiting Attention</h2></div>
+          <ul class="audit-review-list"><li><a href="#/reviews/public-beta-release-decision">Review the Public Beta release decision</a><p>Should Northstar accept the current release candidate for Public Beta?</p><p>Target: Gate · Release candidate ready</p></li></ul>
+          <p class="audit-advisory-boundary">Continue this decision in Agent Surface. Portal does not accept, resolve, reopen, or refresh Reviews.</p>
+        </section>
+        <section class="audit-decision-section" aria-labelledby="past-decisions-title">
+          <div class="section-heading"><h2 id="past-decisions-title">Past Accepted Decisions</h2></div>
+          <ol class="audit-event-list">
+            <li><time datetime="2026-08-08T09:30:00Z">8 Aug 2026 · 09:30 UTC</time><div><small><span>Gate Passage</span><span>Human acceptance</span></small><strong>Private Alpha learning accepted</strong><p>The owner accepted the learning horizon. Tests and evidence did not pass this Gate.</p></div></li>
+            <li><time datetime="2026-08-07T16:10:00Z">7 Aug 2026 · 16:10 UTC</time><div><small><span>Planning Review accepted</span></small><strong>Keep workspace isolation in the Public Beta baseline</strong><p>The completed Review remains immutable decision history.</p></div></li>
+            <li><time datetime="2026-08-06T11:00:00Z">6 Aug 2026 · 11:00 UTC</time><div><small><span>Authority adoption</span></small><strong>Release safety baseline revised</strong><p>The accepted baseline now cites the fixed tenant-isolation evidence.</p></div></li>
+          </ol>
         </section>
       </section>
     </main>

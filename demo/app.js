@@ -24,6 +24,9 @@ const screenByRoute = Object.freeze({
   "#/efforts/release-packaging": "release-packaging-screen",
   "#/efforts/beta-operations": "beta-operations-screen",
   "#/native-work/release-packaging": "release-native-work-screen",
+  "#/attention": "attention-screen",
+  "#/reviews/public-beta-release-decision": "public-beta-review-screen",
+  "#/audit": "audit-screen",
 });
 
 const setNavigationVisibility = (open, returnFocus = false) => {
@@ -82,9 +85,17 @@ const syncRoute = (moveFocus = false) => {
     }
   }
   for (const link of document.querySelectorAll(".project-navigation a")) {
+    const overviewContext =
+      route.startsWith("#/overview") ||
+      route.startsWith("#/attention") ||
+      route.startsWith("#/reviews/");
+    const activeNavigationHref = route.startsWith("#/audit")
+      ? "#/audit"
+      : overviewContext
+        ? "#/overview"
+        : "#/roadmaps";
     const selected =
-      link.getAttribute("href") ===
-      (route.startsWith("#/overview") ? "#/overview" : "#/roadmaps");
+      link.getAttribute("href") === activeNavigationHref;
     if (selected) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   }
