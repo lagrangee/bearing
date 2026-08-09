@@ -7,8 +7,8 @@
 }
 .asset-controls {
   display: grid;
-  width: min(100%, 420px);
-  grid-template-columns: minmax(180px, 1fr) minmax(150px, 0.72fr);
+  width: min(100%, 680px);
+  grid-template-columns: minmax(180px, 1.2fr) repeat(2, minmax(140px, 1fr));
   gap: var(--space-3);
 }
 .search-field,

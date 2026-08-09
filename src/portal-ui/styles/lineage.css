@@ -834,6 +834,7 @@
 }
 .lineage-event-history {
   max-width: 850px;
+  margin-top: var(--space-6);
   padding: var(--space-7) 0;
   border-top: 1px solid var(--border);
   scroll-margin-top: calc(var(--topbar) + var(--space-5));

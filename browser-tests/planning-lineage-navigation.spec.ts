@@ -538,6 +538,40 @@ test("Source Event Time stays source-precise while browser-relative updates rema
   expect(snapshotReads).toBe(readsBeforeTick);
 });
 
+test("Event History reads as a separated conditional region at wide and zoom-equivalent widths", async ({
+  page,
+}) => {
+  await serveSnapshot(page, timedFixture());
+  const gateHref = planningLineageSubjectHref("lineage", {
+    kind: "gate",
+    id: "gate:one",
+  });
+
+  for (const width of [1280, 640]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(gateHref);
+    const history = page.locator("#gate\\.event-history");
+    await expect(history).toBeVisible();
+    await expect(history.getByRole("heading", { name: "Event History", level: 2 })).toBeVisible();
+    const separation = await history.evaluate((element) => {
+      const previous = element.previousElementSibling;
+      if (!(previous instanceof HTMLElement)) return undefined;
+      const historyBox = element.getBoundingClientRect();
+      const previousBox = previous.getBoundingClientRect();
+      return {
+        borderTopStyle: getComputedStyle(element).borderTopStyle,
+        gap: historyBox.top - previousBox.bottom,
+      };
+    });
+    expect(separation).toBeDefined();
+    expect(separation?.borderTopStyle).toBe("solid");
+    expect(separation?.gap).toBeGreaterThanOrEqual(24);
+    expect(
+      await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
+    ).toBe(false);
+  }
+});
+
 test("semantic detail owns the reading contract while Technical Details stays transient and accessible", async ({
   page,
 }) => {

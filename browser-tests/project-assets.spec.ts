@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { ProjectGeneration } from "../src/project-generation/contract";
 import { projectGenerationSchema } from "../src/project-generation/schema";
 import { createSourceRecord } from "../src/project-generation/source-records";
@@ -89,6 +89,15 @@ const serveSnapshot = async (page: Page, snapshot: ProjectGeneration): Promise<v
   });
 };
 
+const renderedBounds = async (controls: readonly Locator[]) =>
+  Promise.all(
+    controls.map(async (control) => {
+      const box = await control.boundingBox();
+      if (box === null) throw new Error("Expected a rendered Asset control.");
+      return box;
+    }),
+  );
+
 test("Assets defaults to Current and composes status, Evidence, and Search filters", async ({
   page,
 }, testInfo) => {
@@ -113,6 +122,45 @@ test("Assets defaults to Current and composes status, Evidence, and Search filte
     path: await browserArtifactPath(testInfo, "assets-filtered-current.png"),
     fullPage: true,
   });
+});
+
+test("Assets controls align wide and stack accessibly at narrow and zoom-equivalent widths", async ({
+  page,
+}) => {
+  await serveSnapshot(page, assetsFixture());
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/projects/assets/assets");
+
+  const search = page.getByRole("searchbox", { name: "Search" });
+  const status = page.getByRole("combobox", { name: "Status" });
+  const evidence = page.getByRole("combobox", { name: "Evidence" });
+  const wideControls = await renderedBounds([search, status, evidence]);
+  expect(Math.max(...wideControls.map((box) => box.y))).toBeLessThanOrEqual(
+    Math.min(...wideControls.map((box) => box.y)) + 1,
+  );
+
+  await search.focus();
+  await expect(search).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(status).toBeFocused();
+  await expect(status).toHaveCSS("outline-width", "2px");
+  await page.keyboard.press("Tab");
+  await expect(evidence).toBeFocused();
+  await evidence.selectOption("cited");
+  await expect(page.locator(".asset-title strong")).toHaveText(["Planning Model Evidence"]);
+
+  for (const width of [640, 375]) {
+    await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+    const controls = await renderedBounds([search, status, evidence]);
+    expect(controls[0]?.y).toBeLessThan(controls[1]?.y ?? 0);
+    expect(controls[1]?.y).toBeLessThan(controls[2]?.y ?? 0);
+    for (const box of controls) expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(
+      await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
+    ).toBe(false);
+  }
+
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
 test("exact Asset Detail shows its request-scoped source probe and keeps Preview explicit", async ({
