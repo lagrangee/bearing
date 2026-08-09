@@ -21,7 +21,8 @@ managed effects. Provider reads never mutate native work.
 3. After a successful write inside an accepted Binding, deduplicate only the successfully affected
    entities and relations and run `bearing reconcile-native --repo <repo-root> --scope
    <opaque-native-scope>` with exact `--ref` and `--relation` values. Completion: readback and
-   publication result cover that exact set.
+   publication result cover that exact set. The accepted native outcome authorizes this exact
+   reconciliation; the product seam change does not require another confirmation.
 4. If work is unbound, complete Work Management normally. Offer at most one material planning
    recommendation when evidence supports it; enrollment is not a prerequisite. Completion: the
    recommendation is accepted later by an owner or the work remains standalone.

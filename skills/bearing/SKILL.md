@@ -35,10 +35,16 @@ authorized entry origin and the fallback when contextual nomination did not occu
    owner, and every additional owner whose domain the accepted write set will actually change.
    Inspected objects do not require their owners. Completion: each read, decision, and effect has
    one named authority.
-5. **Compose in visible context.** Complete and validate each owner boundary in dependency-safe
-   order. Sequential composition has no persisted session mode, operation object, transition
-   dispatcher, or global follow-up engine. There is no hidden loop or fallback. Completion: the
-   current stage is complete or has one exact resumption point.
+5. **Compose in visible context.** Treat the accepted outcome and authority boundary as the unit of
+   authorization, not each deterministic command, tool call, or internal stage. Within that
+   boundary, use current evidence to choose the necessary and proportionate follow-up operations,
+   even when the next operation uses another product seam. Judge authority, scope, cost, risk,
+   reversibility, collateral effects, and ambiguity; continue without repeat confirmation unless
+   the evidence creates a materially new boundary that needs a user decision. Complete and
+   validate each owner boundary in dependency-safe order. Sequential composition has no persisted
+   session mode, operation object, transition dispatcher, or global follow-up engine. There is no
+   hidden loop or fallback. Completion: the current stage is complete or has one exact resumption
+   point.
 6. **Return the original outcome.** Preserve native, executor, provider, and deterministic outcomes
    without translation. State what changed, what did not change, and which acceptance or authority
    is still required. User-visible interaction and new human-reviewed planning content use the
@@ -48,11 +54,12 @@ authorized entry origin and the fallback when contextual nomination did not occu
 ## Authority boundaries
 
 - The Agent owns semantic meaning, rationale, materiality, acceptance interpretation, canonical
-  content, recommendations, direct canonical edits, and scoped repair of its own attempted write
-  set.
+  content, recommendations, domain-local follow-up judgment, direct canonical edits, and scoped
+  repair of its own attempted write set.
 - Deterministic Bearing Modules own contained reads, identity, schema and reference validation,
   lifecycle and revision facts, provider acquisition, exact reconciliation, SQLite publication,
-  and typed diagnostics. They report facts and do not choose semantic repair.
+  and typed diagnostics. They fail closed and return their typed outcomes. They do not expand scope,
+  choose semantic recovery, or translate failure into success.
 - Repository Configuration alone owns deterministic Inspect, sealed Plan, and Apply because it
   changes machine-owned configuration and managed pointers.
 - Work Management owns native status, claim, blockers, dependencies, checklists, Answer, and

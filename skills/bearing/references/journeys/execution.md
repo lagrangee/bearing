@@ -24,7 +24,9 @@ exact reconciliation of successful managed native effects.
    disposition decision. Completion: refusal or concluded state has no hidden effect.
 4. Run the executor with relevant planning context and preserve its outcome. Then let Work
    Management perform any native writeback and use exact reconciliation for successful bound
-   effects. Completion: implementation and native outcomes remain owner-separated.
+   effects. The accepted Ticket outcome authorizes this writeback and exact reconciliation; the
+   product seam change does not require another confirmation. Completion: implementation and
+   native outcomes remain owner-separated.
 5. For materially related unbound work, execution still proceeds. Offer a planning recommendation
    only after the work outcome and never require enrollment. Completion: standalone execution is
    not blocked by governance.

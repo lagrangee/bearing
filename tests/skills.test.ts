@@ -115,7 +115,7 @@ describe("public Bearing Agent surface", () => {
       /one initiating[\s\S]*owner[\s\S]*every additional owner[\s\S]*actually\s+change/iu,
     );
     expect(body).toMatch(
-      /visible context[\s\S]*no persisted session mode[\s\S]*operation object/iu,
+      /visible context[\s\S]*no persisted\s+session mode[\s\S]*operation object/iu,
     );
     for (const evidence of ["Tests", "diagnostics", "resolved native work"]) {
       expect(body).toContain(evidence);
@@ -128,6 +128,33 @@ describe("public Bearing Agent surface", () => {
     );
     expect(body).toMatch(
       /stale pointer[\s\S]*requested operation[\s\S]*no separate entry preflight/iu,
+    );
+  });
+
+  test("reuses accepted authority for bounded follow-up judgment", async () => {
+    const { body } = await readSkill();
+    expect(body).toMatch(
+      /accepted outcome[\s\S]*authority boundary[\s\S]*not[\s\S]*deterministic command[\s\S]*tool call[\s\S]*internal stage/iu,
+    );
+    expect(body).toMatch(
+      /authority[\s\S]*scope[\s\S]*cost[\s\S]*risk[\s\S]*reversibility[\s\S]*collateral effects[\s\S]*ambiguity/iu,
+    );
+    expect(body).toMatch(
+      /necessary[\s\S]*proportionate[\s\S]*follow-up operation[\s\S]*product seam[\s\S]*repeat/iu,
+    );
+    expect(body).toMatch(/materially new boundary[\s\S]*user decision/iu);
+    expect(body).toMatch(
+      /fail closed[\s\S]*typed outcomes[\s\S]*expand\s+scope[\s\S]*semantic recovery[\s\S]*failure[\s\S]*success/iu,
+    );
+    expect(body).not.toMatch(/decision table|automatic retry loop/iu);
+
+    const native = await readRuntime("references/journeys/native-work.md");
+    const execution = await readRuntime("references/journeys/execution.md");
+    expect(native).toMatch(
+      /accepted native outcome[\s\S]*exact\s+reconciliation[\s\S]*product seam[\s\S]*confirmation/iu,
+    );
+    expect(execution).toMatch(
+      /accepted Ticket outcome[\s\S]*writeback[\s\S]*exact\s+reconciliation[\s\S]*confirmation/iu,
     );
   });
 
@@ -337,7 +364,7 @@ describe("public Bearing Agent surface", () => {
     }
     expect(BEARING_POINTER).toMatch(/Do not load[\s\S]*ordinary non-governance code/iu);
     expect(body).toMatch(/explicit[\s\S]*fallback/iu);
-    expect(body).toMatch(/no hidden loop[\s\S]*fallback/iu);
+    expect(body).toMatch(/no\s+hidden loop[\s\S]*fallback/iu);
   });
 
   test("retired routing and operation vocabulary is absent from the shipped Skill graph", async () => {
