@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Northstar · Bearing Portal</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./mock-data.js" defer></script>
+    <script src="./app.js" defer></script>
+  </head>
+  <body class="portal-shell">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <header class="topbar">
+      <a class="brand" href="#/overview" aria-label="Bearing Portal home"
+        ><span aria-hidden="true">B</span> <strong>Bearing Portal</strong></a
+      >
+      <p class="project-switcher"><code>northstar</code> <strong>Northstar</strong></p>
+    </header>
+    <nav class="project-navigation" aria-label="Project navigation">
+      <a href="#/overview">Overview</a>
+      <p class="read-only-note">Read only<br />Interactive sample</p>
+    </nav>
+    <main class="overview-page" id="main-content" tabindex="-1">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">Project overview</p>
+          <h1>Northstar</h1>
+        </div>
+        <span class="sample-badge">Sample project</span>
+      </div>
+      <section class="project-brief" aria-labelledby="project-brief-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Orientation</p>
+            <h2 id="project-brief-heading">Project Brief</h2>
+          </div>
+          <p>Prepared for the daily governance check</p>
+        </div>
+        <p>
+          Northstar gives product teams a dependable release workspace for customer-facing SaaS
+          changes.
+        </p>
+        <h3>Current Position</h3>
+        <p>
+          Public Beta is close. The release candidate is ready for review, but the Gate has not
+          passed. One evidence source needs human attention before that decision.
+        </p>
+        <h3>Established Baseline</h3>
+        <ul>
+          <li>Workspace isolation and audit export are in the accepted product baseline.</li>
+          <li>Release evidence supports review; it does not pass a Gate.</li>
+          <li>Customer-facing changes remain read-only until an owner accepts the decision.</li>
+        </ul>
+      </section>
+      <section class="attention-section" aria-labelledby="attention-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Human judgment</p>
+            <h2 id="attention-heading">Attention</h2>
+          </div>
+          <span class="count-pill">1 item</span>
+        </div>
+        <article class="attention-card">
+          <div>
+            <p><strong>1 item needs review</strong></p>
+            <p>Release evidence sync</p>
+          </div>
+          <span class="status-pill status-cant-verify">Can't verify</span>
+          <p>Last successful evidence is stale. The latest refresh failed.</p>
+        </article>
+      </section>
+      <section class="roadmaps-section" aria-labelledby="active-roadmaps-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Outcome horizons</p>
+            <h2 id="active-roadmaps-heading">Active Roadmaps</h2>
+          </div>
+          <span class="count-pill">2 active</span>
+        </div>
+        <article class="roadmap-card roadmap-primary">
+          <div>
+            <p class="roadmap-title"><strong>Public Beta Readiness</strong></p>
+            <span class="status-pill status-active">Active</span>
+          </div>
+          <p>Prepare the first dependable release for design partners.</p>
+          <div class="gate-row">
+            <span aria-hidden="true" class="gate-marker"></span>
+            <p><strong>Release candidate ready</strong><br />Current Gate</p>
+            <span class="status-pill status-review">Ready for review</span>
+          </div>
+        </article>
+        <article class="roadmap-card">
+          <div>
+            <p class="roadmap-title"><strong>Customer Trust</strong></p>
+            <span class="status-pill status-active">Active</span>
+          </div>
+          <p>Make tenant safety and audit evidence easy to inspect.</p>
+          <div class="gate-row">
+            <span aria-hidden="true" class="gate-marker"></span>
+            <p><strong>Audit controls adopted</strong><br />Current Gate</p>
+            <span class="status-pill">In progress</span>
+          </div>
+        </article>
+      </section>
+    </main>
+    <footer class="demo-footer">
+      <p id="demo-disclosure"></p>
+      <p id="sample-date"></p>
+    </footer>
+  </body>
+</html>
