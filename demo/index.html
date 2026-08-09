@@ -12,96 +12,290 @@
   <body class="portal-shell">
     <a class="skip-link" href="#main-content">Skip to content</a>
     <header class="topbar">
+      <button
+        aria-controls="project-navigation"
+        aria-expanded="false"
+        aria-label="Open navigation"
+        class="mobile-menu"
+        type="button"
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M4 5h16M4 12h16M4 19h16" />
+        </svg>
+      </button>
       <a class="brand" href="#/overview" aria-label="Bearing Portal home"
-        ><span aria-hidden="true">B</span> <strong>Bearing Portal</strong></a
+        ><span aria-hidden="true" class="brand-mark">C</span> <strong>Bearing Portal</strong></a
       >
       <p class="project-switcher"><code>northstar</code> <strong>Northstar</strong></p>
+      <strong class="project-title-narrow">Northstar</strong>
     </header>
-    <nav class="project-navigation" aria-label="Project navigation">
-      <a href="#/overview">Overview</a>
-      <p class="read-only-note">Read only<br />Interactive sample</p>
-    </nav>
-    <main class="overview-page" id="main-content" tabindex="-1">
-      <div class="page-heading">
-        <div>
-          <p class="eyebrow">Project overview</p>
-          <h1>Northstar</h1>
-        </div>
-        <span class="sample-badge">Sample project</span>
+    <nav class="project-navigation project-nav" id="project-navigation" aria-label="Project navigation">
+      <div class="nav-project">
+        <span><small>Current project</small><strong>Northstar</strong></span>
+        <button aria-label="Close navigation" class="nav-close" type="button">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
       </div>
-      <section class="project-brief" aria-labelledby="project-brief-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Orientation</p>
-            <h2 id="project-brief-heading">Project Brief</h2>
+      <a class="project-nav-item" href="#/overview">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M12 3v18M3 12h18" /><rect x="3" y="3" width="18" height="18" rx="2" />
+        </svg>
+        <span>Overview</span>
+      </a>
+      <a class="project-nav-item" href="#/roadmaps">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <circle cx="6" cy="19" r="3" />
+          <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" />
+          <circle cx="18" cy="5" r="3" />
+        </svg>
+        <span>Roadmaps</span>
+      </a>
+      <p class="nav-footer"><span>Read only</span><small>Interactive sample</small></p>
+    </nav>
+    <button aria-label="Close navigation" class="nav-scrim" type="button"></button>
+    <main class="portal-main" id="main-content" tabindex="-1">
+      <section class="demo-page overview-page" data-screen id="overview-screen">
+        <header class="project-intro">
+          <h1 tabindex="-1">Northstar</h1>
+          <div class="orientation-tabs" role="tablist" aria-label="Project orientation">
+            <button
+              aria-controls="project-orientation-panel"
+              aria-selected="true"
+              id="project-brief-tab"
+              role="tab"
+              type="button"
+            >
+              Brief
+            </button>
+            <button
+              aria-controls="project-orientation-panel"
+              aria-selected="false"
+              id="project-summary-tab"
+              role="tab"
+              tabindex="-1"
+              type="button"
+            >
+              Project Summary
+            </button>
           </div>
-          <p>Prepared for the daily governance check</p>
-        </div>
-        <p>
-          Northstar gives product teams a dependable release workspace for customer-facing SaaS
-          changes.
-        </p>
-        <h3>Current Position</h3>
-        <p>
-          Public Beta is close. The release candidate is ready for review, but the Gate has not
-          passed. One evidence source needs human attention before that decision.
-        </p>
-        <h3>Established Baseline</h3>
-        <ul>
-          <li>Workspace isolation and audit export are in the accepted product baseline.</li>
-          <li>Release evidence supports review; it does not pass a Gate.</li>
-          <li>Customer-facing changes remain read-only until an owner accepts the decision.</li>
-        </ul>
+          <section
+            aria-labelledby="project-brief-tab"
+            class="orientation-canvas"
+            id="project-orientation-panel"
+            role="tabpanel"
+          >
+            <div class="orientation-prose brief-prose" data-orientation-panel="brief">
+              <div class="orientation-heading"><h2>Project Brief</h2></div>
+              <section>
+                <h3>At a Glance</h3>
+                <p>
+                  Northstar gives product teams a dependable release workspace for customer-facing
+                  SaaS changes.
+                </p>
+              </section>
+              <section>
+                <h3>Current Position</h3>
+                <p>
+                  Public Beta is close. The release candidate is ready for review, but the Gate has
+                  not passed. One Planning Review needs human judgment before that decision.
+                </p>
+              </section>
+              <section>
+                <h3>Established Baseline</h3>
+                <ul>
+                  <li>Workspace isolation and audit export are in the accepted product baseline.</li>
+                  <li>Release evidence supports review; it does not pass a Gate.</li>
+                  <li>Customer-facing changes remain read-only until an owner accepts the decision.</li>
+                </ul>
+              </section>
+            </div>
+            <div class="orientation-prose summary-prose" data-orientation-panel="summary" hidden>
+              <div class="orientation-heading"><h2>Project Summary</h2></div>
+              <section>
+                <h3>Purpose</h3>
+                <p>Make release governance readable without replacing canonical project state.</p>
+              </section>
+              <section>
+                <h3>Current Design</h3>
+                <p>Outcome horizons connect Roadmaps, Gates, Efforts, and provider-native work.</p>
+              </section>
+              <section>
+                <h3>Boundaries</h3>
+                <ul><li>Portal readback is read-only and human Gate acceptance remains explicit.</li></ul>
+              </section>
+            </div>
+          </section>
+        </header>
+        <section class="attention-queue" id="attention-queue" aria-labelledby="attention-title" tabindex="-1">
+          <div class="attention-heading">
+            <span class="attention-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+                <path d="M12 9v4M12 17h.01" />
+              </svg>
+            </span>
+            <div><h2 id="attention-title">Attention</h2><p>1 project item</p></div>
+          </div>
+          <div class="attention-items">
+            <article class="attention-item attention-review is-static">
+              <span>
+                <small>Planning Review</small>
+                <strong>Review the Public Beta release decision</strong>
+                <span>Confirm the candidate evidence before Gate Passage.</span>
+              </span>
+            </article>
+          </div>
+        </section>
+        <section class="roadmap-landscape" aria-labelledby="active-roadmaps-heading">
+          <div class="section-heading"><h2 id="active-roadmaps-heading">Active Roadmaps</h2><span>2</span></div>
+          <article class="roadmap-landscape-item">
+            <header class="roadmap-landscape-header">
+              <h3><a class="roadmap-title-link" href="#/roadmaps/public-beta-readiness">Public Beta Readiness</a></h3>
+              <p>Prepare the first dependable release for design partners.</p>
+            </header>
+            <div class="horizon" aria-label="Public Beta current horizon">
+              <div class="gate-segment"><a class="gate-node gate-focused" href="#/gates/release-candidate-ready"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G3 · Release candidate ready</strong><small>Current</small></span></a></div>
+            </div>
+          </article>
+          <article class="roadmap-landscape-item">
+            <header class="roadmap-landscape-header">
+              <h3>Collaboration Value</h3>
+              <p>Help product teams coordinate release decisions without hidden context.</p>
+            </header>
+            <div class="horizon" aria-label="Collaboration Value current horizon">
+              <div class="gate-segment"><span class="gate-node gate-focused"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong><span aria-hidden="true">G2 · </span><span>Customer Trust</span></strong><small>Current</small></span></span></div>
+            </div>
+          </article>
+        </section>
       </section>
-      <section class="attention-section" aria-labelledby="attention-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Human judgment</p>
-            <h2 id="attention-heading">Attention</h2>
+
+      <section class="demo-page" data-screen hidden id="roadmaps-screen">
+        <header class="list-header">
+          <h1 tabindex="-1">Roadmaps</h1>
+        </header>
+        <section class="roadmap-index-section" aria-labelledby="active-roadmaps-list-heading">
+          <div class="index-section-heading">
+            <h2 id="active-roadmaps-list-heading">Active</h2>
+            <span>2</span>
           </div>
-          <span class="count-pill">1 item</span>
-        </div>
-        <article class="attention-card">
-          <div>
-            <p><strong>1 item needs review</strong></p>
-            <p>Release evidence sync</p>
+          <article class="roadmap-index-row">
+            <a href="#/roadmaps/public-beta-readiness">Public Beta Readiness</a>
+            <p>Prepare the first dependable release for design partners.</p>
+            <fieldset aria-label="Public Beta Gates" class="horizon">
+              <legend class="sr-only">Public Beta Gates</legend>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G1 · Foundations accepted</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G2 · Tenant safety verified</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><a class="gate-node gate-focused" href="#/gates/release-candidate-ready"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G3 · Release candidate ready</strong><small>Current</small></span></a><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-planned"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G4 · Beta feedback loop established</strong><small>Planned</small></span></span></div>
+            </fieldset>
+          </article>
+          <article class="roadmap-index-row">
+            <strong class="roadmap-static-title">Collaboration Value</strong>
+            <p>Help product teams coordinate release decisions without hidden context.</p>
+            <fieldset aria-label="Collaboration Value Gates" class="horizon">
+              <legend class="sr-only">Collaboration Value Gates</legend>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G1 · Shared release notes proven</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-focused"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong><span aria-hidden="true">G2 · </span><span>Customer Trust</span></strong><small>Current</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-planned"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G3 · Review cadence adopted</strong><small>Planned</small></span></span></div>
+            </fieldset>
+          </article>
+        </section>
+        <section class="roadmap-index-section" aria-labelledby="completed-roadmaps-list-heading">
+          <div class="index-section-heading">
+            <h2 id="completed-roadmaps-list-heading">Completed</h2>
+            <span>1</span>
           </div>
-          <span class="status-pill status-cant-verify">Can't verify</span>
-          <p>Last successful evidence is stale. The latest refresh failed.</p>
-        </article>
+          <article class="roadmap-index-row is-completed">
+            <strong class="roadmap-static-title">Private Alpha Learning</strong>
+            <p>Learn which governance signals design partners need before Public Beta.</p>
+            <fieldset aria-label="Private Alpha Gates" class="horizon">
+              <legend class="sr-only">Private Alpha Gates</legend>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G1 · Alpha cohort onboarded</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G2 · Workflow gaps synthesized</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G3 · Learning horizon completed</strong><small>Passed</small></span></span></div>
+            </fieldset>
+          </article>
+        </section>
       </section>
-      <section class="roadmaps-section" aria-labelledby="active-roadmaps-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Outcome horizons</p>
-            <h2 id="active-roadmaps-heading">Active Roadmaps</h2>
-          </div>
-          <span class="count-pill">2 active</span>
+
+      <section class="demo-page" data-screen hidden id="public-beta-roadmap-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/roadmaps">Roadmaps</a></li><li><span aria-current="page">Public Beta Readiness</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Roadmap</span><h1 tabindex="-1">Public Beta Readiness</h1><p class="lineage-header-status">Active roadmap</p><p class="lineage-header-context">Prepare the first dependable release for design partners.</p></div></header>
+        <div class="lineage-sections lineage-sections-before-spine"><section aria-labelledby="roadmap-intent-heading"><h2 id="roadmap-intent-heading">Intent</h2><p>Make the first beta decision from a complete, inspectable release candidate.</p></section></div>
+        <section class="outcome-spine" data-layout="horizontal-eligible" data-gate-count="4" aria-labelledby="outcome-spine-heading">
+          <header><h2 id="outcome-spine-heading">Outcome Spine</h2><p>Ordered Gates and their complete governed Efforts.</p></header>
+          <ol class="outcome-spine-list">
+            <li class="outcome-spine-gate"><div class="outcome-spine-gate-heading"><span>G1</span><strong>Foundations accepted</strong><small>Passed</small></div><ul><li><span>Product Baseline</span></li></ul></li>
+            <li class="outcome-spine-gate"><div class="outcome-spine-gate-heading"><span>G2</span><strong>Tenant safety verified</strong><small>Passed</small></div><ul><li><span>Tenant Safeguards</span></li></ul></li>
+            <li class="outcome-spine-gate is-focused"><div class="outcome-spine-gate-heading"><span>G3</span><a href="#/gates/release-candidate-ready">Release candidate ready</a><small>Current</small></div><ul><li><a href="#/efforts/release-packaging">Release Packaging</a></li><li><a href="#/efforts/beta-operations">Beta Operations</a></li><li><span>Launch Documentation</span></li></ul></li>
+            <li class="outcome-spine-gate"><div class="outcome-spine-gate-heading"><span>G4</span><strong>Beta feedback loop established</strong><small>Planned</small></div><ul><li><span>Feedback Intake</span></li></ul></li>
+          </ol>
+        </section>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="release-gate-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/roadmaps/public-beta-readiness">Public Beta Readiness</a></li><li><span aria-current="page">Release candidate ready</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Gate</span><h1 tabindex="-1">Release candidate ready</h1><p class="lineage-header-status">Current gate · Active · Ready for review</p><p class="lineage-header-context">Not passed</p></div></header>
+        <div class="lineage-sections">
+          <section aria-labelledby="gate-intent-heading"><h2 id="gate-intent-heading">Intent</h2><p>Give the owner one stable candidate and honest evidence for the Public Beta decision.</p></section>
+          <section aria-labelledby="exit-criteria-heading"><h2 id="exit-criteria-heading">Exit Criteria</h2><ol><li>The release bundle is fixed and repeatable.</li><li>Design-partner workflows pass the browser check.</li><li>Known evidence gaps remain visible for human review.</li></ol></section>
+          <section aria-labelledby="passage-heading"><h2 id="passage-heading">Passage</h2><p>No Gate Passage is recorded.</p></section>
+          <section aria-labelledby="contributing-efforts-heading">
+            <h2 id="contributing-efforts-heading">Contributing Efforts</h2>
+            <p>Each contributing Effort opens its complete lifecycle and bound native work context.</p>
+            <table class="effort-rollup-table">
+              <caption class="sr-only">Contributing Effort lifecycle and native work counts</caption>
+              <thead><tr><th scope="col">Effort</th><th scope="col">Lifecycle</th><th scope="col">Claimed</th><th scope="col">Ready</th><th scope="col">Blocked</th><th scope="col">Resolved</th><th scope="col">Lifecycle time</th></tr></thead>
+              <tbody>
+                <tr><th data-label="Effort" scope="row"><a href="#/efforts/release-packaging">Release Packaging</a></th><td data-label="Lifecycle">Active</td><td data-label="Claimed">2</td><td data-label="Ready">1</td><td data-label="Blocked">0</td><td data-label="Resolved">3</td><td data-label="Lifecycle time">8 Aug 2026</td></tr>
+                <tr><th data-label="Effort" scope="row"><a href="#/efforts/beta-operations">Beta Operations</a></th><td data-label="Lifecycle">Active</td><td data-label="Claimed">Count unavailable</td><td data-label="Ready">Count unavailable</td><td data-label="Blocked">Count unavailable</td><td data-label="Resolved">Count unavailable</td><td data-label="Lifecycle time">Unavailable</td></tr>
+                <tr><th data-label="Effort" scope="row">Launch Documentation</th><td data-label="Lifecycle">Planned</td><td data-label="Claimed">0</td><td data-label="Ready">0</td><td data-label="Blocked">0</td><td data-label="Resolved">0</td><td data-label="Lifecycle time">8 Aug 2026</td></tr>
+              </tbody>
+            </table>
+          </section>
         </div>
-        <article class="roadmap-card roadmap-primary">
-          <div>
-            <p class="roadmap-title"><strong>Public Beta Readiness</strong></p>
-            <span class="status-pill status-active">Active</span>
-          </div>
-          <p>Prepare the first dependable release for design partners.</p>
-          <div class="gate-row">
-            <span aria-hidden="true" class="gate-marker"></span>
-            <p><strong>Release candidate ready</strong><br />Current Gate</p>
-            <span class="status-pill status-review">Ready for review</span>
-          </div>
-        </article>
-        <article class="roadmap-card">
-          <div>
-            <p class="roadmap-title"><strong>Customer Trust</strong></p>
-            <span class="status-pill status-active">Active</span>
-          </div>
-          <p>Make tenant safety and audit evidence easy to inspect.</p>
-          <div class="gate-row">
-            <span aria-hidden="true" class="gate-marker"></span>
-            <p><strong>Audit controls adopted</strong><br />Current Gate</p>
-            <span class="status-pill">In progress</span>
-          </div>
-        </article>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="release-packaging-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/gates/release-candidate-ready">Release candidate ready</a></li><li><span aria-current="page">Release Packaging</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Effort</span><h1 tabindex="-1">Release Packaging</h1><dl class="effort-status-group"><div><dt>Effort lifecycle</dt><dd>Active</dd></div><div><dt>Contributes to</dt><dd><a href="#/gates/release-candidate-ready">Gate: Release candidate ready</a></dd></div><div><dt>Managed Work</dt><dd>Healthy</dd></div></dl></div></header>
+        <div class="effort-governance-lens">
+          <section><h2>Intent</h2><p>Package and verify one stable release candidate for owner review.</p></section>
+          <section aria-labelledby="release-evidence-heading"><h2 id="release-evidence-heading">Provider evidence</h2><dl class="lineage-time-facts"><div><dt>Evidence state</dt><dd>Current</dd></div><div><dt>Coverage</dt><dd>Complete</dd></div><div><dt>Latest observation</dt><dd>8 August 2026 · 09:40 UTC<small>Fixed sample label. No provider is read.</small></dd></div></dl></section>
+          <section id="native-work-current" aria-labelledby="native-summary-heading"><p class="eyebrow">Native-work summary</p><div class="effort-current-work-heading"><h2 id="native-summary-heading">Current Work</h2><a class="action-quiet" href="#/native-work/release-packaging">Full work history · History 3</a></div><dl class="effort-work-counts" aria-label="Managed work counts"><div><dt>Current</dt><dd>2</dd></div><div><dt>Resolved</dt><dd>3</dd></div><div><dt>History</dt><dd>3</dd></div></dl><ul class="effort-current-work-list"><li><div><a href="#/native-work/release-packaging">Verify clean-install release bundle</a><span>Ready</span></div></li><li><div><a href="#/native-work/release-packaging">Document beta rollback signal</a><span>Claimed</span></div></li></ul></section>
+        </div>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="beta-operations-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/gates/release-candidate-ready">Release candidate ready</a></li><li><span aria-current="page">Beta Operations</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Effort</span><h1 tabindex="-1">Beta Operations</h1><dl class="effort-status-group"><div><dt>Effort lifecycle</dt><dd>Active</dd></div><div><dt>Contributes to</dt><dd><a href="#/gates/release-candidate-ready">Gate: Release candidate ready</a></dd></div><div><dt>Managed Work</dt><dd data-health="needs-attention">Needs attention</dd></div></dl></div></header>
+        <div class="effort-governance-lens">
+          <section aria-labelledby="beta-evidence-heading"><h2 id="beta-evidence-heading">Provider evidence</h2><div class="effort-observation-recovery" role="region" aria-label="Can't verify"><div><strong>Can't verify</strong><p class="evidence-state-line"><span>Stale</span><span>Latest refresh failed</span></p><p>The last successful sample evidence is not current. No completion claim is shown.</p></div></div></section>
+          <section aria-labelledby="beta-native-summary-heading"><p class="eyebrow">Native-work summary</p><h2 id="beta-native-summary-heading">Current Work</h2><p class="effort-current-work-unavailable">Managed work needs attention. Current native work cannot be confirmed from this fixed degraded sample.</p></section>
+        </div>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="release-native-work-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/efforts/release-packaging">Release Packaging</a></li><li><span aria-current="page">Work History</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Work History</span><h1 tabindex="-1">Release Packaging native work</h1><p class="lineage-header-context">Provider-native roles stay distinct. All values are prewritten display labels.</p></div></header>
+        <section class="matt-work-region" aria-label="Contributing Work">
+          <nav aria-label="Native Work Frontier views"><a data-scroll-target="native-work-current" href="#/native-work/release-packaging">Current · 3</a><a data-scroll-target="native-work-history" href="#/native-work/release-packaging">History · 1</a><a data-scroll-target="native-work-all" href="#/native-work/release-packaging">All · 4</a></nav>
+          <section class="matt-map-chapter" id="native-work-map"><p class="eyebrow">Map chapter</p><h3>Public Beta release path</h3><dl><div><dt>Lifecycle</dt><dd>Resolved</dd></div><div><dt>Fog</dt><dd>0</dd></div><div><dt>Decisions</dt><dd>3</dd></div><div><dt>Out of scope</dt><dd>0</dd></div></dl></section>
+          <section class="matt-work-view" id="native-work-current"><h3>Current</h3><ul class="matt-work-items">
+            <li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Spec / PRD</small><strong>Release candidate contract</strong></div><span>Ready for agent</span></div><p>Fixed revision</p></li>
+            <li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Delivery</small><strong>Verify clean-install release bundle</strong></div><span>Ready</span></div><p>No claim state</p></li>
+            <li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Incoming</small><strong>Document beta rollback signal</strong></div><span>Enhancement</span></div><p>Ready-for-agent</p></li>
+          </ul></section>
+          <section class="matt-work-view" id="native-work-history"><h3>History</h3><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Wayfinder</small><strong>Confirm supported package matrix</strong></div><span>Resolved</span></div><p>Answer recorded</p></li></ul></section>
+          <section class="matt-work-view" id="native-work-all"><h3>All</h3><div class="matt-work-role-groups">
+            <article class="matt-work-role"><div class="matt-work-role-heading"><h4>Spec / PRD</h4><span>1</span></div><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Planning contract</small><strong>Release candidate contract</strong></div><span>Ready for agent</span></div></li></ul></article>
+            <article class="matt-work-role"><div class="matt-work-role-heading"><h4>Wayfinder</h4><span>1</span></div><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Decision ticket</small><strong>Confirm supported package matrix</strong></div><span>Resolved</span></div></li></ul></article>
+            <article class="matt-work-role"><div class="matt-work-role-heading"><h4>Delivery</h4><span>1</span></div><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Delivery ticket</small><strong>Verify clean-install release bundle</strong></div><span>Ready</span></div></li></ul></article>
+            <article class="matt-work-role"><div class="matt-work-role-heading"><h4>Incoming</h4><span>1</span></div><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Classified issue</small><strong>Document beta rollback signal</strong></div><span>Enhancement</span></div></li></ul></article>
+          </div></section>
+        </section>
       </section>
     </main>
     <footer class="demo-footer">

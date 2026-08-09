@@ -85,11 +85,25 @@ test("Overview keeps the Portal shell readable at desktop and 360px", async ({
   ).toBe(false);
   const mobileMain = await page.locator("#main-content").boundingBox();
   expect(mobileMain?.x).toBe(0);
-  await page.getByRole("link", { name: "Overview", exact: true }).focus();
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  await expect(page.getByRole("button", { name: "Close navigation" }).first()).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Overview", exact: true })).toHaveCSS(
     "outline-style",
     "solid",
   );
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Open navigation" })).toBeFocused();
+  await expect
+    .poll(
+      async () =>
+        (
+          await page
+            .getByRole("navigation", { name: "Project navigation", includeHidden: true })
+            .boundingBox()
+        )?.x,
+    )
+    .toBeLessThan(-200);
   await page.screenshot({ path: testInfo.outputPath("overview-360.png"), fullPage: true });
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
