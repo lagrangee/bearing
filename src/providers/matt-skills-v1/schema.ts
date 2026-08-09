@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { documentPresentationSchema } from "../../document-presentation";
 import {
   hasConsistentProviderCompletion,
   providerObservationIdentityFor,
@@ -260,52 +261,7 @@ const specSchema = z
     kind: z.literal("spec"),
     ref: reference,
     title: nonEmpty,
-    sections: z
-      .array(
-        z.strictObject({
-          role: z.enum([
-            "problem",
-            "solution",
-            "user-stories",
-            "implementation",
-            "testing",
-            "out-of-scope",
-            "further-notes",
-          ]),
-          title: nonEmpty,
-          body: z.string(),
-          availability: z.enum(["available", "confirmed-empty", "unavailable", "unsupported"]),
-        }),
-      )
-      .superRefine((sections, context) => {
-        const required = [
-          "problem",
-          "solution",
-          "user-stories",
-          "implementation",
-          "testing",
-          "out-of-scope",
-          "further-notes",
-        ] as const;
-        const actual = sections.map((section) => section.role);
-        for (const role of required) {
-          if (!actual.includes(role)) {
-            context.addIssue({
-              code: "custom",
-              message: `Required Spec semantic role ${role} is missing.`,
-            });
-          }
-        }
-        for (const [index, role] of actual.entries()) {
-          if (actual.indexOf(role) !== index) {
-            context.addIssue({
-              code: "custom",
-              path: [index, "role"],
-              message: `Spec semantic role ${role} is duplicated.`,
-            });
-          }
-        }
-      }),
+    document: documentPresentationSchema,
     lifecycle: z.strictObject({ state: z.enum(["draft", "ready-for-agent", "superseded"]) }),
     semanticSections: exactSemanticSections([
       "spec.problem",
@@ -319,15 +275,26 @@ const specSchema = z
     native: nativeEvidenceSchema,
   })
   .superRefine((spec, context) => {
-    for (const [position, section] of spec.sections.entries()) {
-      const role = `spec.${section.role}`;
-      validateSemanticContent(spec.semanticSections, role, section.body.trim().length > 0, context);
-      const semantic = spec.semanticSections.find((candidate) => candidate.role === role);
-      if (semantic !== undefined && semantic.availability !== section.availability) {
+    const knownRoles = spec.semanticSections.map((section) => section.role);
+    for (const [position, section] of spec.document.sections.entries()) {
+      if (section.semanticRole !== undefined && !knownRoles.includes(section.semanticRole)) {
         context.addIssue({
           code: "custom",
-          path: ["sections", position, "availability"],
-          message: `${role} content and semantic availability must agree.`,
+          path: ["document", "sections", position, "semanticRole"],
+          message: `Spec document semantic role ${section.semanticRole} is not provider-owned.`,
+        });
+      }
+    }
+    for (const [position, semantic] of spec.semanticSections.entries()) {
+      const section = spec.document.sections.find(
+        (candidate) => candidate.semanticRole === semantic.role,
+      );
+      const expected = section?.availability ?? "unavailable";
+      if (semantic.availability !== expected) {
+        context.addIssue({
+          code: "custom",
+          path: ["semanticSections", position, "availability"],
+          message: `${semantic.role} document and semantic availability must agree.`,
         });
       }
     }

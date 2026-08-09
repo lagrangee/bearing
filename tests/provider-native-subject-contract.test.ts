@@ -330,8 +330,10 @@ test("rejects semantic availability that contradicts provider content", () => {
       ...projection,
       spec: {
         ...spec,
-        sections: spec.sections.map((section) =>
-          section.role === "problem" ? { ...section, body: "" } : section,
+        semanticSections: spec.semanticSections.map((section) =>
+          section.role === "spec.problem"
+            ? { ...section, availability: "confirmed-empty" as const }
+            : section,
         ),
       },
     }).success,
@@ -435,8 +437,8 @@ test("provider semantic roles survive compatible headings and distinguish empty,
       availability: "available",
     });
     expect(
-      compatible.projection?.spec?.sections.map(({ role, availability }) => ({
-        role,
+      compatible.projection?.spec?.document.sections.map(({ semanticRole, availability }) => ({
+        role: semanticRole?.slice("spec.".length),
         availability,
       })),
     ).toContainEqual({ role: "testing", availability: "available" });

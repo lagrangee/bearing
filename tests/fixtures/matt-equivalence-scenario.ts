@@ -73,6 +73,10 @@ Local and GitHub must preserve the same accepted semantics.
 
 Capture one concrete Matt scope through a versioned provider seam.
 
+## Compatibility Notes
+
+An additive source section stays readable without provider-specific Portal code.
+
 ## User Stories
 
 A consumer can distinguish workflow truth without native identity coupling.

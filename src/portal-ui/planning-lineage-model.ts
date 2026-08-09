@@ -1,3 +1,4 @@
+import type { DocumentPresentationBlock } from "../document-presentation";
 import type { PlanningLineageRelationKey, PlanningLineageSubject } from "../planning-lineage-route";
 import {
   planningLineageFilteredViewHref,
@@ -108,6 +109,7 @@ export type PlanningLineageSection = Readonly<{
   anchor: string;
   title: string;
   body?: string | undefined;
+  documentBlocks?: readonly DocumentPresentationBlock[] | undefined;
   copy?: Readonly<{ label: string; value: string }> | undefined;
   items?: readonly string[] | undefined;
   links?:
@@ -1016,14 +1018,17 @@ const specSections = (spec: MattSpec): readonly PlanningLineageSection[] => [
     title: "Spec Lifecycle",
     body: spec.lifecycle.state,
   },
-  ...spec.sections.map((section) =>
-    nativeSemanticSection(spec, {
-      role: `spec.${section.role}`,
-      title: section.title,
-      body: section.body,
-      emptyCopy: `No ${section.title.toLocaleLowerCase()} content is recorded.`,
-    }),
-  ),
+  ...spec.document.sections.map((section) => ({
+    anchor: section.semanticRole ?? section.sourceIdentity,
+    title: section.title,
+    ...(section.availability === "available" ? { documentBlocks: section.blocks } : {}),
+    ...(section.availability === "confirmed-empty"
+      ? { body: `No ${section.title.toLocaleLowerCase()} content is recorded.` }
+      : {}),
+    ...(section.availability === "unavailable"
+      ? { body: "This document section is unavailable in the selected provider observation." }
+      : {}),
+  })),
 ];
 
 const trackerClosureItems = (

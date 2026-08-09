@@ -326,7 +326,11 @@ describe("GitHub matt-skills/v1 capture", () => {
       title: "Reference Spec",
       lifecycle: { state: "ready-for-agent" },
     });
-    expect(result.projection?.spec?.sections.map((section) => section.role)).toEqual([
+    expect(
+      result.projection?.spec?.document.sections.map((section) =>
+        section.semanticRole?.slice("spec.".length),
+      ),
+    ).toEqual([
       "problem",
       "solution",
       "user-stories",

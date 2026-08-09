@@ -1,4 +1,8 @@
-import type { MattSemanticSection, MattSemanticSectionAvailability, MattSpec } from "./model";
+import type {
+  MattSemanticSection,
+  MattSemanticSectionAvailability,
+  MattSpecSemanticRole,
+} from "./model";
 
 type ObservedSemanticSectionAvailability = Exclude<MattSemanticSectionAvailability, "unsupported">;
 
@@ -15,7 +19,7 @@ export const MATT_SPEC_SECTION_DEFINITIONS = [
   { role: "out-of-scope", title: "Out of Scope", aliases: [] },
   { role: "further-notes", title: "Further Notes", aliases: [] },
 ] as const satisfies readonly Readonly<{
-  role: MattSpec["sections"][number]["role"];
+  role: MattSpecSemanticRole;
   title: string;
   aliases: readonly string[];
 }>[];

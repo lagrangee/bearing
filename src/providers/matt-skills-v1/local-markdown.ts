@@ -50,12 +50,8 @@ import type {
   MattSpec,
   MattWayfinderTicket,
 } from "./model";
-import {
-  MATT_SPEC_SECTION_DEFINITIONS,
-  semanticAvailabilityForItems,
-  semanticAvailabilityForOptionalContent,
-  semanticSection,
-} from "./semantic-sections";
+import { semanticAvailabilityForItems, semanticSection } from "./semantic-sections";
+import { projectMattSpecDocument } from "./spec-document";
 
 const DEFAULT_MAXIMUM_FILE_BYTES = 1024 * 1024;
 const REQUIRED_TRIAGE_ROLES = [
@@ -285,7 +281,6 @@ const rawFacetsFor = (
 ): readonly MattRawFacet[] => [
   { key: "mode", values: [file.stamp.mode] },
   { key: "size", values: [file.stamp.size] },
-  { key: "markdown", values: [file.source] },
   ...extra,
 ];
 
@@ -1167,26 +1162,11 @@ const decodeMap = (
 const decodeSpec = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): MattSpec | undefined => {
   const title = titleFor(file, diagnostics);
   const status = fieldValue(file, "Status", diagnostics);
-  const sections: MattSpec["sections"][number][] = [];
-  for (const definition of MATT_SPEC_SECTION_DEFINITIONS) {
-    const result = compatibleSection(
-      file,
-      [definition.title, ...definition.aliases],
-      `spec.${definition.role}`,
-      diagnostics,
-    );
-    const availability =
-      result.state === "found"
-        ? semanticAvailabilityForOptionalContent("found", result.section.markdown.trim().length > 0)
-        : "unavailable";
-    sections.push({
-      role: definition.role,
-      title: result.state === "found" ? result.title : definition.title,
-      body: result.state === "found" ? result.section.markdown : "",
-      availability,
-    });
-  }
   if (title === undefined) return undefined;
+  const projected = projectMattSpecDocument(file.document);
+  for (const issue of projected.diagnostics) {
+    diagnostics.push(diagnostic(issue.code, "format", file.locator, issue.message));
+  }
   const lifecycle =
     status === "ready-for-agent" || status === "superseded" || status === "draft"
       ? status
@@ -1205,11 +1185,9 @@ const decodeSpec = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): MattS
     kind: "spec",
     ref: objectReference(file.locator),
     title,
-    sections,
+    document: projected.document,
     lifecycle: { state: lifecycle },
-    semanticSections: sections.map((section) =>
-      semanticSection(`spec.${section.role}`, section.availability),
-    ),
+    semanticSections: projected.semanticSections,
     native: nativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
     ]),

@@ -1,4 +1,5 @@
 import Fuse from "fuse.js";
+import { documentPresentationBlocksPlainText } from "../document-presentation";
 import type { PlanningLineageSubject } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
 import type {
@@ -581,13 +582,13 @@ const nativeContentFields = (
       break;
     case "spec":
       fields.push(
-        ...object.sections.map((section) =>
+        ...object.document.sections.map((section) =>
           section.availability === "available"
             ? contentField(snapshot, subject, {
                 key: "nativeBody",
                 label: section.title,
-                text: section.body,
-                anchor: `spec.${section.role}`,
+                text: documentPresentationBlocksPlainText(section.blocks),
+                anchor: section.semanticRole ?? section.sourceIdentity,
               })
             : undefined,
         ),

@@ -16,6 +16,7 @@ import type {
   MattNativeWorkRegionRoleGroup,
 } from "../providers/matt-skills-v1/work-region";
 import { AssetLocationCopy } from "./asset-location-copy";
+import { DocumentPresentationBlocks } from "./document-presentation";
 import { Icons } from "./icons";
 import type {
   PlanningLineageEffortLens,
@@ -247,6 +248,9 @@ function LineageSections({
         >
           <h2>{section.title}</h2>
           {section.body === undefined ? null : <p>{section.body}</p>}
+          {section.documentBlocks === undefined ? null : (
+            <DocumentPresentationBlocks blocks={section.documentBlocks} />
+          )}
           {section.copy === undefined ? null : (
             <AssetLocationCopy label={section.copy.label} value={section.copy.value} />
           )}

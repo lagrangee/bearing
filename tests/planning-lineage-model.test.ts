@@ -960,9 +960,14 @@ test("keeps Spec, Delivery, Incoming, and native scope semantics independent", (
   expect(spec.sections.find((section) => section.anchor === "spec.lifecycle")?.body).toBe(
     "ready-for-agent",
   );
-  expect(spec.sections.find((section) => section.anchor === "spec.testing")?.body).toBe(
-    "Exercise the shared route contract.",
-  );
+  expect(
+    spec.sections.find((section) => section.anchor === "spec.testing")?.documentBlocks,
+  ).toEqual([
+    {
+      kind: "paragraph",
+      inlines: [{ kind: "text", value: "Exercise the shared route contract." }],
+    },
+  ]);
 
   const delivery = readable(
     buildPlanningLineageSubjectModel(

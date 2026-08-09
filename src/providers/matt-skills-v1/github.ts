@@ -65,9 +65,9 @@ import type {
 import {
   MATT_SPEC_SECTION_DEFINITIONS,
   semanticAvailabilityForItems,
-  semanticAvailabilityForOptionalContent,
   semanticSection,
 } from "./semantic-sections";
+import { projectMattSpecDocument } from "./spec-document";
 
 export const GITHUB_API_VERSION = "2026-03-10" as const;
 const PAGE_SIZE = 100;
@@ -953,7 +953,6 @@ const nativeEvidenceFor = (
     }
   }
   const rawFacets: MattRawFacet[] = [
-    { key: "body", values: [issue.body] },
     { key: "labels", values: issue.labels.map((label) => label.name) },
     {
       key: "assignees",
@@ -1465,26 +1464,13 @@ const decodeSpec = (
   vocabulary: TriageVocabulary | undefined,
   diagnostics: ProviderDiagnostic[],
 ): MattSpec | undefined => {
-  const sections: MattSpec["sections"][number][] = [];
-  for (const definition of MATT_SPEC_SECTION_DEFINITIONS) {
-    const result = compatibleSection(
-      acquired,
-      [definition.title, ...definition.aliases],
-      `spec.${definition.role}`,
-      diagnostics,
-    );
-    const availability =
-      result.state === "found"
-        ? semanticAvailabilityForOptionalContent("found", result.section.markdown.trim().length > 0)
-        : "unavailable";
-    sections.push({
-      role: definition.role,
-      title: result.state === "found" ? result.title : definition.title,
-      body: result.state === "found" ? result.section.markdown : "",
-      availability,
-    });
+  const projected = projectMattSpecDocument(acquired.document);
+  if (projected.semanticSections.every((section) => section.availability === "unavailable")) {
+    return undefined;
   }
-  if (sections.every((candidate) => candidate.availability === "unavailable")) return undefined;
+  for (const issue of projected.diagnostics) {
+    diagnostics.push(diagnostic(issue.code, "format", acquired.issue.html_url, issue.message));
+  }
   const labels = acquired.issue.labels.map((label) => label.name);
   const readyLabel = vocabulary?.semanticToNative.get("ready-for-agent");
   const lifecycle =
@@ -1497,11 +1483,9 @@ const decodeSpec = (
     kind: "spec",
     ref: issueReference(repository, acquired.issue),
     title: acquired.issue.title,
-    sections,
+    document: projected.document,
     lifecycle: { state: lifecycle },
-    semanticSections: sections.map((candidate) =>
-      semanticSection(`spec.${candidate.role}`, candidate.availability),
-    ),
+    semanticSections: projected.semanticSections,
     native: nativeEvidenceForAcquired(repository, acquired),
   };
 };

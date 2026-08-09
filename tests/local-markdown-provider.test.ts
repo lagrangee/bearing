@@ -295,7 +295,11 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     expect(result.projection?.map?.fog).toEqual([
       "Whether one source comment can be uniquely identified as an Answer.",
     ]);
-    expect(result.projection?.spec?.sections.map((section) => section.role)).toEqual([
+    expect(
+      result.projection?.spec?.document.sections.map((section) =>
+        section.semanticRole?.slice("spec.".length),
+      ),
+    ).toEqual([
       "problem",
       "solution",
       "user-stories",
@@ -360,10 +364,8 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       ]),
     );
     expect(
-      result.projection?.incomingIssues[0]?.native.rawFacets.find(
-        (facet) => facet.key === "markdown",
-      )?.values[0],
-    ).toContain("Owner-system: customer-success");
+      result.projection?.incomingIssues[0]?.native.rawFacets.map((facet) => facet.key),
+    ).not.toContain("markdown");
     expect(result.projection?.graph.parentChild).toHaveLength(5);
     expect(result.projection?.graph.blockedBy).toHaveLength(2);
     expect(

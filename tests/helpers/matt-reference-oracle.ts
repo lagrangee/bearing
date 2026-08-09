@@ -1,3 +1,4 @@
+import { documentPresentationBlocksPlainText } from "../../src/document-presentation";
 import type { MattSkillsV1ProviderObservation } from "../../src/providers/matt-skills-v1/capture";
 import type {
   MattScopeProjection,
@@ -101,11 +102,17 @@ const buildMattReferenceSemanticView = (
       : {
           title: capture.projection.spec.title,
           lifecycle: capture.projection.spec.lifecycle.state,
-          sections: capture.projection.spec.sections.map((section) => ({
-            role: section.role,
-            title: section.title,
-            body: section.body,
-          })),
+          sections: capture.projection.spec.document.sections.flatMap((section) =>
+            section.semanticRole === undefined
+              ? []
+              : [
+                  {
+                    role: section.semanticRole.slice("spec.".length),
+                    title: section.title,
+                    body: documentPresentationBlocksPlainText(section.blocks),
+                  },
+                ],
+          ),
         },
   wayfinder: (capture.projection?.wayfinderTickets ?? []).map((ticket) => ({
     ref: scenarioAlias(aliases, String(ticket.ref)),

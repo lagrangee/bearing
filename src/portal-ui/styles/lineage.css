@@ -201,8 +201,24 @@
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
-.lineage-sections ul {
+.lineage-sections ul,
+.lineage-sections ol {
   padding-left: var(--space-5);
+}
+.document-presentation h3,
+.document-presentation h4,
+.document-presentation h5,
+.document-presentation h6 {
+  margin: var(--space-5) 0 var(--space-2);
+}
+.document-presentation p,
+.document-presentation ol,
+.document-presentation ul {
+  margin-block: var(--space-3);
+}
+.document-presentation a {
+  color: inherit;
+  text-underline-offset: 3px;
 }
 .outcome-spine {
   container: outcome-spine / inline-size;

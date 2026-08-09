@@ -6,6 +6,7 @@ import {
   type SourceBindingRole,
   type SourceKind,
 } from "../../src/project-generation/source-reference";
+import { plainDocumentPresentation } from "./document-presentation";
 
 const BASIS = `sha256:${"b".repeat(64)}`;
 const sourceRecord = (
@@ -237,12 +238,9 @@ const spec = (locator: string, title: string) => {
     kind: "spec" as const,
     ref: locator,
     title,
-    sections: sections.map(([role, sectionTitle, body]) => ({
-      role,
-      title: sectionTitle,
-      body,
-      availability: "available" as const,
-    })),
+    document: plainDocumentPresentation(
+      sections.map(([role, title, body]) => ({ role, title, body })),
+    ),
     lifecycle: { state: "ready-for-agent" as const },
     semanticSections: sections.map(([role]) => ({
       role: `spec.${role}`,

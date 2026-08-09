@@ -5,6 +5,7 @@ import type {
   List as MdastList,
   Table as MdastTable,
   Paragraph,
+  PhrasingContent,
   Root,
   RootContent,
 } from "mdast";
@@ -17,6 +18,12 @@ import { frontmatter } from "micromark-extension-frontmatter";
 import { gfm } from "micromark-extension-gfm";
 import { visit } from "unist-util-visit";
 import { parseDocument, stringify } from "yaml";
+import type {
+  DocumentPresentationBlock,
+  DocumentPresentationInline,
+  DocumentPresentationList,
+} from "./document-presentation";
+import { isSafeDocumentPresentationHref } from "./document-presentation";
 
 export type MarkdownDocument = Readonly<{
   kind: "markdown-document";
@@ -490,6 +497,132 @@ export const markdownSectionLead = (
     .slice(start, end)
     .replace(/^(?:[ \t]*(?:\r\n|\n|\r))+/u, "")
     .trimEnd();
+};
+
+export type MarkdownDocumentPresentationResult =
+  | Readonly<{ ok: true; blocks: readonly DocumentPresentationBlock[] }>
+  | Readonly<{
+      ok: false;
+      reason: "unsupported-block" | "unsupported-inline" | "unsafe-link";
+      nodeKind: string;
+    }>;
+
+type InlineProjectionResult =
+  | Readonly<{ ok: true; inlines: readonly DocumentPresentationInline[] }>
+  | Extract<MarkdownDocumentPresentationResult, { ok: false }>;
+
+type ListProjectionResult =
+  | Readonly<{ ok: true; list: DocumentPresentationList }>
+  | Extract<MarkdownDocumentPresentationResult, { ok: false }>;
+
+const projectPresentationInlines = (
+  children: readonly PhrasingContent[],
+): InlineProjectionResult => {
+  const inlines: DocumentPresentationInline[] = [];
+  for (const child of children) {
+    switch (child.type) {
+      case "text":
+        if (child.value.length > 0) inlines.push({ kind: "text", value: child.value });
+        break;
+      case "strong":
+      case "emphasis": {
+        const nested = projectPresentationInlines(child.children);
+        if (!nested.ok) return nested;
+        inlines.push({ kind: child.type, inlines: nested.inlines });
+        break;
+      }
+      case "inlineCode":
+        inlines.push({ kind: "inline-code", value: child.value });
+        break;
+      case "link": {
+        if (!isSafeDocumentPresentationHref(child.url)) {
+          return { ok: false, reason: "unsafe-link", nodeKind: child.type };
+        }
+        const nested = projectPresentationInlines(child.children);
+        if (!nested.ok) return nested;
+        inlines.push({
+          kind: "link",
+          href: child.url,
+          ...(child.title === null || child.title === undefined ? {} : { title: child.title }),
+          inlines: nested.inlines,
+        });
+        break;
+      }
+      default:
+        return { ok: false, reason: "unsupported-inline", nodeKind: child.type };
+    }
+  }
+  return { ok: true, inlines };
+};
+
+const projectPresentationList = (list: MdastList): ListProjectionResult => {
+  const items: DocumentPresentationList["items"][number][] = [];
+  for (const item of list.children) {
+    const [lead, ...rest] = item.children;
+    if (
+      (item.checked !== null && item.checked !== undefined) ||
+      lead?.type !== "paragraph" ||
+      rest.some((child) => child.type !== "list")
+    ) {
+      return { ok: false, reason: "unsupported-block", nodeKind: "listItem" };
+    }
+    const inlines = projectPresentationInlines(lead.children);
+    if (!inlines.ok) return inlines;
+    const children: DocumentPresentationList[] = [];
+    for (const child of rest) {
+      if (child.type !== "list") {
+        return { ok: false, reason: "unsupported-block", nodeKind: child.type };
+      }
+      const nested = projectPresentationList(child);
+      if (!nested.ok) return nested;
+      children.push(nested.list);
+    }
+    items.push({ inlines: inlines.inlines, children });
+  }
+  return {
+    ok: true,
+    list: {
+      kind: "list",
+      style: list.ordered === true ? "ordered" : "unordered",
+      ...(list.ordered === true && list.start !== null && list.start !== undefined
+        ? { start: list.start }
+        : {}),
+      items,
+    },
+  };
+};
+
+export const markdownDocumentPresentationBlocks = (
+  document: MarkdownDocument,
+  section: MarkdownSection,
+): MarkdownDocumentPresentationResult => {
+  const nodes = nodesWithin(document, section);
+  const blocks: DocumentPresentationBlock[] = [];
+  for (const node of nodes) {
+    if (node.type === "paragraph") {
+      const inlines = projectPresentationInlines(node.children);
+      if (!inlines.ok) return inlines;
+      blocks.push({ kind: "paragraph", inlines: inlines.inlines });
+      continue;
+    }
+    if (node.type === "heading") {
+      if (node.depth === 1 || node.depth === 2) {
+        return { ok: false, reason: "unsupported-block", nodeKind: node.type };
+      }
+      const inlines = projectPresentationInlines(node.children);
+      if (!inlines.ok) return inlines;
+      blocks.push({ kind: "heading", level: node.depth, inlines: inlines.inlines });
+      continue;
+    }
+    if (node.type === "list") {
+      const list = projectPresentationList(node);
+      if (!list.ok) return list;
+      blocks.push(list.list);
+      continue;
+    }
+    return { ok: false, reason: "unsupported-block", nodeKind: node.type };
+  }
+  return { ok: true, blocks };
 };
 
 const PLAIN_TEXT_MARKUP_PATTERNS = [

@@ -319,6 +319,37 @@ ${issueBody}
       expect(mattReferenceSemanticAvailabilityView(github, githubAliases)).toEqual(
         expectedSemanticAvailability,
       );
+      if (
+        (local.state !== "available" && local.state !== "partial") ||
+        (github.state !== "available" && github.state !== "partial") ||
+        local.projection.spec === undefined ||
+        github.projection.spec === undefined
+      ) {
+        throw new TypeError("Expected equivalent Local and GitHub Spec documents.");
+      }
+      expect(local.projection.spec.document).toEqual(github.projection.spec.document);
+      expect(
+        local.projection.spec.document.sections.find(
+          (section) => section.sourceIdentity === "spec.source.compatibility-notes",
+        ),
+      ).toEqual({
+        sourceIdentity: "spec.source.compatibility-notes",
+        title: "Compatibility Notes",
+        sourceOrder: 2,
+        availability: "available",
+        blocks: [
+          {
+            kind: "paragraph",
+            inlines: [
+              {
+                kind: "text",
+                value:
+                  "An additive source section stays readable without provider-specific Portal code.",
+              },
+            ],
+          },
+        ],
+      });
 
       const localRelations = mattReferenceRelationPartition(local, localAliases);
       const githubRelations = mattReferenceRelationPartition(github, githubAliases);
@@ -418,8 +449,9 @@ ${issueBody}
       expect(new Set(localLocators).size).toBe(localLocators.length);
       for (const object of localObjects) {
         expect(object.native.rawFacets.map((facet) => facet.key)).toEqual(
-          expect.arrayContaining(["mode", "size", "markdown"]),
+          expect.arrayContaining(["mode", "size"]),
         );
+        expect(object.native.rawFacets.map((facet) => facet.key)).not.toContain("markdown");
       }
 
       const githubUrls = githubObjects.map((object) =>
@@ -435,8 +467,9 @@ ${issueBody}
           repository: "reference",
         });
         expect(object.native.rawFacets.map((facet) => facet.key)).toEqual(
-          expect.arrayContaining(["body", "labels", "assignees", "state", "timestamps"]),
+          expect.arrayContaining(["labels", "assignees", "state", "timestamps"]),
         );
+        expect(object.native.rawFacets.map((facet) => facet.key)).not.toContain("body");
       }
 
       expect(github.projection?.wayfinderTickets[3]?.native.rawFacets).toContainEqual({

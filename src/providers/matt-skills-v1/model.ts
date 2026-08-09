@@ -1,3 +1,4 @@
+import type { DocumentPresentation } from "../../document-presentation";
 import type { SourceEventTime } from "../../source-event-time";
 
 export type MattObjectReference = string & Readonly<{ __mattObjectReference: true }>;
@@ -123,23 +124,20 @@ export type MattMap = Readonly<{
   native: MattNativeEvidence;
 }>;
 
+export type MattSpecSemanticRole =
+  | "problem"
+  | "solution"
+  | "user-stories"
+  | "implementation"
+  | "testing"
+  | "out-of-scope"
+  | "further-notes";
+
 export type MattSpec = Readonly<{
   kind: "spec";
   ref: MattObjectReference;
   title: string;
-  sections: readonly Readonly<{
-    role:
-      | "problem"
-      | "solution"
-      | "user-stories"
-      | "implementation"
-      | "testing"
-      | "out-of-scope"
-      | "further-notes";
-    title: string;
-    body: string;
-    availability: MattSemanticSectionAvailability;
-  }>[];
+  document: DocumentPresentation;
   lifecycle: Readonly<{
     state: "draft" | "ready-for-agent" | "superseded";
   }>;

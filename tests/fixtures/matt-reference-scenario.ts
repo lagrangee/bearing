@@ -6,6 +6,7 @@ import type {
   MattScopeProjection,
 } from "../../src/providers/matt-skills-v1/model";
 import type { MattReferenceSemanticView } from "../helpers/matt-reference-oracle";
+import { plainDocumentPresentation } from "./document-presentation";
 
 type NativeKind = "local" | "github";
 
@@ -126,50 +127,43 @@ export const createMattReferenceProjection = (nativeKind: NativeKind): MattScope
       kind: "spec",
       ref: specRef,
       title: "Reference Spec",
-      sections: [
+      document: plainDocumentPresentation([
         {
           role: "problem",
           title: "Problem Statement",
           body: "Local and GitHub must preserve the same accepted semantics.",
-          availability: "available",
         },
         {
           role: "solution",
           title: "Solution",
           body: "Capture one concrete Matt scope through a versioned provider seam.",
-          availability: "available",
         },
         {
           role: "user-stories",
           title: "User Stories",
           body: "A consumer can distinguish workflow truth without native identity coupling.",
-          availability: "available",
         },
         {
           role: "implementation",
           title: "Implementation Decisions",
           body: "Keep provider-specific projection behind a provider-neutral wrapper.",
-          availability: "available",
         },
         {
           role: "testing",
           title: "Testing Decisions",
           body: "Compare public provider captures through a test-owned oracle.",
-          availability: "available",
         },
         {
           role: "out-of-scope",
           title: "Out of Scope",
           body: "Do not build a generic tracker ontology.",
-          availability: "available",
         },
         {
           role: "further-notes",
           title: "Further Notes",
           body: "Opaque relation references are capture-local.",
-          availability: "available",
         },
-      ],
+      ]),
       lifecycle: { state: "ready-for-agent" },
       semanticSections: availableSections(
         "spec.problem",
