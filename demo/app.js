@@ -7,11 +7,100 @@ const mobileMenu = document.querySelector(".mobile-menu");
 const navigation = document.querySelector(".project-navigation");
 const navigationClose = document.querySelector(".nav-close");
 const navigationScrim = document.querySelector(".nav-scrim");
+const findTrigger = document.querySelector(".topbar-find");
+const findLayer = document.querySelector(".project-find-layer");
+const findDialog = document.querySelector(".project-find-dialog");
+const findInput = document.querySelector(".project-find-input");
+const findStatus = document.querySelector(".project-find-status");
+const findEmpty = document.querySelector(".project-find-empty");
+const findResultList = document.querySelector(".project-find-results");
 const narrowViewport = matchMedia("(max-width: 900px)");
 const screens = document.querySelectorAll("[data-screen]");
 const screenById = new Map(Array.from(screens, (screen) => [screen.id, screen]));
 const focusByRoute = new Map();
 let activeRoute;
+let activeFindIndex = 0;
+
+const findResultId = (index) => `project-find-result-${index}`;
+
+const findOptions = () => Array.from(findResultList?.querySelectorAll("a[role='option']") ?? []);
+
+const setActiveFindIndex = (index) => {
+  const options = findOptions();
+  if (options.length === 0 || findInput === null) return;
+  activeFindIndex = (index + options.length) % options.length;
+  for (const [optionIndex, option] of options.entries()) {
+    const active = optionIndex === activeFindIndex;
+    option.classList.toggle("is-active", active);
+    option.setAttribute("aria-selected", String(active));
+  }
+  findInput.setAttribute("aria-activedescendant", findResultId(activeFindIndex));
+  options[activeFindIndex]?.scrollIntoView({ block: "nearest" });
+};
+
+const navigateFromFind = (href) => {
+  const state =
+    typeof history.state === "object" && history.state !== null ? { ...history.state } : {};
+  history.replaceState(
+    { ...state, bearingFind: { query: findInput?.value ?? "" } },
+    "",
+    location.href,
+  );
+  setFindVisibility(false);
+  location.hash = href;
+};
+
+const renderFindResults = () => {
+  if (findInput === null || findStatus === null || findEmpty === null || findResultList === null) {
+    return;
+  }
+  const query = findInput.value.trim().toLocaleLowerCase();
+  activeFindIndex = 0;
+  findResultList.replaceChildren();
+  findInput.removeAttribute("aria-activedescendant");
+  if (query === "") {
+    findStatus.textContent = "Search is limited to Bearing-managed project content.";
+    findEmpty.hidden = true;
+    findResultList.hidden = true;
+    return;
+  }
+  const results = globalThis.NORTHSTAR_DEMO.findResults.filter((result) =>
+    `${result.title} ${result.id} ${result.phrase}`.toLocaleLowerCase().includes(query),
+  );
+  findStatus.textContent = `${results.length} result${results.length === 1 ? "" : "s"}`;
+  findEmpty.hidden = results.length !== 0;
+  findResultList.hidden = results.length === 0;
+  for (const [index, result] of results.entries()) {
+    const option = document.createElement("a");
+    option.id = findResultId(index);
+    option.className = `project-find-result${index === 0 ? " is-active" : ""}`;
+    option.href = result.href;
+    option.role = "option";
+    option.setAttribute("aria-selected", String(index === 0));
+    option.innerHTML = `<span class="project-find-result-heading"><span class="project-find-result-type"></span><strong></strong></span><span class="project-find-result-parent"></span><span class="project-find-result-excerpt"></span><span class="sr-only"></span>`;
+    option.querySelector(".project-find-result-type").textContent = result.type;
+    option.querySelector("strong").textContent = result.title;
+    option.querySelector(".project-find-result-parent").textContent = result.parent;
+    option.querySelector(".project-find-result-excerpt").textContent = result.phrase;
+    option.querySelector(".sr-only").textContent = `${result.type}: ${result.title}. ${result.phrase}`;
+    findResultList.append(option);
+  }
+  if (results.length !== 0) findInput.setAttribute("aria-activedescendant", findResultId(0));
+};
+
+const setFindVisibility = (open, returnFocus = false) => {
+  if (findLayer === null) return;
+  findLayer.hidden = !open;
+  for (const background of [topbar, navigation, navigationScrim, mainContent]) {
+    if (background === null) continue;
+    background.inert = open;
+    if (open) background.setAttribute("aria-hidden", "true");
+    else background.removeAttribute("aria-hidden");
+  }
+  if (!open) syncNavigationViewport();
+  if (open) requestAnimationFrame(() => findInput?.focus());
+  else if (returnFocus) requestAnimationFrame(() => findTrigger?.focus());
+};
 
 if (demoDisclosure !== null) demoDisclosure.textContent = globalThis.NORTHSTAR_DEMO.disclosure;
 if (sampleDate !== null) sampleDate.textContent = globalThis.NORTHSTAR_DEMO.sampleDate;
@@ -83,6 +172,7 @@ const syncNavigationViewport = () => {
 
 const syncRoute = (moveFocus = false) => {
   const route = location.hash === "" ? "#/overview" : location.hash;
+  setFindVisibility(false);
   document.body.classList.toggle("preview-mode", route.startsWith("#/preview/"));
   if (moveFocus && activeRoute !== undefined) {
     const previousScreen = screenById.get(screenByRoute[activeRoute]);
@@ -131,6 +221,15 @@ const syncRoute = (moveFocus = false) => {
       link.getAttribute("href") === activeNavigationHref;
     if (selected) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
+  }
+  const state =
+    typeof history.state === "object" && history.state !== null ? { ...history.state } : {};
+  if (typeof state.bearingFind?.query === "string") {
+    if (findInput !== null) findInput.value = state.bearingFind.query;
+    delete state.bearingFind;
+    history.replaceState(state, "", location.href);
+    renderFindResults();
+    setFindVisibility(true);
   }
 };
 
@@ -188,6 +287,65 @@ skipLink?.addEventListener("click", (event) => {
 });
 
 mobileMenu?.addEventListener("click", () => setNavigationVisibility(true));
+findTrigger?.addEventListener("click", () => setFindVisibility(true));
+findInput?.addEventListener("input", renderFindResults);
+findResultList?.addEventListener("click", (event) => {
+  const result = event.target instanceof Element ? event.target.closest("a[role='option']") : null;
+  if (
+    result === null ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  ) {
+    return;
+  }
+  event.preventDefault();
+  navigateFromFind(result.hash);
+});
+findLayer?.querySelectorAll(".project-find-close, .project-find-backdrop").forEach((control) => {
+  control.addEventListener("click", () => setFindVisibility(false, true));
+});
+findDialog?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    setFindVisibility(false, true);
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    setActiveFindIndex(activeFindIndex + 1);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    setActiveFindIndex(activeFindIndex - 1);
+    return;
+  }
+  if (event.key === "Enter" && document.activeElement === findInput) {
+    const option = findOptions()[activeFindIndex];
+    if (option === undefined) return;
+    event.preventDefault();
+    navigateFromFind(option.hash);
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const focusable = [
+    findDialog.querySelector(".project-find-close"),
+    findInput,
+    ...findOptions(),
+  ].filter((candidate) => candidate !== null);
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last?.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first?.focus();
+  }
+});
 navigationClose?.addEventListener("click", () => setNavigationVisibility(false, true));
 navigationScrim?.addEventListener("click", () => setNavigationVisibility(false, true));
 navigation?.addEventListener("click", (event) => {

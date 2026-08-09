@@ -28,6 +28,15 @@
       >
       <p class="project-switcher"><code>northstar</code> <strong>Northstar</strong></p>
       <strong class="project-title-narrow">Northstar</strong>
+      <div class="topbar-status">
+        <button class="action topbar-find" type="button" aria-label="Find in project">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <span>Find</span>
+        </button>
+      </div>
     </header>
     <nav class="project-navigation project-nav" id="project-navigation" aria-label="Project navigation">
       <div class="nav-project">
@@ -69,6 +78,47 @@
       <p class="nav-footer"><span>Read only</span><small>Interactive sample</small></p>
     </nav>
     <button aria-label="Close navigation" class="nav-scrim" type="button"></button>
+    <div class="project-find-layer" hidden>
+      <button class="project-find-backdrop" type="button" aria-label="Close Find"></button>
+      <section
+        class="project-find-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-find-title"
+      >
+        <div class="project-find-heading">
+          <div>
+            <span class="eyebrow">Project Find</span>
+            <h2 id="project-find-title">Find in project</h2>
+          </div>
+          <button class="project-find-close" type="button" aria-label="Close Find">×</button>
+        </div>
+        <label class="project-find-input-label" for="project-find-input">
+          Search identity, title, or semantic phrase
+        </label>
+        <input
+          id="project-find-input"
+          class="project-find-input"
+          type="search"
+          placeholder="Try a Gate ID, title, or phrase"
+          autocomplete="off"
+          aria-controls="project-find-results"
+        />
+        <p class="project-find-status" role="status" aria-live="polite">
+          Search is limited to Bearing-managed project content.
+        </p>
+        <p class="project-find-empty" hidden>
+          No matches in Bearing-managed scope. Try another title, phrase, or internal ID.
+        </p>
+        <div
+          id="project-find-results"
+          class="project-find-results"
+          role="listbox"
+          aria-label="Find results"
+          hidden
+        ></div>
+      </section>
+    </div>
     <main class="portal-main" id="main-content" tabindex="-1">
       <section class="demo-page overview-page" data-screen id="overview-screen">
         <header class="project-intro">
