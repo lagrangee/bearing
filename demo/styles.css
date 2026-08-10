@@ -1634,6 +1634,112 @@ code {
   line-height: 1.45;
 }
 
+.topbar-walkthrough svg {
+  width: 16px;
+  height: 16px;
+}
+
+.walkthrough-layer {
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  pointer-events: none;
+}
+
+.walkthrough-dialog {
+  position: absolute;
+  right: var(--space-6);
+  bottom: var(--space-6);
+  display: grid;
+  width: min(460px, calc(100vw - 2 * var(--space-6)));
+  max-height: calc(100dvh - 2 * var(--space-6));
+  gap: var(--space-4);
+  padding: var(--space-5);
+  overflow: auto;
+  pointer-events: auto;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 4px 8px color-mix(in oklch, var(--ink) 18%, transparent);
+}
+
+.walkthrough-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.walkthrough-heading h2 {
+  margin: var(--space-1) 0 0;
+  font-size: var(--type-view);
+}
+
+.walkthrough-progress {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--type-meta);
+  font-weight: 600;
+}
+
+.walkthrough-close {
+  display: grid;
+  width: var(--control-touch);
+  height: var(--control-touch);
+  flex: 0 0 var(--control-touch);
+  place-items: center;
+  color: var(--muted);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.walkthrough-close:hover,
+.walkthrough-close:focus-visible {
+  color: var(--ink);
+  background: var(--surface-pressed);
+}
+
+#walkthrough-purpose,
+.walkthrough-location {
+  margin: 0;
+}
+
+#walkthrough-purpose {
+  max-width: 68ch;
+  text-wrap: pretty;
+}
+
+.walkthrough-location {
+  padding: var(--space-3);
+  color: var(--muted);
+  background: var(--surface);
+  border-radius: var(--radius-control);
+  font-size: var(--type-meta);
+}
+
+.walkthrough-actions,
+.walkthrough-actions > span {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.walkthrough-actions {
+  justify-content: space-between;
+}
+
+.walkthrough-target {
+  border-radius: var(--radius-panel);
+  outline: 3px solid var(--focus);
+  outline-offset: var(--space-2);
+  scroll-margin: 220px 0;
+}
+
 .lineage-header-actions {
   display: flex;
   flex: 0 0 auto;
@@ -2297,8 +2403,28 @@ code {
     padding: 0;
   }
 
+  .topbar-walkthrough {
+    width: var(--control-touch);
+    padding: 0;
+  }
+
+  .topbar-walkthrough span {
+    display: none;
+  }
+
   .topbar-find span {
     display: none;
+  }
+
+  .walkthrough-dialog {
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: min(70dvh, 620px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: var(--radius-panel) var(--radius-panel) 0 0;
   }
 
   .project-find-layer {

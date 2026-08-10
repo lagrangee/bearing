@@ -29,6 +29,17 @@
       <p class="project-switcher"><code>northstar</code> <strong>Northstar</strong></p>
       <strong class="project-title-narrow">Northstar</strong>
       <div class="topbar-status">
+        <button
+          class="action topbar-walkthrough"
+          type="button"
+          aria-label="Start daily governance walkthrough"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" />
+            <path d="m15 9-2 4-4 2 2-4Z" />
+          </svg>
+          <span>Walkthrough</span>
+        </button>
         <button class="action topbar-find" type="button" aria-label="Find in project">
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <circle cx="11" cy="11" r="8" />
@@ -117,6 +128,38 @@
           aria-label="Find results"
           hidden
         ></div>
+      </section>
+    </div>
+    <div class="walkthrough-layer" hidden>
+      <section
+        class="walkthrough-dialog"
+        role="dialog"
+        aria-label="Daily governance walkthrough"
+        aria-describedby="walkthrough-purpose"
+      >
+        <div class="walkthrough-heading">
+          <div>
+            <p class="walkthrough-progress"></p>
+            <h2 id="walkthrough-title" tabindex="-1"></h2>
+          </div>
+          <button class="walkthrough-close" type="button" aria-label="Close walkthrough">×</button>
+        </div>
+        <p id="walkthrough-purpose"></p>
+        <p class="walkthrough-location"></p>
+        <div class="walkthrough-actions">
+          <span>
+            <button class="action walkthrough-explore" type="button">Explore current page</button>
+            <button class="action walkthrough-skip" type="button">Skip walkthrough</button>
+          </span>
+          <span>
+            <button class="action walkthrough-previous" type="button" aria-label="Previous step">
+              Previous
+            </button>
+            <button class="action action-primary walkthrough-next" type="button" aria-label="Next step">
+              Next
+            </button>
+          </span>
+        </div>
       </section>
     </div>
     <main class="portal-main" id="main-content" tabindex="-1">

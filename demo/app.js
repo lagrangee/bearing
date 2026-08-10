@@ -14,12 +14,84 @@ const findInput = document.querySelector(".project-find-input");
 const findStatus = document.querySelector(".project-find-status");
 const findEmpty = document.querySelector(".project-find-empty");
 const findResultList = document.querySelector(".project-find-results");
+const walkthroughTrigger = document.querySelector(".topbar-walkthrough");
+const walkthroughLayer = document.querySelector(".walkthrough-layer");
+const walkthroughDialog = document.querySelector(".walkthrough-dialog");
+const walkthroughTitle = document.querySelector("#walkthrough-title");
+const walkthroughProgress = document.querySelector(".walkthrough-progress");
+const walkthroughPurpose = document.querySelector("#walkthrough-purpose");
+const walkthroughLocation = document.querySelector(".walkthrough-location");
+const walkthroughExplore = document.querySelector(".walkthrough-explore");
+const walkthroughPrevious = document.querySelector(".walkthrough-previous");
+const walkthroughNext = document.querySelector(".walkthrough-next");
 const narrowViewport = matchMedia("(max-width: 900px)");
 const screens = document.querySelectorAll("[data-screen]");
 const screenById = new Map(Array.from(screens, (screen) => [screen.id, screen]));
 const focusByRoute = new Map();
 let activeRoute;
 let activeFindIndex = 0;
+let walkthroughActive = false;
+let walkthroughIndex = 0;
+let walkthroughTarget;
+
+const walkthroughSteps = Object.freeze([
+  {
+    route: "#/overview",
+    target: "#project-orientation-panel .brief-prose section:nth-of-type(2)",
+    title: "Current Position",
+    purpose:
+      "Start with the accepted orientation. It tells you where Northstar is now without inventing next work.",
+    location: "Overview · Project Brief · Current Position",
+  },
+  {
+    route: "#/gates/release-candidate-ready",
+    target: "#release-gate-screen .lineage-header",
+    title: "Focused Gate and readiness",
+    purpose:
+      "Ready for review is evidence for a human decision. It does not mean this active Gate has passed.",
+    location: "Gate · Release candidate ready",
+  },
+  {
+    route: "#/attention",
+    target: "#attention-screen [aria-labelledby='human-decision-heading']",
+    title: "Attention",
+    purpose:
+      "Read the pending human decision. Attention keeps judgment visible without turning it into a task queue.",
+    location: "Attention · Needs a human decision",
+  },
+  {
+    route: "#/efforts/release-packaging",
+    target: "#release-packaging-screen .effort-governance-lens",
+    title: "Contributing Effort",
+    purpose:
+      "Separate the Effort lifecycle, provider evidence, and Current Work before you inspect native evidence.",
+    location: "Effort · Release Packaging",
+  },
+  {
+    route: "#/native-work/release-packaging",
+    target: "#release-native-work-screen #native-work-current",
+    title: "Native evidence",
+    purpose:
+      "Follow the fixed evidence Asset. If another Effort says Can't verify, retained non-current evidence can inform reading, but it cannot contribute to Gate readiness.",
+    location: "Release Packaging · Current native work",
+  },
+  {
+    route: "#/assets/public-beta-readiness-review",
+    target: "#release-asset-screen .lineage-sections section:last-child",
+    title: "Asset evidence roles",
+    purpose:
+      "Check how Planning Citation, Authority Adoption, Produced For, and Passage Evidence keep different meanings.",
+    location: "Asset · Public Beta Readiness Review · Planning Use",
+  },
+  {
+    route: "#/lineage/public-beta-readiness-review",
+    target: "#release-lineage-screen .lineage-context",
+    title: "Planning Lineage",
+    purpose:
+      "Finish with the prewritten relation directions. The Asset connects to owners and work without becoming a generic graph.",
+    location: "Public Beta Readiness Review · Lineage Context",
+  },
+]);
 
 const findResultId = (index) => `project-find-result-${index}`;
 
@@ -100,6 +172,74 @@ const setFindVisibility = (open, returnFocus = false) => {
   if (!open) syncNavigationViewport();
   if (open) requestAnimationFrame(() => findInput?.focus());
   else if (returnFocus) requestAnimationFrame(() => findTrigger?.focus());
+};
+
+const clearWalkthroughTarget = () => {
+  walkthroughTarget?.classList.remove("walkthrough-target");
+  if (walkthroughTarget?.dataset.walkthroughTabindex === "added") {
+    walkthroughTarget.removeAttribute("tabindex");
+    delete walkthroughTarget.dataset.walkthroughTabindex;
+  }
+  walkthroughTarget = undefined;
+};
+
+const renderWalkthrough = () => {
+  if (!walkthroughActive || walkthroughLayer === null) return;
+  const step = walkthroughSteps[walkthroughIndex];
+  if (step === undefined) return;
+  if (walkthroughIndex === 0) selectOrientation("brief");
+  walkthroughLayer.hidden = false;
+  if (walkthroughTitle !== null) walkthroughTitle.textContent = step.title;
+  if (walkthroughProgress !== null) {
+    walkthroughProgress.textContent = `Step ${walkthroughIndex + 1} of ${walkthroughSteps.length}`;
+  }
+  if (walkthroughPurpose !== null) walkthroughPurpose.textContent = step.purpose;
+  if (walkthroughLocation !== null) {
+    walkthroughLocation.textContent = `You are viewing: ${step.location}`;
+  }
+  if (walkthroughPrevious !== null) walkthroughPrevious.disabled = walkthroughIndex === 0;
+  if (walkthroughNext !== null) {
+    const finalStep = walkthroughIndex === walkthroughSteps.length - 1;
+    walkthroughNext.textContent = finalStep ? "Finish" : "Next";
+    walkthroughNext.setAttribute(
+      "aria-label",
+      finalStep ? "Finish walkthrough" : "Next step",
+    );
+  }
+  clearWalkthroughTarget();
+  const target = document.querySelector(step.target);
+  if (target instanceof HTMLElement) {
+    if (!target.hasAttribute("tabindex")) {
+      target.tabIndex = -1;
+      target.dataset.walkthroughTabindex = "added";
+    }
+    target.classList.add("walkthrough-target");
+    target.scrollIntoView({ block: "center" });
+    walkthroughTarget = target;
+  }
+  requestAnimationFrame(() => walkthroughTitle?.focus());
+};
+
+const closeWalkthrough = (returnFocus = true) => {
+  walkthroughActive = false;
+  walkthroughLayer?.setAttribute("hidden", "");
+  clearWalkthroughTarget();
+  if (returnFocus) requestAnimationFrame(() => walkthroughTrigger?.focus());
+};
+
+const showWalkthroughStep = (index) => {
+  walkthroughIndex = Math.max(0, Math.min(index, walkthroughSteps.length - 1));
+  const step = walkthroughSteps[walkthroughIndex];
+  if (step === undefined) return;
+  if (location.hash === step.route) renderWalkthrough();
+  else location.hash = step.route;
+};
+
+const startWalkthrough = () => {
+  setFindVisibility(false);
+  setNavigationVisibility(false);
+  walkthroughActive = true;
+  showWalkthroughStep(0);
 };
 
 if (demoDisclosure !== null) demoDisclosure.textContent = globalThis.NORTHSTAR_DEMO.disclosure;
@@ -286,8 +426,45 @@ skipLink?.addEventListener("click", (event) => {
   mainContent?.focus();
 });
 
-mobileMenu?.addEventListener("click", () => setNavigationVisibility(true));
-findTrigger?.addEventListener("click", () => setFindVisibility(true));
+mobileMenu?.addEventListener("click", () => {
+  if (walkthroughActive) closeWalkthrough(false);
+  setNavigationVisibility(true);
+});
+findTrigger?.addEventListener("click", () => {
+  if (walkthroughActive) closeWalkthrough(false);
+  setFindVisibility(true);
+});
+walkthroughTrigger?.addEventListener("click", startWalkthrough);
+walkthroughLayer?.querySelectorAll(".walkthrough-close, .walkthrough-skip").forEach((control) => {
+  control.addEventListener("click", () => closeWalkthrough());
+});
+walkthroughPrevious?.addEventListener("click", () => showWalkthroughStep(walkthroughIndex - 1));
+walkthroughExplore?.addEventListener("click", () => walkthroughTarget?.focus());
+walkthroughNext?.addEventListener("click", () => {
+  if (walkthroughIndex === walkthroughSteps.length - 1) closeWalkthrough();
+  else showWalkthroughStep(walkthroughIndex + 1);
+});
+walkthroughDialog?.addEventListener("keydown", (event) => {
+  if (event.key !== "Tab") return;
+  const focusable = [
+    walkthroughTitle,
+    ...walkthroughDialog.querySelectorAll("button:not([disabled])"),
+  ].filter((candidate) => candidate !== null);
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last?.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first?.focus();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (!walkthroughActive || event.key !== "Escape") return;
+  event.preventDefault();
+  closeWalkthrough();
+});
 findInput?.addEventListener("input", renderFindResults);
 findResultList?.addEventListener("click", (event) => {
   const result = event.target instanceof Element ? event.target.closest("a[role='option']") : null;
@@ -413,7 +590,16 @@ document.addEventListener("click", (event) => {
 });
 
 narrowViewport.addEventListener("change", syncNavigationViewport);
-addEventListener("hashchange", () => syncRoute(true));
+addEventListener("hashchange", () => {
+  syncRoute(true);
+  if (!walkthroughActive) return;
+  const matchingStep = walkthroughSteps.findIndex((step) => step.route === location.hash);
+  if (matchingStep === -1) closeWalkthrough(false);
+  else {
+    walkthroughIndex = matchingStep;
+    renderWalkthrough();
+  }
+});
 syncNavigationViewport();
 applyAssetFilters();
 syncRoute();
