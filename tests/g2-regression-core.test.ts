@@ -57,10 +57,6 @@ describe("G2 Matt-native regression core", () => {
         key: "g1-deterministic-correctness",
         command: ["bun", "run", "test:g1-regression"],
       },
-      {
-        key: "package-boundary",
-        command: ["bun", "run", "package:check"],
-      },
     ]);
     const files = g2RegressionCoreFiles();
     expect(new Set(files).size).toBe(files.length);

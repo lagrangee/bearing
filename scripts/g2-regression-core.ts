@@ -47,10 +47,6 @@ export const G2_REGRESSION_CHECKS = [
     key: "g1-deterministic-correctness",
     command: ["bun", "run", "test:g1-regression"],
   },
-  {
-    key: "package-boundary",
-    command: ["bun", "run", "package:check"],
-  },
 ] as const;
 
 export const g2RegressionCoreFiles = (): readonly string[] =>

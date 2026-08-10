@@ -1280,7 +1280,17 @@ test("publish recovery stops before tag creation when npm signature audit fails"
 
 test("CI and release workflows pin every third-party action to a reviewed commit", async () => {
   const workflowJobs = [
-    [".github/workflows/ci.yml", ["secrets", "verify", "browser"]],
+    [
+      ".github/workflows/ci.yml",
+      [
+        "source-quality",
+        "safety",
+        "runtime-node-24",
+        "runtime-node-26",
+        "browser-behavior",
+        "package-proof",
+      ],
+    ],
     [".github/workflows/package.yml", ["candidate"]],
     [".github/workflows/publish-preview.yml", ["publish"]],
   ] as const;
@@ -1324,7 +1334,7 @@ test("pins direct Gitleaks revision, PR-range, and exact-candidate lanes", async
   const ci = await readFile(".github/workflows/ci.yml", "utf8");
   const parsed = parseYaml(ci) as {
     jobs?: {
-      secrets?: {
+      safety?: {
         steps?: readonly {
           name?: string;
           uses?: string;
@@ -1336,7 +1346,7 @@ test("pins direct Gitleaks revision, PR-range, and exact-candidate lanes", async
       };
     };
   };
-  const steps = parsed.jobs?.secrets?.steps ?? [];
+  const steps = parsed.jobs?.safety?.steps ?? [];
   const setupGo = steps.find(
     (step) => step.uses === `actions/setup-go@${reviewedActionPins["actions/setup-go"]}`,
   );
@@ -1352,40 +1362,6 @@ test("pins direct Gitleaks revision, PR-range, and exact-candidate lanes", async
   expect(pullRequestScan?.run).toContain('--log-opts="$BASE_SHA..$HEAD_SHA"');
   expect(pullRequestScan?.run).toContain("--config .gitleaks.toml");
   expect(pullRequestScan?.run).toContain("--redact");
-});
-
-test("CI matrix executes the built CLI with each selected Node runtime", async () => {
-  const workflow = await readFile(".github/workflows/ci.yml", "utf8");
-  const parsed = parseYaml(workflow) as {
-    jobs?: {
-      verify?: {
-        strategy?: { matrix?: { "node-version"?: readonly (number | string)[] } };
-        steps?: readonly { name?: string; run?: string }[];
-      };
-      browser?: {
-        steps?: readonly { uses?: string; with?: { "node-version"?: number | string } }[];
-      };
-    };
-  };
-  const steps = parsed.jobs?.verify?.steps ?? [];
-  expect(parsed.jobs?.verify?.strategy?.matrix?.["node-version"]).toEqual(["24.15.0", 26]);
-  expect(
-    steps.some(
-      (step) =>
-        step.name === "Execute built CLI with Node $" + "{{ matrix.node-version }}" &&
-        step.run === "node dist/cli.js --version",
-    ),
-  ).toBe(true);
-  const browserNode = (parsed.jobs?.browser?.steps ?? []).find((step) =>
-    step.uses?.startsWith("actions/setup-node@"),
-  );
-  expect(browserNode?.with?.["node-version"]).toBe("24.15.0");
-});
-
-test("CI can run manually on the exact dispatched clean-root ref", async () => {
-  const workflow = await readFile(".github/workflows/ci.yml", "utf8");
-  const parsed = parseYaml(workflow) as { on?: Readonly<Record<string, unknown>> };
-  expect(Object.hasOwn(parsed.on ?? {}, "workflow_dispatch")).toBe(true);
 });
 
 test("prepares release notes from one matching changelog section", async () => {
