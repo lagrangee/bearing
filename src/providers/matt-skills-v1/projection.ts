@@ -37,6 +37,11 @@ export type MattPlanningPresentation = Readonly<{
   tickets: readonly MattPlanningTicket[];
 }>;
 
+export type MattProviderSemanticDocument = Readonly<{
+  sourceLocator?: string | undefined;
+  sections: readonly ProviderSemanticSection[];
+}>;
+
 type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 type DeepReadonly<T> = T extends Primitive
   ? T
@@ -53,32 +58,58 @@ type MattPlanningCapture =
   | Pick<Extract<SchemaCapture, { state: "available" | "partial" }>, "state" | "projection">
   | Pick<Extract<SchemaCapture, { state: "absent" | "invalid" }>, "state">;
 
-export const mattProviderSemanticSections = (
-  observation: MattObservationView,
+const semanticSectionsForObject = (
+  object: MattProjectedObject,
 ): readonly ProviderSemanticSection[] => {
+  switch (object.kind) {
+    case "map":
+      return object.destination;
+    case "spec":
+      return object.document;
+    case "wayfinder-ticket":
+      return [
+        ...object.question,
+        ...(object.answer.availability === "available"
+          ? object.answer.content.document
+          : (object.answer.document ?? [])),
+        ...object.comments.flatMap((comment) => comment.document),
+        ...(object.commentsDocument ?? []),
+      ];
+    case "delivery-ticket":
+      return [
+        ...object.comments.flatMap((comment) => comment.document),
+        ...(object.commentsDocument ?? []),
+      ];
+    case "incoming-issue":
+      return [
+        ...object.content.flatMap((document) => document.document),
+        ...(object.commentsDocument ?? []),
+      ];
+  }
+};
+
+export const mattProviderSemanticDocuments = (
+  observation: MattObservationView,
+): readonly MattProviderSemanticDocument[] => {
   if (observation.state !== "available" && observation.state !== "partial") return [];
   const projection = observation.projection;
-  return [
-    ...(projection.map?.destination ?? []),
-    ...(projection.spec?.document ?? []),
-    ...projection.wayfinderTickets.flatMap((ticket) => [
-      ...ticket.question,
-      ...(ticket.answer.availability === "available"
-        ? ticket.answer.content.document
-        : (ticket.answer.document ?? [])),
-      ...ticket.comments.flatMap((comment) => comment.document),
-      ...(ticket.commentsDocument ?? []),
-    ]),
-    ...projection.deliveryTickets.flatMap((ticket) => [
-      ...ticket.comments.flatMap((comment) => comment.document),
-      ...(ticket.commentsDocument ?? []),
-    ]),
-    ...projection.incomingIssues.flatMap((issue) => [
-      ...issue.content.flatMap((document) => document.document),
-      ...(issue.commentsDocument ?? []),
-    ]),
+  const objects: readonly MattProjectedObject[] = [
+    ...(projection.map === undefined ? [] : [projection.map]),
+    ...(projection.spec === undefined ? [] : [projection.spec]),
+    ...projection.wayfinderTickets,
+    ...projection.deliveryTickets,
+    ...projection.incomingIssues,
   ];
+  return objects.map((object) => ({
+    ...(object.native.kind === "local" ? { sourceLocator: object.native.identity.locator } : {}),
+    sections: semanticSectionsForObject(object),
+  }));
 };
+
+export const mattProviderSemanticSections = (
+  observation: MattObservationView,
+): readonly ProviderSemanticSection[] =>
+  mattProviderSemanticDocuments(observation).flatMap((document) => document.sections);
 
 export const mattObjectsFromProjection = (
   projection: MattScopeProjection,

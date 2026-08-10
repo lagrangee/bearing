@@ -110,6 +110,7 @@ export type LineageModelData = ProjectContext &
     sources: readonly SourceRecord[];
     renderedMarkdown?:
       | readonly Readonly<{
+          sourceLocator?: string | undefined;
           markdown: string;
           html: string;
           presentation: "rendered" | "fallback";
@@ -132,6 +133,7 @@ export type LineageProjectData = Omit<LineageModelData, "renderedMarkdown"> &
     attentionCount: number;
     target?: Readonly<{ kind: string; id: string }> | undefined;
     renderedMarkdown: readonly Readonly<{
+      sourceLocator?: string | undefined;
       markdown: string;
       html: string;
       presentation: "rendered" | "fallback";

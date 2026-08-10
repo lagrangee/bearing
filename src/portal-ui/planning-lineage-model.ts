@@ -1261,7 +1261,11 @@ const nativeSemanticSection = (
 const sourceAnchorLabel = (anchor: Readonly<{ kind: string; target: string }>): string =>
   `${anchor.kind}: ${anchor.target}`;
 
-const renderedProviderSection = (snapshot: LineageModelData, section: ProviderSemanticSection) => {
+const renderedProviderSection = (
+  snapshot: LineageModelData,
+  section: ProviderSemanticSection,
+  sourceLocator?: string,
+) => {
   const identity = {
     version: section.version,
     sourceIdentity: section.sourceIdentity,
@@ -1271,7 +1275,13 @@ const renderedProviderSection = (snapshot: LineageModelData, section: ProviderSe
   if (section.availability !== "available") {
     return { ...identity, availability: section.availability };
   }
-  const rendered = snapshot.renderedMarkdown?.find((entry) => entry.markdown === section.markdown);
+  const rendered =
+    snapshot.renderedMarkdown?.find(
+      (entry) => entry.markdown === section.markdown && entry.sourceLocator === sourceLocator,
+    ) ??
+    snapshot.renderedMarkdown?.find(
+      (entry) => entry.markdown === section.markdown && entry.sourceLocator === undefined,
+    );
   if (rendered === undefined) {
     return { ...identity, availability: section.availability, markdown: section.markdown };
   }
@@ -1288,6 +1298,7 @@ const providerDocumentSection = (
   document: readonly ProviderSemanticSection[],
   semanticRole: string,
   key = semanticRole,
+  sourceLocator?: string,
 ): PlanningLineageProviderDocument | undefined => {
   const section = document.find((candidate) => candidate.semanticRole === semanticRole);
   return section === undefined
@@ -1295,7 +1306,7 @@ const providerDocumentSection = (
     : {
         key,
         showSectionTitles: false,
-        sections: [renderedProviderSection(snapshot, section)],
+        sections: [renderedProviderSection(snapshot, section, sourceLocator)],
         provenance: { facts: [], times: [] },
       };
 };
@@ -1305,12 +1316,14 @@ const providerDocumentSourceSection = (
   document: readonly ProviderSemanticSection[],
   sourceIdentity: string,
   key: string,
+  sourceLocator?: string,
 ): PlanningLineageProviderDocument => {
   const section = document.find((candidate) => candidate.sourceIdentity === sourceIdentity);
   return {
     key,
     showSectionTitles: false,
-    sections: section === undefined ? [] : [renderedProviderSection(snapshot, section)],
+    sections:
+      section === undefined ? [] : [renderedProviderSection(snapshot, section, sourceLocator)],
     provenance: { facts: [], times: [] },
   };
 };
@@ -1319,6 +1332,7 @@ const additiveDocumentSections = (
   snapshot: LineageModelData,
   document: readonly ProviderSemanticSection[],
   anchorPrefix: string,
+  sourceLocator?: string,
 ): readonly PlanningLineageSectionInput[] =>
   document
     .filter((section) => section.semanticRole === undefined)
@@ -1330,6 +1344,7 @@ const additiveDocumentSections = (
         document,
         section.sourceIdentity,
         `${anchorPrefix}.additional.${section.sourceOrder}`,
+        sourceLocator,
       ),
     }));
 
@@ -1392,6 +1407,9 @@ const nativeTrustSections = (
   ];
 };
 
+const providerSourceLocator = (object: MattProjectedObject): string | undefined =>
+  object.native.kind === "local" ? object.native.identity.locator : undefined;
+
 const mapSections = (
   snapshot: LineageModelData,
   map: MattMap,
@@ -1399,10 +1417,21 @@ const mapSections = (
   nativeSemanticSection(map, {
     role: "map.destination",
     title: "Destination",
-    providerDocument: providerDocumentSection(snapshot, map.destination, "map.destination"),
+    providerDocument: providerDocumentSection(
+      snapshot,
+      map.destination,
+      "map.destination",
+      "map.destination",
+      providerSourceLocator(map),
+    ),
     emptyCopy: "No Destination is declared.",
   }),
-  ...additiveDocumentSections(snapshot, map.destination, "map.destination"),
+  ...additiveDocumentSections(
+    snapshot,
+    map.destination,
+    "map.destination",
+    providerSourceLocator(map),
+  ),
   {
     anchor: "map.lifecycle",
     title: "Map Lifecycle",
@@ -1484,6 +1513,7 @@ const specSections = (
       spec.document,
       section.sourceIdentity,
       section.semanticRole ?? section.sourceIdentity,
+      providerSourceLocator(spec),
     ),
   })),
 ];
@@ -1542,11 +1572,14 @@ const contentTimeFacts = (
 const providerDocumentViews = (
   snapshot: LineageModelData,
   documents: readonly MattProviderAuthoredDocument[],
+  sourceLocator?: string,
 ): NonNullable<PlanningLineageSectionInput["providerDocuments"]> =>
   documents.map((document, index) => ({
     key: document.nativeIdentity ?? `${document.role}-${index + 1}`,
     showSectionTitles: true,
-    sections: document.document.map((section) => renderedProviderSection(snapshot, section)),
+    sections: document.document.map((section) =>
+      renderedProviderSection(snapshot, section, sourceLocator),
+    ),
     provenance: {
       facts: [
         { key: "role", label: "Role", value: document.role },
@@ -1583,10 +1616,21 @@ const wayfinderSections = (
   nativeSemanticSection(ticket, {
     role: "wayfinder.question",
     title: "Question",
-    providerDocument: providerDocumentSection(snapshot, ticket.question, "wayfinder.question"),
+    providerDocument: providerDocumentSection(
+      snapshot,
+      ticket.question,
+      "wayfinder.question",
+      "wayfinder.question",
+      providerSourceLocator(ticket),
+    ),
     emptyCopy: "No Question is recorded.",
   }),
-  ...additiveDocumentSections(snapshot, ticket.question, "wayfinder.question"),
+  ...additiveDocumentSections(
+    snapshot,
+    ticket.question,
+    "wayfinder.question",
+    providerSourceLocator(ticket),
+  ),
   {
     anchor: "wayfinder.lifecycle",
     title: "Lifecycle and Subtype",
@@ -1623,8 +1667,20 @@ const wayfinderSections = (
     bodySource: "system",
     providerDocument:
       ticket.answer.availability === "available"
-        ? providerDocumentSection(snapshot, ticket.answer.content.document, "wayfinder.answer")
-        : providerDocumentSection(snapshot, ticket.answer.document ?? [], "wayfinder.answer"),
+        ? providerDocumentSection(
+            snapshot,
+            ticket.answer.content.document,
+            "wayfinder.answer",
+            "wayfinder.answer",
+            providerSourceLocator(ticket),
+          )
+        : providerDocumentSection(
+            snapshot,
+            ticket.answer.document ?? [],
+            "wayfinder.answer",
+            "wayfinder.answer",
+            providerSourceLocator(ticket),
+          ),
     facts:
       ticket.answer.availability === "available"
         ? [
@@ -1673,16 +1729,27 @@ const wayfinderSections = (
     emptyCopy: "No Answer has been authored.",
   }),
   ...(ticket.answer.availability === "available"
-    ? additiveDocumentSections(snapshot, ticket.answer.content.document, "wayfinder.answer")
+    ? additiveDocumentSections(
+        snapshot,
+        ticket.answer.content.document,
+        "wayfinder.answer",
+        providerSourceLocator(ticket),
+      )
     : []),
   nativeSemanticSection(ticket, {
     role: "wayfinder.comments",
     title: "Comments",
-    providerDocuments: providerDocumentViews(snapshot, ticket.comments),
+    providerDocuments: providerDocumentViews(
+      snapshot,
+      ticket.comments,
+      providerSourceLocator(ticket),
+    ),
     providerDocument: providerDocumentSection(
       snapshot,
       ticket.commentsDocument ?? [],
       "wayfinder.comments",
+      "wayfinder.comments",
+      providerSourceLocator(ticket),
     ),
     emptyCopy: "No comments are recorded.",
   }),
@@ -1758,11 +1825,17 @@ const deliverySections = (
   nativeSemanticSection(ticket, {
     role: "delivery.comments",
     title: "Comments",
-    providerDocuments: providerDocumentViews(snapshot, ticket.comments),
+    providerDocuments: providerDocumentViews(
+      snapshot,
+      ticket.comments,
+      providerSourceLocator(ticket),
+    ),
     providerDocument: providerDocumentSection(
       snapshot,
       ticket.commentsDocument ?? [],
       "delivery.comments",
+      "delivery.comments",
+      providerSourceLocator(ticket),
     ),
     emptyCopy: "No comments are recorded.",
   }),
@@ -1831,11 +1904,13 @@ const incomingSections = (
   nativeSemanticSection(issue, {
     role: "incoming.content",
     title: "Issue Content and Triage Notes",
-    providerDocuments: providerDocumentViews(snapshot, issue.content),
+    providerDocuments: providerDocumentViews(snapshot, issue.content, providerSourceLocator(issue)),
     providerDocument: providerDocumentSection(
       snapshot,
       issue.commentsDocument ?? [],
       "incoming.content",
+      "incoming.content",
+      providerSourceLocator(issue),
     ),
     emptyCopy: "No issue content or triage notes are recorded.",
   }),

@@ -7,12 +7,18 @@ import {
   type AssetPreviewService,
   assetPreviewUnavailableDocument,
 } from "./asset-preview";
+import {
+  type LinkedContentPreviewResolution,
+  type LinkedContentPreviewService,
+  linkedContentPreviewUnavailableDocument,
+} from "./linked-content-preview";
 import type { PortalProjectQueryService } from "./project-query-service";
 import type { PortalProviderApplicationService } from "./provider-application";
 import type { PortalSessionManager } from "./session";
 
 type RouteOptions = Readonly<{
   assetPreview: AssetPreviewService;
+  linkedContentPreview: LinkedContentPreviewService;
   projectQueries: PortalProjectQueryService;
   providerApplication: PortalProviderApplicationService;
   sessions: PortalSessionManager;
@@ -51,7 +57,7 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
   };
   const previewHeaders = (
     context: Context,
-    result: Awaited<ReturnType<AssetPreviewService["resolve"]>>,
+    result: Awaited<ReturnType<AssetPreviewService["resolve"]>> | LinkedContentPreviewResolution,
   ): void => {
     context.header("Cache-Control", "no-store");
     context.header(
@@ -106,6 +112,43 @@ export const registerProjectRoutes = (app: Hono, options: RouteOptions): void =>
       context.req.param("assetId"),
     );
   });
+
+  const linkedPreviewResponse = (
+    context: Context,
+    result: LinkedContentPreviewResolution,
+  ): Response => {
+    previewHeaders(context, result);
+    if (result.kind === "available") {
+      context.header("Content-Type", result.contentType);
+      return context.body(new Uint8Array(result.body));
+    }
+    return context.html(
+      linkedContentPreviewUnavailableDocument(result),
+      result.code === "content-missing" || result.code === "project-unavailable" ? 404 : 409,
+    );
+  };
+
+  app.get("/preview/projects/:entryId/linked/:token", async (context) =>
+    linkedPreviewResponse(
+      context,
+      await options.linkedContentPreview.resolve(
+        context.req.param("entryId"),
+        context.req.param("token"),
+        "preview",
+      ),
+    ),
+  );
+
+  app.get("/preview/projects/:entryId/linked/:token/content", async (context) =>
+    linkedPreviewResponse(
+      context,
+      await options.linkedContentPreview.resolve(
+        context.req.param("entryId"),
+        context.req.param("token"),
+        "content",
+      ),
+    ),
+  );
 
   app.get("/api/v1/projects/:entryId/read-model", async (context) => {
     noStore(context);

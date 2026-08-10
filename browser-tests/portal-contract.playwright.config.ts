@@ -12,6 +12,7 @@ export default defineConfig({
     "architecture-contraction-candidate.spec.ts",
     "packaged-catalog.spec.ts",
     "project-isolation-real-host.spec.ts",
+    "project-preview-real-host.spec.ts",
     "portal-reference-fidelity.spec.ts",
     "safe-markdown-reading-candidate.spec.ts",
   ],

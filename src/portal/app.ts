@@ -4,6 +4,10 @@ import { type AssetPreviewService, createAssetPreviewService } from "./asset-pre
 import { type PortalAssets, PROJECT_GENERATION_VERSION } from "./assets";
 import type { CatalogReadResult } from "./contract";
 import {
+  createLinkedContentPreviewService,
+  type LinkedContentPreviewService,
+} from "./linked-content-preview";
+import {
   createPortalProjectQueryService,
   type PortalProjectQueryService,
 } from "./project-query-service";
@@ -21,6 +25,7 @@ type PortalAppOptions = Readonly<{
   projectQueryService?: PortalProjectQueryService;
   providerApplicationService?: PortalProviderApplicationService;
   assetPreviewService?: AssetPreviewService;
+  linkedContentPreviewService?: LinkedContentPreviewService;
 }>;
 
 const isSessionManager = (value: PortalAppOptions["sessions"]): value is PortalSessionManager =>
@@ -79,9 +84,15 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     : createPortalSessionManager(options.sessions.secret);
   const assetPreview =
     options.assetPreviewService ?? createAssetPreviewService({ readCatalog: options.readCatalog });
+  const linkedContentPreview =
+    options.linkedContentPreviewService ??
+    createLinkedContentPreviewService({ readCatalog: options.readCatalog });
   const projectQueries =
     options.projectQueryService ??
-    createPortalProjectQueryService({ readCatalog: options.readCatalog });
+    createPortalProjectQueryService({
+      readCatalog: options.readCatalog,
+      linkedContentPreview,
+    });
   const providerApplication =
     options.providerApplicationService ??
     createPortalProviderApplicationService({ readCatalog: options.readCatalog });
@@ -182,6 +193,7 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
 
   registerProjectRoutes(app, {
     assetPreview,
+    linkedContentPreview,
     projectQueries,
     providerApplication,
     sessions,

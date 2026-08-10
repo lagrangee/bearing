@@ -56,6 +56,7 @@ export const portalProjectRowsSchema = z.strictObject({
   sources: z.array(sourceRecordSchema).max(500),
   renderedMarkdown: z.array(
     z.strictObject({
+      sourceLocator: z.string().min(1).optional(),
       markdown: z.string(),
       html: z.string(),
       presentation: z.enum(["rendered", "fallback"]),

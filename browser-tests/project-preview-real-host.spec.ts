@@ -1,4 +1,15 @@
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
@@ -118,7 +129,22 @@ test.beforeAll(async () => {
       join(fixtureRoot, "docs/reading.html"),
       "<article><h1>G3 reading document</h1><p>Sanitized inert HTML.</p><script>globalThis.__mustNotRun = true</script></article>\n",
     ),
+    writeFile(join(fixtureRoot, "docs/linked.md"), "# Linked Markdown document\n"),
+    writeFile(join(fixtureRoot, "docs/linked.txt"), "Linked text document\n"),
+    writeFile(join(fixtureRoot, "docs/sound.mp3"), "linked audio bytes"),
+    writeFile(join(fixtureRoot, "docs/movie.mp4"), "linked video bytes"),
+    writeFile(join(fixtureRoot, "docs/linked.pdf"), "%PDF linked document"),
+    writeFile(
+      join(fixtureRoot, "docs/local.png"),
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    ),
     writeFile(join(fixtureRoot, "docs/payload.bin"), "opaque\n"),
+    writeFile(join(fixtureRoot, "docs/large.png"), Buffer.alloc(16 * 1024 * 1024 + 1)),
+    writeFile(join(fixtureRoot, "docs/unreadable.txt"), "private\n"),
+    writeFile(join(fixtureRoot, "docs/hardlink-source.txt"), "linked twice\n"),
     writeFile(join(fixtureRoot, "docs/bundle/README.md"), "# Directory member\n"),
     writeFile(
       join(fixtureRoot, ".bearing/state/authorities/product-design.md"),
@@ -153,6 +179,9 @@ Can current and resolved Work remain an exhaustive partition?
 `,
     ),
   ]);
+  await chmod(join(fixtureRoot, "docs/unreadable.txt"), 0);
+  await symlink("reading.html", join(fixtureRoot, "docs/symlink.html"));
+  await link(join(fixtureRoot, "docs/hardlink-source.txt"), join(fixtureRoot, "docs/hardlink.txt"));
   const assetsPath = join(fixtureRoot, ".bearing/state/assets.md");
   const briefPath = join(fixtureRoot, ".bearing/state/project-brief.md");
   const localEffortPath = join(fixtureRoot, ".bearing/state/efforts/fixture.md");
@@ -210,6 +239,18 @@ Can current and resolved Work remain an exhaustive partition?
 [Safe source](https://example.com/spec) [Relative source](../PRD.md) [Unsafe source](javascript:alert(1))
 
 ![Remote diagram](https://images.example.test/diagram.png)
+
+[Local reading](../../docs/reading.html) [Missing local](../../docs/missing.pdf)
+[Directory local](../../docs/bundle) [Unsupported local](../../docs/payload.bin)
+[Unsafe local](../../../outside.txt) [Unreadable local](../../docs/unreadable.txt)
+[Symlink local](../../docs/symlink.html) [Hardlink local](../../docs/hardlink.txt)
+[Over-limit local](../../docs/large.png)
+
+[Markdown local](../../docs/linked.md) [Text local](../../docs/linked.txt)
+[Audio local](../../docs/sound.mp3) [Video local](../../docs/movie.mp4)
+[PDF local](../../docs/linked.pdf)
+
+![Local diagram](../../docs/local.png)
 
 <script>globalThis.__providerMarkdownRan = true</script>`,
       )
@@ -443,6 +484,123 @@ test("real Provider to v21 to Host render stays safe and read-only", async ({ pa
   ).toBeUndefined();
   expect(posts).toEqual([]);
   expect(remoteImageRequests).toEqual([]);
+});
+
+test("local authored links use contained Preview and a responsive keyboard-safe thumbnail", async ({
+  page,
+}) => {
+  if (host === undefined) throw new Error("Ticket 32 real Host did not start.");
+  const posts: string[] = [];
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(request.url());
+    requests.push(request.url());
+  });
+  const unchangedPaths = [
+    join(fixtureRoot, ".bearing/cache/project-read-model.sqlite"),
+    join(fixtureRoot, ".bearing/state/assets.md"),
+    join(fixtureRoot, ".scratch/work/map.md"),
+    join(homeRoot, ".bearing/catalog.sqlite"),
+  ];
+  const before = await Promise.all(
+    unchangedPaths.map(async (path) => ({ path, mtimeMs: (await stat(path)).mtimeMs })),
+  );
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(
+    `${host.url}${planningLineageSubjectHref("g3-preview", {
+      kind: "native-subject",
+      id: ".scratch/work/map.md",
+    })}`,
+  );
+  const destination = page.locator(".read-disclosure", {
+    has: page.getByRole("heading", { name: "Safe reading", level: 3 }),
+  });
+  const toggle = destination.getByRole("button", { name: /^Show more:/u });
+  if (await toggle.isVisible()) await toggle.click();
+
+  const image = destination.getByRole("img", { name: "Local diagram" });
+  await expect(image).toBeVisible();
+  await expect(image).toHaveAttribute("loading", "lazy");
+  await expect
+    .poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth))
+    .toBeGreaterThan(0);
+  const fullPreview = image.locator("xpath=parent::a");
+  await expect(fullPreview).toHaveAttribute(
+    "href",
+    /^\/preview\/projects\/g3-preview\/linked\/[a-f0-9]{64}$/u,
+  );
+  await fullPreview.focus();
+  await expect(fullPreview).toBeFocused();
+  const fullPreviewHref = await fullPreview.getAttribute("href");
+  if (fullPreviewHref === null) throw new Error("Local image has no contained Preview route.");
+  expect(fullPreviewHref).not.toContain(fixtureRoot);
+  expect(fullPreviewHref).not.toContain(".scratch");
+  const previewResponse = await page.request.get(`${host.url}${fullPreviewHref}`);
+  expect(previewResponse.status()).toBe(200);
+  expect(previewResponse.headers()["content-security-policy"]).toContain("sandbox allow-scripts");
+  expect(await previewResponse.text()).toContain("not historical Provider capture bytes");
+
+  const localReading = destination.getByRole("link", { name: "Local reading" });
+  await expect(localReading).toHaveAttribute(
+    "href",
+    /^\/preview\/projects\/g3-preview\/linked\/[a-f0-9]{64}$/u,
+  );
+  const localReadingHref = await localReading.getAttribute("href");
+  if (localReadingHref === null) throw new Error("Local reading has no contained Preview route.");
+  const readingResponse = await page.request.get(`${host.url}${localReadingHref}`);
+  const readingBody = await readingResponse.text();
+  expect(readingBody).toContain("G3 reading document");
+  expect(readingBody).not.toContain("globalThis.__mustNotRun");
+
+  for (const [name, marker] of [
+    ["Markdown local", "<h1>Linked Markdown document</h1>"],
+    ["Text local", "<pre>Linked text document"],
+    ["Audio local", "<audio controls"],
+    ["Video local", "<video controls"],
+    ["PDF local", "<object data="],
+  ] as const) {
+    const href = await destination.getByRole("link", { name }).getAttribute("href");
+    if (href === null) throw new Error(`${name} has no contained Preview route.`);
+    expect(href).toMatch(/^\/preview\/projects\/g3-preview\/linked\/[a-f0-9]{64}$/u);
+    const response = await page.request.get(`${host.url}${href}`);
+    expect(response.status(), name).toBe(200);
+    expect(await response.text(), name).toContain(marker);
+  }
+
+  for (const unavailable of [
+    "Missing local — Preview unavailable",
+    "Directory local — Preview unavailable",
+    "Unsupported local — Preview unavailable",
+    "Unsafe local — Preview unavailable",
+    "Unreadable local — Preview unavailable",
+    "Symlink local — Preview unavailable",
+    "Hardlink local — Preview unavailable",
+    "Over-limit local — Preview unavailable",
+  ]) {
+    await expect(destination.getByText(new RegExp(unavailable, "u"))).toBeVisible();
+  }
+  expect(requests.some((url) => url.endsWith("/content"))).toBe(true);
+  expect(requests.some((url) => url.includes(fixtureRoot))).toBe(false);
+
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(image).toBeVisible();
+    expect(
+      await image.evaluate(
+        (element) =>
+          element.getBoundingClientRect().width <=
+          (element.parentElement?.parentElement?.getBoundingClientRect().width ?? 0) + 0.5,
+      ),
+    ).toBe(true);
+    expect(await page.locator("html").evaluate((root) => root.scrollWidth > root.clientWidth)).toBe(
+      false,
+    );
+  }
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  expect(posts).toEqual([]);
+  for (const entry of before)
+    expect((await stat(entry.path)).mtimeMs, entry.path).toBe(entry.mtimeMs);
 });
 
 test("shared disclosure responds to rendered height without changing authored content", async ({

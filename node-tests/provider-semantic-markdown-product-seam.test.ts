@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, realpath, rm } from "node:fs/promises";
+import { chmod, link, mkdir, realpath, rm, symlink } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createElement } from "react";
@@ -57,17 +57,49 @@ test("linked content stays authored through Local capture, Portal, and Project F
     const missingLocator = `${evidenceDirectory}/missing.png`;
     const directoryLocator = `${evidenceDirectory}/directory`;
     const unsupportedLocator = `${evidenceDirectory}/unsupported.xyz`;
+    const markdownLocator = `${evidenceDirectory}/reading.md`;
+    const htmlLocator = `${evidenceDirectory}/reading.html`;
+    const textLocator = `${evidenceDirectory}/reading.txt`;
+    const audioLocator = `${evidenceDirectory}/sound.mp3`;
+    const videoLocator = `${evidenceDirectory}/movie.mp4`;
+    const pdfLocator = `${evidenceDirectory}/reading.pdf`;
+    const overLimitLocator = `${evidenceDirectory}/over-limit.png`;
+    const unreadableLocator = `${evidenceDirectory}/unreadable.txt`;
+    const symlinkLocator = `${evidenceDirectory}/symlink.html`;
+    const hardlinkLocator = `${evidenceDirectory}/hardlink.txt`;
     const linkedLocators = [
       largeImageLocator,
       binaryLocator,
       missingLocator,
       directoryLocator,
       unsupportedLocator,
+      markdownLocator,
+      htmlLocator,
+      textLocator,
+      audioLocator,
+      videoLocator,
+      pdfLocator,
+      overLimitLocator,
+      unreadableLocator,
+      symlinkLocator,
+      hardlinkLocator,
     ];
     await mkdir(`${root}/${directoryLocator}`, { recursive: true });
     await writeFixture(root, largeImageLocator, Buffer.alloc(1024 * 1024 + 1));
     await writeFixture(root, binaryLocator, Buffer.from([0xff]));
     await writeFixture(root, unsupportedLocator, "unsupported bytes\n");
+    await writeFixture(root, markdownLocator, "# Linked Markdown\n");
+    await writeFixture(root, htmlLocator, "<h1>Linked HTML</h1><script>bad()</script>\n");
+    await writeFixture(root, textLocator, "Linked text\n");
+    await writeFixture(root, audioLocator, "audio bytes");
+    await writeFixture(root, videoLocator, "video bytes");
+    await writeFixture(root, pdfLocator, "%PDF linked bytes");
+    await writeFixture(root, overLimitLocator, Buffer.alloc(16 * 1024 * 1024 + 1));
+    await writeFixture(root, unreadableLocator, "private\n");
+    await chmod(`${root}/${unreadableLocator}`, 0);
+    await symlink("reading.html", `${root}/${symlinkLocator}`);
+    await writeFixture(root, `${evidenceDirectory}/hardlink-source.txt`, "linked twice\n");
+    await link(`${root}/${evidenceDirectory}/hardlink-source.txt`, `${root}/${hardlinkLocator}`);
     await writeFixture(
       root,
       issueLocator,
@@ -86,6 +118,11 @@ Can linked content remain authored only?
 Keep ![large image](../evidence/large.png), [binary target](../evidence/binary.bin),
 [missing target](../evidence/missing.png), [directory target](../evidence/directory),
 [unsupported target](../evidence/unsupported.xyz), [unsafe traversal](../../../../outside.md),
+[Markdown target](../evidence/reading.md), [HTML target](../evidence/reading.html),
+[text target](../evidence/reading.txt), [audio target](../evidence/sound.mp3),
+[video target](../evidence/movie.mp4), [PDF target](../evidence/reading.pdf),
+[over-limit target](../evidence/over-limit.png), [unreadable target](../evidence/unreadable.txt),
+[symlink target](../evidence/symlink.html), [hardlink target](../evidence/hardlink.txt),
 ![HTTP image](http://images.example/plan.png), and
 ![HTTPS image](https://images.example/plan.png) as authored links.
 `,
@@ -174,6 +211,37 @@ Keep ![large image](../evidence/large.png), [binary target](../evidence/binary.b
     assert.equal(portalRead.kind, "ready");
     if (portalRead.kind !== "ready") throw new Error("Expected a production Portal read.");
     const secondSnapshot = portalRowsToProjectData(portalProjectRowsSchema.parse(portalRead.rows));
+    const linkedRender = portalRead.rows.renderedMarkdown.find(
+      (candidate) =>
+        candidate.sourceLocator === issueLocator && candidate.markdown.includes("large image"),
+    );
+    assert.ok(linkedRender);
+    assert.match(linkedRender.html, /class="markdown-linked-image-thumbnail"/u);
+    assert.match(linkedRender.html, /loading="lazy"/u);
+    assert.match(linkedRender.html, /href="\/preview\/projects\/bearing\/linked\/[a-f0-9]{64}"/u);
+    assert.match(linkedRender.html, /Preview unavailable: The linked content is missing\./u);
+    assert.match(linkedRender.html, /The linked target is a directory/u);
+    assert.match(linkedRender.html, /not supported for safe Preview/u);
+    assert.match(linkedRender.html, /not a safe repository-relative locator/u);
+    assert.match(linkedRender.html, /exceeds the 16 MiB Preview limit/u);
+    assert.match(linkedRender.html, /linked content is unreadable/u);
+    assert.match(linkedRender.html, /failed repository containment or link safety checks/u);
+    for (const label of [
+      "Markdown target",
+      "HTML target",
+      "text target",
+      "audio target",
+      "video target",
+      "PDF target",
+    ]) {
+      assert.match(
+        linkedRender.html,
+        new RegExp(`href="/preview/projects/bearing/linked/[a-f0-9]{64}"[^>]*>${label}</a>`, "u"),
+      );
+    }
+    assert.match(linkedRender.html, /HTTP image \(<a href="http:\/\/images\.example\/plan\.png"/u);
+    assert.doesNotMatch(linkedRender.html, new RegExp(root, "u"));
+    assert.doesNotMatch(linkedRender.html, /\.scratch\/work\/evidence/u);
     if (secondSnapshot.section !== "lineage") {
       throw new Error("Expected typed Local Portal lineage rows.");
     }
@@ -226,6 +294,7 @@ Keep ![large image](../evidence/large.png), [binary target](../evidence/binary.b
     if (find.kind !== "ready") throw new Error("Expected a production Project Find read.");
     assert.ok(find.find.results.some((result) => result.subject.id === issueLocator));
   } finally {
+    await chmod(`${root}/.scratch/work/evidence/unreadable.txt`, 0o600).catch(() => {});
     await rm(root, { recursive: true, force: true });
   }
 });
