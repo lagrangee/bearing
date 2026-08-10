@@ -28,6 +28,42 @@ test("Overview presents the fixed Northstar governance reading", async ({ page }
   await expect(page.getByText(/Next work/iu)).toHaveCount(0);
 });
 
+test("Overview gives Project Summary full content and shows complete Gate horizons", async ({
+  page,
+}) => {
+  await page.goto("./#/overview");
+
+  const briefText = await page.locator(".brief-prose").innerText();
+  await page.getByRole("tab", { name: "Project Summary" }).click();
+  const summary = page.locator(".summary-prose");
+  const summaryText = await summary.innerText();
+
+  await expect(summary.getByRole("heading", { name: "Purpose", level: 3 })).toBeVisible();
+  await expect(summary.getByRole("heading", { name: "Current Design", level: 3 })).toBeVisible();
+  await expect(summary.getByRole("heading", { name: "Boundaries", level: 3 })).toBeVisible();
+  await expect(summary.locator("section")).toHaveCount(3);
+  await expect(summary.locator("li")).toHaveCount(8);
+  expect(summaryText.length).toBeGreaterThan(briefText.length);
+
+  const overview = page.locator("#overview-screen");
+  await expect(
+    overview.getByRole("group", { name: "Public Beta Gates" }).locator(".gate-node"),
+  ).toHaveCount(4);
+  await expect(
+    overview.getByRole("group", { name: "Collaboration Value Gates" }).locator(".gate-node"),
+  ).toHaveCount(3);
+
+  await page.getByRole("link", { name: "Roadmaps", exact: true }).click();
+  const gateLabel = page
+    .getByRole("link", { name: /G3 · Release candidate ready/iu })
+    .locator("strong");
+  await expect(gateLabel).toHaveCSS("text-decoration-line", "underline");
+  await expect(page.getByRole("link", { name: "Roadmaps", exact: true })).toHaveCSS(
+    "text-decoration-line",
+    "none",
+  );
+});
+
 test("hash navigation, history, reload, modified link, and skip link work statically", async ({
   context,
   page,

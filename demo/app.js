@@ -21,7 +21,6 @@ const walkthroughTitle = document.querySelector("#walkthrough-title");
 const walkthroughProgress = document.querySelector(".walkthrough-progress");
 const walkthroughPurpose = document.querySelector("#walkthrough-purpose");
 const walkthroughLocation = document.querySelector(".walkthrough-location");
-const walkthroughExplore = document.querySelector(".walkthrough-explore");
 const walkthroughPrevious = document.querySelector(".walkthrough-previous");
 const walkthroughNext = document.querySelector(".walkthrough-next");
 const narrowViewport = matchMedia("(max-width: 900px)");
@@ -435,11 +434,10 @@ findTrigger?.addEventListener("click", () => {
   setFindVisibility(true);
 });
 walkthroughTrigger?.addEventListener("click", startWalkthrough);
-walkthroughLayer?.querySelectorAll(".walkthrough-close, .walkthrough-skip").forEach((control) => {
+walkthroughLayer?.querySelectorAll(".walkthrough-close").forEach((control) => {
   control.addEventListener("click", () => closeWalkthrough());
 });
 walkthroughPrevious?.addEventListener("click", () => showWalkthroughStep(walkthroughIndex - 1));
-walkthroughExplore?.addEventListener("click", () => walkthroughTarget?.focus());
 walkthroughNext?.addEventListener("click", () => {
   if (walkthroughIndex === walkthroughSteps.length - 1) closeWalkthrough();
   else showWalkthroughStep(walkthroughIndex + 1);

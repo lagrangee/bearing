@@ -8,7 +8,7 @@ const walkthrough = (page: Page) =>
 const next = (page: Page) =>
   walkthrough(page).getByRole("button", { name: /Next|Finish walkthrough/iu });
 
-test("walkthrough follows the fixed daily governance route and supports previous and skip", async ({
+test("walkthrough follows the fixed daily governance route and supports previous and close", async ({
   page,
 }) => {
   await page.goto("./#/overview");
@@ -23,6 +23,17 @@ test("walkthrough follows the fixed daily governance route and supports previous
   await expect(dialog.getByText("Step 1 of 7", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "Current Position", level: 2 })).toBeFocused();
   await expect(page.locator(".walkthrough-target")).toContainText("Current Position");
+  await expect(dialog.getByRole("button", { name: "Skip walkthrough" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Explore current page" })).toHaveCount(0);
+
+  const dialogBox = await dialog.boundingBox();
+  const previousBox = await dialog.getByRole("button", { name: "Previous step" }).boundingBox();
+  const nextBox = await dialog.getByRole("button", { name: "Next step" }).boundingBox();
+  expect(dialogBox).not.toBeNull();
+  expect(previousBox).not.toBeNull();
+  expect(nextBox).not.toBeNull();
+  expect(previousBox?.x).toBeLessThan((dialogBox?.x ?? 0) + (dialogBox?.width ?? 0) / 2);
+  expect(nextBox?.x).toBeGreaterThan((dialogBox?.x ?? 0) + (dialogBox?.width ?? 0) / 2);
 
   await next(page).click();
   await expect(page).toHaveURL(/#\/gates\/release-candidate-ready$/u);
@@ -59,7 +70,7 @@ test("walkthrough follows the fixed daily governance route and supports previous
   await expect(page).toHaveURL(/#\/assets\/public-beta-readiness-review$/u);
   await expect(dialog.getByText("Step 6 of 7", { exact: true })).toBeVisible();
 
-  await dialog.getByRole("button", { name: "Skip walkthrough" }).click();
+  await dialog.getByRole("button", { name: "Close walkthrough" }).click();
   await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
 
@@ -88,10 +99,6 @@ test("walkthrough traps focus, closes with Escape, restores focus, and permits n
   await expect(lastControl).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(heading).toBeFocused();
-
-  await dialog.getByRole("button", { name: "Explore current page" }).focus();
-  await page.keyboard.press("Enter");
-  await expect(page.locator(".walkthrough-target")).toBeFocused();
 
   await page.getByRole("link", { name: "Assets", exact: true }).click();
   await expect(page).toHaveURL(/#\/assets$/u);

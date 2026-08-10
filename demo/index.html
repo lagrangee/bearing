@@ -147,18 +147,12 @@
         <p id="walkthrough-purpose"></p>
         <p class="walkthrough-location"></p>
         <div class="walkthrough-actions">
-          <span>
-            <button class="action walkthrough-explore" type="button">Explore current page</button>
-            <button class="action walkthrough-skip" type="button">Skip walkthrough</button>
-          </span>
-          <span>
-            <button class="action walkthrough-previous" type="button" aria-label="Previous step">
-              Previous
-            </button>
-            <button class="action action-primary walkthrough-next" type="button" aria-label="Next step">
-              Next
-            </button>
-          </span>
+          <button class="action walkthrough-previous" type="button" aria-label="Previous step">
+            Previous
+          </button>
+          <button class="action action-primary walkthrough-next" type="button" aria-label="Next step">
+            Next
+          </button>
         </div>
       </section>
     </div>
@@ -222,15 +216,34 @@
               <div class="orientation-heading"><h2>Project Summary</h2></div>
               <section>
                 <h3>Purpose</h3>
-                <p>Make release governance readable without replacing canonical project state.</p>
+                <p>
+                  Northstar makes release governance readable without replacing canonical project
+                  state. It gives product and delivery owners one place to inspect outcomes,
+                  decisions, and the evidence behind them.
+                </p>
+                <p>
+                  The daily job is to see the current position, identify where human judgment is
+                  required, and follow the relevant evidence without prescribing new action.
+                </p>
               </section>
               <section>
                 <h3>Current Design</h3>
-                <p>Outcome horizons connect Roadmaps, Gates, Efforts, and provider-native work.</p>
+                <p>The project reading connects four levels of governance context:</p>
+                <ul>
+                  <li>Peer Roadmaps show complete outcome horizons and their current Gates.</li>
+                  <li>Gates keep lifecycle, readiness, and human Passage separate.</li>
+                  <li>Efforts connect governed outcomes to provider-native Current Work.</li>
+                  <li>Assets, Authorities, and Planning Lineage preserve each evidence role.</li>
+                </ul>
               </section>
               <section>
                 <h3>Boundaries</h3>
-                <ul><li>Portal readback is read-only and human Gate acceptance remains explicit.</li></ul>
+                <ul>
+                  <li>This interactive sample uses fixed mock data and runs entirely in the browser.</li>
+                  <li>It does not call an API, provider, filesystem, or production business logic.</li>
+                  <li>Ready for review is evidence for a decision; it does not pass a Gate.</li>
+                  <li>Stale or non-current evidence stays visible but cannot contribute to readiness.</li>
+                </ul>
               </section>
             </div>
           </section>
@@ -263,18 +276,25 @@
               <h3><a class="roadmap-title-link" href="#/roadmaps/public-beta-readiness">Public Beta Readiness</a></h3>
               <p>Prepare the first dependable release for design partners.</p>
             </header>
-            <div class="horizon" aria-label="Public Beta current horizon">
-              <div class="gate-segment"><a class="gate-node gate-focused" href="#/gates/release-candidate-ready"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G3 · Release candidate ready</strong><small>Current</small></span></a></div>
-            </div>
+            <fieldset aria-label="Public Beta Gates" class="horizon">
+              <legend class="sr-only">Public Beta Gates</legend>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G1 · Foundations accepted</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G2 · Tenant safety verified</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><a class="gate-node gate-focused" href="#/gates/release-candidate-ready"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G3 · Release candidate ready</strong><small>Current</small></span></a><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-planned"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G4 · Beta feedback loop established</strong><small>Planned</small></span></span></div>
+            </fieldset>
           </article>
           <article class="roadmap-landscape-item">
             <header class="roadmap-landscape-header">
               <h3>Collaboration Value</h3>
               <p>Help product teams coordinate release decisions without hidden context.</p>
             </header>
-            <div class="horizon" aria-label="Collaboration Value current horizon">
-              <div class="gate-segment"><span class="gate-node gate-focused"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong><span aria-hidden="true">G2 · </span><span>Customer Trust</span></strong><small>Current</small></span></span></div>
-            </div>
+            <fieldset aria-label="Collaboration Value Gates" class="horizon">
+              <legend class="sr-only">Collaboration Value Gates</legend>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G1 · Shared release notes proven</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-focused"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong><span aria-hidden="true">G2 · </span><span>Customer Trust</span></strong><small>Current</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-planned"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G3 · Review cadence adopted</strong><small>Planned</small></span></span></div>
+            </fieldset>
           </article>
         </section>
       </section>
