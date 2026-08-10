@@ -1,11 +1,15 @@
 import { dirname } from "node:path";
 import { upsertCatalogEntry } from "./catalog/store";
-import { setupRepository } from "./repo-setup";
-import type { AgentSurface, RepositorySetupResult } from "./types";
+import { applyRepositoryConfigurationUnit } from "./repository-configuration-apply";
+import type {
+  AgentSurface,
+  ExecutorRegistration,
+  RepositoryConfigurationApplyResult,
+} from "./types";
 
 export type ReconcileRepositoryResult = Readonly<{
-  outcome: "applied" | "no-op" | "blocked";
-  repository: RepositorySetupResult;
+  outcome: "applied" | "no-op" | "partial";
+  repository: RepositoryConfigurationApplyResult;
   catalog:
     | Readonly<{ outcome: "applied" | "no-op"; entryId: string }>
     | Readonly<{ outcome: "failed"; message: string }>;
@@ -17,8 +21,21 @@ export const reconcileRepository = async (options: {
   readonly homeDir: string;
   readonly surfaces: readonly AgentSurface[];
   readonly profiles: readonly string[];
+  readonly registrations?: readonly ExecutorRegistration[];
+  readonly confirmRepair?: boolean;
+  readonly confirmReactivate?: boolean;
+  readonly retainProfiles?: readonly string[];
+  readonly removeProfiles?: readonly string[];
+  readonly provider?: Readonly<{
+    key: "matt-skills/v1";
+    contractLocator: string;
+  }>;
 }): Promise<ReconcileRepositoryResult> => {
-  const repository = await setupRepository(options);
+  const repository = await applyRepositoryConfigurationUnit({
+    ...options,
+    executorHomeDir: options.homeDir,
+    initializeReadModel: true,
+  });
   try {
     const catalog = await upsertCatalogEntry({
       homeDir: options.homeDir,
@@ -32,7 +49,7 @@ export const reconcileRepository = async (options: {
     };
   } catch (error) {
     return {
-      outcome: "blocked",
+      outcome: "partial",
       repository,
       catalog: {
         outcome: "failed",

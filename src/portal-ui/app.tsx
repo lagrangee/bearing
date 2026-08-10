@@ -4,7 +4,8 @@ import { ProjectPage } from "./project-page";
 import { parsePortalRoute } from "./project-route";
 
 const NAVIGATION_EVENT = "bearing:navigate";
-const currentPathname = () => window.location.pathname;
+const currentLocation = () =>
+  `${window.location.pathname}${window.location.search}${window.location.hash}`;
 const subscribeToPathname = (listener: () => void) => {
   window.addEventListener("popstate", listener);
   window.addEventListener(NAVIGATION_EVENT, listener);
@@ -15,15 +16,18 @@ const subscribeToPathname = (listener: () => void) => {
 };
 
 export function App() {
-  const pathname = useSyncExternalStore(subscribeToPathname, currentPathname, currentPathname);
-  const route = parsePortalRoute(pathname);
+  const location = useSyncExternalStore(subscribeToPathname, currentLocation, currentLocation);
+  const url = new URL(location, window.location.origin);
+  const route = parsePortalRoute(url.pathname, url.search, url.hash);
   if (route.kind === "catalog") return <CatalogPage />;
   return (
     <ProjectPage
       key={route.entryId}
       entryId={route.entryId}
-      roadmapId={route.roadmapId}
+      filteredView={route.filteredView}
+      semanticAnchor={route.semanticAnchor}
       section={route.section}
+      subject={route.subject}
       onNavigate={(href) => {
         window.history.pushState({}, "", href);
         window.dispatchEvent(new Event(NAVIGATION_EVENT));

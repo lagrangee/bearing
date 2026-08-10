@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { Icons } from "./icons";
 import { useNarrowViewport } from "./use-narrow";
 
-export type ProjectSection = "overview" | "roadmaps" | "assets" | "audit";
+export type ProjectSection = "overview" | "roadmaps" | "assets" | "audit" | "lineage";
 
 const navigation = [
   ["overview", "Overview", Icons.overview],
@@ -125,6 +125,7 @@ export function ProjectNavigation({
           <span>
             <small>Current project</small>
             <strong>{projectTitle}</strong>
+            <a href="/">Switch project</a>
           </span>
           <button
             ref={closeRef}
@@ -172,8 +173,8 @@ export function ProjectNavigation({
           );
         })}
         <div className="nav-footer">
-          <span>Normalized local snapshot</span>
-          <small>Read-only surface</small>
+          <span>Read only</span>
+          <small>Current project view</small>
         </div>
       </nav>
       <button className="nav-scrim" type="button" onClick={close} aria-label="Close navigation" />

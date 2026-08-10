@@ -1,6 +1,7 @@
 # Verify repository isolation
 
 Type: task
+
 Status: resolved
 
 ## Question

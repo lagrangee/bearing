@@ -24,12 +24,9 @@ test("parses Catalog and all accepted project destinations", () => {
   }
 });
 
-test("keeps nested Roadmap detail in Roadmaps without accepting path authority", () => {
+test("rejects nested list paths instead of accepting a second subject URL dialect", () => {
   expect(parsePortalRoute("/projects/bearing/roadmaps/roadmap%3Aportal")).toEqual({
-    kind: "project",
-    entryId: "bearing",
-    section: "roadmaps",
-    roadmapId: "roadmap:portal",
+    kind: "catalog",
   });
   expect(parsePortalRoute("/projects/bearing/roadmaps/not-a-roadmap")).toEqual({ kind: "catalog" });
   expect(parsePortalRoute("/projects/bearing/roadmaps/roadmap%3Aportal/extra")).toEqual({

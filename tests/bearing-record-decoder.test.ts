@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { decodeBearingRecordGeneration } from "../src/bearing-record-decoder";
-import { discoverProjectSitemapInputs } from "../src/sitemap-discovery";
-import { captureSyncInputGeneration } from "../src/sync-input-generation";
+import { discoverManagedInputs } from "../src/managed-input-discovery";
+import { captureProjectInputGeneration } from "../src/project-input-generation";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
 const fingerprint = `sha256:${"a".repeat(64)}`;
@@ -9,29 +9,27 @@ const fingerprint = `sha256:${"a".repeat(64)}`;
 test("decodes every owned Bearing Record once behind one generation interface", async () => {
   const root = await createValidBearingRepo();
   await addRemainingRecordTypes(root);
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
 
   const decoded = decodeBearingRecordGeneration(generation);
 
   expect(decoded.records.map((record) => record.type)).toEqual([
-    "alignment-check",
     "asset-registry",
     "authority",
+    "effort",
     "milestone-gate",
-    "next-work-guidance",
     "planning-audit",
     "planning-review",
     "project-summary",
     "roadmap-index",
     "roadmap",
-    "effort",
   ]);
   expect(decoded.records.every((record) => record.trust === "available")).toBe(true);
   expect(decoded.metrics).toEqual({
     capturedInputCount: generation.records.length,
-    bearingRecordCount: 11,
-    decodeCount: 11,
+    bearingRecordCount: 9,
+    decodeCount: 9,
   });
   expect(decoded.records.some((record) => record.locator.endsWith("/map.md"))).toBe(false);
   expect(decoded.records.some((record) => record.locator.endsWith("/issues/01-finish.md"))).toBe(
@@ -43,8 +41,8 @@ test("decodes every owned Bearing Record once behind one generation interface", 
 test("represents invalid source as data for every Bearing Record type", async () => {
   const root = await createValidBearingRepo();
   await addRemainingRecordTypes(root);
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
   const owned = decodeBearingRecordGeneration(generation).records;
 
   for (const record of owned) {
@@ -71,7 +69,7 @@ test("isolates valid Planning Audit findings and Asset entries as partial record
   await writeFixture(root, ".bearing/state/assets.md", partialAssets());
   await writeFixture(
     root,
-    ".scratch/work/effort.md",
+    ".bearing/state/efforts/test.md",
     `---
 Type: effort
 ID: effort:test
@@ -83,6 +81,12 @@ Authorities:
 Citations:
   - Asset: asset:healthy
     Note: Preserve the healthy partial member.
+Lifecycle: active
+Planned at: null
+Activated at: null
+Work binding:
+  Provider: matt-skills/v1
+  Native scope: .scratch/work
 ---
 
 # Effort: Test
@@ -118,8 +122,8 @@ Current architecture decisions.
 The healthy partial Asset remains trustworthy.
 `,
   );
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
 
   const decoded = decodeBearingRecordGeneration(generation);
   const audit = decoded.records.find((record) => record.type === "planning-audit");
@@ -151,20 +155,22 @@ test("checks generation-wide Bearing Record identity, singleton, and reference i
   await addRemainingRecordTypes(root);
   await writeFixture(
     root,
-    ".bearing/state/alignment-checks/missing.md",
+    ".bearing/state/planning-reviews/missing.md",
     `---
-Type: alignment-check
-ID: alignment-check:missing
+Type: planning-review
+ID: planning-review:missing
 Title: Missing target
-Status: open
+Status: pending
+Question: Should the missing target remain current?
+Scope: exact-target
 Target: effort:missing
 Inputs: []
 Input fingerprint: ${fingerprint}
 ---
 `,
   );
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
   const roadmap = generation.records.find(
     (record) => record.locator === ".bearing/state/roadmaps/test.md",
   );
@@ -193,11 +199,85 @@ Input fingerprint: ${fingerprint}
   );
 });
 
+test("keeps Effort identity while reporting missing, unparseable, and conflicting Work Bindings", async () => {
+  const root = await createValidBearingRepo();
+  const effortPath = ".bearing/state/efforts/test.md";
+  const source = await Bun.file(`${root}/${effortPath}`).text();
+
+  await writeFixture(
+    root,
+    effortPath,
+    source.replace(
+      /Work binding:\n {2}Provider: matt-skills\/v1\n {2}Native scope: \.scratch\/work\n/u,
+      "",
+    ),
+  );
+  let discovery = await discoverManagedInputs(root);
+  let decoded = decodeBearingRecordGeneration(
+    await captureProjectInputGeneration(root, discovery.inputs),
+  );
+  expect(decoded.records.find((record) => record.type === "effort")).toMatchObject({
+    trust: "partial",
+    data: { Type: "effort", ID: "effort:test" },
+    diagnostics: [
+      {
+        code: "effort-work-binding-missing",
+        impact: "blocking",
+        target: effortPath,
+      },
+    ],
+  });
+
+  await writeFixture(
+    root,
+    effortPath,
+    source.replace(
+      /Work binding:\n {2}Provider: matt-skills\/v1\n {2}Native scope: \.scratch\/work/u,
+      "Work binding: cannot-parse",
+    ),
+  );
+  discovery = await discoverManagedInputs(root);
+  decoded = decodeBearingRecordGeneration(
+    await captureProjectInputGeneration(root, discovery.inputs),
+  );
+  expect(decoded.records.find((record) => record.type === "effort")).toMatchObject({
+    trust: "partial",
+    data: { Type: "effort", ID: "effort:test" },
+    diagnostics: [
+      {
+        code: "effort-work-binding-unparseable",
+        impact: "blocking",
+        target: effortPath,
+      },
+    ],
+  });
+
+  await writeFixture(root, effortPath, source);
+  await writeFixture(
+    root,
+    ".bearing/state/efforts/duplicate-binding.md",
+    source.replace("ID: effort:test", "ID: effort:duplicate-binding"),
+  );
+  discovery = await discoverManagedInputs(root);
+  decoded = decodeBearingRecordGeneration(
+    await captureProjectInputGeneration(root, discovery.inputs),
+  );
+  expect(
+    decoded.diagnostics.filter((diagnostic) => diagnostic.code === "effort-work-binding-conflict"),
+  ).toEqual([
+    expect.objectContaining({
+      impact: "blocking",
+      target: ".bearing/state/efforts/duplicate-binding.md",
+    }),
+    expect.objectContaining({ impact: "blocking", target: effortPath }),
+  ]);
+});
+
 test("rejects a schema-valid Record whose type does not match its locator", async () => {
   const root = await createValidBearingRepo();
   await addRemainingRecordTypes(root);
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
   const roadmap = generation.records.find(
     (record) => record.locator === ".bearing/state/roadmaps/test.md",
   );
@@ -225,8 +305,8 @@ test("rejects a schema-valid Record whose type does not match its locator", asyn
 test("strips unknown frontmatter fields from normalized Decoder output", async () => {
   const root = await createValidBearingRepo();
   const locator = ".bearing/state/roadmaps/test.md";
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
   const roadmap = generation.records.find((record) => record.locator === locator);
   if (roadmap === undefined) throw new Error("Missing Roadmap fixture.");
   const source = roadmap.source.replace(
@@ -245,31 +325,6 @@ test("strips unknown frontmatter fields from normalized Decoder output", async (
   expect(JSON.stringify(decoded.records[0])).not.toContain("leak");
 });
 
-test("checks stable references decoded from Guidance body content", async () => {
-  const root = await createValidBearingRepo();
-  await addRemainingRecordTypes(root);
-  const locator = ".bearing/state/next-work-guidance.md";
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
-  const guidance = generation.records.find((record) => record.locator === locator);
-  if (guidance === undefined) throw new Error("Missing Guidance fixture.");
-  const source = guidance.source
-    .replace("roadmap:test", "roadmap:missing")
-    .replace("gate:test", "gate:missing")
-    .replace("effort:test", "effort:missing");
-  const record = { ...guidance, source, bytes: Buffer.from(source, "utf8") };
-
-  const decoded = decodeBearingRecordGeneration({
-    fingerprint: generation.fingerprint,
-    records: [record],
-  });
-
-  expect(decoded.records[0]?.trust).toBe("available");
-  expect(
-    decoded.diagnostics.filter((entry) => entry.code === "broken-canonical-reference"),
-  ).toHaveLength(3);
-});
-
 test("checks every stable ID prefix carried by Asset references", async () => {
   const root = await createValidBearingRepo();
   await writeFixture(
@@ -280,21 +335,21 @@ Type: asset-registry
 Assets:
   - ID: asset:review
     Title: Review evidence
-    Kind: verification-report
-    Location: evidence/review.md
-    Owner: planning-review:missing
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
-    Produced for: next-work-guidance:missing
+    Purpose: Exercise stable reference validation.
+    Kind: reference
+    Source: evidence/review.md
+    Owner: effort:missing
+    Added at: null
+    Disposition: superseded
+    Superseded by: asset:missing
+    Superseded at: null
 ---
 
 # Asset Registry
 `,
   );
-  const discovery = await discoverProjectSitemapInputs(root);
-  const generation = await captureSyncInputGeneration(root, discovery.inputs);
+  const discovery = await discoverManagedInputs(root);
+  const generation = await captureProjectInputGeneration(root, discovery.inputs);
 
   const decoded = decodeBearingRecordGeneration(generation);
 
@@ -327,29 +382,14 @@ No additional baseline is adopted.
   );
   await writeFixture(
     root,
-    ".bearing/state/alignment-checks/test.md",
-    `---
-Type: alignment-check
-ID: alignment-check:test
-Title: Confirm the test
-Status: open
-Target: effort:test
-Inputs: []
-Input fingerprint: ${fingerprint}
----
-
-# Alignment Check
-`,
-  );
-  await writeFixture(
-    root,
     ".bearing/state/planning-reviews/test.md",
     `---
 Type: planning-review
 ID: planning-review:test
 Title: Review the test
 Status: pending
-Scope: Entire test project
+Question: Should the test project continue?
+Scope: project
 Inputs: []
 Input fingerprint: ${fingerprint}
 ---
@@ -376,50 +416,6 @@ Skipped targets: []
 ## Findings
 
 No material findings.
-`,
-  );
-  await writeFixture(
-    root,
-    ".bearing/state/next-work-guidance.md",
-    `---
-Type: next-work-guidance
-ID: next-work-guidance:current
-Title: Current Guidance
-Generated at: 2026-07-18T00:00:00Z
-Inputs: []
-Input fingerprint: ${fingerprint}
-Semantic coverage: absent
----
-
-# Next Work Guidance
-
-## Primary Recommendation
-
-### Continue the test
-
-Keep the current fixture coherent.
-
-#### Supporting References
-
-- \`roadmap:test\`
-
-## Alternatives
-
-### Review the Gate
-
-Inspect the active decision boundary.
-
-#### Supporting References
-
-- \`gate:test\`
-
-### Review the Effort
-
-Inspect the current native work scope.
-
-#### Supporting References
-
-- \`effort:test\`
 `,
   );
 };
@@ -469,13 +465,12 @@ Type: asset-registry
 Assets:
   - ID: asset:healthy
     Title: Healthy Asset
-    Kind: verification-report
-    Location: evidence/healthy.md
+    Purpose: Preserve the healthy partial member.
+    Kind: reference
+    Source: evidence/healthy.md
     Owner: effort:test
-    Producer:
-      Kind: agent
-      Name: fixture
-    Lifecycle source: native
+    Added at: null
+    Disposition: active
   - ID: asset:broken
     Title: Broken Asset
 ---

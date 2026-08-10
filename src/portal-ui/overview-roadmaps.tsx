@@ -1,18 +1,20 @@
 import type { MouseEvent } from "react";
-import type { ProjectInspectorSelection } from "./project-inspector";
+import { planningLineageSubjectHref } from "../planning-lineage-route";
+import {
+  gateLifecycleEvents,
+  latestPlanningLineageEvent,
+  roadmapLifecycleEvents,
+} from "./planning-lineage-events";
 import type { ProjectOverviewModel } from "./project-overview-model";
 import { type Gate, RoadmapHorizon } from "./roadmap-primitives";
-
-type Inspect = (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
+import { SourceEventTimeValue } from "./source-event-time";
 
 export function OverviewRoadmaps({
   entryId,
-  onInspect,
   onOpenRoadmap,
   roadmaps,
 }: {
   readonly entryId: string;
-  readonly onInspect: Inspect;
   readonly onOpenRoadmap: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
   readonly roadmaps: ProjectOverviewModel["roadmaps"];
 }) {
@@ -23,7 +25,7 @@ export function OverviewRoadmaps({
           <h2 id="active-roadmaps-title">Active Roadmaps</h2>
           <span className="truth-note">0 active</span>
         </div>
-        <p>No Roadmap Index is available in the current Snapshot.</p>
+        <p>No Roadmap Index is available in the current Project Read Model generation.</p>
       </section>
     );
   }
@@ -55,16 +57,22 @@ export function OverviewRoadmaps({
       ) : null}
       {roadmaps.items.length === 0 ? <p className="scoped-copy">No active Roadmaps.</p> : null}
       {roadmaps.items.map((item) => {
-        const gateModel = new Map(item.gates.map((entry) => [String(entry.gate.id), entry]));
         const gates: Gate[] = item.gates.map((entry) => ({
           id: entry.gate.id,
+          href: planningLineageSubjectHref(entryId, {
+            kind: "gate",
+            id: entry.gate.id,
+          }),
           label: `G${entry.ordinal}`,
           state: entry.gate.horizonState,
           title: entry.gate.title,
+          event: latestPlanningLineageEvent(gateLifecycleEvents(entry.gate)),
         }));
-        const href = `/projects/${encodeURIComponent(entryId)}/roadmaps/${encodeURIComponent(
-          item.roadmap.id,
-        )}`;
+        const href = planningLineageSubjectHref(entryId, {
+          kind: "roadmap",
+          id: item.roadmap.id,
+        });
+        const roadmapEvent = latestPlanningLineageEvent(roadmapLifecycleEvents(item.roadmap));
         return (
           <article className="roadmap-landscape-item" key={item.roadmap.id}>
             <div className="roadmap-landscape-header">
@@ -77,6 +85,16 @@ export function OverviewRoadmaps({
                   {item.roadmap.title}
                 </a>
               </h3>
+              {roadmapEvent?.time.availability !== "available" ? null : (
+                <small className="roadmap-event">
+                  {roadmapEvent.label}{" "}
+                  <SourceEventTimeValue
+                    label={`${item.roadmap.title} ${roadmapEvent.label}`}
+                    mode="compact"
+                    time={roadmapEvent.time}
+                  />
+                </small>
+              )}
               <p>{item.roadmap.intent}</p>
             </div>
             {item.missingGateIds.length === 0 ? null : (
@@ -95,19 +113,7 @@ export function OverviewRoadmaps({
               <RoadmapHorizon
                 gates={gates}
                 label={`${item.roadmap.title} Roadmap horizon`}
-                onSelect={(gate, trigger) => {
-                  const selected = gateModel.get(gate.id);
-                  onInspect(
-                    {
-                      eyebrow: "Milestone Gate",
-                      title: gate.title,
-                      detail: selected?.gate.intent,
-                      handoff: true,
-                      source: selected?.source,
-                    },
-                    trigger,
-                  );
-                }}
+                onOpen={(gate, event) => onOpenRoadmap(gate.href, event)}
               />
             )}
           </article>

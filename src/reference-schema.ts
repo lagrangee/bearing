@@ -20,16 +20,31 @@ export const displaySourceLocatorSchema = z
     }
   });
 
-const externalAssetLocatorSchema = z
-  .string()
-  .regex(/^[a-z][a-z0-9+.-]*:\/\/\S+$/u)
-  .refine((locator) => !locator.includes("\0"), {
-    message: "External Asset locators cannot contain NUL bytes.",
+export const displayAssetLocatorSchema = displaySourceLocatorSchema.refine(
+  (locator) => !locator.includes(":"),
+  {
+    message:
+      "Asset Locations must be repository-relative local paths, not URLs or opaque references.",
+  },
+);
+
+const httpsAssetLocatorSchema = z
+  .url()
+  .startsWith("https://")
+  .superRefine((locator, context) => {
+    if (!URL.canParse(locator)) return;
+    const parsed = new URL(locator);
+    if (parsed.username.length > 0 || parsed.password.length > 0) {
+      context.addIssue({
+        code: "custom",
+        message: "HTTPS Asset Sources cannot contain credentials.",
+      });
+    }
   });
 
-export const displayAssetLocatorSchema = z.union([
-  displaySourceLocatorSchema,
-  externalAssetLocatorSchema,
+export const assetSourceLocatorSchema = z.union([
+  displayAssetLocatorSchema,
+  httpsAssetLocatorSchema,
 ]);
 
 const trackerReferenceLocatorSchema = displaySourceLocatorSchema.refine(

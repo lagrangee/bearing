@@ -23,7 +23,7 @@
   --font-mono: SFMono-Regular, "SF Mono", Menlo, monospace;
   --topbar: 60px;
   --nav: 216px;
-  --inspector: 288px;
+  --technical-details: 288px;
   --content: 1120px;
   --space-1: 4px;
   --space-2: 8px;
@@ -43,7 +43,7 @@
   --type-meta: 12px;
   --type-tech: 11px;
   --type-micro: 10px;
-  --type-inspector: 17px;
+  --type-technical-details: 17px;
   --type-empty: 18px;
   --status-dot: 9px;
   --icon-sm: 16px;

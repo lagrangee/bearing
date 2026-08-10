@@ -1,3 +1,5 @@
+import { parseMarkdownDocument, queryMarkdownLinks } from "../src/markdown-document.ts";
+
 export const forbiddenPackagePaths = [
   /^src\//u,
   /^tests\//u,
@@ -36,9 +38,7 @@ export const requiredPackagePaths = [
   "CHANGELOG.md",
   "LICENSE",
   "THIRD_PARTY_NOTICES",
-  "docs/agents/bearing/protocol.md",
   "skills/bearing/SKILL.md",
-  "templates/executor-profiles/generic-agent.md",
 ] as const;
 
 const assertSafeReadmeTarget = (target: string): void => {
@@ -56,11 +56,9 @@ const assertSafeReadmeTarget = (target: string): void => {
 
 export const readmeRelativeTargets = (source: string): readonly string[] => {
   const targets = new Set<string>();
-  const links = /(?<!!)\[[^\]]+\]\(([^)]+)\)/gu;
-  for (const match of source.matchAll(links)) {
-    let target = match[1]?.trim();
-    if (target === undefined || target.startsWith("#")) continue;
-    if (target.startsWith("<") && target.endsWith(">")) target = target.slice(1, -1);
+  for (const link of queryMarkdownLinks(parseMarkdownDocument(source))) {
+    let target = link.target.trim();
+    if (target.startsWith("#")) continue;
     if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/iu.test(target)) continue;
     target = target.split("#", 1)[0]?.split("?", 1)[0] ?? "";
     try {

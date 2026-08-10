@@ -4,6 +4,12 @@ Thanks for considering a contribution to Bearing.
 
 Bearing is a maintainer-led Public Preview, so the first contribution rule is alignment before effort.
 
+## Development branches
+
+`main` is the integration baseline. It remains buildable, testable, and installable, but a commit on `main` is not a formal release by itself.
+
+Open pull requests from short-lived topic branches into `main`. Keep the branch current with `main`, and merge only after review and the required checks pass. Version Roadmaps such as 0.1.1 define product scope; they do not define long-lived development branches.
+
 ## Before opening a pull request
 
 - Open or join an Issue or Discussion for substantive behavior, architecture, or product changes.
@@ -27,3 +33,5 @@ Forks may accurately describe their origin, but must not imply endorsement by Be
 ## Verification
 
 Use the current package scripts and release instructions. At minimum, run the checks relevant to your change and say what you ran in the pull request.
+
+Every Codex E2E matrix, automated Codex journey, live gated E2E, and Codex release smoke run in this repository must follow the repository-wide [Codex E2E Policy](docs/agents/codex-e2e.md).

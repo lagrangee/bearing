@@ -24,6 +24,7 @@ test("canonical source schemas reject formatting in Overview-facing titles and c
     Title: "`Formatted Gate`",
     Roadmap: "roadmap:test",
     Status: "active",
+    "Effort order": [],
   };
   const citedRoadmap = {
     ...roadmap,
@@ -51,17 +52,32 @@ test("canonical source schemas reject formatting in Overview-facing titles and c
   expect(bearingSchema.safeParse({ ...summary, Title: "   " }).success).toBe(false);
   expect(bearingSchema.safeParse({ ...summary, Title: "<div\nclass=note>" }).success).toBe(false);
   expect(bearingSchema.safeParse({ ...summary, Title: "**Split\nSummary**" }).success).toBe(false);
+  const markdownHardBreak = "  ";
+  expect(
+    bearingSchema.safeParse({
+      ...summary,
+      Title: `Hard break${markdownHardBreak}\nSummary`,
+    }).success,
+  ).toBe(false);
+  expect(bearingSchema.safeParse({ ...summary, Title: "Hard break\\\nSummary" }).success).toBe(
+    false,
+  );
   expect(bearingSchema.safeParse({ ...summary, Title: "[Split\nSummary](source)" }).success).toBe(
     false,
   );
   expect(bearingSchema.safeParse(roadmap).success).toBe(false);
   expect(bearingSchema.safeParse(gate).success).toBe(false);
+  const { "Effort order": _effortOrder, ...gateWithoutEffortOrder } = {
+    ...gate,
+    Title: "Plain Gate",
+  };
+  expect(bearingSchema.safeParse(gateWithoutEffortOrder).success).toBe(false);
   expect(bearingSchema.safeParse(citedRoadmap).success).toBe(false);
   expect(bearingSchema.safeParse(effort).success).toBe(false);
   expect(bearingSchema.safeParse(authority).success).toBe(false);
 });
 
-test("Gate Passage and decision schemas reject formatted normalized prose", () => {
+test("Gate Passage and Planning Review schemas reject formatted normalized prose", () => {
   // Given: valid relations with formatting syntax only in projected prose fields.
   const gate = {
     Type: "milestone-gate",
@@ -69,6 +85,7 @@ test("Gate Passage and decision schemas reject formatted normalized prose", () =
     Title: "Test Gate",
     Roadmap: "roadmap:test",
     Status: "passed",
+    "Effort order": [],
     Passage: {
       "Accepted decision": "Pass the Gate.",
       Rationale: "Use [the evidence][evidence].",
@@ -76,60 +93,56 @@ test("Gate Passage and decision schemas reject formatted normalized prose", () =
       Exceptions: [],
     },
   };
-  const check = {
-    Type: "alignment-check",
-    ID: "alignment-check:test",
-    Title: "Confirm alignment",
-    Status: "resolved",
-    Target: "effort:test",
-    Inputs: [],
-    "Input fingerprint": FINGERPRINT,
-    Resolution: {
-      "Accepted decision": "Continue.",
-      Rationale: "<!-- hidden rationale -->",
-      "Changed references": ["roadmap:test"],
-    },
-  };
   const review = {
     Type: "planning-review",
     ID: "planning-review:test",
     Title: "Review sequence",
-    Status: "pending",
-    Scope: "> Entire project",
+    Status: "completed",
+    Question: "Should the sequence change?",
+    Scope: "project",
     Inputs: [],
     "Input fingerprint": FINGERPRINT,
+    Resolution: {
+      "Accepted decision": "Continue.",
+      "Accepted at": "2026-08-08T00:00:00.000Z",
+      Rationale: "The sequence remains sound.",
+      "Changed references": ["roadmap:test"],
+    },
   };
 
-  // When / Then: each owning canonical record is invalid at its source boundary.
+  // When / Then: each otherwise-valid owner rejects formatting at the exact prose field.
   expect(bearingSchema.safeParse(gate).success).toBe(false);
-  expect(bearingSchema.safeParse(check).success).toBe(false);
-  expect(bearingSchema.safeParse(review).success).toBe(false);
+  expect(bearingSchema.safeParse(review).success).toBe(true);
+  expect(
+    bearingSchema.safeParse({ ...review, Question: "Should **formatted** work continue?" }).success,
+  ).toBe(false);
+  expect(
+    bearingSchema.safeParse({
+      ...review,
+      Resolution: { ...review.Resolution, Rationale: "<!-- hidden rationale -->" },
+    }).success,
+  ).toBe(false);
 });
 
-test("Asset source schema rejects formatted metadata without treating opaque references as prose", () => {
+test("Asset source schema rejects formatted semantic metadata without treating Source as prose", () => {
   // Given: one valid Asset and variants with formatting in projected metadata.
   const asset = {
     ID: "asset:test",
     Title: "Test Asset",
-    Kind: "verification-report",
-    Location: ".scratch/evidence/report.md",
+    Purpose: "Keep the test reference available.",
+    Kind: "reference",
+    Source: "https://example.com/reference?v=%2A%2Aopaque%2A%2A",
     Owner: "effort:test",
-    Producer: {
-      Kind: "executor-profile",
-      Name: "generic-agent",
-      Reference: "native:<opaque-reference>",
-    },
-    "Lifecycle source": "native",
+    "Added at": null,
+    Disposition: "active",
+    Origin: "External reference",
   };
 
-  // When / Then: Title, Kind, and producer identity are plain; Reference stays opaque.
+  // When / Then: semantic prose is plain; Source stays opaque.
   expect(assetSchema.safeParse(asset).success).toBe(true);
   expect(assetSchema.safeParse({ ...asset, Title: "**Test Asset**" }).success).toBe(false);
   expect(assetSchema.safeParse({ ...asset, Kind: "`report`" }).success).toBe(false);
-  expect(
-    assetSchema.safeParse({ ...asset, Producer: { ...asset.Producer, Name: "<em>agent</em>" } })
-      .success,
-  ).toBe(false);
+  expect(assetSchema.safeParse({ ...asset, Origin: "<em>external</em>" }).success).toBe(false);
 });
 
 test("source schemas reject structures that cannot enter the normalized Snapshot", () => {
@@ -148,25 +161,18 @@ test("source schemas reject structures that cannot enter the normalized Snapshot
     "Lifecycle source": "native",
     "Produced for": ".scratch/work/issues/01-work.md",
   };
-  const check = {
-    Type: "alignment-check",
-    ID: "alignment-check:test",
-    Title: "Confirm alignment",
-    Status: "open",
-    Target: "effort:test",
-    Inputs: [],
-    "Input fingerprint": FINGERPRINT,
-  };
   const review = {
     Type: "planning-review",
     ID: "planning-review:test",
     Title: "Review sequence",
     Status: "completed",
-    Scope: "Entire project",
+    Question: "Should the sequence change?",
+    Scope: "project",
     Inputs: [],
     "Input fingerprint": FINGERPRINT,
     Resolution: {
       "Accepted decision": "Continue.",
+      "Accepted at": "2026-08-08T00:00:00.000Z",
       Rationale: "The sequence remains sound.",
       "Changed references": ["roadmap:test"],
     },
@@ -188,8 +194,12 @@ test("source schemas reject structures that cannot enter the normalized Snapshot
   expect(
     assetSchema.safeParse({ ...asset, Producer: { ...asset.Producer, Reference: " " } }).success,
   ).toBe(false);
-  expect(bearingSchema.safeParse({ ...check, Target: "/tmp/source.md" }).success).toBe(false);
-  expect(bearingSchema.safeParse({ ...check, Target: "asset:**bad**" }).success).toBe(false);
+  expect(
+    bearingSchema.safeParse({ ...review, Scope: "exact-target", Target: "/tmp/source.md" }).success,
+  ).toBe(false);
+  expect(
+    bearingSchema.safeParse({ ...review, Scope: "exact-target", Target: "asset:**bad**" }).success,
+  ).toBe(false);
   expect(
     bearingSchema.safeParse({
       ...review,

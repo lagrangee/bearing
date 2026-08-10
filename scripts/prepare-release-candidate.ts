@@ -1,14 +1,16 @@
 import { spawnSync } from "node:child_process";
 import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { parseArgs } from "node:util";
 import packageMetadata from "../package.json";
+import { parseMarkdownDocument, queryMarkdownHeading } from "../src/markdown-document";
 import type { BundleDependencyMetadata } from "./bundle-dependency-boundary";
 import { assertCanonicalPackageBoundary } from "./release-boundary";
 import {
   type CandidateManifest,
   type CandidateReceipt,
   candidateSchemaVersion,
-  canonicalJson,
+  serializeCandidateJson,
   sha256Bytes,
   sha256File,
   verifyReleaseCandidate,
@@ -39,29 +41,41 @@ const run = (command: string, args: readonly string[]): string => {
 };
 
 const outputArgument = (): string => {
-  const index = process.argv.indexOf("--out");
-  const output = process.argv[index + 1];
-  if (index === -1 || output === undefined) {
+  const parsed = parseArgs({
+    args: process.argv.slice(2),
+    strict: true,
+    allowPositionals: false,
+    tokens: true,
+    options: { out: { type: "string" } },
+  });
+  if (parsed.tokens.filter((token) => token.kind === "option" && token.name === "out").length > 1) {
+    fail("--out may be provided only once");
+  }
+  const output = parsed.values.out;
+  if (output === undefined) {
     return fail("usage: bun scripts/prepare-release-candidate.ts --out <empty-directory>");
   }
   return resolve(output);
 };
 
 const main = async (): Promise<void> => {
+  const output = outputArgument();
   if (packageMetadata.name !== "@lagrangee/bearing")
     fail("package name must be @lagrangee/bearing");
   if (packageMetadata.version !== "0.1.0")
     fail("first Public Preview candidate version must be 0.1.0");
   const changelog = await readFile("CHANGELOG.md", "utf8");
-  if (!/^## 0\.1\.0 - Unreleased$/mu.test(changelog))
-    fail("CHANGELOG must contain 0.1.0 - Unreleased");
+  const releaseHeading = queryMarkdownHeading(parseMarkdownDocument(changelog), {
+    title: "0.1.0 - Unreleased",
+    depth: 2,
+  });
+  if (releaseHeading.state !== "found") fail("CHANGELOG must contain 0.1.0 - Unreleased");
 
   const sourceStatus = run("git", ["status", "--porcelain=v1", "--untracked-files=all"]);
   if (sourceStatus.length > 0) fail(`public source is not clean:\n${sourceStatus}`);
   const sourceCommit = run("git", ["rev-parse", "HEAD"]);
   if (!/^[a-f0-9]{40}$/u.test(sourceCommit)) fail("could not resolve an exact source commit");
 
-  const output = outputArgument();
   await mkdir(output, { recursive: true });
   if ((await readdir(output)).length > 0) fail("candidate output directory must be empty");
 
@@ -90,7 +104,7 @@ const main = async (): Promise<void> => {
     await readFile("dist/bundle-dependencies.json", "utf8"),
   ) as BundleDependencyMetadata;
   if (
-    bundleMetadata.schemaVersion !== 1 ||
+    bundleMetadata.schemaVersion !== 2 ||
     bundleMetadata.packages.length === 0 ||
     bundleMetadata.bundles.cli.moduleCount === 0 ||
     bundleMetadata.bundles.portal.moduleCount === 0
@@ -109,7 +123,7 @@ const main = async (): Promise<void> => {
   };
   const manifestFile = "candidate-manifest.json";
   const manifestPath = resolve(output, manifestFile);
-  await writeFile(manifestPath, canonicalJson(manifest), { flag: "wx" });
+  await writeFile(manifestPath, serializeCandidateJson(manifest), { flag: "wx" });
 
   const receipt: CandidateReceipt = {
     schemaVersion: candidateSchemaVersion,
@@ -125,11 +139,11 @@ const main = async (): Promise<void> => {
     },
     manifest: {
       file: manifestFile,
-      sha256: sha256Bytes(Buffer.from(canonicalJson(manifest))),
+      sha256: sha256Bytes(Buffer.from(serializeCandidateJson(manifest))),
     },
   };
   const receiptPath = resolve(output, "candidate-receipt.json");
-  await writeFile(receiptPath, canonicalJson(receipt), { flag: "wx" });
+  await writeFile(receiptPath, serializeCandidateJson(receipt), { flag: "wx" });
   await verifyReleaseCandidate(receiptPath, {
     version: packageMetadata.version,
     sourceCommit,

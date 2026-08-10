@@ -126,7 +126,7 @@ ${promotion}`;
 
 ## Findings
 
-${finding("A scoped question", "Alignment Check: `alignment-check:gate-coherence`")}
+${finding("A scoped question", "Planning Review: `planning-review:gate-coherence`")}
 
 ${finding("A project-wide question", "Planning Review: `planning-review:portfolio-balance`")}
 `;
@@ -135,7 +135,7 @@ ${finding("A project-wide question", "Planning Review: `planning-review:portfoli
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error("Expected a trustworthy mixed-promotion Audit.");
   expect(result.value.findings.map(({ promotion }) => promotion)).toEqual([
-    { kind: "alignment-check", target: "alignment-check:gate-coherence" },
+    { kind: "planning-review", target: "planning-review:gate-coherence" },
     { kind: "planning-review", target: "planning-review:portfolio-balance" },
   ]);
 });

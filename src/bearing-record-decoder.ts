@@ -10,12 +10,12 @@ import { type ParsedAsset, parseAssetRegistry } from "./asset-records";
 import { type PlanningAuditBodyResult, parsePlanningAuditBody } from "./audit-body";
 import { analyzeDecodedBearingArtifact } from "./bearing-record-analysis";
 import { parseExactSections, parsePlainText, parseUnorderedList } from "./bearing-record-sections";
-import { parseFrontmatter } from "./frontmatter";
-import { type GuidanceBodyResult, parseNextWorkGuidanceBody } from "./guidance-body";
-import type { SourceBinding, SourceRecord } from "./project-snapshot/contract";
-import { createSourceRecord } from "./project-snapshot/source-records";
+import { parseMarkdownEnvelope } from "./markdown-document";
+import type { SourceBinding, SourceRecord } from "./project-generation/contract";
+import { createSourceRecord } from "./project-generation/source-records";
+import type { ProjectInputGeneration } from "./project-input-generation";
+import { mattNativeScopeKey } from "./providers/matt-skills-v1/native-subject";
 import { bearingSchema } from "./schema-definitions";
-import type { SyncInputGeneration } from "./sync-input-generation";
 import { deriveTopologyDiagnostics } from "./topology-diagnostics";
 import type { StructuralDiagnostic } from "./types";
 
@@ -30,8 +30,7 @@ export type DecodedBearingRecordContent =
       assets: readonly ParsedAsset[];
       invalidEntries: readonly Readonly<{ key: string; title: string }>[];
     }>
-  | Readonly<{ kind: "planning-audit"; result: PlanningAuditBodyResult }>
-  | Readonly<{ kind: "next-work-guidance"; result: GuidanceBodyResult }>;
+  | Readonly<{ kind: "planning-audit"; result: PlanningAuditBodyResult }>;
 
 type DecodedRecordBase = Readonly<{
   locator: string;
@@ -76,16 +75,15 @@ const emptyAnalysis = (diagnostics: readonly StructuralDiagnostic[]): ArtifactAn
 
 const DEFAULT_DISPLAY_TITLE: Readonly<Record<BearingRecordType, string>> = {
   "project-summary": "Project Summary",
+  "project-brief": "Project Brief",
   "roadmap-index": "Roadmap Index",
   roadmap: "Roadmap",
   "milestone-gate": "Milestone Gate",
   effort: "Effort",
   authority: "Authority",
   "asset-registry": "Asset Registry",
-  "alignment-check": "Alignment Check",
   "planning-review": "Planning Review",
   "planning-audit": "Audit",
-  "next-work-guidance": "Guidance",
 };
 
 const displayTitleFor = (type: BearingRecordType, value: unknown): string => {
@@ -105,6 +103,7 @@ const normalizeResolution = (
   resolution:
     | Readonly<{
         "Accepted decision": string;
+        "Accepted at"?: string | null | undefined;
         Rationale: string;
         "Changed references": readonly string[];
       }>
@@ -114,6 +113,9 @@ const normalizeResolution = (
     ? undefined
     : {
         "Accepted decision": resolution["Accepted decision"],
+        ...(resolution["Accepted at"] === undefined
+          ? {}
+          : { "Accepted at": resolution["Accepted at"] }),
         Rationale: resolution.Rationale,
         "Changed references": [...resolution["Changed references"]],
       };
@@ -121,18 +123,16 @@ const normalizeResolution = (
 const normalizeAsset = (asset: ParsedAsset): ParsedAsset => ({
   ID: asset.ID,
   Title: asset.Title,
+  Purpose: asset.Purpose,
   Kind: asset.Kind,
-  Location: asset.Location,
+  Source: asset.Source,
   Owner: asset.Owner,
-  Producer: {
-    Kind: asset.Producer.Kind,
-    Name: asset.Producer.Name,
-    ...(asset.Producer.Reference === undefined ? {} : { Reference: asset.Producer.Reference }),
-  },
-  "Lifecycle source": asset["Lifecycle source"],
-  ...(asset.Disposition === undefined ? {} : { Disposition: asset.Disposition }),
+  "Added at": asset["Added at"],
+  Disposition: asset.Disposition,
   ...(asset["Superseded by"] === undefined ? {} : { "Superseded by": asset["Superseded by"] }),
-  ...(asset["Produced for"] === undefined ? {} : { "Produced for": asset["Produced for"] }),
+  ...(asset.Origin === undefined ? {} : { Origin: asset.Origin }),
+  ...(asset["Superseded at"] === undefined ? {} : { "Superseded at": asset["Superseded at"] }),
+  ...(asset["Archived at"] === undefined ? {} : { "Archived at": asset["Archived at"] }),
 });
 
 const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
@@ -142,6 +142,7 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         Type: data.Type,
         ID: data.ID,
         Title: data.Title,
+        ...(data["Updated at"] === undefined ? {} : { "Updated at": data["Updated at"] }),
         ...(data.Languages === undefined
           ? {}
           : {
@@ -155,6 +156,27 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
               },
             }),
       };
+    case "project-brief":
+      return {
+        Type: data.Type,
+        ID: data.ID,
+        "Generated at": data["Generated at"],
+        ...(data.Languages === undefined
+          ? {}
+          : {
+              Languages: {
+                ...(data.Languages["At a Glance"] === undefined
+                  ? {}
+                  : { "At a Glance": data.Languages["At a Glance"] }),
+                ...(data.Languages["Current Position"] === undefined
+                  ? {}
+                  : { "Current Position": data.Languages["Current Position"] }),
+                ...(data.Languages["Established Baseline"] === undefined
+                  ? {}
+                  : { "Established Baseline": data.Languages["Established Baseline"] }),
+              },
+            }),
+      };
     case "roadmap-index":
       return { Type: data.Type, Roadmaps: [...data.Roadmaps] };
     case "roadmap":
@@ -165,6 +187,9 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         Status: data.Status,
         "Focused gate": data["Focused gate"],
         "Gate order": [...data["Gate order"]],
+        ...(data["Started at"] === undefined ? {} : { "Started at": data["Started at"] }),
+        ...(data["Completed at"] === undefined ? {} : { "Completed at": data["Completed at"] }),
+        ...(data["Superseded at"] === undefined ? {} : { "Superseded at": data["Superseded at"] }),
         ...(data.Citations === undefined ? {} : { Citations: normalizeCitations(data.Citations) }),
       };
     case "milestone-gate":
@@ -174,13 +199,23 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         Title: data.Title,
         Roadmap: data.Roadmap,
         Status: data.Status,
+        "Effort order": [...data["Effort order"]],
+        ...(data["Planned at"] === undefined ? {} : { "Planned at": data["Planned at"] }),
+        ...(data["Activated at"] === undefined ? {} : { "Activated at": data["Activated at"] }),
+        ...(data["Superseded at"] === undefined ? {} : { "Superseded at": data["Superseded at"] }),
         ...(data.Passage === undefined
           ? {}
           : {
               Passage: {
                 "Accepted decision": data.Passage["Accepted decision"],
+                ...(data.Passage["Accepted at"] === undefined
+                  ? {}
+                  : { "Accepted at": data.Passage["Accepted at"] }),
                 Rationale: data.Passage.Rationale,
-                Evidence: [...data.Passage.Evidence],
+                Evidence: data.Passage.Evidence.map((entry) => ({
+                  Locator: entry.Locator,
+                  Relevance: entry.Relevance,
+                })),
                 Exceptions: [...data.Passage.Exceptions],
               },
             }),
@@ -195,6 +230,29 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         "Target gate": data["Target gate"],
         Authorities: [...data.Authorities],
         Citations: normalizeCitations(data.Citations) ?? [],
+        Lifecycle: data.Lifecycle,
+        "Planned at": data["Planned at"],
+        ...(data["Activated at"] === undefined ? {} : { "Activated at": data["Activated at"] }),
+        ...(data.Conclusion === undefined
+          ? {}
+          : {
+              Conclusion: {
+                Disposition: data.Conclusion.Disposition,
+                Rationale: data.Conclusion.Rationale,
+                "Concluded at": data.Conclusion["Concluded at"],
+                ...(data.Conclusion["Replacement effort"] === undefined
+                  ? {}
+                  : { "Replacement effort": data.Conclusion["Replacement effort"] }),
+              },
+            }),
+        ...(data["Work binding"] === undefined
+          ? {}
+          : {
+              "Work binding": {
+                Provider: data["Work binding"].Provider,
+                "Native scope": data["Work binding"]["Native scope"],
+              },
+            }),
       };
     case "authority":
       return {
@@ -206,27 +264,15 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
       };
     case "asset-registry":
       return { Type: data.Type, Assets: data.Assets.map(normalizeAsset) };
-    case "alignment-check":
-      return {
-        Type: data.Type,
-        ID: data.ID,
-        Title: data.Title,
-        Status: data.Status,
-        Target: data.Target,
-        Inputs: [...data.Inputs],
-        "Input fingerprint": data["Input fingerprint"],
-        ...(data.Resolution === undefined
-          ? {}
-          : { Resolution: normalizeResolution(data.Resolution) }),
-        ...(data.Citations === undefined ? {} : { Citations: normalizeCitations(data.Citations) }),
-      };
     case "planning-review":
       return {
         Type: data.Type,
         ID: data.ID,
         Title: data.Title,
         Status: data.Status,
+        Question: data.Question,
         Scope: data.Scope,
+        ...(data.Target === undefined ? {} : { Target: data.Target }),
         Inputs: [...data.Inputs],
         "Input fingerprint": data["Input fingerprint"],
         ...(data.Resolution === undefined
@@ -244,19 +290,6 @@ const normalizeBearingArtifact = (data: BearingArtifact): BearingArtifact => {
         "Input fingerprint": data["Input fingerprint"],
         Coverage: data.Coverage,
         "Skipped targets": [...data["Skipped targets"]],
-      };
-    case "next-work-guidance":
-      return {
-        Type: data.Type,
-        ID: data.ID,
-        ...(data.Title === undefined ? {} : { Title: data.Title }),
-        "Generated at": data["Generated at"],
-        Inputs: [...data.Inputs],
-        "Input fingerprint": data["Input fingerprint"],
-        "Semantic coverage": data["Semantic coverage"],
-        ...(data["Based on audit"] === undefined
-          ? {}
-          : { "Based on audit": data["Based on audit"] }),
       };
   }
 };
@@ -279,6 +312,24 @@ const bodyDiagnostic = (locator: string, message: string): StructuralDiagnostic 
   impact: "blocking",
   target: locator,
   message,
+});
+
+const EFFORT_WORK_BINDING_DIAGNOSTIC_CODES = new Set([
+  "effort-work-binding-missing",
+  "effort-work-binding-unparseable",
+]);
+
+const effortWorkBindingDiagnostic = (
+  locator: string,
+  reason: "missing" | "unparseable",
+): StructuralDiagnostic => ({
+  code: `effort-work-binding-${reason}`,
+  impact: "blocking",
+  target: locator,
+  message:
+    reason === "missing"
+      ? "Canonical Effort requires exactly one Work Binding."
+      : "Canonical Effort Work Binding does not match the supported provider contract.",
 });
 
 const exactSections = (
@@ -366,6 +417,13 @@ const decodeContent = (
         ["Purpose", "Current Design"],
         ["Boundaries", "Future Candidates", "Material Revisions"],
       );
+    case "project-brief":
+      return decodePlainSections(
+        locator,
+        body,
+        ["At a Glance", "Current Position"],
+        ["Established Baseline"],
+      );
     case "roadmap":
       return decodePlainSections(locator, body, ["Intent"]);
     case "milestone-gate":
@@ -411,41 +469,16 @@ const decodeContent = (
             ],
       };
     }
-    case "next-work-guidance": {
-      const result = parseNextWorkGuidanceBody(body);
-      return {
-        content: { kind: "next-work-guidance", result },
-        diagnostics: result.ok
-          ? []
-          : result.reason === "alternatives-count"
-            ? [
-                {
-                  code: "invalid-next-work-alternatives",
-                  impact: "blocking",
-                  target: locator,
-                  message: "Next Work Guidance requires exactly two Alternatives.",
-                },
-              ]
-            : [
-                {
-                  code: "invalid-next-work-body",
-                  impact: "blocking",
-                  target: locator,
-                  message:
-                    "Next Work Guidance requires exact Title, Rationale, and Supporting References structure.",
-                },
-              ],
-      };
-    }
     case "roadmap-index":
-    case "alignment-check":
     case "planning-review":
       return { content: { kind: "none" }, diagnostics: [] };
   }
 };
 
 const sourceBinding = (data: BearingArtifact | undefined): SourceBinding | undefined => {
-  if (data === undefined || data.Type === "asset-registry") return undefined;
+  if (data === undefined || data.Type === "asset-registry") {
+    return undefined;
+  }
   if (data.Type === "roadmap-index") {
     return { role: "roadmap-index", identity: "roadmap-index:current" };
   }
@@ -453,12 +486,12 @@ const sourceBinding = (data: BearingArtifact | undefined): SourceBinding | undef
 };
 
 const decodeRecord = (
-  record: SyncInputGeneration["records"][number],
+  record: ProjectInputGeneration["records"][number],
   fingerprint: string,
 ): DecodedBearingRecord | undefined => {
   const expectedType = expectedBearingType(record.locator) as BearingRecordType | undefined;
   if (expectedType === undefined) return undefined;
-  const frontmatter = parseFrontmatter(record.source);
+  const frontmatter = parseMarkdownEnvelope(record.source);
   if (!frontmatter.ok) {
     const diagnostic = invalidFrontmatter(record.locator, frontmatter.reason);
     return {
@@ -499,12 +532,23 @@ const decodeRecord = (
   } else {
     const parsed = bearingSchema.safeParse(frontmatter.data);
     if (!parsed.success) {
-      schemaDiagnostics.push({
-        code: "invalid-bearing-schema",
-        impact: "blocking",
-        target: record.locator,
-        message: "Bearing frontmatter does not match its minimum schema.",
-      });
+      const withoutWorkBinding = { ...frontmatter.data };
+      delete withoutWorkBinding["Work binding"];
+      const effortFallback =
+        expectedType === "effort" && frontmatter.data["Type"] === "effort"
+          ? bearingSchema.safeParse(withoutWorkBinding)
+          : undefined;
+      if (effortFallback?.success === true && effortFallback.data.Type === "effort") {
+        data = normalizeBearingArtifact(effortFallback.data);
+        schemaDiagnostics.push(effortWorkBindingDiagnostic(record.locator, "unparseable"));
+      } else {
+        schemaDiagnostics.push({
+          code: "invalid-bearing-schema",
+          impact: "blocking",
+          target: record.locator,
+          message: "Bearing frontmatter does not match its minimum schema.",
+        });
+      }
     } else if (parsed.data.Type !== expectedType) {
       schemaDiagnostics.push({
         code: "unexpected-bearing-type",
@@ -514,6 +558,9 @@ const decodeRecord = (
       });
     } else {
       data = normalizeBearingArtifact(parsed.data);
+      if (data.Type === "effort" && data["Work binding"] === undefined) {
+        schemaDiagnostics.push(effortWorkBindingDiagnostic(record.locator, "missing"));
+      }
     }
   }
   const analyzed = analyzeDecodedBearingArtifact(record.locator, data, decodedContent.content);
@@ -522,9 +569,13 @@ const decodeRecord = (
     ...analyzed.diagnostics,
     ...decodedContent.diagnostics,
   ];
+  const hasFatalBlockingDiagnostic = diagnostics.some(
+    (diagnostic) =>
+      diagnostic.impact === "blocking" &&
+      !EFFORT_WORK_BINDING_DIAGNOSTIC_CODES.has(diagnostic.code),
+  );
   const analysis =
-    expectedType !== "asset-registry" &&
-    diagnostics.some((diagnostic) => diagnostic.impact === "blocking")
+    expectedType !== "asset-registry" && hasFatalBlockingDiagnostic
       ? {
           ...analyzed,
           nodes: [],
@@ -544,7 +595,7 @@ const decodeRecord = (
     assetContent !== undefined &&
     assetContent.assets.length > 0 &&
     assetContent.invalidEntries.length > 0;
-  const blocking = diagnostics.some((diagnostic) => diagnostic.impact === "blocking");
+  const blocking = hasFatalBlockingDiagnostic;
   const trust =
     partialAsset || (!blocking && diagnostics.length > 0)
       ? "partial"
@@ -645,10 +696,10 @@ const declaredNodes = (records: readonly DecodedBearingRecord[]): readonly Beari
 const singletonDiagnostics = (records: readonly DecodedBearingRecord[]): StructuralDiagnostic[] => {
   const singletons = new Set<BearingRecordType>([
     "project-summary",
+    "project-brief",
     "roadmap-index",
     "asset-registry",
     "planning-audit",
-    "next-work-guidance",
   ]);
   return [
     ...groupBy(
@@ -663,6 +714,35 @@ const singletonDiagnostics = (records: readonly DecodedBearingRecord[]): Structu
           impact: "blocking" as const,
           target: record.locator,
           message: `Bearing Record type ${type} may have only one declaration.`,
+        })),
+  );
+};
+
+const effortWorkBindingConflictDiagnostics = (
+  records: readonly DecodedBearingRecord[],
+): StructuralDiagnostic[] => {
+  const byBinding = groupBy(
+    records.flatMap((record) => {
+      const data = record.data;
+      return data?.Type === "effort" && data["Work binding"] !== undefined
+        ? [{ record, binding: data["Work binding"] }]
+        : [];
+    }),
+    ({ binding }) =>
+      mattNativeScopeKey({
+        provider: binding.Provider,
+        nativeScope: binding["Native scope"],
+      }),
+  );
+  return [...byBinding.values()].flatMap((entries) =>
+    entries.length < 2
+      ? []
+      : entries.map(({ record }) => ({
+          code: "effort-work-binding-conflict",
+          impact: "blocking" as const,
+          target: record.locator,
+          message:
+            "Canonical Effort Work Binding conflicts with another Effort bound to the same stable provider-native identity.",
         })),
   );
 };
@@ -710,7 +790,7 @@ const authorityAvailabilityDiagnostics = (
 };
 
 export const decodeBearingRecordGeneration = (
-  generation: Pick<SyncInputGeneration, "fingerprint" | "records">,
+  generation: Pick<ProjectInputGeneration, "fingerprint" | "records">,
 ): DecodedBearingRecordGeneration => {
   const capturedRecords = generation.records;
   let decodeCount = 0;
@@ -726,6 +806,7 @@ export const decodeBearingRecordGeneration = (
     ...records.flatMap((record) => record.diagnostics),
     ...duplicateIdentityDiagnostics(nodes),
     ...singletonDiagnostics(records),
+    ...effortWorkBindingConflictDiagnostics(records),
     ...referenceDiagnostics(nodes, references),
     ...authorityAvailabilityDiagnostics(
       analyses.flatMap((analysis) => analysis.authorityBaselines),

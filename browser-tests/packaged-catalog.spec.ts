@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -34,6 +34,8 @@ test("a freshly reconciled repository is selectable through the packed installed
   const packDirectory = join(root, "pack");
   const homeDirectory = join(root, "home");
   const repoRoot = await createValidBearingRepo();
+  const retainedState = join(root, "retained-state");
+  const retainedScratch = join(root, "retained-scratch");
   let portal: ChildProcessWithoutNullStreams | undefined;
   await mkdir(packDirectory);
   await mkdir(homeDirectory);
@@ -46,6 +48,10 @@ test("a freshly reconciled repository is selectable through the packed installed
   let testFailure: unknown;
 
   try {
+    await rename(join(repoRoot, ".bearing/state"), retainedState);
+    await rename(join(repoRoot, ".scratch"), retainedScratch);
+    await rm(join(repoRoot, ".bearing"), { recursive: true });
+
     const packed = await runHarnessCommand("npm", ["pack", "--pack-destination", packDirectory], {
       environment,
       label: "npm pack",
@@ -75,13 +81,41 @@ test("a freshly reconciled repository is selectable through the packed installed
     expect(installed.exitCode, installed.stderr).toBe(0);
 
     const installedCli = join(homeDirectory, ".bearing/bin/bearing");
-    const reconciled = await runHarnessCommand(
+    const configurationArguments = [
+      "--intent",
+      "activate",
+      "--repo",
+      repoRoot,
+      "--surface",
+      "agent-skills",
+      "--provider-contract",
+      "docs/agents/issue-tracker.md",
+      "--executor-mode",
+      "skip",
+    ];
+    const planned = await runHarnessCommand(
       installedCli,
-      ["setup", "--repo", repoRoot, "--surface", "agent-skills", "--profile", "generic-agent"],
-      { environment, label: "packaged Bearing setup", timeoutMs: 30_000 },
+      ["configure", "plan", ...configurationArguments],
+      { environment, label: "packaged Bearing configure plan", timeoutMs: 30_000 },
     );
-    expect(reconciled.exitCode, reconciled.stderr).toBe(0);
-    expect(reconciled.stdout).toContain("Catalog: applied");
+    expect(planned.exitCode, planned.stderr).toBe(0);
+    const planToken = (JSON.parse(planned.stdout) as { sealedPlanToken?: unknown }).sealedPlanToken;
+    if (typeof planToken !== "string") throw new Error("Configure plan returned no seal.");
+    const configured = await runHarnessCommand(
+      installedCli,
+      ["configure", "apply", ...configurationArguments, "--plan-token", planToken],
+      { environment, label: "packaged Bearing configure apply", timeoutMs: 30_000 },
+    );
+    expect(configured.exitCode, configured.stderr).toBe(0);
+    expect(JSON.parse(configured.stdout)).toMatchObject({ outcome: "applied" });
+    await rename(retainedState, join(repoRoot, ".bearing/state"));
+    await rename(retainedScratch, join(repoRoot, ".scratch"));
+    const rebuilt = await runHarnessCommand(
+      installedCli,
+      ["cache", "rebuild", "--repo", repoRoot],
+      { environment, label: "packaged Project Read Model rebuild", timeoutMs: 30_000 },
+    );
+    expect(rebuilt.exitCode, rebuilt.stderr || rebuilt.stdout).toBe(0);
 
     const port = await reservePort();
     const runningPortal = spawnHarnessProcess(installedCli, ["portal", "--port", String(port)], {
@@ -135,23 +169,18 @@ test("a freshly reconciled repository is selectable through the packed installed
     }
 
     const catalog = page.getByRole("list", { name: "Registered Bearing projects" });
-    const entry = catalog.getByRole("button", {
+    const entry = catalog.getByRole("link", {
       name: new RegExp(`^${basename(repoRoot)} .* Available$`),
     });
     await expect(entry).toBeVisible();
-    await entry.focus();
-    await page.keyboard.press("Enter");
-    const inspector = page.getByRole("complementary", { name: "Selected context" });
-    await expect(inspector).toBeVisible();
-    const openProject = inspector.getByRole("link", { name: "Open project" });
-    await expect(openProject).toHaveAttribute("href", /^\/projects\/[^/]+$/u);
+    await expect(entry).toHaveAttribute("href", /^\/projects\/[^/]+$/u);
 
     const snapshotResponsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&
-        /\/api\/v1\/projects\/[^/]+\/snapshot$/u.test(new URL(response.url()).pathname),
+        /\/api\/v1\/projects\/[^/]+\/read-model$/u.test(new URL(response.url()).pathname),
     );
-    await openProject.click();
+    await entry.click();
     const snapshotResponse = await snapshotResponsePromise;
     expect(snapshotResponse.status()).toBe(200);
     expect(await snapshotResponse.json()).toMatchObject({ state: "ready" });
@@ -177,22 +206,21 @@ test("a freshly reconciled repository is selectable through the packed installed
       await expect(link).toHaveAttribute("aria-current", "page");
     }
 
-    const sync = page.getByRole("button", { name: "Sync", exact: true });
-    await expect(sync).toBeEnabled();
-    const syncResponsePromise = page.waitForResponse((response) => {
-      if (
-        response.request().method() !== "POST" ||
-        !/\/api\/v1\/projects\/[^/]+\/sync$/u.test(new URL(response.url()).pathname)
-      ) {
-        return false;
-      }
-      return response.request().postDataJSON()?.mode === "force";
-    });
-    await sync.click();
-    const syncResponse = await syncResponsePromise;
-    expect(syncResponse.status()).toBe(200);
-    expect(await syncResponse.json()).toMatchObject({ state: "completed", mode: "force" });
-    await expect(page.locator(".project-operation")).toContainText(/Up to date|Updated/u);
+    await projectNavigation.getByRole("link", { name: "Roadmaps", exact: true }).click();
+    await page.getByRole("link", { name: "Test Roadmap", exact: true }).click();
+    await page.getByRole("link", { name: "Test Effort", exact: true }).first().click();
+    await expect(page.getByRole("heading", { name: "Test Effort", level: 1 })).toBeVisible();
+    await expect(
+      page.getByLabel("Effort governance status").getByText("Needs attention", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /^Work(?: \(.+\))?$/u, level: 2 }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh source" })).toBeVisible();
+
+    const refresh = page.getByRole("button", { name: "Refresh all sources", exact: true });
+    await expect(refresh).toBeEnabled();
+    await expect(page.locator(".topbar-refresh")).toContainText("Refresh all sources");
 
     await page.screenshot({
       path: join(evidence, "installed-product-overview-1280.png"),

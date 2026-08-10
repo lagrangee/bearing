@@ -1,0 +1,4 @@
+title = "Bearing secret scanning"
+
+[extend]
+useDefault = true

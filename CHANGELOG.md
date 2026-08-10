@@ -2,7 +2,7 @@
 
 All notable changes to Bearing are recorded here.
 
-GitHub Release notes are generated from the matching version section. Public Preview releases use ordinary `0.x` versions; release candidates may use `0.x.0-rc.N` on npm `next`.
+GitHub Release notes are generated from the matching version section. `main` is the integration baseline, not a release identity. A maintainer-selected Candidate remains unpublished evidence until the matching immutable Git tag, npm version, and GitHub Release establish the formal release identity.
 
 ## 0.1.0 - Unreleased
 

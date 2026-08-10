@@ -1,21 +1,31 @@
 import { Hono } from "hono";
 import type { PortalCatalogEnvelope } from "../portal-catalog-wire";
-import { type PortalAssets, PROJECT_SNAPSHOT_VERSION } from "./assets";
+import { type AssetPreviewService, createAssetPreviewService } from "./asset-preview";
+import { type PortalAssets, PROJECT_GENERATION_VERSION } from "./assets";
 import type { CatalogReadResult } from "./contract";
+import {
+  createLinkedContentPreviewService,
+  type LinkedContentPreviewService,
+} from "./linked-content-preview";
+import {
+  createPortalProjectQueryService,
+  type PortalProjectQueryService,
+} from "./project-query-service";
 import { registerProjectRoutes } from "./project-routes";
 import {
-  createProjectService,
-  type ProjectOperationExecutorFactory,
-  type ProjectService,
-} from "./project-service";
+  createPortalProviderApplicationService,
+  type PortalProviderApplicationService,
+} from "./provider-application";
 import { createPortalSessionManager, type PortalSessionManager } from "./session";
 
 type PortalAppOptions = Readonly<{
   assets: PortalAssets;
   readCatalog: () => Promise<CatalogReadResult>;
   sessions: Readonly<{ secret: string }> | PortalSessionManager;
-  projectService?: ProjectService;
-  operationExecutorFor?: ProjectOperationExecutorFactory;
+  projectQueryService?: PortalProjectQueryService;
+  providerApplicationService?: PortalProviderApplicationService;
+  assetPreviewService?: AssetPreviewService;
+  linkedContentPreviewService?: LinkedContentPreviewService;
 }>;
 
 const isSessionManager = (value: PortalAppOptions["sessions"]): value is PortalSessionManager =>
@@ -32,7 +42,9 @@ const PORTAL_CONTENT_SECURITY_POLICY = [
   "form-action 'self'",
   "script-src 'self'",
   "style-src 'self'",
-  "img-src 'self'",
+  "style-src-elem 'self' 'unsafe-inline'",
+  "style-src-attr 'none'",
+  "img-src 'self' http: https:",
   "font-src 'self'",
   "connect-src 'self'",
 ].join("; ");
@@ -42,7 +54,7 @@ const assetPath = (pathname: string): string => (pathname === "/" ? "/index.html
 const isSpaRoute = (pathname: string): boolean =>
   !pathname.startsWith("/api/") &&
   pathname !== "/healthz" &&
-  !pathname.split("/").at(-1)?.includes(".");
+  (pathname.startsWith("/projects/") || !pathname.split("/").at(-1)?.includes("."));
 
 const encodingQuality = (parameters: readonly string[]): number => {
   const quality = parameters
@@ -70,15 +82,20 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
   const sessions = isSessionManager(options.sessions)
     ? options.sessions
     : createPortalSessionManager(options.sessions.secret);
-  const projects =
-    options.projectService ??
-    createProjectService({
+  const assetPreview =
+    options.assetPreviewService ?? createAssetPreviewService({ readCatalog: options.readCatalog });
+  const linkedContentPreview =
+    options.linkedContentPreviewService ??
+    createLinkedContentPreviewService({ readCatalog: options.readCatalog });
+  const projectQueries =
+    options.projectQueryService ??
+    createPortalProjectQueryService({
       readCatalog: options.readCatalog,
-      packageVersion: options.assets.manifest.packageVersion,
-      ...(options.operationExecutorFor === undefined
-        ? {}
-        : { operationExecutorFor: options.operationExecutorFor }),
+      linkedContentPreview,
     });
+  const providerApplication =
+    options.providerApplicationService ??
+    createPortalProviderApplicationService({ readCatalog: options.readCatalog });
 
   app.onError((_error, context) => {
     if (new URL(context.req.url).pathname.startsWith("/api/")) {
@@ -108,11 +125,18 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     context.json({
       state: "ready",
       packageVersion: options.assets.manifest.packageVersion,
-      readModelVersion: PROJECT_SNAPSHOT_VERSION,
+      readModelVersion: PROJECT_GENERATION_VERSION,
     }),
   );
 
   app.get("/favicon.ico", (context) => context.body(null, 204));
+
+  app.get("/api/v1/bootstrap", (context) => {
+    context.header("Cache-Control", "no-store");
+    const session = sessions.establish(context.req.header("cookie"));
+    if (session.cookie !== undefined) context.header("Set-Cookie", session.cookie);
+    return context.json({ version: 1, state: "ready" });
+  });
 
   app.get("/api/v1/catalog", async (context) => {
     context.header("Cache-Control", "no-store");
@@ -148,7 +172,7 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
           entries: result.entries,
           diagnostic: {
             code: result.diagnostic.code,
-            message: "Project Catalog is using its last-known-good backup; run explicit repair.",
+            message: "Project Catalog is degraded; only previously trusted entries are shown.",
           },
         } satisfies PortalCatalogEnvelope;
         break;
@@ -167,7 +191,13 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     return context.json(response);
   });
 
-  registerProjectRoutes(app, { projects, sessions });
+  registerProjectRoutes(app, {
+    assetPreview,
+    linkedContentPreview,
+    projectQueries,
+    providerApplication,
+    sessions,
+  });
 
   app.all("/api/*", (context) =>
     context.json({ code: "not-found", message: "No such Portal product action." }, 404),

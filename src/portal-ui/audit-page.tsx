@@ -1,246 +1,189 @@
-import type { ProjectSnapshot } from "../project-snapshot/contract";
+import { planningLineageSubjectHref } from "../planning-lineage-route";
+import type { PlanningReview } from "../project-generation/contract";
 import { AuditFindingRow } from "./audit-finding-row";
 import { Icons } from "./icons";
-import { Action } from "./primitives";
-import {
-  buildProjectAuditModel,
-  findingInspection,
-  type ProjectAuditModel,
-} from "./project-audit-model";
-import type { ProjectInspectorSelection } from "./project-inspector";
+import { buildProjectAuditModel, type ProjectAuditModel } from "./project-audit-model";
+import type { AuditModelData } from "./project-data";
 
-type Inspect = (selection: ProjectInspectorSelection, trigger: HTMLButtonElement) => void;
-type ReadableAudit = Extract<ProjectAuditModel, { state: "available" | "partial" }>;
+type CurrentAudit = ProjectAuditModel["current"];
+type ReadableAudit = Extract<CurrentAudit, { state: "available" | "partial" }>;
 
 const titleCase = (value: string): string => `${value[0]?.toUpperCase()}${value.slice(1)}`;
-const coverageCopy = (model: ReadableAudit): string =>
-  model.coverage === "complete"
-    ? "The Audit reports complete semantic coverage for its declared input set."
-    : "The Audit reports incomplete semantic coverage; declared skipped scope remains explicit below.";
 
-const resumeSelection: ProjectInspectorSelection = {
-  eyebrow: "Planning entry",
-  title: "Planning Audit in Agent Surface",
-  detail:
-    "Planning Audit is produced through its Agent Surface capability. The Portal only explains that boundary and does not generate or revise an Audit.",
-  handoff: true,
-};
-
-function AuditExplainer() {
+function AuditMetadata({ model }: { readonly model: ReadableAudit }) {
   return (
-    <section className="audit-explainer" aria-label="What a Planning Audit provides">
+    <dl className="audit-metadata" aria-label="Planning Audit metadata">
       <div>
-        <span className="audit-explainer-number">01</span>
-        <h3>Coverage</h3>
-        <p>What was inspected and what was intentionally skipped or unavailable.</p>
+        <dt>Generated</dt>
+        <dd>
+          <time dateTime={model.generatedAt}>{model.generatedAt}</time>
+        </dd>
       </div>
       <div>
-        <span className="audit-explainer-number">02</span>
-        <h3>Findings</h3>
-        <p>Whole-picture observations grounded in explicit source evidence.</p>
+        <dt>Semantic freshness</dt>
+        <dd>{titleCase(model.semanticFreshness)}</dd>
       </div>
       <div>
-        <span className="audit-explainer-number">03</span>
-        <h3>Decision paths</h3>
-        <p>Alignment Checks and Planning Reviews remain distinct canonical outcomes.</p>
+        <dt>Findings</dt>
+        <dd>
+          {model.findings.length} {model.findings.length === 1 ? "finding" : "findings"}
+        </dd>
       </div>
-    </section>
+      <div>
+        <dt>Coverage</dt>
+        <dd>{titleCase(model.coverage)} coverage</dd>
+      </div>
+    </dl>
   );
 }
 
-function AbsentAudit({ onInspect }: { readonly onInspect: Inspect }) {
-  return (
-    <>
-      <section className="audit-empty">
-        <span className="empty-orbit" aria-hidden="true">
-          <Icons.audit />
-        </span>
-        <p className="eyebrow">No current Audit</p>
-        <h2>Generate the first whole-project review in Agent Surface</h2>
-        <p>
-          The Portal will show coverage, skipped targets, findings, and promoted decision points
-          after an agent produces a Planning Audit.
-        </p>
-        <Action tone="primary" onClick={(event) => onInspect(resumeSelection, event.currentTarget)}>
-          Resume Audit in Agent Surface <Icons.arrow />
-        </Action>
-      </section>
-      <AuditExplainer />
-    </>
-  );
-}
-
-function AuditScope({ model }: { readonly model: ReadableAudit }) {
-  const issueCount = model.state === "partial" ? model.issueCount : 0;
-  return (
-    <section className="audit-scope" aria-labelledby="audit-coverage-title">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">Declared semantic scope</p>
-          <h2 id="audit-coverage-title">Coverage</h2>
-        </div>
-        <span className="audit-coverage-label">{titleCase(model.coverage)}</span>
-      </div>
-      <p>{coverageCopy(model)}</p>
-      <div className="audit-scope-detail">
-        <section>
-          <h3>Skipped scope</h3>
-          {model.skippedTargets.length === 0 ? (
-            <p>No skipped targets are declared.</p>
-          ) : (
-            <ul>
-              {model.skippedTargets.map((target) => (
-                <li key={target}>
-                  <code>{target}</code>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-        <section>
-          <h3>Isolated projection issues</h3>
-          <p>
-            {issueCount === 0
-              ? "No isolated projection issues are reported."
-              : `${issueCount} projection ${issueCount === 1 ? "issue is" : "issues are"} reported separately from trustworthy findings.`}
-          </p>
-        </section>
-      </div>
-    </section>
-  );
-}
-
-function ReadableAuditPage({
+function CurrentProjectReview({
+  entryId,
   model,
-  onInspect,
 }: {
-  readonly model: ReadableAudit;
-  readonly onInspect: Inspect;
+  readonly entryId: string;
+  readonly model: CurrentAudit;
 }) {
-  const resolvedPromotions = model.findings.filter(
-    (row) => row.promotion?.available === true,
-  ).length;
-  const unavailablePromotions = model.findings.filter(
-    (row) => row.promotion?.available === false,
-  ).length;
   return (
-    <>
-      {model.state === "partial" ? (
-        <p className="projection-note" role="status">
-          Audit orientation is partial. {model.issueCount} projection issue
-          {model.issueCount === 1 ? "" : "s"} {model.issueCount === 1 ? "is" : "are"} isolated.
-        </p>
-      ) : null}
-      <section className="audit-truth-boundary">
-        <strong>Advisory snapshot</strong>
-        <p>
-          Findings can inform a decision, but they do not accept, dismiss, revise, or generate
-          project intent.
-        </p>
-      </section>
-      <dl className="audit-metadata" aria-label="Planning Audit metadata">
-        <div>
-          <dt>Generated</dt>
-          <dd>
-            <time dateTime={model.generatedAt}>{model.generatedAt}</time>
-          </dd>
+    <section aria-labelledby="current-project-review-title" className="audit-findings">
+      <div className="section-heading">
+        <h2 id="current-project-review-title">Current Project Review</h2>
+      </div>
+      {model.state === "absent" ? (
+        <div className="scoped-state">
+          <h3>No current Audit</h3>
+          <p>Ask Agent Surface to run an explicit Planning Audit.</p>
         </div>
-        <div>
-          <dt>Semantic freshness</dt>
-          <dd>{titleCase(model.semanticFreshness)}</dd>
+      ) : model.state === "invalid" ? (
+        <div className="scoped-state audit-unavailable">
+          <h3>Planning Audit unavailable</h3>
+          <p>
+            {model.issueCount} projection{" "}
+            {model.issueCount === 1 ? "issue prevents" : "issues prevent"} a trustworthy current
+            review. Ask Agent Surface to inspect and replace the Audit.
+          </p>
         </div>
-        <div>
-          <dt>Coverage</dt>
-          <dd>{titleCase(model.coverage)}</dd>
-        </div>
-        <div>
-          <dt>Findings</dt>
-          <dd>{model.findings.length}</dd>
-        </div>
-      </dl>
-      <AuditScope model={model} />
-      <section className="audit-findings" aria-labelledby="audit-findings-title">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Snapshot order preserved</p>
-            <h2 id="audit-findings-title">Findings</h2>
-          </div>
-          <span className="truth-note">
-            {model.findings.length} {model.findings.length === 1 ? "finding" : "findings"}
-          </span>
-        </div>
-        {model.findings.length === 0 ? (
-          <div className="audit-zero-findings">
-            <Icons.check aria-hidden="true" />
-            <div>
-              <h3>No material findings</h3>
+      ) : (
+        <>
+          <AuditMetadata model={model} />
+          {model.findings.length === 0 ? (
+            <div className="audit-zero-findings">
+              <Icons.check aria-hidden="true" />
+              <div>
+                <h3>No findings</h3>
+                <p>No material findings were reported in this Audit.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="audit-finding-list">
+              {model.findings.map((row) => (
+                <AuditFindingRow
+                  href={
+                    row.promotion?.available === true
+                      ? planningLineageSubjectHref(entryId, {
+                          kind: "planning-review",
+                          id: row.promotion.id,
+                        })
+                      : undefined
+                  }
+                  key={row.finding.id}
+                  row={row}
+                />
+              ))}
+            </div>
+          )}
+          {model.coverage === "incomplete" || model.state === "partial" ? (
+            <div className="audit-scope-detail">
+              <h3>{model.state === "partial" ? "Partial projection" : "Incomplete coverage"}</h3>
+              {model.state === "partial" ? (
+                <p>
+                  {model.issueCount} projection {model.issueCount === 1 ? "issue" : "issues"}{" "}
+                  limited this view.
+                </p>
+              ) : null}
+              {model.skippedTargets.length > 0 ? (
+                <p>Skipped targets: {model.skippedTargets.join(" · ")}</p>
+              ) : null}
               <p>
-                This Audit reports no findings; it does not prove that project intent is complete.
+                Ask Agent Surface to inspect the reported sources and run an explicit Planning
+                Audit.
               </p>
             </div>
-          </div>
-        ) : (
-          <div className="audit-finding-list">
-            {model.findings.map((row) => (
-              <AuditFindingRow
-                key={row.finding.id}
-                row={row}
-                onSelect={(trigger) => onInspect(findingInspection(row), trigger)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-      <section className="audit-decision-truth" aria-labelledby="audit-decision-title">
-        <p className="eyebrow">Canonical outcomes remain separate</p>
-        <h2 id="audit-decision-title">Decision truth</h2>
-        <p>
-          {resolvedPromotions} {resolvedPromotions === 1 ? "finding resolves" : "findings resolve"}
-          {resolvedPromotions === 1
-            ? " to a canonical decision path."
-            : " to canonical decision paths."}
-          {unavailablePromotions > 0
-            ? ` ${unavailablePromotions} declared promotion${unavailablePromotions === 1 ? " is" : "s are"} unavailable in the current Snapshot.`
-            : ""}{" "}
-          Actual titles and statuses come from Alignment Checks or Planning Reviews; only their
-          unresolved canonical objects can enter Attention.
-        </p>
-      </section>
-    </>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+const reviewScope = (review: PlanningReview): string =>
+  review.scope.kind === "project" ? "Whole project" : `Target: ${review.scope.target}`;
+
+function ReviewList({
+  entryId,
+  reviews,
+  empty,
+}: {
+  readonly entryId: string;
+  readonly reviews: readonly PlanningReview[];
+  readonly empty: string;
+}) {
+  if (reviews.length === 0) return <p>{empty}</p>;
+  return (
+    <ul className="audit-review-list">
+      {reviews.map((review) => (
+        <li key={review.id}>
+          <a href={planningLineageSubjectHref(entryId, { kind: "planning-review", id: review.id })}>
+            {review.title}
+          </a>
+          <p>{review.question}</p>
+          <p>{reviewScope(review)}</p>
+        </li>
+      ))}
+    </ul>
   );
 }
 
 export function AuditPage({
-  onInspect,
+  entryId,
   snapshot,
 }: {
-  readonly onInspect: Inspect;
-  readonly snapshot: ProjectSnapshot;
+  readonly entryId: string;
+  readonly snapshot: AuditModelData;
 }) {
   const model = buildProjectAuditModel(snapshot);
   return (
     <div className="page audit-page">
       <header className="document-header audit-document-header">
-        <p className="eyebrow">Whole-project semantic review</p>
         <h1>Planning Audit</h1>
-        <p>
-          A deliberate review across the project’s planning objects. It is advisory and does not
-          replace Alignment Checks or Planning Reviews.
-        </p>
       </header>
-      {model.state === "absent" ? (
-        <AbsentAudit onInspect={onInspect} />
-      ) : model.state === "invalid" ? (
-        <section className="scoped-state audit-unavailable">
-          <h2>Planning Audit unavailable</h2>
+      <CurrentProjectReview entryId={entryId} model={model.current} />
+      <section aria-labelledby="decisions-attention-title">
+        <div className="section-heading">
+          <h2 id="decisions-attention-title">Decisions Awaiting Attention</h2>
+        </div>
+        <ReviewList
+          entryId={entryId}
+          reviews={model.pendingReviews}
+          empty="No decisions await attention."
+        />
+        {model.pendingReviews.length > 0 ? (
           <p>
-            The Audit projection cannot be trusted ({model.issueCount} projection issue
-            {model.issueCount === 1 ? "" : "s"}). Other project destinations remain available.
+            Continue these decisions in Agent Surface. Portal does not accept, resolve, reopen, or
+            refresh Reviews.
           </p>
-        </section>
-      ) : (
-        <ReadableAuditPage model={model} onInspect={onInspect} />
-      )}
+        ) : null}
+      </section>
+      <section aria-labelledby="past-decisions-title">
+        <div className="section-heading">
+          <h2 id="past-decisions-title">Past Accepted Decisions</h2>
+        </div>
+        <ReviewList
+          entryId={entryId}
+          reviews={model.completedReviews}
+          empty="No accepted Planning Review history is available."
+        />
+      </section>
     </div>
   );
 }

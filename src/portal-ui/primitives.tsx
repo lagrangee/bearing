@@ -4,7 +4,7 @@ import { assertNever } from "./assert-never";
 import { Icons } from "./icons";
 
 type ActionProps = PropsWithChildren<
-  ButtonHTMLAttributes<HTMLButtonElement> & { readonly tone?: "primary" | "quiet" }
+  ButtonHTMLAttributes<HTMLButtonElement> & { readonly tone?: "attention" | "primary" | "quiet" }
 >;
 
 export const Action = forwardRef<HTMLButtonElement, ActionProps>(function Action(
@@ -55,10 +55,12 @@ export function StatusMark({ label, tone }: { readonly label: string; readonly t
 export function EmptyState({
   action,
   detail,
+  headingLevel = 2,
   title,
 }: {
   readonly action?: ReactNode;
   readonly detail: string;
+  readonly headingLevel?: 1 | 2;
   readonly title: string;
 }) {
   return (
@@ -66,18 +68,24 @@ export function EmptyState({
       <span className="empty-orbit" aria-hidden="true">
         <Icons.overview />
       </span>
-      <h2>{title}</h2>
+      {headingLevel === 1 ? <h1>{title}</h1> : <h2>{title}</h2>}
       <p>{detail}</p>
       {action}
     </section>
   );
 }
 
-export function LoadingState() {
+export function LoadingState({
+  title = "Checking registered projects",
+  detail,
+}: Readonly<{ title?: string; detail?: string }>) {
   return (
     <div className="catalog-loading" role="status" aria-live="polite">
       <span className="spinner" aria-hidden="true" />
-      <span>Checking registered projects</span>
+      <span>
+        {title}
+        {detail === undefined ? null : <small>{detail}</small>}
+      </span>
     </div>
   );
 }

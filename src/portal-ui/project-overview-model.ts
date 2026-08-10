@@ -1,15 +1,17 @@
 import type {
-  AlignmentCheck,
   AttentionItem,
-  NextWorkGuidance,
+  GenerationDiagnostic,
   PlanningReview,
+  ProjectBrief,
   ProjectionIssue,
-  ProjectSnapshot,
   ProjectSummary,
-  SnapshotDiagnostic,
   SourceRecord,
   SourceReference,
-} from "../project-snapshot/contract";
+} from "../project-generation/contract";
+import { targetWithinNativeScope } from "../project-generation/managed-attention";
+import type { ProviderDetailEvidenceSubject } from "../provider-detail-selection";
+import { mattNativeScopeSubject } from "../providers/matt-skills-v1/native-subject";
+import type { OverviewModelData } from "./project-data";
 import { buildOverviewRoadmaps, type OverviewRoadmaps } from "./project-overview-roadmaps";
 
 type ScopedValue<T> =
@@ -25,17 +27,17 @@ type ScopedValue<T> =
 
 export type OverviewAttentionItem = Readonly<{
   key: string;
-  kind: "diagnostic" | "alignment" | "review";
+  kind: "diagnostic" | "review";
   state: "available" | "unresolved";
   title: string;
   detail: string | undefined;
-  source: SourceRecord | undefined;
+  nativeSubject?: ProviderDetailEvidenceSubject | undefined;
 }>;
 
 export type ProjectOverviewModel = Readonly<{
+  brief: ScopedValue<ProjectBrief>;
   summary: ScopedValue<ProjectSummary>;
   attention: readonly OverviewAttentionItem[];
-  guidance: ScopedValue<NextWorkGuidance>;
   roadmaps: OverviewRoadmaps;
   sources: ReadonlyMap<string, SourceRecord>;
 }>;
@@ -83,10 +85,10 @@ const scopedValue = <Item extends Readonly<{ source: SourceReference }>>(
 
 const attentionModel = (
   item: AttentionItem,
-  diagnostics: ReadonlyMap<string, SnapshotDiagnostic>,
-  checks: ReadonlyMap<string, AlignmentCheck>,
+  diagnostics: ReadonlyMap<string, GenerationDiagnostic>,
   reviews: ReadonlyMap<string, PlanningReview>,
   sources: ReadonlyMap<string, SourceRecord>,
+  efforts: OverviewModelData["efforts"],
 ): OverviewAttentionItem => {
   switch (item.kind) {
     case "structural-diagnostic": {
@@ -98,27 +100,49 @@ const attentionModel = (
             state: "unresolved",
             title: "Attention source unavailable",
             detail: undefined,
-            source: undefined,
           }
         : {
             key: diagnostic.reference,
             kind: "diagnostic",
             state: "available",
             title: diagnostic.message,
-            detail: diagnostic.target,
-            source: diagnostic.source === undefined ? undefined : sources.get(diagnostic.source),
+            detail: undefined,
+            ...(() => {
+              const source =
+                diagnostic.source === undefined ? undefined : sources.get(diagnostic.source);
+              const sourceSubject =
+                source?.binding === undefined
+                  ? undefined
+                  : source.binding.role === "native-scope"
+                    ? ({ kind: "native-scope", id: source.binding.identity } as const)
+                    : source.kind === "tracker"
+                      ? ({ kind: "native-subject", id: source.binding.identity } as const)
+                      : undefined;
+              const boundScope =
+                efforts.validity === "invalid"
+                  ? undefined
+                  : efforts.items.find(
+                      (effort) =>
+                        effort.workBindingState.state === "bound" &&
+                        effort.workBinding !== undefined &&
+                        targetWithinNativeScope(diagnostic.target, effort.workBinding.nativeScope),
+                    )?.workBinding;
+              const boundSubject =
+                boundScope === undefined
+                  ? undefined
+                  : mattNativeScopeSubject({ binding: boundScope });
+              const nativeSubject =
+                sourceSubject ??
+                (boundSubject === undefined
+                  ? undefined
+                  : ({ kind: "native-scope", id: boundSubject.id } as const));
+              return nativeSubject === undefined
+                ? {}
+                : {
+                    nativeSubject,
+                  };
+            })(),
           };
-    }
-    case "alignment-check": {
-      const check = checks.get(item.id);
-      return {
-        key: item.id,
-        kind: "alignment",
-        state: check === undefined ? "unresolved" : "available",
-        title: item.title,
-        detail: check?.target,
-        source: sources.get(item.source),
-      };
     }
     case "planning-review": {
       const review = reviews.get(item.id);
@@ -127,24 +151,23 @@ const attentionModel = (
         kind: "review",
         state: review === undefined ? "unresolved" : "available",
         title: item.title,
-        detail: review?.scope,
-        source: sources.get(item.source),
+        detail:
+          review?.scope.kind === "project" ? "Whole project" : `Target: ${review?.scope.target}`,
       };
     }
   }
 };
 
-export const buildProjectOverviewModel = (snapshot: ProjectSnapshot): ProjectOverviewModel => {
+export const buildProjectOverviewModel = (snapshot: OverviewModelData): ProjectOverviewModel => {
   const sources = indexBy(snapshot.sources, (source) => source.reference);
   const diagnostics = indexBy(snapshot.diagnostics, (diagnostic) => diagnostic.reference);
-  const checks = indexBy(projectionItems(snapshot.checks), (check) => check.id);
   const reviews = indexBy(projectionItems(snapshot.reviews), (review) => review.id);
   return {
+    brief: scopedValue(snapshot.brief, sources),
     summary: scopedValue(snapshot.summary, sources),
     attention: snapshot.attention.map((item) =>
-      attentionModel(item, diagnostics, checks, reviews, sources),
+      attentionModel(item, diagnostics, reviews, sources, snapshot.efforts),
     ),
-    guidance: scopedValue(snapshot.guidance, sources),
     roadmaps: buildOverviewRoadmaps(snapshot, sources),
     sources,
   };

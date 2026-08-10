@@ -2,7 +2,6 @@ import type { CatalogAvailability } from "../catalog/availability";
 import { catalogEntryIdSchema } from "../catalog/entry-id";
 import { inspectRepository } from "../catalog/repository-inspection";
 import type { CatalogReadResult, PortalDiagnostic } from "./contract";
-import { inspectProjectCacheBoundary } from "./project-cache-boundary";
 
 type ProjectIdentity = Readonly<{ entryId: string; displayName: string }>;
 export type AvailableProjectEntry = ProjectIdentity & Readonly<{ repoRoot: string }>;
@@ -78,14 +77,6 @@ export const resolveProjectEntry = async (options: {
       inspection.availability,
       "project-unavailable",
       "The registered project no longer has a valid Bearing manifest.",
-    );
-  }
-  if ((await inspectProjectCacheBoundary(entry.repoRoot)).kind !== "safe") {
-    return unavailable(
-      identity,
-      "unreadable",
-      "unsafe-project-cache",
-      "The project cache boundary has an unsupported filesystem shape.",
     );
   }
   return { kind: "available", entry: { ...identity, repoRoot: entry.repoRoot } };

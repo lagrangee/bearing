@@ -8,7 +8,7 @@
 npx @lagrangee/bearing
 ```
 
-Wizard 是公开安装路径。下面的显式命令面向 agents、smoke tests 和高级恢复。
+Wizard 是公开的 Global Kit maintenance 路径。下面的显式命令面向 agents、smoke tests 和高级恢复。
 
 ## Help
 
@@ -17,7 +17,11 @@ bearing --help
 bearing --version
 ```
 
-## 安装用户级 kit
+## 维护用户级 Global Kit
+
+在 interactive terminal 中无参数运行 `bearing`，然后选择 Install、Update、Repair 或 Global
+Uninstall。取消不产生写入。Install、Update 与 Repair 使用下文所述的同一套完整 bundle
+transaction。
 
 ```bash
 bearing install --surface agent-skills
@@ -41,51 +45,75 @@ Downgrade 必须带确认 flag，并会只读检查每个 Catalog repository 的
 多个 minor 会被拒绝。它不等于 repository-state rollback。若 state 已升级，必须先恢复该
 release 对应的 verified backup；否则 downgrade 会 fail closed。
 
-## 启用一个仓库
+## 配置一个仓库
+
+Repository Configuration 由 Agent 主导。裸 `bearing configure` 会转交给公开 Bearing skill。
+Deterministic CLI 只提供 machine facts、sealed plan 与 exact apply：
 
 ```bash
-bearing setup --repo . --surface agent-skills
+bearing configure inspect --repo .
+bearing configure plan --intent activate --repo . --surface agent-skills \
+  --provider-contract docs/agents/issue-tracker.md --executor-mode skip
+bearing configure apply --intent activate --repo . --surface agent-skills \
+  --provider-contract docs/agents/issue-tracker.md --executor-mode skip \
+  --plan-token <sealedPlanToken>
 ```
 
-`setup` 启用仓库，但不会把 global protocol 或 skills 复制进仓库。
-遇到不支持的较新 repository schema 时，`setup` 会拒绝写入并指向兼容的 Bearing 版本；
-它不会把较新 state 重写成 schema 1。
+Inspect 不写入，也不选择 preference 或 product outcome。Plan 只有在所有 material choice 已解决时
+才返回 exact targets、preconditions、preservation effects 与绑定当前 repository generation 的
+token。Apply 会重新计算 plan，拒绝 stale 或不匹配 token，并且只修改已审阅的 Bearing machine
+configuration 与 managed pointers。Fresh Configuration 创建 disposable Project Read Model，但不做
+provider acquisition，也不创建 substantive planning objects。Catalog upsert 在 repository validation
+后独立执行并单独报告失败。Portal handoff 只报告 compatible URL、incompatible Host restart 指令，
+或 foreground start 指令；它绝不启动 Portal。
 
-## Deactivate 或 purge 一个仓库
+只有用户点名 capable executor 后，才使用可重复的 `--executor` 和配对的
+`--executor-assessment`。只有用户明确跳过后，才使用 `--executor-mode skip`。已有 profile 可用
+`--retain-executor` 保留，或用 `--remove-executor` 移除。Bearing 不安装 executor，也不从自由 prose
+推断 executor。
+
+Deactivation 使用同一个 sealed lifecycle：
 
 ```bash
-bearing deactivate --repo .
-bearing purge --repo . --confirm-purge
+bearing configure plan --intent deactivate --repo .
+bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanToken>
 ```
 
-这些命令只应在已接受的 `bearing-setup` lifecycle 决策下执行。`deactivate` 移除 manifest
-和 managed root pointers，但保留 `.bearing/state`、profiles、cache、原生 `.scratch` work
-与 durable artifacts。`purge` 经确认后只移除仓库的 `.bearing` namespace 和 managed root
-pointers；它保留 `.scratch`、source、docs 与其他 native artifacts。任一 repository mutation
-提交后，Catalog removal 会单独报告；如果失败，可以安全重试。
-Purge 会先原子 detach `.bearing`；如果后续递归 cleanup 失败，命令返回 blocked 并打印精确的
-partial quarantine 路径。这份 residue 不是 backup，Bearing 也绝不会声称已恢复部分删除的 bytes。
-两个 lifecycle commands 都会拒绝 linked 或其他 unsafe `.bearing` namespace。在读取或修改
-`.bearing/manifest.json` 前，它还必须是 missing 或 single-link regular file；symlink、directory、
-multiply-linked file 或 special type 都会 fail closed。
+Deactivation 移除 managed pointer 与 disposable cache。它保留 canonical state、Provider
+Configuration、profiles、artifacts 与 native work。Catalog unregister 是后续独立报告的 stage。
+Unsupported Preview state 是 removal-required。Bearing 不提供 built-in migration、cutover、silent
+repair 或 repository Purge。Repository removal 是外部、显式授权、由 Agent 审阅的 platform
+operation；完成后再运行 Fresh Configuration。
 
-## Sync
+Managed pointer 提供 contextual nomination guidance。显式 Bearing request、可靠 continuation，以及
+有实质 planning 或 governance relevance 的工作可以 nominate Bearing。Working directory、generic
+roadmap words、repository-independent conversation 与 ordinary code work 不会 nominate Bearing。
+Functional operations 会在 cache creation、provider I/O 或 mutation 前验证 Active lifecycle。
+
+## Project Read Model operations
 
 ```bash
-bearing sync --repo .
+bearing cache rebuild --repo .
+bearing provider verify --all --repo .
+bearing inspect project --repo .
 ```
 
-Sync 会在 cache 下重建 deterministic diagnostics 与 Project Sitemap projection。
+Cache rebuild 只创建 disposable SQLite Project Read Model。Provider verification 是针对当前
+Work Bindings 的显式 cost-bearing operation。Inspect 返回 typed committed rows。这些命令不会
+发现 standalone work，也不会扩张 Bearing Scope。
 
 ## Inspect
 
 ```bash
-bearing inspect roadmap <roadmap-id> --repo .
-bearing inspect gate <gate-id> --repo .
-bearing inspect effort <effort-id> --repo .
+bearing inspect project --repo .
+bearing inspect effort:<effort-id> --repo .
+bearing inspect --native <native-reference> --repo .
+bearing inspect diagnostics --repo .
 ```
 
-Inspect 返回所选对象的 planning context closure。
+Inspect 从 committed Project Read Model rows 返回 versioned typed envelope。这四种形式分别读取
+bounded Project Context、一个 stable planning reference、一个 exact native reference 或 typed
+diagnostics。
 
 ## Portal
 
@@ -97,10 +125,15 @@ Portal 前台运行并打印 loopback URL。安装版本支持时，可用 `BEAR
 
 ## Catalog
 
-对 rename、forget、remove、relink、repair、reset 等操作，使用 `bearing catalog --help` 和当前命令 help。Catalog 操作会影响用户级 project registration；不要盲目执行。
+完整 Catalog CLI 只有 inspect、rename、unregister、relink 与需明确确认的 reset；使用 `bearing catalog --help` 查看语法。Unregister 必须且只能使用一个 Entry ID 或 repository-root selector。Relink 只替换 registration locator，绝不移动 repository files。Reset 会创建空的 SQLite Catalog；随后需再次运行 Repository Configuration 注册 repository。Catalog 操作会影响用户级 project registration；不要盲目执行。
 
-## Package uninstall 边界
+## Global Uninstall 与 package-manager 边界
 
-Bearing 不提供 repository-scoped package-uninstall 命令。npm-owned package installation 应由
-安装它的 package manager 移除，例如 `npm uninstall -g @lagrangee/bearing`。移除 package
-不会 deactivate 或 purge 仓库，也不会删除 Project Catalog data。
+Wizard Global Uninstall 会移除 `$HOME/.bearing/kit/current`、canonical CLI shim，以及仅由
+Bearing 管理的 Agent Surface pointers。它不读取或修改 Project Catalog、repository canonical
+state、Provider Configuration、profiles、artifacts 或 native work。它不是 repository
+Deactivation 或 repository-state removal；Bearing 也不提供 repository-scoped package-uninstall
+命令。
+
+npm-owned package installation 仍由 npm 管理。请另外使用安装它的 package manager 移除，
+例如 `npm uninstall -g @lagrangee/bearing`。

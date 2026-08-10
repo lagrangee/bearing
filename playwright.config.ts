@@ -9,9 +9,12 @@ const artifacts = browserOutputContract();
 export default defineConfig({
   testDir: "./browser-tests",
   testIgnore: [
+    "architecture-contraction-candidate.spec.ts",
     "packaged-catalog.spec.ts",
     "project-isolation-real-host.spec.ts",
+    "project-preview-real-host.spec.ts",
     "portal-reference-fidelity.spec.ts",
+    "safe-markdown-reading-candidate.spec.ts",
   ],
   outputDir: artifacts.outputDir,
   metadata: artifacts.metadata,
@@ -23,6 +26,7 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${port}`,
     screenshot: "only-on-failure",
+    timezoneId: "Asia/Shanghai",
     trace: "retain-on-failure",
     video: "off",
   },

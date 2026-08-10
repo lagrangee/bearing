@@ -4,6 +4,7 @@ import {
   chmod,
   lstat,
   mkdir,
+  readdir,
   readFile,
   readlink,
   rm,
@@ -12,7 +13,6 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { upsertCatalogEntry } from "../src/catalog/store";
 import {
   applyInstallPlans,
   assertSupportedDowngrade,
@@ -98,6 +98,79 @@ describe("Bearing kit installer", () => {
     expect(await readFile(join(surfaceTarget, "SKILL.md"), "utf8")).toBe("new package bytes\n");
   });
 
+  test("rollback preserves a concurrently replaced managed-link post-image", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const userSkill = await makeTemporaryDirectory("bearing-user-skill-");
+    await writeFile(join(userSkill, "SKILL.md"), "concurrent user skill\n");
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    const concurrentTarget = join(homeDir, ".claude/skills/bearing");
+
+    await expect(
+      installKit(
+        {
+          homeDir,
+          packageRoot: process.cwd(),
+          surfaces: ["agent-skills", "claude"],
+        },
+        {
+          afterCurrentMoved: async () => {
+            await rm(concurrentTarget);
+            await symlink(userSkill, concurrentTarget, "dir");
+            throw new Error("injected switch failure after concurrent replacement");
+          },
+        },
+      ),
+    ).rejects.toThrow("installation and complete-bundle recovery both failed");
+
+    expect(await readlink(concurrentTarget)).toBe(userSkill);
+    expect(await readFile(join(concurrentTarget, "SKILL.md"), "utf8")).toBe(
+      "concurrent user skill\n",
+    );
+    await access(join(homeDir, ".bearing/kit/current/package.json"));
+    await access(join(homeDir, ".agents/skills/bearing/SKILL.md"));
+  });
+
+  test("never overwrites a concurrent legacy recovery staging path", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    const cliTarget = join(homeDir, ".bearing/bin/bearing");
+    const cliSource = join(homeDir, ".bearing/kit/current/dist/cli.js");
+    const legacyBytes = await readFile(cliSource);
+    await rm(cliTarget);
+    await writeFile(cliTarget, legacyBytes);
+    await chmod(cliTarget, 0o755);
+
+    await expect(
+      installKit(
+        { homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] },
+        {
+          afterCurrentMoved: async () => {
+            const kitRoot = join(homeDir, ".bearing/kit");
+            const transaction = (await readdir(kitRoot)).find((entry) =>
+              entry.startsWith(".link-transaction-"),
+            );
+            if (transaction === undefined) throw new Error("missing link transaction");
+            await writeFile(
+              join(kitRoot, transaction, "rollback-1-file"),
+              "concurrent recovery content\n",
+            );
+          },
+        },
+      ),
+    ).rejects.toThrow("installation and complete-bundle recovery both failed");
+
+    const transaction = (await readdir(join(homeDir, ".bearing/kit"))).find((entry) =>
+      entry.startsWith(".link-transaction-"),
+    );
+    expect(transaction).toBeDefined();
+    expect(
+      await readFile(
+        join(homeDir, ".bearing/kit", transaction as string, "rollback-1-file"),
+        "utf8",
+      ),
+    ).toBe("concurrent recovery content\n");
+  });
+
   test("rejects an Agent Surface symlink that points outside the Bearing bundle", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
     const target = join(homeDir, ".agents/skills/bearing");
@@ -127,9 +200,7 @@ describe("Bearing kit installer", () => {
         surfaces: ["agent-skills"],
       }),
     ).rejects.toThrow("Installation target cannot use a symbolic link");
-    await expect(
-      access(join(outside, "skills/bearing-alignment-check/SKILL.md")),
-    ).rejects.toThrow();
+    await expect(access(join(outside, "skills/bearing/SKILL.md"))).rejects.toThrow();
   });
 
   test("switches the complete current bundle and routes the CLI through it", async () => {
@@ -246,6 +317,9 @@ describe("Bearing kit installer", () => {
     expect(() => comparePackageVersions("0.1.0-01", "0.1.0")).toThrow(
       "package version is not supported",
     );
+    expect(() => comparePackageVersions("v0.1.0", "0.1.0")).toThrow(
+      "package version is not supported",
+    );
   });
 
   test("requires explicit confirmation before a whole-bundle downgrade", async () => {
@@ -267,33 +341,5 @@ describe("Bearing kit installer", () => {
       confirmDowngrade: true,
     });
     expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe("0.1.0");
-  });
-
-  test("blocks an update when a Catalog repository uses a newer schema", async () => {
-    const homeDir = await makeTemporaryDirectory("bearing-home-");
-    const repoRoot = await makeTemporaryDirectory("bearing-project-");
-    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
-    await writeFile(join(repoRoot, ".bearing-placeholder"), "placeholder\n");
-    await mkdir(join(repoRoot, ".bearing"));
-    const manifestPath = join(repoRoot, ".bearing/manifest.json");
-    await writeFile(
-      manifestPath,
-      `${JSON.stringify({
-        schemaVersion: 1,
-        packageVersion: "0.1.0",
-        surfaces: ["agent-skills"],
-        executorProfiles: ["generic-agent"],
-      })}\n`,
-    );
-    await upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "newer-project" });
-    await writeFile(
-      manifestPath,
-      `${JSON.stringify({ schemaVersion: 2, packageVersion: "0.2.0" })}\n`,
-    );
-
-    await expect(
-      installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] }),
-    ).rejects.toThrow("reads repository schema 1 only");
-    expect(JSON.parse(await readFile(manifestPath, "utf8")).schemaVersion).toBe(2);
   });
 });

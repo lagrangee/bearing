@@ -1,4 +1,4 @@
-import type { PortalCatalogEntry, PortalCatalogEnvelope } from "../portal-catalog-wire";
+import type { PortalCatalogEnvelope } from "../portal-catalog-wire";
 import { assertNever } from "./assert-never";
 import { CatalogList } from "./catalog-entries";
 import { Action, EmptyState, LoadingState } from "./primitives";
@@ -10,20 +10,10 @@ export type CatalogLoadState =
 
 type CatalogContentProps = {
   readonly onRefresh: () => void;
-  readonly onSelect: (entry: PortalCatalogEntry, trigger: HTMLButtonElement) => void;
-  readonly selectedId: string | null;
   readonly state: CatalogLoadState;
 };
 
-function ReadyCatalog({
-  catalog,
-  onSelect,
-  selectedId,
-}: {
-  readonly catalog: PortalCatalogEnvelope;
-  readonly onSelect: (entry: PortalCatalogEntry, trigger: HTMLButtonElement) => void;
-  readonly selectedId: string | null;
-}) {
+function ReadyCatalog({ catalog }: { readonly catalog: PortalCatalogEnvelope }) {
   if (catalog.entries.length === 0) {
     return (
       <EmptyState
@@ -33,14 +23,13 @@ function ReadyCatalog({
     );
   }
   return (
-    <section className="catalog-projects" aria-labelledby="registered-projects-title">
+    <section className="catalog-projects" aria-label="Registered projects">
       <div className="section-heading">
-        <h2 id="registered-projects-title">Registered projects</h2>
         <span>
           {catalog.entries.length} {catalog.entries.length === 1 ? "project" : "projects"}
         </span>
       </div>
-      <CatalogList entries={catalog.entries} selectedId={selectedId} onSelect={onSelect} />
+      <CatalogList entries={catalog.entries} />
     </section>
   );
 }
@@ -52,14 +41,14 @@ function DegradedDiagnostic({ message }: { readonly message: string }) {
       role="status"
       aria-labelledby="catalog-diagnostic-title"
     >
-      <p className="eyebrow">Catalog recovery</p>
-      <h2 id="catalog-diagnostic-title">Using last-known-good projects</h2>
+      <p className="eyebrow">Catalog availability</p>
+      <h2 id="catalog-diagnostic-title">Catalog is degraded</h2>
       <p>{message}</p>
     </section>
   );
 }
 
-export function CatalogContent({ onRefresh, onSelect, selectedId, state }: CatalogContentProps) {
+export function CatalogContent({ onRefresh, state }: CatalogContentProps) {
   switch (state.kind) {
     case "checking":
       return <LoadingState />;
@@ -80,7 +69,7 @@ export function CatalogContent({ onRefresh, onSelect, selectedId, state }: Catal
         case "failed":
           return (
             <EmptyState
-              title="Catalog needs repair"
+              title="Catalog is unavailable"
               detail={
                 state.catalog.diagnostic?.message ?? "No trustworthy Catalog document is available."
               }
@@ -92,14 +81,12 @@ export function CatalogContent({ onRefresh, onSelect, selectedId, state }: Catal
             />
           );
         case "ready":
-          return (
-            <ReadyCatalog catalog={state.catalog} selectedId={selectedId} onSelect={onSelect} />
-          );
+          return <ReadyCatalog catalog={state.catalog} />;
         case "degraded":
           return (
             <>
               <DegradedDiagnostic message={state.catalog.diagnostic.message} />
-              <ReadyCatalog catalog={state.catalog} selectedId={selectedId} onSelect={onSelect} />
+              <ReadyCatalog catalog={state.catalog} />
             </>
           );
         default:

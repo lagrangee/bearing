@@ -1,14 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  chmod,
   cp,
   link,
   mkdir,
   mkdtemp,
   readFile,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -28,6 +27,9 @@ import {
   validateCandidateTarball,
   verifyFrozenSourceInputs,
 } from "../scripts/release-smoke.mjs";
+import { validateMattSkillsV1Contract } from "../src/providers/matt-skills-v1";
+import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
+import { writeTarGzFixture } from "./release-archive-fixture";
 
 const temporaryDirectories: string[] = [];
 
@@ -98,6 +100,8 @@ const createFrozenSourceFixture = async (): Promise<{
   };
 };
 
+// Independent raw-header oracle: exercises forbidden mode/path policy without asking
+// the production tar-stream stack to generate the adversarial header it must reject.
 const rewriteTarEntryHeader = async (
   tarball: string,
   archivePath: string,
@@ -189,26 +193,28 @@ const createMachineCandidate = async (
   ]);
   const sourceCommit = await runGit(repository, ["rev-parse", "HEAD"]);
 
-  const packageRoot = join(root, "staging/package");
-  await mkdir(packageRoot, { recursive: true });
   const packedPackage = `${JSON.stringify({
     name: "@lagrangee/bearing",
     version: "0.1.0",
     candidate: artifactLabel,
   })}\n`;
-  const packedPackagePath = join(packageRoot, "package.json");
-  await writeFile(packedPackagePath, packedPackage);
-  await chmod(packedPackagePath, artifactMode & 0o777);
-  if (trailingSlashSymlink) {
-    await symlink("package.json", join(packageRoot, "hidden-link"));
-  }
   const tarball = join(root, "lagrangee-bearing-0.1.0.tgz");
-  const packed = spawnSync(
-    "/usr/bin/tar",
-    ["-czf", tarball, "-C", join(root, "staging"), "package"],
-    { encoding: "utf8" },
-  );
-  if (packed.status !== 0) throw new Error(packed.stderr);
+  await writeTarGzFixture(tarball, [
+    {
+      path: "package/package.json",
+      bytes: packedPackage,
+      mode: artifactMode & 0o777,
+    },
+    ...(trailingSlashSymlink
+      ? [
+          {
+            path: "package/hidden-link",
+            type: "symlink" as const,
+            linkname: "package.json",
+          },
+        ]
+      : []),
+  ]);
   if (artifactMode > 0o777) {
     await rewriteTarEntryMode(tarball, "package/package.json", artifactMode);
   }
@@ -322,11 +328,11 @@ describe("release smoke arguments", () => {
         "--version",
         "0.1.0",
       ]),
-    ).toThrow("node24 or node22");
+    ).toThrow("node24 or node26");
     expect(() =>
       parseReleaseSmokeArgs([
         "--lane",
-        "node22",
+        "node26",
         "--source-commit",
         "a".repeat(40),
         "--candidate-receipt",
@@ -365,11 +371,48 @@ describe("release smoke arguments", () => {
         "0.1.0",
       ]),
     ).toThrow("--candidate-receipt");
+    expect(() =>
+      parseReleaseSmokeArgs([
+        "--lane",
+        "node24",
+        "--lane",
+        "node26",
+        "--source-commit",
+        "a".repeat(40),
+        "--candidate-receipt",
+        "/tmp/candidate-receipt.json",
+        "--tarball",
+        "/tmp/candidate.tgz",
+        "--sha256",
+        "a".repeat(64),
+        "--version",
+        "0.1.0",
+      ]),
+    ).toThrow("lane");
+    expect(() =>
+      parseReleaseSmokeArgs([
+        "--lane",
+        "node24",
+        "--source-commit",
+        "a".repeat(40),
+        "--candidate-receipt",
+        "/tmp/candidate-receipt.json",
+        "--tarball",
+        "/tmp/candidate.tgz",
+        "--sha256",
+        "a".repeat(64),
+        "--version",
+        "v0.1.0",
+      ]),
+    ).toThrow("explicit 0.x package version");
   });
 
   test("refuses a lane that does not match the selected Node runtime", () => {
-    expect(() => assertLaneRuntime("node24", "v24.11.0")).not.toThrow();
-    expect(() => assertLaneRuntime("node22", "v24.11.0")).toThrow("node22 requires Node.js 22");
+    expect(() => assertLaneRuntime("node24", "v24.15.0")).not.toThrow();
+    expect(() => assertLaneRuntime("node24", "v24.14.1")).toThrow(
+      "node24 requires Node.js 24.15.0 or later",
+    );
+    expect(() => assertLaneRuntime("node26", "v24.11.0")).toThrow("node26 requires Node.js 26");
   });
 });
 
@@ -387,10 +430,38 @@ describe("release smoke frozen source binding", () => {
     expect(binding.seedManifest.map((file) => file.path)).toEqual([
       "CONTEXT.md",
       "docs/agents/issue-tracker.md",
+      "docs/agents/triage-labels.md",
       "scratch/release-smoke/issues/01-orient.md",
       "scratch/release-smoke/map.md",
       "scratch/release-smoke/PRD.md",
     ]);
+  }, 60_000);
+
+  test("keeps the frozen Local seed valid through the production G2 provider seam", async () => {
+    const repository = await temporaryDirectory();
+    await cp(RELEASE_SMOKE_SEED, repository, { recursive: true });
+    await rename(join(repository, "scratch"), join(repository, ".scratch"));
+    const contract = await readFile(join(repository, "docs/agents/issue-tracker.md"), "utf8");
+
+    expect(validateMattSkillsV1Contract(contract)).toEqual({
+      state: "supported",
+      driver: "local-markdown",
+    });
+    const capture = await createLocalMarkdownMattProvider({
+      repoRoot: repository,
+      contractLocator: "docs/agents/issue-tracker.md",
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    }).capture({
+      provider: "matt-skills/v1",
+      nativeScope: ".scratch/release-smoke",
+    });
+    expect(capture).toMatchObject({
+      state: "available",
+      freshness: { assessment: "current" },
+      coverage: { assessment: "complete" },
+      completion: "incomplete",
+      diagnostics: [],
+    });
   });
 
   test("rejects a supplied source commit that is not the exact current HEAD", async () => {

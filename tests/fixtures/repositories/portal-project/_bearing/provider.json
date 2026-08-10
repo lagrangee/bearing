@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "provider": "matt-skills/v1",
+  "contractLocator": "docs/agents/issue-tracker.md"
+}

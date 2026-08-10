@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
   chmod,
+  link,
   mkdir,
+  open,
   readdir,
   readFile,
   readlink,
@@ -12,7 +14,8 @@ import {
   unlink,
 } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import { writeFileAtomically } from "./atomic-write";
+import { compare as compareSemver, parse as parseSemver, valid as validSemver } from "semver";
+import writeFileAtomic from "write-file-atomic";
 import { readCatalogState } from "./catalog/store";
 import {
   ensureInstallDirectoryTargets,
@@ -20,9 +23,14 @@ import {
   missingInstallParentDirectories,
   preflightInstallTargets,
 } from "./install-boundary";
-import type { FileTargetPlan, SymlinkTargetPlan, TargetPlan } from "./install-manifest";
+import type {
+  DeleteTargetPlan,
+  FileTargetPlan,
+  SymlinkTargetPlan,
+  TargetPlan,
+} from "./install-manifest";
 import { buildBundlePlans } from "./install-manifest";
-import type { AgentSurface, InstallOptions, InstallResult } from "./types";
+import type { AgentSurface, GlobalUninstallResult, InstallOptions, InstallResult } from "./types";
 
 type FileSnapshot = Readonly<{
   kind: "file";
@@ -43,7 +51,7 @@ type Snapshot = Readonly<{
 
 const isSymlinkPlan = (plan: TargetPlan): plan is SymlinkTargetPlan => plan.kind === "symlink";
 
-const isFilePlan = (plan: TargetPlan): plan is FileTargetPlan => !isSymlinkPlan(plan);
+const isDeletePlan = (plan: TargetPlan): plan is DeleteTargetPlan => plan.kind === "delete";
 
 const normalizedLinkTarget = (target: string, linkTarget: string): string =>
   resolve(dirname(target), linkTarget);
@@ -91,7 +99,7 @@ const snapshotPlans = async (plans: readonly TargetPlan[]): Promise<readonly Sna
   }
   for (const snapshot of snapshots) {
     if (
-      isFilePlan(snapshot.plan) &&
+      !isSymlinkPlan(snapshot.plan) &&
       needsWrite(snapshot) &&
       snapshot.original.kind === "file" &&
       snapshot.original.linkCount !== undefined &&
@@ -106,6 +114,9 @@ const snapshotPlans = async (plans: readonly TargetPlan[]): Promise<readonly Sna
 const needsWrite = (snapshot: Snapshot): boolean => {
   if (isSymlinkPlan(snapshot.plan)) {
     return snapshot.original.kind !== "symlink" || snapshot.original.source === undefined;
+  }
+  if (isDeletePlan(snapshot.plan)) {
+    return snapshot.original.kind === "file" && snapshot.original.bytes !== undefined;
   }
   if (snapshot.original.kind !== "file") return true;
   if (snapshot.original.bytes === undefined || !snapshot.original.bytes.equals(snapshot.plan.bytes))
@@ -131,16 +142,18 @@ const removeCreatedDirectories = async (directories: readonly string[]): Promise
 };
 
 export const writeInstallTarget = async (plan: TargetPlan, _ordinal: number): Promise<void> => {
+  if (isDeletePlan(plan)) {
+    await unlink(plan.target);
+    return;
+  }
   await mkdir(dirname(plan.target), { recursive: true });
   if (isSymlinkPlan(plan)) {
     await symlink(plan.source, plan.target, "dir");
     return;
   }
-  await writeFileAtomically(
-    plan.target,
-    plan.bytes,
-    plan.mode ?? (plan.executable ? 0o755 : 0o644),
-  );
+  await writeFileAtomic(plan.target, plan.bytes, {
+    mode: plan.mode ?? (plan.executable ? 0o755 : 0o644),
+  });
 };
 
 const restoreSnapshots = async (snapshots: readonly Snapshot[]): Promise<void> => {
@@ -187,30 +200,29 @@ export const applyInstallPlans = async (
   homeDir: string,
   plans: readonly TargetPlan[],
   writer: InstallTargetWriter = writeInstallTarget,
+  beforeSnapshot: () => Promise<void> = async () => {},
+  afterWrite: () => Promise<readonly TargetPlan[] | undefined> = async () => undefined,
+  afterAllWrites: () => Promise<void> = async () => {},
 ): Promise<InstallResult> => {
   await ensureInstallDirectoryTargets(
     homeDir,
     plans.map((plan) => plan.target),
   );
+  await beforeSnapshot();
   const snapshots = await snapshotPlans(plans);
   const changed = snapshots.filter(needsWrite);
-  if (changed.length === 0) {
-    return {
-      outcome: "no-op",
-      cliPath: join(homeDir, ".bearing/bin/bearing"),
-      changedTargets: [],
-    };
-  }
-
-  const createdDirectories = await missingInstallParentDirectories(
-    homeDir,
-    changed.map((snapshot) => snapshot.plan.target),
-  );
+  const createdDirectories = [
+    ...(await missingInstallParentDirectories(
+      homeDir,
+      changed.map((snapshot) => snapshot.plan.target),
+    )),
+  ];
   const applied: Snapshot[] = [];
+  const allChanged: Snapshot[] = [...changed];
   try {
     for (const [index, snapshot] of changed.entries()) {
       applied.push(snapshot);
-      if (isSymlinkPlan(snapshot.plan)) {
+      if (isSymlinkPlan(snapshot.plan) || isDeletePlan(snapshot.plan)) {
         await writer(snapshot.plan, index);
         continue;
       }
@@ -220,23 +232,61 @@ export const applyInstallPlans = async (
           : undefined;
       await writer(mode === undefined ? snapshot.plan : { ...snapshot.plan, mode }, index);
     }
+    const additionalPlans = (await afterWrite()) ?? [];
+    if (additionalPlans.length > 0) {
+      await ensureInstallDirectoryTargets(
+        homeDir,
+        additionalPlans.map((plan) => plan.target),
+      );
+      const additionalSnapshots = await snapshotPlans(additionalPlans);
+      const additionalChanged = additionalSnapshots.filter(needsWrite);
+      const additionalDirectories = await missingInstallParentDirectories(
+        homeDir,
+        additionalChanged.map((snapshot) => snapshot.plan.target),
+      );
+      createdDirectories.push(
+        ...additionalDirectories.filter((directory) => !createdDirectories.includes(directory)),
+      );
+      allChanged.push(...additionalChanged);
+      for (const [index, snapshot] of additionalChanged.entries()) {
+        applied.push(snapshot);
+        if (isSymlinkPlan(snapshot.plan) || isDeletePlan(snapshot.plan)) {
+          await writer(snapshot.plan, changed.length + index);
+          continue;
+        }
+        const mode =
+          snapshot.original.kind === "file" && snapshot.original.mode !== undefined
+            ? (snapshot.original.mode & 0o7777) | (snapshot.plan.executable ? 0o100 : 0)
+            : undefined;
+        await writer(
+          mode === undefined ? snapshot.plan : { ...snapshot.plan, mode },
+          changed.length + index,
+        );
+      }
+    }
+    await afterAllWrites();
   } catch (error) {
     try {
       await restoreSnapshots(applied);
-      await removeCreatedDirectories(createdDirectories);
+      await removeCreatedDirectories(
+        [...createdDirectories].sort((left, right) => right.length - left.length),
+      );
     } catch (rollbackError) {
       throw new Error("Bearing kit installation and rollback both failed.", {
         cause: rollbackError,
       });
     }
-    throw new Error("Bearing kit installation failed; all written targets were restored.", {
-      cause: error,
-    });
+    throw new Error(
+      `Bearing kit installation failed; all written targets were restored. Cause: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error },
+    );
   }
   return {
-    outcome: "applied",
+    outcome: allChanged.length > 0 ? "applied" : "no-op",
     cliPath: join(homeDir, ".bearing/bin/bearing"),
-    changedTargets: changed.map((snapshot) => relative(homeDir, snapshot.plan.target)),
+    changedTargets: allChanged.map((snapshot) => relative(homeDir, snapshot.plan.target)),
   };
 };
 
@@ -245,6 +295,12 @@ type ManagedLinkSnapshot = Readonly<
   | { kind: "symlink"; target: string; source: string }
   | { kind: "legacy-cli"; target: string; bytes: Buffer; mode: number }
 >;
+
+type ManagedLinkMutation = Readonly<{
+  original: ManagedLinkSnapshot;
+  expected: Readonly<{ kind: "missing" } | { kind: "symlink"; source: string }>;
+  retiredOriginal?: string;
+}>;
 
 const parsePackageVersion = (bytes: string, target: string): string => {
   let parsed: unknown;
@@ -270,30 +326,13 @@ const packageVersionAt = async (root: string): Promise<string> => {
   return parsePackageVersion(await readFile(target, "utf8"), target);
 };
 
-type ParsedVersion = Readonly<{
-  major: bigint;
-  minor: bigint;
-  patch: bigint;
-  prerelease: readonly string[];
-}>;
-
-const parseVersion = (version: string): ParsedVersion => {
-  const match =
-    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.exec(
-      version,
-    );
-  if (match === null) throw new Error(`Bearing package version is not supported: ${version}`);
-  const major = match[1];
-  const minor = match[2];
-  const patch = match[3];
-  if (major === undefined || minor === undefined || patch === undefined) {
+const parseVersion = (version: string): NonNullable<ReturnType<typeof parseSemver>> => {
+  if (validSemver(version) !== version) {
     throw new Error(`Bearing package version is not supported: ${version}`);
   }
-  const prerelease = match[4]?.split(".") ?? [];
-  if (prerelease.some((identifier) => /^0\d+$/u.test(identifier))) {
-    throw new Error(`Bearing package version is not supported: ${version}`);
-  }
-  return { major: BigInt(major), minor: BigInt(minor), patch: BigInt(patch), prerelease };
+  const parsed = parseSemver(version);
+  if (parsed === null) throw new Error(`Bearing package version is not supported: ${version}`);
+  return parsed;
 };
 
 const installedPackageVersionAt = async (root: string): Promise<string | undefined> => {
@@ -313,37 +352,24 @@ const installedPackageVersionAt = async (root: string): Promise<string | undefin
   return version;
 };
 
-const comparePrereleaseIdentifiers = (left: string, right: string): number => {
-  const leftNumeric = /^\d+$/u.test(left);
-  const rightNumeric = /^\d+$/u.test(right);
-  if (leftNumeric && rightNumeric) {
-    const leftNumber = BigInt(left);
-    const rightNumber = BigInt(right);
-    return leftNumber === rightNumber ? 0 : leftNumber < rightNumber ? -1 : 1;
-  }
-  if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
-  return left === right ? 0 : left < right ? -1 : 1;
-};
-
 export const comparePackageVersions = (left: string, right: string): number => {
-  const a = parseVersion(left);
-  const b = parseVersion(right);
-  for (const key of ["major", "minor", "patch"] as const) {
-    if (a[key] !== b[key]) return a[key] < b[key] ? -1 : 1;
-  }
-  if (a.prerelease.length === 0 || b.prerelease.length === 0) {
-    if (a.prerelease.length === b.prerelease.length) return 0;
-    return a.prerelease.length === 0 ? 1 : -1;
-  }
-  const length = Math.max(a.prerelease.length, b.prerelease.length);
-  for (let index = 0; index < length; index += 1) {
-    const leftIdentifier = a.prerelease[index];
-    const rightIdentifier = b.prerelease[index];
-    if (leftIdentifier === undefined || rightIdentifier === undefined) {
-      return leftIdentifier === undefined ? -1 : 1;
+  const leftVersion = parseVersion(left);
+  const rightVersion = parseVersion(right);
+  const comparison = compareSemver(leftVersion, rightVersion);
+  if (comparison !== 0) return comparison;
+
+  // Accepted Build Exception: semver@7.8.5 coerces oversized numeric prerelease
+  // identifiers to Number during comparison. Delete this fallback when upstream
+  // preserves their exact SemVer precedence.
+  for (let index = 0; index < leftVersion.prerelease.length; index += 1) {
+    const leftIdentifier = String(leftVersion.prerelease[index]);
+    const rightIdentifier = String(rightVersion.prerelease[index]);
+    if (leftIdentifier === rightIdentifier) continue;
+    if (!/^\d+$/u.test(leftIdentifier) || !/^\d+$/u.test(rightIdentifier)) return 0;
+    if (leftIdentifier.length !== rightIdentifier.length) {
+      return leftIdentifier.length < rightIdentifier.length ? -1 : 1;
     }
-    const comparison = comparePrereleaseIdentifiers(leftIdentifier, rightIdentifier);
-    if (comparison !== 0) return comparison;
+    return leftIdentifier < rightIdentifier ? -1 : 1;
   }
   return 0;
 };
@@ -361,7 +387,7 @@ export const assertSupportedDowngrade = (
       `Downgrade from Bearing ${installedVersion} to ${candidateVersion} crosses a major-version boundary and is unsupported. Use the release-specific migration and verified backup path.`,
     );
   }
-  if (installed.minor - candidate.minor > 1n) {
+  if (installed.minor - candidate.minor > 1) {
     throw new Error(
       `Downgrade from Bearing ${installedVersion} to ${candidateVersion} skips multiple minor versions and is unsupported. Downgrade through each documented minor and restore its verified backup when required.`,
     );
@@ -406,14 +432,9 @@ const readRepositorySchemaVersion = async (repoRoot: string): Promise<number> =>
 
 const assertCatalogCompatibility = async (homeDir: string): Promise<void> => {
   const state = await readCatalogState({ homeDir });
-  if (state.state === "degraded") {
-    throw new Error(
-      "Bearing update is blocked while the Project Catalog uses its backup. Run `bearing catalog repair` and retry.",
-    );
-  }
   if (state.state === "failed") {
     throw new Error(
-      "Bearing update is blocked because the Project Catalog is unusable. Follow Catalog recovery before retrying.",
+      "Bearing update is blocked because the Project Catalog is unusable. Run confirmed Catalog reset and Repository Configuration before retrying.",
     );
   }
   const incompatible: string[] = [];
@@ -435,6 +456,30 @@ const removeExactTree = async (target: string): Promise<void> => {
     await rm(target, { recursive: true, force: false });
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+};
+
+const removeEmptyDirectoryWhenPresent = async (target: string): Promise<void> => {
+  try {
+    await rmdir(target);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+};
+
+const removeEmptyDirectoryIfEmpty = async (target: string): Promise<void> => {
+  try {
+    await rmdir(target);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTEMPTY")
+    ) {
+      return;
+    }
     throw error;
   }
 };
@@ -464,33 +509,278 @@ const inspectManagedLink = async (
   throw new Error(`Installation symlink target conflicts with existing content: ${target}`);
 };
 
-const restoreManagedLink = async (snapshot: ManagedLinkSnapshot): Promise<void> => {
-  try {
-    await unlink(snapshot.target);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+const inspectOwnedInstalledEntry = async (
+  target: string,
+  expectedSource: string,
+  legacySource?: string,
+): Promise<ManagedLinkSnapshot | undefined> => {
+  const state = await inspectInstallPath(target);
+  if (state.kind === "missing") return undefined;
+  if (state.kind === "symbolic-link") {
+    const source = await readlink(target);
+    return source === expectedSource || normalizedLinkTarget(target, source) === expectedSource
+      ? { kind: "symlink", target, source }
+      : undefined;
   }
+  if (legacySource === undefined || state.kind !== "file" || state.linkCount !== 1) {
+    return undefined;
+  }
+  const [bytes, legacyBytes] = await Promise.all([readFile(target), readFile(legacySource)]);
+  return bytes.equals(legacyBytes)
+    ? { kind: "legacy-cli", target, bytes, mode: state.mode & 0o7777 }
+    : undefined;
+};
+
+const restoreQuarantinedEntry = async (quarantine: string, target: string): Promise<void> => {
+  const state = await inspectInstallPath(quarantine);
+  if (state.kind === "symbolic-link") {
+    const source = await readlink(quarantine);
+    await symlink(source, target, source.endsWith("/dist/cli.js") ? "file" : "dir");
+    await unlink(quarantine);
+    return;
+  }
+  if (state.kind === "file") {
+    await link(quarantine, target);
+    await unlink(quarantine);
+    return;
+  }
+  throw new Error(
+    `Managed-link recovery preserved unexpected content in quarantine: ${quarantine}`,
+  );
+};
+
+const quarantineExpectedSymlink = async (
+  target: string,
+  expectedSource: string,
+  quarantine: string,
+): Promise<void> => {
+  await rename(target, quarantine);
+  const state = await inspectInstallPath(quarantine);
+  const source = state.kind === "symbolic-link" ? await readlink(quarantine) : undefined;
+  if (source === expectedSource) return;
+  try {
+    await restoreQuarantinedEntry(quarantine, target);
+  } catch (restoreError) {
+    throw new Error(
+      `Managed-link transaction found replaced content and preserved it in quarantine: ${quarantine}`,
+      { cause: restoreError },
+    );
+  }
+  throw new Error(`Managed-link transaction found replaced content: ${target}`);
+};
+
+const restoreOriginalManagedLink = async (
+  snapshot: ManagedLinkSnapshot,
+  retiredOriginal?: string,
+  recoveryFile?: string,
+): Promise<void> => {
   if (snapshot.kind === "missing") return;
   await mkdir(dirname(snapshot.target), { recursive: true });
   if (snapshot.kind === "symlink") {
+    let retiredOriginalPresent = false;
+    if (retiredOriginal !== undefined) {
+      const state = await inspectInstallPath(retiredOriginal);
+      if (state.kind !== "missing") {
+        retiredOriginalPresent = true;
+        const source = state.kind === "symbolic-link" ? await readlink(retiredOriginal) : undefined;
+        if (source !== snapshot.source) {
+          throw new Error(
+            `Managed-link recovery found changed retirement data: ${retiredOriginal}`,
+          );
+        }
+      }
+    }
     await symlink(
       snapshot.source,
       snapshot.target,
       snapshot.source.endsWith("/dist/cli.js") ? "file" : "dir",
     );
+    if (retiredOriginalPresent && retiredOriginal !== undefined) await unlink(retiredOriginal);
     return;
   }
-  await writeFileAtomically(snapshot.target, snapshot.bytes, snapshot.mode);
+  if (retiredOriginal !== undefined) {
+    const state = await inspectInstallPath(retiredOriginal);
+    if (state.kind !== "missing") {
+      if (
+        state.kind !== "file" ||
+        state.linkCount !== 1 ||
+        (state.mode & 0o7777) !== snapshot.mode ||
+        !(await readFile(retiredOriginal)).equals(snapshot.bytes)
+      ) {
+        throw new Error(`Managed-link recovery found changed retirement data: ${retiredOriginal}`);
+      }
+      await link(retiredOriginal, snapshot.target);
+      await unlink(retiredOriginal);
+      return;
+    }
+  }
+  if (recoveryFile === undefined) {
+    throw new Error(`Managed-link recovery is missing a safe restore path: ${snapshot.target}`);
+  }
+  const recoveryHandle = await open(recoveryFile, "wx", snapshot.mode);
+  try {
+    await recoveryHandle.writeFile(snapshot.bytes);
+    await recoveryHandle.chmod(snapshot.mode);
+    await recoveryHandle.sync();
+  } finally {
+    await recoveryHandle.close();
+  }
+  await link(recoveryFile, snapshot.target);
+  await unlink(recoveryFile);
 };
 
-const replaceWithManagedLink = async (target: string, source: string): Promise<void> => {
-  try {
-    await unlink(target);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+const restoreManagedLinkMutation = async (
+  mutation: ManagedLinkMutation,
+  rollbackQuarantine: string,
+): Promise<void> => {
+  if (mutation.expected.kind === "missing") {
+    const current = await inspectInstallPath(mutation.original.target);
+    if (current.kind !== "missing") {
+      throw new Error(
+        `Managed-link recovery refused content created after removal: ${mutation.original.target}`,
+      );
+    }
+    await restoreOriginalManagedLink(
+      mutation.original,
+      mutation.retiredOriginal,
+      `${rollbackQuarantine}-file`,
+    );
+    return;
   }
-  await mkdir(dirname(target), { recursive: true });
-  await symlink(source, target, source.endsWith("/dist/cli.js") ? "file" : "dir");
+  await quarantineExpectedSymlink(
+    mutation.original.target,
+    mutation.expected.source,
+    rollbackQuarantine,
+  );
+  try {
+    await restoreOriginalManagedLink(
+      mutation.original,
+      mutation.retiredOriginal,
+      `${rollbackQuarantine}-file`,
+    );
+  } catch (error) {
+    throw new Error(
+      `Managed-link recovery preserved the installer post-image in quarantine: ${rollbackQuarantine}`,
+      { cause: error },
+    );
+  }
+  await unlink(rollbackQuarantine);
+};
+
+const removeManagedLink = async (
+  snapshot: ManagedLinkSnapshot,
+  quarantine: string,
+): Promise<ManagedLinkMutation> => {
+  if (snapshot.kind !== "symlink") {
+    throw new Error(`Managed-link removal requires an owned symlink: ${snapshot.target}`);
+  }
+  await quarantineExpectedSymlink(snapshot.target, snapshot.source, quarantine);
+  return {
+    original: snapshot,
+    expected: { kind: "missing" },
+    retiredOriginal: quarantine,
+  };
+};
+
+const removeManagedEntry = async (
+  snapshot: ManagedLinkSnapshot,
+  quarantine: string,
+): Promise<ManagedLinkMutation> => {
+  if (snapshot.kind === "symlink") return removeManagedLink(snapshot, quarantine);
+  if (snapshot.kind !== "legacy-cli") {
+    throw new Error(`Managed entry removal requires an owned target: ${snapshot.target}`);
+  }
+  await rename(snapshot.target, quarantine);
+  const state = await inspectInstallPath(quarantine);
+  if (
+    state.kind !== "file" ||
+    state.linkCount !== 1 ||
+    (state.mode & 0o7777) !== snapshot.mode ||
+    !(await readFile(quarantine)).equals(snapshot.bytes)
+  ) {
+    try {
+      await restoreQuarantinedEntry(quarantine, snapshot.target);
+    } catch (restoreError) {
+      throw new Error(`Managed entry removal preserved changed content: ${quarantine}`, {
+        cause: restoreError,
+      });
+    }
+    throw new Error(`Managed entry removal found changed content: ${snapshot.target}`);
+  }
+  return {
+    original: snapshot,
+    expected: { kind: "missing" },
+    retiredOriginal: quarantine,
+  };
+};
+
+const discardRetiredOriginal = async (mutation: ManagedLinkMutation): Promise<void> => {
+  const target = mutation.retiredOriginal;
+  if (target === undefined) return;
+  const state = await inspectInstallPath(target);
+  if (mutation.original.kind === "symlink") {
+    const source = state.kind === "symbolic-link" ? await readlink(target) : undefined;
+    if (source !== mutation.original.source) {
+      throw new Error(`Managed-link commit found changed retirement data: ${target}`);
+    }
+  } else if (
+    mutation.original.kind !== "legacy-cli" ||
+    state.kind !== "file" ||
+    state.linkCount !== 1 ||
+    (state.mode & 0o7777) !== mutation.original.mode ||
+    !(await readFile(target)).equals(mutation.original.bytes)
+  ) {
+    throw new Error(`Managed-link commit found changed retirement data: ${target}`);
+  }
+  await unlink(target);
+};
+
+const replaceWithManagedLink = async (
+  snapshot: ManagedLinkSnapshot,
+  source: string,
+  quarantine: string,
+): Promise<ManagedLinkMutation> => {
+  let retiredOriginal: string | undefined;
+  if (snapshot.kind === "symlink") {
+    throw new Error(
+      `Managed-link replacement received an already managed link: ${snapshot.target}`,
+    );
+  }
+  if (snapshot.kind === "legacy-cli") {
+    await rename(snapshot.target, quarantine);
+    const state = await inspectInstallPath(quarantine);
+    if (
+      state.kind !== "file" ||
+      state.linkCount !== 1 ||
+      (state.mode & 0o7777) !== snapshot.mode ||
+      !(await readFile(quarantine)).equals(snapshot.bytes)
+    ) {
+      try {
+        await restoreQuarantinedEntry(quarantine, snapshot.target);
+      } catch (restoreError) {
+        throw new Error(
+          `Managed-link replacement preserved changed content in quarantine: ${quarantine}`,
+          { cause: restoreError },
+        );
+      }
+      throw new Error(`Managed-link replacement found changed content: ${snapshot.target}`);
+    }
+    retiredOriginal = quarantine;
+  }
+  await mkdir(dirname(snapshot.target), { recursive: true });
+  try {
+    await symlink(source, snapshot.target, source.endsWith("/dist/cli.js") ? "file" : "dir");
+  } catch (error) {
+    if (retiredOriginal !== undefined) {
+      await restoreOriginalManagedLink(snapshot, retiredOriginal, `${quarantine}-restore`);
+    }
+    throw error;
+  }
+  return {
+    original: snapshot,
+    expected: { kind: "symlink", source },
+    ...(retiredOriginal === undefined ? {} : { retiredOriginal }),
+  };
 };
 
 const listRegularFiles = async (root: string, directory = ""): Promise<readonly string[]> => {
@@ -528,17 +818,7 @@ const bundleMatches = async (
   return true;
 };
 
-const skillNamesForInstall = [
-  "bearing",
-  "bearing-setup",
-  "bearing-summary",
-  "bearing-roadmap",
-  "bearing-milestone-gate",
-  "bearing-alignment-check",
-  "bearing-planning-audit",
-  "bearing-planning-review",
-  "bearing-next-work",
-] as const;
+const skillNamesForInstall = ["bearing"] as const;
 
 const managedSurfaceTargets = (
   homeDir: string,
@@ -561,6 +841,10 @@ const managedSurfaceTargets = (
 
 export type InstallTransactionHooks = Readonly<{
   afterCurrentMoved?: () => Promise<void> | void;
+}>;
+
+export type GlobalUninstallTransactionHooks = Readonly<{
+  removeDetachedBundle?: (target: string) => Promise<void>;
 }>;
 
 export const installKit = async (
@@ -610,15 +894,18 @@ export const installKit = async (
       }
     }
   }
-
   const transaction = randomUUID();
   const staging = join(kitRoot, `.staged-${transaction}`);
   const backup = join(kitRoot, `.previous-${transaction}`);
+  const linkTransaction = join(kitRoot, `.link-transaction-${transaction}`);
   await ensureInstallDirectoryTargets(homeDir, [join(staging, "package.json"), cliTarget]);
   const bundlePlans = await buildBundlePlans(options.packageRoot, staging);
   let switched = false;
   let oldMoved = false;
-  const mutatedLinks: ManagedLinkSnapshot[] = [];
+  let linkRetirementSequence = 0;
+  const nextLinkRetirement = (phase: "original" | "rollback"): string =>
+    join(linkTransaction, `${phase}-${linkRetirementSequence++}`);
+  const mutatedLinks: ManagedLinkMutation[] = [];
   try {
     await applyInstallPlans(homeDir, bundlePlans);
     if ((await packageVersionAt(staging)) !== candidateVersion) {
@@ -636,22 +923,24 @@ export const installKit = async (
       await removeExactTree(staging);
       return { outcome: "no-op", cliPath: cliTarget, changedTargets: [] };
     }
+    await mkdir(linkTransaction, { mode: 0o700 });
     if (cliSnapshot.kind !== "symlink") {
-      mutatedLinks.push(cliSnapshot);
-      await replaceWithManagedLink(cliTarget, cliSource);
+      mutatedLinks.push(
+        await replaceWithManagedLink(cliSnapshot, cliSource, nextLinkRetirement("original")),
+      );
     }
     for (const item of surfaceTargets) {
       const snapshot = surfaceSnapshots.get(item.target);
       if (selected.has(item.selectedBy)) {
         if (snapshot?.kind === "symlink") continue;
         if (snapshot === undefined) throw new Error(`Missing preflight state: ${item.target}`);
-        mutatedLinks.push(snapshot);
-        await replaceWithManagedLink(item.target, item.source);
+        mutatedLinks.push(
+          await replaceWithManagedLink(snapshot, item.source, nextLinkRetirement("original")),
+        );
         continue;
       }
       if (snapshot?.kind === "symlink") {
-        mutatedLinks.push(snapshot);
-        await unlink(item.target);
+        mutatedLinks.push(await removeManagedLink(snapshot, nextLinkRetirement("original")));
       }
     }
     if (currentState.kind === "directory") {
@@ -661,6 +950,8 @@ export const installKit = async (
     }
     await rename(staging, current);
     switched = true;
+    for (const mutation of mutatedLinks) await discardRetiredOriginal(mutation);
+    await removeEmptyDirectoryWhenPresent(linkTransaction);
   } catch (error) {
     const recoveryErrors: Error[] = [];
     try {
@@ -679,9 +970,9 @@ export const installKit = async (
           : new Error("Bundle recovery threw a non-Error value.", { cause: recoveryError }),
       );
     }
-    for (const snapshot of [...mutatedLinks].reverse()) {
+    for (const mutation of [...mutatedLinks].reverse()) {
       try {
-        await restoreManagedLink(snapshot);
+        await restoreManagedLinkMutation(mutation, nextLinkRetirement("rollback"));
       } catch (recoveryError) {
         recoveryErrors.push(
           recoveryError instanceof Error
@@ -701,6 +992,19 @@ export const installKit = async (
           : new Error("Staging cleanup threw a non-Error value.", { cause: recoveryError }),
       );
     }
+    if (recoveryErrors.length === 0) {
+      try {
+        await removeEmptyDirectoryWhenPresent(linkTransaction);
+      } catch (recoveryError) {
+        recoveryErrors.push(
+          recoveryError instanceof Error
+            ? recoveryError
+            : new Error("Link-transaction cleanup threw a non-Error value.", {
+                cause: recoveryError,
+              }),
+        );
+      }
+    }
     if (recoveryErrors.length > 0) {
       throw new Error("Bearing kit installation and complete-bundle recovery both failed.", {
         cause: new AggregateError([error, ...recoveryErrors]),
@@ -716,12 +1020,97 @@ export const installKit = async (
     ".bearing/kit/current/",
     ...(cliSnapshot.kind === "symlink" ? [] : [relative(homeDir, cliTarget)]),
     ...mutatedLinks
-      .filter((snapshot) => snapshot.target !== cliTarget)
-      .map((snapshot) => relative(homeDir, snapshot.target)),
+      .filter((mutation) => mutation.original.target !== cliTarget)
+      .map((mutation) => relative(homeDir, mutation.original.target)),
   ].sort();
   return {
     outcome: "applied",
     cliPath: cliTarget,
     changedTargets,
+  };
+};
+
+export const uninstallGlobalKit = async (
+  homeDirectory: string,
+  hooks: GlobalUninstallTransactionHooks = {},
+): Promise<GlobalUninstallResult> => {
+  const homeDir = resolve(homeDirectory);
+  const kitRoot = join(homeDir, ".bearing/kit");
+  const current = join(kitRoot, "current");
+  const currentState = await inspectInstallPath(current);
+  if (currentState.kind === "symbolic-link" || currentState.kind === "file") {
+    throw new Error(`Bearing current bundle must be a real directory: ${current}`);
+  }
+
+  const cliTarget = join(homeDir, ".bearing/bin/bearing");
+  const cliSource = join(current, "dist/cli.js");
+  const candidates = [
+    { target: cliTarget, source: cliSource, legacySource: cliSource },
+    ...managedSurfaceTargets(homeDir),
+  ];
+  const ownedEntries = (
+    await Promise.all(
+      candidates.map((candidate) =>
+        inspectOwnedInstalledEntry(
+          candidate.target,
+          candidate.source,
+          currentState.kind === "directory" && "legacySource" in candidate
+            ? candidate.legacySource
+            : undefined,
+        ),
+      ),
+    )
+  ).filter((entry): entry is ManagedLinkSnapshot => entry !== undefined);
+
+  if (currentState.kind === "missing" && ownedEntries.length === 0) {
+    return { outcome: "no-op", removedTargets: [] };
+  }
+
+  const transaction = randomUUID();
+  const linkTransaction = join(kitRoot, `.uninstall-links-${transaction}`);
+  const detachedBundle = join(kitRoot, `.uninstall-bundle-${transaction}`);
+  await ensureInstallDirectoryTargets(homeDir, [join(linkTransaction, "entry")]);
+  await mkdir(linkTransaction, { mode: 0o700 });
+  const mutations: ManagedLinkMutation[] = [];
+  let bundleDetached = false;
+  try {
+    for (const [index, entry] of ownedEntries.entries()) {
+      mutations.push(await removeManagedEntry(entry, join(linkTransaction, `entry-${index}`)));
+    }
+    if (currentState.kind === "directory") {
+      await rename(current, detachedBundle);
+      bundleDetached = true;
+    }
+  } catch (error) {
+    if (bundleDetached) await rename(detachedBundle, current);
+    for (const [index, mutation] of [...mutations].reverse().entries()) {
+      await restoreManagedLinkMutation(mutation, join(linkTransaction, `rollback-${index}`));
+    }
+    await removeEmptyDirectoryWhenPresent(linkTransaction);
+    throw new Error("Bearing Global Kit uninstall failed; managed targets were restored.", {
+      cause: error,
+    });
+  }
+
+  try {
+    if (bundleDetached) {
+      await (hooks.removeDetachedBundle ?? removeExactTree)(detachedBundle);
+    }
+    for (const mutation of mutations) await discardRetiredOriginal(mutation);
+    await removeEmptyDirectoryWhenPresent(linkTransaction);
+    await removeEmptyDirectoryIfEmpty(kitRoot);
+  } catch (error) {
+    throw new Error(
+      `Outcome: partial\nBearing Global Kit targets were detached, but cleanup is incomplete. Inspect only these exact recovery locations: ${detachedBundle}, ${linkTransaction}. Reinstall or Repair from the exact package candidate remains supported.`,
+      { cause: error },
+    );
+  }
+
+  return {
+    outcome: "applied",
+    removedTargets: [
+      ...(currentState.kind === "directory" ? [relative(homeDir, current)] : []),
+      ...ownedEntries.map((entry) => relative(homeDir, entry.target)),
+    ].sort(),
   };
 };

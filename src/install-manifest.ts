@@ -16,19 +16,14 @@ export type SymlinkTargetPlan = Readonly<{
   source: string;
 }>;
 
-export type TargetPlan = FileTargetPlan | SymlinkTargetPlan;
+export type DeleteTargetPlan = Readonly<{
+  kind: "delete";
+  target: string;
+}>;
 
-const skillNames = [
-  "bearing",
-  "bearing-setup",
-  "bearing-summary",
-  "bearing-roadmap",
-  "bearing-milestone-gate",
-  "bearing-alignment-check",
-  "bearing-planning-audit",
-  "bearing-planning-review",
-  "bearing-next-work",
-];
+export type TargetPlan = FileTargetPlan | SymlinkTargetPlan | DeleteTargetPlan;
+
+const skillNames = ["bearing"];
 
 const surfaceRoot = (homeDir: string, surface: AgentSurface): string =>
   surface === "agent-skills" ? join(homeDir, ".agents/skills") : join(homeDir, ".claude/skills");
@@ -48,9 +43,7 @@ const listFiles = async (root: string, directory: string): Promise<string[]> => 
 const sourceLocators = async (packageRoot: string): Promise<readonly string[]> => {
   const files = ["package.json"];
   files.push(...(await listFiles(packageRoot, "dist")));
-  files.push(...(await listFiles(packageRoot, "docs/agents/bearing")));
   files.push(...(await listFiles(packageRoot, "skills")));
-  files.push(...(await listFiles(packageRoot, "templates")));
   return files;
 };
 

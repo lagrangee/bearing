@@ -1,33 +1,22 @@
-export { withCatalogEntryLease } from "./entry-lease";
 export {
-  type CatalogEntryLockRepairResult,
-  repairCatalogEntryLock,
-} from "./entry-lease-repair";
-export {
+  CatalogBusyError,
   CatalogDuplicateRepositoryError,
   CatalogEntryNotFoundError,
-  CatalogEntryOwnershipError,
-  CatalogLockError,
-  CatalogLockRecoveryError,
-  CatalogLockRepairError,
-  CatalogMoveConfirmationRequiredError,
+  CatalogLocatorReplacementConfirmationRequiredError,
   CatalogRecoveryRequiredError,
 } from "./errors";
-export { type CatalogLockRepairResult, repairCatalogLock } from "./lock-repair";
 export {
   type CatalogEntryMutationResult,
-  type CatalogRemovalResult,
+  type CatalogUnregisterResult,
   type CatalogUpsertResult,
-  forgetCatalogEntry,
   relinkCatalogEntry,
-  removeCatalogEntryByRepoRoot,
   renameCatalogEntry,
+  unregisterCatalogEntry,
   upsertCatalogEntry,
 } from "./operations";
-export type { CatalogReadState } from "./persistence";
 export {
   readCatalogDocument,
   readCatalogState,
-  repairCatalog,
   resetCatalog,
 } from "./recovery";
+export type { CatalogReadState } from "./sqlite";

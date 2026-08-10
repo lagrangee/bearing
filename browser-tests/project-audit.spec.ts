@@ -1,50 +1,46 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import type { ProjectSnapshot } from "../src/project-snapshot/contract";
+import type { ProjectGeneration } from "../src/project-generation/contract";
+import { projectGenerationSchema } from "../src/project-generation/schema";
 import {
   createAbsentProjectAuditFixture,
   createInvalidProjectAuditFixture,
+  createMissingGeneratedTimeAuditFixture,
   createPartialProjectAuditFixture,
   createProjectAuditFixture,
-  createUnavailableAuditPromotionFixture,
   createZeroProjectAuditFixture,
 } from "../tests/fixtures/project-audit";
+import { withRebuiltPlanningLineage } from "../tests/planning-lineage-fixture";
 import { browserArtifactPath } from "./browser-artifact-output";
+import {
+  projectRowEnvelope,
+  projectSectionFromRequest,
+  projectTargetFromRequest,
+} from "./project-row-fixture";
 
-const envelope = (snapshot: ProjectSnapshot) => ({
-  version: 1,
-  state: "ready",
-  view: {
-    project: { entryId: "audit", displayName: "Audit fixture", availability: "available" },
-    cache: {
-      snapshot: { state: "available", snapshot },
-      receipt: {
-        schemaVersion: 1,
-        producer: { packageName: "@lagrangee/bearing", packageVersion: "0.0.0-test" },
-        completedAt: "2026-07-14T12:00:00+08:00",
-        sitemap: { version: 1, fingerprint: snapshot.basis.sitemapFingerprint },
-        reconciliation: "no-op",
-      },
-      retained: false,
-    },
-    diagnosticCounts: { blocking: 0, nonBlocking: 0, total: 0 },
-  },
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-  session: { csrfToken: "ticket-14-csrf" },
-});
+const envelope = (
+  snapshot: ProjectGeneration,
+  section: Parameters<typeof projectRowEnvelope>[0]["section"],
+  target?: Parameters<typeof projectRowEnvelope>[0]["target"],
+) =>
+  projectRowEnvelope({
+    snapshot,
+    section,
+    target,
+    entryId: "audit",
+    displayName: "Audit fixture",
+  });
 
-const serveSnapshot = async (page: Page, current: () => ProjectSnapshot): Promise<void> => {
-  await page.route("**/api/v1/projects/audit/snapshot", (route) =>
-    route.fulfill({ json: envelope(current()) }),
+const serveSnapshot = async (page: Page, current: () => ProjectGeneration): Promise<void> => {
+  await page.route("**/api/v1/projects/audit/read-model?section=*", (route) =>
+    route.fulfill({
+      json: envelope(
+        current(),
+        projectSectionFromRequest(route.request().url()),
+        projectTargetFromRequest(route.request().url()),
+      ),
+    }),
   );
-};
-
-const focusByTab = async (page: Page, target: Locator): Promise<void> => {
-  for (let index = 0; index < 50; index += 1) {
-    await page.keyboard.press("Tab");
-    if (await target.evaluate((element) => document.activeElement === element)) return;
-  }
-  throw new Error("Expected target in the document tab order.");
 };
 
 const minimumTarget = async (target: Locator, size: number): Promise<void> => {
@@ -54,178 +50,168 @@ const minimumTarget = async (target: Locator, size: number): Promise<void> => {
   expect(box.height).toBeGreaterThanOrEqual(size);
 };
 
-const expectClosedNarrowNavigation = async (page: Page): Promise<void> => {
-  const navigation = page.locator(".project-nav");
-  await expect(navigation).toHaveAttribute("aria-hidden", "true");
-  await expect(navigation).toHaveAttribute("inert", "");
-  await expect(page.locator("#main-content")).not.toHaveAttribute("inert", "");
-};
-
-test("Audit findings preserve advisory truth, decision paths, and display-only provenance", async ({
+test("Audit has three user sections and a promoted Review navigates directly", async ({
   page,
 }, testInfo) => {
   const snapshot = createProjectAuditFixture();
   const posts: string[] = [];
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
   page.on("request", (request) => {
     if (request.method() === "POST") posts.push(request.url());
   });
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(error.message));
   await serveSnapshot(page, () => snapshot);
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto("/projects/audit");
-  await page.getByRole("link", { name: "Audit", exact: true }).click();
-  await expect(page).toHaveURL(/\/projects\/audit\/audit$/u);
+  await page.goto("/projects/audit/audit");
 
   await expect(page.getByRole("heading", { name: "Planning Audit", level: 1 })).toBeVisible();
   await expect(page.getByText("Stale", { exact: true })).toBeVisible();
-  await expect(page.getByText("Incomplete", { exact: true })).toHaveCount(2);
-  await expect(page.getByText("authority:architecture", { exact: true })).toBeVisible();
-  await expect(page.getByText(/severity|priority|risk/iu)).toHaveCount(0);
-  const row = page.getByRole("button", { name: /Portal direction needs a decision path/u });
-  await focusByTab(page, row);
-  await page.keyboard.press("Enter");
-  const inspector = page.getByRole("complementary", { name: "Selected context" });
+  await expect(page.getByText("1 finding", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Current Project Review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Decisions Awaiting Attention" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Past Accepted Decisions" })).toBeVisible();
+  const findings = page.getByRole("region", { name: "Current Project Review" });
+  await expect(findings.getByText("Severity", { exact: true })).toHaveCount(0);
+  await expect(findings.getByText("2 affected references", { exact: true })).toBeVisible();
   await expect(
-    inspector.getByRole("heading", { name: "Portal direction needs a decision path" }),
+    findings.getByText("The question should remain visible until the Review is completed."),
   ).toBeVisible();
-  await expect(inspector.getByText("alignment-check:portal", { exact: true })).toBeVisible();
-  await expect(inspector.getByText("Confirm the Portal revision", { exact: true })).toBeVisible();
-  await expect(inspector.getByText("open", { exact: true })).toBeVisible();
-  await expect(
-    inspector.getByText(".bearing/state/alignment-checks/portal.md", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    inspector.getByText(".bearing/state/roadmaps/portal.md", { exact: false }),
-  ).toBeVisible();
-  await expect(
-    inspector.getByText(/The question should remain visible until the Check is resolved/u),
-  ).toBeVisible();
-  await expect(
-    inspector.getByText(/The Audit does not decide whether the revision is accepted/u),
-  ).toBeVisible();
-  await expect(inspector.locator("a[href]")).toHaveCount(0);
-  await expect(
-    inspector.getByRole("button", { name: /Resume|Accept|Dismiss|Revise|Generate/iu }),
-  ).toHaveCount(0);
-  await page.keyboard.press("Escape");
-  await expect(row).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Incomplete coverage" })).toBeVisible();
+  await expect(page.getByText(/Skipped targets: authority:architecture/u)).toBeVisible();
+  await expect(page.getByText("Advisory snapshot", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Decision truth", { exact: true })).toHaveCount(0);
 
-  expect(posts).toEqual([]);
-  expect(
-    (await page.request.get("/api/v1/projects/audit/audit?path=planning-audit.md")).status(),
-  ).toBe(404);
-  expect((await page.request.get("/.bearing/state/planning-audit.md")).status()).toBe(404);
-  await minimumTarget(row, 40);
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.evaluate(() => {
-    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    window.scrollTo(0, 0);
-  });
+  const target = findings.getByRole("link", { name: /Portal direction needs a decision path/u });
+  await expect(target).toHaveAttribute(
+    "href",
+    "/projects/audit/lineage/planning-review/planning-review%3Asequence",
+  );
+  await minimumTarget(target, 40);
   await page.screenshot({
     path: await browserArtifactPath(testInfo, "audit-findings-1280.png"),
     fullPage: true,
   });
-  expect(consoleErrors).toEqual([]);
-  expect(pageErrors).toEqual([]);
+  await target.click();
+  await expect(page).toHaveURL(
+    /\/projects\/audit\/lineage\/planning-review\/planning-review%3Asequence$/u,
+  );
+  await expect(page.getByRole("heading", { name: "Review the current sequence" })).toBeVisible();
+
+  expect(posts).toEqual([]);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
-test("Audit findings reflow at 200 percent equivalent and narrow modal widths", async ({
+test("Audit distinguishes complete, incomplete, partial, absent, and invalid states", async ({
+  page,
+}) => {
+  let snapshot = createZeroProjectAuditFixture();
+  await serveSnapshot(page, () => snapshot);
+  await page.goto("/projects/audit/audit");
+
+  await expect(page.getByText("Complete coverage", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "No findings" })).toBeVisible();
+  await expect(page.getByText(/Skipped targets:/u)).toHaveCount(0);
+  await expect(page.getByText(/projection issue/u)).toHaveCount(0);
+
+  snapshot = createProjectAuditFixture();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Incomplete coverage" })).toBeVisible();
+  await expect(page.getByText(/Skipped targets: authority:architecture/u)).toBeVisible();
+  await expect(page.getByText(/projection issue/u)).toHaveCount(0);
+
+  snapshot = createPartialProjectAuditFixture();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Partial projection" })).toBeVisible();
+  await expect(page.getByText(/1 projection issue limited this view/u)).toBeVisible();
+  await expect(page.getByText(/Ask Agent Surface to inspect the reported sources/u)).toBeVisible();
+
+  snapshot = createAbsentProjectAuditFixture();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "No current Audit" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Resume Audit/u })).toHaveCount(0);
+
+  snapshot = createInvalidProjectAuditFixture();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Planning Audit unavailable" })).toBeVisible();
+  await expect(page.getByText("Generated time unavailable", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Ask Agent Surface to inspect and replace the Audit/u)).toBeVisible();
+
+  snapshot = createMissingGeneratedTimeAuditFixture();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Planning Audit unavailable" })).toBeVisible();
+  await expect(page.getByText("Generated time unavailable", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Generated", { exact: true })).toHaveCount(0);
+});
+
+test("Review completion leaves Attention only after an explicit accepted Snapshot", async ({
+  page,
+}) => {
+  let snapshot = createProjectAuditFixture();
+  const posts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(request.url());
+  });
+  await serveSnapshot(page, () => snapshot);
+  await page.goto("/projects/audit/audit");
+
+  const awaiting = page.getByRole("region", { name: "Decisions Awaiting Attention" });
+  const history = page.getByRole("region", { name: "Past Accepted Decisions" });
+  await expect(awaiting.getByRole("listitem")).toHaveCount(1);
+  await expect(
+    history.getByText("No accepted Planning Review history is available."),
+  ).toBeVisible();
+
+  if (snapshot.reviews.validity === "invalid") throw new Error("Expected Planning Review fixture.");
+  const review = snapshot.reviews.items[0];
+  if (review === undefined) throw new Error("Expected one Planning Review fixture.");
+  snapshot = projectGenerationSchema.parse(
+    withRebuiltPlanningLineage({
+      ...snapshot,
+      reviews: {
+        validity: "available",
+        items: [
+          {
+            ...review,
+            status: "completed",
+            resolution: {
+              acceptedDecision: "Keep the current sequence.",
+              acceptedAt: {
+                availability: "available",
+                precision: "second",
+                value: "2026-08-08T14:21:36Z",
+              },
+              rationale: "The user accepted the current sequence.",
+              changedReferences: [],
+            },
+          },
+        ],
+      },
+      attention: snapshot.attention.filter((item) => item.kind !== "planning-review"),
+    }),
+  );
+  await page.reload();
+
+  await expect(awaiting.getByText("No decisions await attention.")).toBeVisible();
+  await expect(history.getByRole("link", { name: "Review the current sequence" })).toBeVisible();
+  expect(posts).toEqual([]);
+});
+
+test("Audit findings remain readable and directly navigable at narrow widths", async ({
   page,
 }, testInfo) => {
   const snapshot = createProjectAuditFixture();
   await serveSnapshot(page, () => snapshot);
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/projects/audit/audit");
 
-  for (const width of [640, 375]) {
-    await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
-    await expectClosedNarrowNavigation(page);
-    await expect(page.getByText("Read-only normalized snapshot", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: /2 affected references/u })).toBeVisible();
-    expect(await page.locator("html").evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(
-      false,
-    );
-    await page.screenshot({
-      path: await browserArtifactPath(testInfo, `audit-findings-${width}.png`),
-      fullPage: true,
-    });
-  }
-
-  const row = page.getByRole("button", { name: /Portal direction needs a decision path/u });
-  await minimumTarget(row, 44);
-  await row.focus();
-  await page.keyboard.press("Space");
-  const dialog = page.getByRole("dialog", { name: "Selected context" });
-  const close = dialog.getByRole("button", { name: "Close selected context" });
-  await expect(close).toBeFocused();
-  await expect(page.locator("main")).toHaveAttribute("inert", "");
-  await expect(dialog.getByText(/Source source:[0-9a-f]{64}/u).first()).toBeVisible();
-  expect(await dialog.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(false);
-  await page.keyboard.press("Tab");
-  await expect(close).toBeFocused();
+  const target = page.getByRole("link", { name: /Portal direction needs a decision path/u });
+  await minimumTarget(target, 44);
+  await expect(target).toBeVisible();
+  expect(await page.locator("html").evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(
+    false,
+  );
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({
-    path: await browserArtifactPath(testInfo, "audit-finding-inspector-375.png"),
+    path: await browserArtifactPath(testInfo, "audit-findings-375.png"),
+    fullPage: true,
   });
-  await dialog.getByRole("heading", { name: "Confidence boundary" }).scrollIntoViewIfNeeded();
-  await page.screenshot({
-    path: await browserArtifactPath(testInfo, "audit-finding-evidence-375.png"),
-  });
-  await page.keyboard.press("Escape");
-  await expect(row).toBeFocused();
-});
-
-test("Audit keeps absent, zero, partial, and invalid projection states distinct", async ({
-  page,
-}) => {
-  let snapshot = createAbsentProjectAuditFixture();
-  const posts: string[] = [];
-  page.on("request", (request) => {
-    if (request.method() === "POST") posts.push(request.url());
-  });
-  await serveSnapshot(page, () => snapshot);
-  await page.goto("/projects/audit/audit");
-
-  await expect(page.getByText("No current Audit", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Coverage" })).toBeVisible();
-  const resume = page.getByRole("button", { name: /Resume Audit in Agent Surface/u });
-  await resume.click();
-  const inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(inspector.getByRole("button", { name: /Resume in Agent Surface/u })).toBeDisabled();
-  await expect(inspector.locator("a[href]")).toHaveCount(0);
-  await page.keyboard.press("Escape");
-  await expect(resume).toBeFocused();
-
-  snapshot = createZeroProjectAuditFixture();
-  await page.reload();
-  await expect(page.getByRole("heading", { name: "No material findings" })).toBeVisible();
-  await expect(page.getByText("Current", { exact: true })).toBeVisible();
-
-  snapshot = createPartialProjectAuditFixture();
-  await page.reload();
-  await expect(page.getByText(/Audit orientation is partial/u)).toBeVisible();
-  await expect(page.getByText(/1 projection issue is reported separately/u)).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /Portal direction needs a decision path/u }),
-  ).toBeVisible();
-
-  snapshot = createUnavailableAuditPromotionFixture();
-  await page.reload();
-  await expect(page.getByText(/0 findings resolve to canonical decision paths/u)).toBeVisible();
-  await expect(
-    page.getByText(/1 declared promotion is unavailable in the current Snapshot/u),
-  ).toBeVisible();
-
-  snapshot = createInvalidProjectAuditFixture();
-  await page.reload();
-  await expect(page.getByRole("heading", { name: "Planning Audit unavailable" })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /Portal direction needs a decision path/u }),
-  ).toHaveCount(0);
-  expect(posts).toEqual([]);
 });

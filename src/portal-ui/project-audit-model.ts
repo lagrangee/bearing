@@ -1,32 +1,19 @@
-import type {
-  AlignmentCheck,
-  AuditFinding,
-  PlanningReview,
-  ProjectSnapshot,
-  SourceRecord,
-  SourceReference,
-} from "../project-snapshot/contract";
-import type { ProjectInspectorSelection } from "./project-inspector";
+import type { AuditFinding, PlanningReview } from "../project-generation/contract";
+import type { AuditModelData } from "./project-data";
 
 type AuditPromotion = NonNullable<AuditFinding["promotion"]>;
 
 export type AuditDecisionRelation = Readonly<{
   available: boolean;
   id: string;
-  kind: AuditPromotion["kind"];
-  source: SourceRecord | undefined;
-  status: string | undefined;
+  kind: "planning-review";
+  status: "pending" | "completed" | undefined;
   title: string | undefined;
 }>;
 
 export type ProjectAuditFindingRow = Readonly<{
-  evidence: readonly Readonly<{
-    reference: SourceReference;
-    source: SourceRecord | undefined;
-  }>[];
   finding: AuditFinding;
   promotion: AuditDecisionRelation | undefined;
-  source: SourceRecord | undefined;
 }>;
 
 type ReadableAudit = Readonly<{
@@ -37,11 +24,17 @@ type ReadableAudit = Readonly<{
   skippedTargets: readonly string[];
 }>;
 
-export type ProjectAuditModel =
+type CurrentAudit =
   | Readonly<{ state: "absent" }>
   | Readonly<{ state: "invalid"; issueCount: number }>
   | (ReadableAudit & Readonly<{ state: "available" }>)
   | (ReadableAudit & Readonly<{ state: "partial"; issueCount: number }>);
+
+export type ProjectAuditModel = Readonly<{
+  current: CurrentAudit;
+  pendingReviews: readonly PlanningReview[];
+  completedReviews: readonly PlanningReview[];
+}>;
 
 const trustedItems = <Item>(
   projection:
@@ -51,107 +44,48 @@ const trustedItems = <Item>(
 
 const decisionRelation = (
   promotion: AuditPromotion | undefined,
-  checks: ReadonlyMap<string, AlignmentCheck>,
   reviews: ReadonlyMap<string, PlanningReview>,
-  sources: ReadonlyMap<string, SourceRecord>,
 ): AuditDecisionRelation | undefined => {
   if (promotion === undefined) return undefined;
-  const decision =
-    promotion.kind === "alignment-check" ? checks.get(promotion.id) : reviews.get(promotion.id);
+  const decision = reviews.get(promotion.id);
   return {
     available: decision !== undefined,
     id: promotion.id,
-    kind: promotion.kind,
-    source: decision === undefined ? undefined : sources.get(decision.source),
+    kind: "planning-review",
     status: decision?.status,
     title: decision?.title,
   };
 };
 
-export const buildProjectAuditModel = (snapshot: ProjectSnapshot): ProjectAuditModel => {
-  if (snapshot.audit.validity === "absent") return { state: "absent" };
-  if (snapshot.audit.validity === "invalid") {
-    return { state: "invalid", issueCount: snapshot.audit.issues.length };
+export const buildProjectAuditModel = (snapshot: AuditModelData): ProjectAuditModel => {
+  const reviewItems = trustedItems(snapshot.reviews);
+  const reviews = new Map(reviewItems.map((review) => [String(review.id), review]));
+  const pendingReviews = reviewItems.filter((review) => review.status === "pending");
+  const completedReviews = reviewItems.filter((review) => review.status === "completed");
+  if (snapshot.audit.validity === "absent") {
+    return { current: { state: "absent" }, pendingReviews, completedReviews };
   }
-  const sources = new Map(snapshot.sources.map((source) => [source.reference, source]));
-  const checks = new Map(trustedItems(snapshot.checks).map((check) => [String(check.id), check]));
-  const reviews = new Map(
-    trustedItems(snapshot.reviews).map((review) => [String(review.id), review]),
-  );
+  if (snapshot.audit.validity === "invalid") {
+    return {
+      current: { state: "invalid", issueCount: snapshot.audit.issues.length },
+      pendingReviews,
+      completedReviews,
+    };
+  }
   const audit = snapshot.audit.value;
   const readable = {
     coverage: audit.coverage,
     findings: audit.findings.map((finding) => ({
       finding,
-      source: sources.get(finding.source),
-      evidence: finding.evidenceSourceReferences.map((reference) => ({
-        reference,
-        source: sources.get(reference),
-      })),
-      promotion: decisionRelation(finding.promotion, checks, reviews, sources),
+      promotion: decisionRelation(finding.promotion, reviews),
     })),
     generatedAt: audit.generatedAt,
     semanticFreshness: audit.semanticFreshness,
     skippedTargets: audit.skippedTargets,
   };
-  return snapshot.audit.validity === "partial"
-    ? { ...readable, state: "partial", issueCount: snapshot.audit.issues.length }
-    : { ...readable, state: "available" };
-};
-
-export const decisionKindLabel = (kind: AuditPromotion["kind"]): string =>
-  kind === "alignment-check" ? "Alignment Check" : "Planning Review";
-
-const evidenceLabel = (evidence: ProjectAuditFindingRow["evidence"][number]): string =>
-  evidence.source === undefined
-    ? `Locator unavailable · Source ${evidence.reference}`
-    : `${evidence.source.displayLocator} · Source ${evidence.reference}`;
-
-export const findingInspection = (row: ProjectAuditFindingRow): ProjectInspectorSelection => {
-  const decision = row.promotion;
-  const decisionLabel =
-    decision === undefined ? "Advisory finding" : decisionKindLabel(decision.kind);
-  return {
-    eyebrow: `Audit Finding · ${decisionLabel}`,
-    title: row.finding.title,
-    detail: row.finding.summary,
-    source: row.source,
-    facts: [
-      { label: "Finding ID", value: row.finding.id, code: true },
-      { label: "Decision path", value: decisionLabel },
-      ...(decision === undefined
-        ? []
-        : [
-            { label: "Decision ID", value: decision.id, code: true },
-            {
-              label: "Decision title",
-              value: decision.title ?? "Unavailable in the current Snapshot",
-            },
-            { label: "Decision status", value: decision.status ?? "Unavailable" },
-            {
-              label: "Decision source",
-              value: decision.source?.displayLocator ?? "Unavailable in the current Snapshot",
-            },
-            ...(decision.source === undefined
-              ? []
-              : [
-                  {
-                    label: "Decision Source ref",
-                    value: decision.source.reference,
-                    code: true,
-                  },
-                ]),
-          ]),
-    ],
-    sections: [
-      { title: "Affected references", items: row.finding.affectedReferences },
-      {
-        title: "Evidence",
-        body: "Display-only Source provenance; no file capability is granted.",
-        items: row.evidence.map(evidenceLabel),
-      },
-      { title: "Consequence", body: row.finding.consequence },
-      { title: "Confidence boundary", body: row.finding.confidenceBoundary },
-    ],
-  };
+  const current =
+    snapshot.audit.validity === "partial"
+      ? { ...readable, state: "partial" as const, issueCount: snapshot.audit.issues.length }
+      : { ...readable, state: "available" as const };
+  return { current, pendingReviews, completedReviews };
 };

@@ -1,0 +1,64 @@
+{
+  "provider": "github",
+  "state": {
+    "repositoryBytes": "README:v1|src/index.ts:v1|tests/index.test.ts:v1",
+    "nativeWorkBytes": "github:open,blocked,resolved:v1",
+    "canonicalPlanningBytes": "summary:v1|roadmap:v1|gate:v1",
+    "projectBrief": null
+  },
+  "primaryReads": [
+    "project-summary",
+    "project-sitemap",
+    "canonical-planning",
+    "primary-docs",
+    "manifests",
+    "source-test-topology"
+  ],
+  "scopes": [
+    {
+      "id": "scope:active-github",
+      "lifecycle": "active",
+      "subjects": [
+        { "id": "issue:open", "state": "open" },
+        { "id": "issue:blocked", "state": "blocked" },
+        { "id": "issue:resolved-current", "state": "resolved" }
+      ]
+    },
+    {
+      "id": "scope:completed-github",
+      "lifecycle": "concluded",
+      "subjects": [
+        { "id": "issue:baseline", "state": "resolved", "baselineRequired": true },
+        { "id": "issue:historical-noise", "state": "resolved" }
+      ]
+    }
+  ],
+  "evidence": [
+    { "class": "repository-fact", "availability": "available" },
+    { "class": "native-work-fact", "availability": "conflicting" },
+    { "class": "agent-inference", "availability": "inference" },
+    { "class": "unresolved-question", "availability": "unresolved" }
+  ],
+  "expectedExpandedSubjects": [
+    "scope:active-github/issue:open",
+    "scope:active-github/issue:blocked",
+    "scope:completed-github/issue:baseline"
+  ],
+  "expectedOutput": {
+    "completedBaseline": [
+      "scope:completed-github/issue:baseline"
+    ],
+    "projectSummaryDraft": "The GitHub fixture has one delivered baseline while current native evidence remains conflicting.",
+    "futureRoadmaps": [
+      {
+        "horizon": "GitHub evidence reliability",
+        "candidateGates": [
+          "Resolve the conflicting native evidence",
+          "Verify the open delivery path"
+        ]
+      }
+    ],
+    "historicalPlanningCreated": [],
+    "conflictsPromotedToFacts": []
+  }
+}

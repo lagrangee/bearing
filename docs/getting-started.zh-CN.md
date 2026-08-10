@@ -2,7 +2,7 @@
 
 [English](getting-started.md)
 
-这份指南帮助你完成第一次真实的 Bearing alignment loop。
+这份指南帮助你完成第一次真实的 Bearing governance loop。
 
 ## 前置条件
 
@@ -18,7 +18,15 @@
 npx @lagrangee/bearing
 ```
 
-普通安装使用无参数 wizard。它会在写入前预览 managed targets，安装用户级 CLI 和 skill assets；不会自动初始化所有仓库。
+Global Kit maintenance 使用无参数 wizard。它提供 Install、Update、Repair 和 Global
+Uninstall。安装 actions 会预览 managed targets，且不会配置 repository 或启动 Portal。
+Global Uninstall 只移除 package-managed Global Kit targets，并保留 Project Catalog 和
+repository state。
+
+用户级 Bearing skill 在任何仓库中都保留显式 Bearing 或 Repository Configuration 入口。
+已配置 repository 的 pointer 使用 context，而不是重复 CLI preflight：显式 Bearing concept、可靠
+continuation，或有实质 planning/governance relevance 的工作可以 nominate Bearing。Ordinary code
+work 与 working-directory context 本身不会 nominate Bearing。
 
 ## 启用一个仓库
 
@@ -32,7 +40,8 @@ npx @lagrangee/bearing
 
 ```bash
 bearing --help
-bearing setup --repo . --surface agent-skills
+bearing configure inspect --repo .
+bearing configure
 ```
 
 ## 建立最低基线
@@ -46,7 +55,7 @@ bearing setup --repo . --surface agent-skills
 
 Bearing 应该在接受方向前询问你。如果 agent 静默编造战略 truth，请停下来要求它把 assumptions 作为 decisions 暴露出来。
 
-## 完成第一次 alignment loop
+## 完成第一次 governance loop
 
 带来一个真实请求：
 
@@ -62,7 +71,9 @@ Bearing 应该在接受方向前询问你。如果 agent 静默编造战略 trut
 ## 检查共享图景
 
 ```bash
-bearing sync --repo .
+bearing cache rebuild --repo .
+bearing provider verify --all --repo .
+bearing inspect project --repo .
 bearing portal
 ```
 

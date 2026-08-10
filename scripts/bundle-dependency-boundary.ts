@@ -1,22 +1,26 @@
 import { isAbsolute, relative, resolve } from "node:path";
+import {
+  parseMarkdownDocument,
+  queryMarkdownList,
+  queryMarkdownSection,
+} from "../src/markdown-document";
 
 export type BundleDependency = Readonly<{
   name: string;
   version: string;
   license: string;
   bundles: readonly ("cli" | "portal")[];
+  locators: readonly string[];
 }>;
 
 export type BundleDependencyMetadata = Readonly<{
-  schemaVersion: 1;
+  schemaVersion: 2;
   bundles: Readonly<{
     cli: Readonly<{ packages: readonly string[]; moduleCount: number }>;
     portal: Readonly<{ packages: readonly string[]; moduleCount: number }>;
   }>;
   packages: readonly BundleDependency[];
 }>;
-
-const inventoryHeading = "## Bundled dependency inventory";
 
 const virtualModuleLocators: ReadonlyMap<string, string> = new Map([
   ["\0rolldown/runtime.js", "node_modules/rolldown/runtime.js"],
@@ -32,14 +36,26 @@ export const normalizeBundleModuleId = (id: string, projectRoot: string): string
     }
     return classified;
   }
-  const nodeMarker = "/node_modules/";
-  const nodeIndex = withoutQuery.lastIndexOf(nodeMarker);
-  if (nodeIndex !== -1) return `node_modules/${withoutQuery.slice(nodeIndex + nodeMarker.length)}`;
   if (withoutQuery.startsWith("node_modules/")) return withoutQuery;
   const absolute = isAbsolute(withoutQuery) ? withoutQuery : resolve(projectRoot, withoutQuery);
   const locator = relative(projectRoot, absolute).replaceAll("\\", "/");
-  if (locator === ".." || locator.startsWith("../")) return undefined;
-  return locator;
+  if (locator !== ".." && !locator.startsWith("../")) return locator;
+  const nodeMarker = "/node_modules/";
+  const nodeIndex = withoutQuery.lastIndexOf(nodeMarker);
+  return nodeIndex === -1
+    ? undefined
+    : `node_modules/${withoutQuery.slice(nodeIndex + nodeMarker.length)}`;
+};
+
+export const bundlePackageLocatorFromModule = (moduleId: string): string | undefined => {
+  if (!moduleId.startsWith("node_modules/")) return undefined;
+  const segments = moduleId.split("/");
+  const nodeModulesIndex = segments.lastIndexOf("node_modules");
+  const firstName = segments[nodeModulesIndex + 1];
+  if (nodeModulesIndex === -1 || firstName === undefined || firstName.length === 0)
+    return undefined;
+  const packageEnd = firstName.startsWith("@") ? nodeModulesIndex + 3 : nodeModulesIndex + 2;
+  return segments.length < packageEnd ? undefined : segments.slice(0, packageEnd).join("/");
 };
 
 export const expectedNoticeInventory = (metadata: BundleDependencyMetadata): readonly string[] =>
@@ -48,31 +64,42 @@ export const expectedNoticeInventory = (metadata: BundleDependencyMetadata): rea
     .sort();
 
 export const readNoticeInventory = (notices: string): readonly string[] => {
-  const start = notices.indexOf(`${inventoryHeading}\n`);
-  if (start === -1) return [];
-  const bodyStart = start + inventoryHeading.length + 1;
-  const remainder = notices.slice(bodyStart);
-  const nextHeading = remainder.indexOf("\n## ");
-  const body = nextHeading === -1 ? remainder : remainder.slice(0, nextHeading);
-  return body
-    .split("\n")
-    .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2))
-    .sort();
+  const document = parseMarkdownDocument(notices);
+  const inventory = queryMarkdownSection(document, {
+    title: "Bundled dependency inventory",
+    depth: 2,
+  });
+  if (inventory.state !== "found") return [];
+  const list = queryMarkdownList(document, { within: inventory.value, ordered: false });
+  return list.state === "found" ? list.value.items.map((item) => item.text).sort() : [];
 };
 
 export const findBundleNoticeMismatches = (
   metadata: BundleDependencyMetadata,
   notices: string,
 ): readonly string[] => {
-  if (metadata.schemaVersion !== 1) return ["unsupported bundle dependency metadata schema"];
+  if (metadata.schemaVersion !== 2) return ["unsupported bundle dependency metadata schema"];
   const findings: string[] = [];
-  const packageNames = metadata.packages.map((dependency) => dependency.name);
+  const packageIdentities = metadata.packages.map(
+    (dependency) => `${dependency.name}@${dependency.version}`,
+  );
   if (
-    new Set(packageNames).size !== packageNames.length ||
-    [...packageNames].sort().join("\n") !== packageNames.join("\n")
+    new Set(packageIdentities).size !== packageIdentities.length ||
+    [...packageIdentities].sort().join("\n") !== packageIdentities.join("\n")
   ) {
-    findings.push("bundle dependency packages must be unique and sorted");
+    findings.push("bundle dependency package identities must be unique and sorted");
+  }
+  const packageLocators = metadata.packages.flatMap((dependency) => dependency.locators);
+  if (new Set(packageLocators).size !== packageLocators.length) {
+    findings.push("bundle dependency locators must be unique");
+  }
+  for (const dependency of metadata.packages) {
+    if (
+      dependency.locators.length === 0 ||
+      [...dependency.locators].sort().join("\n") !== dependency.locators.join("\n")
+    ) {
+      findings.push(`bundle dependency locators must be present and sorted: ${dependency.name}`);
+    }
   }
   for (const bundle of ["cli", "portal"] as const) {
     const expectedPackages = metadata.packages

@@ -1,13 +1,14 @@
 # Map: Release Smoke Slice
 
-Type: wayfinder:map
 Status: active
 
 ## Destination
 
 Orient from one clean native task and preserve the local-only product boundary.
 
-## Not yet specified
+## Decisions so far
+
+## Fog
 
 ## Out of scope
 

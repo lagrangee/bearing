@@ -12,25 +12,28 @@ import {
   readFile,
   readlink,
   realpath,
-  rename,
   rm,
   symlink,
   unlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
+import semver from "semver";
+import writeFileAtomic from "write-file-atomic";
+import { readReleaseTarGz } from "./release-archive.ts";
+import { readmeRelativeTargets } from "./release-boundary.ts";
 
 const PACKAGE_NAME = "@lagrangee/bearing";
-const SUPPORTED_LANES = Object.freeze({ node24: 24, node22: 22 });
+const SUPPORTED_LANES = Object.freeze({ node24: 24, node26: 26 });
 const SCRIPT_ROOT = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(SCRIPT_ROOT, "..");
 export const RELEASE_SMOKE_SEED = join(PROJECT_ROOT, "tests/fixtures/release-smoke-seed");
 const HARNESS_LOCATOR = "scripts/release-smoke.mjs";
 const SEED_LOCATOR = "tests/fixtures/release-smoke-seed";
 const GIT = "/usr/bin/git";
-const TAR = "/usr/bin/tar";
 const GIT_ENVIRONMENT = Object.freeze({
   HOME: tmpdir(),
   PATH: "/usr/bin:/bin",
@@ -42,43 +45,59 @@ const GIT_ENVIRONMENT = Object.freeze({
 });
 
 const usage = () => `Usage:
-  node scripts/release-smoke.mjs --lane <node24|node22> \\
+  node scripts/release-smoke.mjs --lane <node24|node26> \\
     --source-commit <full-commit> \\
     --candidate-receipt <absolute-path.json> \\
     --tarball <absolute-path.tgz> --sha256 <digest> --version <version> \\
     [--evidence <absolute-path.json>]
 
-The node24 lane runs the deterministic exact-tarball release journey. The node22 lane runs
+The node24 lane runs the deterministic exact-tarball release journey. The node26 lane runs
 the lighter packaged-runtime compatibility check. Evidence is written only when requested.
 `;
 
-const optionValue = (args, index, name) => {
-  const value = args[index + 1];
-  if (value === undefined || value.startsWith("--")) throw new Error(`${name} requires a value.`);
-  return value;
-};
-
 export const parseReleaseSmokeArgs = (args) => {
-  const options = {};
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index];
-    if (argument === "--help" || argument === "-h") return { help: true };
-    if (argument === "--lane") options.lane = optionValue(args, index++, argument);
-    else if (argument === "--source-commit") {
-      options.sourceCommit = optionValue(args, index++, argument);
+  const parsed = parseArgs({
+    args,
+    strict: true,
+    allowPositionals: false,
+    tokens: true,
+    options: {
+      help: { type: "boolean", short: "h" },
+      lane: { type: "string" },
+      "source-commit": { type: "string" },
+      "candidate-receipt": { type: "string" },
+      tarball: { type: "string" },
+      sha256: { type: "string" },
+      version: { type: "string" },
+      evidence: { type: "string" },
+    },
+  });
+  if (parsed.values.help === true) return { help: true };
+  for (const name of [
+    "lane",
+    "source-commit",
+    "candidate-receipt",
+    "tarball",
+    "sha256",
+    "version",
+    "evidence",
+  ]) {
+    if (parsed.tokens.filter((token) => token.kind === "option" && token.name === name).length > 1) {
+      throw new Error(`--${name} may be provided only once.`);
     }
-    else if (argument === "--candidate-receipt") {
-      options.candidateReceipt = optionValue(args, index++, argument);
-    }
-    else if (argument === "--tarball") options.tarball = optionValue(args, index++, argument);
-    else if (argument === "--sha256") options.sha256 = optionValue(args, index++, argument);
-    else if (argument === "--version") options.version = optionValue(args, index++, argument);
-    else if (argument === "--evidence") options.evidence = optionValue(args, index++, argument);
-    else throw new Error(`Unknown argument: ${argument}`);
   }
+  const options = {
+    lane: parsed.values.lane,
+    sourceCommit: parsed.values["source-commit"],
+    candidateReceipt: parsed.values["candidate-receipt"],
+    tarball: parsed.values.tarball,
+    sha256: parsed.values.sha256,
+    version: parsed.values.version,
+    evidence: parsed.values.evidence,
+  };
 
   if (!(options.lane in SUPPORTED_LANES)) {
-    throw new Error("--lane must be node24 or node22.");
+    throw new Error("--lane must be node24 or node26.");
   }
   if (
     typeof options.sourceCommit !== "string" ||
@@ -96,7 +115,12 @@ export const parseReleaseSmokeArgs = (args) => {
   if (typeof options.sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(options.sha256)) {
     throw new Error("--sha256 must be a lowercase 64-character SHA-256 digest.");
   }
-  if (typeof options.version !== "string" || !/^0\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/u.test(options.version)) {
+  if (
+    typeof options.version !== "string" ||
+    semver.valid(options.version) !== options.version ||
+    !options.version.startsWith("0.") ||
+    options.version.includes("+")
+  ) {
     throw new Error("--version must be an explicit 0.x package version.");
   }
   if (options.evidence !== undefined && !isAbsolute(options.evidence)) {
@@ -108,9 +132,12 @@ export const parseReleaseSmokeArgs = (args) => {
 export const assertLaneRuntime = (lane, nodeVersion = process.version) => {
   const expectedMajor = SUPPORTED_LANES[lane];
   if (expectedMajor === undefined) throw new Error(`Unknown release smoke lane: ${lane}.`);
-  const actualMajor = Number.parseInt(nodeVersion.replace(/^v/u, "").split(".")[0] ?? "", 10);
-  if (actualMajor !== expectedMajor) {
+  const runtimeVersion = semver.parse(nodeVersion);
+  if (runtimeVersion === null || runtimeVersion.major !== expectedMajor) {
     throw new Error(`${lane} requires Node.js ${expectedMajor}; current runtime is ${nodeVersion}.`);
+  }
+  if (lane === "node24" && semver.lt(runtimeVersion, "24.15.0")) {
+    throw new Error(`node24 requires Node.js 24.15.0 or later; current runtime is ${nodeVersion}.`);
   }
 };
 
@@ -188,32 +215,6 @@ const candidatePackagePath = (value, label) => {
     throw new Error(`${label} is unsafe: ${JSON.stringify(path)}.`);
   }
   return path;
-};
-
-const tarPermissionToken = (header, path) => {
-  const permissionToken = header.trimStart().split(/\s+/u, 1)[0];
-  if (permissionToken === undefined || permissionToken.length !== 10) {
-    throw new Error(`Could not parse candidate tar header: ${path}.`);
-  }
-  return permissionToken;
-};
-
-const tarHeaderMode = (permissionToken, path) => {
-  if (permissionToken[0] !== "-") {
-    throw new Error(`Candidate file type is not regular: ${path}.`);
-  }
-  const permissions = permissionToken.slice(1);
-  if (/[sStT]/u.test(permissions)) {
-    throw new Error(`Candidate file has forbidden special permission bits: ${path}.`);
-  }
-  if (!/^[rwx-]{9}$/u.test(permissions)) {
-    throw new Error(`Could not parse candidate file mode: ${path}.`);
-  }
-  let mode = 0;
-  for (const [index, character] of [...permissions].entries()) {
-    if (character !== "-") mode |= 1 << (8 - index);
-  }
-  return mode;
 };
 
 const parseCandidateJson = (bytes, label) => {
@@ -348,47 +349,24 @@ export const validateCandidateReceiptIdentity = async (
     throw new Error("Candidate manifest paths must be unique and sorted.");
   }
 
-  const commandOptions = { cwd: dirname(candidate.path), env: GIT_ENVIRONMENT };
-  const [tarList, verboseTarList] = await Promise.all([
-    expectCommand(
-    "list exact candidate artifact",
-    TAR,
-    ["-tzf", candidate.path],
-    commandOptions,
-    ),
-    expectCommand(
-      "inspect exact candidate artifact headers",
-      TAR,
-      ["-tvzf", candidate.path],
-      commandOptions,
-    ),
-  ]);
-  const listedEntries = tarList.stdout
-    .split("\n")
-    .filter((path) => path.length > 0);
-  const verboseEntries = verboseTarList.stdout.split("\n").filter((line) => line.length > 0);
-  if (listedEntries.length !== verboseEntries.length) {
-    throw new Error("Candidate tar path and header listings do not describe the same entries.");
-  }
-  const artifactHeaders = new Map();
+  const archiveEntries = await readReleaseTarGz(candidate.path);
+  const artifactEntries = new Map();
   const artifactPaths = [];
-  for (const [index, archivePath] of listedEntries.entries()) {
-    const permissionToken = tarPermissionToken(verboseEntries[index], archivePath);
-    const type = permissionToken[0];
-    if (type === "d") {
-      if (!archivePath.endsWith("/")) {
-        throw new Error(`Candidate directory entry must end in a slash: ${archivePath}.`);
+  for (const entry of archiveEntries) {
+    if (entry.type === "directory") {
+      if (!entry.path.endsWith("/")) {
+        throw new Error(`Candidate directory entry must end in a slash: ${entry.path}.`);
       }
       continue;
     }
-    if (type !== "-") {
-      throw new Error(`Candidate archive entry type is not allowed: ${archivePath}.`);
+    if (entry.type !== "file") {
+      throw new Error(`Candidate archive entry type is not allowed: ${entry.path}.`);
     }
-    if (archivePath.endsWith("/")) {
-      throw new Error(`Candidate non-directory entry has a trailing slash: ${archivePath}.`);
+    if (entry.path.endsWith("/")) {
+      throw new Error(`Candidate non-directory entry has a trailing slash: ${entry.path}.`);
     }
-    artifactPaths.push(archivePath);
-    artifactHeaders.set(archivePath, permissionToken);
+    artifactPaths.push(entry.path);
+    artifactEntries.set(entry.path, entry);
   }
   artifactPaths.sort();
   const expectedArtifactPaths = paths.map((path) => `package/${path}`).sort();
@@ -399,20 +377,17 @@ export const validateCandidateReceiptIdentity = async (
   const canonicalRepository = await realpath(repositoryRoot);
   for (const file of files) {
     const archivePath = `package/${file.path}`;
-    const permissionToken = artifactHeaders.get(archivePath);
-    if (permissionToken === undefined) {
+    const archived = artifactEntries.get(archivePath);
+    if (archived === undefined) {
       throw new Error(`Could not inspect candidate tar header: ${file.path}.`);
     }
-    if (tarHeaderMode(permissionToken, file.path) !== file.mode) {
+    if ((archived.mode & ~0o777) !== 0) {
+      throw new Error(`Candidate file has forbidden special permission bits: ${file.path}.`);
+    }
+    if ((archived.mode & 0o777) !== file.mode) {
       throw new Error(`Candidate file mode mismatch: ${file.path}.`);
     }
-    const extracted = await expectCommand(
-      `read candidate file ${file.path}`,
-      TAR,
-      ["-xOf", candidate.path, archivePath],
-      commandOptions,
-    );
-    if (extracted.stdoutBytes.byteLength !== file.size) {
+    if (archived.bytes.byteLength !== file.size) {
       throw new Error(`Candidate file size mismatch: ${file.path}.`);
     }
     if (!file.path.startsWith("dist/")) {
@@ -424,23 +399,18 @@ export const validateCandidateReceiptIdentity = async (
           cause: error,
         });
       }
-      if (!extracted.stdoutBytes.equals(committed.stdoutBytes)) {
+      if (!archived.bytes.equals(committed.stdoutBytes)) {
         throw new Error(`Candidate artifact bytes differ from ${sourceCommit}: ${file.path}.`);
       }
     }
   }
 
+  const packedMetadataEntry = artifactEntries.get("package/package.json");
+  if (packedMetadataEntry === undefined) {
+    throw new Error("Candidate package metadata is absent from the exact tarball.");
+  }
   const packedMetadata = candidateObject(
-    JSON.parse(
-      (
-        await expectCommand(
-          "read candidate package metadata",
-          TAR,
-          ["-xOf", candidate.path, "package/package.json"],
-          commandOptions,
-        )
-      ).stdout,
-    ),
+    JSON.parse(packedMetadataEntry.bytes.toString("utf8")),
     "Candidate package metadata",
   );
   if (packedMetadata.name !== PACKAGE_NAME || packedMetadata.version !== packageVersion) {
@@ -523,6 +493,7 @@ const collectFiles = async (root, directory = root) => {
 const REQUIRED_SEED_FILES = Object.freeze([
   "CONTEXT.md",
   "docs/agents/issue-tracker.md",
+  "docs/agents/triage-labels.md",
   "scratch/release-smoke/PRD.md",
   "scratch/release-smoke/issues/01-orient.md",
   "scratch/release-smoke/map.md",
@@ -741,25 +712,8 @@ export const checkPackagedDocumentation = async (packageRoot) => {
   if (metadata.bugs?.url !== "https://github.com/lagrangee/bearing/issues") {
     throw new Error("Packaged metadata does not expose the canonical feedback route.");
   }
-  const targets = readmes.flatMap(({ source }) =>
-    [...source.matchAll(/\[[^\]]*\]\(([^)]+)\)/gu)]
-      .map((match) => match[1]?.trim())
-      .filter((target) => target !== undefined),
-  );
-  for (const target of targets) {
-    if (
-      target.startsWith("#") ||
-      /^(?:https?:|mailto:)/iu.test(target) ||
-      target.startsWith("//")
-    ) {
-      continue;
-    }
-    const withoutFragment = target.split("#", 1)[0]?.split("?", 1)[0] ?? "";
-    if (withoutFragment.length === 0) continue;
-    const locator = posix.normalize(withoutFragment);
-    if (posix.isAbsolute(locator) || locator === ".." || locator.startsWith("../")) {
-      throw new Error(`Packaged README has an unsafe relative target: ${target}.`);
-    }
+  const targets = readmes.flatMap(({ source }) => readmeRelativeTargets(source));
+  for (const locator of targets) {
     const linked = join(packageRoot, ...locator.split("/"));
     const linkedMetadata = await lstat(linked).catch((error) => {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") {
@@ -786,8 +740,21 @@ const pathExists = async (target) => {
   }
 };
 
-const readCatalog = async (home) =>
-  JSON.parse(await readFile(join(home, ".bearing/catalog.json"), "utf8"));
+const readCatalog = async (home) => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const database = new DatabaseSync(join(home, ".bearing/catalog.sqlite"), { readOnly: true });
+  try {
+    return {
+      entries: database
+        .prepare(
+          "SELECT entry_id AS entryId, repo_root AS repoRoot, display_name AS displayName FROM catalog_entries",
+        )
+        .all(),
+    };
+  } finally {
+    database.close();
+  }
+};
 
 const catalogContains = async (home, repository) => {
   const canonicalRepository = await realpath(repository);
@@ -813,17 +780,48 @@ const installArguments = Object.freeze([
   "claude",
 ]);
 
-const setupArguments = (repository) => [
-  "setup",
+const configurationArguments = (repository, intent) => [
+  "--intent",
+  intent,
   "--repo",
   repository,
-  "--surface",
-  "agent-skills",
-  "--surface",
-  "claude",
-  "--profile",
-  "generic-agent",
+  ...(intent === "deactivate"
+    ? []
+    : [
+        "--surface",
+        "agent-skills",
+        "--surface",
+        "claude",
+        "--provider-contract",
+        "docs/agents/issue-tracker.md",
+        "--executor-mode",
+        "skip",
+      ]),
 ];
+
+const configureRepository = async ({ cli, repository, intent, environment }) => {
+  const argumentsForIntent = configurationArguments(repository, intent);
+  const planned = await runCandidateCli(cli, ["configure", "plan", ...argumentsForIntent], {
+    cwd: repository,
+    env: environment,
+  });
+  const plan = JSON.parse(planned.stdout);
+  if (typeof plan.sealedPlanToken !== "string") {
+    throw new Error("Repository Configuration returned no sealed plan token.");
+  }
+  const applied = await runCandidateCli(
+    cli,
+    [
+      "configure",
+      "apply",
+      ...argumentsForIntent,
+      "--plan-token",
+      plan.sealedPlanToken,
+    ],
+    { cwd: repository, env: environment },
+  );
+  return JSON.parse(applied.stdout);
+};
 
 const proveIdempotentUpdate = async ({ cli, roots, environment }) => {
   const repeated = await runCandidateCli(cli, installArguments, {
@@ -879,18 +877,23 @@ const proveRepositoryLifecycle = async ({ cli, roots, environment }) => {
   const nativeBytes = await readFile(nativeWork);
   await writeFile(stateMarker, stateBytes);
   if (!(await catalogContains(roots.home, roots.repository))) {
-    throw new Error("Setup did not register the disposable repository in Project Catalog.");
+    throw new Error("Repository Configuration did not register the repository in Project Catalog.");
   }
 
-  const deactivated = await runCandidateCli(cli, ["deactivate", "--repo", roots.repository], {
-    cwd: roots.repository,
-    env: environment,
+  const deactivated = await configureRepository({
+    cli,
+    repository: roots.repository,
+    intent: "deactivate",
+    environment,
   });
-  if (!deactivated.stdout.includes("Catalog: applied")) {
+  if (deactivated.catalog?.outcome !== "applied") {
     throw new Error("Repository deactivation did not remove its Project Catalog entry.");
   }
-  if (await pathExists(join(roots.repository, ".bearing/manifest.json"))) {
-    throw new Error("Repository deactivation retained its enablement manifest.");
+  const deactivatedManifest = JSON.parse(
+    await readFile(join(roots.repository, ".bearing/manifest.json"), "utf8"),
+  );
+  if (deactivatedManifest.status !== "deactivated") {
+    throw new Error("Repository deactivation did not retain a Deactivated manifest.");
   }
   if (!(await readFile(stateMarker)).equals(stateBytes) || !(await readFile(nativeWork)).equals(nativeBytes)) {
     throw new Error("Repository deactivation did not preserve state and native work exactly.");
@@ -900,43 +903,21 @@ const proveRepositoryLifecycle = async ({ cli, roots, environment }) => {
     throw new Error("Repository deactivation retained its Project Catalog entry.");
   }
 
-  await runCandidateCli(cli, setupArguments(roots.repository), {
-    cwd: roots.repository,
-    env: environment,
+  await configureRepository({
+    cli,
+    repository: roots.repository,
+    intent: "activate",
+    environment,
   });
   if (
     !(await readFile(stateMarker)).equals(stateBytes) ||
     !(await catalogContains(roots.home, roots.repository))
   ) {
-    throw new Error("Repository re-setup did not preserve state and restore Catalog registration.");
+    throw new Error(
+      "Repository reconfiguration did not preserve state and restore Catalog registration.",
+    );
   }
 
-  const unconfirmed = await runCommand(
-    process.execPath,
-    [cli, "purge", "--repo", roots.repository],
-    { cwd: roots.repository, env: environment },
-  );
-  if (unconfirmed.exitCode === 0 || !(await pathExists(join(roots.repository, ".bearing")))) {
-    throw new Error("Repository purge did not require explicit confirmation.");
-  }
-  const purged = await runCandidateCli(
-    cli,
-    ["purge", "--repo", roots.repository, "--confirm-purge"],
-    { cwd: roots.repository, env: environment },
-  );
-  if (!purged.stdout.includes("Catalog: applied")) {
-    throw new Error("Repository purge did not remove its Project Catalog entry.");
-  }
-  if (await pathExists(join(roots.repository, ".bearing"))) {
-    throw new Error("Confirmed repository purge retained the .bearing namespace.");
-  }
-  if (!(await readFile(nativeWork)).equals(nativeBytes)) {
-    throw new Error("Confirmed repository purge mutated native .scratch work.");
-  }
-  await assertManagedPointersAbsent(roots.repository);
-  if (await catalogContains(roots.home, roots.repository)) {
-    throw new Error("Confirmed repository purge retained its Project Catalog entry.");
-  }
 };
 
 const proveDowngradeRefusal = async ({ cli, roots, environment }) => {
@@ -984,7 +965,7 @@ const runCompatibilityLane = async ({ candidate, options, roots, environment, cl
   });
   if (version.stdout !== `${options.version}\n`) throw new Error("Packaged CLI version output mismatches.");
   const help = await runCandidateCli(cli, ["--help"], { cwd: roots.repository, env: environment });
-  if (!help.stdout.includes(`Bearing ${options.version}`) || !help.stdout.includes("bearing setup")) {
+  if (!help.stdout.includes(`Bearing ${options.version}`) || !help.stdout.includes("bearing configure")) {
     throw new Error("Packaged CLI help does not expose the expected candidate commands.");
   }
   await checkPackagedDocumentation(packageRoot);
@@ -1014,11 +995,12 @@ const runFullLane = async ({ candidate, options, roots, environment, cli, packag
   await assertGlobalSurface(roots.home, options.version);
   await proveIdempotentUpdate({ cli, roots, environment });
   await proveSurfaceConflict({ cli, roots, environment, version: options.version });
-  await runCandidateCli(
+  await configureRepository({
     cli,
-    setupArguments(roots.repository),
-    { cwd: roots.repository, env: environment },
-  );
+    repository: roots.repository,
+    intent: "activate",
+    environment,
+  });
   const manifestPath = join(roots.repository, ".bearing/manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   if (manifest.packageVersion !== options.version) {
@@ -1030,14 +1012,25 @@ const runFullLane = async ({ candidate, options, roots, environment, cli, packag
       throw new Error(`${pointer} does not contain the managed Bearing runbook pointer.`);
     }
   }
-  const sync = await runCandidateCli(cli, ["sync", "--repo", roots.repository], {
+  await runCandidateCli(cli, ["cache", "rebuild", "--repo", roots.repository], {
     cwd: roots.repository,
     env: environment,
   });
-  if (!sync.stdout.includes("Diagnostics: 0")) throw new Error("Golden-path Sync has diagnostics.");
-  const sitemap = await readFile(join(roots.repository, ".bearing/cache/project-sitemap.md"), "utf8");
-  if (!sitemap.includes(".scratch/release-smoke/map.md") || !sitemap.includes("01-orient.md")) {
-    throw new Error("Golden-path Sync did not project the deterministic native tracker seed.");
+  await runCandidateCli(cli, ["provider", "verify", "--all", "--repo", roots.repository], {
+    cwd: roots.repository,
+    env: environment,
+  });
+  const inspection = await runCandidateCli(cli, ["inspect", "project", "--repo", roots.repository], {
+    cwd: roots.repository,
+    env: environment,
+  });
+  const inspected = JSON.parse(inspection.stdout);
+  if (
+    inspected.outcome !== "complete" ||
+    inspected.result?.diagnosticCounts?.blocking !== 0 ||
+    inspected.result?.diagnosticCounts?.nonBlocking !== 0
+  ) {
+    throw new Error("Golden-path Project Read Model has diagnostics.");
   }
 
   const unsupported = join(roots.workRoot, "unsupported-schema-repository");
@@ -1047,29 +1040,28 @@ const runFullLane = async ({ candidate, options, roots, environment, cli, packag
   unsupportedDocument.schemaVersion = 999;
   const unsupportedBytes = Buffer.from(`${JSON.stringify(unsupportedDocument, null, 2)}\n`, "utf8");
   await writeFile(unsupportedManifest, unsupportedBytes);
-  const unsupportedSync = await runCommand(
+  const unsupportedInspection = await runCommand(
     process.execPath,
-    [cli, "sync", "--repo", unsupported],
+    [cli, "inspect", "project", "--repo", unsupported],
     { cwd: unsupported, env: environment },
   );
-  if (unsupportedSync.exitCode === 0) {
+  if (unsupportedInspection.exitCode === 0) {
     throw new Error("Unsupported repository schema did not fail with a non-zero exit status.");
   }
   if (!(await readFile(unsupportedManifest)).equals(unsupportedBytes)) {
     throw new Error("Unsupported repository schema input was rewritten instead of failing closed.");
   }
-  if (!/unsupported|invalid-bearing-manifest|schema/iu.test(`${unsupportedSync.stdout}\n${unsupportedSync.stderr}`)) {
+  if (!/unsupported|invalid-bearing-manifest|schema/iu.test(`${unsupportedInspection.stdout}\n${unsupportedInspection.stderr}`)) {
     throw new Error("Unsupported repository schema failure did not explain the incompatible state.");
   }
   checks.push(
     "same-candidate-update-no-op",
     "agent-surface-conflict-fail-closed",
     "managed-agent-surfaces",
-    "ordinary-repository-setup",
-    "deterministic-sync",
+    "ordinary-repository-configuration",
+    "typed-project-read-model",
     "unsupported-schema-fail-closed",
     "repository-deactivate-preserves-state",
-    "repository-purge-preserves-native-work",
     "package-downgrade-requires-confirmation",
     "package-uninstall-owned-by-package-manager",
   );
@@ -1080,9 +1072,7 @@ const runFullLane = async ({ candidate, options, roots, environment, cli, packag
 
 const writeEvidence = async (target, receipt) => {
   await mkdir(dirname(target), { recursive: true });
-  const temporary = `${target}.tmp-${process.pid}`;
-  await writeFile(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-  await rename(temporary, target);
+  await writeFileAtomic(target, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
 };
 
 export const runReleaseSmoke = async (options) => {

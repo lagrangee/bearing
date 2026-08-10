@@ -7,12 +7,13 @@ import {
   readRepositorySourceBytes,
 } from "../tests/fixtures/repository-fixture";
 import {
-  fixedCacheHashes,
-  preserveFixedCache,
+  preserveProjectReadModel,
+  projectReadModelHashes,
   type RunningTestPortal,
   runBuiltBearing,
   startBuiltPortal,
   stopBuiltPortal,
+  writeCatalogFixture,
 } from "./real-host-test-support";
 
 let evidence = join(process.cwd(), "test-results/portal-isolation-evidence");
@@ -28,7 +29,6 @@ let alphaRoot = "";
 let recoveryRoot = "";
 let buildAnchor: BuildAnchor | undefined;
 let alphaSources: Readonly<Record<string, string>> = {};
-let recoverySources: Readonly<Record<string, string>> = {};
 let receiptBody: unknown;
 const fixtureParents: string[] = [];
 
@@ -63,10 +63,6 @@ test.beforeAll(async ({ browserName }, testInfo) => {
     evidence = configuredEvidence;
   }
   await mkdir(evidence, { recursive: true });
-  await writeFile(
-    join(evidence, "isolation-receipt.json"),
-    `${JSON.stringify({ schemaVersion: 1, kind: "real-host-isolation", status: "incomplete" }, null, 2)}\n`,
-  );
   buildAnchor = await readBuildAnchor();
   await writeFile(
     join(evidence, "isolation-receipt.json"),
@@ -88,28 +84,14 @@ test.beforeAll(async ({ browserName }, testInfo) => {
   missingParent = await mkdtemp(join(tmpdir(), "bearing-portal-isolation-missing-"));
   missingRoot = join(missingParent, "repository-is-gone");
 
-  await runBuiltBearing(["sync", "--repo", alphaRoot]);
-  await runBuiltBearing(["sync", "--repo", recoveryRoot]);
-  await writeFile(join(recoveryRoot, ".bearing/cache/project-snapshot.json"), "{malformed\n");
+  await runBuiltBearing(["cache", "rebuild", "--repo", alphaRoot]);
+  await runBuiltBearing(["cache", "rebuild", "--repo", recoveryRoot]);
   alphaSources = await readRepositorySourceBytes(alphaRoot);
-  recoverySources = await readRepositorySourceBytes(recoveryRoot);
 
-  await mkdir(join(homeRoot, ".bearing"), { recursive: true });
-  const catalogDocument = `${JSON.stringify(
-    {
-      version: 1,
-      entries: [
-        { entryId: "zulu-recovery", repoRoot: recoveryRoot, displayName: "Zulu Recovery" },
-        { entryId: "missing-neighbor", repoRoot: missingRoot, displayName: "Bravo Unavailable" },
-        { entryId: "alpha-trustworthy", repoRoot: alphaRoot, displayName: "Alpha Project" },
-      ],
-    },
-    null,
-    2,
-  )}\n`;
-  await Promise.all([
-    writeFile(join(homeRoot, ".bearing/catalog.json"), catalogDocument),
-    writeFile(join(homeRoot, ".bearing/catalog.backup.json"), catalogDocument),
+  await writeCatalogFixture(homeRoot, [
+    { entryId: "zulu-recovery", repoRoot: recoveryRoot, displayName: "Zulu Recovery" },
+    { entryId: "missing-neighbor", repoRoot: missingRoot, displayName: "Bravo Unavailable" },
+    { entryId: "alpha-trustworthy", repoRoot: alphaRoot, displayName: "Alpha Project" },
   ]);
   host = await startBuiltPortal(homeRoot);
 });
@@ -142,121 +124,89 @@ test.afterAll(async () => {
   }
 });
 
-test("a real Host recovers and synchronizes one project without disturbing its neighbors", async ({
+test("a real Host rebuilds and reads one project without disturbing its neighbors", async ({
   page,
 }) => {
   if (host === undefined) throw new Error("Ticket 15 Host did not start.");
-  expect(await readFile(join(recoveryRoot, ".bearing/cache/project-snapshot.json"), "utf8")).toBe(
-    "{malformed\n",
-  );
   const consoleErrors: string[] = [];
-  const forceTargets: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   page.on("pageerror", (error) => consoleErrors.push(error.message));
-  page.on("request", (request) => {
-    if (request.method() !== "POST" || !request.url().endsWith("/sync")) return;
-    if (request.postData() !== JSON.stringify({ version: 1, mode: "force" })) return;
-    forceTargets.push(decodeURIComponent(new URL(request.url()).pathname.split("/").at(-2) ?? ""));
-  });
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(host.url);
   const catalog = page.getByRole("list", { name: "Registered Bearing projects" });
   const orderedNames = async () => catalog.locator("strong").allTextContents();
-  await expect(catalog.getByRole("button")).toHaveCount(3);
+  await expect(catalog.locator("li")).toHaveCount(3);
   expect(await orderedNames()).toEqual(catalogOrder);
   await page.screenshot({ path: join(evidence, "catalog-three-projects.png"), fullPage: true });
 
-  await catalog.getByRole("button").filter({ hasText: "Alpha Project" }).click();
-  const alphaCheck = page.waitForResponse(
+  const alphaRead = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/v1/projects/alpha-trustworthy/sync") &&
-      response.request().postData() === JSON.stringify({ version: 1, mode: "ensure-current" }),
+      response.request().method() === "GET" &&
+      response.url().includes("/api/v1/projects/alpha-trustworthy/read-model"),
   );
-  await page.getByRole("link", { name: "Open project" }).click();
-  expect(await (await alphaCheck).json()).toMatchObject({
-    state: "completed",
-    outcome: "materialized",
-  });
+  await catalog.getByRole("link", { name: /Alpha Project/u }).click();
+  expect(await (await alphaRead).json()).toMatchObject({ state: "ready" });
   await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
-  const alphaCacheBefore = await fixedCacheHashes(alphaRoot);
+  const alphaReadModelBefore = await projectReadModelHashes(alphaRoot);
 
   await page.getByRole("link", { name: /Return to Project Catalog from Alpha Project/u }).click();
-  await expect(catalog.getByRole("button")).toHaveCount(3);
+  await expect(catalog.locator("li")).toHaveCount(3);
   expect(await orderedNames()).toEqual(catalogOrder);
-  await catalog.getByRole("button").filter({ hasText: "Bravo Unavailable" }).click();
-  await expect(page.getByRole("button", { name: "Open project" })).toBeDisabled();
+  await expect(catalog.getByRole("link", { name: /Bravo Unavailable/u })).toHaveCount(0);
+  await expect(catalog.getByText("Bravo Unavailable", { exact: true })).toBeVisible();
+  await expect(catalog.getByText("Repository missing", { exact: true })).toBeVisible();
   await page.screenshot({
     path: join(evidence, "catalog-unavailable-neighbor.png"),
     fullPage: true,
   });
-  await page.keyboard.press("Escape");
 
-  await catalog.getByRole("button").filter({ hasText: "Zulu Recovery" }).click();
-  const recoveryCheck = page.waitForResponse(
+  const recoveryRead = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/v1/projects/zulu-recovery/sync") &&
-      response.request().postData() === JSON.stringify({ version: 1, mode: "ensure-current" }),
+      response.request().method() === "GET" &&
+      response.url().includes("/api/v1/projects/zulu-recovery/read-model"),
   );
-  await page.getByRole("link", { name: "Open project" }).click();
-  expect(await (await recoveryCheck).json()).toMatchObject({
-    state: "completed",
-    outcome: "materialized",
-    snapshotDisposition: "materialized",
-  });
+  await catalog.getByRole("link", { name: /Zulu Recovery/u }).click();
+  expect(await (await recoveryRead).json()).toMatchObject({ state: "ready" });
   await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
-  const recoveredSnapshot: unknown = JSON.parse(
-    await readFile(join(recoveryRoot, ".bearing/cache/project-snapshot.json"), "utf8"),
-  );
-  expect(recoveredSnapshot).toMatchObject({ producer: { packageVersion: expect.any(String) } });
-  expect(await readRepositorySourceBytes(recoveryRoot)).toEqual(recoverySources);
-  await page.screenshot({ path: join(evidence, "recovered-project.png"), fullPage: true });
 
-  const changedContext = "# Fixed Portal Project\n\nExplicit browser Sync isolation input.\n";
+  const changedContext = "# Fixed Portal Project\n\nExplicit typed read-model isolation input.\n";
   await writeFile(join(recoveryRoot, "CONTEXT.md"), changedContext);
-  const forced = page.waitForResponse(
+  await runBuiltBearing(["cache", "rebuild", "--repo", recoveryRoot]);
+  const rebuiltRead = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/v1/projects/zulu-recovery/sync") &&
-      response.request().postData() === JSON.stringify({ version: 1, mode: "force" }),
+      response.request().method() === "GET" &&
+      response.url().includes("/api/v1/projects/zulu-recovery/read-model"),
   );
-  await page.getByRole("button", { name: "Sync", exact: true }).click();
-  expect(await (await forced).json()).toMatchObject({
-    state: "completed",
-    mode: "force",
-    outcome: "applied",
-    reconciliation: "applied",
-  });
-  await expect(page.locator(".project-operation")).toHaveText("Updated");
-  expect(forceTargets).toEqual(["zulu-recovery"]);
-  expect(await fixedCacheHashes(alphaRoot)).toEqual(alphaCacheBefore);
+  await page.reload();
+  expect(await (await rebuiltRead).json()).toMatchObject({ state: "ready" });
+  expect(await projectReadModelHashes(alphaRoot)).toEqual(alphaReadModelBefore);
   expect(await readRepositorySourceBytes(alphaRoot)).toEqual(alphaSources);
   expect(await readFile(join(recoveryRoot, "CONTEXT.md"), "utf8")).toBe(changedContext);
   await expect(readFile(join(missingRoot, ".bearing/manifest.json"))).rejects.toMatchObject({
     code: "ENOENT",
   });
+  await page.screenshot({ path: join(evidence, "rebuilt-project.png"), fullPage: true });
 
   await page.getByRole("link", { name: /Return to Project Catalog from Zulu Recovery/u }).click();
-  await expect(catalog.getByRole("button")).toHaveCount(3);
-  expect(await orderedNames()).toEqual(catalogOrder);
-  await catalog.getByRole("button").filter({ hasText: "Alpha Project" }).click();
-  await page.getByRole("link", { name: "Open project" }).click();
+  await catalog.getByRole("link", { name: /Alpha Project/u }).click();
   await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
   await page.screenshot({ path: join(evidence, "trustworthy-project-return.png"), fullPage: true });
   expect(consoleErrors).toEqual([]);
 
   await page.getByRole("link", { name: /Return to Project Catalog from Alpha Project/u }).click();
-  await writeFile(join(homeRoot, ".bearing/catalog.json"), "{malformed\n");
+  await writeFile(join(homeRoot, ".bearing/catalog.sqlite"), "{malformed\n");
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Using last-known-good projects" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Catalog is unavailable" })).toBeVisible();
   const finalCatalogOrder = await orderedNames();
-  expect(finalCatalogOrder).toEqual(catalogOrder);
-  await page.screenshot({ path: join(evidence, "catalog-degraded-backup.png"), fullPage: true });
+  expect(finalCatalogOrder).toEqual([]);
+  await page.screenshot({ path: join(evidence, "catalog-unavailable.png"), fullPage: true });
 
   await Promise.all([
-    preserveFixedCache(alphaRoot, join(evidence, "fixture-output/alpha")),
-    preserveFixedCache(recoveryRoot, join(evidence, "fixture-output/zulu-recovery")),
+    preserveProjectReadModel(alphaRoot, join(evidence, "fixture-output/alpha")),
+    preserveProjectReadModel(recoveryRoot, join(evidence, "fixture-output/zulu-recovery")),
   ]);
 
   receiptBody = {
@@ -271,24 +221,10 @@ test("a real Host recovers and synchronizes one project without disturbing its n
       entries: ["available", "missing", "available"],
       whitespacePathCovered: true,
     },
-    recovery: {
+    explicitReadModelRebuild: {
       entryId: "zulu-recovery",
-      before: "malformed",
-      after: "available",
-      sourceBytesPreserved: true,
-    },
-    catalogRecovery: {
-      current: "malformed",
-      backup: "available",
-      state: "degraded",
-      entriesPreserved: true,
-    },
-    explicitSync: {
-      entryId: "zulu-recovery",
-      mode: "force",
-      outcome: "applied",
-      forceTargets,
-      trustworthyNeighborCacheUnchanged: true,
+      outcome: "ready",
+      trustworthyNeighborReadModelUnchanged: true,
       trustworthyNeighborSourcesUnchanged: true,
     },
     finalCatalogOrder,

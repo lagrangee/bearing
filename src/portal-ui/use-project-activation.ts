@@ -1,106 +1,107 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  createDeferredActivation,
-  interactionNeedsActivation,
-  manualActionOwnsActivation,
-} from "./project-activation-events";
+  type PlanningLineageSubject,
+  planningLineageSubjectSchema,
+} from "../planning-lineage-route";
+import type { PortalProjectSection } from "../portal-project-read-wire";
+import type {
+  PortalProviderApplicationRequest,
+  PortalProviderApplicationResponse,
+} from "../portal-provider-application-wire";
 import {
-  type ActivationAction,
   type ActivationState,
   activationStateForEntry,
   projectActivationReducer,
-  transitionForSyncResult,
   visibleProjectView,
 } from "./project-activation-state";
 import {
+  ProjectDataRecoveryError,
   type ProjectOperationError,
   type ProjectView,
-  readProjectSnapshot,
-  syncProject,
+  readProjectRows,
+  requestProviderObservation,
 } from "./project-contract";
 
-const requestFailure = (operation: "check" | "sync"): ProjectOperationError => ({
-  code: "sync-failed",
-  message:
-    operation === "check"
-      ? "Project currency could not be checked."
-      : "Project reconciliation could not be completed.",
-});
+const requestFailure = (error: unknown): ProjectOperationError =>
+  error instanceof ProjectDataRecoveryError
+    ? {
+        code:
+          error.recovery === "explicit-rebuild"
+            ? "project-data-needs-rebuild"
+            : "project-data-needs-update",
+        message: error.message,
+      }
+    : {
+        code: "project-read-failed",
+        message: "Project data could not be read.",
+      };
 
 export type ProjectActivation = Readonly<{
   state: ActivationState;
   view?: ProjectView;
-  forceSync: () => void;
-  retry: () => void;
+  readFailure?: ProjectOperationError;
+  providerApplication:
+    | Readonly<{ state: "idle" }>
+    | Readonly<{ state: "running"; action: PortalProviderApplicationRequest["action"] }>
+    | Readonly<{
+        state: "settled";
+        result: PortalProviderApplicationResponse;
+      }>;
+  applyProviderObservation: (request: PortalProviderApplicationRequest) => void;
 }>;
 
-export const useProjectActivation = (entryId: string): ProjectActivation => {
+export const useProjectActivation = (
+  entryId: string,
+  section: PortalProjectSection,
+  target?: PlanningLineageSubject | undefined,
+): ProjectActivation => {
+  const targetKind = target?.kind;
+  const targetId = target?.id;
+  const queryTarget = useMemo<PlanningLineageSubject | undefined>(
+    () =>
+      targetKind === undefined || targetId === undefined
+        ? undefined
+        : planningLineageSubjectSchema.parse({ kind: targetKind, id: targetId }),
+    [targetId, targetKind],
+  );
   const [state, dispatch] = useReducer(projectActivationReducer, { kind: "loading-cache" });
+  const [providerApplication, setProviderApplication] = useState<
+    ProjectActivation["providerApplication"]
+  >({ state: "idle" });
   const stateRef = useRef(state);
   const stateEntryIdRef = useRef(entryId);
+  const providerEntryIdRef = useRef(entryId);
   const csrfTokenRef = useRef<string | undefined>(undefined);
   const requestIdRef = useRef(0);
-  const busyRequestRef = useRef<number | undefined>(undefined);
-  const automaticRequestRef = useRef<number | undefined>(undefined);
-  const controllersRef = useRef(new Set<AbortController>());
-  const confirmationTimerRef = useRef<number | undefined>(undefined);
+  const readControllersRef = useRef(new Set<AbortController>());
+  const providerControllersRef = useRef(new Set<AbortController>());
+  const matchesQuery = useCallback(
+    (view: ProjectView): boolean =>
+      view.data.section === section &&
+      (section !== "lineage" ||
+        (view.data.section === "lineage" &&
+          view.data.target?.kind === queryTarget?.kind &&
+          view.data.target?.id === queryTarget?.id)),
+    [queryTarget, section],
+  );
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
 
-  const dispatchCurrent = useCallback((requestId: number, action: ActivationAction): boolean => {
-    if (requestId !== requestIdRef.current) return false;
-    dispatch(action);
-    return true;
-  }, []);
-
-  const applySyncResult = useCallback(
-    (requestId: number, result: Awaited<ReturnType<typeof syncProject>>) => {
-      const transition = transitionForSyncResult(result);
-      if (!dispatchCurrent(requestId, transition.action)) return;
-      if (transition.confirmation === undefined) return;
-      const view = result.state === "completed" ? result.view : undefined;
-      if (view === undefined) return;
-      if (confirmationTimerRef.current !== undefined) {
-        window.clearTimeout(confirmationTimerRef.current);
-      }
-      confirmationTimerRef.current = window.setTimeout(() => {
-        dispatchCurrent(requestId, {
-          type: "settled",
-          confirmation: transition.confirmation?.value ?? "up-to-date",
-          view,
-        });
-      }, transition.confirmation.delayMs);
-    },
-    [dispatchCurrent],
-  );
-
-  const withController = useCallback(
-    async <Result>(run: (signal: AbortSignal) => Promise<Result>): Promise<Result> => {
-      const controller = new AbortController();
-      controllersRef.current.add(controller);
-      try {
-        return await run(controller.signal);
-      } finally {
-        controllersRef.current.delete(controller);
-      }
-    },
-    [],
-  );
-
-  const activate = useCallback(async () => {
-    if (busyRequestRef.current !== undefined) return;
-    stateEntryIdRef.current = entryId;
+  const read = useCallback(async () => {
     const requestId = ++requestIdRef.current;
-    busyRequestRef.current = requestId;
-    automaticRequestRef.current = requestId;
+    stateEntryIdRef.current = entryId;
     const candidate = visibleProjectView(stateRef.current);
-    const cached = candidate?.project.entryId === entryId ? candidate : undefined;
-    let retained = cached;
-    dispatch(cached === undefined ? { type: "load-started" } : { type: "checking", view: cached });
+    const retained =
+      candidate?.project.entryId === entryId && matchesQuery(candidate) ? candidate : undefined;
+    dispatch(
+      retained === undefined ? { type: "load-started" } : { type: "checking", view: retained },
+    );
+    const controller = new AbortController();
+    readControllersRef.current.add(controller);
     try {
-      const envelope = await withController((signal) => readProjectSnapshot(entryId, signal));
+      const envelope = await readProjectRows(entryId, section, queryTarget, controller.signal);
       if (requestId !== requestIdRef.current) return;
       csrfTokenRef.current = envelope.session.csrfToken;
       if (envelope.state === "unavailable") {
@@ -111,131 +112,93 @@ export const useProjectActivation = (entryId: string): ProjectActivation => {
         });
         return;
       }
-      retained = envelope.view;
-      if (!envelope.validation.due && !envelope.validation.inFlight) {
-        dispatch({
-          type: "settled",
-          confirmation: "checked-recently",
-          view: envelope.view,
-        });
-        return;
-      }
-      dispatch({ type: "checking", view: envelope.view });
-      const result = await withController((signal) =>
-        syncProject(entryId, "ensure-current", envelope.session.csrfToken, signal),
-      );
-      applySyncResult(requestId, result);
+      dispatch({ type: "settled", confirmation: "checked-recently", view: envelope.view });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      dispatchCurrent(requestId, {
+      if (requestId !== requestIdRef.current) return;
+      dispatch({
         type: "failed",
         operation: "check",
-        error: requestFailure("check"),
+        error: requestFailure(error),
         ...(retained === undefined ? {} : { view: retained }),
       });
     } finally {
-      if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
-      if (automaticRequestRef.current === requestId) automaticRequestRef.current = undefined;
+      readControllersRef.current.delete(controller);
     }
-  }, [applySyncResult, dispatchCurrent, entryId, withController]);
-
-  const forceSync = useCallback(() => {
-    const csrfToken = csrfTokenRef.current;
-    const busyRequest = busyRequestRef.current;
-    if (
-      csrfToken === undefined ||
-      (busyRequest !== undefined && busyRequest !== automaticRequestRef.current)
-    ) {
-      return;
-    }
-    const requestId = ++requestIdRef.current;
-    if (busyRequest !== undefined) {
-      for (const controller of controllersRef.current) controller.abort();
-      controllersRef.current.clear();
-    }
-    busyRequestRef.current = requestId;
-    automaticRequestRef.current = undefined;
-    const candidate = visibleProjectView(stateRef.current);
-    const cached = candidate?.project.entryId === entryId ? candidate : undefined;
-    dispatch(cached === undefined ? { type: "syncing" } : { type: "syncing", view: cached });
-    void withController((signal) => syncProject(entryId, "force", csrfToken, signal))
-      .then((result) => applySyncResult(requestId, result))
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        dispatchCurrent(requestId, {
-          type: "failed",
-          operation: "sync",
-          error: requestFailure("sync"),
-          ...(cached === undefined ? {} : { view: cached }),
-        });
-      })
-      .finally(() => {
-        if (busyRequestRef.current === requestId) busyRequestRef.current = undefined;
-      });
-  }, [applySyncResult, dispatchCurrent, entryId, withController]);
+  }, [entryId, matchesQuery, queryTarget, section]);
+  const latestReadRef = useRef(read);
+  latestReadRef.current = read;
 
   useEffect(() => {
+    if (providerEntryIdRef.current !== entryId) {
+      providerEntryIdRef.current = entryId;
+      setProviderApplication({ state: "idle" });
+    }
     csrfTokenRef.current = undefined;
-    void activate();
+    void read();
     return () => {
       requestIdRef.current += 1;
-      busyRequestRef.current = undefined;
-      automaticRequestRef.current = undefined;
-      for (const controller of controllersRef.current) controller.abort();
-      controllersRef.current.clear();
-      if (confirmationTimerRef.current !== undefined) {
-        window.clearTimeout(confirmationTimerRef.current);
-      }
+      for (const controller of readControllersRef.current) controller.abort();
+      readControllersRef.current.clear();
     };
-  }, [activate]);
+  }, [entryId, read]);
 
-  useEffect(() => {
-    let lastActivityAt = Date.now();
-    const deferredActivation = createDeferredActivation(() => void activate());
-    const queueActivation = () => {
-      if (busyRequestRef.current === undefined) deferredActivation.schedule();
-    };
-    const visible = () => {
-      if (document.visibilityState === "visible") queueActivation();
-    };
-    const interaction = (event: PointerEvent | KeyboardEvent) => {
-      const currentActivityAt = Date.now();
-      const shouldActivate = interactionNeedsActivation(lastActivityAt, currentActivityAt);
-      lastActivityAt = currentActivityAt;
-      if (manualActionOwnsActivation(event)) {
-        deferredActivation.cancel();
-        return;
-      }
-      if (shouldActivate) queueActivation();
-    };
-    window.addEventListener("online", queueActivation);
-    window.addEventListener("focus", queueActivation);
-    document.addEventListener("visibilitychange", visible);
-    window.addEventListener("pointerdown", interaction, true);
-    window.addEventListener("keydown", interaction, true);
-    return () => {
-      window.removeEventListener("online", queueActivation);
-      window.removeEventListener("focus", queueActivation);
-      document.removeEventListener("visibilitychange", visible);
-      window.removeEventListener("pointerdown", interaction, true);
-      window.removeEventListener("keydown", interaction, true);
-      deferredActivation.cancel();
-    };
-  }, [activate]);
+  useEffect(
+    () => () => {
+      for (const controller of providerControllersRef.current) controller.abort();
+      providerControllersRef.current.clear();
+    },
+    [],
+  );
 
-  const retry = useCallback(() => {
-    const current = stateRef.current;
-    if (current.kind === "failed" && csrfTokenRef.current !== undefined) {
-      forceSync();
-      return;
-    }
-    void activate();
-  }, [activate, forceSync]);
+  const applyProviderObservation = useCallback(
+    (request: PortalProviderApplicationRequest) => {
+      const csrfToken = csrfTokenRef.current;
+      if (csrfToken === undefined || providerApplication.state === "running") return;
+      const controller = new AbortController();
+      providerControllersRef.current.add(controller);
+      setProviderApplication({ state: "running", action: request.action });
+      void requestProviderObservation(entryId, request, csrfToken, controller.signal)
+        .then((result) => {
+          setProviderApplication({ state: "settled", result });
+          void latestReadRef.current();
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          setProviderApplication({
+            state: "settled",
+            result: {
+              version: 1,
+              state: "attention",
+              action: request.action,
+              condition: "provider-unavailable",
+              acquisitionCount: 0,
+              observations: [],
+              diagnostics: [
+                {
+                  reference: "portal-provider-observation-failed",
+                  summary: "Source refresh needs Agent Surface attention.",
+                },
+              ],
+              explanation: "The source refresh did not complete.",
+              nextAction: "Open Bearing in the Agent Surface to diagnose the source operation.",
+            },
+          });
+        })
+        .finally(() => providerControllersRef.current.delete(controller));
+    },
+    [entryId, providerApplication.state],
+  );
 
   const scopedState = activationStateForEntry(state, stateEntryIdRef.current, entryId);
   const candidate = visibleProjectView(scopedState);
-  const view = candidate?.project.entryId === entryId ? candidate : undefined;
-  return view === undefined
-    ? { state: scopedState, forceSync, retry }
-    : { state: scopedState, view, forceSync, retry };
+  const view =
+    candidate?.project.entryId === entryId && matchesQuery(candidate) ? candidate : undefined;
+  const result = {
+    state: scopedState,
+    ...(scopedState.kind === "failed" ? { readFailure: scopedState.error } : {}),
+    providerApplication,
+    applyProviderObservation,
+  };
+  return view === undefined ? result : { ...result, view };
 };

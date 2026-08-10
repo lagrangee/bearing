@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { extname, join, posix, relative, sep } from "node:path";
 import { constants, gzipSync } from "node:zlib";
+import writeFileAtomic from "write-file-atomic";
 import { z } from "zod";
-import { writeFileAtomically } from "../atomic-write";
-import { PROJECT_SNAPSHOT_VERSION } from "../project-snapshot/schema";
+import { PROJECT_GENERATION_VERSION } from "../project-generation/schema";
 
 export const PORTAL_INTERFACE_VERSION = 1 as const;
-export { PROJECT_SNAPSHOT_VERSION };
+export { PROJECT_GENERATION_VERSION };
 
 const MANIFEST_NAME = "asset-manifest.json";
 const contentTypes = {
@@ -47,7 +47,7 @@ export const portalAssetManifestSchema = z
     schemaVersion: z.literal(1),
     packageVersion: z.string().min(1),
     interfaceVersion: z.literal(PORTAL_INTERFACE_VERSION),
-    projectSnapshotVersion: z.literal(PROJECT_SNAPSHOT_VERSION),
+    projectGenerationVersion: z.literal(PROJECT_GENERATION_VERSION),
     entry: z.literal("index.html"),
     buildId: z.string().regex(/^[a-f0-9]{64}$/u),
     assets: z.array(assetRecordSchema),
@@ -128,7 +128,7 @@ export const buildPortalAssetManifest = async (
     schemaVersion: 1,
     packageVersion,
     interfaceVersion: PORTAL_INTERFACE_VERSION,
-    projectSnapshotVersion: PROJECT_SNAPSHOT_VERSION,
+    projectGenerationVersion: PROJECT_GENERATION_VERSION,
     entry: "index.html",
     buildId: canonicalBuildId(assets),
     assets,
@@ -140,10 +140,10 @@ export const writePortalAssetManifest = async (
   manifest: PortalAssetManifest,
 ): Promise<void> => {
   const validated = portalAssetManifestSchema.parse(manifest);
-  await writeFileAtomically(
+  await writeFileAtomic(
     join(portalRoot, MANIFEST_NAME),
     Buffer.from(`${JSON.stringify(validated, null, 2)}\n`),
-    0o644,
+    { mode: 0o644 },
   );
 };
 

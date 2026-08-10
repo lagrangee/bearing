@@ -1,9 +1,8 @@
 import { expect, test } from "bun:test";
 import { decodeBearingRecordGeneration } from "../src/bearing-record-decoder";
-import { normalizeNativeSource } from "../src/native-work";
 
 const analyzeFixture = (locator: string, source: string) => {
-  const record = { ...normalizeNativeSource(locator, source), bytes: Buffer.from(source) };
+  const record = { locator, source, bytes: Buffer.from(source) };
   const decoded = decodeBearingRecordGeneration({
     fingerprint: FINGERPRINT,
     records: [record],
@@ -65,7 +64,7 @@ test("blocks a Planning Audit whose whole findings body is invalid", () => {
 test("retains trusted findings and scopes malformed finding diagnostics", () => {
   const trusted = finding(
     "Promoted question",
-    "\n\n#### Promotion\n\nAlignment Check: `alignment-check:gate-coherence`",
+    "\n\n#### Promotion\n\nPlanning Review: `planning-review:gate-coherence`",
   );
   const malformed = finding("Malformed question").replace(
     "#### Confidence Boundary",
@@ -84,7 +83,7 @@ test("retains trusted findings and scopes malformed finding diagnostics", () => 
     },
     {
       source: `${locator}#finding-1`,
-      target: "alignment-check:gate-coherence",
+      target: "planning-review:gate-coherence",
     },
   ]);
   expect(analysis.diagnostics).toEqual([

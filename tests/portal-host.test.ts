@@ -9,7 +9,7 @@ import { createPortalApp } from "../src/portal/app";
 import {
   buildPortalAssetManifest,
   loadPortalAssets,
-  PROJECT_SNAPSHOT_VERSION,
+  PROJECT_GENERATION_VERSION,
   writePortalAssetManifest,
 } from "../src/portal/assets";
 import { parsePortalPort } from "../src/portal/port";
@@ -110,7 +110,7 @@ test("reports Host and fixed-asset readiness independently of Catalog health", a
   expect(healthSchema.parse(await response.json())).toEqual({
     state: "ready",
     packageVersion: packageMetadata.version,
-    readModelVersion: PROJECT_SNAPSHOT_VERSION,
+    readModelVersion: PROJECT_GENERATION_VERSION,
   });
 });
 
@@ -128,7 +128,7 @@ test("returns the typed Catalog read model without accepting a repository path",
   });
 });
 
-test("keeps last-known-good entries visible when the Catalog is degraded", async () => {
+test("keeps previously trusted entries visible when the Catalog is degraded", async () => {
   // Given a trusted backup after the current Catalog becomes invalid
   const app = createPortalApp({
     assets,
@@ -145,7 +145,7 @@ test("keeps last-known-good entries visible when the Catalog is degraded", async
       ],
       diagnostic: {
         code: "catalog-current-invalid",
-        message: "Project Catalog is using its last-known-good backup; run explicit repair.",
+        message: "Project Catalog is degraded; only previously trusted entries are shown.",
       },
     }),
   });
@@ -160,7 +160,7 @@ test("keeps last-known-good entries visible when the Catalog is degraded", async
     entries: [{ entryId: "entry-bearing", displayName: "Bearing" }],
     diagnostic: {
       code: "catalog-current-invalid",
-      message: "Project Catalog is using its last-known-good backup; run explicit repair.",
+      message: "Project Catalog is degraded; only previously trusted entries are shown.",
     },
   });
 });
@@ -194,7 +194,7 @@ test("does not expose an internal Catalog failure path", async () => {
     assets,
     sessions: { secret: TEST_SESSION_SECRET },
     readCatalog: async () => {
-      throw new Error("Cannot read /Users/private/.bearing/catalog.json");
+      throw new Error("Cannot read /Users/private/.bearing/catalog.sqlite");
     },
   });
 
@@ -262,11 +262,11 @@ test("applies the accepted browser security policy to every Portal response surf
     assets,
     sessions: { secret: TEST_SESSION_SECRET },
     readCatalog: async () => ({ state: "ready" as const, entries: [] }),
-    projectService: {
+    projectQueryService: {
       read: async () => {
         throw new Error("private failure detail");
       },
-      sync: async () => {
+      search: async () => {
         throw new Error("private failure detail");
       },
     },
@@ -278,14 +278,15 @@ test("applies the accepted browser security policy to every Portal response surf
     createReadyApp().request("http://127.0.0.1:4178/healthz"),
     createReadyApp().request("http://127.0.0.1:4178/favicon.ico"),
     createReadyApp().request("http://127.0.0.1:4178/api/v1/missing"),
-    failedApp.request("http://127.0.0.1:4178/api/v1/projects/entry-bearing/snapshot"),
+    failedApp.request("http://127.0.0.1:4178/api/v1/projects/entry-bearing/read-model"),
   ]);
 
   // When each response is inspected, then one bounded policy governs the Host
   for (const response of responses) {
     expect(response.headers.get("content-security-policy")).toBe(
       "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; " +
-        "form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self'; " +
+        "form-action 'self'; script-src 'self'; style-src 'self'; " +
+        "style-src-elem 'self' 'unsafe-inline'; style-src-attr 'none'; img-src 'self' http: https:; " +
         "font-src 'self'; connect-src 'self'",
     );
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
@@ -307,12 +308,47 @@ test("serves only the frozen manifest assets and uses index.html for SPA navigat
     // When a client requests an asset and a client-side route
     const assetResponse = await app.request("http://127.0.0.1:4178/app.js");
     const routeResponse = await app.request("http://127.0.0.1:4178/projects/entry-bearing");
+    const nativeRouteResponse = await app.request(
+      "http://127.0.0.1:4178/projects/entry-bearing/lineage/native-subject/.scratch%2Fscope%2Fmap.md",
+    );
+    const missingAssetResponse = await app.request("http://127.0.0.1:4178/missing.js");
     // Then only startup bytes are served and navigation falls back to the fixed entrypoint
     expect(await assetResponse.text()).toBe(APP_JAVASCRIPT);
     expect(await routeResponse.text()).toBe(INDEX_HTML);
+    expect(await nativeRouteResponse.text()).toBe(INDEX_HTML);
+    expect(missingAssetResponse.status).toBe(404);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("bootstraps the API-scoped Portal session before concurrent API reads", async () => {
+  const app = createReadyApp();
+
+  const entrypoint = await app.request(`${LOCAL_ORIGIN}/projects/entry-bearing`);
+  const bootstrap = await app.request(`${LOCAL_ORIGIN}/api/v1/bootstrap`);
+  const cookie = bootstrap.headers.get("set-cookie");
+  if (cookie === null) throw new Error("Expected the bootstrap script to establish a session.");
+  const requestCookie = cookie.split(";", 1)[0] ?? cookie;
+  const [catalog, project] = await Promise.all([
+    app.request(`${LOCAL_ORIGIN}/api/v1/catalog`, { headers: { Cookie: requestCookie } }),
+    app.request(`${LOCAL_ORIGIN}/api/v1/projects/entry-bearing/read-model`, {
+      headers: { Cookie: requestCookie },
+    }),
+  ]);
+
+  expect(entrypoint.headers.get("set-cookie")).toBeNull();
+  expect(bootstrap.headers.get("cache-control")).toBe("no-store");
+  expect(bootstrap.status).toBe(200);
+  expect(await bootstrap.json()).toEqual({ version: 1, state: "ready" });
+  expect(cookie).toContain("bearing_session=");
+  expect(cookie).toContain("HttpOnly");
+  expect(cookie).toContain("SameSite=Strict");
+  expect(catalog.headers.get("set-cookie")).toBeNull();
+  expect(project.headers.get("set-cookie")).toBeNull();
+  expect(catalog.headers.get("x-bearing-csrf-token")).toBe(
+    project.headers.get("x-bearing-csrf-token"),
+  );
 });
 
 test("serves an immutable fixed asset as gzip when the client accepts it", async () => {

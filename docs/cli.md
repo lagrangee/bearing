@@ -8,7 +8,8 @@ Most users should start with:
 npx @lagrangee/bearing
 ```
 
-The wizard is the public install path. The explicit commands below are for agents, smoke tests, and advanced recovery.
+The wizard is the public Global Kit maintenance path. The explicit commands below are for agents,
+smoke tests, and advanced recovery.
 
 ## Help
 
@@ -17,7 +18,11 @@ bearing --help
 bearing --version
 ```
 
-## Install user-level kit
+## Maintain the user-level Global Kit
+
+Run `bearing` with no arguments in an interactive terminal. Select Install, Update, Repair, or
+Global Uninstall. Cancellation writes nothing. Install, Update, and Repair use the same complete
+bundle transaction described below.
 
 ```bash
 bearing install --surface agent-skills
@@ -42,52 +47,77 @@ immediately preceding minor is supported; cross-major and multi-minor skips are 
 is not repository-state rollback. If state was upgraded, restore the release-specific verified
 backup first; otherwise the downgrade fails closed.
 
-## Enable one repository
+## Configure one repository
+
+Repository Configuration is Agent-led. Bare `bearing configure` redirects to the public Bearing
+skill. The deterministic CLI provides only machine facts, a sealed plan, and exact apply:
 
 ```bash
-bearing setup --repo . --surface agent-skills
+bearing configure inspect --repo .
+bearing configure plan --intent activate --repo . --surface agent-skills \
+  --provider-contract docs/agents/issue-tracker.md --executor-mode skip
+bearing configure apply --intent activate --repo . --surface agent-skills \
+  --provider-contract docs/agents/issue-tracker.md --executor-mode skip \
+  --plan-token <sealedPlanToken>
 ```
 
-`setup` enables the repository without copying global protocol or skills into the repository.
-It refuses an unsupported newer repository schema and directs you to a compatible Bearing version;
-it never rewrites newer state as schema 1.
+Inspect performs no writes and makes no preference or product decision. Plan needs every material
+choice and returns exact targets, preconditions, preservation effects, and a token for that exact
+repository generation. Apply recomputes the plan, rejects stale or mismatched tokens, and modifies
+only the reviewed Bearing machine configuration and managed pointers. Fresh Configuration creates
+the disposable Project Read Model without provider acquisition or substantive planning objects.
+Catalog upsert runs after repository validation and reports failure separately. Portal handoff
+reports a compatible URL, an incompatible Host restart instruction, or a foreground start
+instruction; it never starts Portal.
 
-## Deactivate or purge one repository
+Use repeatable `--executor` and matching `--executor-assessment` values only after the user nominates
+a capable executor. Use `--executor-mode skip` only after an explicit skip decision. Existing
+profiles can be retained or removed with `--retain-executor` and `--remove-executor`. Bearing does
+not install an executor or infer one from free prose.
+
+Deactivate through the same sealed lifecycle:
 
 ```bash
-bearing deactivate --repo .
-bearing purge --repo . --confirm-purge
+bearing configure plan --intent deactivate --repo .
+bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanToken>
 ```
 
-Use these only through an accepted `bearing-setup` lifecycle decision. `deactivate` removes the
-manifest and managed root pointers while preserving `.bearing/state`, profiles, cache, native
-`.scratch` work, and durable artifacts. `purge` removes only the repository `.bearing` namespace
-and managed root pointers after confirmation; it preserves `.scratch`, source, docs, and other
-native artifacts. After either repository mutation commits, Catalog removal is reported separately
-and can be retried safely if it fails. Purge first atomically detaches `.bearing`; if recursive
-cleanup then fails, the command returns blocked and prints the exact partial quarantine path. That
-residue is not a backup, and Bearing never claims that partially deleted bytes were restored.
-Both lifecycle commands reject a linked or otherwise unsafe `.bearing` namespace. Before reading or
-changing `.bearing/manifest.json`, they also require it to be missing or one single-link regular
-file; a symlink, directory, multiply-linked file, or special type fails closed.
+Deactivation removes the managed pointer and disposable cache. It preserves canonical state,
+Provider Configuration, profiles, artifacts, and native work. Catalog unregister is a later,
+independently reported stage. Unsupported Preview state is removal-required. Bearing has no
+built-in migration, cutover, silent repair, or repository Purge. Repository removal is an external,
+explicitly authorized, Agent-reviewed platform operation followed by Fresh Configuration.
 
-## Sync
+The managed pointer gives contextual nomination guidance. Explicit Bearing requests, reliable
+continuations, and materially relevant planning or governance work can nominate Bearing. The
+working directory, generic roadmap words, repository-independent conversation, and ordinary code
+work do not nominate it. Functional operations validate Active lifecycle before cache creation,
+provider I/O, or mutation.
+
+## Project Read Model operations
 
 ```bash
-bearing sync --repo .
+bearing cache rebuild --repo .
+bearing provider verify --all --repo .
+bearing inspect project --repo .
 ```
 
-Sync rebuilds deterministic diagnostics and Project Sitemap projection under cache.
+Cache rebuild creates only the disposable SQLite Project Read Model. Provider verification is an
+explicit cost-bearing operation over current Work Bindings. Inspect returns typed committed rows.
+These commands do not discover standalone work or expand Bearing Scope.
 
 ## Inspect
 
 ```bash
-bearing inspect roadmap <roadmap-id> --repo .
-bearing inspect gate <gate-id> --repo .
-bearing inspect effort <effort-id> --repo .
+bearing inspect project --repo .
+bearing inspect effort:<effort-id> --repo .
+bearing inspect --native <native-reference> --repo .
+bearing inspect diagnostics --repo .
 ```
 
-Inspect returns a planning context closure for the selected object.
+Inspect returns a versioned typed envelope from committed Project Read Model rows. The four forms
+read bounded Project Context, one stable planning reference, one exact native reference, or typed
+diagnostics.
 
 ## Portal
 
@@ -99,10 +129,15 @@ Portal runs in the foreground and prints a loopback URL. `BEARING_PORT` can over
 
 ## Catalog
 
-Use `bearing catalog --help` and current command help for rename, forget, remove, relink, repair, and reset operations. Catalog operations can affect user-level project registration; do not run them blindly.
+Use `bearing catalog --help` for the complete Catalog CLI: inspect, rename, unregister, relink, and confirmed reset. Unregister accepts exactly one Entry ID or repository-root selector. Relink replaces only the registered locator and never moves repository files. Reset creates an empty SQLite Catalog; run Repository Configuration again to re-register repositories. Catalog operations can affect user-level project registration; do not run them blindly.
 
-## Package uninstall boundary
+## Global Uninstall and package-manager boundary
 
-Bearing has no repository-scoped package-uninstall command. Remove an npm-owned package installation
-with the package manager that installed it, for example `npm uninstall -g @lagrangee/bearing`.
-Package removal does not deactivate or purge repositories and does not delete Project Catalog data.
+Wizard Global Uninstall removes `$HOME/.bearing/kit/current`, the canonical CLI shim, and only
+Bearing-managed Agent Surface pointers. It does not read or change the Project Catalog,
+repository canonical state, Provider Configuration, profiles, artifacts, or native work. It is not
+repository Deactivation or repository-state removal, and Bearing has no repository-scoped package
+uninstall command.
+
+An npm-owned package installation remains owned by npm. Remove it separately with the package
+manager that installed it, for example `npm uninstall -g @lagrangee/bearing`.

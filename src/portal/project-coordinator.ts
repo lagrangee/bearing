@@ -3,6 +3,7 @@ export type ProjectOperationMode = "ensure-current" | "force";
 export type ProjectOperation = Readonly<{
   entryId: string;
   mode: ProjectOperationMode;
+  locatorRevision?: string;
 }>;
 
 export type CoordinatedResult<T> =
@@ -14,15 +15,24 @@ export type CoordinatedResult<T> =
       joined: boolean;
     }>;
 
-type Active<T> = Readonly<{ mode: ProjectOperationMode; promise: Promise<T> }>;
+type Active<T> = Readonly<{
+  mode: ProjectOperationMode;
+  locatorRevision?: string;
+  operationKey: string;
+  promise: Promise<T>;
+}>;
 type ProjectState<T> = {
   lastAttemptAt?: number;
   active?: Active<T>;
-  queuedForce?: Promise<T>;
+  queuedForces?: Map<string, Promise<T>>;
+  queueTail?: Promise<unknown>;
 };
 
-export type ProjectCoordinator<T> = Readonly<{
-  execute(operation: ProjectOperation): Promise<CoordinatedResult<T>>;
+export type ProjectCoordinator<
+  T,
+  Operation extends ProjectOperation = ProjectOperation,
+> = Readonly<{
+  execute(operation: Operation): Promise<CoordinatedResult<T>>;
   status(identity: Readonly<{ entryId: string }>): Readonly<{
     due: boolean;
     cooldownRemainingMs: number;
@@ -30,11 +40,15 @@ export type ProjectCoordinator<T> = Readonly<{
   }>;
 }>;
 
-export const createProjectCoordinator = <T>(options: {
-  readonly run: (operation: ProjectOperation) => Promise<T>;
+export const createProjectCoordinator = <
+  T,
+  Operation extends ProjectOperation = ProjectOperation,
+>(options: {
+  readonly run: (operation: Operation) => Promise<T>;
+  readonly operationKey?: (operation: Operation) => string;
   readonly clock?: () => number;
   readonly cooldownMs?: number;
-}): ProjectCoordinator<T> => {
+}): ProjectCoordinator<T, Operation> => {
   const clock = options.clock ?? Date.now;
   const cooldownMs = options.cooldownMs ?? 30_000;
   const states = new Map<string, ProjectState<T>>();
@@ -49,9 +63,10 @@ export const createProjectCoordinator = <T>(options: {
     if (state.lastAttemptAt === undefined) return 0;
     return Math.max(0, cooldownMs - (clock() - state.lastAttemptAt));
   };
-  const begin = (state: ProjectState<T>, operation: ProjectOperation): Promise<T> => {
+  const keyFor = (operation: Operation): string => options.operationKey?.(operation) ?? "default";
+  const begin = (state: ProjectState<T>, operation: Operation): Promise<T> => {
     state.lastAttemptAt = clock();
-    const running = options.run({ entryId: operation.entryId, mode: operation.mode });
+    const running = options.run(operation);
     let promise: Promise<T>;
     const clear = <Value>(continuation: () => Value): Value => {
       if (state.active?.promise === promise) delete state.active;
@@ -64,7 +79,14 @@ export const createProjectCoordinator = <T>(options: {
           throw error;
         }),
     );
-    state.active = { mode: operation.mode, promise };
+    state.active = {
+      mode: operation.mode,
+      ...(operation.locatorRevision === undefined
+        ? {}
+        : { locatorRevision: operation.locatorRevision }),
+      operationKey: keyFor(operation),
+      promise,
+    };
     return promise;
   };
   const completed = async (
@@ -82,19 +104,29 @@ export const createProjectCoordinator = <T>(options: {
     execute(operation): Promise<CoordinatedResult<T>> {
       const state = stateFor(operation.entryId);
       const active = state.active;
-      if (active !== undefined) {
-        if (operation.mode === "ensure-current" || active.mode === "force") {
-          return completed(active.promise, active.mode, true);
-        }
-        const existingQueue = state.queuedForce;
-        if (existingQueue !== undefined) return completed(existingQueue, "force", true);
-        const pending = active.promise.then(
-          () => begin(state, { ...operation, mode: "force" }),
-          () => begin(state, { ...operation, mode: "force" }),
+      const operationKey = keyFor(operation);
+      if (
+        active !== undefined &&
+        active.locatorRevision === operation.locatorRevision &&
+        active.operationKey === operationKey &&
+        (operation.mode === "ensure-current" || active.mode === "force")
+      ) {
+        return completed(active.promise, active.mode, true);
+      }
+      const queueKey = `force:${operation.locatorRevision ?? "unknown"}:${operationKey}`;
+      const existingQueue = state.queuedForces?.get(queueKey);
+      if (existingQueue !== undefined) return completed(existingQueue, "force", true);
+      const predecessor = state.queueTail ?? active?.promise;
+      if (predecessor !== undefined) {
+        const queues = state.queuedForces ?? new Map<string, Promise<T>>();
+        state.queuedForces = queues;
+        const pending = predecessor.then(
+          () => begin(state, { ...operation, mode: "force" } as Operation),
+          () => begin(state, { ...operation, mode: "force" } as Operation),
         );
         let queued: Promise<T>;
         const clearQueue = <Value>(continuation: () => Value): Value => {
-          if (state.queuedForce === queued) delete state.queuedForce;
+          if (queues.get(queueKey) === queued) queues.delete(queueKey);
           return continuation();
         };
         queued = pending.then(
@@ -104,10 +136,17 @@ export const createProjectCoordinator = <T>(options: {
               throw error;
             }),
         );
-        state.queuedForce = queued;
+        queues.set(queueKey, queued);
+        const tail = queued.then(
+          () => undefined,
+          () => undefined,
+        );
+        state.queueTail = tail;
+        void tail.then(() => {
+          if (state.queueTail === tail) delete state.queueTail;
+        });
         return completed(queued, "force", false);
       }
-      if (state.queuedForce !== undefined) return completed(state.queuedForce, "force", true);
       const cooldownRemainingMs = remainingFor(state);
       if (operation.mode === "ensure-current" && cooldownRemainingMs > 0) {
         return Promise.resolve({ kind: "cooldown", cooldownRemainingMs });
@@ -120,7 +159,7 @@ export const createProjectCoordinator = <T>(options: {
       return {
         due: cooldownRemainingMs === 0,
         cooldownRemainingMs,
-        inFlight: state.active !== undefined || state.queuedForce !== undefined,
+        inFlight: state.active !== undefined || (state.queuedForces?.size ?? 0) > 0,
       };
     },
   };

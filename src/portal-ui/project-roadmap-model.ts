@@ -1,19 +1,5 @@
-import type {
-  AssetProjection,
-  Effort,
-  MapProjection,
-  MilestoneGate,
-  ProjectSnapshot,
-  Roadmap,
-  SourceRecord,
-  TicketProjection,
-} from "../project-snapshot/contract";
-import { nativeProjectionUncertainForEffort } from "../project-snapshot/schema-native-scope-consistency";
-import {
-  assessScopedMapIssues,
-  collectRoadmapEvidenceIds,
-  hasScopedGateIssue,
-} from "./project-roadmap-relations";
+import type { MilestoneGate, Roadmap, SourceRecord } from "../project-generation/contract";
+import type { RoadmapsModelData } from "./project-data";
 
 export type RoadmapGateModel = Readonly<{
   gate: MilestoneGate;
@@ -39,46 +25,6 @@ export type RoadmapIndexModel =
   | Readonly<{ state: "absent"; groups: readonly [] }>
   | Readonly<{ state: "invalid"; groups: readonly []; issueCount: number }>;
 
-type Frontier = Readonly<{
-  claimed: readonly TicketProjection[];
-  ready: readonly TicketProjection[];
-  blocked: readonly TicketProjection[];
-  resolved: readonly TicketProjection[];
-}>;
-
-export type RoadmapEffortModel = Readonly<{
-  effort: Effort;
-  source: SourceRecord | undefined;
-  targetGate: MilestoneGate | undefined;
-  maps: readonly MapProjection[];
-  frontier: Frontier;
-  missingFrontierReferences: readonly string[];
-}>;
-
-export type RoadmapEvidenceModel = Readonly<{
-  asset: AssetProjection;
-  source: SourceRecord | undefined;
-}>;
-
-type RoadmapDetail = Readonly<{
-  roadmap: Roadmap;
-  source: SourceRecord | undefined;
-  gates: readonly RoadmapGateModel[];
-  focusedGate: RoadmapGateModel | undefined;
-  efforts: readonly RoadmapEffortModel[];
-  evidence: readonly RoadmapEvidenceModel[];
-  missingGateIds: readonly string[];
-  missingEffortIds: readonly string[];
-  missingEvidenceAssetIds: readonly string[];
-  missingMapRelationCount: number;
-}>;
-
-export type RoadmapDetailModel =
-  | (RoadmapDetail & Readonly<{ state: "available" }>)
-  | (RoadmapDetail & Readonly<{ state: "partial" }>)
-  | Readonly<{ state: "missing" }>
-  | Readonly<{ state: "invalid"; issueCount: number }>;
-
 const items = <Item>(
   projection:
     | Readonly<{ validity: "available" | "partial"; items: readonly Item[] }>
@@ -88,7 +34,7 @@ const items = <Item>(
 const indexBy = <Item>(values: readonly Item[], key: (item: Item) => string): Map<string, Item> =>
   new Map(values.map((item) => [key(item), item]));
 
-const sourcesFor = (snapshot: ProjectSnapshot): ReadonlyMap<string, SourceRecord> =>
+const sourcesFor = (snapshot: RoadmapsModelData): ReadonlyMap<string, SourceRecord> =>
   indexBy(snapshot.sources, (source) => source.reference);
 
 const gateSummary = (
@@ -111,7 +57,7 @@ const gateSummary = (
   };
 };
 
-export const buildRoadmapIndexModel = (snapshot: ProjectSnapshot): RoadmapIndexModel => {
+export const buildRoadmapIndexModel = (snapshot: RoadmapsModelData): RoadmapIndexModel => {
   if (snapshot.roadmapIndex.validity === "absent") return { state: "absent", groups: [] };
   if (snapshot.roadmapIndex.validity === "invalid" || snapshot.roadmaps.validity === "invalid") {
     const issueCount =
@@ -146,107 +92,5 @@ export const buildRoadmapIndexModel = (snapshot: ProjectSnapshot): RoadmapIndexM
   return {
     state: snapshot.roadmapIndex.validity === "partial" || incomplete ? "partial" : "available",
     groups,
-  };
-};
-
-const frontierFor = (
-  effort: Effort,
-  tickets: ReadonlyMap<string, TicketProjection>,
-): Readonly<{ frontier: Frontier; missing: readonly string[] }> => {
-  const missing: string[] = [];
-  const lane = (references: readonly string[]): TicketProjection[] =>
-    references.flatMap((reference) => {
-      const ticket = tickets.get(reference);
-      if (ticket === undefined) missing.push(reference);
-      return ticket === undefined ? [] : [ticket];
-    });
-  return {
-    frontier: {
-      claimed: lane(effort.frontier.claimed),
-      ready: lane(effort.frontier.ready),
-      blocked: lane(effort.frontier.blocked),
-      resolved: lane(effort.frontier.resolved),
-    },
-    missing,
-  };
-};
-
-export const buildRoadmapDetailModel = (
-  snapshot: ProjectSnapshot,
-  roadmapId: string,
-): RoadmapDetailModel => {
-  if (snapshot.roadmaps.validity === "invalid") {
-    return { state: "invalid", issueCount: snapshot.roadmaps.issues.length };
-  }
-  const roadmap = snapshot.roadmaps.items.find((candidate) => candidate.id === roadmapId);
-  if (roadmap === undefined) return { state: "missing" };
-  const sources = sourcesFor(snapshot);
-  const gateIndex = indexBy(items(snapshot.gates), (gate) => gate.id);
-  const summary = gateSummary(roadmap, gateIndex, sources);
-  const effortIndex = indexBy(items(snapshot.efforts), (effort) => effort.id);
-  const mapItems = items(snapshot.maps);
-  const ticketIndex = indexBy(items(snapshot.tickets), (ticket) => ticket.reference);
-  const efforts: RoadmapEffortModel[] = [];
-  const missingEffortIds: string[] = [];
-  let missingFrontierCount = 0;
-  for (const effortId of roadmap.effortIds) {
-    const effort = effortIndex.get(effortId);
-    if (effort === undefined) {
-      missingEffortIds.push(effortId);
-      continue;
-    }
-    const resolved = frontierFor(effort, ticketIndex);
-    missingFrontierCount += resolved.missing.length;
-    efforts.push({
-      effort,
-      source: sources.get(effort.source),
-      targetGate: gateIndex.get(effort.targetGateId),
-      maps: mapItems.filter((map) => map.effortId === effort.id),
-      frontier: resolved.frontier,
-      missingFrontierReferences: resolved.missing,
-    });
-  }
-  const assetIndex = indexBy(items(snapshot.assets), (asset) => asset.id);
-  const evidence: RoadmapEvidenceModel[] = [];
-  const missingEvidenceAssetIds: string[] = [];
-  for (const assetId of collectRoadmapEvidenceIds(
-    roadmap,
-    summary.gates.map((entry) => entry.gate),
-    efforts.map((entry) => entry.effort),
-  )) {
-    const asset = assetIndex.get(assetId);
-    if (asset === undefined) missingEvidenceAssetIds.push(assetId);
-    else evidence.push({ asset, source: sources.get(asset.source) });
-  }
-  const focusedGate = summary.gates.find((entry) => entry.gate.id === roadmap.focusedGateId);
-  const mapIssues = assessScopedMapIssues(
-    snapshot.maps,
-    efforts.map(({ effort }) => effort.source),
-    snapshot.sources,
-  );
-  const hasScopedTicketIssue = efforts.some(({ effort }) =>
-    nativeProjectionUncertainForEffort(snapshot.tickets, effort.source, snapshot.sources),
-  );
-  const partial =
-    summary.missingGateIds.length > 0 ||
-    missingEffortIds.length > 0 ||
-    missingFrontierCount > 0 ||
-    missingEvidenceAssetIds.length > 0 ||
-    mapIssues.uncertain ||
-    hasScopedGateIssue(snapshot.gates, roadmap.gateOrder) ||
-    hasScopedTicketIssue ||
-    (roadmap.focusedGateId !== null && focusedGate === undefined);
-  return {
-    state: partial ? "partial" : "available",
-    roadmap,
-    source: sources.get(roadmap.source),
-    gates: summary.gates,
-    focusedGate,
-    efforts,
-    evidence,
-    missingGateIds: summary.missingGateIds,
-    missingEffortIds,
-    missingEvidenceAssetIds,
-    missingMapRelationCount: mapIssues.missingRelationCount,
   };
 };

@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Northstar · Bearing Portal</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./mock-data.js" type="module"></script>
+    <script src="./app.js" type="module"></script>
+  </head>
+  <body class="portal-shell">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <header class="topbar">
+      <button
+        aria-controls="project-navigation"
+        aria-expanded="false"
+        aria-label="Open navigation"
+        class="mobile-menu"
+        type="button"
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M4 5h16M4 12h16M4 19h16" />
+        </svg>
+      </button>
+      <a class="brand" href="#/overview" aria-label="Bearing Portal home"
+        ><span aria-hidden="true" class="brand-mark">C</span> <strong>Bearing Portal</strong></a
+      >
+      <p class="project-switcher"><code>northstar</code> <strong>Northstar</strong></p>
+      <strong class="project-title-narrow">Northstar</strong>
+      <div class="topbar-status">
+        <button
+          class="action topbar-walkthrough"
+          type="button"
+          aria-label="Start daily governance walkthrough"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" />
+            <path d="m15 9-2 4-4 2 2-4Z" />
+          </svg>
+          <span>Walkthrough</span>
+        </button>
+        <button class="action topbar-find" type="button" aria-label="Find in project">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <span>Find</span>
+        </button>
+      </div>
+    </header>
+    <nav class="project-navigation project-nav" id="project-navigation" aria-label="Project navigation">
+      <div class="nav-project">
+        <span><small>Current project</small><strong>Northstar</strong></span>
+        <button aria-label="Close navigation" class="nav-close" type="button">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <a class="project-nav-item" href="#/overview">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M12 3v18M3 12h18" /><rect x="3" y="3" width="18" height="18" rx="2" />
+        </svg>
+        <span>Overview</span>
+      </a>
+      <a class="project-nav-item" href="#/roadmaps">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <circle cx="6" cy="19" r="3" />
+          <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" />
+          <circle cx="18" cy="5" r="3" />
+        </svg>
+        <span>Roadmaps</span>
+      </a>
+      <a class="project-nav-item" href="#/assets">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" />
+        </svg>
+        <span>Assets</span>
+      </a>
+      <a class="project-nav-item" href="#/audit">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+          <path d="m9 14 2 2 4-4" />
+        </svg>
+        <span>Audit</span>
+      </a>
+      <p class="nav-footer"><span>Read only</span><small>Interactive sample</small></p>
+    </nav>
+    <button aria-label="Close navigation" class="nav-scrim" type="button"></button>
+    <div class="project-find-layer" hidden>
+      <button class="project-find-backdrop" type="button" aria-label="Close Find"></button>
+      <section
+        class="project-find-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-find-title"
+      >
+        <div class="project-find-heading">
+          <div>
+            <span class="eyebrow">Project Find</span>
+            <h2 id="project-find-title">Find in project</h2>
+          </div>
+          <button class="project-find-close" type="button" aria-label="Close Find">×</button>
+        </div>
+        <label class="project-find-input-label" for="project-find-input">
+          Search identity, title, or semantic phrase
+        </label>
+        <input
+          id="project-find-input"
+          class="project-find-input"
+          type="search"
+          placeholder="Try a Gate ID, title, or phrase"
+          autocomplete="off"
+          aria-controls="project-find-results"
+        />
+        <p class="project-find-status" role="status" aria-live="polite">
+          Search is limited to Bearing-managed project content.
+        </p>
+        <p class="project-find-empty" hidden>
+          No matches in Bearing-managed scope. Try another title, phrase, or internal ID.
+        </p>
+        <div
+          id="project-find-results"
+          class="project-find-results"
+          role="listbox"
+          aria-label="Find results"
+          hidden
+        ></div>
+      </section>
+    </div>
+    <div class="walkthrough-layer" hidden>
+      <section
+        class="walkthrough-dialog"
+        role="dialog"
+        aria-label="Daily governance walkthrough"
+        aria-describedby="walkthrough-purpose"
+      >
+        <div class="walkthrough-heading">
+          <div>
+            <p class="walkthrough-progress"></p>
+            <h2 id="walkthrough-title" tabindex="-1"></h2>
+          </div>
+          <button class="walkthrough-close" type="button" aria-label="Close walkthrough">×</button>
+        </div>
+        <p id="walkthrough-purpose"></p>
+        <p class="walkthrough-location"></p>
+        <div class="walkthrough-actions">
+          <button class="action walkthrough-previous" type="button" aria-label="Previous step">
+            Previous
+          </button>
+          <button class="action action-primary walkthrough-next" type="button" aria-label="Next step">
+            Next
+          </button>
+        </div>
+      </section>
+    </div>
+    <main class="portal-main" id="main-content" tabindex="-1">
+      <section class="demo-page overview-page" data-screen id="overview-screen">
+        <header class="project-intro">
+          <h1 tabindex="-1">Northstar</h1>
+          <div class="orientation-tabs" role="tablist" aria-label="Project orientation">
+            <button
+              aria-controls="project-orientation-panel"
+              aria-selected="true"
+              id="project-brief-tab"
+              role="tab"
+              type="button"
+            >
+              Brief
+            </button>
+            <button
+              aria-controls="project-orientation-panel"
+              aria-selected="false"
+              id="project-summary-tab"
+              role="tab"
+              tabindex="-1"
+              type="button"
+            >
+              Project Summary
+            </button>
+          </div>
+          <section
+            aria-labelledby="project-brief-tab"
+            class="orientation-canvas"
+            id="project-orientation-panel"
+            role="tabpanel"
+          >
+            <div class="orientation-prose brief-prose" data-orientation-panel="brief">
+              <div class="orientation-heading"><h2>Project Brief</h2></div>
+              <section>
+                <h3>At a Glance</h3>
+                <p>
+                  Northstar gives product teams a dependable release workspace for customer-facing
+                  SaaS changes.
+                </p>
+              </section>
+              <section>
+                <h3>Current Position</h3>
+                <p>
+                  Public Beta is close. The release candidate is ready for review, but the Gate has
+                  not passed. One Planning Review needs human judgment before that decision.
+                </p>
+              </section>
+              <section>
+                <h3>Established Baseline</h3>
+                <ul>
+                  <li>Workspace isolation and audit export are in the accepted product baseline.</li>
+                  <li>Release evidence supports review; it does not pass a Gate.</li>
+                  <li>Customer-facing changes remain read-only until an owner accepts the decision.</li>
+                </ul>
+              </section>
+            </div>
+            <div class="orientation-prose summary-prose" data-orientation-panel="summary" hidden>
+              <div class="orientation-heading"><h2>Project Summary</h2></div>
+              <section>
+                <h3>Purpose</h3>
+                <p>
+                  Northstar makes release governance readable without replacing canonical project
+                  state. It gives product and delivery owners one place to inspect outcomes,
+                  decisions, and the evidence behind them.
+                </p>
+                <p>
+                  The daily job is to see the current position, identify where human judgment is
+                  required, and follow the relevant evidence without prescribing new action.
+                </p>
+              </section>
+              <section>
+                <h3>Current Design</h3>
+                <p>The project reading connects four levels of governance context:</p>
+                <ul>
+                  <li>Peer Roadmaps show complete outcome horizons and their current Gates.</li>
+                  <li>Gates keep lifecycle, readiness, and human Passage separate.</li>
+                  <li>Efforts connect governed outcomes to provider-native Current Work.</li>
+                  <li>Assets, Authorities, and Planning Lineage preserve each evidence role.</li>
+                </ul>
+              </section>
+              <section>
+                <h3>Boundaries</h3>
+                <ul>
+                  <li>This interactive sample uses fixed mock data and runs entirely in the browser.</li>
+                  <li>It does not call an API, provider, filesystem, or production business logic.</li>
+                  <li>Ready for review is evidence for a decision; it does not pass a Gate.</li>
+                  <li>Stale or non-current evidence stays visible but cannot contribute to readiness.</li>
+                </ul>
+              </section>
+            </div>
+          </section>
+        </header>
+        <section class="attention-queue" id="attention-queue" aria-labelledby="attention-title" tabindex="-1">
+          <div class="attention-heading">
+            <span class="attention-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+                <path d="M12 9v4M12 17h.01" />
+              </svg>
+            </span>
+            <div><h2 id="attention-title">Attention</h2><p>1 project item</p></div>
+          </div>
+          <div class="attention-items">
+            <a class="attention-item attention-review" href="#/attention">
+              <span>
+                <small>Planning Review</small>
+                <strong>Review the Public Beta release decision</strong>
+                <span>Confirm the candidate evidence before Gate Passage.</span>
+              </span>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg>
+            </a>
+          </div>
+        </section>
+        <section class="roadmap-landscape" aria-labelledby="active-roadmaps-heading">
+          <div class="section-heading"><h2 id="active-roadmaps-heading">Active Roadmaps</h2><span>2</span></div>
+          <article class="roadmap-landscape-item">
+            <header class="roadmap-landscape-header">
+              <h3><a class="roadmap-title-link" href="#/roadmaps/public-beta-readiness">Public Beta Readiness</a></h3>
+              <p>Prepare the first dependable release for design partners.</p>
+            </header>
+            <fieldset aria-label="Public Beta Gates" class="horizon">
+              <legend class="sr-only">Public Beta Gates</legend>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G1 · Foundations accepted</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G2 · Tenant safety verified</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><a class="gate-node gate-focused" href="#/gates/release-candidate-ready"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G3 · Release candidate ready</strong><small>Current</small></span></a><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-planned"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G4 · Beta feedback loop established</strong><small>Planned</small></span></span></div>
+            </fieldset>
+          </article>
+          <article class="roadmap-landscape-item">
+            <header class="roadmap-landscape-header">
+              <h3>Collaboration Value</h3>
+              <p>Help product teams coordinate release decisions without hidden context.</p>
+            </header>
+            <fieldset aria-label="Collaboration Value Gates" class="horizon">
+              <legend class="sr-only">Collaboration Value Gates</legend>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G1 · Shared release notes proven</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-focused"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong><span aria-hidden="true">G2 · </span><span>Customer Trust</span></strong><small>Current</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-planned"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G3 · Review cadence adopted</strong><small>Planned</small></span></span></div>
+            </fieldset>
+          </article>
+        </section>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="roadmaps-screen">
+        <header class="list-header">
+          <h1 tabindex="-1">Roadmaps</h1>
+        </header>
+        <section class="roadmap-index-section" aria-labelledby="active-roadmaps-list-heading">
+          <div class="index-section-heading">
+            <h2 id="active-roadmaps-list-heading">Active</h2>
+            <span>2</span>
+          </div>
+          <article class="roadmap-index-row">
+            <a href="#/roadmaps/public-beta-readiness">Public Beta Readiness</a>
+            <p>Prepare the first dependable release for design partners.</p>
+            <fieldset aria-label="Public Beta Gates" class="horizon">
+              <legend class="sr-only">Public Beta Gates</legend>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G1 · Foundations accepted</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G2 · Tenant safety verified</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><a class="gate-node gate-focused" href="#/gates/release-candidate-ready"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G3 · Release candidate ready</strong><small>Current</small></span></a><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-planned"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G4 · Beta feedback loop established</strong><small>Planned</small></span></span></div>
+            </fieldset>
+          </article>
+          <article class="roadmap-index-row">
+            <strong class="roadmap-static-title">Collaboration Value</strong>
+            <p>Help product teams coordinate release decisions without hidden context.</p>
+            <fieldset aria-label="Collaboration Value Gates" class="horizon">
+              <legend class="sr-only">Collaboration Value Gates</legend>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G1 · Shared release notes proven</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-focused"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong><span aria-hidden="true">G2 · </span><span>Customer Trust</span></strong><small>Current</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-planned"><span class="gate-marker" aria-hidden="true"></span><span class="gate-copy"><strong>G3 · Review cadence adopted</strong><small>Planned</small></span></span></div>
+            </fieldset>
+          </article>
+        </section>
+        <section class="roadmap-index-section" aria-labelledby="completed-roadmaps-list-heading">
+          <div class="index-section-heading">
+            <h2 id="completed-roadmaps-list-heading">Completed</h2>
+            <span>1</span>
+          </div>
+          <article class="roadmap-index-row is-completed">
+            <strong class="roadmap-static-title">Private Alpha Learning</strong>
+            <p>Learn which governance signals design partners need before Public Beta.</p>
+            <fieldset aria-label="Private Alpha Gates" class="horizon">
+              <legend class="sr-only">Private Alpha Gates</legend>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G1 · Alpha cohort onboarded</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G2 · Workflow gaps synthesized</strong><small>Passed</small></span></span><span class="horizon-line" aria-hidden="true"></span></div>
+              <div class="gate-segment"><span class="gate-node gate-passed"><span class="gate-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span><span class="gate-copy"><strong>G3 · Learning horizon completed</strong><small>Passed</small></span></span></div>
+            </fieldset>
+          </article>
+        </section>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="public-beta-roadmap-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/roadmaps">Roadmaps</a></li><li><span aria-current="page">Public Beta Readiness</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Roadmap</span><h1 tabindex="-1">Public Beta Readiness</h1><p class="lineage-header-status">Active roadmap</p><p class="lineage-header-context">Prepare the first dependable release for design partners.</p></div></header>
+        <div class="lineage-sections lineage-sections-before-spine"><section aria-labelledby="roadmap-intent-heading"><h2 id="roadmap-intent-heading">Intent</h2><p>Make the first beta decision from a complete, inspectable release candidate.</p></section></div>
+        <section class="outcome-spine" data-layout="horizontal-eligible" data-gate-count="4" aria-labelledby="outcome-spine-heading">
+          <header><h2 id="outcome-spine-heading">Outcome Spine</h2><p>Ordered Gates and their complete governed Efforts.</p></header>
+          <ol class="outcome-spine-list">
+            <li class="outcome-spine-gate"><div class="outcome-spine-gate-heading"><span>G1</span><strong>Foundations accepted</strong><small>Passed</small></div><ul><li><span>Product Baseline</span></li></ul></li>
+            <li class="outcome-spine-gate"><div class="outcome-spine-gate-heading"><span>G2</span><strong>Tenant safety verified</strong><small>Passed</small></div><ul><li><span>Tenant Safeguards</span></li></ul></li>
+            <li class="outcome-spine-gate is-focused"><div class="outcome-spine-gate-heading"><span>G3</span><a href="#/gates/release-candidate-ready">Release candidate ready</a><small>Current</small></div><ul><li><a href="#/efforts/release-packaging">Release Packaging</a></li><li><a href="#/efforts/beta-operations">Beta Operations</a></li><li><span>Launch Documentation</span></li></ul></li>
+            <li class="outcome-spine-gate"><div class="outcome-spine-gate-heading"><span>G4</span><strong>Beta feedback loop established</strong><small>Planned</small></div><ul><li><span>Feedback Intake</span></li></ul></li>
+          </ol>
+        </section>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="release-gate-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/roadmaps/public-beta-readiness">Public Beta Readiness</a></li><li><span aria-current="page">Release candidate ready</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Gate</span><h1 tabindex="-1">Release candidate ready</h1><p class="lineage-header-status">Current gate · Active · Ready for review</p><p class="lineage-header-context">Not passed</p></div></header>
+        <div class="lineage-sections">
+          <section aria-labelledby="gate-intent-heading"><h2 id="gate-intent-heading">Intent</h2><p>Give the owner one stable candidate and honest evidence for the Public Beta decision.</p></section>
+          <section aria-labelledby="exit-criteria-heading"><h2 id="exit-criteria-heading">Exit Criteria</h2><ol><li>The release bundle is fixed and repeatable.</li><li>Design-partner workflows pass the browser check.</li><li>Known evidence gaps remain visible for human review.</li></ol></section>
+          <section aria-labelledby="passage-heading"><h2 id="passage-heading">Passage</h2><p>No Gate Passage is recorded.</p></section>
+          <section aria-labelledby="contributing-efforts-heading">
+            <h2 id="contributing-efforts-heading">Contributing Efforts</h2>
+            <p>Each contributing Effort opens its complete lifecycle and bound native work context.</p>
+            <table class="effort-rollup-table">
+              <caption class="sr-only">Contributing Effort lifecycle and native work counts</caption>
+              <thead><tr><th scope="col">Effort</th><th scope="col">Lifecycle</th><th scope="col">Claimed</th><th scope="col">Ready</th><th scope="col">Blocked</th><th scope="col">Resolved</th><th scope="col">Lifecycle time</th></tr></thead>
+              <tbody>
+                <tr><th data-label="Effort" scope="row"><a href="#/efforts/release-packaging">Release Packaging</a></th><td data-label="Lifecycle">Active</td><td data-label="Claimed">2</td><td data-label="Ready">1</td><td data-label="Blocked">0</td><td data-label="Resolved">3</td><td data-label="Lifecycle time">8 Aug 2026</td></tr>
+                <tr><th data-label="Effort" scope="row"><a href="#/efforts/beta-operations">Beta Operations</a></th><td data-label="Lifecycle">Active</td><td data-label="Claimed">Count unavailable</td><td data-label="Ready">Count unavailable</td><td data-label="Blocked">Count unavailable</td><td data-label="Resolved">Count unavailable</td><td data-label="Lifecycle time">Unavailable</td></tr>
+                <tr><th data-label="Effort" scope="row">Launch Documentation</th><td data-label="Lifecycle">Planned</td><td data-label="Claimed">0</td><td data-label="Ready">0</td><td data-label="Blocked">0</td><td data-label="Resolved">0</td><td data-label="Lifecycle time">8 Aug 2026</td></tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="release-packaging-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/gates/release-candidate-ready">Release candidate ready</a></li><li><span aria-current="page">Release Packaging</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Effort</span><h1 tabindex="-1">Release Packaging</h1><dl class="effort-status-group"><div><dt>Effort lifecycle</dt><dd>Active</dd></div><div><dt>Contributes to</dt><dd><a href="#/gates/release-candidate-ready">Gate: Release candidate ready</a></dd></div><div><dt>Managed Work</dt><dd>Healthy</dd></div></dl></div></header>
+        <div class="effort-governance-lens">
+          <section><h2>Intent</h2><p>Package and verify one stable release candidate for owner review.</p></section>
+          <section aria-labelledby="release-evidence-heading"><h2 id="release-evidence-heading">Provider evidence</h2><dl class="lineage-time-facts"><div><dt>Evidence state</dt><dd>Current</dd></div><div><dt>Coverage</dt><dd>Complete</dd></div><div><dt>Latest observation</dt><dd>8 August 2026 · 09:40 UTC<small>Fixed sample label. No provider is read.</small></dd></div></dl></section>
+          <section id="native-work-current" aria-labelledby="native-summary-heading"><p class="eyebrow">Native-work summary</p><div class="effort-current-work-heading"><h2 id="native-summary-heading">Current Work</h2><a class="action-quiet" href="#/native-work/release-packaging">Full work history · History 3</a></div><dl class="effort-work-counts" aria-label="Managed work counts"><div><dt>Current</dt><dd>2</dd></div><div><dt>Resolved</dt><dd>3</dd></div><div><dt>History</dt><dd>3</dd></div></dl><ul class="effort-current-work-list"><li><div><a href="#/native-work/release-packaging">Verify clean-install release bundle</a><span>Ready</span></div></li><li><div><a href="#/native-work/release-packaging">Document beta rollback signal</a><span>Claimed</span></div></li></ul></section>
+        </div>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="beta-operations-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/gates/release-candidate-ready">Release candidate ready</a></li><li><span aria-current="page">Beta Operations</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Effort</span><h1 tabindex="-1">Beta Operations</h1><dl class="effort-status-group"><div><dt>Effort lifecycle</dt><dd>Active</dd></div><div><dt>Contributes to</dt><dd><a href="#/gates/release-candidate-ready">Gate: Release candidate ready</a></dd></div><div><dt>Managed Work</dt><dd data-health="needs-attention">Needs attention</dd></div></dl></div></header>
+        <div class="effort-governance-lens">
+          <section aria-labelledby="beta-evidence-heading"><h2 id="beta-evidence-heading">Provider evidence</h2><div class="effort-observation-recovery" role="region" aria-label="Can't verify"><div><strong>Can't verify</strong><p class="evidence-state-line"><span>Stale</span><span>Latest refresh failed</span></p><p>The last successful sample evidence is not current. No completion claim is shown.</p></div></div></section>
+          <section aria-labelledby="beta-native-summary-heading"><p class="eyebrow">Native-work summary</p><h2 id="beta-native-summary-heading">Current Work</h2><p class="effort-current-work-unavailable">Managed work needs attention. Current native work cannot be confirmed from this fixed degraded sample.</p></section>
+        </div>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="release-native-work-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/efforts/release-packaging">Release Packaging</a></li><li><span aria-current="page">Work History</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Work History</span><h1 tabindex="-1">Release Packaging native work</h1><p class="lineage-header-context">Provider-native roles stay distinct. All values are prewritten display labels.</p></div></header>
+        <section class="matt-work-region" aria-label="Contributing Work">
+          <nav aria-label="Native Work Frontier views"><a data-scroll-target="native-work-current" href="#/native-work/release-packaging">Current · 3</a><a data-scroll-target="native-work-history" href="#/native-work/release-packaging">History · 1</a><a data-scroll-target="native-work-all" href="#/native-work/release-packaging">All · 4</a></nav>
+          <section class="matt-map-chapter" id="native-work-map"><p class="eyebrow">Map chapter</p><h3>Public Beta release path</h3><dl><div><dt>Lifecycle</dt><dd>Resolved</dd></div><div><dt>Fog</dt><dd>0</dd></div><div><dt>Decisions</dt><dd>3</dd></div><div><dt>Out of scope</dt><dd>0</dd></div></dl></section>
+          <section class="matt-work-view" id="native-work-current"><h3>Current</h3><ul class="matt-work-items">
+            <li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Spec / PRD</small><strong>Release candidate contract</strong></div><span>Ready for agent</span></div><p>Fixed revision</p></li>
+            <li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Delivery</small><strong>Verify clean-install release bundle</strong></div><span>Ready</span></div><p>Evidence Asset: <a href="#/assets/public-beta-readiness-review">Public Beta Readiness Review</a></p></li>
+            <li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Incoming</small><strong>Document beta rollback signal</strong></div><span>Enhancement</span></div><p>Ready-for-agent</p></li>
+          </ul></section>
+          <section class="matt-work-view" id="native-work-history"><h3>History</h3><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Wayfinder</small><strong>Confirm supported package matrix</strong></div><span>Resolved</span></div><p>Answer recorded</p></li></ul></section>
+          <section class="matt-work-view" id="native-work-all"><h3>All</h3><div class="matt-work-role-groups">
+            <article class="matt-work-role"><div class="matt-work-role-heading"><h4>Spec / PRD</h4><span>1</span></div><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Planning contract</small><strong>Release candidate contract</strong></div><span>Ready for agent</span></div></li></ul></article>
+            <article class="matt-work-role"><div class="matt-work-role-heading"><h4>Wayfinder</h4><span>1</span></div><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Decision ticket</small><strong>Confirm supported package matrix</strong></div><span>Resolved</span></div></li></ul></article>
+            <article class="matt-work-role"><div class="matt-work-role-heading"><h4>Delivery</h4><span>1</span></div><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Delivery ticket</small><strong>Verify clean-install release bundle</strong></div><span>Ready</span></div></li></ul></article>
+            <article class="matt-work-role"><div class="matt-work-role-heading"><h4>Incoming</h4><span>1</span></div><ul class="matt-work-items"><li class="matt-work-item"><div class="matt-work-item-heading"><div class="matt-work-item-title"><small>Classified issue</small><strong>Document beta rollback signal</strong></div><span>Enhancement</span></div></li></ul></article>
+          </div></section>
+        </section>
+      </section>
+
+      <section class="demo-page assets-page" data-screen hidden id="assets-screen">
+        <header class="list-header assets-header">
+          <h1 tabindex="-1">Assets</h1>
+          <div class="asset-controls">
+            <label class="search-field"><span>Search</span><input placeholder="Find an Asset" type="search" /></label>
+            <label class="asset-filter-field"><span>Asset disposition</span><select data-asset-filter="disposition"><option value="available">Available</option><option value="superseded">Superseded</option><option value="archived">Archived</option><option value="all">All Assets</option></select></label>
+            <label class="asset-filter-field"><span>Evidence</span><select data-asset-filter="evidence"><option value="all">All evidence</option><option value="cited">Cited</option><option value="authority-baseline">Authority baselines</option><option value="uncited">Uncited</option></select></label>
+          </div>
+        </header>
+        <p class="asset-result-count" role="status" aria-live="polite" hidden></p>
+        <section class="asset-table" aria-label="Assets">
+          <div class="asset-table-header" aria-hidden="true"><span>Asset</span><span>Owner</span><span>Evidence</span></div>
+          <div class="asset-row" data-disposition="available" data-evidence="authority-baseline cited" data-search="public beta readiness review evidence release packaging"><a class="asset-row-primary" href="#/assets/public-beta-readiness-review"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Public Beta Readiness Review</strong><small>evidence</small></span></span><span class="asset-owner">Release Packaging</span><span class="asset-evidence-summary">Authority baseline · Cited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="authority-baseline uncited" data-search="tenant isolation report evidence tenant safeguards"><a class="asset-row-primary" href="#/assets/tenant-isolation-report"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Tenant isolation report</strong><small>evidence</small></span></span><span class="asset-owner">Tenant Safeguards</span><span class="asset-evidence-summary">Authority baseline · Uncited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="authority-baseline uncited" data-search="public beta handbook reference launch documentation"><a class="asset-row-primary" href="#/assets/public-beta-handbook"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Public Beta handbook</strong><small>reference</small></span></span><span class="asset-owner">Launch Documentation</span><span class="asset-evidence-summary">Authority baseline · Uncited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="cited" data-search="browser journey report evidence release packaging"><a class="asset-row-primary" href="#/assets/browser-journey-report"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Browser journey report</strong><small>evidence</small></span></span><span class="asset-owner">Release Packaging</span><span class="asset-evidence-summary">Cited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="cited" data-search="package manifest evidence release packaging"><a class="asset-row-primary" href="#/assets/package-manifest"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Package manifest</strong><small>evidence</small></span></span><span class="asset-owner">Release Packaging</span><span class="asset-evidence-summary">Cited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="cited" data-search="public beta release notes reference launch documentation"><a class="asset-row-primary" href="#/assets/public-beta-release-notes"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Public Beta release notes</strong><small>reference</small></span></span><span class="asset-owner">Launch Documentation</span><span class="asset-evidence-summary">Cited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="cited" data-search="audit export sample evidence product baseline"><a class="asset-row-primary" href="#/assets/audit-export-sample"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Audit export sample</strong><small>evidence</small></span></span><span class="asset-owner">Product Baseline</span><span class="asset-evidence-summary">Cited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="cited" data-search="partner onboarding guide reference partner handoff"><a class="asset-row-primary" href="#/assets/partner-onboarding-guide"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Partner onboarding guide</strong><small>reference</small></span></span><span class="asset-owner">Partner Handoff</span><span class="asset-evidence-summary">Cited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="authority-baseline uncited" data-search="rollback runbook reference beta operations"><a class="asset-row-primary" href="#/assets/rollback-runbook"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Rollback runbook</strong><small>reference</small></span></span><span class="asset-owner">Beta Operations</span><span class="asset-evidence-summary">Authority baseline · Uncited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="uncited" data-search="feedback taxonomy reference feedback intake"><a class="asset-row-primary" href="#/assets/feedback-taxonomy"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Feedback taxonomy</strong><small>reference</small></span></span><span class="asset-owner">Feedback Intake</span><span class="asset-evidence-summary">Uncited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="cited" data-search="alpha interview synthesis research learning synthesis"><a class="asset-row-primary" href="#/assets/alpha-interview-synthesis"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Alpha interview synthesis</strong><small>research</small></span></span><span class="asset-owner">Learning Synthesis</span><span class="asset-evidence-summary">Cited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="authority-baseline cited" data-search="northstar design tokens reference product baseline"><a class="asset-row-primary" href="#/assets/northstar-design-tokens"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Northstar design tokens</strong><small>reference</small></span></span><span class="asset-owner">Product Baseline</span><span class="asset-evidence-summary">Authority baseline · Cited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="authority-baseline uncited" data-search="customer trust faq reference customer trust"><a class="asset-row-primary" href="#/assets/customer-trust-faq"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Customer trust FAQ</strong><small>reference</small></span></span><span class="asset-owner">Customer Trust</span><span class="asset-evidence-summary">Authority baseline · Uncited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="uncited" data-search="beta operations capture binary evidence beta operations"><a class="asset-row-primary" href="#/assets/beta-operations-capture"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Beta Operations capture</strong><small>binary evidence</small></span></span><span class="asset-owner">Beta Operations</span><span class="asset-evidence-summary">Uncited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="uncited" data-search="partner handoff bundle directory reference partner handoff"><a class="asset-row-primary" href="#/assets/partner-handoff-bundle"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Partner handoff bundle</strong><small>directory reference</small></span></span><span class="asset-owner">Partner Handoff</span><span class="asset-evidence-summary">Uncited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="available" data-evidence="uncited" data-search="northstar interaction sample live prototype product baseline"><a class="asset-row-primary" href="#/assets/northstar-interaction-sample"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Northstar interaction sample</strong><small>prototype</small></span></span><span class="asset-owner">Product Baseline</span><span class="asset-evidence-summary">Uncited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="superseded" data-evidence="cited" data-search="legacy packaging checklist evidence release packaging"><a class="asset-row-primary" href="#/assets/legacy-packaging-checklist"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Legacy packaging checklist</strong><small>evidence</small></span></span><span class="asset-owner">Release Packaging</span><span class="asset-evidence-summary">Cited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+          <div class="asset-row" data-disposition="superseded" data-evidence="uncited" data-search="alpha onboarding guide reference alpha cohort"><a class="asset-row-primary" href="#/assets/alpha-onboarding-guide"><span class="asset-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-2-2h-5l-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" /></svg><span><strong>Alpha onboarding guide</strong><small>reference</small></span></span><span class="asset-owner">Alpha Cohort</span><span class="asset-evidence-summary">Uncited</span><span class="row-arrow" aria-hidden="true">›</span></a></div>
+        </section>
+        <section class="asset-empty" hidden><h2>No matching Assets</h2><p>Change the search or Evidence filter to restore the stable Asset list.</p><button class="action" type="button">Clear filters</button></section>
+      </section>
+
+      <section class="demo-page lineage-page" data-screen hidden id="release-asset-screen">
+        <nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/efforts/release-packaging">Release Packaging</a></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Public Beta Readiness Review</h1></div><div class="lineage-header-actions"><a class="action action-primary lineage-primary-action" href="#/preview/public-beta-readiness-review">View Content</a></div></header>
+        <div class="lineage-sections">
+          <section><h2>Asset Identity</h2><p>Identity: asset:public-beta-readiness-review. Kind: evidence. Purpose: Keep the fixed review evidence available for the Public Beta decision.</p></section>
+          <section><h2>Ownership and Purpose</h2><p>Asset Owner: <a href="#/efforts/release-packaging">Release Packaging</a>.</p></section>
+          <section><h2>Lifecycle</h2><p>Lifecycle Source: registry</p><p>Disposition: available</p></section>
+          <section><h2>Source</h2><p>Source Reference: northstar:sample/public-beta-readiness-review</p><p>This bundled sample does not claim current-checkout validation.</p></section>
+          <section><h2>Planning Use</h2><dl><div><dt>Authority Adoption</dt><dd><a href="#/authorities/reliability-operations">Reliability &amp; Operations</a> → Public Beta Readiness Review</dd></div><div><dt>Planning Citation</dt><dd><a href="#/gates/release-candidate-ready">Release candidate ready</a> → Public Beta Readiness Review. Note: This review fixes the release evidence scope used to judge whether the Gate is ready for owner review.</dd></div><div><dt>Produced For</dt><dd>Public Beta Readiness Review → <a href="#/native-work/release-packaging">Verify clean-install release bundle</a></dd></div><div><dt>Passage Evidence</dt><dd>None recorded for Release candidate ready.</dd></div></dl></section>
+        </div>
+        <section class="lineage-context" aria-label="Lineage Context"><header><h2>Lineage Context</h2></header><div class="lineage-relation-grid"><article class="lineage-relation"><div class="lineage-relation-heading"><h3>Planning relationships</h3><span>4</span></div><ul><li><a href="#/lineage/public-beta-readiness-review">Open Planning Lineage</a></li></ul></article></div></section>
+      </section>
+
+      <section class="demo-page lineage-page" data-screen hidden id="tenant-isolation-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Tenant isolation report</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: evidence. Purpose: Keep the fixed tenant-safety result available.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Tenant Safeguards.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/tenant-isolation</p></section><section><h2>Planning Use</h2><p>Authority Adoption: <a href="#/authorities/data-security">Data &amp; Security → Tenant isolation report</a>.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="public-beta-handbook-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Public Beta handbook</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: reference. Purpose: Keep the fixed launch guidance available.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Launch Documentation.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/public-beta-handbook</p></section><section><h2>Planning Use</h2><p>Authority Adoption: <a href="#/authorities/product-experience">Product Experience → Public Beta handbook</a>.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="browser-journey-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Browser journey report</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: evidence. Purpose: Record the fixed browser journey result.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Release Packaging.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/browser-journey</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="package-manifest-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Package manifest</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: evidence. Purpose: Identify the fixed release bundle.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Release Packaging.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/package-manifest</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="release-notes-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Public Beta release notes</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: reference. Purpose: Keep the fixed release notes available.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Launch Documentation.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/release-notes</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="audit-export-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Audit export sample</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: evidence. Purpose: Keep the fixed audit export sample available.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Product Baseline.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/audit-export</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="partner-onboarding-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Partner onboarding guide</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: reference. Purpose: Keep the fixed partner guidance available.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Partner Handoff.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/partner-onboarding</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="rollback-runbook-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Rollback runbook</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: reference. Purpose: Keep the fixed rollback steps available.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Beta Operations.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/rollback-runbook</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="feedback-taxonomy-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Feedback taxonomy</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: reference. Purpose: Keep the fixed feedback categories available.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Feedback Intake.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/feedback-taxonomy</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="alpha-synthesis-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Alpha interview synthesis</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: research. Purpose: Keep the fixed alpha findings available.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Learning Synthesis.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/alpha-synthesis</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="design-tokens-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Northstar design tokens</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: reference. Purpose: Keep the fixed design tokens available.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Product Baseline.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/design-tokens</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="trust-faq-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Customer trust FAQ</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: reference. Purpose: Keep the fixed trust answers available.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Customer Trust.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/trust-faq</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="legacy-checklist-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Legacy packaging checklist</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: evidence. Purpose: Preserve the replaced packaging checklist.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Release Packaging.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: superseded. Named replacement: <a href="#/assets/public-beta-readiness-review">Public Beta Readiness Review</a>. Source Event Time: 7 August 2026 · 16:10 UTC.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/legacy-checklist</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="alpha-onboarding-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Alpha onboarding guide</h1></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Kind: reference. Purpose: Preserve the replaced alpha guide.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Alpha Cohort.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: superseded. Named replacement: <a href="#/assets/partner-onboarding-guide">Partner onboarding guide</a>. Source Event Time: 6 August 2026 · 11:00 UTC.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/alpha-onboarding</p></section><section><h2>Planning Use</h2><p>No additional Planning Citation is shown on this sample detail.</p></section></div></section>
+
+      <section class="demo-page lineage-page" data-screen hidden id="beta-operations-capture-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Beta Operations capture</h1></div><div class="lineage-header-actions"><a class="action" href="#/preview/unavailable">Preview unavailable</a></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Identity: asset:beta-operations-capture. Kind: binary evidence.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Beta Operations.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/beta-operations-capture</p></section><section><h2>Planning Use</h2><p>No Planning Citation is shown.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="partner-handoff-bundle-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Partner handoff bundle</h1></div><div class="lineage-header-actions"><a class="action" href="#/preview/unavailable">Preview unavailable</a></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Identity: asset:partner-handoff-bundle. Kind: directory reference.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Partner Handoff.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/partner-handoff-bundle</p></section><section><h2>Planning Use</h2><p>No Planning Citation is shown.</p></section></div></section>
+      <section class="demo-page lineage-page" data-screen hidden id="northstar-interaction-sample-asset-screen"><nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav><header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Asset</span><h1 tabindex="-1">Northstar interaction sample</h1></div><div class="lineage-header-actions"><a class="action" href="#/preview/unavailable">Preview unavailable</a></div></header><div class="lineage-sections"><section><h2>Asset Identity</h2><p>Identity: asset:northstar-interaction-sample. Kind: prototype.</p></section><section><h2>Ownership and Purpose</h2><p>Asset Owner: Product Baseline.</p></section><section><h2>Lifecycle</h2><p>Lifecycle Source: registry. Disposition: available.</p></section><section><h2>Source</h2><p>Source Reference: northstar:sample/northstar-interaction-sample</p></section><section><h2>Planning Use</h2><p>No Planning Citation is shown.</p></section></div></section>
+
+      <section class="demo-page lineage-page" data-screen hidden id="product-experience-authority-screen">
+        <nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Authority</span><h1 tabindex="-1">Product Experience</h1></div></header>
+        <div class="lineage-sections"><section><h2>Scope</h2><p>Defines the current accepted baseline for the Public Beta product experience.</p></section><section><h2>Current Baseline</h2><p>Direct Authority Adoptions:</p><ul><li><a href="#/assets/public-beta-handbook">Product Experience → Public Beta handbook</a></li><li><a href="#/assets/northstar-design-tokens">Product Experience → Northstar design tokens</a></li></ul></section></div>
+        <section class="owner-boundaries" aria-labelledby="product-owner-boundaries-heading"><h2 id="product-owner-boundaries-heading">Owner boundaries</h2><dl><div><dt>Canonical owner</dt><dd>Product Council</dd></div><div><dt>Tracker owner</dt><dd>Launch Documentation native work</dd></div><div><dt>Evidence owner</dt><dd>Product Research</dd></div></dl></section>
+      </section>
+      <section class="demo-page lineage-page" data-screen hidden id="reliability-operations-authority-screen">
+        <nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Authority</span><h1 tabindex="-1">Reliability &amp; Operations</h1></div></header>
+        <div class="lineage-sections"><section><h2>Scope</h2><p>Defines the current accepted baseline for dependable Public Beta operations.</p></section><section><h2>Current Baseline</h2><p>Direct Authority Adoptions:</p><ul><li><a href="#/assets/public-beta-readiness-review">Reliability &amp; Operations → Public Beta Readiness Review</a></li><li><a href="#/assets/rollback-runbook">Reliability &amp; Operations → Rollback runbook</a></li></ul></section></div>
+        <section class="owner-boundaries" aria-labelledby="reliability-owner-boundaries-heading"><h2 id="reliability-owner-boundaries-heading">Owner boundaries</h2><dl><div><dt>Canonical owner</dt><dd>Release Council</dd></div><div><dt>Tracker owner</dt><dd>Release Packaging native work</dd></div><div><dt>Evidence owner</dt><dd>Release Assurance</dd></div></dl></section>
+      </section>
+      <section class="demo-page lineage-page" data-screen hidden id="data-security-authority-screen">
+        <nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/assets">Assets</a></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><span class="lineage-object-type">Authority</span><h1 tabindex="-1">Data &amp; Security</h1></div></header>
+        <div class="lineage-sections"><section><h2>Scope</h2><p>Defines the current accepted baseline for tenant data and security.</p></section><section><h2>Current Baseline</h2><p>Direct Authority Adoptions:</p><ul><li><a href="#/assets/tenant-isolation-report">Data &amp; Security → Tenant isolation report</a></li><li><a href="#/assets/customer-trust-faq">Data &amp; Security → Customer trust FAQ</a></li></ul></section></div>
+        <section class="owner-boundaries" aria-labelledby="security-owner-boundaries-heading"><h2 id="security-owner-boundaries-heading">Owner boundaries</h2><dl><div><dt>Canonical owner</dt><dd>Security Council</dd></div><div><dt>Tracker owner</dt><dd>Tenant Safeguards native work</dd></div><div><dt>Evidence owner</dt><dd>Security Assurance</dd></div></dl></section>
+      </section>
+
+      <section class="demo-page preview-page" data-screen hidden id="release-preview-screen">
+        <nav aria-label="Preview navigation" class="preview-navigation"><a href="#/assets/public-beta-readiness-review">Return to Asset detail</a><span>Pre-rendered bundled sample</span></nav>
+        <header class="preview-header"><div><h1 tabindex="-1">Public Beta Readiness Review</h1><p>Prewritten HTML · No Markdown read · No source file opened</p></div><a class="action" href="#/lineage/public-beta-readiness-review">Open Planning Lineage</a></header>
+        <article class="preview-document" aria-label="Prewritten Markdown-like preview"><h2>Validation result</h2><p>The fixed browser journey passed for the Northstar sample candidate.</p><h3>Evidence boundary</h3><ul><li>This is bundled, prewritten HTML.</li><li>No Markdown parser, filesystem read, or Preview API runs in this demo.</li><li>The result supports review. It does not pass the Gate.</li></ul></article>
+      </section>
+
+      <section class="demo-page preview-page" data-screen hidden id="preview-unavailable-screen">
+        <nav aria-label="Preview navigation" class="preview-navigation"><a href="#/assets">Return to Assets</a><span>Prototype-safe states</span></nav>
+        <header class="preview-header"><div><h1 tabindex="-1">Preview unavailable</h1><p>No file, directory member, script, or live resource was opened.</p></div></header>
+        <div class="preview-unavailable-list"><section aria-labelledby="binary-preview-heading"><h2 id="binary-preview-heading">Binary content</h2><strong>Unsupported</strong><p>Opaque content is not presented as readable evidence.</p></section><section aria-labelledby="directory-preview-heading"><h2 id="directory-preview-heading">Directory bundle</h2><strong>Preview not offered</strong><p>The directory remains one semantic Asset. Its members do not become preview routes.</p></section><section aria-labelledby="live-preview-heading"><h2 id="live-preview-heading">Live prototype</h2><strong>Preview not offered</strong><p>The demo does not run prototype HTML, JavaScript, a build, or a server.</p></section></div>
+      </section>
+
+      <section class="demo-page lineage-page" data-screen hidden id="release-lineage-screen">
+        <nav aria-label="Canonical Parent Path" class="lineage-breadcrumb"><ol><li><a href="#/overview">Northstar</a></li><li><a href="#/efforts/release-packaging">Release Packaging</a></li><li><a href="#/assets/public-beta-readiness-review">Public Beta Readiness Review</a></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><h1 tabindex="-1">Planning Lineage</h1><p class="lineage-header-status">Fixed relation view · No lineage derivation</p></div></header>
+        <section class="lineage-context" aria-label="Lineage Context"><header><h2>Lineage Context</h2><p>Prewritten relationships preserve each subject and direction.</p></header><div class="lineage-relation-grid">
+          <article class="lineage-relation"><div class="lineage-relation-heading"><h3>Asset Owner</h3><span>1</span></div><ul><li class="lineage-relation-item"><a class="lineage-relation-link" href="#/efforts/release-packaging"><strong>Release Packaging</strong><small>Public Beta Readiness Review → owner</small></a></li></ul></article>
+          <article class="lineage-relation"><div class="lineage-relation-heading"><h3>Authority Adoption</h3><span>1</span></div><ul><li class="lineage-relation-item"><a class="lineage-relation-link" href="#/authorities/reliability-operations"><strong>Reliability &amp; Operations</strong><small>Authority → Public Beta Readiness Review</small></a></li></ul></article>
+          <article class="lineage-relation"><div class="lineage-relation-heading"><h3>Planning Citation</h3><span>1</span></div><ul><li class="lineage-relation-item"><a class="lineage-relation-link" href="#/gates/release-candidate-ready"><strong>Release candidate ready</strong><small>Gate → Public Beta Readiness Review · Note: This review fixes the release evidence scope used to judge whether the Gate is ready for owner review. Evidence does not pass the Gate.</small></a></li></ul></article>
+          <article class="lineage-relation"><div class="lineage-relation-heading"><h3>Produced For</h3><span>1</span></div><ul><li class="lineage-relation-item"><a class="lineage-relation-link" href="#/native-work/release-packaging"><strong>Verify clean-install release bundle</strong><small>Public Beta Readiness Review → native work item</small></a></li></ul></article>
+          <article class="lineage-relation"><div class="lineage-relation-heading"><h3>Passage Evidence</h3><span>0</span></div><p>No Passage Evidence is recorded. Release candidate ready remains active and unpassed.</p></article>
+        </div></section>
+      </section>
+
+      <section class="demo-page" data-screen hidden id="attention-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/overview">Overview</a></li><li><span aria-current="page">Attention</span></li></ol></nav>
+        <header class="list-header">
+          <h1 tabindex="-1">Attention</h1>
+          <p>Read the fixed Northstar items that need judgment, have limited evidence, or add context.</p>
+        </header>
+        <section class="attention-reading-section" aria-labelledby="human-decision-heading">
+          <div class="section-heading"><h2 id="human-decision-heading">Needs a human decision</h2><span>1</span></div>
+          <div class="attention-items">
+            <a class="attention-item attention-review" href="#/reviews/public-beta-release-decision">
+              <span><small>Planning Review</small><strong>Review the Public Beta release decision</strong><span>Confirm whether the fixed candidate evidence is sufficient for owner acceptance.</span></span>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg>
+            </a>
+          </div>
+        </section>
+        <section class="attention-reading-section attention-state-degraded" aria-labelledby="degraded-evidence-heading">
+          <div class="section-heading"><h2 id="degraded-evidence-heading">Degraded evidence</h2><span>1</span></div>
+          <div class="attention-items">
+            <article class="attention-item attention-diagnostic is-static"><span><small>Provider evidence</small><strong>Can't verify</strong><span>Beta Operations keeps the last successful sample as stale after a fixed refresh failure.</span></span></article>
+          </div>
+        </section>
+        <section class="attention-reading-section attention-state-information" aria-labelledby="informational-heading">
+          <div class="section-heading"><h2 id="informational-heading">Informational</h2><span>1</span></div>
+          <div class="attention-items">
+            <article class="attention-item is-static"><span><small>Structural state</small><strong>No blocking diagnostics</strong><span>The sample has no invented invalid state. The pending Review remains a separate human decision.</span></span></article>
+          </div>
+        </section>
+      </section>
+
+      <section class="demo-page lineage-page" data-screen hidden id="public-beta-review-screen">
+        <nav class="lineage-breadcrumb" aria-label="Breadcrumb"><ol><li><a href="#/attention">Attention</a></li><li><span aria-current="page">Public Beta release decision</span></li></ol></nav>
+        <header class="lineage-header"><div class="lineage-identity"><h1 tabindex="-1">Review the Public Beta release decision</h1></div></header>
+        <div class="lineage-sections">
+          <section aria-labelledby="review-question-heading"><h2 id="review-question-heading">Question</h2><p>Should Northstar accept the current release candidate for Public Beta?</p></section>
+          <section aria-labelledby="review-scope-heading"><h2 id="review-scope-heading">Scope</h2><p>Exact target: Gate · Release candidate ready.</p></section>
+          <section aria-labelledby="review-lifecycle-heading"><h2 id="review-lifecycle-heading">Lifecycle</h2><p>Pending</p></section>
+          <section aria-labelledby="open-context-heading"><h2 id="open-context-heading">Open Context</h2><ul><li>Is the current evidence sufficient for Public Beta owner acceptance?</li><li>Does the stale Beta Operations evidence require a new candidate?</li></ul><p><strong>Decision boundary.</strong> Portal cannot accept or resolve this Review. It remains pending until the owner directly accepts a documented resolution.</p></section>
+          <section aria-labelledby="review-rationale-heading"><h2 id="review-rationale-heading">Rationale</h2><p>No accepted rationale is recorded.</p></section>
+          <section aria-labelledby="changed-references-heading"><h2 id="changed-references-heading">Changed References</h2><p>No accepted changed references are recorded.</p></section>
+          <section aria-labelledby="supporting-evidence-heading"><h2 id="supporting-evidence-heading">Supporting Evidence</h2><ul><li>The release bundle is fixed and repeatable.</li><li>The browser journey passed for the current sample candidate.</li><li>Beta Operations evidence remains stale and cannot contribute to readiness.</li></ul></section>
+        </div>
+      </section>
+
+      <section class="demo-page audit-page" data-screen hidden id="audit-screen">
+        <header class="audit-document-header">
+          <h1 tabindex="-1">Planning Audit</h1>
+        </header>
+        <section class="audit-findings" aria-labelledby="current-project-review-title">
+          <div class="section-heading"><h2 id="current-project-review-title">Current Project Review</h2></div>
+          <dl class="audit-metadata" aria-label="Planning Audit metadata">
+            <div><dt>Generated</dt><dd><time datetime="2026-08-08T10:00:00Z">8 Aug 2026 · 10:00 UTC</time></dd></div>
+            <div><dt>Semantic freshness</dt><dd>Current</dd></div>
+            <div><dt>Findings</dt><dd>1 finding</dd></div>
+            <div><dt>Coverage</dt><dd>Complete coverage</dd></div>
+          </dl>
+          <div class="audit-finding-list">
+            <a class="audit-finding-row is-linked" href="#/reviews/public-beta-release-decision" aria-label="Public Beta release evidence needs a decision, 2 affected references">
+              <span class="audit-finding-copy"><strong class="audit-finding-title">Public Beta release evidence needs a decision</strong><span class="audit-finding-summary">Candidate proof is complete, while Beta Operations evidence remains stale.</span></span>
+              <dl class="audit-finding-facts"><div><dt>Scope</dt><dd><strong>2 affected references</strong><span>gate:release-candidate-ready · effort:beta-operations</span></dd></div><div><dt>Impact</dt><dd>The Gate stays active until the owner reviews the evidence.</dd></div><div><dt>Target</dt><dd>Review the Public Beta release decision · pending</dd></div></dl>
+              <span class="row-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg></span>
+            </a>
+          </div>
+        </section>
+        <section class="audit-decision-section" aria-labelledby="decisions-attention-title">
+          <div class="section-heading"><h2 id="decisions-attention-title">Decisions Awaiting Attention</h2></div>
+          <ul class="audit-review-list"><li><a href="#/reviews/public-beta-release-decision">Review the Public Beta release decision</a><p>Should Northstar accept the current release candidate for Public Beta?</p><p>Target: Gate · Release candidate ready</p></li></ul>
+          <p class="audit-advisory-boundary">Continue this decision in Agent Surface. Portal does not accept, resolve, reopen, or refresh Reviews.</p>
+        </section>
+        <section class="audit-decision-section" aria-labelledby="past-decisions-title">
+          <div class="section-heading"><h2 id="past-decisions-title">Past Accepted Decisions</h2></div>
+          <ol class="audit-event-list">
+            <li><time datetime="2026-08-08T09:30:00Z">8 Aug 2026 · 09:30 UTC</time><div><small><span>Gate Passage</span><span>Human acceptance</span></small><strong>Private Alpha learning accepted</strong><p>The owner accepted the learning horizon. Tests and evidence did not pass this Gate.</p></div></li>
+            <li><time datetime="2026-08-07T16:10:00Z">7 Aug 2026 · 16:10 UTC</time><div><small><span>Planning Review accepted</span></small><strong>Keep workspace isolation in the Public Beta baseline</strong><p>The completed Review remains immutable decision history.</p></div></li>
+            <li><time datetime="2026-08-06T11:00:00Z">6 Aug 2026 · 11:00 UTC</time><div><small><span>Authority adoption</span></small><strong>Release safety baseline revised</strong><p>The accepted baseline now cites the fixed tenant-isolation evidence.</p></div></li>
+          </ol>
+        </section>
+      </section>
+    </main>
+    <footer class="demo-footer">
+      <p id="demo-disclosure"></p>
+      <p id="sample-date"></p>
+      <p>
+        <a href="https://github.com/lagrangee/bearing#quickstart-complete-one-real-alignment-loop"
+          >Install the local Portal</a
+        >
+        ·
+        <a href="https://github.com/lagrangee/bearing/blob/main/docs/data-and-security.md"
+          >Read the data and security boundary</a
+        >
+      </p>
+    </footer>
+  </body>
+</html>

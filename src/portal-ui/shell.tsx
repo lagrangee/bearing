@@ -1,40 +1,26 @@
-import type {
-  PropsWithChildren,
-  KeyboardEvent as ReactKeyboardEvent,
-  ReactNode,
-  RefObject,
-} from "react";
+import type { PropsWithChildren, KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useCallback, useEffect, useRef } from "react";
 import { Icons } from "./icons";
 import { Action } from "./primitives";
 import { useNarrowViewport } from "./use-narrow";
 
 type ShellProps = PropsWithChildren<{
-  readonly inspector?: ReactNode;
   readonly onRefresh?: () => void;
   readonly refreshing?: boolean;
   readonly title: string;
 }>;
 
-export function CatalogShell({
-  children,
-  inspector,
-  onRefresh,
-  refreshing = false,
-  title,
-}: ShellProps) {
-  const narrow = useNarrowViewport();
-  const modalOpen = narrow && Boolean(inspector);
+export function CatalogShell({ children, onRefresh, refreshing = false, title }: ShellProps) {
   return (
-    <div className={`catalog-shell${inspector ? " has-inspector" : ""}`}>
-      <header className="topbar" inert={modalOpen} aria-hidden={modalOpen}>
+    <div className="catalog-shell">
+      <header className="topbar">
         <a className="brand" href="/" aria-label="Bearing Portal home">
           <span className="brand-mark">C</span>
           <span>Bearing Portal</span>
         </a>
         <div className="catalog-context">
           <span className="catalog-context-label">Catalog</span>
-          <strong>{title}</strong>
+          <h1>{title}</h1>
         </div>
         {onRefresh ? (
           <Action
@@ -48,22 +34,25 @@ export function CatalogShell({
           </Action>
         ) : null}
       </header>
-      <main id="main-content" className="catalog-main" inert={modalOpen} aria-hidden={modalOpen}>
+      <main id="main-content" className="catalog-main">
         {children}
       </main>
-      {inspector}
     </div>
   );
 }
 
-type InspectorProps = PropsWithChildren<{
-  readonly eyebrow: string;
+type TechnicalDetailsPanelProps = PropsWithChildren<{
   readonly onClose: () => void;
   readonly returnFocusRef?: RefObject<HTMLElement | null>;
   readonly title: string;
 }>;
 
-export function Inspector({ children, eyebrow, onClose, returnFocusRef, title }: InspectorProps) {
+export function TechnicalDetailsPanel({
+  children,
+  onClose,
+  returnFocusRef,
+  title,
+}: TechnicalDetailsPanelProps) {
   const narrow = useNarrowViewport();
   const dialogRef = useRef<HTMLDivElement>(null);
   const complementaryRef = useRef<HTMLElement>(null);
@@ -91,7 +80,7 @@ export function Inspector({ children, eyebrow, onClose, returnFocusRef, title }:
     return () => document.removeEventListener("keydown", handleEscape);
   }, [close]);
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Tab" || !narrow) return;
+    if (event.key !== "Tab") return;
     const panel = dialogRef.current ?? complementaryRef.current;
     const focusable = Array.from(
       panel?.querySelectorAll<HTMLElement>(
@@ -112,14 +101,14 @@ export function Inspector({ children, eyebrow, onClose, returnFocusRef, title }:
     <>
       <button
         ref={closeRef}
-        className="inspector-close"
+        className="technical-details-close"
         type="button"
         onClick={close}
-        aria-label="Close selected context"
+        aria-label="Close Technical Details"
       >
         <Icons.close />
       </button>
-      <p className="eyebrow">{eyebrow}</p>
+      <p className="eyebrow">Technical Details</p>
       <h2>{title}</h2>
       {children}
     </>
@@ -129,8 +118,8 @@ export function Inspector({ children, eyebrow, onClose, returnFocusRef, title }:
       {narrow ? (
         <div
           ref={dialogRef}
-          className="inspector"
-          aria-label="Selected context"
+          className="technical-details"
+          aria-label="Technical Details"
           role="dialog"
           aria-modal="true"
           onKeyDown={handleKeyDown}
@@ -140,18 +129,18 @@ export function Inspector({ children, eyebrow, onClose, returnFocusRef, title }:
       ) : (
         <aside
           ref={complementaryRef}
-          className="inspector"
-          aria-label="Selected context"
+          className="technical-details"
+          aria-label="Technical Details"
           onKeyDown={handleKeyDown}
         >
           {panelContent}
         </aside>
       )}
       <button
-        className="inspector-scrim"
+        className="technical-details-scrim"
         type="button"
         onClick={close}
-        aria-label="Close selected context"
+        aria-label="Close Technical Details"
       />
     </>
   );

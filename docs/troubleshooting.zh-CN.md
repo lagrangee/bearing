@@ -6,12 +6,13 @@
 
 ## 安装目标冲突
 
-重新运行 install wizard 并阅读 target preview。Bearing 会拒绝冲突文件和 symbolic links，而不是静默覆盖。
+运行 Global Kit wizard，选择 Install、Update 或 Repair，并阅读 target preview。Bearing 会拒绝
+冲突文件和 symbolic links，而不是静默覆盖。
 
 ## Update 中断或 bundle 损坏
 
 重新运行同一个显式 `npx @lagrangee/bearing` lifecycle 入口。Bearing 会先 stage 并验证完整的
-CLI、protocol、templates 与 skills bundle，再执行切换。切换失败会恢复上一份完整 bundle，
+CLI 与 single-skill bundle，再执行切换。切换失败会恢复上一份完整 bundle，
 且不会触碰 repository state。不要单独修复某一个 CLI 或 skill 文件，那会拆分版本匹配的 bundle。
 
 如果 installed `kit/current/package.json` 缺失或 malformed，请重新运行预期的 exact candidate。
@@ -25,17 +26,17 @@ compatibility 也始终保持 fail closed。
 
 ## 缺少 work-management adapter
 
-首个 Preview 要求受支持的 Matt-native 本地 Markdown Map 与 Ticket 工作流。先创建或恢复这份 work scope，再期待 Bearing 根据 active work 做 alignment。
+首个 Preview 要求受支持的 Matt-native 本地 Markdown Map 与 Ticket 工作流。请先创建或恢复这份 work scope，再检查 current work。
 
-## Sync diagnostics
+## Project diagnostics
 
 运行：
 
 ```bash
-bearing sync --repo .
+bearing inspect diagnostics --repo .
 ```
 
-阅读命令打印的 report path。Cache diagnostics 是 disposable；malformed source files 需要由对应 owner 修正。
+阅读命令打印的 typed diagnostic rows。Project Read Model 是 disposable；malformed source files 需要由对应 owner 修正。
 
 ## Portal 无法打开
 
@@ -66,35 +67,34 @@ npx @lagrangee/bearing@<version> install --surface agent-skills --confirm-downgr
 SemVer 排序包含 prerelease。确认后只允许同一 minor 内 downgrade，或退回紧邻的上一个 minor；
 跨 major 和跨多个 minor downgrade 会被拒绝。不支持自动 state rollback。
 
-## Deactivate、purge 与 uninstall
+## Deactivate、移除 repository state 与 uninstall
 
 这些是不同操作：
 
-- repository deactivation 修改一个仓库；
-- purge 删除 repository-owned Bearing state；
+- Repository Configuration deactivation 修改一个仓库；
+- external platform removal 在显式审阅后删除 repository-owned Bearing state；
 - package uninstall 只移除 package-manager-owned installation。
 
-Repository deactivation 与 purge 有独立、可执行的路径：
+Repository deactivation 使用 sealed Repository Configuration 路径：
 
 ```bash
-bearing deactivate --repo .
-bearing purge --repo . --confirm-purge
+bearing configure plan --intent deactivate --repo .
+bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanToken>
 ```
 
-`deactivate` 保留 repository state 与 native work。`purge` 只移除精确的 `.bearing` namespace
-和 managed root blocks；它保留 `.scratch`、source、docs 与 durable native artifacts。两者都会
-在 repository mutation 后移除对应 Catalog registration，并单独报告 Catalog failure。
+Deactivation 保留 canonical state、Provider Configuration、profiles、artifacts 与 native work。
+它移除 managed pointers 与 disposable cache。Catalog unregister 在之后运行，并单独报告失败。
+Unsafe `.bearing` namespace 或 manifest 会在任何写入前 fail closed。
 
-两个命令都会拒绝 `.bearing` symbolic link 或 unsafe namespace shape。只有当
-`.bearing/manifest.json` 为 missing 或 single-link regular file 时才会读取或修改它；manifest
-symlink、directory、multiply-linked file 或 special type 都会 fail closed，因此 lifecycle
-operation 绝不会沿该 entry 修改 external state。
+Bearing 不提供 built-in repository Purge、migration、cutover、recovery export 或 quarantine path。
+如果 Unsupported Preview repository 是 removal-required，先检查 exact paths，取得用户显式授权，
+执行由 Agent 审阅的 external platform removal，然后运行 Fresh Repository Configuration。不要用
+`catalog unregister` 代替 repository removal。
 
-Purge 在原子 detach `.bearing` 时提交。如果后续递归 cleanup 失败，命令会返回 blocked 并报告
-精确的 partial quarantine 路径。Repository 保持已 purge，Catalog removal 仍会尝试执行，并且
-这份 quarantine 明确不是可恢复 backup。只能检查并移除命令报告的精确路径；不要把部分删除的
-bytes rename 回 `.bearing`。
+Wizard Global Uninstall 只移除 Global Kit bundle、CLI shim 与 Bearing-managed Agent Surface
+pointers。它保留 Project Catalog 与 repository state。Repository Deactivation 与
+repository-state removal 是不同的 Agent-owned lifecycle operations。
 
 Package uninstall 仍由 package manager 负责，例如 global npm installation 使用
 `npm uninstall -g @lagrangee/bearing`。它不会移除 Project Catalog 或 repository state。不要用
-`bearing catalog forget` 代替 repository lifecycle；forget 只改变 registration。
+`bearing catalog unregister` 代替 repository lifecycle；unregister 只改变 registration。

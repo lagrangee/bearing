@@ -3,13 +3,43 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import type { Route } from "@playwright/test";
 
-const outputs = [
-  "project-sitemap.md",
-  "sync-report.md",
-  "project-snapshot.json",
-  "sync-receipt.json",
-] as const;
+const onePixelPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
+
+export const fulfillOnePixelPng = (route: Route): Promise<void> =>
+  route.fulfill({ status: 200, contentType: "image/png", body: onePixelPng });
+
+export const writeCatalogFixture = async (
+  homeDir: string,
+  entries: readonly Readonly<{ entryId: string; repoRoot: string; displayName: string }>[],
+): Promise<void> => {
+  const directory = join(homeDir, ".bearing");
+  await mkdir(directory, { recursive: true });
+  const database = new DatabaseSync(join(directory, "catalog.sqlite"));
+  try {
+    database.exec(`
+      CREATE TABLE catalog_entries (
+        entry_id TEXT PRIMARY KEY NOT NULL,
+        repo_root TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL CHECK (length(trim(display_name)) > 0)
+      ) STRICT;
+      PRAGMA user_version = 1;
+    `);
+    const insert = database.prepare(
+      "INSERT INTO catalog_entries(entry_id, repo_root, display_name) VALUES (?, ?, ?)",
+    );
+    for (const entry of entries) insert.run(entry.entryId, entry.repoRoot, entry.displayName);
+  } finally {
+    database.close();
+  }
+};
+
+const projectReadModelOutputs = ["project-read-model.sqlite"] as const;
 
 const defaultCommandTimeoutMs = 30_000;
 const defaultTermGraceMs = 5_000;
@@ -230,9 +260,12 @@ const reservePort = async (): Promise<number> => {
   return address.port;
 };
 
-export const runBuiltBearing = async (args: readonly string[]): Promise<void> => {
+export const runBuiltBearing = async (
+  args: readonly string[],
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<void> => {
   const result = await runHarnessCommand("node", ["dist/cli.js", ...args], {
-    environment: process.env,
+    environment,
     label: "built Bearing command",
   });
   if (result.exitCode !== 0) {
@@ -272,10 +305,12 @@ export const stopBuiltPortal = async (portal: RunningTestPortal | undefined): Pr
   if (portal !== undefined) await stopHarnessProcess(portal.child, { label: "built Portal" });
 };
 
-export const fixedCacheHashes = async (root: string): Promise<Readonly<Record<string, string>>> =>
+export const projectReadModelHashes = async (
+  root: string,
+): Promise<Readonly<Record<string, string>>> =>
   Object.fromEntries(
     await Promise.all(
-      outputs.map(async (locator) => {
+      projectReadModelOutputs.map(async (locator) => {
         try {
           return [
             locator,
@@ -293,10 +328,10 @@ export const fixedCacheHashes = async (root: string): Promise<Readonly<Record<st
     ),
   );
 
-export const preserveFixedCache = async (root: string, target: string): Promise<void> => {
+export const preserveProjectReadModel = async (root: string, target: string): Promise<void> => {
   await mkdir(target, { recursive: true });
   await Promise.all(
-    outputs.map((locator) =>
+    projectReadModelOutputs.map((locator) =>
       copyFile(join(root, ".bearing/cache", locator), join(target, locator)),
     ),
   );

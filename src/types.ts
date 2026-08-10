@@ -13,25 +13,8 @@ export type FingerprintResult = Readonly<{
 }>;
 
 export type SemanticFreshness = "current" | "stale" | "unknown";
-export type AdvisoryId = "planning-audit:current" | "next-work-guidance:current";
+export type AdvisoryId = "planning-audit:current";
 export type AdvisoryFreshness = Readonly<Partial<Record<AdvisoryId, SemanticFreshness>>>;
-
-import type { SyncReceipt } from "./sync-receipt";
-
-export type SyncProjectionResult = FingerprintResult &
-  Readonly<{
-    changed: boolean;
-    advisoryFreshness: AdvisoryFreshness;
-    diagnostics: readonly StructuralDiagnostic[];
-    reportPath: string;
-    sitemapPath: string;
-  }>;
-
-export type SyncResult = SyncProjectionResult &
-  Readonly<{
-    receipt: SyncReceipt;
-    receiptPath: string;
-  }>;
 
 export type AgentSurface = "agent-skills" | "claude";
 
@@ -48,15 +31,60 @@ export type InstallResult = Readonly<{
   changedTargets: readonly string[];
 }>;
 
-export type RepositorySetupOptions = Readonly<{
+export type GlobalUninstallResult = Readonly<{
+  outcome: "applied" | "no-op";
+  removedTargets: readonly string[];
+}>;
+
+export type RepositoryConfigurationApplyOptions = Readonly<{
   repoRoot: string;
   packageRoot: string;
   surfaces: readonly AgentSurface[];
   profiles: readonly string[];
+  registrations?: readonly ExecutorRegistration[];
+  executorHomeDir?: string;
+  confirmRepair?: boolean;
+  confirmReactivate?: boolean;
+  retainProfiles?: readonly string[];
+  removeProfiles?: readonly string[];
+  initializeReadModel?: boolean;
+  provider?: Readonly<{
+    key: "matt-skills/v1";
+    contractLocator: string;
+  }>;
 }>;
 
-export type RepositorySetupResult = Readonly<{
+export type ExecutorRegistration = Readonly<{
+  profileKey: string;
+  displayName: string;
+  surface: AgentSurface;
+  capabilityLocator: string;
+  nativeArtifacts: readonly string[];
+  writebackBehavior: string;
+  assessment: Readonly<{
+    capabilityLocator: string;
+    conclusion: "owns-end-to-end-execution-and-final-writeback";
+    requiredReferences: readonly string[];
+    executionOwnershipEvidence: string;
+    finalWritebackEvidence: string;
+    nativeArtifacts: readonly Readonly<{
+      description: string;
+      evidence: string;
+    }>[];
+    writebackBehavior: Readonly<{
+      description: string;
+      evidence: string;
+    }>;
+  }>;
+  sourceContractSnapshot: string;
+}>;
+
+export type RepositoryConfigurationApplyResult = Readonly<{
   outcome: "applied" | "no-op";
   manifestPath: string;
   changedTargets: readonly string[];
+  readModel?: Readonly<{
+    acquisitionCount: 0;
+    missingEvidenceScopes: readonly string[];
+  }>;
 }>;

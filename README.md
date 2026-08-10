@@ -2,7 +2,7 @@
 
 ## Stay on the same page with your coding agents.
 
-Bearing gives long-running coding-agent projects a local, inspectable project-governance layer. It keeps accepted direction, decisions, evidence, and alignment checks visible to you and your agents, so new work can start from the same project picture instead of from a fragile memory of old chats.
+Bearing gives long-running coding-agent projects a local, inspectable project-governance layer. It keeps accepted direction, Planning Reviews, evidence, and current Audit findings visible to you and your agents, so new work can start from the same project picture instead of from a fragile memory of old chats.
 
 Local-first · Open-source Public Preview · Codex verified path · Claude Code target surface pending maintainer verification · Matt-native local Markdown work management
 
@@ -32,7 +32,7 @@ Matt-native Maps and Tickets
 Portal reads the same project picture
 ```
 
-Bearing owns durable project governance: Project Summary, Roadmaps, Milestone Gates, Effort bindings, Authorities, Assets, Alignment Checks, Planning Audit, and evidence relationships.
+Bearing owns durable project governance: Project Summary, Roadmaps, Milestone Gates, Effort bindings, Authorities, Assets, Planning Reviews, Planning Audit, and evidence relationships.
 
 Your work-management adapter still owns Maps, Tickets, dependencies, claims, blockers, and resolution. Your executor still owns implementation and verification. Bearing keeps those layers connected without pretending to be all of them.
 
@@ -61,10 +61,24 @@ Bearing is probably not a fit yet if:
 | Area | Public Preview support |
 | --- | --- |
 | Platform | macOS |
-| Node.js | Node.js 22 and 24 |
+| Node.js | Node.js 24.15.0 or later; CI verifies Node.js 24.15.0 and 26 |
 | Agent Surfaces | Codex is verified. Claude Code is a target surface pending maintainer verification. |
 | Work Management Adapter | Matt-native local Markdown Maps and Tickets |
 | Telemetry | None. Bearing performs no analytics, crash upload, repository upload, or update polling. |
+
+## Interactive browser sample
+
+The repository includes a browser-only Portal demo with fixed mock Northstar data. It runs as a
+standalone static artifact under the GitHub project Pages base path. It does not start the local
+Portal Host, read a repository, call a provider or API, use analytics, or persist browser state.
+
+The demo is a sample, not a hosted Bearing project. Supported product use starts with the
+[local installation](#quickstart-complete-one-real-alignment-loop) and its loopback Portal. Read
+the [data and security boundary](docs/data-and-security.md) before sharing Portal captures or
+changing private reachability. Pull requests validate the static artifact but do not publish a
+public preview. Pages publication and the first live acceptance remain maintainer-owned actions.
+Changes to a production Portal visual owner rerun the demo checks and require a manual fidelity
+review before merge; the demo stays independent and does not import production Portal code.
 
 ## Feedback and support
 
@@ -82,12 +96,16 @@ Issues and Discussions are public GitHub data. Do not submit tokens, secrets, pr
 npx @lagrangee/bearing
 ```
 
-The public Preview install path is a no-argument wizard. It previews managed targets before writing, installs the version-compatible CLI, protocol, templates, and Agent Surface skills, and does not initialize a repository or launch Portal during global installation.
+The public Preview maintenance path is one no-argument terminal wizard with Install, Update,
+Repair, and Global Uninstall choices. Install, Update, and Repair preview the managed targets and
+reuse one version-compatible bundle transaction. They do not initialize a repository or launch
+Portal. Global Uninstall removes only that bundle, its CLI shim, and Bearing-managed Agent Surface
+pointers; it preserves the Project Catalog and every repository.
 
 Rerun the same command when you choose to update or repair Bearing. Updates stage one complete bundle
 and either switch it as a unit or restore the previous complete bundle. Bearing performs no
-background update check. Repository deactivation, repository-state purge, explicit package
-downgrade, and package-manager uninstall are separate recovery operations; see
+background update check. Repository deactivation, repository-state removal, explicit package
+downgrade, and package-manager uninstall are separate operations; see
 [Troubleshooting](docs/troubleshooting.md).
 
 Advanced users and agents can use explicit commands; see [CLI reference](docs/cli.md).
@@ -110,7 +128,7 @@ The minimum useful baseline is:
 - one active Roadmap and focused Milestone Gate;
 - one Effort that binds an existing Map or Ticket scope to that Gate.
 
-Accepted direction remains a human decision. Setup should not infer governance truth from repository files without asking.
+Accepted direction remains a human decision. Repository Configuration must not infer governance truth from repository files without asking.
 
 ### 4. Bring one real request
 
@@ -122,10 +140,10 @@ Before we start, check this against the current direction, accepted decisions, a
 
 The first alignment loop is complete when the agent either explains how the request fits or exposes a material conflict with explicit decision paths. Installation success alone is not the value milestone.
 
-### 5. Sync and inspect
+### 5. Inspect the current project
 
 ```bash
-bearing sync --repo .
+bearing inspect project --repo .
 bearing portal
 ```
 

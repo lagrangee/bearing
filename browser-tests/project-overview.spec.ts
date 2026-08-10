@@ -1,7 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
+import { projectGenerationSchema } from "../src/project-generation/schema";
+import { createSourceRecord } from "../src/project-generation/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { browserArtifactPath } from "./browser-artifact-output";
+import { projectRowEnvelope } from "./project-row-fixture";
 
 const completedAt = "2026-07-13T20:00:00+08:00";
 
@@ -12,38 +15,49 @@ const expectMinimumTarget = async (target: Locator, size: number): Promise<void>
   expect(box.height).toBeGreaterThanOrEqual(size);
 };
 
-const focusByTab = async (page: Page, target: Locator): Promise<void> => {
-  for (let index = 0; index < 40; index += 1) {
-    await page.keyboard.press("Tab");
-    if (await target.evaluate((element) => document.activeElement === element)) return;
-  }
-  throw new Error("Expected the target to be reachable through the document tab order.");
-};
-
 const projectView = () => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.summary.validity !== "available") throw new Error("Expected Summary fixture.");
+  const briefSource = createSourceRecord(snapshot.basis.basisFingerprint, {
+    kind: "canonical",
+    locator: ".bearing/state/project-brief.md",
+    binding: { role: "project-brief", identity: "project-brief:current" },
+  });
   return {
     project: { entryId: "overview", displayName: "Bearing 控制台", availability: "available" },
     cache: {
       snapshot: {
         state: "available",
-        snapshot: {
+        snapshot: projectGenerationSchema.parse({
           ...snapshot,
+          brief: {
+            validity: "available",
+            value: {
+              id: "project-brief:current",
+              title: "Project Brief",
+              generatedAt: "2026-07-14T08:00:00Z",
+              atAGlance: "Keep the whole project visible.",
+              currentPosition: "The revised Overview is being delivered.",
+              establishedBaseline: ["Managed planning remains directly readable."],
+              source: briefSource.reference,
+            },
+          },
           summary: {
             ...snapshot.summary,
             value: {
               ...snapshot.summary.value,
+              updatedAt: "2026-07-13T20:00:00Z",
               purpose: "让用户和 agent 每天快速看清 whole project。",
             },
           },
-        },
+          sources: [...snapshot.sources, briefSource],
+        }),
       },
       receipt: {
         schemaVersion: 1,
         producer: { packageName: "@lagrangee/bearing", packageVersion: "0.0.0-test" },
         completedAt,
-        sitemap: { version: 1, fingerprint: snapshot.basis.sitemapFingerprint },
+        sitemap: { version: 1, fingerprint: snapshot.basis.basisFingerprint },
         reconciliation: "no-op",
       },
       retained: false,
@@ -52,82 +66,67 @@ const projectView = () => {
   };
 };
 
-const readyEnvelope = (due: boolean) => ({
-  version: 1,
-  state: "ready",
-  view: projectView(),
-  validation: { due, cooldownRemainingMs: due ? 0 : 30_000, inFlight: false },
-  session: { csrfToken: "ticket-11-csrf" },
-});
+const projectGeneration = () => {
+  const view = projectView();
+  if (view.cache.snapshot.state !== "available") throw new Error("Expected project Snapshot.");
+  return view.cache.snapshot.snapshot;
+};
 
-const completedEnvelope = () => ({
-  version: 1,
-  state: "completed",
-  mode: "ensure-current",
-  outcome: "checked",
-  snapshotDisposition: "reused",
-  view: projectView(),
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-});
+const readyEnvelope = (section: "overview" | "roadmaps" = "overview") =>
+  projectRowEnvelope({
+    snapshot: projectGeneration(),
+    section,
+    entryId: "overview",
+    displayName: "Bearing 控制台",
+  });
 
-const failedEnvelope = () => ({
-  version: 1,
-  state: "failed",
-  mode: "ensure-current",
-  outcome: "failed",
-  error: { code: "snapshot-write-failed", message: "Automatic validation failed." },
-  view: {
-    ...projectView(),
-    cache: { ...projectView().cache, retained: true },
-  },
-  validation: { due: true, cooldownRemainingMs: 30_000, inFlight: false },
-});
-
-const forcedEnvelope = () => ({
-  version: 1,
-  state: "completed",
-  mode: "force",
-  outcome: "no-op",
-  reconciliation: "no-op",
-  snapshotDisposition: "reused",
-  view: projectView(),
-  validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-});
-
-test("Overview keeps cache visible, preserves reading order, and uses contextual inspectors", async ({
+test("Overview is Brief-first, keeps managed context stable, and stays responsive", async ({
   page,
 }, testInfo) => {
-  let syncCalls = 0;
-  let releaseSync = () => {};
-  const syncGate = new Promise<void>((resolve) => {
-    releaseSync = resolve;
+  const posts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(request.url());
   });
-  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
-    route.fulfill({ json: readyEnvelope(true) }),
+  await page.route("**/api/v1/projects/overview/read-model?section=overview", (route) =>
+    route.fulfill({ json: readyEnvelope() }),
   );
-  await page.route("**/api/v1/projects/overview/sync", async (route) => {
-    syncCalls += 1;
-    await syncGate;
-    await route.fulfill({ json: completedEnvelope() });
-  });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/projects/overview");
 
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
   await expect(page.locator(".project-switcher code")).toHaveText("Bearing 控制台");
   await expect(page.locator(".project-switcher strong")).toHaveText("Portal Project");
-  await expect(page.locator(".project-operation")).toContainText("Checking");
+  await expect(page.locator(".topbar-refresh")).toContainText("Refresh all sources");
+  const briefTab = page.getByRole("tab", { name: "Brief", exact: true });
+  const summaryTab = page.getByRole("tab", { name: "Project Summary", exact: true });
+  await expect(briefTab).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByText("The revised Overview is being delivered.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('time[datetime="2026-07-14T08:00:00Z"]')).toBeVisible();
   await expect(
     page.getByText("让用户和 agent 每天快速看清 whole project。", { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Attention" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Next work" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Active Roadmaps" })).toBeVisible();
+  await expect(page.getByText("Next work", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("Discovered Work", { exact: false })).toHaveCount(0);
   expect(
     await page
       .locator(".overview-page > *")
       .evaluateAll((elements) => elements.map((element) => element.className)),
-  ).toEqual(["project-intro", "attention-queue", "guidance-section", "roadmap-landscape"]);
+  ).toEqual(["project-intro", "attention-queue", "roadmap-landscape"]);
+  await summaryTab.click();
+  await expect(summaryTab).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByText("让用户和 agent 每天快速看清 whole project。", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('time[datetime="2026-07-13T20:00:00Z"]')).toBeVisible();
+  await expect(page.getByRole("region", { name: "Attention" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Active Roadmaps" })).toBeVisible();
+  await summaryTab.press("ArrowLeft");
+  await expect(briefTab).toBeFocused();
+  await expect(briefTab).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("main").getByText("Planning Audit", { exact: true })).toHaveCount(0);
   await expect(page.locator("main").getByText("Assets", { exact: true })).toHaveCount(0);
   await expect(page.locator(".roadmap-landscape-item h3")).toHaveText([
@@ -135,8 +134,8 @@ test("Overview keeps cache visible, preserves reading order, and uses contextual
     "Portal Evolution",
   ]);
   await expect(page.getByText("No Gate horizon is available.", { exact: true })).toBeVisible();
-  await expectMinimumTarget(page.getByRole("button", { name: "View Project Summary" }), 40);
-  await expectMinimumTarget(page.getByRole("button", { name: /Inspect the horizon/u }), 40);
+  await expectMinimumTarget(briefTab, 40);
+  await expectMinimumTarget(summaryTab, 40);
   const firstGate = page.locator(".gate-node").first();
   await expectMinimumTarget(firstGate, 40);
   await firstGate.hover();
@@ -145,36 +144,8 @@ test("Overview keeps cache visible, preserves reading order, and uses contextual
     "underline",
   );
   await page.mouse.move(0, 0);
-  releaseSync();
-  await expect(page.locator(".project-operation")).toHaveText("Up to date");
-
-  const primary = page.getByRole("button", { name: /Finish Overview/u });
-  await primary.click();
-  let inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(inspector.getByRole("heading", { name: "Finish Overview" })).toBeVisible();
-  await expect(inspector.getByRole("button", { name: /Resume in Agent Surface/u })).toBeDisabled();
-  await page.keyboard.press("Escape");
-  await expect(primary).toBeFocused();
-
-  const alternative = page.getByRole("button", { name: /Inspect the horizon/u });
-  await alternative.click();
-  inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(inspector.getByRole("heading", { name: "Inspect the horizon" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(alternative).toBeFocused();
-
-  const source = page.getByRole("button", { name: "View Project Summary" });
-  await source.click();
-  inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(
-    inspector.getByText(".bearing/state/project-summary.md", { exact: true }),
-  ).toBeVisible();
-  await expect(inspector.getByText(/grants no filesystem authority/u)).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(source).toBeFocused();
-
-  await expect.poll(() => syncCalls).toBe(1);
-  await expect(page.locator(".project-operation")).toHaveCount(0, { timeout: 3_000 });
+  expect(posts).toEqual([]);
+  await expect(page.locator(".topbar-refresh")).toHaveText("Refresh all sources");
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   });
@@ -185,7 +156,7 @@ test("Overview keeps cache visible, preserves reading order, and uses contextual
   });
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
-  for (const width of [768, 375]) {
+  for (const width of [768, 640, 375]) {
     await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
     await page.waitForTimeout(250);
     await expect(page.locator(".portal-shell")).not.toHaveClass(/nav-open/u);
@@ -194,128 +165,45 @@ test("Overview keeps cache visible, preserves reading order, and uses contextual
     expect(
       await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
     ).toBe(false);
+    if (width <= 640) {
+      const topbar = await page.locator(".topbar").boundingBox();
+      if (topbar === null) throw new Error("Expected the narrow topbar.");
+      expect(topbar.height).toBeLessThanOrEqual(61);
+      await expect(page.locator(".project-switcher")).toBeHidden();
+      await expect(page.locator(".project-title-narrow")).toBeVisible();
+    }
     await page.screenshot({
       path: await browserArtifactPath(testInfo, `overview-${width}.png`),
       fullPage: true,
     });
   }
-  await expectMinimumTarget(page.getByRole("button", { name: "View Project Summary" }), 44);
-  await expectMinimumTarget(page.getByRole("button", { name: /Inspect the horizon/u }), 44);
+  await expectMinimumTarget(briefTab, 44);
+  await expectMinimumTarget(summaryTab, 44);
   await expectMinimumTarget(page.locator(".gate-node").first(), 44);
   await expect(page.locator(".updated-date")).toBeHidden();
-  const syncBox = await page.getByRole("button", { name: "Sync" }).boundingBox();
-  if (syncBox === null) throw new Error("Expected the mobile Sync target.");
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  await menu.click();
+  const navigation = page.getByRole("navigation", { name: "Project navigation" });
+  await expect(navigation).toBeVisible();
+  await expect(navigation.getByText("Read only", { exact: true })).toHaveCount(1);
+  await expect(navigation.getByRole("link", { name: "Switch project" })).toHaveAttribute(
+    "href",
+    "/",
+  );
+  await expect(navigation.getByRole("button", { name: "Close navigation" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeFocused();
+  const syncBox = await page.getByRole("button", { name: "Refresh all sources" }).boundingBox();
+  if (syncBox === null) throw new Error("Expected the mobile source refresh target.");
   expect(syncBox.x + syncBox.width).toBeLessThanOrEqual(365);
-
-  await alternative.click();
-  const dialog = page.getByRole("dialog", { name: "Selected context" });
-  await expect(dialog).toBeVisible();
-  await expect(page.locator("main")).toHaveAttribute("aria-hidden", "true");
-  await page.keyboard.press("Escape");
-  await expect(dialog).toHaveCount(0);
-  await expect(alternative).toBeFocused();
-});
-
-test("desktop Guidance inspector preserves non-modal keyboard semantics", async ({ page }) => {
-  // Given: a current cached Overview at the desktop breakpoint.
-  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
-    route.fulfill({ json: readyEnvelope(false) }),
-  );
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto("/projects/overview");
-  const primary = page.getByRole("button", { name: /Finish Overview/u });
-  await focusByTab(page, primary);
-
-  // When: the primary Guidance action is activated using only the keyboard.
-  await page.keyboard.press("Enter");
-
-  // Then: the desktop inspector receives focus without becoming a modal focus trap.
-  const inspector = page.getByRole("complementary", { name: "Selected context" });
-  const close = inspector.getByRole("button", { name: "Close selected context" });
-  await expect(inspector.getByRole("heading", { name: "Finish Overview" })).toBeVisible();
-  await expect(close).toBeFocused();
-  expect(await page.locator("main").getAttribute("inert")).toBeNull();
-  await expect(page.locator("main")).toHaveAttribute("aria-hidden", "false");
-  await page.keyboard.press("Tab");
-  expect(await inspector.evaluate((element) => !element.contains(document.activeElement))).toBe(
-    true,
-  );
-  await page.keyboard.press("Shift+Tab");
-  await expect(close).toBeFocused();
-
-  // External focus changes must not strand an open inspector outside its key boundary.
-  await close.evaluate((element) => element.blur());
-  await expect(page.locator("body")).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(inspector).toHaveCount(0);
-  await expect(primary).toBeFocused();
-});
-
-test("Project Summary source inspector is reachable and reversible by keyboard", async ({
-  page,
-}) => {
-  // Given: a current cached Overview whose provenance action is in the document tab order.
-  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
-    route.fulfill({ json: readyEnvelope(false) }),
-  );
-  await page.goto("/projects/overview");
-  const source = page.getByRole("button", { name: "View Project Summary" });
-  await focusByTab(page, source);
-
-  // When: the source action is activated using only the keyboard.
-  await page.keyboard.press("Enter");
-
-  // Then: source provenance is inspectable and Escape returns focus to its trigger.
-  const inspector = page.getByRole("complementary", { name: "Selected context" });
-  await expect(
-    inspector.getByText(".bearing/state/project-summary.md", { exact: true }),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(inspector).toHaveCount(0);
-  await expect(source).toBeFocused();
-});
-
-test("narrow Guidance dialog contains focus and remains accessible while open", async ({
-  page,
-}) => {
-  // Given: a current cached Overview at the 375px narrow-window breakpoint.
-  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
-    route.fulfill({ json: readyEnvelope(false) }),
-  );
-  await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto("/projects/overview");
-  const alternative = page.getByRole("button", { name: /Inspect the horizon/u });
-  await focusByTab(page, alternative);
-
-  // When: an alternative Guidance action is activated with Space.
-  await page.keyboard.press("Space");
-
-  // Then: the dialog traps focus, passes Axe, and Escape restores the trigger.
-  const dialog = page.getByRole("dialog", { name: "Selected context" });
-  const close = dialog.getByRole("button", { name: "Close selected context" });
-  await expect(dialog.getByRole("heading", { name: "Inspect the horizon" })).toBeVisible();
-  await expect(close).toBeFocused();
-  await expect(page.locator("main")).toHaveAttribute("inert", "");
-  await page.keyboard.press("Tab");
-  await expect(close).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(close).toBeFocused();
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.keyboard.press("Escape");
-  await expect(dialog).toHaveCount(0);
-  await expect(alternative).toBeFocused();
 });
 
 test("ordinary in-project navigation does not reactivate validation", async ({ page }) => {
   let snapshotReads = 0;
-  let syncCalls = 0;
-  await page.route("**/api/v1/projects/overview/snapshot", (route) => {
+  await page.route("**/api/v1/projects/overview/read-model?section=*", (route) => {
     snapshotReads += 1;
-    return route.fulfill({ json: readyEnvelope(false) });
-  });
-  await page.route("**/api/v1/projects/overview/sync", (route) => {
-    syncCalls += 1;
-    return route.fulfill({ json: completedEnvelope() });
+    const section = new URL(route.request().url()).searchParams.get("section");
+    return route.fulfill({ json: readyEnvelope(section === "roadmaps" ? "roadmaps" : "overview") });
   });
   await page.goto("/projects/overview");
   await page.getByRole("link", { name: "Roadmaps", exact: true }).click();
@@ -323,34 +211,7 @@ test("ordinary in-project navigation does not reactivate validation", async ({ p
   await expect(page.getByRole("heading", { name: "Roadmaps", level: 1 })).toBeVisible();
   await page.goBack();
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
-  expect(snapshotReads).toBe(1);
-  expect(syncCalls).toBe(0);
-});
-
-test("retained cache stays readable and Retry performs a forced reconciliation", async ({
-  page,
-}) => {
-  const requestBodies: string[] = [];
-  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
-    route.fulfill({ json: readyEnvelope(true) }),
-  );
-  await page.route("**/api/v1/projects/overview/sync", (route) => {
-    requestBodies.push(route.request().postData() ?? "");
-    return route.fulfill({
-      json: requestBodies.length === 1 ? failedEnvelope() : forcedEnvelope(),
-    });
-  });
-  await page.goto("/projects/overview");
-
-  const banner = page.getByRole("alert");
-  await expect(banner).toContainText("Cached project content remains visible");
-  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
-  await banner.getByRole("button", { name: "Retry", exact: true }).click();
-  await expect(banner).toHaveCount(0);
-  expect(requestBodies).toEqual([
-    JSON.stringify({ version: 1, mode: "ensure-current" }),
-    JSON.stringify({ version: 1, mode: "force" }),
-  ]);
+  expect(snapshotReads).toBe(3);
 });
 
 test("invalid and absent semantic projections stay scoped to their Overview sections", async ({
@@ -363,44 +224,83 @@ test("invalid and absent semantic projections stay scoped to their Overview sect
   ) {
     throw new Error("Expected available browser fixture.");
   }
+  const scopedSnapshot = projectGenerationSchema.parse({
+    ...view.cache.snapshot.snapshot,
+    summary: {
+      validity: "invalid",
+      issues: [
+        {
+          code: "invalid-summary",
+          target: "project-summary",
+          message: "Summary sections are malformed.",
+        },
+      ],
+    },
+    brief: { validity: "absent" },
+  });
   const scopedView = {
     ...view,
     cache: {
       ...view.cache,
       snapshot: {
         state: "available",
-        snapshot: {
-          ...view.cache.snapshot.snapshot,
-          summary: {
-            validity: "invalid",
-            issues: [
-              {
-                code: "invalid-summary",
-                target: "project-summary",
-                message: "Summary sections are malformed.",
-              },
-            ],
-          },
-          guidance: { validity: "absent" },
-        },
+        snapshot: scopedSnapshot,
       },
     },
   };
-  await page.route("**/api/v1/projects/overview/snapshot", (route) =>
+  await page.route("**/api/v1/projects/overview/read-model?section=overview", (route) =>
     route.fulfill({
-      json: {
-        version: 1,
-        state: "ready",
-        view: scopedView,
-        validation: { due: false, cooldownRemainingMs: 30_000, inFlight: false },
-        session: { csrfToken: "ticket-11-csrf" },
-      },
+      json: projectRowEnvelope({
+        snapshot: scopedView.cache.snapshot.snapshot,
+        section: "overview",
+        entryId: "overview",
+        displayName: "Bearing 控制台",
+      }),
     }),
   );
   await page.goto("/projects/overview");
 
-  await expect(page.getByRole("heading", { name: "Project brief unavailable" })).toBeVisible();
-  await expect(page.getByText("No project-wide Next Work Guidance is available.")).toBeVisible();
+  await expect(page.getByText("Project Brief has not been generated yet.")).toBeVisible();
+  await page.getByRole("tab", { name: "Project Summary", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Project Summary unavailable" })).toBeVisible();
+  await expect(page.getByText("Summary sections are malformed.")).toBeVisible();
+  await expect(
+    page.getByText(/Correct the Project Summary source in Agent Surface/u),
+  ).toBeVisible();
+  await expect(page.getByText("Next work", { exact: false })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Active Roadmaps" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Portal Evolution" })).toBeVisible();
+});
+
+test("legacy Summary records omit unavailable Updated time without leaving a placeholder", async ({
+  page,
+}) => {
+  const view = projectView();
+  if (
+    view.cache.snapshot.state !== "available" ||
+    view.cache.snapshot.snapshot.brief.validity !== "available" ||
+    view.cache.snapshot.snapshot.summary.validity !== "available"
+  ) {
+    throw new Error("Expected available orientation fixtures.");
+  }
+  const { updatedAt: _updatedAt, ...summaryValue } = view.cache.snapshot.snapshot.summary.value;
+  await page.route("**/api/v1/projects/overview/read-model?section=overview", (route) =>
+    route.fulfill({
+      json: projectRowEnvelope({
+        snapshot: {
+          ...view.cache.snapshot.snapshot,
+          summary: { validity: "available", value: summaryValue },
+        },
+        section: "overview",
+        entryId: "overview",
+        displayName: "Bearing 控制台",
+      }),
+    }),
+  );
+  await page.goto("/projects/overview");
+
+  await expect(page.getByText("Generated", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Project Summary", exact: true }).click();
+  await expect(page.getByText("Updated", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".orientation-time")).toHaveCount(0);
 });

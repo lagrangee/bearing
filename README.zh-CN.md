@@ -2,7 +2,7 @@
 
 ## 始终与你的 coding agents 保持在同一页上。
 
-Bearing 为长期 coding-agent 项目提供一个本地、可检查的项目治理层。它把已经接受的方向、决策、证据和 alignment checks 保持可见，让你和 agent 每次开始新工作时都能回到同一幅项目全貌，而不是依赖旧对话里脆弱的记忆。
+Bearing 为长期 coding-agent 项目提供一个本地、可检查的项目治理层。它把已经接受的方向、Planning Reviews、证据和 current Audit findings 保持可见，让你和 agent 每次开始新工作时都能回到同一幅项目全貌，而不是依赖旧对话里脆弱的记忆。
 
 Local-first · 开源 Public Preview · Codex verified path · Claude Code target surface 等待维护者验证 · Matt-native 本地 Markdown work management
 
@@ -32,7 +32,7 @@ Matt-native Maps 与 Tickets
 Portal 读取同一幅项目全貌
 ```
 
-Bearing 负责长期项目治理：Project Summary、Roadmaps、Milestone Gates、Effort bindings、Authorities、Assets、Alignment Checks、Planning Audit，以及证据关系。
+Bearing 负责长期项目治理：Project Summary、Roadmaps、Milestone Gates、Effort bindings、Authorities、Assets、Planning Reviews、Planning Audit，以及证据关系。
 
 你的 work-management adapter 继续负责 Maps、Tickets、依赖、claims、blockers 与 resolution。你的 executor 继续负责实现和验证。Bearing 连接这些层次，但不会伪装成它们的全部。
 
@@ -61,10 +61,24 @@ Bearing 目前可能不适合你，如果：
 | 范围 | Public Preview 支持 |
 | --- | --- |
 | 平台 | macOS |
-| Node.js | Node.js 22 与 24 |
+| Node.js | Node.js 24.15.0 及以上；CI 验证 Node.js 24.15.0 与 26 |
 | Agent Surfaces | Codex 已验证。Claude Code 是目标 surface，仍等待维护者验证。 |
 | Work Management Adapter | Matt-native 本地 Markdown Maps 与 Tickets |
 | Telemetry | 无。Bearing 不做 analytics、crash upload、repository upload 或 update polling。 |
+
+## Interactive browser sample
+
+仓库包含一个 browser-only Portal demo。它只使用固定的 mock Northstar 数据，并在 GitHub
+project Pages base path 下作为独立 static artifact 运行。它不启动本地 Portal Host，不读取
+repository，不调用 provider 或 API，不使用 analytics，也不持久化 browser state。
+
+这个 demo 是 sample，不是 hosted Bearing project。受支持的产品使用从
+[本地安装](#quickstart完成一次真实-alignment-loop)和 loopback Portal 开始。分享 Portal capture
+或修改 private reachability 前，请阅读 [data and security boundary](docs/data-and-security.zh-CN.md)。
+Pull request 只验证 static artifact，不发布 public preview。Pages publication 和首次 live
+acceptance 仍由 maintainer 明确执行。
+production Portal visual owner 的变化会重跑 demo checks，并且合并前必须完成 manual fidelity
+review；demo 保持独立，不 import production Portal code。
 
 ## Feedback 与支持
 
@@ -82,12 +96,16 @@ Issues 与 Discussions 都是公开 GitHub 数据。请勿提交 tokens、secret
 npx @lagrangee/bearing
 ```
 
-Public Preview 的安装入口是无参数 wizard。它会在写入前预览 managed targets，安装版本匹配的 CLI、protocol、templates 和 Agent Surface skills；全局安装期间不会初始化仓库或启动 Portal。
+Public Preview 的 maintenance 入口是一个无参数 terminal wizard，其中有 Install、Update、
+Repair 和 Global Uninstall 四个选择。Install、Update 与 Repair 会预览 managed targets，并复用
+同一套版本匹配的 bundle transaction；它们不会初始化仓库或启动 Portal。Global Uninstall
+只移除该 bundle、CLI shim 与 Bearing-managed Agent Surface pointers；它保留 Project Catalog
+和所有 repository。
 
 当你主动选择 update 或 repair Bearing 时，重新运行同一个命令。Update 会 stage 一份完整
 bundle，并把它作为整体切换，或恢复上一份完整 bundle。Bearing 不会在后台检查更新。
-Repository deactivation、repository-state purge、显式 package downgrade 与 package-manager
-uninstall 是彼此独立的恢复操作；见 [故障排查](docs/troubleshooting.zh-CN.md)。
+Repository deactivation、repository-state removal、显式 package downgrade 与 package-manager
+uninstall 是彼此独立的操作；见 [故障排查](docs/troubleshooting.zh-CN.md)。
 
 高级用户和 agents 可以使用显式命令；见 [CLI reference](docs/cli.zh-CN.md)。
 
@@ -109,7 +127,7 @@ uninstall 是彼此独立的恢复操作；见 [故障排查](docs/troubleshooti
 - 一条 active Roadmap 和 focused Milestone Gate；
 - 一个把现有 Map 或 Ticket scope 绑定到该 Gate 的 Effort。
 
-每个被接受的方向仍然是人的决策。Setup 不应该只靠仓库文件自行推断 governance truth。
+每个被接受的方向仍然是人的决策。Repository Configuration 不应该只靠仓库文件自行推断 governance truth。
 
 ### 4. 带来一个真实请求
 
@@ -121,10 +139,10 @@ uninstall 是彼此独立的恢复操作；见 [故障排查](docs/troubleshooti
 
 当 agent 解释这个请求如何符合当前方向，或在实现前暴露实质冲突并给出明确决策路径时，第一次 alignment loop 就完成了。安装成功本身不是价值里程碑。
 
-### 5. Sync 并检查
+### 5. 检查当前项目
 
 ```bash
-bearing sync --repo .
+bearing inspect project --repo .
 bearing portal
 ```
 

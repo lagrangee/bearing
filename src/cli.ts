@@ -8,42 +8,67 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import packageMetadata from "../package.json";
-import { runCatalogCommand } from "./catalog/cli";
-import { writeInspectBenchmarkMetrics } from "./inspect-benchmark";
-import { installKit } from "./installer";
-import { createPlanningGraphInstrumentation } from "./planning-graph-instrumentation";
+import { CatalogCommandUsageError, runCatalogCommand } from "./catalog/cli";
+import {
+  executorNominationAssessmentSchema,
+  resolveExecutorNominations,
+} from "./executor-registration";
+import { installKit, uninstallGlobalKit } from "./installer";
+import {
+  nativeReferenceSchema,
+  nativeWorkAffectedRelationSchema,
+  normalizeNativeReconciliationRequest,
+} from "./native-reconciliation-contract";
+import { resolveRepositoryRoot } from "./path-boundary";
 import { parsePortalPort } from "./portal/port";
 import { startPortalServer } from "./portal/server";
-import { reconcileRepository } from "./reconcile-repository";
-import { deactivateRepository, purgeRepository } from "./repo-lifecycle";
-import { runSync } from "./sync";
-import { commitSyncPlan, prepareSync } from "./sync-plan";
+import { planningReferenceSchema } from "./project-read-model/contract";
+import { inspectProject } from "./project-read-model/inspect";
+import {
+  captureProjectProviderScopes,
+  rebuildProjectReadModel,
+  reconcileProjectNative,
+  verifyAllProjectProviderScopes,
+} from "./project-read-model/provider-operations";
+import {
+  applyRepositoryConfiguration,
+  inspectRepositoryConfiguration,
+  planRepositoryConfiguration,
+} from "./repository-configuration";
 import type { AgentSurface } from "./types";
+
+const INSPECT_USAGE =
+  "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]\n       bearing inspect --native <native-reference> [--repo <path>]";
 
 const HELP = `Bearing ${packageMetadata.version}
 
 Usage:
   bearing
   bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
-  bearing setup --repo <path> --surface <agent-skills|claude> [--profile <key>]
-  bearing deactivate --repo <path>
-  bearing purge --repo <path> --confirm-purge
-  bearing catalog <rename|forget|remove|relink|repair|repair-lock|repair-entry-lock|reset> [options]
-  bearing sync [--repo <path>]
-  bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>]
+  bearing configure
+  bearing configure inspect [--repo <path>]
+  bearing configure plan --intent <activate|deactivate> [--repo <path>] [--surface <agent-skills|claude>] [--provider-contract <repository-relative-path>] [--executor-mode <skip|configure>] [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>]
+  bearing configure apply --intent <activate|deactivate> --plan-token <sha256> [configuration options from the reviewed plan]
+  bearing catalog <inspect|rename|unregister|relink|reset> [options]
+  bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
+  bearing provider capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] [--repo <path>]
+  bearing provider verify --all [--repo <path>]
+  bearing cache rebuild [--repo <path>]
+  bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]
+  bearing inspect --native <native-reference> [--repo <path>]
   bearing portal [--port <1-65535>]
   bearing --help
   bearing --version
 
 Commands:
-  <none>   Run the install/update wizard for the detected local Agent Surfaces.
+  <none>   Run Global Kit Install, Update, Repair, or Uninstall in one terminal wizard.
   install  Install the global bundle, CLI, and skills for selected Agent Surfaces.
-  setup    Enable Bearing in one repository without copying protocol or skills into it.
-  deactivate  Remove repository enablement and managed pointers; preserve state and native work.
-  purge    Remove only the repository .bearing namespace and managed pointers after confirmation.
+  configure  Inspect, seal, and apply one exact Repository Configuration write set.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
-  sync     Rebuild deterministic diagnostics and the Project Sitemap under .bearing/cache/.
-  inspect  Return one generation-scoped planning context closure.
+  reconcile-native  Re-observe only the native subjects and relations affected by one completed Matt transaction.
+  provider  Explicitly capture exact Work Binding scopes or verify all current scopes.
+  cache     Rebuild only the disposable repository Project Read Model.
+  inspect  Read one typed result from the current Project Read Model generation.
   portal   Run the foreground loopback Portal Host and compiled browser Module.
 
 Environment:
@@ -51,7 +76,8 @@ Environment:
 `;
 
 const surfaceSchema = z.array(z.enum(["agent-skills", "claude"])).min(1);
-const profileSchema = z.array(z.string().min(1)).min(1);
+const configurationIntentSchema = z.enum(["activate", "deactivate"]);
+const executorModeSchema = z.enum(["skip", "configure"]);
 
 const packageRoot = (): string => {
   const adjacent = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -72,12 +98,27 @@ const describeSurfaces = (surfaces: readonly AgentSurface[]): string =>
     .map((surface) => (surface === "agent-skills" ? "Codex/Agent Skills" : "Claude Code"))
     .join(", ");
 
-const confirmWizard = async (message: string): Promise<boolean> => {
-  if (!process.stdin.isTTY) return true;
+type GlobalKitAction = "Install" | "Update" | "Repair" | "Global Uninstall";
+
+const selectGlobalKitAction = async (): Promise<GlobalKitAction | undefined> => {
+  process.stdout.write("1) Install\n2) Update\n3) Repair\n4) Global Uninstall\nq) Cancel\n");
+  if (!process.stdin.isTTY) {
+    process.stdout.write(
+      "Interactive terminal required. Automation can use `bearing install --surface <surface>`.\n",
+    );
+    return undefined;
+  }
   const input = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = await input.question(`${message} [Y/n] `);
-    return answer.trim() === "" || answer.trim().toLowerCase() === "y";
+    while (true) {
+      const answer = (await input.question("Select an action [1-4, q]: ")).trim().toLowerCase();
+      if (answer === "1") return "Install";
+      if (answer === "2") return "Update";
+      if (answer === "3") return "Repair";
+      if (answer === "4") return "Global Uninstall";
+      if (answer === "" || answer === "q") return undefined;
+      process.stdout.write("Select 1, 2, 3, 4, or q.\n");
+    }
   } finally {
     input.close();
   }
@@ -86,7 +127,7 @@ const confirmWizard = async (message: string): Promise<boolean> => {
 const runInstallWizard = async (): Promise<void> => {
   const homeDir = homeDirectory();
   const surfaces = detectedSurfaces(homeDir);
-  process.stdout.write(`Bearing install/update wizard\n`);
+  process.stdout.write(`Bearing Global Kit maintenance\n`);
   process.stdout.write(`Home: ${homeDir}\n`);
   process.stdout.write(`Agent Surfaces: ${describeSurfaces(surfaces)}\n`);
   process.stdout.write(`Managed bundle: ${join(homeDir, ".bearing/kit/current")}\n`);
@@ -97,8 +138,17 @@ const runInstallWizard = async (): Promise<void> => {
   process.stdout.write(
     "Network: npm may download this package before the wizard starts; Bearing itself performs no telemetry, analytics, crash upload, repository upload, or update polling.\n",
   );
-  if (!(await confirmWizard("Install or update these managed targets?"))) {
+  const action = await selectGlobalKitAction();
+  if (action === undefined) {
     process.stdout.write("Outcome: cancelled\n");
+    return;
+  }
+  process.stdout.write(`Action: ${action}\n`);
+  if (action === "Global Uninstall") {
+    const result = await uninstallGlobalKit(homeDir);
+    process.stdout.write(
+      `Outcome: ${result.outcome}\nRemoved targets: ${result.removedTargets.length}\nPreserved: Project Catalog, repository state, provider configuration, profiles, artifacts, and native work.\n`,
+    );
     return;
   }
   const result = await installKit({
@@ -111,31 +161,101 @@ const runInstallWizard = async (): Promise<void> => {
   );
 };
 
-const runSetup = async (args: readonly string[]): Promise<void> => {
+const runConfigure = async (args: readonly string[]): Promise<void> => {
+  const [subcommand, ...values] = args;
+  if (subcommand === undefined) {
+    process.stdout.write(
+      "Repository Configuration is Agent-led. Load the public Bearing skill, inspect machine facts, resolve one material choice at a time, then review one sealed plan.\n",
+    );
+    return;
+  }
+  if (subcommand === "inspect") {
+    const parsed = parseArgs({
+      args: values,
+      options: { repo: { type: "string" } },
+      allowPositionals: false,
+      strict: true,
+    });
+    const result = await inspectRepositoryConfiguration({
+      repoRoot: resolve(parsed.values.repo ?? process.cwd()),
+      packageRoot: packageRoot(),
+      homeDir: homeDirectory(),
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+  if (subcommand !== "plan" && subcommand !== "apply") {
+    throw new CommandUsageError("Usage: bearing configure <inspect|plan|apply> [options]");
+  }
   const parsed = parseArgs({
-    args: [...args],
+    args: values,
     options: {
       repo: { type: "string" },
+      intent: { type: "string" },
       surface: { type: "string", multiple: true },
-      profile: { type: "string", multiple: true },
+      executor: { type: "string", multiple: true },
+      "executor-assessment": { type: "string", multiple: true },
+      "executor-mode": { type: "string" },
+      "provider-contract": { type: "string" },
+      "retain-executor": { type: "string", multiple: true },
+      "remove-executor": { type: "string", multiple: true },
+      "plan-token": { type: "string" },
     },
     allowPositionals: false,
     strict: true,
   });
-  const surfaces = surfaceSchema.parse(parsed.values.surface ?? []);
-  const profiles = profileSchema.parse(parsed.values.profile ?? ["generic-agent"]);
-  const result = await reconcileRepository({
+  const intent = configurationIntentSchema.parse(parsed.values.intent);
+  const surfaces =
+    parsed.values.surface === undefined ? [] : surfaceSchema.parse(parsed.values.surface);
+  const provider =
+    parsed.values["provider-contract"] === undefined
+      ? undefined
+      : {
+          key: "matt-skills/v1" as const,
+          contractLocator: parsed.values["provider-contract"],
+        };
+  const registrations = await resolveExecutorNominations(
+    homeDirectory(),
+    parsed.values.executor ?? [],
+    (parsed.values["executor-assessment"] ?? []).map((encoded) => {
+      let assessment: unknown;
+      try {
+        assessment = JSON.parse(encoded);
+      } catch (error) {
+        throw new Error("Executor semantic assessment must be valid JSON.", { cause: error });
+      }
+      return executorNominationAssessmentSchema.parse(assessment);
+    }),
+  );
+  const request = {
     repoRoot: resolve(parsed.values.repo ?? process.cwd()),
     packageRoot: packageRoot(),
     homeDir: homeDirectory(),
+    intent,
     surfaces,
-    profiles,
+    ...(provider === undefined ? {} : { provider }),
+    ...(parsed.values["executor-mode"] === undefined
+      ? {}
+      : { executorDecision: executorModeSchema.parse(parsed.values["executor-mode"]) }),
+    registrations,
+    retainProfiles: parsed.values["retain-executor"] ?? [],
+    removeProfiles: parsed.values["remove-executor"] ?? [],
+  };
+  if (subcommand === "plan") {
+    const plan = await planRepositoryConfiguration(request);
+    process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+    if (!plan.canApply) process.exitCode = 1;
+    return;
+  }
+  if (parsed.values["plan-token"] === undefined) {
+    throw new CommandUsageError("Configure Apply requires --plan-token from the reviewed plan.");
+  }
+  const result = await applyRepositoryConfiguration({
+    ...request,
+    sealedPlanToken: parsed.values["plan-token"],
   });
-  process.stdout.write(
-    `Outcome: ${result.outcome}\nRepository: ${result.repository.outcome}\nCatalog: ${result.catalog.outcome}\nManifest: ${result.repository.manifestPath}\nChanged targets: ${result.repository.changedTargets.length}\n`,
-  );
-  if (result.catalog.outcome === "failed") {
-    process.stderr.write(`Catalog registration failed: ${result.catalog.message}\n`);
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (result.outcome === "partial" || result.outcome === "blocked") {
     process.exitCode = 1;
   }
 };
@@ -162,129 +282,196 @@ const runInstall = async (args: readonly string[]): Promise<void> => {
   );
 };
 
-const runRepositoryLifecycle = async (
-  command: "deactivate" | "purge",
-  args: readonly string[],
-): Promise<void> => {
-  const parsed = parseArgs({
-    args: [...args],
-    options: {
-      repo: { type: "string" },
-      "confirm-purge": { type: "boolean" },
-    },
-    allowPositionals: false,
-    strict: true,
-  });
-  if (command === "deactivate" && parsed.values["confirm-purge"] === true) {
-    throw new Error("--confirm-purge is valid only for `bearing purge`.");
-  }
-  const options = {
-    repoRoot: resolve(parsed.values.repo ?? process.cwd()),
-    homeDir: homeDirectory(),
-  };
-  const result =
-    command === "deactivate"
-      ? await deactivateRepository(options)
-      : await purgeRepository({
-          ...options,
-          confirmed: parsed.values["confirm-purge"] === true,
-        });
-  process.stdout.write(
-    `Outcome: ${result.outcome}\nRepository: ${result.repository.outcome}\nCatalog: ${result.catalog.outcome}\nChanged targets: ${result.repository.changedTargets.length}\n`,
-  );
-  if (result.repository.cleanup?.outcome === "residue") {
-    process.stderr.write(
-      `Purge cleanup residue: ${result.repository.cleanup.location}\n${result.repository.cleanup.message}\n`,
+const runNativeReconciliationCommand = async (args: readonly string[]): Promise<void> => {
+  const parsed = (() => {
+    try {
+      return parseArgs({
+        args: [...args],
+        options: {
+          repo: { type: "string" },
+          scope: { type: "string" },
+          ref: { type: "string", multiple: true },
+          relation: { type: "string", multiple: true },
+        },
+        allowPositionals: false,
+        strict: true,
+      });
+    } catch (error) {
+      throw new CommandUsageError(
+        "Usage: bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]",
+        { cause: error },
+      );
+    }
+  })();
+  const nativeScope = parsed.values.scope;
+  if (nativeScope === undefined) {
+    throw new CommandUsageError(
+      "Targeted native reconciliation requires --scope <opaque-native-scope>.",
     );
   }
-  if (result.catalog.outcome === "failed") {
-    process.stderr.write(`Catalog removal failed: ${result.catalog.message}\n`);
-  }
-  if (result.outcome === "blocked") process.exitCode = 1;
+  const relations = (() => {
+    try {
+      return (parsed.values.relation ?? []).map((encoded) => {
+        const value: unknown = JSON.parse(encoded);
+        return nativeWorkAffectedRelationSchema.parse(value);
+      });
+    } catch (error) {
+      throw new CommandUsageError("Every --relation value must be one JSON relation object.", {
+        cause: error,
+      });
+    }
+  })();
+  const request = (() => {
+    try {
+      return normalizeNativeReconciliationRequest({
+        binding: { provider: "matt-skills/v1", nativeScope },
+        subjects: parsed.values.ref ?? [],
+        relations,
+      });
+    } catch (error) {
+      throw new CommandUsageError("Targeted native reconciliation input is invalid.", {
+        cause: error,
+      });
+    }
+  })();
+  const result = await reconcileProjectNative(
+    await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd())),
+    {
+      binding: request.binding,
+      subjects: request.subjects,
+      relations: request.relations,
+    },
+  );
+  process.stdout.write(`${JSON.stringify({ ...result, request }, null, 2)}\n`);
+  if (result.outcome !== "complete") process.exitCode = 1;
 };
 
-const runSyncCommand = async (args: readonly string[]): Promise<void> => {
-  const parsed = parseArgs({
-    args: [...args],
-    options: { repo: { type: "string" } },
-    allowPositionals: false,
-    strict: true,
-  });
-  const result = await runSync(resolve(parsed.values.repo ?? process.cwd()));
-  process.stdout.write(
-    `Report: ${result.reportPath}\nSitemap: ${result.sitemapPath}\nInput fingerprint: ${result.fingerprint}\nDiagnostics: ${result.diagnostics.length}\nOutcome: ${result.changed ? "applied" : "no-op"}\n`,
-  );
-  if (result.diagnostics.some((diagnostic) => diagnostic.impact === "blocking")) {
-    process.exitCode = 1;
+const runProviderCommand = async (args: readonly string[]): Promise<void> => {
+  const [operation, ...operationArgs] = args;
+  if (operation !== "capture" && operation !== "verify") {
+    throw new CommandUsageError(
+      "Usage: bearing provider <capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] | verify --all> [--repo <path>]",
+    );
   }
+  const parsed = (() => {
+    try {
+      return parseArgs({
+        args: operationArgs,
+        options: {
+          repo: { type: "string" },
+          scope: { type: "string", multiple: true },
+          all: { type: "boolean" },
+        },
+        allowPositionals: false,
+        strict: true,
+      });
+    } catch (error) {
+      throw new CommandUsageError("Provider acquisition input is invalid.", { cause: error });
+    }
+  })();
+  if (
+    (operation === "capture" &&
+      ((parsed.values.scope?.length ?? 0) === 0 || parsed.values.all === true)) ||
+    (operation === "verify" &&
+      (parsed.values.all !== true || (parsed.values.scope?.length ?? 0) > 0))
+  ) {
+    throw new CommandUsageError(
+      operation === "capture"
+        ? "Usage: bearing provider capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] [--repo <path>]"
+        : "Usage: bearing provider verify --all [--repo <path>]",
+    );
+  }
+  const repoRoot = resolve(parsed.values.repo ?? process.cwd());
+  const result =
+    operation === "capture"
+      ? await captureProjectProviderScopes(repoRoot, parsed.values.scope ?? [])
+      : await verifyAllProjectProviderScopes(repoRoot);
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (result.outcome !== "complete") process.exitCode = 1;
+};
+
+const runCacheCommand = async (args: readonly string[]): Promise<void> => {
+  const [operation, ...operationArgs] = args;
+  if (operation !== "rebuild") {
+    throw new CommandUsageError("Usage: bearing cache rebuild [--repo <path>]");
+  }
+  const parsed = (() => {
+    try {
+      return parseArgs({
+        args: operationArgs,
+        options: { repo: { type: "string" } },
+        allowPositionals: false,
+        strict: true,
+      });
+    } catch (error) {
+      throw new CommandUsageError("Usage: bearing cache rebuild [--repo <path>]", {
+        cause: error,
+      });
+    }
+  })();
+  const result = await rebuildProjectReadModel(
+    await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd())),
+  );
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (result.outcome !== "complete") process.exitCode = 1;
 };
 
 const runInspectCommand = async (args: readonly string[]): Promise<void> => {
-  const parsed = parseArgs({
-    args: [...args],
-    options: {
-      repo: { type: "string" },
-      "benchmark-metrics-file": { type: "string" },
-    },
-    allowPositionals: true,
-    strict: true,
-  });
-  const [kind, id, ...extra] = parsed.positionals;
-  if (
-    (kind !== "roadmap" && kind !== "gate" && kind !== "effort") ||
-    id === undefined ||
-    extra.length > 0
-  ) {
-    throw new Error("Usage: bearing inspect <roadmap|gate|effort> <stable-id> [--repo <path>]");
+  const parsed = (() => {
+    try {
+      return parseArgs({
+        args: [...args],
+        options: {
+          repo: { type: "string" },
+          native: { type: "string" },
+        },
+        allowPositionals: true,
+        strict: true,
+      });
+    } catch (error) {
+      throw new CommandUsageError(INSPECT_USAGE, { cause: error });
+    }
+  })();
+  const [request, ...requestExtra] = parsed.positionals;
+  if ((request === undefined) === (parsed.values.native === undefined) || requestExtra.length > 0) {
+    throw new CommandUsageError(INSPECT_USAGE);
   }
-  const repoRoot = resolve(parsed.values.repo ?? process.cwd());
-  const metricsFile = parsed.values["benchmark-metrics-file"];
-  const instrumentation =
-    metricsFile === undefined ? undefined : createPlanningGraphInstrumentation();
-  const plan = await prepareSync(
-    repoRoot,
-    instrumentation === undefined ? {} : { planningGraphInstrumentation: instrumentation },
-  );
-  const closureStarted = performance.now();
-  const result = plan.planningGraph.contextFor({ kind, id });
-  const closureCompleted = performance.now();
-  await commitSyncPlan(plan);
-  const outputStarted = performance.now();
-  const output = `${JSON.stringify(result, null, 2)}\n`;
-  const outputCompleted = performance.now();
-  process.stdout.write(output);
-  if (metricsFile !== undefined && instrumentation !== undefined) {
-    const observed = instrumentation.snapshot();
-    writeInspectBenchmarkMetrics(repoRoot, metricsFile, {
-      schemaVersion: 1,
-      benchmark: "inspect-sample",
-      processId: process.pid,
-      runtime: { nodeVersion: process.version },
-      target: { kind, id },
-      fingerprint: result.fingerprint,
-      state: result.state,
-      phases: {
-        discovery: plan.metrics.phaseMs.discovery,
-        capture: plan.metrics.phaseMs.capture,
-        decode: plan.metrics.phaseMs.decode,
-        graphBuild: plan.planningPhaseMs.graphBuild,
-        closure: closureCompleted - closureStarted,
-        output: plan.planningPhaseMs.output + (outputCompleted - outputStarted),
-        cacheComparison: plan.planningPhaseMs.cacheComparison,
-      },
-      structural: {
-        inputReads: plan.metrics.inputReadCount,
-        capturedInputs: plan.metrics.capturedInputCount,
-        bearingRecords: plan.metrics.bearingRecordCount,
-        recordDecodes: plan.metrics.recordDecodeCount,
-        planningGraphBuilds: observed.planningGraphBuilds,
-        rootClosures: observed.rootClosures,
-        repositoryRevalidations: plan.metrics.repositoryRevalidationCount,
-      },
-    });
+  {
+    const inspectRequest =
+      parsed.values.native !== undefined
+        ? nativeReferenceSchema.safeParse(parsed.values.native).success
+          ? ({ kind: "native-reference", reference: parsed.values.native } as const)
+          : undefined
+        : request === "project"
+          ? ({ kind: "project" } as const)
+          : request === "diagnostics"
+            ? ({ kind: "diagnostics" } as const)
+            : request !== undefined && planningReferenceSchema.safeParse(request).success
+              ? ({ kind: "planning-reference", reference: request } as const)
+              : undefined;
+    if (inspectRequest === undefined) {
+      throw new CommandUsageError(INSPECT_USAGE);
+    }
+    const result = await inspectProject(
+      await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd())),
+      inspectRequest,
+    );
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (
+      result.outcome === "unfulfilled" ||
+      result.outcome === "recovery-required" ||
+      result.outcome === "need-update"
+    ) {
+      process.exitCode = 1;
+    }
+    return;
   }
-  if (result.state === "invalid") process.exitCode = 1;
 };
+
+class CommandUsageError extends Error {
+  readonly exitCode = 2;
+  readonly name = "CommandUsageError";
+}
 
 const runPortal = async (args: readonly string[]): Promise<void> => {
   const port = parsePortalPort(args, process.env);
@@ -321,20 +508,24 @@ const main = async (): Promise<void> => {
     await runInstall(args);
     return;
   }
-  if (command === "setup") {
-    await runSetup(args);
-    return;
-  }
-  if (command === "deactivate" || command === "purge") {
-    await runRepositoryLifecycle(command, args);
+  if (command === "configure") {
+    await runConfigure(args);
     return;
   }
   if (command === "catalog") {
     process.stdout.write(await runCatalogCommand(args, homeDirectory()));
     return;
   }
-  if (command === "sync") {
-    await runSyncCommand(args);
+  if (command === "reconcile-native") {
+    await runNativeReconciliationCommand(args);
+    return;
+  }
+  if (command === "provider") {
+    await runProviderCommand(args);
+    return;
+  }
+  if (command === "cache") {
+    await runCacheCommand(args);
     return;
   }
   if (command === "inspect") {
@@ -352,5 +543,8 @@ try {
   await main();
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+  process.exitCode =
+    error instanceof CommandUsageError || error instanceof CatalogCommandUsageError
+      ? error.exitCode
+      : 1;
 }

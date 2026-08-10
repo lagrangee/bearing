@@ -2,7 +2,7 @@
 
 [简体中文](getting-started.zh-CN.md)
 
-This guide gets you to the first real Bearing alignment loop.
+This guide gets you to the first real Bearing governance loop.
 
 ## Prerequisites
 
@@ -18,7 +18,15 @@ This guide gets you to the first real Bearing alignment loop.
 npx @lagrangee/bearing
 ```
 
-Use the no-argument wizard for normal installation. It previews managed targets before writing. It installs user-level CLI and skill assets; it does not initialize every repository automatically.
+Use the no-argument wizard for Global Kit maintenance. It offers Install, Update, Repair, and
+Global Uninstall. Installation actions preview managed targets and do not configure a repository or
+start Portal. Global Uninstall removes only package-managed Global Kit targets and preserves the
+Project Catalog and repository state.
+
+The user-level Bearing skill remains available for an explicit Bearing or Repository Configuration
+request in any repository. A configured repository pointer uses context, not a repeated CLI
+preflight: explicit Bearing concepts, reliable continuation, or materially relevant planning and
+governance work can nominate Bearing. Ordinary code work and working-directory context alone do not.
 
 ## Enable one repository
 
@@ -32,7 +40,8 @@ If you use the CLI directly, prefer help output from the installed version:
 
 ```bash
 bearing --help
-bearing setup --repo . --surface agent-skills
+bearing configure inspect --repo .
+bearing configure
 ```
 
 ## Establish the minimum baseline
@@ -46,7 +55,7 @@ The useful baseline is intentionally small:
 
 Bearing should ask before accepting direction. If the agent silently invents strategic truth, stop and ask it to surface assumptions as decisions.
 
-## Complete the first alignment loop
+## Complete the first governance loop
 
 Bring one real request:
 
@@ -62,7 +71,9 @@ The loop succeeds when the agent either:
 ## Inspect the shared picture
 
 ```bash
-bearing sync --repo .
+bearing cache rebuild --repo .
+bearing provider verify --all --repo .
+bearing inspect project --repo .
 bearing portal
 ```
 

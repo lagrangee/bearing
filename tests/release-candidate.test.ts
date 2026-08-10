@@ -1,42 +1,35 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  appendFile,
-  chmod,
-  cp,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { appendFile, chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { parse as parseYaml } from "yaml";
 import {
   type BundleDependencyMetadata,
+  bundlePackageLocatorFromModule,
   findBundleNoticeMismatches,
   normalizeBundleModuleId,
 } from "../scripts/bundle-dependency-boundary";
-import { scanTrackedFiles } from "../scripts/check-secret-boundary";
+import { findPublicSourceResidue } from "../scripts/check-public-source-residue";
 import { preparePreviewRelease } from "../scripts/prepare-preview-release";
 import { assertAllowedPackagePaths, requiredPackagePaths } from "../scripts/release-boundary";
 import {
   type CandidateManifest,
   type CandidateReceipt,
-  canonicalJson,
+  serializeCandidateJson,
   sha256Bytes,
   verifyReleaseCandidate,
 } from "../scripts/release-candidate-lib";
 import { assertCandidateSourcesMatchCommit } from "../scripts/release-source-boundary";
+import { type TarFixtureEntry, writeTarGzFixture } from "./release-archive-fixture";
 
 const temporaryRoots: string[] = [];
 
 const reviewedActionPins = {
   "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
+  "actions/setup-go": "4a3601121dd01d1626a1e23e37211e3254c1c06c",
   "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",
   "actions/download-artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
   "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
@@ -75,10 +68,14 @@ const makeCandidate = async (
   }
 
   const artifactPath = join(root, "lagrangee-bearing-0.1.0.tgz");
-  const packed = spawnSync("tar", ["-czf", artifactPath, "-C", join(root, "staging"), "package"], {
-    encoding: "utf8",
-  });
-  if (packed.status !== 0) throw new Error(packed.stderr);
+  await writeTarGzFixture(
+    artifactPath,
+    Object.entries(packageFiles).map(([path, bytes]) => ({
+      path: `package/${path}`,
+      bytes,
+      mode: 0o644,
+    })),
+  );
 
   const manifest: CandidateManifest = {
     schemaVersion: 1,
@@ -90,7 +87,7 @@ const makeCandidate = async (
       .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0)),
   };
   const manifestPath = join(root, "candidate-manifest.json");
-  await writeFile(manifestPath, canonicalJson(manifest));
+  await writeFile(manifestPath, serializeCandidateJson(manifest));
   const artifact = await readFile(artifactPath);
   const receipt: CandidateReceipt = {
     schemaVersion: 1,
@@ -106,11 +103,11 @@ const makeCandidate = async (
     },
     manifest: {
       file: "candidate-manifest.json",
-      sha256: sha256Bytes(Buffer.from(canonicalJson(manifest))),
+      sha256: sha256Bytes(Buffer.from(serializeCandidateJson(manifest))),
     },
   };
   const receiptPath = join(root, "candidate-receipt.json");
-  await writeFile(receiptPath, canonicalJson(receipt));
+  await writeFile(receiptPath, serializeCandidateJson(receipt));
   return { root, artifactPath, manifestPath, receiptPath, packageRoot, receipt };
 };
 
@@ -118,11 +115,11 @@ const rewriteCandidateIdentity = async (
   candidate: Awaited<ReturnType<typeof makeCandidate>>,
   manifest: CandidateManifest,
 ): Promise<void> => {
-  await writeFile(candidate.manifestPath, canonicalJson(manifest));
+  await writeFile(candidate.manifestPath, serializeCandidateJson(manifest));
   const artifact = await readFile(candidate.artifactPath);
   await writeFile(
     candidate.receiptPath,
-    canonicalJson({
+    serializeCandidateJson({
       ...candidate.receipt,
       artifact: {
         ...candidate.receipt.artifact,
@@ -133,12 +130,34 @@ const rewriteCandidateIdentity = async (
       },
       manifest: {
         ...candidate.receipt.manifest,
-        sha256: sha256Bytes(Buffer.from(canonicalJson(manifest))),
+        sha256: sha256Bytes(Buffer.from(serializeCandidateJson(manifest))),
       },
     }),
   );
 };
 
+const repackCandidate = async (
+  candidate: Awaited<ReturnType<typeof makeCandidate>>,
+  special: TarFixtureEntry,
+): Promise<void> => {
+  const manifest = JSON.parse(await readFile(candidate.manifestPath, "utf8")) as CandidateManifest;
+  const entries = await Promise.all(
+    manifest.files.map(
+      async (file): Promise<TarFixtureEntry> =>
+        file.path === special.path
+          ? { ...special, path: `package/${special.path}` }
+          : {
+              path: `package/${file.path}`,
+              bytes: await readFile(join(candidate.packageRoot, file.path)),
+              mode: file.mode,
+            },
+    ),
+  );
+  await writeTarGzFixture(candidate.artifactPath, entries);
+};
+
+// Independent raw-header oracle: exercises forbidden mode/path policy without asking
+// the production tar-stream stack to generate the adversarial header it must reject.
 const rewriteTarEntryMode = async (
   artifactPath: string,
   entryPath: string,
@@ -223,7 +242,7 @@ test("rejects the wrong package version and unsafe artifact names", async () => 
   const candidate = await makeCandidate();
   await writeFile(
     candidate.receiptPath,
-    canonicalJson({ ...candidate.receipt, packageVersion: "0.2.0" }),
+    serializeCandidateJson({ ...candidate.receipt, packageVersion: "0.2.0" }),
   );
   await expect(verifyReleaseCandidate(candidate.receiptPath)).rejects.toThrow(
     "candidate package version must be 0.1.0",
@@ -231,7 +250,7 @@ test("rejects the wrong package version and unsafe artifact names", async () => 
 
   await writeFile(
     candidate.receiptPath,
-    canonicalJson({
+    serializeCandidateJson({
       ...candidate.receipt,
       artifact: { ...candidate.receipt.artifact, file: "../candidate.tgz" },
     }),
@@ -261,7 +280,7 @@ test("recomputes npm shasum and integrity from artifact bytes", async () => {
   const candidate = await makeCandidate();
   await writeFile(
     candidate.receiptPath,
-    canonicalJson({
+    serializeCandidateJson({
       ...candidate.receipt,
       artifact: { ...candidate.receipt.artifact, npmShasum: "0".repeat(40) },
     }),
@@ -272,7 +291,7 @@ test("recomputes npm shasum and integrity from artifact bytes", async () => {
 
   await writeFile(
     candidate.receiptPath,
-    canonicalJson({
+    serializeCandidateJson({
       ...candidate.receipt,
       artifact: { ...candidate.receipt.artifact, npmIntegrity: "sha512-invalid" },
     }),
@@ -289,14 +308,14 @@ test("rejects a self-consistent manifest that does not describe the tarball", as
     ...manifest,
     files: manifest.files.filter((file) => file.path !== "dist/extra.js"),
   };
-  await writeFile(candidate.manifestPath, canonicalJson(incomplete));
+  await writeFile(candidate.manifestPath, serializeCandidateJson(incomplete));
   await writeFile(
     candidate.receiptPath,
-    canonicalJson({
+    serializeCandidateJson({
       ...candidate.receipt,
       manifest: {
         ...candidate.receipt.manifest,
-        sha256: sha256Bytes(Buffer.from(canonicalJson(incomplete))),
+        sha256: sha256Bytes(Buffer.from(serializeCandidateJson(incomplete))),
       },
     }),
   );
@@ -314,14 +333,14 @@ test("rejects a self-consistent manifest with a false tar header mode", async ()
       file.path === "README.md" ? { ...file, mode: 0o755 } : file,
     ),
   };
-  await writeFile(candidate.manifestPath, canonicalJson(falseMode));
+  await writeFile(candidate.manifestPath, serializeCandidateJson(falseMode));
   await writeFile(
     candidate.receiptPath,
-    canonicalJson({
+    serializeCandidateJson({
       ...candidate.receipt,
       manifest: {
         ...candidate.receipt.manifest,
-        sha256: sha256Bytes(Buffer.from(canonicalJson(falseMode))),
+        sha256: sha256Bytes(Buffer.from(serializeCandidateJson(falseMode))),
       },
     }),
   );
@@ -333,20 +352,11 @@ test("rejects a self-consistent manifest with a false tar header mode", async ()
 test("rejects real tar symlink and FIFO entries even with self-consistent identity", async () => {
   for (const type of ["symlink", "fifo"] as const) {
     const candidate = await makeCandidate();
-    const target = join(candidate.packageRoot, "README.md");
-    await rm(target);
-    if (type === "symlink") {
-      await symlink("README.zh-CN.md", target);
-    } else {
-      const fifo = spawnSync("mkfifo", [target], { encoding: "utf8" });
-      expect(fifo.status, fifo.stderr).toBe(0);
-    }
-    const packed = spawnSync(
-      "tar",
-      ["-czf", candidate.artifactPath, "-C", join(candidate.root, "staging"), "package"],
-      { encoding: "utf8" },
-    );
-    expect(packed.status, packed.stderr).toBe(0);
+    await repackCandidate(candidate, {
+      path: "README.md",
+      type,
+      ...(type === "symlink" ? { linkname: "README.zh-CN.md" } : {}),
+    });
     const manifest = JSON.parse(
       await readFile(candidate.manifestPath, "utf8"),
     ) as CandidateManifest;
@@ -365,15 +375,11 @@ test("rejects real tar symlink and FIFO entries even with self-consistent identi
 
 test("rejects a real trailing-slash symlink omitted from a self-consistent manifest", async () => {
   const candidate = await makeCandidate();
-  const target = join(candidate.packageRoot, "dist/extra.js");
-  await rm(target);
-  await symlink("../README.md", target);
-  const packed = spawnSync(
-    "tar",
-    ["-czf", candidate.artifactPath, "-C", join(candidate.root, "staging"), "package"],
-    { encoding: "utf8" },
-  );
-  expect(packed.status, packed.stderr).toBe(0);
+  await repackCandidate(candidate, {
+    path: "dist/extra.js",
+    type: "symlink",
+    linkname: "../README.md",
+  });
   await appendSlashToTarEntryPath(candidate.artifactPath, "package/dist/extra.js");
   const manifest = JSON.parse(await readFile(candidate.manifestPath, "utf8")) as CandidateManifest;
   const omitted = {
@@ -430,16 +436,16 @@ test("source-binds tracked package inputs while frozen artifact identity binds g
   }).stdout.trim();
   const manifest = JSON.parse(await readFile(candidate.manifestPath, "utf8")) as CandidateManifest;
   const boundManifest = { ...manifest, sourceCommit };
-  await writeFile(candidate.manifestPath, canonicalJson(boundManifest));
+  await writeFile(candidate.manifestPath, serializeCandidateJson(boundManifest));
   const boundReceipt = {
     ...candidate.receipt,
     sourceCommit,
     manifest: {
       ...candidate.receipt.manifest,
-      sha256: sha256Bytes(Buffer.from(canonicalJson(boundManifest))),
+      sha256: sha256Bytes(Buffer.from(serializeCandidateJson(boundManifest))),
     },
   };
-  await writeFile(candidate.receiptPath, canonicalJson(boundReceipt));
+  await writeFile(candidate.receiptPath, serializeCandidateJson(boundReceipt));
   await expect(
     verifyReleaseCandidate(candidate.receiptPath, { sourceCommit, repositoryRoot: repository }),
   ).resolves.toMatchObject({ sourceCommit });
@@ -457,15 +463,15 @@ test("source-binds tracked package inputs while frozen artifact identity binds g
     encoding: "utf8",
   }).stdout.trim();
   const changedManifest = { ...boundManifest, sourceCommit: changedCommit };
-  await writeFile(candidate.manifestPath, canonicalJson(changedManifest));
+  await writeFile(candidate.manifestPath, serializeCandidateJson(changedManifest));
   await writeFile(
     candidate.receiptPath,
-    canonicalJson({
+    serializeCandidateJson({
       ...boundReceipt,
       sourceCommit: changedCommit,
       manifest: {
         ...boundReceipt.manifest,
-        sha256: sha256Bytes(Buffer.from(canonicalJson(changedManifest))),
+        sha256: sha256Bytes(Buffer.from(serializeCandidateJson(changedManifest))),
       },
     }),
   );
@@ -491,15 +497,15 @@ test("source-binds tracked package inputs while frozen artifact identity binds g
     encoding: "utf8",
   }).stdout.trim();
   const trackedManifest = { ...boundManifest, sourceCommit: trackedSourceCommit };
-  await writeFile(candidate.manifestPath, canonicalJson(trackedManifest));
+  await writeFile(candidate.manifestPath, serializeCandidateJson(trackedManifest));
   await writeFile(
     candidate.receiptPath,
-    canonicalJson({
+    serializeCandidateJson({
       ...boundReceipt,
       sourceCommit: trackedSourceCommit,
       manifest: {
         ...boundReceipt.manifest,
-        sha256: sha256Bytes(Buffer.from(canonicalJson(trackedManifest))),
+        sha256: sha256Bytes(Buffer.from(serializeCandidateJson(trackedManifest))),
       },
     }),
   );
@@ -524,14 +530,35 @@ test("rejects public package paths outside the allowlist boundary", () => {
   );
 });
 
-test("detects representative secrets in a tracked source file regardless of extension", async () => {
-  const root = await mkdtemp(join(tmpdir(), "bearing-secret-test-"));
+test("detects only Bearing-owned private staging and dogfood residue", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bearing-public-source-test-"));
   temporaryRoots.push(root);
-  const trackedEnvironment = join(root, ".env");
-  await writeFile(trackedEnvironment, `TOKEN=ghp_${"a".repeat(24)}\n`);
-  expect(await scanTrackedFiles([trackedEnvironment])).toEqual([
-    `${trackedEnvironment}: GitHub token`,
+  await mkdir(join(root, ".scratch"), { recursive: true });
+  await mkdir(join(root, "test-results"), { recursive: true });
+  await mkdir(join(root, "docs"), { recursive: true });
+  await writeFile(join(root, ".scratch/private.md"), "private planning\n");
+  await writeFile(join(root, "test-results/failure.txt"), "dogfood output\n");
+  const maintainerPath = ["", "Users", "clawd", "Projects", "bearing"].join("/");
+  await writeFile(join(root, "docs/local.md"), `root=${maintainerPath}\n`);
+  await writeFile(join(root, "docs/public.md"), "portable public source\n");
+  expect(
+    await findPublicSourceResidue(root, [
+      ".scratch/private.md",
+      "test-results/failure.txt",
+      "docs/local.md",
+      "docs/public.md",
+    ]),
+  ).toEqual([
+    ".scratch/private.md: private staging path",
+    "test-results/failure.txt: dogfood output path",
+    "docs/local.md: maintainer absolute path",
   ]);
+});
+
+test("does not report its own public-source policy implementation as residue", async () => {
+  expect(
+    await findPublicSourceResidue(resolve("."), ["scripts/check-public-source-residue.ts"]),
+  ).toEqual([]);
 });
 
 test("rejects an untracked file selected from an allowlisted package subtree", async () => {
@@ -563,13 +590,18 @@ test("rejects an untracked file selected from an allowlisted package subtree", a
     await writeFile(target, await readFile(join(root, path)));
   }
   const artifact = join(root, "candidate.tgz");
-  const packed = spawnSync("tar", ["-czf", artifact, "-C", join(root, "staging"), "package"], {
-    encoding: "utf8",
-  });
-  expect(packed.status, packed.stderr).toBe(0);
-  expect(() =>
+  await writeTarGzFixture(
+    artifact,
+    await Promise.all(
+      [trackedPath, untrackedPath].map(async (path) => ({
+        path: `package/${path}`,
+        bytes: await readFile(join(root, path)),
+      })),
+    ),
+  );
+  await expect(
     assertCandidateSourcesMatchCommit(artifact, [trackedPath, untrackedPath], sourceCommit, root),
-  ).toThrow(`candidate input is not tracked at ${sourceCommit}: ${untrackedPath}`);
+  ).rejects.toThrow(`candidate input is not tracked at ${sourceCommit}: ${untrackedPath}`);
 });
 
 test("detects a bundled dependency omitted from the notice inventory", async () => {
@@ -601,8 +633,36 @@ test("classifies the actual Rolldown virtual runtime into package and notice inv
     version: "1.1.5",
     license: "MIT",
     bundles: ["portal"],
+    locators: ["node_modules/rolldown"],
   });
   expect(await readFile("THIRD_PARTY_NOTICES", "utf8")).toContain("rolldown@1.1.5 — MIT");
+});
+
+test("preserves nested lockfile locators and every bundled package version", async () => {
+  const nestedModule = join(
+    process.cwd(),
+    "node_modules/sanitize-html/node_modules/htmlparser2/dist/commonjs/index.js",
+  );
+  const normalized = normalizeBundleModuleId(nestedModule, process.cwd());
+  expect(normalized).toBe(
+    "node_modules/sanitize-html/node_modules/htmlparser2/dist/commonjs/index.js",
+  );
+  expect(bundlePackageLocatorFromModule(normalized ?? "")).toBe(
+    "node_modules/sanitize-html/node_modules/htmlparser2",
+  );
+
+  const metadata = JSON.parse(
+    await readFile("dist/bundle-dependencies.json", "utf8"),
+  ) as BundleDependencyMetadata;
+  expect(metadata.bundles.cli.packages).toContain("entities@4.5.0");
+  expect(metadata.bundles.cli.packages).toContain("entities@8.0.0");
+  expect(metadata.packages).toContainEqual({
+    name: "htmlparser2",
+    version: "12.0.0",
+    license: "MIT",
+    bundles: ["cli"],
+    locators: ["node_modules/sanitize-html/node_modules/htmlparser2"],
+  });
 });
 
 test("package workflow binds one uploaded candidate to its exact source commit", async () => {
@@ -612,13 +672,17 @@ test("package workflow binds one uploaded candidate to its exact source commit",
       candidate?: {
         steps?: readonly {
           uses?: string;
+          name?: string;
           run?: string;
-          with?: Readonly<Record<string, string>>;
+          with?: Readonly<Record<string, string | boolean>>;
         }[];
       };
     };
   };
   const steps = parsed.jobs?.candidate?.steps ?? [];
+  const checkoutIndex = steps.findIndex(
+    (step) => step.uses === `actions/checkout@${reviewedActionPins["actions/checkout"]}`,
+  );
   const prepareIndex = steps.findIndex(
     (step) => step.run === "bun scripts/prepare-release-candidate.ts --out release-candidate",
   );
@@ -626,16 +690,31 @@ test("package workflow binds one uploaded candidate to its exact source commit",
     (step) =>
       step.uses === `actions/upload-artifact@${reviewedActionPins["actions/upload-artifact"]}`,
   );
+  const scanIndex = steps.findIndex((step) => step.name === "Scan exact candidate tarball");
+  const setupGoIndex = steps.findIndex(
+    (step) => step.uses === `actions/setup-go@${reviewedActionPins["actions/setup-go"]}`,
+  );
   expect(prepareIndex).toBeGreaterThanOrEqual(0);
+  expect(checkoutIndex).toBeGreaterThanOrEqual(0);
+  const sourceCommitExpression = ["$", "{{ github.sha }}"].join("");
+  expect(steps[checkoutIndex]?.with).toMatchObject({ ref: sourceCommitExpression });
+  expect(setupGoIndex).toBeGreaterThanOrEqual(0);
+  expect(steps[setupGoIndex]?.with).toEqual({ "go-version": "1.26.5", cache: false });
+  expect(scanIndex).toBeGreaterThan(prepareIndex);
   expect(uploadIndex).toBeGreaterThan(prepareIndex);
+  expect(uploadIndex).toBeGreaterThan(scanIndex);
+  const candidateScan = steps[scanIndex]?.run ?? "";
+  expect(candidateScan).toContain("github.com/zricethezav/gitleaks/v8@v8.30.1");
+  expect(candidateScan).toContain("candidate-receipt.json");
+  expect(candidateScan).toContain("--config .gitleaks.toml");
+  expect(candidateScan).toContain("--redact");
+  expect(candidateScan).toContain("--max-archive-depth=1");
+  expect(candidateScan).toContain('"release-candidate/$CANDIDATE_ARTIFACT"');
   expect(steps[uploadIndex]?.with).toMatchObject({
-    name: ["bearing-candidate-$", "{{ github.sha }}"].join(""),
+    name: `bearing-candidate-${sourceCommitExpression}`,
     path: "release-candidate/",
     "if-no-files-found": "error",
   });
-  for (const path of ["SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "docs/cli.md"]) {
-    expect(workflow).toContain(`- ${path}`);
-  }
 });
 
 test("publish workflow has parseable exact-artifact wiring", async () => {
@@ -665,8 +744,11 @@ test("publish workflow has parseable exact-artifact wiring", async () => {
   expect(runProof).not.toContain("scripts/");
   expect(runProof).not.toContain("node ");
   expect(runProof).not.toContain("bun ");
+  const dispatchBranchCheck = 'test "$GITHUB_REF_NAME" = "main"';
   const dispatchCommitCheck = 'test "$GITHUB_SHA" = "$EXPECTED_COMMIT"';
+  expect(runProof).toContain(dispatchBranchCheck);
   expect(runProof).toContain(dispatchCommitCheck);
+  expect(runProof.indexOf(dispatchBranchCheck)).toBeLessThan(runProof.indexOf("gh api"));
   expect(runProof.indexOf(dispatchCommitCheck)).toBeLessThan(runProof.indexOf("gh api"));
   const fakeRoot = await mkdtemp(join(tmpdir(), "bearing-workflow-proof-"));
   temporaryRoots.push(fakeRoot);
@@ -684,7 +766,7 @@ printf '%s\\n' "$FAKE_RUN_FACTS"
   );
   await chmod(fakeGh, 0o755);
   const sourceCommit = "a".repeat(40);
-  const executeRunProof = (facts: string, dispatchCommit = sourceCommit) =>
+  const executeRunProof = (facts: string, dispatchCommit = sourceCommit, dispatchBranch = "main") =>
     spawnSync("/bin/bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", runProof], {
       encoding: "utf8",
       env: {
@@ -694,6 +776,7 @@ printf '%s\\n' "$FAKE_RUN_FACTS"
         EXPECTED_COMMIT: sourceCommit,
         GITHUB_REPOSITORY: "lagrangee/bearing",
         GH_TOKEN: "test-token",
+        GITHUB_REF_NAME: dispatchBranch,
         GITHUB_SHA: dispatchCommit,
         FAKE_RUN_FACTS: facts,
       },
@@ -711,6 +794,8 @@ printf '%s\\n' "$FAKE_RUN_FACTS"
   expect(successful.status, successful.stderr).toBe(0);
   const wrongDispatchCommit = executeRunProof(successfulFacts.join("\t"), "b".repeat(40));
   expect(wrongDispatchCommit.status).not.toBe(0);
+  const wrongDispatchBranch = executeRunProof(successfulFacts.join("\t"), sourceCommit, "0.1.1");
+  expect(wrongDispatchBranch.status).not.toBe(0);
   for (const [index, mismatch] of [
     [0, "999"],
     [1, ".github/workflows/ci.yml"],
@@ -1195,7 +1280,7 @@ test("publish recovery stops before tag creation when npm signature audit fails"
 
 test("CI and release workflows pin every third-party action to a reviewed commit", async () => {
   const workflowJobs = [
-    [".github/workflows/ci.yml", ["verify", "browser"]],
+    [".github/workflows/ci.yml", ["secrets", "verify", "browser"]],
     [".github/workflows/package.yml", ["candidate"]],
     [".github/workflows/publish-preview.yml", ["publish"]],
   ] as const;
@@ -1224,12 +1309,66 @@ test("CI and release workflows pin every third-party action to a reviewed commit
   }
 });
 
+test("pins direct Gitleaks revision, PR-range, and exact-candidate lanes", async () => {
+  const metadata = JSON.parse(await readFile("package.json", "utf8")) as {
+    scripts?: Readonly<Record<string, string>>;
+  };
+  expect(metadata.scripts?.["secret:scan"]).toBeUndefined();
+  expect(metadata.scripts?.["public-source:check"]).toBe(
+    "bun scripts/check-public-source-residue.ts",
+  );
+  expect(metadata.scripts?.["gitleaks:revision"]).toBe(
+    'go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --config .gitleaks.toml --no-banner --log-opts="-1 HEAD" .',
+  );
+
+  const ci = await readFile(".github/workflows/ci.yml", "utf8");
+  const parsed = parseYaml(ci) as {
+    jobs?: {
+      secrets?: {
+        steps?: readonly {
+          name?: string;
+          uses?: string;
+          run?: string;
+          if?: string;
+          env?: Readonly<Record<string, string>>;
+          with?: Readonly<Record<string, string | boolean>>;
+        }[];
+      };
+    };
+  };
+  const steps = parsed.jobs?.secrets?.steps ?? [];
+  const setupGo = steps.find(
+    (step) => step.uses === `actions/setup-go@${reviewedActionPins["actions/setup-go"]}`,
+  );
+  expect(setupGo?.with).toEqual({ "go-version": "1.26.5", cache: false });
+  expect(steps.some((step) => step.run === "bun run gitleaks:revision")).toBe(true);
+  const pullRequestScan = steps.find((step) => step.name === "Scan pull request range");
+  expect(pullRequestScan?.if).toBe("github.event_name == 'pull_request'");
+  expect(pullRequestScan?.env).toEqual({
+    BASE_SHA: ["$", "{{ github.event.pull_request.base.sha }}"].join(""),
+    HEAD_SHA: ["$", "{{ github.event.pull_request.head.sha }}"].join(""),
+  });
+  expect(pullRequestScan?.run).toContain("github.com/zricethezav/gitleaks/v8@v8.30.1");
+  expect(pullRequestScan?.run).toContain('--log-opts="$BASE_SHA..$HEAD_SHA"');
+  expect(pullRequestScan?.run).toContain("--config .gitleaks.toml");
+  expect(pullRequestScan?.run).toContain("--redact");
+});
+
 test("CI matrix executes the built CLI with each selected Node runtime", async () => {
   const workflow = await readFile(".github/workflows/ci.yml", "utf8");
   const parsed = parseYaml(workflow) as {
-    jobs?: { verify?: { steps?: readonly { name?: string; run?: string }[] } };
+    jobs?: {
+      verify?: {
+        strategy?: { matrix?: { "node-version"?: readonly (number | string)[] } };
+        steps?: readonly { name?: string; run?: string }[];
+      };
+      browser?: {
+        steps?: readonly { uses?: string; with?: { "node-version"?: number | string } }[];
+      };
+    };
   };
   const steps = parsed.jobs?.verify?.steps ?? [];
+  expect(parsed.jobs?.verify?.strategy?.matrix?.["node-version"]).toEqual(["24.15.0", 26]);
   expect(
     steps.some(
       (step) =>
@@ -1237,6 +1376,10 @@ test("CI matrix executes the built CLI with each selected Node runtime", async (
         step.run === "node dist/cli.js --version",
     ),
   ).toBe(true);
+  const browserNode = (parsed.jobs?.browser?.steps ?? []).find((step) =>
+    step.uses?.startsWith("actions/setup-node@"),
+  );
+  expect(browserNode?.with?.["node-version"]).toBe("24.15.0");
 });
 
 test("CI can run manually on the exact dispatched clean-root ref", async () => {
@@ -1294,6 +1437,40 @@ test("rejects mismatched release identity and duplicate changelog sections", asy
       notesPath: join(root, "duplicate.md"),
     }),
   ).rejects.toThrow("CHANGELOG must contain exactly one H2 heading for version 0.2.0");
+});
+
+test("release entrypoints reject duplicate scalar options without exporting parser wrappers", () => {
+  const entrypoints = [
+    {
+      path: "scripts/prepare-preview-release.ts",
+      args: [
+        "--package",
+        "@lagrangee/bearing",
+        "--package",
+        "@lagrangee/bearing",
+        "--version",
+        "0.1.0",
+        "--notes",
+        "/tmp/notes.md",
+      ],
+      message: "duplicate --package",
+    },
+    {
+      path: "scripts/prepare-release-candidate.ts",
+      args: ["--out", "/tmp/candidate-a", "--out", "/tmp/candidate-b"],
+      message: "--out may be provided only once",
+    },
+    {
+      path: "scripts/verify-release-candidate.ts",
+      args: ["--receipt", "/tmp/a.json", "--receipt", "/tmp/b.json"],
+      message: "--receipt may be provided only once",
+    },
+  ] as const;
+  for (const entrypoint of entrypoints) {
+    const result = spawnSync("bun", [entrypoint.path, ...entrypoint.args], { encoding: "utf8" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(entrypoint.message);
+  }
 });
 
 test("production portal excludes the Vite modulepreload polyfill runtime", async () => {
