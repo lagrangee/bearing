@@ -37,7 +37,7 @@ test("presents one role-first native region in a bound context", () => {
     "delivery",
     "incoming",
   ]);
-  expect(bound.total).toEqual({ mode: "exact", value: 6 });
+  expect(bound.total).toEqual({ mode: "exact", value: 4 });
   expect(bound.roles.map((role) => role.count)).toEqual([
     { mode: "exact", value: 1 },
     { mode: "exact", value: 1 },
@@ -76,21 +76,30 @@ test("keeps Wayfinder, Delivery, and Incoming facts independent while deriving o
   expect(incoming?.items[0]?.frontier).not.toBe("ready");
 });
 
-test("uses structural Current, History, and All views without flattening role groups", () => {
+test("partitions Work into exhaustive Current and Resolved views without Planning Basis", () => {
   const region = build({ state: "bound", effortIds: ["effort:portal"] });
 
-  expect(region.views.map((view) => view.key)).toEqual(["current", "history", "all"]);
+  expect(region.views.map((view) => view.key)).toEqual(["current", "resolved"]);
   expect(region.views[0]?.items.map((item) => item.reference)).toEqual(
-    region.roles.flatMap((role) => role.items.map((item) => item.reference)),
+    region.roles
+      .filter((role) => ["wayfinder", "delivery", "incoming"].includes(role.role))
+      .flatMap((role) => role.items.map((item) => item.reference)),
   );
   expect(region.views[1]?.items).toEqual([]);
-  expect(region.views[2]?.groups?.map((group) => group.role)).toEqual([
-    "map",
-    "spec",
+  expect(region.views[0]?.groups.map((group) => group.role)).toEqual([
     "wayfinder",
     "delivery",
     "incoming",
   ]);
+  expect(region.views[1]?.groups.map((group) => group.role)).toEqual([
+    "wayfinder",
+    "delivery",
+    "incoming",
+  ]);
+  expect(region.views[0]?.items.length + region.views[1]?.items.length).toBe(4);
+  expect(
+    new Set(region.views.flatMap((view) => view.items.map((item) => item.reference))).size,
+  ).toBe(4);
 });
 
 test("publishes a complete Map chapter with truthful totals and bounded previews", () => {
@@ -283,7 +292,7 @@ test("uses at-least counts and role uncertainty when provider coverage is partia
     effortIds: ["effort:portal"],
   });
 
-  expect(region.total).toEqual({ mode: "at-least", value: 6 });
+  expect(region.total).toEqual({ mode: "at-least", value: 4 });
   expect(region.roles.map((role) => role.count.mode)).toEqual([
     "at-least",
     "at-least",

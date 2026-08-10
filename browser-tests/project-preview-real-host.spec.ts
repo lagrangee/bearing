@@ -100,6 +100,7 @@ test.beforeAll(async () => {
   fixtureRoot = await realpath(await copyPortalProjectFixture("G3 Preview Project"));
   await mkdir(join(fixtureRoot, "prototypes/demo"), { recursive: true });
   await mkdir(join(fixtureRoot, "docs/bundle"), { recursive: true });
+  await mkdir(join(fixtureRoot, ".bearing/state/authorities"), { recursive: true });
   await Promise.all([
     writeFile(
       join(fixtureRoot, "prototypes/demo/index.html"),
@@ -119,11 +120,45 @@ test.beforeAll(async () => {
     ),
     writeFile(join(fixtureRoot, "docs/payload.bin"), "opaque\n"),
     writeFile(join(fixtureRoot, "docs/bundle/README.md"), "# Directory member\n"),
+    writeFile(
+      join(fixtureRoot, ".bearing/state/authorities/product-design.md"),
+      `---
+Type: authority
+ID: authority:product-design
+Title: Product Design
+Baseline:
+  - asset:g3-reading-document
+---
+
+# Product Design Authority
+
+## Scope
+
+Own the Portal reading presentation.
+
+## Current Baseline
+
+The registered reading document is the current design baseline.
+`,
+    ),
+    writeFile(
+      join(fixtureRoot, ".scratch/work/issues/02-review-compact-facts.md"),
+      `# Review compact facts
+
+Type: task
+
+## Question
+
+Can current and resolved Work remain an exhaustive partition?
+`,
+    ),
   ]);
   const assetsPath = join(fixtureRoot, ".bearing/state/assets.md");
   const briefPath = join(fixtureRoot, ".bearing/state/project-brief.md");
+  const localEffortPath = join(fixtureRoot, ".bearing/state/efforts/fixture.md");
   const gatePath = join(fixtureRoot, ".bearing/state/milestone-gates/fixture.md");
   const assets = await readFile(assetsPath, "utf8");
+  const localEffort = await readFile(localEffortPath, "utf8");
   const gate = await readFile(gatePath, "utf8");
   const mapPath = join(fixtureRoot, ".scratch/work/map.md");
   const map = await readFile(mapPath, "utf8");
@@ -135,6 +170,10 @@ test.beforeAll(async () => {
     ),
   );
   await writeFile(briefPath, projectBrief);
+  await writeFile(
+    localEffortPath,
+    localEffort.replace("Activated at: null", "Activated at: 2026-08-03T15:39:36.000Z"),
+  );
   await writeFile(
     gatePath,
     gate.replace(
@@ -151,9 +190,11 @@ test.beforeAll(async () => {
   );
   await writeFile(
     mapPath,
-    map.replace(
-      "Keep the repository fixture deterministic.",
-      `Keep the repository fixture **deterministic** with *readable* \`code\` and ~~retired text~~.
+    map
+      .replace("Status: resolved", "Status: active")
+      .replace(
+        "Keep the repository fixture deterministic.",
+        `Keep the repository fixture **deterministic** with *readable* \`code\` and ~~retired text~~.
 
 ### Safe reading
 
@@ -171,7 +212,11 @@ test.beforeAll(async () => {
 ![Remote diagram](https://images.example.test/diagram.png)
 
 <script>globalThis.__providerMarkdownRan = true</script>`,
-    ),
+      )
+      .replace(
+        "## Fog",
+        "- [Review compact facts](issues/02-review-compact-facts.md) — Preserve the Work partition.\n\n## Fog",
+      ),
   );
   await runBuiltBearing(["provider", "capture", "--repo", fixtureRoot, "--scope", ".scratch/work"]);
 
@@ -607,6 +652,131 @@ test("shared disclosure responds to rendered height without changing authored co
   expect(posts).toEqual([]);
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("compact Portal facts, statuses, Asset routes, and Work partitions hold on the real Host", async ({
+  page,
+}) => {
+  if (host === undefined) throw new Error("Ticket 29 real Host did not start.");
+  const posts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(request.url());
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(
+    `${host.url}${planningLineageSubjectHref("g3-preview", {
+      kind: "roadmap",
+      id: "roadmap:fixture",
+    })}`,
+  );
+  const roadmapStatuses = page.locator(".lineage-header-status .lineage-status-tag");
+  await expect(roadmapStatuses).toHaveCount(1);
+  await expect(roadmapStatuses).toHaveText("Active");
+  await expect(roadmapStatuses).toHaveAttribute("data-status-token", "lifecycle-active");
+  await roadmapStatuses.focus();
+  await expect(roadmapStatuses).toBeFocused();
+  await expect(roadmapStatuses).toHaveAttribute("data-tooltip", "This lifecycle is active.");
+
+  await page.goto(
+    `${host.url}${planningLineageSubjectHref("g3-preview", {
+      kind: "gate",
+      id: "gate:fixture",
+    })}`,
+  );
+  await expect(
+    page.locator('.lineage-status-tag[data-status-token="position-current"]'),
+  ).toHaveText("Current");
+  await expect(
+    page.locator('.lineage-status-tag[data-status-token="lifecycle-active"]'),
+  ).toHaveText("Active");
+  const notReadyStatus = page.locator(
+    '.lineage-status-tag[data-status-token="readiness-not-ready"]',
+  );
+  await expect(notReadyStatus).toHaveText("Not ready for passage");
+  await expect(notReadyStatus).toHaveAttribute(
+    "data-tooltip",
+    "Current evidence does not establish readiness for human Gate Passage review.",
+  );
+  const compactSourceTime = page.locator(".effort-rollup-table .source-event-time.compact").first();
+  await expect(compactSourceTime).toHaveAttribute("data-absolute", /.+/u);
+  await compactSourceTime.focus();
+  await expect(compactSourceTime).toBeFocused();
+
+  const effortHref = planningLineageSubjectHref("g3-preview", {
+    kind: "effort",
+    id: "effort:fixture",
+  });
+  await page.goto(`${host.url}${effortHref}`);
+  await expect(page.getByRole("heading", { name: "Work (2)", level: 2 })).toBeVisible();
+  const countRows = page.locator(".effort-work-counts > div");
+  await expect(countRows.filter({ hasText: "Current" }).getByRole("link")).toHaveText("1");
+  await expect(countRows.filter({ hasText: "Resolved" }).getByRole("link")).toHaveText("1");
+  await countRows.filter({ hasText: "Current" }).getByRole("link").focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/#native-work-current$/u);
+  await expect(page.getByRole("heading", { name: "Planning Basis", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Work (2)", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Current", level: 3 })).toBeInViewport();
+  await expect(page.getByRole("heading", { name: "Resolved", level: 3 })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^All ·/u })).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText("sha256:");
+
+  const wideFact = page.locator(".matt-map-chapter .lineage-compact-facts > div").first();
+  const wideLayout = await wideFact.evaluate((row) => {
+    const label = row.querySelector("dt")?.getBoundingClientRect();
+    const value = row.querySelector("dd")?.getBoundingClientRect();
+    const style = getComputedStyle(row);
+    return {
+      alignItems: style.alignItems,
+      display: style.display,
+      flexWrap: style.flexWrap,
+      labelTop: label?.top ?? -1,
+      valueTop: value?.top ?? -1,
+    };
+  });
+  expect(wideLayout).toMatchObject({ display: "flex", flexWrap: "wrap", alignItems: "baseline" });
+  expect(Math.abs(wideLayout.labelTop - wideLayout.valueTop)).toBeLessThan(8);
+
+  const checkedTime = page.locator(".provider-observation-time").first();
+  await expect(checkedTime).toBeVisible();
+  await expect(checkedTime).toHaveAttribute("data-absolute", /.+/u);
+  await checkedTime.focus();
+  await expect(checkedTime).toBeFocused();
+
+  await page.goto(
+    `${host.url}${planningLineageSubjectHref("g3-preview", {
+      kind: "authority",
+      id: "authority:product-design",
+    })}`,
+  );
+  const baselineAsset = page.getByRole("link", { name: "asset:g3-reading-document" });
+  await expect(baselineAsset).toHaveAttribute(
+    "href",
+    planningLineageSubjectHref("g3-preview", {
+      kind: "asset",
+      id: "asset:g3-reading-document",
+    }),
+  );
+  await baselineAsset.click();
+  await expect(page.getByRole("heading", { name: "G3 Reading Document", level: 1 })).toBeVisible();
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(
+    `${host.url}${planningLineageSubjectHref("g3-preview", {
+      kind: "native-scope",
+      id: ".scratch/work",
+    })}`,
+  );
+  const narrowFact = page.locator(".matt-map-chapter .lineage-compact-facts > div").first();
+  const narrowLayout = await narrowFact.evaluate((row) => {
+    const label = row.querySelector("dt")?.getBoundingClientRect();
+    const value = row.querySelector("dd")?.getBoundingClientRect();
+    return { labelBottom: label?.bottom ?? -1, valueTop: value?.top ?? -1 };
+  });
+  expect(narrowLayout.valueTop).toBeGreaterThan(narrowLayout.labelBottom);
+  expect(posts).toEqual([]);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 

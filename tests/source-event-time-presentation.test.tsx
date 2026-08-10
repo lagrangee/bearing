@@ -104,6 +104,8 @@ test("discloses inferred source metadata on hover and keyboard focus through gen
   expect(markup).toContain('title="Approximate time from current source metadata."');
   expect(markup).toContain('aria-describedby="');
   expect(markup).toContain("Approximate time inferred from current source metadata");
+  expect(markup).toContain('class="source-event-time-approximate"');
+  expect(markup).toContain("Approx.");
   expect(markup).not.toContain("github");
   expect(markup).not.toContain("local markdown");
 

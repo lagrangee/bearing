@@ -6,6 +6,7 @@ import {
   nativeLifecycleEventsFor,
   type PlanningLineageSection,
   type PlanningLineageSubjectModel,
+  resolvePlanningLineageStatusTag,
 } from "../src/portal-ui/planning-lineage-model";
 import type { ProjectGeneration } from "../src/project-generation/contract";
 import {
@@ -62,6 +63,55 @@ const providerSectionFor = (section: PlanningLineageSection | undefined) => {
   return document.sections[0];
 };
 
+test("fails closed with a diagnostic for an unknown status token", () => {
+  expect(resolvePlanningLineageStatusTag("future-lifecycle-state")).toEqual({
+    token: "status-unknown",
+    label: "Status unavailable",
+    tone: "muted",
+    tooltip: "This status token is not supported by this Portal version.",
+    diagnostic: {
+      code: "portal.status-token.unknown",
+      message: "Unsupported Portal status token: future-lifecycle-state",
+    },
+  });
+
+  const snapshot = fixture();
+  if (snapshot.roadmaps.validity === "invalid") {
+    throw new Error("Expected readable Roadmap fixtures.");
+  }
+  const roadmaps = snapshot.roadmaps;
+  const roadmap = roadmaps.items[0];
+  if (roadmap === undefined) throw new Error("Expected a Roadmap fixture.");
+  const model = readable(
+    buildPlanningLineageSubjectModel(
+      {
+        ...snapshot,
+        roadmaps: {
+          ...roadmaps,
+          items: [
+            { ...roadmap, lifecycle: "future-lifecycle-state" as never },
+            ...roadmaps.items.slice(1),
+          ],
+        },
+      },
+      { kind: "roadmap", id: roadmap.id },
+      "bearing",
+    ),
+  );
+  expect(model.headerStatuses).toEqual([
+    {
+      token: "status-unknown",
+      label: "Status unavailable",
+      tone: "muted",
+      tooltip: "This status token is not supported by this Portal version.",
+      diagnostic: {
+        code: "portal.status-token.unknown",
+        message: "Unsupported Portal status token: lifecycle-future-lifecycle-state",
+      },
+    },
+  ]);
+});
+
 const effortRollupFor = (section: PlanningLineageSection | undefined) =>
   section?.content.find((content) => content.kind === "effort-rollup")?.rows;
 
@@ -88,7 +138,7 @@ test("builds a Gate-owned route with trustworthy parents, full content, and type
     "gate.passage",
     "native-work.effort-summaries",
   ]);
-  expect(model.headerStatus).toBe("Gate · Passed · Ready for review");
+  expect(model.headerStatuses?.map((status) => status.token)).toEqual(["lifecycle-passed"]);
   expect(
     effortRollupFor(
       model.sections.find((section) => section.anchor === "native-work.effort-summaries"),
@@ -155,7 +205,14 @@ test("builds one complete Roadmap Outcome Spine with ordered Gates and nested Ef
     ],
   });
   expect(model.sections.map((section) => section.anchor)).toEqual(["roadmap.intent"]);
-  expect(model.headerStatus).toBe("Active roadmap");
+  expect(model.headerStatuses).toEqual([
+    {
+      token: "lifecycle-active",
+      label: "Active",
+      tone: "active",
+      tooltip: "This lifecycle is active.",
+    },
+  ]);
 });
 
 test("forces the complete Outcome Spine vertical when title content exceeds readable cells", () => {
@@ -599,7 +656,13 @@ test("builds an Effort-first governance lens from canonical lifecycle and nonter
     intent: "Deliver the accepted Portal journey.",
     currentWork: {
       state: "available",
-      historyHref: "/projects/bearing/lineage/native-scope/.scratch%2Fportal#native-work-history",
+      currentHref: "/projects/bearing/lineage/native-scope/.scratch%2Fportal#native-work-current",
+      resolvedHref: "/projects/bearing/lineage/native-scope/.scratch%2Fportal#native-work-resolved",
+      counts: {
+        total: { mode: "exact", value: 4 },
+        current: { mode: "exact", value: 4 },
+        resolved: { mode: "exact", value: 0 },
+      },
       items: [
         { title: "Build the Roadmap journey", status: "Claimed" },
         { title: "Review the Roadmap journey", status: "Ready" },
@@ -636,11 +699,11 @@ test("builds an Effort-first governance lens from canonical lifecycle and nonter
   expect(concluded.effortLens?.currentWork).toMatchObject({
     state: "available",
     items: [],
-    emptyState: "history-only",
+    emptyState: "resolved-only",
     counts: {
+      total: { mode: "exact", value: 1 },
       current: { mode: "exact", value: 0 },
       resolved: { mode: "exact", value: 1 },
-      history: { mode: "exact", value: 2 },
     },
   });
 });
@@ -696,15 +759,15 @@ test("identifies confirmed no managed work independently from planning-basis doc
     items: [],
     emptyState: "confirmed-no-managed-work",
     counts: {
+      total: { mode: "exact", value: 0 },
       current: { mode: "exact", value: 0 },
       resolved: { mode: "exact", value: 0 },
-      history: { mode: "exact", value: 0 },
     },
   });
   expect(model.effortLens?.managedWorkHealth).toBe("Healthy");
 });
 
-test("identifies history-only managed work without calling all History completed", () => {
+test("identifies resolved-only Work without counting Planning Basis", () => {
   const model = readable(
     buildPlanningLineageSubjectModel(
       createHistoryOnlyWorkFixture(),
@@ -716,11 +779,11 @@ test("identifies history-only managed work without calling all History completed
   expect(model.effortLens?.currentWork).toMatchObject({
     state: "available",
     items: [],
-    emptyState: "history-only",
+    emptyState: "resolved-only",
     counts: {
+      total: { mode: "exact", value: 1 },
       current: { mode: "exact", value: 0 },
       resolved: { mode: "exact", value: 1 },
-      history: { mode: "exact", value: 2 },
     },
   });
 });
@@ -739,9 +802,9 @@ test("identifies no active work with remaining Attention and preserves uncertain
     items: [],
     emptyState: "attention-without-active-work",
     counts: {
+      total: { mode: "at-least", value: 0 },
       current: { mode: "at-least", value: 0 },
       resolved: { mode: "at-least", value: 0 },
-      history: { mode: "at-least", value: 0 },
     },
   });
   expect(model.effortLens?.managedWorkHealth).toBe("Needs attention");

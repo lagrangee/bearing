@@ -11,3 +11,5 @@ playwright-report/
 .DS_Store
 .vscode/
 .idea/
+.bearing/
+.scratch/

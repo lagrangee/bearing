@@ -455,7 +455,7 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
   ).toBeVisible();
   await expect(page.getByLabel("Effort governance status")).toContainText("Active");
   await expect(page.getByLabel("Effort governance status")).toContainText("Healthy");
-  await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Work(?: \(.+\))?$/u, level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Planning Basis", level: 2 })).toBeVisible();
   await page.goBack();
 
@@ -664,7 +664,7 @@ test("Roadmap journey reflows at review widths and retains scoped degraded state
   await expect(
     page.getByText("Managed work details are unavailable", { exact: false }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Work(?: \(.+\))?$/u, level: 2 })).toBeVisible();
   await expect(page.locator('[id="effort.native-work"]')).toHaveCount(0);
 
   await page.goto(

@@ -213,7 +213,9 @@ test("a freshly reconciled repository is selectable through the packed installed
     await expect(
       page.getByLabel("Effort governance status").getByText("Needs attention", { exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /^Work(?: \(.+\))?$/u, level: 2 }),
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: "Refresh work details" })).toBeVisible();
 
     const refresh = page.getByRole("button", { name: "Refresh", exact: true });

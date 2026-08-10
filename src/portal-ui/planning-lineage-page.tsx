@@ -1,4 +1,4 @@
-import { type MouseEvent, useEffect } from "react";
+import { type MouseEvent, useEffect, useId } from "react";
 import type {
   RequestedPlanningLineageFilteredView,
   RequestedPlanningLineageSubject,
@@ -24,6 +24,7 @@ import type {
   PlanningLineageRelationItem,
   PlanningLineageSection,
   PlanningLineageSectionContent,
+  PlanningLineageStatusTag,
   PlanningLineageTimeFact,
 } from "./planning-lineage-model";
 import {
@@ -42,6 +43,30 @@ import type { TechnicalDetailsSelection } from "./technical-details";
 type Inspect = (selection: TechnicalDetailsSelection, trigger: HTMLButtonElement) => void;
 type Navigate = (href: string, focusKey?: string) => void;
 
+function HeaderStatusTag({ status }: { readonly status: PlanningLineageStatusTag }) {
+  const descriptionId = useId();
+  return (
+    <>
+      <button
+        aria-describedby={descriptionId}
+        className="lineage-status-tag"
+        data-status-token={status.token}
+        data-status-tone={status.tone}
+        data-tooltip={status.tooltip}
+        {...(status.diagnostic === undefined
+          ? {}
+          : { "data-diagnostic-code": status.diagnostic.code })}
+        type="button"
+      >
+        {status.label}
+      </button>
+      <span className="sr-only" id={descriptionId}>
+        {status.tooltip}
+      </span>
+    </>
+  );
+}
+
 const subjectLabel = (kind: string): string =>
   kind
     .split("-")
@@ -57,7 +82,7 @@ const detailObjectType = (kind: string): string | undefined => {
     case "effort":
       return "Effort";
     case "native-scope":
-      return "Work History";
+      return "Native Scope";
     default:
       return undefined;
   }
@@ -208,22 +233,19 @@ function PlanningLineageTimeValue({
 
 function TimeFacts({ facts }: { readonly facts: readonly PlanningLineageTimeFact[] }) {
   return (
-    <dl className="lineage-time-facts">
+    <dl className="lineage-compact-facts lineage-time-facts">
       {facts.map((fact) => (
         <div key={fact.key}>
           <dt>{fact.label}</dt>
           <dd>
-            {fact.mode === "compact" ? (
-              <details className="lineage-time-disclosure">
-                <summary>
-                  <PlanningLineageTimeValue label={fact.label} mode="compact" time={fact.time} />
-                </summary>
-                <PlanningLineageTimeValue label={fact.label} mode="detail" time={fact.time} />
-              </details>
-            ) : (
-              <PlanningLineageTimeValue label={fact.label} mode="detail" time={fact.time} />
+            <PlanningLineageTimeValue
+              label={fact.label}
+              mode={fact.mode ?? "detail"}
+              time={fact.time}
+            />
+            {fact.mode === "compact" || fact.detail === undefined ? null : (
+              <small>{fact.detail}</small>
             )}
-            {fact.detail === undefined ? null : <small>{fact.detail}</small>}
           </dd>
         </div>
       ))}
@@ -275,7 +297,7 @@ function EffortRollupTable({
               {row.lifecycleTime?.time.availability === "available" ? (
                 <PlanningLineageTimeValue
                   label={row.lifecycleTime.label}
-                  mode="detail"
+                  mode="compact"
                   time={row.lifecycleTime.time}
                 />
               ) : (
@@ -342,7 +364,7 @@ function LineageSectionContent({
             </div>
           ))}
           {document.provenance.facts.length === 0 ? null : (
-            <dl className="lineage-section-facts">
+            <dl className="lineage-compact-facts lineage-section-facts">
               {document.provenance.facts.map((fact) => (
                 <div key={`${document.key}:${fact.key}`}>
                   <dt>{fact.label}</dt>
@@ -359,7 +381,7 @@ function LineageSectionContent({
     }
     case "fact-list":
       return content.style === "definitions" ? (
-        <dl className="lineage-section-facts">
+        <dl className="lineage-compact-facts lineage-section-facts">
           {content.facts.map((fact) => (
             <div key={`${anchor}:${fact.key}`}>
               <dt>{fact.label}</dt>
@@ -380,16 +402,21 @@ function LineageSectionContent({
       return (
         <ul className="lineage-section-links">
           {content.relations.map((relation) => (
-            <li key={`${anchor}:${relation.href}`}>
+            <li
+              data-availability={relation.availability ?? "available"}
+              key={`${anchor}:${relation.href ?? relation.label}`}
+            >
               {relation.prefix}
-              {relation.external ? (
+              {relation.href === undefined ? (
+                <span>{relation.label}</span>
+              ) : relation.external ? (
                 <a href={relation.href} rel="noopener noreferrer" target="_blank">
                   {relation.label}
                 </a>
               ) : (
                 <a
                   href={relation.href}
-                  onClick={(event) => follow(relation.href, event, onNavigate)}
+                  onClick={(event) => follow(relation.href ?? "", event, onNavigate)}
                 >
                   {relation.label}
                 </a>
@@ -672,8 +699,8 @@ function EffortGovernanceLens({
       ? undefined
       : currentWork.emptyState === "confirmed-no-managed-work"
         ? "No managed work is established for this scope."
-        : currentWork.emptyState === "history-only"
-          ? "All managed work is in History; no current work remains."
+        : currentWork.emptyState === "resolved-only"
+          ? "All managed Work is resolved; no current Work remains."
           : "No current managed work is established. Attention remains and must be reviewed separately.";
   return (
     <div className="effort-governance-lens">
@@ -724,18 +751,12 @@ function EffortGovernanceLens({
       )}
       {currentWork === undefined ? null : (
         <section id="native-work-current">
-          <div className="effort-current-work-heading">
-            <h2>Current Work</h2>
-            {currentWork.state === "available" ? (
-              <a
-                className="action-quiet"
-                href={currentWork.historyHref}
-                onClick={(event) => follow(currentWork.historyHref, event, onNavigate)}
-              >
-                Full work history · History {workRegionCountLabel(currentWork.counts.history)}
-              </a>
-            ) : null}
-          </div>
+          <h2>
+            Work
+            {currentWork.state === "available"
+              ? ` (${workRegionCountLabel(currentWork.counts.total)})`
+              : ""}
+          </h2>
           {currentWork.state === "unavailable" ? (
             <p className="effort-current-work-unavailable">
               Managed work needs attention. Cause: {currentWork.cause} Impact: {currentWork.impact}{" "}
@@ -743,18 +764,28 @@ function EffortGovernanceLens({
             </p>
           ) : (
             <>
-              <dl className="effort-work-counts" aria-label="Managed work counts">
+              <dl className="effort-work-counts lineage-compact-facts" aria-label="Work counts">
                 <div>
                   <dt>Current</dt>
-                  <dd>{workRegionCountLabel(currentWork.counts.current)}</dd>
+                  <dd>
+                    <a
+                      href={currentWork.currentHref}
+                      onClick={(event) => follow(currentWork.currentHref, event, onNavigate)}
+                    >
+                      {workRegionCountLabel(currentWork.counts.current)}
+                    </a>
+                  </dd>
                 </div>
                 <div>
                   <dt>Resolved</dt>
-                  <dd>{workRegionCountLabel(currentWork.counts.resolved)}</dd>
-                </div>
-                <div>
-                  <dt>History</dt>
-                  <dd>{workRegionCountLabel(currentWork.counts.history)}</dd>
+                  <dd>
+                    <a
+                      href={currentWork.resolvedHref}
+                      onClick={(event) => follow(currentWork.resolvedHref, event, onNavigate)}
+                    >
+                      {workRegionCountLabel(currentWork.counts.resolved)}
+                    </a>
+                  </dd>
                 </div>
               </dl>
               {currentWork.consistencyWarning === undefined ? null : (
@@ -904,9 +935,9 @@ const humanizeWorkState = (state: string): string => {
 };
 
 const WORK_REGION_VIEW_ANCHORS = new Set([
+  "native-planning-basis",
   "native-work-current",
-  "native-work-history",
-  "native-work-all",
+  "native-work-resolved",
 ]);
 
 function WorkRegionItem({
@@ -934,7 +965,7 @@ function WorkRegionItem({
         </div>
         <span>{humanizeWorkState(state)}</span>
       </div>
-      <dl>
+      <dl className="lineage-compact-facts">
         <div>
           <dt>Native lifecycle</dt>
           <dd>{item.nativeLifecycle}</dd>
@@ -1107,7 +1138,7 @@ function MapChapter({
           <p>{destinationFallback}</p>
         )}
       </div>
-      <dl>
+      <dl className="lineage-compact-facts">
         <div>
           <dt>Lifecycle</dt>
           <dd>{chapter.lifecycle}</dd>
@@ -1163,17 +1194,20 @@ function MapChapter({
 function WorkRegionRole({
   entryId,
   group,
+  headingLevel = 3,
   onNavigate,
 }: {
   readonly entryId: string;
   readonly group: MattNativeWorkRegionRoleGroup;
+  readonly headingLevel?: 3 | 4 | undefined;
   readonly onNavigate: Navigate;
 }) {
   if (group.availability === "confirmed-empty") return null;
+  const Heading = headingLevel === 3 ? "h3" : "h4";
   return (
     <section className={`matt-work-role role-${group.availability}`}>
       <div className="matt-work-role-heading">
-        <h4>{group.label}</h4>
+        <Heading>{group.label}</Heading>
         <span>{workRegionCountLabel(group.count)}</span>
       </div>
       {group.availability === "available" ? (
@@ -1202,8 +1236,10 @@ function MattNativeWorkRegion({
   readonly renderedMarkdown: NonNullable<LineageModelData["renderedMarkdown"]>;
 }) {
   const current = region.views[0];
-  const history = region.views[1];
-  const all = region.views[2];
+  const resolved = region.views[1];
+  const planningBasisGroups = region.roles.filter(
+    (group) => (group.role === "map" && region.mapChapter === undefined) || group.role === "spec",
+  );
   const reading = region.readingState;
   const healthy =
     region.context.state === "bound" &&
@@ -1227,39 +1263,23 @@ function MattNativeWorkRegion({
           )}
         </div>
       )}
-      <nav aria-label="Native Work Frontier views">
+      <nav aria-label="Planning Basis and Work views">
+        <a href="#native-planning-basis">Planning Basis</a>
         <a href="#native-work-current">Current · {workRegionCountLabel(current.count)}</a>
-        <a href="#native-work-history">History · {workRegionCountLabel(history.count)}</a>
-        <a href="#native-work-all">All · {workRegionCountLabel(all.count)}</a>
+        <a href="#native-work-resolved">Resolved · {workRegionCountLabel(resolved.count)}</a>
       </nav>
-      {region.mapChapter === undefined ? null : (
-        <MapChapter
-          chapter={region.mapChapter}
-          entryId={entryId}
-          onNavigate={onNavigate}
-          renderedMarkdown={renderedMarkdown}
-        />
-      )}
-      <section id="native-work-current" className="matt-work-view">
-        <h3>Current</h3>
-        {current.items.length === 0 ? (
-          <p>No current subjects are established by this observation.</p>
-        ) : (
-          <WorkRegionItems entryId={entryId} items={current.items} onNavigate={onNavigate} />
+      <section id="native-planning-basis" className="matt-work-view">
+        <h2>Planning Basis</h2>
+        {region.mapChapter === undefined ? null : (
+          <MapChapter
+            chapter={region.mapChapter}
+            entryId={entryId}
+            onNavigate={onNavigate}
+            renderedMarkdown={renderedMarkdown}
+          />
         )}
-      </section>
-      <section id="native-work-history" className="matt-work-view">
-        <h3>History</h3>
-        {history.items.length === 0 ? (
-          <p>No historical subjects are established by this observation.</p>
-        ) : (
-          <WorkRegionItems entryId={entryId} items={history.items} onNavigate={onNavigate} />
-        )}
-      </section>
-      <section id="native-work-all" className="matt-work-view">
-        <h3>All</h3>
         <div className="matt-work-role-groups">
-          {all.groups.map((group) => (
+          {planningBasisGroups.map((group) => (
             <WorkRegionRole
               entryId={entryId}
               group={group}
@@ -1268,6 +1288,45 @@ function MattNativeWorkRegion({
             />
           ))}
         </div>
+      </section>
+      <section className="matt-work-collection" aria-labelledby="native-work-title">
+        <h2 id="native-work-title">Work ({workRegionCountLabel(region.total)})</h2>
+        <section id="native-work-current" className="matt-work-view">
+          <h3>Current</h3>
+          {current.items.length === 0 ? (
+            <p>No current Work is established by this observation.</p>
+          ) : (
+            <div className="matt-work-role-groups">
+              {current.groups.map((group) => (
+                <WorkRegionRole
+                  entryId={entryId}
+                  group={group}
+                  headingLevel={4}
+                  key={group.role}
+                  onNavigate={onNavigate}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+        <section id="native-work-resolved" className="matt-work-view">
+          <h3>Resolved</h3>
+          {resolved.items.length === 0 ? (
+            <p>No resolved Work is established by this observation.</p>
+          ) : (
+            <div className="matt-work-role-groups">
+              {resolved.groups.map((group) => (
+                <WorkRegionRole
+                  entryId={entryId}
+                  group={group}
+                  headingLevel={4}
+                  key={group.role}
+                  onNavigate={onNavigate}
+                />
+              ))}
+            </div>
+          )}
+        </section>
       </section>
       {region.diagnostics.length === 0 ? null : (
         <section className="matt-work-diagnostics" aria-labelledby="matt-work-diagnostics-title">
@@ -1595,8 +1654,12 @@ export function PlanningLineagePage({
               For <a href={model.workHistoryOwner.href}>{model.workHistoryOwner.title}</a>
             </p>
           )}
-          {model.headerStatus === undefined ? null : (
-            <p className="lineage-header-status">{model.headerStatus}</p>
+          {model.headerStatuses === undefined ? null : (
+            <div className="lineage-header-status">
+              {model.headerStatuses.map((status) => (
+                <HeaderStatusTag key={status.token} status={status} />
+              ))}
+            </div>
           )}
           {model.effortLens === undefined ? null : (
             <EffortStatusGroup lens={model.effortLens} onNavigate={onNavigate} />
@@ -1630,7 +1693,7 @@ export function PlanningLineagePage({
         <div className="source-observation-action">
           <div>
             <strong>Source status</strong>
-            <dl>
+            <dl className="lineage-compact-facts">
               <div>
                 <dt>Checked</dt>
                 <dd>
@@ -1663,7 +1726,7 @@ export function PlanningLineagePage({
               </p>
             ) : null}
             {effortObservation.lastVerified === undefined ? null : (
-              <dl>
+              <dl className="lineage-compact-facts">
                 <div>
                   <dt>Last verified</dt>
                   <dd>{effortObservation.lastVerified}</dd>
@@ -1682,7 +1745,7 @@ export function PlanningLineagePage({
           id={eventHistoryAnchor}
         >
           <h2>Event History</h2>
-          <dl>
+          <dl className="lineage-compact-facts">
             {availableEvents.map((event, index) => (
               <div key={`${event.role}:${event.decisionReference ?? index}`}>
                 <dt>{event.label}</dt>

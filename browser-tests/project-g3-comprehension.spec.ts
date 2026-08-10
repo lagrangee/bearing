@@ -576,7 +576,7 @@ const withMixedCurrentWork = (snapshot: ProjectGeneration): ProjectGeneration =>
     (ticket) => ticket.lifecycle.state === "open" && ticket.claim.state === "claimed",
   );
   if (blockedTicket === undefined || blockerTicket === undefined) {
-    throw new Error("Expected reference tickets for the mixed Current Work fixture.");
+    throw new Error("Expected reference tickets for the mixed Work fixture.");
   }
   const mixed = createProviderScopeObservation({
     ...observation,
@@ -1149,7 +1149,9 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(page.getByText("Active", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Healthy", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Intent", level: 2 })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /^Work(?: \(.+\))?$/u, level: 2 }),
+    ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Planning Basis", level: 2 })).toBeVisible();
     await expect(page.getByText("Map", { exact: true })).toBeVisible();
     await expect(page.getByText("PRD / Spec", { exact: true })).toBeVisible();
@@ -1216,7 +1218,9 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(
       page.getByLabel("Effort governance status").getByText("Needs attention", { exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /^Work(?: \(.+\))?$/u, level: 2 }),
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: "Refresh source" })).toBeVisible();
 
     const staleSnapshot = withDegradedEffortObservation(scenario.snapshot, "stale");
@@ -1246,7 +1250,9 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     providerFails = true;
     await page.goto(`${host.url}${effortHref}`);
     await expect(page.getByText("Latest refresh failed", { exact: false })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /^Work(?: \(.+\))?$/u, level: 2 }),
+    ).toBeVisible();
     await expect(page.getByText("Last verified", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Refresh source" }).click();
     await expect(page.getByText("Latest refresh failed", { exact: false })).toBeVisible();

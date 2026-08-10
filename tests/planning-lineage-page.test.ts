@@ -13,7 +13,7 @@ import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
 import { ProviderObservationStatus } from "../src/portal-ui/provider-observation-status";
 import { ProviderObservationTime } from "../src/portal-ui/provider-observation-time";
 import type { ProjectGeneration } from "../src/project-generation/contract";
-import { effortSchema } from "../src/project-generation/schema";
+import { authoritySchema, effortSchema } from "../src/project-generation/schema";
 import { assetProjectionSchema } from "../src/project-generation/schema-asset";
 import { createSourceRecord } from "../src/project-generation/source-records";
 import { mattProviderSemanticSections } from "../src/providers/matt-skills-v1/projection";
@@ -28,7 +28,7 @@ import { parseRebuiltPlanningLineageFixture } from "./planning-lineage-fixture";
 
 const withLineage = parseRebuiltPlanningLineageFixture;
 
-test("formats Provider Observation Time as local minutes with relative context", () => {
+test("renders Provider Observation Time as compact relative text with absolute hover and focus help", () => {
   const markup = renderToStaticMarkup(
     createElement(ProviderObservationTime, {
       value: "2026-07-31T08:09:10.123+08:00",
@@ -37,9 +37,12 @@ test("formats Provider Observation Time as local minutes with relative context",
       timeZone: "UTC",
     }),
   );
-  expect(markup).toContain(">Jul 31, 2026 at 12:09 AM<");
   expect(markup).toContain(">1 minute ago<");
   expect(markup).toContain('dateTime="2026-07-31T08:09:10.123+08:00"');
+  expect(markup).toContain('data-absolute="Jul 31, 2026 at 12:09 AM"');
+  expect(markup).toContain('title="Jul 31, 2026 at 12:09 AM"');
+  expect(markup).toContain("<button aria-describedby=");
+  expect(markup).toContain('type="button"');
   expect(markup).not.toContain(">2026-07-31T08:09:10.123+08:00<");
 });
 
@@ -106,8 +109,12 @@ test("renders one route-owned Gate dossier and non-duplicated Lineage Context", 
   expect(html).toContain("Accept the planning model as ready.");
   expect(html).not.toContain('id="gate.event-history"');
   expect(html).not.toContain("Event History");
-  expect(html).toContain('<p class="lineage-header-status">Gate · Passed · Ready for review</p>');
+  expect(html).toContain('data-status-token="lifecycle-passed"');
+  expect(html).not.toContain('data-status-token="readiness-ready-for-review"');
   expect(html).toContain("Contributing Efforts");
+  expect(html).not.toContain(
+    "Each contributing Effort opens its complete lifecycle and bound native work context.",
+  );
   expect(html).not.toContain('id="relation.outcome.contributing-efforts"');
   expect(html).toContain("<dt>Evidence 1</dt><dd>.scratch/evidence/planning-model</dd>");
   expect(html).toContain("Confirmed none");
@@ -135,13 +142,19 @@ test("uses one shared low-noise identity header for Roadmap, Gate, and Effort de
   }
 });
 
-test("puts human-readable Roadmap and Gate status under the title and Intent before the spine", () => {
+test("renders typed Roadmap and Gate status tags with static accessible definitions", () => {
   const roadmap = render({
     validity: "valid",
     value: { kind: "roadmap", id: "roadmap:portal" },
   });
   const roadmapHeader = roadmap.match(/<header class="lineage-header"[\s\S]*?<\/header>/u)?.[0];
-  expect(roadmapHeader).toContain('<p class="lineage-header-status">Active roadmap</p>');
+  expect(roadmapHeader).toContain('class="lineage-header-status"');
+  expect(roadmapHeader).toContain('data-status-token="lifecycle-active"');
+  expect(roadmapHeader).toContain('data-status-tone="active"');
+  expect(roadmapHeader).toContain('data-tooltip="This lifecycle is active."');
+  expect(roadmapHeader).toContain('type="button"');
+  expect(roadmapHeader).toContain(">Active</button>");
+  expect(roadmapHeader).not.toContain("Active roadmap");
   expect(roadmapHeader).not.toContain("active-horizon");
   expect(roadmap).not.toContain("Roadmap Lifecycle");
   expect(roadmap.indexOf('id="roadmap.intent"')).toBeLessThan(
@@ -153,9 +166,16 @@ test("puts human-readable Roadmap and Gate status under the title and Intent bef
     value: { kind: "gate", id: "gate:two" },
   });
   const gateHeader = gate.match(/<header class="lineage-header"[\s\S]*?<\/header>/u)?.[0];
+  expect(gateHeader).toContain('data-status-token="position-current"');
+  expect(gateHeader).toContain('data-status-tone="neutral"');
+  expect(gateHeader).toContain('data-tooltip="This is the Roadmap’s current Milestone Gate."');
+  expect(gateHeader).toContain('data-status-token="lifecycle-active"');
+  expect(gateHeader).toContain('data-status-token="readiness-not-ready"');
+  expect(gateHeader).toContain('data-status-tone="warning"');
   expect(gateHeader).toContain(
-    '<p class="lineage-header-status">Current gate · Active · Not ready for passage</p>',
+    'data-tooltip="Current evidence does not establish readiness for human Gate Passage review."',
   );
+  expect(gateHeader).not.toContain("Current gate · Active · Not ready for passage");
   expect(gateHeader).not.toContain("horizon focused");
   expect(gate).not.toContain("Lifecycle and Readiness");
 });
@@ -293,6 +313,53 @@ test("keeps Asset semantics on detail and routes content outside Technical Detai
   if (assets.validity === "invalid") throw new Error("Expected rebuilt Asset fixture.");
 });
 
+test("routes typed Authority baseline Assets and keeps unavailable identities as text", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.assets.validity === "invalid") throw new Error("Expected Assets.");
+  const asset = snapshot.assets.items[0];
+  if (asset === undefined) throw new Error("Expected an Asset.");
+  const source = createSourceRecord(snapshot.basis.basisFingerprint, {
+    kind: "canonical",
+    locator: ".bearing/state/authorities/product-design.md",
+    binding: { role: "authority", identity: "authority:product-design" },
+  });
+  const authority = authoritySchema.parse({
+    id: "authority:product-design",
+    title: "Product Design",
+    source: source.reference,
+    citations: [],
+    scope: "Own product design decisions.",
+    baselineAssetIds: [asset.id],
+  });
+  const withAuthority = withLineage({
+    ...snapshot,
+    authorities: { validity: "available", items: [authority] },
+    sources: [...snapshot.sources, source],
+  });
+  const available = render(
+    { validity: "valid", value: { kind: "authority", id: authority.id } },
+    { snapshot: withAuthority },
+  );
+  expect(available).toContain(
+    `<a href="/projects/bearing/lineage/asset/${encodeURIComponent(asset.id)}">${asset.id}</a>`,
+  );
+
+  const unavailable = render(
+    { validity: "valid", value: { kind: "authority", id: authority.id } },
+    {
+      snapshot: {
+        ...withAuthority,
+        assets: { validity: "available", items: [] },
+      } as ProjectGeneration,
+    },
+  );
+  const baseline = unavailable.match(
+    /<section[^>]*id="authority.baseline"[\s\S]*?<\/section>/u,
+  )?.[0];
+  expect(baseline).toContain(`<span>${asset.id}</span><span> · Unavailable</span>`);
+  expect(baseline).not.toContain(`/lineage/asset/${encodeURIComponent(asset.id)}`);
+});
+
 test("renders only available named Source Event Times in Event History", () => {
   const snapshot = createProjectOverviewFixture();
   if (snapshot.gates.validity === "invalid") throw new Error("Expected Gates.");
@@ -347,15 +414,16 @@ test("renders native event time, Updated, and Verified at as distinct provenance
   expect(html).toContain("<dt>Updated</dt>");
   expect(html).toContain("Time unsupported");
   expect(html).toContain("<dt>Verified at</dt>");
-  expect(html).toContain('<details class="lineage-time-disclosure">');
   expect(html).toContain('class="source-event-time compact"');
   expect(html).toContain("data-absolute=");
-  expect(html).toContain("<summary>");
+  expect(html).not.toContain('<details class="lineage-time-disclosure">');
+  expect(html).not.toContain("<summary>");
+  expect(html).not.toContain("sha256:");
   expect(html).not.toContain("Technical time provenance");
   expect(html).toContain(
     "Current means verified at the recorded observation against the confirmed source revision; it does not promise live currency.",
   );
-  expect(html).toContain("Secondary source metadata; not a lifecycle event.");
+  expect(html).not.toContain("Secondary source metadata; not a lifecycle event.");
 
   const scopeHtml = render({
     validity: "valid",
@@ -365,24 +433,41 @@ test("renders native event time, Updated, and Verified at as distinct provenance
   expect(scopeHtml).not.toContain("Scope Context and Trust");
 });
 
-test("renders a quiet human-readable Work History and scopes degraded recovery to the Effort", () => {
+test("uses one compact definition-list layout for facts, times, and event history", async () => {
+  const html = `${render({ validity: "valid", value: { kind: "gate", id: "gate:one" } })}${render({
+    validity: "valid",
+    value: { kind: "native-subject", id: ".scratch/portal/map.md" },
+  })}`;
+  const compactLists = html.match(/<dl class="[^"]*lineage-compact-facts[^"]*"/gu) ?? [];
+  expect(compactLists.length).toBeGreaterThanOrEqual(3);
+
+  const css = await readFile(join(import.meta.dir, "../src/portal-ui/styles/lineage.css"), "utf8");
+  expect(css).toContain(".lineage-compact-facts > div");
+  expect(css).toContain("flex-wrap: wrap");
+  expect(css).not.toContain("grid-template-columns: minmax(130px, 0.25fr)");
+});
+
+test("separates Planning Basis from exhaustive Current and Resolved Work", () => {
   const scopeHtml = render({
     validity: "valid",
     value: { kind: "native-scope", id: ".scratch/portal" },
   });
 
   const header = scopeHtml.match(/<header class="lineage-header"[\s\S]*?<\/header>/u)?.[0];
-  expect(header).toContain('<span class="lineage-object-type">Work History</span>');
+  expect(header).toContain('<span class="lineage-object-type">Native Scope</span>');
   expect(header).toContain("<h1>Contributing Work</h1>");
   expect(header).toContain(
     '<p class="lineage-header-context">For <a href="/projects/bearing/lineage/effort/effort%3Aportal">Web Portal Validation</a></p>',
   );
   expect(header).not.toContain(".scratch/portal");
   expect(scopeHtml).toContain('class="matt-work-region context-bound"');
-  expect(scopeHtml).toContain('aria-label="Native Work Frontier views"');
+  expect(scopeHtml).toContain('aria-label="Planning Basis and Work views"');
+  expect(scopeHtml).toContain('href="#native-planning-basis">Planning Basis');
   expect(scopeHtml).toContain('href="#native-work-current">Current');
-  expect(scopeHtml).toContain('href="#native-work-history">History');
-  expect(scopeHtml).toContain('href="#native-work-all">All');
+  expect(scopeHtml).toContain('href="#native-work-resolved">Resolved');
+  expect(scopeHtml).not.toContain('href="#native-work-history">');
+  expect(scopeHtml).not.toContain('href="#native-work-all">');
+  expect(scopeHtml).toContain('<h2 id="native-work-title">Work (4)</h2>');
   expect(scopeHtml).toContain('id="matt-map-chapter-title"><a');
   expect(scopeHtml).toContain(">Portal Validation</a></h3>");
   expect(scopeHtml).toContain("Reach the accepted project outcome.");
@@ -459,7 +544,7 @@ test("keeps Map Destination readable when its Host render result is missing", ()
   expect(html).toContain("<pre>Reach the accepted project outcome.</pre>");
 });
 
-test("renders Effort status, canonical Intent, concluded-only Outcome, and governed Current Work", () => {
+test("renders Effort status, canonical Intent, concluded-only Outcome, and governed Work", () => {
   const active = render({
     validity: "valid",
     value: { kind: "effort", id: "effort:portal" },
@@ -477,13 +562,18 @@ test("renders Effort status, canonical Intent, concluded-only Outcome, and gover
   expect(active).toContain('Pass the integration gate</a><span data-work-status="blocked"');
   expect(active).toContain("Blocked by unresolved prerequisite work.");
   expect(active).toContain('Route a new Portal request</a><span data-work-status="ready"');
-  expect(active).toContain("<dt>Current</dt><dd>4</dd>");
-  expect(active).toContain("<dt>Resolved</dt><dd>0</dd>");
-  expect(active).toContain("<dt>History</dt><dd>0</dd>");
-  expect(active).toContain("Full work history · History 0</a>");
+  expect(active).toContain("<h2>Work (4)</h2>");
+  expect(active).toContain(
+    '<dt>Current</dt><dd><a href="/projects/bearing/lineage/native-scope/.scratch%2Fportal#native-work-current">4</a>',
+  );
+  expect(active).toContain(
+    '<dt>Resolved</dt><dd><a href="/projects/bearing/lineage/native-scope/.scratch%2Fportal#native-work-resolved">0</a>',
+  );
+  expect(active).not.toContain("<dt>History</dt>");
+  expect(active).not.toContain("Full work history");
   expect(active).not.toContain("<h2>Outcome</h2>");
   expect(active).not.toContain('class="matt-work-region');
-  expect(active).not.toContain('aria-label="Native Work Frontier views"');
+  expect(active).not.toContain('aria-label="Planning Basis and Work views"');
   expect(active).not.toContain("Last verified");
   expect(active).not.toContain("Refresh work details");
   expect(active).not.toContain("Managed work coverage");
@@ -497,7 +587,7 @@ test("renders Effort status, canonical Intent, concluded-only Outcome, and gover
   expect(active.indexOf("<h1>Web Portal Validation</h1>")).toBeLessThan(
     active.indexOf("<h2>Intent</h2>"),
   );
-  expect(active.indexOf("<h2>Intent</h2>")).toBeLessThan(active.indexOf("<h2>Current Work</h2>"));
+  expect(active.indexOf("<h2>Intent</h2>")).toBeLessThan(active.indexOf("<h2>Work (4)</h2>"));
 
   const concluded = render({
     validity: "valid",
@@ -508,39 +598,38 @@ test("renders Effort status, canonical Intent, concluded-only Outcome, and gover
   expect(concluded).toContain("<dt>Disposition</dt><dd>Completed</dd>");
   expect(concluded).toContain("The governed contribution was explicitly accepted as complete.");
   expect(concluded).not.toContain("<dt>Concluded</dt>");
-  expect(concluded).toContain("<h2>Current Work</h2>");
-  expect(concluded).toContain("All managed work is in History; no current work remains.");
-  expect(concluded).toContain("Full work history · History 2</a>");
+  expect(concluded).toContain("<h2>Work (1)</h2>");
+  expect(concluded).toContain("All managed Work is resolved; no current Work remains.");
   expect(concluded).not.toContain("Resolve the planning model");
 });
 
-test("renders an explicit empty Current Work state for an active Effort", () => {
+test("renders an explicit empty Work state with exact zero links for an active Effort", () => {
   const html = render(
     { validity: "valid", value: { kind: "effort", id: "effort:portal" } },
     { snapshot: createConfirmedNoManagedWorkFixture() },
   );
 
-  expect(html).toContain("<h2>Current Work</h2>");
+  expect(html).toContain("<h2>Work (0)</h2>");
   expect(html).toContain("No managed work is established for this scope.");
-  expect(html).toContain("Full work history · History 0</a>");
+  expect(html).toContain('#native-work-current">0</a>');
+  expect(html).toContain('#native-work-resolved">0</a>');
   const currentWork = html.match(/<section id="native-work-current">[\s\S]*?<\/section>/u)?.[0];
   expect(currentWork).toBeDefined();
   expect(currentWork).not.toContain("Portal Validation");
   expect(currentWork).not.toContain("Portal Validation PRD");
 });
 
-test("renders history-only managed work without renaming History completed work", () => {
+test("renders resolved-only Work with additive exact counts", () => {
   const html = render(
     { validity: "valid", value: { kind: "effort", id: "effort:model" } },
     { snapshot: createHistoryOnlyWorkFixture() },
   );
 
-  expect(html).toContain("All managed work is in History; no current work remains.");
-  expect(html).toContain("<dt>Current</dt><dd>0</dd>");
-  expect(html).toContain("<dt>Resolved</dt><dd>1</dd>");
-  expect(html).toContain("<dt>History</dt><dd>2</dd>");
-  expect(html).toContain("Full work history · History 2</a>");
-  expect(html).not.toContain("completed work");
+  expect(html).toContain("All managed Work is resolved; no current Work remains.");
+  expect(html).toContain("<h2>Work (1)</h2>");
+  expect(html).toContain('#native-work-current">0</a>');
+  expect(html).toContain('#native-work-resolved">1</a>');
+  expect(html).not.toContain("<dt>History</dt>");
 });
 
 test("renders empty active work with remaining Attention and uncertain independent counts", () => {
@@ -552,10 +641,8 @@ test("renders empty active work with remaining Attention and uncertain independe
   expect(html).toContain(
     "No current managed work is established. Attention remains and must be reviewed separately.",
   );
-  expect(html).toContain("<dt>Current</dt><dd>At least 0</dd>");
-  expect(html).toContain("<dt>Resolved</dt><dd>At least 0</dd>");
-  expect(html).toContain("<dt>History</dt><dd>At least 0</dd>");
-  expect(html).toContain("Full work history · History At least 0</a>");
+  expect(html).toContain('#native-work-current">At least 0</a>');
+  expect(html).toContain('#native-work-resolved">At least 0</a>');
 });
 
 test("renders an available canonical lifecycle time in its independent Gate column", () => {
@@ -565,6 +652,9 @@ test("renders an available canonical lifecycle time in its independent Gate colu
   );
 
   expect(html).toContain('<time dateTime="2026-07-31T10:00:00Z">');
+  expect(html).toContain('class="source-event-time compact"');
+  expect(html).toContain("data-absolute=");
+  expect(html).not.toContain(">Jul 31, 2026 at 6:00 PM</time>");
 });
 
 test("renders bounded Planning Basis, Outputs, and Governance as Effort-owned regions", async () => {
@@ -582,7 +672,7 @@ test("renders bounded Planning Basis, Outputs, and Governance as Effort-owned re
   expect(active).not.toContain("<h2>Outputs</h2>");
   expect(active).not.toContain("Governance &amp; References");
   expect(active).not.toContain("Lineage Context");
-  expect(active.indexOf("<h2>Current Work</h2>")).toBeLessThan(
+  expect(active.indexOf("<h2>Work (4)</h2>")).toBeLessThan(
     active.indexOf("<h2>Planning Basis</h2>"),
   );
 
@@ -666,7 +756,7 @@ test("renders first acquisition failure as bound-unresolved with its concrete ca
   );
 
   expect(html).toContain('<dd data-health="needs-attention">Needs attention</dd>');
-  expect(html).toContain("<h2>Current Work</h2>");
+  expect(html).toContain("<h2>Work</h2>");
   expect(html).toContain("Managed work needs attention. Cause:");
   expect(html).toContain("The provider contract is unsupported.");
   expect(html).toContain("The declared Work Binding does not resolve to current source data.");
@@ -843,7 +933,7 @@ test("renders provider subject diagnostics beside the affected native content", 
   expect(html).not.toContain(`${ticket.ref}#answer`);
 });
 
-test("keeps Map detail out of Effort Current Work when its optional semantics are unavailable", () => {
+test("keeps Map detail out of Effort Work when its optional semantics are unavailable", () => {
   const snapshot = createProjectOverviewFixture();
   const portal = snapshot.providerObservations.find(
     (observation) =>
@@ -892,13 +982,13 @@ test("keeps Map detail out of Effort Current Work when its optional semantics ar
     { snapshot: degraded },
   );
 
-  expect(html).toContain("<h2>Current Work</h2>");
+  expect(html).toContain("<h2>Work (4)</h2>");
   expect(html).not.toContain("Destination is unavailable in the current source data.");
   expect(html).not.toContain(">Portal Validation</a></h3>");
   expect(html).not.toContain("<dt>Fog</dt>");
 });
 
-test("omits confirmed-empty role shells while preserving their native history", () => {
+test("omits confirmed-empty role shells while preserving resolved Work", () => {
   const html = render({
     validity: "valid",
     value: { kind: "native-scope", id: ".scratch/model" },
@@ -906,7 +996,7 @@ test("omits confirmed-empty role shells while preserving their native history", 
 
   expect(html).toContain('class="matt-work-region context-bound"');
   expect(html).toContain("Resolve the planning model");
-  expect(html).toContain('id="native-work-history"');
+  expect(html).toContain('id="native-work-resolved"');
   expect(html).not.toContain("<h4>Spec / PRD</h4>");
   expect(html).not.toContain("<h4>Delivery</h4>");
   expect(html).not.toContain("<h4>Incoming</h4>");

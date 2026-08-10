@@ -334,11 +334,11 @@ test("installed candidate records the safe self-host reading outcome", async ({ 
       id: "effort:bearing-0-1-1-architecture-contraction",
     });
     await page.goto(`${portal.url}${effortHref}`);
-    await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^Work \(.+\)$/u, level: 2 })).toBeVisible();
     const currentWork = page.locator("#native-work-current");
     const managedCounts = currentWork.getByRole("definition");
     const countValues = await managedCounts.allTextContents();
-    expect(countValues).toHaveLength(3);
+    expect(countValues).toHaveLength(2);
     for (const count of countValues) expect(count).toMatch(/^(?:At least )?\d+$/u);
     const currentItems = currentWork.locator("[data-work-status]");
     expect(await currentItems.count()).toBeGreaterThan(0);
@@ -347,10 +347,13 @@ test("installed candidate records the safe self-host reading outcome", async ({ 
     )) {
       expect(status).toMatch(/^(?:ready|claimed|blocked|needs-attention)$/u);
     }
-    const workHistory = page.getByRole("link", { name: /^Full work history · History /u });
-    await expect(workHistory).toContainText(`History ${countValues[2]}`);
-    await workHistory.click();
-    await expect(page.getByRole("heading", { name: "History", level: 3 })).toBeInViewport();
+    const resolvedWork = currentWork
+      .locator(".effort-work-counts > div")
+      .filter({ hasText: "Resolved" })
+      .getByRole("link");
+    await expect(resolvedWork).toContainText(countValues[1] ?? "");
+    await resolvedWork.click();
+    await expect(page.getByRole("heading", { name: "Resolved", level: 3 })).toBeInViewport();
     await expect(page.getByText("Source status", { exact: true }).first()).toBeVisible();
     await expect(page.locator("dt").filter({ hasText: "Checked" }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Refresh source" })).toBeVisible();

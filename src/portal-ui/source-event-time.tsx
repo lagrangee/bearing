@@ -61,20 +61,27 @@ export function SourceEventTimeValue({
       Approximate time inferred from current source metadata; not an audit-grade source event.
     </span>
   ) : null;
+  const approximateMarker = inferred ? (
+    <small aria-hidden="true" className="source-event-time-approximate">
+      Approx.
+    </small>
+  ) : null;
   if (mode === "compact") {
     return (
-      <span
+      <button
         className="source-event-time compact"
         data-absolute={absolute}
         {...disclosure}
         title={inferred ? `${absolute}. ${disclosure.title}` : absolute}
+        type="button"
       >
         <time dateTime={time.value}>{relative}</time>
+        {approximateMarker}
         <span className="sr-only">
           {label}: {absolute}
         </span>
         {inferredDescription}
-      </span>
+      </button>
     );
   }
   return (
@@ -82,6 +89,7 @@ export function SourceEventTimeValue({
       <span>
         <time dateTime={time.value}>{absolute}</time>
         {relative === absolute ? null : <small>{relative}</small>}
+        {approximateMarker}
       </span>
       {inferredDescription}
     </span>

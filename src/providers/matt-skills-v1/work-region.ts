@@ -119,16 +119,11 @@ export type MattNativeWorkRegionModel = Readonly<{
       label: "Current";
       count: MattNativeWorkRegionCount;
       items: readonly MattNativeWorkRegionItem[];
+      groups: readonly MattNativeWorkRegionRoleGroup[];
     }>,
     Readonly<{
-      key: "history";
-      label: "History";
-      count: MattNativeWorkRegionCount;
-      items: readonly MattNativeWorkRegionItem[];
-    }>,
-    Readonly<{
-      key: "all";
-      label: "All";
+      key: "resolved";
+      label: "Resolved";
       count: MattNativeWorkRegionCount;
       items: readonly MattNativeWorkRegionItem[];
       groups: readonly MattNativeWorkRegionRoleGroup[];
@@ -160,6 +155,11 @@ const ROLE_DEFINITIONS = [
   ["delivery", "Delivery"],
   ["incoming", "Incoming"],
 ] as const satisfies readonly (readonly [MattNativeWorkRegionRole, string])[];
+
+const WORK_ROLE_DEFINITIONS = ROLE_DEFINITIONS.filter(
+  (definition): definition is (typeof ROLE_DEFINITIONS)[2 | 3 | 4] =>
+    definition[0] === "wayfinder" || definition[0] === "delivery" || definition[0] === "incoming",
+);
 
 const normalizedContext = (
   context: MattNativeWorkRegionContext,
@@ -408,21 +408,8 @@ const itemFor = (
   }
 };
 
-const currentItem = (item: MattNativeWorkRegionItem): boolean =>
-  item.diagnosticCodes !== undefined ||
-  item.frontier === "claimed" ||
-  item.frontier === "ready" ||
-  item.frontier === "blocked" ||
-  item.frontier === "uncertain" ||
-  (item.role === "map" && item.nativeLifecycle === "active") ||
-  (item.role === "spec" &&
-    (item.nativeLifecycle === "draft" || item.nativeLifecycle === "ready-for-agent")) ||
-  (item.role === "incoming" && item.nativeLifecycle === "open" && item.routingState !== "wontfix");
-
-const historyItem = (item: MattNativeWorkRegionItem): boolean =>
+const resolvedWorkItem = (item: MattNativeWorkRegionItem): boolean =>
   item.frontier === "resolved" ||
-  (item.role === "map" && item.nativeLifecycle === "resolved") ||
-  (item.role === "spec" && item.nativeLifecycle === "superseded") ||
   (item.role === "incoming" &&
     (item.nativeLifecycle === "closed" || item.routingState === "wontfix"));
 
@@ -551,13 +538,27 @@ export const buildMattNativeWorkRegion = (
       items: roleItems,
     };
   });
-  const current = regionItems.filter(currentItem);
-  const history = regionItems.filter(historyItem);
+  const workItems = regionItems.filter(
+    (item) => item.role === "wayfinder" || item.role === "delivery" || item.role === "incoming",
+  );
+  const resolved = workItems.filter(resolvedWorkItem);
+  const current = workItems.filter((item) => !resolvedWorkItem(item));
+  const groupsFor = (items: readonly MattNativeWorkRegionItem[]) =>
+    WORK_ROLE_DEFINITIONS.map(([role, label]): MattNativeWorkRegionRoleGroup => {
+      const roleItems = items.filter((item) => item.role === role);
+      return {
+        role,
+        label,
+        availability: roleAvailability(observation, roleItems.length),
+        count: countFor(observation, roleItems.length),
+        items: roleItems,
+      };
+    });
   const mapChapter = mapChapterFor(observation);
   return {
     context: normalizedContext(context),
     readingState,
-    total: countFor(observation, regionItems.length),
+    total: countFor(observation, workItems.length),
     roles,
     views: [
       {
@@ -565,19 +566,14 @@ export const buildMattNativeWorkRegion = (
         label: "Current",
         count: countFor(observation, current.length),
         items: current,
+        groups: groupsFor(current),
       },
       {
-        key: "history",
-        label: "History",
-        count: countFor(observation, history.length),
-        items: history,
-      },
-      {
-        key: "all",
-        label: "All",
-        count: countFor(observation, regionItems.length),
-        items: regionItems,
-        groups: roles,
+        key: "resolved",
+        label: "Resolved",
+        count: countFor(observation, resolved.length),
+        items: resolved,
+        groups: groupsFor(resolved),
       },
     ],
     ...(mapChapter === undefined ? {} : { mapChapter }),

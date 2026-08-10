@@ -147,6 +147,15 @@ export type PlanningLineageEffortRollupRow = Readonly<{
   }>;
 }>;
 
+type PlanningLineageRelationLink = Readonly<{
+  label: string;
+  prefix?: string | undefined;
+  detail?: string | undefined;
+  href?: string | undefined;
+  external?: boolean | undefined;
+  availability?: "available" | "unavailable" | undefined;
+}>;
+
 export type PlanningLineageSectionContent =
   | Readonly<{ kind: "plain-prose"; source: "canonical" | "system"; value: string }>
   | Readonly<{ kind: "provider-document"; document: PlanningLineageProviderDocument }>
@@ -158,13 +167,7 @@ export type PlanningLineageSectionContent =
   | Readonly<{ kind: "fact-list"; style: "bulleted"; values: readonly string[] }>
   | Readonly<{
       kind: "relation-list";
-      relations: readonly Readonly<{
-        label: string;
-        prefix?: string | undefined;
-        detail?: string | undefined;
-        href: string;
-        external?: boolean | undefined;
-      }>[];
+      relations: readonly PlanningLineageRelationLink[];
     }>
   | Readonly<{ kind: "time-facts"; facts: readonly PlanningLineageTimeFact[] }>
   | Readonly<{
@@ -189,15 +192,7 @@ type PlanningLineageSectionInput = Readonly<{
   providerDocuments?: readonly PlanningLineageProviderDocument[] | undefined;
   copy?: Readonly<{ label: string; value: string }> | undefined;
   items?: readonly string[] | undefined;
-  links?:
-    | readonly Readonly<{
-        label: string;
-        prefix?: string | undefined;
-        detail?: string | undefined;
-        href: string;
-        external?: boolean | undefined;
-      }>[]
-    | undefined;
+  links?: readonly PlanningLineageRelationLink[] | undefined;
   times?: readonly PlanningLineageTimeFact[] | undefined;
   effortRollup?: readonly PlanningLineageEffortRollupRow[] | undefined;
 }>;
@@ -324,15 +319,16 @@ export type PlanningLineageEffortLens = Readonly<{
           blockerImpact?: string | undefined;
           attention?: string | undefined;
         }>[];
-        historyHref: string;
+        currentHref: string;
+        resolvedHref: string;
         counts: Readonly<{
+          total: MattNativeWorkRegionCount;
           current: MattNativeWorkRegionCount;
           resolved: MattNativeWorkRegionCount;
-          history: MattNativeWorkRegionCount;
         }>;
         emptyState?:
           | "confirmed-no-managed-work"
-          | "history-only"
+          | "resolved-only"
           | "attention-without-active-work"
           | undefined;
         consistencyWarning?: string | undefined;
@@ -401,6 +397,31 @@ export type PlanningLineageParentCrumb = Readonly<{
   reference?: string | undefined;
 }>;
 
+export type PlanningLineageStatusToken =
+  | "position-current"
+  | "lifecycle-planned"
+  | "lifecycle-active"
+  | "lifecycle-passed"
+  | "lifecycle-completed"
+  | "lifecycle-superseded"
+  | "readiness-not-ready"
+  | "readiness-ready-for-review"
+  | "readiness-unknown"
+  | "status-unknown";
+
+export type PlanningLineageStatusTag = Readonly<{
+  token: PlanningLineageStatusToken;
+  label: string;
+  tone: "neutral" | "active" | "positive" | "warning" | "muted";
+  tooltip: string;
+  diagnostic?:
+    | Readonly<{
+        code: "portal.status-token.unknown";
+        message: string;
+      }>
+    | undefined;
+}>;
+
 type ReadablePlanningLineageSubjectModel = Readonly<{
   state: "available" | "partial";
   subject: Readonly<{
@@ -412,7 +433,7 @@ type ReadablePlanningLineageSubjectModel = Readonly<{
   }>;
   parentPath: readonly PlanningLineageParentCrumb[];
   parentNotice?: string | undefined;
-  headerStatus?: string | undefined;
+  headerStatuses?: readonly PlanningLineageStatusTag[] | undefined;
   primaryAction?:
     | Readonly<{
         label: string;
@@ -720,12 +741,12 @@ const contributingEffortsSection = (
   return {
     anchor: "native-work.effort-summaries",
     title: "Contributing Efforts",
-    body:
-      effortRollup.length === 0
-        ? "No trustworthy contributing Effort summary is available."
-        : "Each contributing Effort opens its complete lifecycle and bound native work context.",
-    bodySource: "system",
-    ...(effortRollup.length === 0 ? {} : { effortRollup }),
+    ...(effortRollup.length === 0
+      ? {
+          body: "No trustworthy contributing Effort summary is available.",
+          bodySource: "system" as const,
+        }
+      : { effortRollup }),
   };
 };
 
@@ -832,32 +853,97 @@ const gateSections = (
   contributingEffortsSection(snapshot, gate.effortIds, entryId),
 ];
 
-const sentenceCaseToken = (value: string): string =>
-  value
-    .split("-")
-    .map((part, index) => (index === 0 ? `${part[0]?.toUpperCase()}${part.slice(1)}` : part))
-    .join(" ");
+const STATUS_TAGS = {
+  "position-current": {
+    label: "Current",
+    tone: "neutral",
+    tooltip: "This is the Roadmap’s current Milestone Gate.",
+  },
+  "lifecycle-planned": {
+    label: "Planned",
+    tone: "neutral",
+    tooltip: "This lifecycle is planned and has not started.",
+  },
+  "lifecycle-active": {
+    label: "Active",
+    tone: "active",
+    tooltip: "This lifecycle is active.",
+  },
+  "lifecycle-passed": {
+    label: "Passed",
+    tone: "positive",
+    tooltip: "Gate Passage is recorded for this Milestone Gate.",
+  },
+  "lifecycle-completed": {
+    label: "Completed",
+    tone: "muted",
+    tooltip: "This lifecycle is completed.",
+  },
+  "lifecycle-superseded": {
+    label: "Superseded",
+    tone: "muted",
+    tooltip: "This lifecycle has been superseded.",
+  },
+  "readiness-not-ready": {
+    label: "Not ready for passage",
+    tone: "warning",
+    tooltip: "Current evidence does not establish readiness for human Gate Passage review.",
+  },
+  "readiness-ready-for-review": {
+    label: "Ready for review",
+    tone: "positive",
+    tooltip: "This Milestone Gate is ready for human review; Gate Passage is not automatic.",
+  },
+  "readiness-unknown": {
+    label: "Readiness unknown",
+    tone: "muted",
+    tooltip: "Current evidence cannot establish Gate readiness.",
+  },
+  "status-unknown": {
+    label: "Status unavailable",
+    tone: "muted",
+    tooltip: "This status token is not supported by this Portal version.",
+  },
+} as const satisfies Record<PlanningLineageStatusToken, Omit<PlanningLineageStatusTag, "token">>;
 
-const headerStatusFor = (
+export const resolvePlanningLineageStatusTag = (token: string): PlanningLineageStatusTag => {
+  if (!Object.hasOwn(STATUS_TAGS, token)) {
+    return {
+      token: "status-unknown",
+      ...STATUS_TAGS["status-unknown"],
+      diagnostic: {
+        code: "portal.status-token.unknown",
+        message: `Unsupported Portal status token: ${token}`,
+      },
+    };
+  }
+  const knownToken = token as PlanningLineageStatusToken;
+  return { token: knownToken, ...STATUS_TAGS[knownToken] };
+};
+
+const statusTag = resolvePlanningLineageStatusTag;
+
+const headerStatusesFor = (
   record: SubjectRecord,
   subject: PlanningLineageSubject,
-): string | undefined => {
+): readonly PlanningLineageStatusTag[] | undefined => {
   if (subject.kind === "roadmap") {
-    return `${sentenceCaseToken((record as Roadmap).lifecycle)} roadmap`;
+    return [statusTag(`lifecycle-${(record as Roadmap).lifecycle}`)];
   }
   if (subject.kind !== "gate") return undefined;
   const gate = record as MilestoneGate;
-  const position = gate.horizonState === "focused" ? "Current gate" : "Gate";
-  const readiness =
-    gate.readiness === "not-ready"
-      ? "Not ready for passage"
-      : gate.readiness === "ready-for-review"
-        ? "Ready for review"
-        : "Readiness unknown";
-  return `${position} · ${sentenceCaseToken(gate.lifecycle)} · ${readiness}`;
+  return [
+    ...(gate.horizonState === "focused" ? [statusTag("position-current")] : []),
+    statusTag(`lifecycle-${gate.lifecycle}`),
+    ...(gate.lifecycle === "active" ? [statusTag(`readiness-${gate.readiness}`)] : []),
+  ];
 };
 
-const authoritySections = (authority: Authority): readonly PlanningLineageSectionInput[] => [
+const authoritySections = (
+  snapshot: LineageModelData,
+  authority: Authority,
+  entryId: string,
+): readonly PlanningLineageSectionInput[] => [
   { anchor: "authority.scope", title: "Scope", body: authority.scope },
   {
     anchor: "authority.baseline",
@@ -867,7 +953,27 @@ const authoritySections = (authority: Authority): readonly PlanningLineageSectio
         ? "No baseline Assets are declared."
         : "The following Assets form the current baseline.",
     bodySource: "system",
-    ...(authority.baselineAssetIds.length === 0 ? {} : { items: authority.baselineAssetIds }),
+    ...(authority.baselineAssetIds.length === 0
+      ? {}
+      : {
+          links: authority.baselineAssetIds.map((assetId) => {
+            const asset =
+              snapshot.assets.validity === "invalid"
+                ? undefined
+                : snapshot.assets.items.find((candidate) => candidate.id === assetId);
+            return asset === undefined
+              ? {
+                  label: assetId,
+                  detail: "Unavailable",
+                  availability: "unavailable" as const,
+                }
+              : {
+                  label: assetId,
+                  href: planningLineageSubjectHref(entryId, { kind: "asset", id: asset.id }),
+                  availability: "available" as const,
+                };
+          }),
+        }),
   },
 ];
 
@@ -973,7 +1079,7 @@ const assetSections = (
       case "asset":
         return "Asset";
       case "native-scope":
-        return "Work History";
+        return "Native Scope";
       case "native-subject": {
         const record = mattNativeRecords(snapshot.providerObservations, snapshot.sources).find(
           (candidate) => candidate.recordKind === "native-object" && candidate.id === subject.id,
@@ -1247,7 +1353,6 @@ const nativeTrustSections = (
       body: "Current means verified at the recorded observation against the confirmed source revision; it does not promise live currency.",
       bodySource: "system",
       facts: [
-        { key: "observation-id", label: "Observation", value: observation.id },
         { key: "projection", label: "Projection", value: observation.state },
         { key: "freshness", label: "Freshness", value: evidence.freshness },
         { key: "coverage", label: "Coverage", value: observation.coverage.assessment },
@@ -1264,7 +1369,6 @@ const nativeTrustSections = (
           label: "Verified at",
           time: projectExpectedSourceEventTime(observation.observedAt),
           mode: "compact",
-          detail: observation.sourceRevision ?? "Source revision unavailable",
         },
       ],
     },
@@ -1281,7 +1385,6 @@ const nativeTrustSections = (
                 key: "native-last-updated",
                 label: "Updated",
                 time: object.native.lastUpdated,
-                detail: "Secondary source metadata; not a lifecycle event.",
               },
             ],
           }),
@@ -1809,7 +1912,7 @@ const sectionsFor = (
       case "effort":
         return [];
       case "authority":
-        return authoritySections(record as Authority);
+        return authoritySections(snapshot, record as Authority, entryId);
       case "planning-review":
         return planningReviewSections(record as PlanningReview);
       case "asset":
@@ -2138,34 +2241,28 @@ const effortLensFor = (
             ? { latestRefreshSucceeded: true }
             : {}),
         };
-  const workItems =
-    disposableWorkRegion?.views[0].items.filter(
-      (item) => item.role === "wayfinder" || item.role === "delivery" || item.role === "incoming",
-    ) ?? [];
+  const workItems = disposableWorkRegion?.views[0].items ?? [];
   const workCounts =
     disposableWorkRegion === undefined
       ? undefined
       : {
-          current:
-            disposableWorkRegion.views[0].count.mode === "unavailable"
-              ? disposableWorkRegion.views[0].count
-              : { mode: disposableWorkRegion.views[0].count.mode, value: workItems.length },
-          resolved: frontierCount(disposableWorkRegion, "resolved"),
-          history: disposableWorkRegion.views[1].count,
+          total: disposableWorkRegion.total,
+          current: disposableWorkRegion.views[0].count,
+          resolved: disposableWorkRegion.views[1].count,
         };
   const emptyWorkState =
     workItems.length > 0 || workCounts === undefined
       ? undefined
       : managedWorkHealth === "Needs attention"
         ? ("attention-without-active-work" as const)
-        : workCounts.history.mode !== "unavailable" && workCounts.history.value > 0
-          ? ("history-only" as const)
+        : workCounts.resolved.mode !== "unavailable" && workCounts.resolved.value > 0
+          ? ("resolved-only" as const)
           : workCounts.current.mode === "exact" &&
               workCounts.current.value === 0 &&
               workCounts.resolved.mode === "exact" &&
               workCounts.resolved.value === 0 &&
-              workCounts.history.mode === "exact" &&
-              workCounts.history.value === 0
+              workCounts.total.mode === "exact" &&
+              workCounts.total.value === 0
             ? ("confirmed-no-managed-work" as const)
             : undefined;
   const observationUnavailable = disposableWorkRegion?.views[0].count.mode === "unavailable";
@@ -2218,10 +2315,15 @@ const effortLensFor = (
               : { attention: item.diagnosticMessages.join(" ") }),
           })),
           counts: workCounts,
-          historyHref: planningLineageSubjectHref(
+          currentHref: planningLineageSubjectHref(
             entryId,
             { kind: "native-scope", id: binding.nativeScope },
-            "native-work-history",
+            "native-work-current",
+          ),
+          resolvedHref: planningLineageSubjectHref(
+            entryId,
+            { kind: "native-scope", id: binding.nativeScope },
+            "native-work-resolved",
           ),
           ...(emptyWorkState === undefined ? {} : { emptyState: emptyWorkState }),
           ...(effort.lifecycle === "concluded" && workItems.length > 0
@@ -2342,7 +2444,7 @@ export const buildPlanningLineageSubjectModel = (
       ? undefined
       : readableEfforts(snapshot).find((effort) => effort.id === workRegion.context.effortIds[0]);
   const asset = subject.kind === "asset" ? (record as AssetProjection) : undefined;
-  const headerStatus = headerStatusFor(record, subject);
+  const headerStatuses = headerStatusesFor(record, subject);
   const inspectionSelection = isNativeSubject(subject)
     ? snapshot.providerDetailEvidences.selections.find((selection) => {
         const observation = (record as NativeRecord).observation;
@@ -2362,7 +2464,7 @@ export const buildPlanningLineageSubjectModel = (
       ...(sourceHref === undefined ? {} : { sourceHref }),
     },
     parentPath: parentPathForDisplay(snapshot, entryId, lineage),
-    ...(headerStatus === undefined ? {} : { headerStatus }),
+    ...(headerStatuses === undefined ? {} : { headerStatuses }),
     ...(asset === undefined ||
     snapshot.assetSourceProbe === undefined ||
     (snapshot.assetSourceProbe.kind === "local" &&

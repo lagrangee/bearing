@@ -1,3 +1,4 @@
+import { useId } from "react";
 import {
   formatAbsoluteInstant,
   formatRelativeInstant,
@@ -20,11 +21,20 @@ export function ProviderObservationTime({
   const displayNow = useTimeDisplayNow(now);
   const absolute = formatAbsoluteInstant(value, locale, timeZone);
   const relative = formatRelativeInstant(value, displayNow, locale);
+  const descriptionId = useId();
   return (
-    <span className="provider-observation-time">
+    <button
+      aria-describedby={descriptionId}
+      className="provider-observation-time"
+      data-absolute={absolute}
+      title={absolute}
+      type="button"
+    >
       {label === undefined ? null : `${label}: `}
-      <time dateTime={value}>{absolute}</time>
-      <small>{relative}</small>
-    </span>
+      <time dateTime={value}>{relative}</time>
+      <span className="sr-only" id={descriptionId}>
+        {absolute}
+      </span>
+    </button>
   );
 }

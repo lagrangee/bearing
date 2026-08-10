@@ -870,29 +870,34 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
     page.getByRole("heading", { name: "Web Portal Validation", level: 1 }),
   ).toBeVisible();
   await expect(page.getByLabel("Effort governance status")).toContainText("Healthy");
-  await expect(page.getByRole("heading", { name: "Current Work", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Work (4)", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Planning Basis", level: 2 })).toBeVisible();
-  const workHistory = page.getByRole("link", { name: /^Full work history · History /u });
-  await workHistory.focus();
-  await expect(workHistory).toBeFocused();
+  const currentWorkLink = page
+    .locator(".effort-work-counts > div")
+    .filter({ hasText: "Current" })
+    .getByRole("link", { name: "4" });
+  await currentWorkLink.focus();
+  await expect(currentWorkLink).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page).toHaveURL(/#native-work-history$/u);
-  await expect(page.getByRole("heading", { name: "History", level: 3 })).toBeInViewport();
+  await expect(page).toHaveURL(/#native-work-current$/u);
+  await expect(page.getByRole("heading", { name: "Current", level: 3 })).toBeInViewport();
   expect(await viewportOverflow(page)).toEqual([]);
 
   await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
   await serveSnapshot(page, createConfirmedNoManagedWorkFixture());
   await page.goto(effortHref);
   await expect(page.getByText("No managed work is established for this scope.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Full work history · History 0" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Work (0)", level: 2 })).toBeVisible();
+  await expect(page.getByRole("link", { name: "0" })).toHaveCount(2);
 
   await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
   await serveSnapshot(page, createHistoryOnlyWorkFixture());
   await page.goto(planningLineageSubjectHref("lineage", { kind: "effort", id: "effort:model" }));
   await expect(
-    page.getByText("All managed work is in History; no current work remains."),
+    page.getByText("All managed Work is resolved; no current Work remains."),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Full work history · History 2" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Work (1)", level: 2 })).toBeVisible();
+  await expect(page.getByRole("link", { name: "1" })).toBeVisible();
 
   await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
   await serveSnapshot(page, createAttentionWithoutActiveWorkFixture());
@@ -902,9 +907,7 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
       "No current managed work is established. Attention remains and must be reviewed separately.",
     ),
   ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Full work history · History At least 0" }),
-  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "At least 0" })).toHaveCount(2);
 
   await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
   await serveSnapshot(page, rollupSnapshot);
@@ -941,7 +944,11 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   });
   await page.goto(nativeHref);
   await expect(page.getByRole("heading", { name: "Contributing Work", level: 1 })).toBeVisible();
-  await expect(page.getByText("Work History", { exact: true })).toBeVisible();
+  await expect(page.getByText("Native Scope", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Planning Basis", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Work (4)", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Resolved", level: 3 })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^All ·/u })).toHaveCount(0);
   await expect(page.getByText("For Web Portal Validation", { exact: true })).toBeVisible();
   await expect(page.getByText(".scratch/portal", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Scope Context and Trust", { exact: true })).toHaveCount(0);
@@ -1008,7 +1015,7 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
-test("degraded Work History returns recovery to its owning Effort with contextual source loading", async ({
+test("degraded Native Scope returns recovery to its owning Effort with contextual source loading", async ({
   page,
 }) => {
   await serveSnapshot(page, degradedWorkHistoryFixture());
