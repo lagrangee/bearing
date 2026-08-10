@@ -17,9 +17,9 @@ import { frontmatter } from "micromark-extension-frontmatter";
 import { gfm } from "micromark-extension-gfm";
 import { visit } from "unist-util-visit";
 import { parseDocument, stringify } from "yaml";
-import { isSemanticPlainText } from "./markdown-document/semantic-plain-text";
+import { isSemanticPlainText } from "./markdown-document/semantic-plain-text.ts";
 
-export { isSemanticPlainText } from "./markdown-document/semantic-plain-text";
+export { isSemanticPlainText } from "./markdown-document/semantic-plain-text.ts";
 
 export type MarkdownDocument = Readonly<{
   kind: "markdown-document";

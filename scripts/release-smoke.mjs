@@ -25,6 +25,7 @@ import semver from "semver";
 import writeFileAtomic from "write-file-atomic";
 import { readReleaseTarGz } from "./release-archive.ts";
 import { readmeRelativeTargets } from "./release-boundary.ts";
+import { releaseCandidateId } from "./release-identity.ts";
 
 const PACKAGE_NAME = "@lagrangee/bearing";
 const SUPPORTED_LANES = Object.freeze({ node24: 24, node26: 26 });
@@ -240,7 +241,7 @@ export const validateCandidateReceiptIdentity = async (
   }
   const receiptBytes = await readFile(receiptPath);
   const receipt = candidateObject(JSON.parse(receiptBytes.toString("utf8")), "Candidate receipt");
-  if (receipt.schemaVersion !== 1) throw new Error("Unsupported candidate receipt schema.");
+  if (receipt.schemaVersion !== 2) throw new Error("Unsupported candidate receipt schema.");
   if (receipt.packageName !== PACKAGE_NAME) throw new Error("Candidate receipt package name mismatch.");
   if (receipt.packageVersion !== packageVersion) {
     throw new Error("Candidate receipt package version does not match --version.");
@@ -251,6 +252,20 @@ export const validateCandidateReceiptIdentity = async (
   if (!/^[0-9a-f]{40}$/u.test(receipt.sourceCommit)) {
     throw new Error("Candidate receipt source commit is invalid.");
   }
+
+  const workflow = candidateObject(receipt.workflow, "Candidate receipt workflow");
+  const workflowName = candidateString(workflow.name, "Candidate receipt workflow name");
+  const workflowRunId = candidateString(workflow.runId, "Candidate receipt workflow run ID");
+  if (!/^[1-9][0-9]*$/u.test(workflowRunId)) {
+    throw new Error("Candidate receipt workflow run ID is invalid.");
+  }
+  if (!Number.isSafeInteger(workflow.runAttempt) || workflow.runAttempt <= 0) {
+    throw new Error("Candidate receipt workflow run attempt is invalid.");
+  }
+  const toolchain = candidateObject(receipt.toolchain, "Candidate receipt toolchain");
+  candidateString(toolchain.node, "Candidate receipt Node version");
+  candidateString(toolchain.bun, "Candidate receipt Bun version");
+  candidateString(toolchain.npm, "Candidate receipt npm version");
 
   const artifact = candidateObject(receipt.artifact, "Candidate receipt artifact");
   const artifactFile = candidateLeafName(artifact.file, "Candidate receipt artifact file");
@@ -264,6 +279,19 @@ export const validateCandidateReceiptIdentity = async (
     artifact.sha256,
     "Candidate receipt artifact digest",
   );
+  if (
+    receipt.candidateId !==
+    releaseCandidateId(
+      receipt.packageName,
+      receipt.packageVersion,
+      receipt.sourceCommit,
+      artifactSha256,
+      workflowRunId,
+      workflow.runAttempt,
+    )
+  ) {
+    throw new Error("Candidate receipt immutable identity mismatch.");
+  }
   const artifactPath = join(dirname(receiptPath), artifactFile);
   const artifactMetadata = await lstat(artifactPath);
   if (
@@ -319,9 +347,37 @@ export const validateCandidateReceiptIdentity = async (
   if (sha256(manifestBytes) !== manifestDigest) {
     throw new Error("Candidate receipt manifest digest mismatch.");
   }
+  const releaseNotesIdentity = candidateObject(
+    receipt.releaseNotes,
+    "Candidate receipt release notes",
+  );
+  const releaseNotesFile = candidateLeafName(
+    releaseNotesIdentity.file,
+    "Candidate receipt release notes file",
+  );
+  const releaseNotesDigest = candidateDigest(
+    releaseNotesIdentity.sha256,
+    "Candidate receipt release notes digest",
+  );
+  const releaseNotesPath = join(dirname(receiptPath), releaseNotesFile);
+  const releaseNotesMetadata = await lstat(releaseNotesPath);
+  if (
+    releaseNotesMetadata.isSymbolicLink() ||
+    !releaseNotesMetadata.isFile() ||
+    releaseNotesMetadata.nlink !== 1
+  ) {
+    throw new Error("Candidate release notes must be one single-link regular file.");
+  }
+  const releaseNotesBytes = await readFile(releaseNotesPath);
+  if (sha256(releaseNotesBytes) !== releaseNotesDigest) {
+    throw new Error("Candidate receipt release notes digest mismatch.");
+  }
+  if (releaseNotesBytes.toString("utf8").trim().length === 0) {
+    throw new Error("Candidate release notes must not be empty.");
+  }
   const manifest = parseCandidateJson(manifestBytes, "Candidate manifest");
   if (
-    manifest.schemaVersion !== 1 ||
+    manifest.schemaVersion !== 2 ||
     manifest.packageName !== PACKAGE_NAME ||
     manifest.packageVersion !== packageVersion ||
     manifest.sourceCommit !== sourceCommit ||
@@ -424,12 +480,15 @@ export const validateCandidateReceiptIdentity = async (
     sha256: sha256(receiptBytes),
     sourceCommit,
     packageVersion,
+    candidateId: receipt.candidateId,
+    workflow: Object.freeze({ name: workflowName, runId: workflowRunId, runAttempt: workflow.runAttempt }),
     artifact: Object.freeze({
       file: artifactFile,
       size: artifact.size,
       sha256: artifactSha256,
     }),
     manifest: Object.freeze({ file: manifestFile, sha256: manifestDigest, files: files.length }),
+    releaseNotes: Object.freeze({ file: releaseNotesFile, sha256: releaseNotesDigest }),
   });
 };
 

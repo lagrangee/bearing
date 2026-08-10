@@ -1,17 +1,20 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { valid as validSemver } from "semver";
 import { readReleaseTarGz } from "./release-archive";
 import { assertCanonicalPackageBoundary, assertPackagedReadmeTargets } from "./release-boundary";
 import { sha256Bytes, sha256File } from "./release-digest";
+import { assertExactReleaseCommit, releaseCandidateId } from "./release-identity";
 import { assertCandidateSourcesMatchCommit } from "./release-source-boundary";
 
 export { sha256Bytes, sha256File } from "./release-digest";
+export { releaseCandidateId } from "./release-identity";
 
-export const candidateSchemaVersion = 1;
+export const candidateSchemaVersion = 2;
 
 export type CandidateManifest = Readonly<{
-  schemaVersion: 1;
+  schemaVersion: 2;
   packageName: string;
   packageVersion: string;
   sourceCommit: string;
@@ -19,10 +22,13 @@ export type CandidateManifest = Readonly<{
 }>;
 
 export type CandidateReceipt = Readonly<{
-  schemaVersion: 1;
+  schemaVersion: 2;
   packageName: string;
   packageVersion: string;
   sourceCommit: string;
+  candidateId: string;
+  workflow: Readonly<{ name: string; runId: string; runAttempt: number }>;
+  toolchain: Readonly<{ node: string; bun: string; npm: string }>;
   artifact: Readonly<{
     file: string;
     size: number;
@@ -31,6 +37,7 @@ export type CandidateReceipt = Readonly<{
     npmShasum: string;
   }>;
   manifest: Readonly<{ file: string; sha256: string }>;
+  releaseNotes: Readonly<{ file: string; sha256: string }>;
 }>;
 
 const fail = (message: string): never => {
@@ -79,14 +86,51 @@ export const verifyReleaseCandidate = async (
     version?: string;
     sourceCommit?: string;
     repositoryRoot?: string;
+    workflowName?: string;
+    workflowRunId?: string;
+    workflowRunAttempt?: number;
   }> = {},
 ): Promise<CandidateReceipt> => {
   const receipt = await parseJson<CandidateReceipt>(receiptPath);
   if (receipt.schemaVersion !== candidateSchemaVersion)
     fail("unsupported candidate receipt schema");
   if (receipt.packageName !== "@lagrangee/bearing") fail("candidate package name mismatch");
-  if (receipt.packageVersion !== "0.1.0") fail("candidate package version must be 0.1.0");
-  if (!/^[a-f0-9]{40}$/u.test(receipt.sourceCommit)) fail("candidate source commit is invalid");
+  if (
+    validSemver(receipt.packageVersion) !== receipt.packageVersion ||
+    !receipt.packageVersion.startsWith("0.") ||
+    receipt.packageVersion.includes("-") ||
+    receipt.packageVersion.includes("+")
+  ) {
+    fail("candidate package version must be a stable 0.x semantic version");
+  }
+  assertExactReleaseCommit(receipt.sourceCommit, "candidate source commit");
+  if (
+    typeof receipt.workflow?.name !== "string" ||
+    receipt.workflow.name.length === 0 ||
+    !/^[1-9][0-9]*$/u.test(receipt.workflow.runId) ||
+    !Number.isSafeInteger(receipt.workflow.runAttempt) ||
+    receipt.workflow.runAttempt <= 0
+  ) {
+    fail("candidate workflow identity is invalid");
+  }
+  if (
+    (expected.workflowName !== undefined && receipt.workflow.name !== expected.workflowName) ||
+    (expected.workflowRunId !== undefined && receipt.workflow.runId !== expected.workflowRunId) ||
+    (expected.workflowRunAttempt !== undefined &&
+      receipt.workflow.runAttempt !== expected.workflowRunAttempt)
+  ) {
+    fail("candidate workflow identity did not match the expected run");
+  }
+  if (
+    typeof receipt.toolchain?.node !== "string" ||
+    receipt.toolchain.node.length === 0 ||
+    typeof receipt.toolchain.bun !== "string" ||
+    receipt.toolchain.bun.length === 0 ||
+    typeof receipt.toolchain.npm !== "string" ||
+    receipt.toolchain.npm.length === 0
+  ) {
+    fail("candidate toolchain identity is invalid");
+  }
   if (expected.version !== undefined && receipt.packageVersion !== expected.version) {
     fail(`candidate version ${receipt.packageVersion} did not match ${expected.version}`);
   }
@@ -96,16 +140,32 @@ export const verifyReleaseCandidate = async (
 
   assertLeafName(receipt.artifact.file, "candidate artifact");
   assertLeafName(receipt.manifest.file, "candidate manifest");
+  assertLeafName(receipt.releaseNotes.file, "candidate release notes");
   if (!receipt.artifact.file.endsWith(".tgz")) fail("candidate artifact must be a tgz file");
   if (!Number.isSafeInteger(receipt.artifact.size) || receipt.artifact.size <= 0) {
     fail("candidate artifact size is invalid");
   }
   assertSha256(receipt.artifact.sha256, "candidate artifact digest");
   assertSha256(receipt.manifest.sha256, "candidate manifest digest");
+  assertSha256(receipt.releaseNotes.sha256, "candidate release notes digest");
+  if (
+    receipt.candidateId !==
+    releaseCandidateId(
+      receipt.packageName,
+      receipt.packageVersion,
+      receipt.sourceCommit,
+      receipt.artifact.sha256,
+      receipt.workflow.runId,
+      receipt.workflow.runAttempt,
+    )
+  ) {
+    fail("candidate immutable identity mismatch");
+  }
 
   const candidateDirectory = dirname(receiptPath);
   const artifactPath = join(candidateDirectory, receipt.artifact.file);
   const manifestPath = join(candidateDirectory, receipt.manifest.file);
+  const releaseNotesPath = join(candidateDirectory, receipt.releaseNotes.file);
   const artifactBytes = await readFile(artifactPath);
   if (artifactBytes.byteLength !== receipt.artifact.size) fail("candidate artifact size mismatch");
   if (sha256Bytes(artifactBytes) !== receipt.artifact.sha256)
@@ -116,6 +176,13 @@ export const verifyReleaseCandidate = async (
   if (npmIntegrity !== receipt.artifact.npmIntegrity) fail("candidate npm integrity mismatch");
   if ((await sha256File(manifestPath)) !== receipt.manifest.sha256) {
     fail("candidate manifest digest mismatch");
+  }
+  const releaseNotes = await readFile(releaseNotesPath);
+  if (sha256Bytes(releaseNotes) !== receipt.releaseNotes.sha256) {
+    fail("candidate release notes digest mismatch");
+  }
+  if (releaseNotes.toString("utf8").trim().length === 0) {
+    fail("candidate release notes must not be empty");
   }
 
   const manifest = await parseJson<CandidateManifest>(manifestPath);

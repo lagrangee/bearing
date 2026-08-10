@@ -2,20 +2,83 @@ name: Prepare candidate artifact
 
 on:
   workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact 40-character main commit to freeze
+        required: true
+        type: string
+      version:
+        description: Final stable 0.x package version at the selected commit
+        required: true
+        type: string
 
 permissions:
+  actions: read
+  checks: read
   contents: read
 
+concurrency:
+  group: candidate-freeze-${{ inputs.source_commit }}
+  cancel-in-progress: false
+
 jobs:
+  eligibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      main_commit: ${{ steps.preflight.outputs.main_commit }}
+    steps:
+      - name: Validate exact immutable Candidate eligibility
+        id: preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+
+          MAIN_COMMIT="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')"
+          [[ "$MAIN_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          COMPARE_STATUS="$(gh api "repos/$GITHUB_REPOSITORY/compare/$SOURCE_COMMIT...$MAIN_COMMIT" --jq '.status')"
+          case "$COMPARE_STATUS" in
+            ahead|identical) ;;
+            *) echo "candidate source commit is not contained in main" >&2; exit 1 ;;
+          esac
+
+          EXISTING_COUNT="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=bearing-candidate-$SOURCE_COMMIT&per_page=1" --jq '.total_count')"
+          test "$EXISTING_COUNT" = "0"
+
+          CHECKS_PATH="$RUNNER_TEMP/candidate-check-runs.json"
+          gh api -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/commits/$SOURCE_COMMIT/check-runs?filter=latest&per_page=100" > "$CHECKS_PATH"
+          while IFS= read -r CONTEXT; do
+            MATCH_COUNT="$(jq --arg name "$CONTEXT" '[.check_runs[] | select(.name == $name and .app.id == 15368)] | length' "$CHECKS_PATH")"
+            SUCCESS_COUNT="$(jq --arg name "$CONTEXT" '[.check_runs[] | select(.name == $name and .app.id == 15368 and .status == "completed" and .conclusion == "success")] | length' "$CHECKS_PATH")"
+            test "$MATCH_COUNT" = "1"
+            test "$SUCCESS_COUNT" = "1"
+          done <<'CONTEXTS'
+          Source Quality
+          Safety
+          Runtime Compatibility (Node 24)
+          Runtime Compatibility (Node 26)
+          Browser Behavior
+          Package Proof
+          CONTEXTS
+          echo "main_commit=$MAIN_COMMIT" >> "$GITHUB_OUTPUT"
+
   candidate:
+    needs: eligibility
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.source_commit }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.15.0
           cache: npm
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -24,20 +87,42 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
-      - run: npm ci
-      - run: bun run public-source:check
-      - run: npm audit --audit-level=high
-      - run: bun run verify
-      - run: bun run license:check
-      - run: bun run package:check
-      - run: bun scripts/prepare-release-candidate.ts --out release-candidate
+      - name: Install frozen source dependencies
+        run: npm ci
+      - name: Revalidate exact Candidate eligibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAIN_COMMIT: ${{ needs.eligibility.outputs.main_commit }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          set -euo pipefail
+          CHECKS_PATH="$RUNNER_TEMP/candidate-check-runs.json"
+          gh api -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/commits/$SOURCE_COMMIT/check-runs?filter=latest&per_page=100" > "$CHECKS_PATH"
+          bun scripts/candidate-freeze.ts --repo-root "$GITHUB_WORKSPACE" --source-commit "$SOURCE_COMMIT" --main-commit "$MAIN_COMMIT" --checks "$CHECKS_PATH"
+      - name: Check public-source residue policy
+        run: bun run public-source:check
+      - name: Scan exact source revision
+        run: bun run gitleaks:revision
+      - name: Audit production dependencies
+        run: npm audit --audit-level=high
+      - name: Run aggregate source verification
+        run: bun run verify
+      - name: Validate dependency licenses
+        run: bun run license:check
+      - name: Validate public package boundary
+        run: bun run package:check
+      - name: Prepare frozen Candidate bundle
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: bun scripts/prepare-release-candidate.ts --out release-candidate --version "$EXPECTED_VERSION" --source-commit "$SOURCE_COMMIT"
       - name: Scan exact candidate tarball
         run: |
           CANDIDATE_ARTIFACT="$(node -e "const receipt=require('./release-candidate/candidate-receipt.json'); process.stdout.write(receipt.artifact.file)")"
           go run github.com/zricethezav/gitleaks/v8@v8.30.1 dir --redact --config .gitleaks.toml --no-banner --max-archive-depth=1 --max-decode-depth=2 "release-candidate/$CANDIDATE_ARTIFACT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: bearing-candidate-${{ github.sha }}
+          name: bearing-candidate-${{ inputs.source_commit }}
           path: release-candidate/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 14
