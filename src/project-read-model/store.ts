@@ -21,7 +21,7 @@ import {
   providerObservationSelectionFreshnessIsCoherent,
   providerObservationSelectionSchema,
 } from "../provider-evidence-contract";
-import { fingerprintProviderObservationSelection } from "../provider-evidence-selection";
+import { fingerprintProviderObservationSelection } from "../provider-evidence-fingerprint";
 import type { MattSkillsV1ProviderObservation } from "../providers/matt-skills-v1/capture";
 import { mattNativeRecords } from "../providers/matt-skills-v1/native-read-model";
 import {

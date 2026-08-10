@@ -584,48 +584,6 @@ const blockerReferences = (
   return [...new Set(references)];
 };
 
-const requiredEvidenceLocators = (
-  file: CapturedFile,
-  diagnostics: CaptureDiagnostic[],
-): readonly string[] => {
-  const locators = new Set<string>();
-  for (const title of ["Answer", "Evidence"]) {
-    const section = queryMarkdownSection(file.document, { title });
-    if (section.state !== "found") continue;
-    for (const link of queryMarkdownLinks(file.document, { within: section.value })) {
-      if (isExternalAnchorTarget(link.target) || link.target.startsWith("#")) {
-        continue;
-      }
-      const path = link.target.split("#")[0] ?? "";
-      if (path.length === 0) continue;
-      if (posix.isAbsolute(path)) {
-        diagnostics.push(
-          diagnostic(
-            "matt.local.evidence.unsafe",
-            "source",
-            file.locator,
-            `Required evidence link is not a safe repository-relative locator: ${link.target}.`,
-          ),
-        );
-        continue;
-      }
-      try {
-        locators.add(normalizeLocator(posix.join(posix.dirname(file.locator), path)));
-      } catch {
-        diagnostics.push(
-          diagnostic(
-            "matt.local.evidence.unsafe",
-            "source",
-            file.locator,
-            `Required evidence link is not a safe repository-relative locator: ${link.target}.`,
-          ),
-        );
-      }
-    }
-  }
-  return [...locators].sort(utf8Compare);
-};
-
 const normalizedShortReference = (value: string): string => {
   const numeric = Number.parseInt(value, 10);
   return Number.isSafeInteger(numeric) && numeric >= 0 ? String(numeric) : value;
@@ -1685,27 +1643,6 @@ const captureLocalScope = async (
     const file = await readTarget(locator, true);
     if (file !== undefined) issueFiles.push(file);
   }
-  const evidenceLocators = new Set<string>();
-  for (const file of issueFiles) {
-    for (const locator of requiredEvidenceLocators(file, diagnostics)) {
-      evidenceLocators.add(locator);
-    }
-  }
-  for (const locator of [...evidenceLocators].sort(utf8Compare)) {
-    if (capturedFiles.has(locator)) continue;
-    const evidence = await readTarget(locator, true);
-    if (evidence === undefined) {
-      diagnostics.push(
-        diagnostic(
-          "matt.local.evidence.unavailable",
-          "source",
-          locator,
-          "Required single-hop Local evidence could not be acquired safely.",
-        ),
-      );
-    }
-  }
-
   const decodedIssues: DecodedIssue[] = [];
   const byShortReference = new Map<string, DecodedIssue[]>();
   for (const file of issueFiles) {
@@ -1941,12 +1878,6 @@ const captureLocalScope = async (
   const unstableIssueLocators = new Set(
     issueFiles.filter((file) => unstableLocators.has(file.locator)).map((file) => file.locator),
   );
-  for (const file of issueFiles) {
-    const requiredEvidence = requiredEvidenceLocators(file, []);
-    if (requiredEvidence.some((locator) => unstableLocators.has(locator))) {
-      unstableIssueLocators.add(file.locator);
-    }
-  }
   const vocabularyUnstable = unstableLocators.has(triageLocator);
   const projection = retainTrustedLocalProjection({
     observed: observedProjection,

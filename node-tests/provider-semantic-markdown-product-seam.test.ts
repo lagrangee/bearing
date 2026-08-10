@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { realpath, rm } from "node:fs/promises";
+import { mkdir, realpath, rm } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createElement } from "react";
@@ -12,6 +12,11 @@ import { portalRowsToProjectData } from "../src/portal-ui/project-row-adapter";
 import { queryPortalProjectRows } from "../src/project-read-model/portal";
 import { captureProjectProviderScopes } from "../src/project-read-model/provider-operations";
 import { projectReadModelPath } from "../src/project-read-model/store";
+import type { MattProviderFactory } from "../src/provider-acquisition";
+import {
+  createLocalMarkdownMattProvider,
+  type LocalMarkdownCaptureEvent,
+} from "../src/providers/matt-skills-v1/local-markdown";
 import { mattProviderSemanticSections } from "../src/providers/matt-skills-v1/projection";
 import {
   createGitHubMattRepository,
@@ -41,6 +46,189 @@ const portalData = (rows: Awaited<ReturnType<typeof queryPortalProjectRows>>) =>
       ),
     }),
   );
+
+test("linked content stays authored through Local capture, Portal, and Project Find", async () => {
+  const root = await createValidBearingRepo();
+  try {
+    const issueLocator = ".scratch/work/issues/01-finish.md";
+    const evidenceDirectory = ".scratch/work/evidence";
+    const largeImageLocator = `${evidenceDirectory}/large.png`;
+    const binaryLocator = `${evidenceDirectory}/binary.bin`;
+    const missingLocator = `${evidenceDirectory}/missing.png`;
+    const directoryLocator = `${evidenceDirectory}/directory`;
+    const unsupportedLocator = `${evidenceDirectory}/unsupported.xyz`;
+    const linkedLocators = [
+      largeImageLocator,
+      binaryLocator,
+      missingLocator,
+      directoryLocator,
+      unsupportedLocator,
+    ];
+    await mkdir(`${root}/${directoryLocator}`, { recursive: true });
+    await writeFixture(root, largeImageLocator, Buffer.alloc(1024 * 1024 + 1));
+    await writeFixture(root, binaryLocator, Buffer.from([0xff]));
+    await writeFixture(root, unsupportedLocator, "unsupported bytes\n");
+    await writeFixture(
+      root,
+      issueLocator,
+      `# Finish
+
+Type: task
+
+Status: resolved
+
+## Question
+
+Can linked content remain authored only?
+
+## Answer
+
+Keep ![large image](../evidence/large.png), [binary target](../evidence/binary.bin),
+[missing target](../evidence/missing.png), [directory target](../evidence/directory),
+[unsupported target](../evidence/unsupported.xyz), [unsafe traversal](../../../../outside.md),
+![HTTP image](http://images.example/plan.png), and
+![HTTPS image](https://images.example/plan.png) as authored links.
+`,
+    );
+
+    const captureEvents: LocalMarkdownCaptureEvent[] = [];
+    const providerFactory: MattProviderFactory = (input) => {
+      assert.equal(input.driver, "local-markdown");
+      return createLocalMarkdownMattProvider({
+        repoRoot: input.repoRoot,
+        contractLocator: input.configuration.contractLocator,
+        capturedDocuments: input.capturedDocuments,
+        clock: () => new Date("2026-08-10T00:00:00.000Z"),
+        onCaptureEvent: (event) => {
+          captureEvents.push(event);
+        },
+      });
+    };
+    const capture = async () => {
+      const eventStart = captureEvents.length;
+      const result = await captureProjectProviderScopes(root, [".scratch/work"], {
+        now: () => "2026-08-10T00:00:00.000Z",
+        providerFactory,
+      });
+      const reads = captureEvents
+        .slice(eventStart)
+        .filter((event) => event.kind === "content-read")
+        .map((event) => event.locator);
+      assert.equal(result.outcome, "complete");
+      assert.equal(result.result.acquisitionCount, 1);
+      assert.equal(
+        linkedLocators.some((locator) => reads.includes(locator)),
+        false,
+      );
+      return result;
+    };
+
+    await capture();
+    const target = { kind: "native-subject" as const, id: issueLocator };
+    const firstRows = await queryPortalProjectRows(root, "lineage", target);
+    const firstSnapshot = portalData(firstRows);
+    if (firstSnapshot.section !== "lineage") {
+      throw new Error("Expected typed Local Portal lineage rows.");
+    }
+    const firstObservation = firstSnapshot.providerObservations.find(
+      (candidate) => candidate.binding.nativeScope === ".scratch/work",
+    );
+    if (
+      firstObservation === undefined ||
+      firstObservation.state !== "available" ||
+      firstObservation.projection.wayfinderTickets[0] === undefined
+    ) {
+      throw new Error("Expected one complete Local linked-content observation.");
+    }
+    const firstTruth = {
+      id: firstObservation.id,
+      sourceRevision: firstObservation.sourceRevision,
+      state: firstObservation.state,
+      freshness: firstObservation.freshness,
+      coverage: firstObservation.coverage,
+      completion: firstObservation.completion,
+      evidence: firstObservation.projection.wayfinderTickets[0].answer,
+    };
+
+    await writeFixture(root, largeImageLocator, Buffer.alloc(1024 * 1024 + 2, 1));
+    await rm(`${root}/${binaryLocator}`);
+    await writeFixture(root, missingLocator, "new linked bytes\n");
+    await writeFixture(root, unsupportedLocator, "changed linked bytes\n");
+    await capture();
+
+    const portalRoot = await realpath(root);
+    const service = createPortalProjectQueryService({
+      readCatalog: async () => ({
+        state: "ready",
+        entries: [
+          {
+            entryId: "bearing",
+            displayName: "Bearing",
+            repoRoot: portalRoot,
+            availability: "available",
+          },
+        ],
+      }),
+    });
+    const portalRead = await service.read("bearing", "lineage", target);
+    assert.equal(portalRead.kind, "ready");
+    if (portalRead.kind !== "ready") throw new Error("Expected a production Portal read.");
+    const secondSnapshot = portalRowsToProjectData(portalProjectRowsSchema.parse(portalRead.rows));
+    if (secondSnapshot.section !== "lineage") {
+      throw new Error("Expected typed Local Portal lineage rows.");
+    }
+    const secondObservation = secondSnapshot.providerObservations.find(
+      (candidate) => candidate.binding.nativeScope === ".scratch/work",
+    );
+    if (
+      secondObservation === undefined ||
+      secondObservation.state !== "available" ||
+      secondObservation.projection.wayfinderTickets[0] === undefined
+    ) {
+      throw new Error("Expected one stable Local linked-content observation.");
+    }
+    assert.deepEqual(
+      {
+        id: secondObservation.id,
+        sourceRevision: secondObservation.sourceRevision,
+        state: secondObservation.state,
+        freshness: secondObservation.freshness,
+        coverage: secondObservation.coverage,
+        completion: secondObservation.completion,
+        evidence: secondObservation.projection.wayfinderTickets[0].answer,
+      },
+      firstTruth,
+    );
+
+    const html = renderToStaticMarkup(
+      createElement(PlanningLineagePage, {
+        entryId: "bearing",
+        requested: { validity: "valid", value: target },
+        snapshot: secondSnapshot,
+        onInspect: () => {},
+        onNavigate: () => {},
+      }),
+    );
+    for (const text of [
+      "large image",
+      "binary target",
+      "missing target",
+      "directory target",
+      "unsupported target",
+      "unsafe traversal",
+      "HTTP image",
+      "HTTPS image",
+    ]) {
+      assert.match(html, new RegExp(text, "u"));
+    }
+    const find = await service.search("bearing", "binary target");
+    assert.equal(find.kind, "ready");
+    if (find.kind !== "ready") throw new Error("Expected a production Project Find read.");
+    assert.ok(find.find.results.some((result) => result.subject.id === issueLocator));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("Spec document structure survives capture, SQLite publication, typed query, and Portal markup", async () => {
   const root = await createValidBearingRepo();

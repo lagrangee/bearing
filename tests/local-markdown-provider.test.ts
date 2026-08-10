@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { lstat, mkdir, readdir, readFile, symlink, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   createLocalMarkdownMattProvider,
@@ -1048,10 +1048,26 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     );
   });
 
-  test("does not reread a failed target when canonical evidence also references it", async () => {
+  test("does not acquire linked content or let linked bytes change provider truth", async () => {
     const root = await writeReferenceRepository();
-    const invalidLocator = `${nativeScope}/issues/07-invalid.md`;
+    const evidenceDirectory = `${nativeScope}/evidence`;
+    const largeImageLocator = `${evidenceDirectory}/large.png`;
+    const binaryLocator = `${evidenceDirectory}/binary.bin`;
+    const missingLocator = `${evidenceDirectory}/missing.png`;
+    const directoryLocator = `${evidenceDirectory}/directory`;
+    const unsupportedLocator = `${evidenceDirectory}/unsupported.xyz`;
+    const linkedLocators = [
+      largeImageLocator,
+      binaryLocator,
+      missingLocator,
+      directoryLocator,
+      unsupportedLocator,
+    ];
     const researchLocator = `${nativeScope}/issues/01-research.md`;
+    await mkdir(join(root, directoryLocator), { recursive: true });
+    await writeFile(join(root, largeImageLocator), Buffer.alloc(1024 * 1024 + 1));
+    await writeFile(join(root, binaryLocator), Buffer.from([0xff]));
+    await writeFixture(root, unsupportedLocator, "unsupported bytes\n");
     await writeFixture(
       root,
       researchLocator,
@@ -1061,29 +1077,61 @@ describe("Local Markdown matt-skills/v1 capture", () => {
         type: "research",
         status: "resolved",
         question: "Which semantics are durable?",
-        answer: "See [invalid evidence](07-invalid.md).",
+        answer: `Keep ![large image](../evidence/large.png), [binary](../evidence/binary.bin),
+[missing](../evidence/missing.png), [directory](../evidence/directory),
+[unsupported](../evidence/unsupported.xyz), [unsafe](../../../../outside.md),
+and ![remote](https://images.example/plan.png) as authored links.`,
       })[1],
     );
-    await writeFile(join(root, invalidLocator), Buffer.from([0xff]));
-    const reads: string[] = [];
+    const captureWithReads = async () => {
+      const reads: string[] = [];
+      const result = await capture(root, {
+        onCaptureEvent: (event) => {
+          if (event.kind === "content-read") reads.push(event.locator);
+        },
+      });
+      return { result, reads };
+    };
 
-    const result = await capture(root, {
-      onCaptureEvent: (event) => {
-        if (event.kind === "content-read") reads.push(event.locator);
-      },
-    });
+    const { result: first, reads: firstReads } = await captureWithReads();
 
-    expect(reads.filter((locator) => locator === invalidLocator)).toHaveLength(1);
-    expect(result.state).toBe("partial");
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
-      expect.arrayContaining(["matt.local.input.encoding", "matt.local.evidence.unavailable"]),
+    expect(first.state).toBe("available");
+    expect(first.freshness.assessment).toBe("current");
+    expect(first.coverage.assessment).toBe("complete");
+    expect(first.diagnostics).toEqual([]);
+    expect(firstReads).toHaveLength(10);
+    expect(firstReads).not.toEqual(expect.arrayContaining(linkedLocators));
+    const answerMarkdown =
+      first.projection?.wayfinderTickets[0]?.answer.availability === "available"
+        ? first.projection.wayfinderTickets[0].answer.content.document[0]?.markdown
+        : undefined;
+    expect(answerMarkdown).toContain("![large image](../evidence/large.png)");
+    expect(answerMarkdown).toContain("![remote](https://images.example/plan.png)");
+    expect(first.projection?.wayfinderTickets[0]?.native.sourceAnchors).toEqual(
+      expect.arrayContaining([
+        { kind: "source", target: "../evidence/binary.bin" },
+        { kind: "source", target: "../../../../outside.md" },
+      ]),
     );
+
+    await writeFile(join(root, largeImageLocator), Buffer.alloc(1024 * 1024 + 2, 1));
+    await rm(join(root, binaryLocator));
+    await writeFixture(root, missingLocator, "new linked bytes\n");
+    await writeFixture(root, unsupportedLocator, "changed linked bytes\n");
+    const { result: second, reads: secondReads } = await captureWithReads();
+
+    expect(second.state).toBe("available");
+    expect(second.diagnostics).toEqual([]);
+    expect(secondReads).toHaveLength(10);
+    expect(secondReads).not.toEqual(expect.arrayContaining(linkedLocators));
+    expect(second.sourceRevision).toBe(first.sourceRevision);
+    expect(second.projection).toEqual(first.projection);
   });
 
-  test("does not fetch HTTP links or recurse through ordinary local links", async () => {
+  test("keeps links in ordinary authored sections without acquiring their targets", async () => {
     const root = await writeReferenceRepository();
-    await mkdir(join(root, nativeScope, "evidence"), { recursive: true });
-    await writeFixture(root, `${nativeScope}/evidence/ordinary.md`, "# Ordinary\n");
+    const ordinaryLocator = `${nativeScope}/evidence/ordinary.md`;
+    await writeFixture(root, ordinaryLocator, "# Ordinary\n");
     await writeFixture(
       root,
       `${nativeScope}/issues/06-incoming.md`,
@@ -1110,69 +1158,14 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     });
 
     expect(result.state).toBe("available");
-    expect(reads).not.toContain(`${nativeScope}/evidence/ordinary.md`);
+    expect(result.diagnostics).toEqual([]);
+    expect(reads).not.toContain(ordinaryLocator);
     expect(result.projection?.incomingIssues[0]?.native.sourceAnchors).toEqual(
       expect.arrayContaining([
         { kind: "source", target: "../evidence/ordinary.md" },
         { kind: "external", target: "http://127.0.0.1:1/nope" },
         { kind: "external", target: "mailto:owner@example.com" },
       ]),
-    );
-  });
-
-  test("reads canonical local evidence exactly one safe hop and fails closed when it breaks", async () => {
-    const root = await writeReferenceRepository();
-    await writeFixture(
-      root,
-      `${nativeScope}/evidence/answer.md`,
-      "# Answer evidence\n\nProof with [nested evidence](nested.md).\n",
-    );
-    await writeFixture(root, `${nativeScope}/evidence/nested.md`, "# Nested evidence\n");
-    const researchLocator = `${nativeScope}/issues/01-research.md`;
-    await writeFixture(
-      root,
-      researchLocator,
-      `${
-        wayfinder({
-          number: "01",
-          slug: "research",
-          type: "research",
-          status: "resolved",
-          question: "Which semantics are durable?",
-          answer: "See [proof](../evidence/answer.md).",
-        })[1]
-      }\n`,
-    );
-    const reads: string[] = [];
-
-    const result = await capture(root, {
-      onCaptureEvent: (event) => {
-        if (event.kind === "content-read") reads.push(event.locator);
-      },
-    });
-
-    expect(result.state).toBe("available");
-    expect(reads.filter((locator) => locator.endsWith("evidence/answer.md"))).toHaveLength(1);
-    expect(reads).not.toContain(`${nativeScope}/evidence/nested.md`);
-
-    await writeFixture(
-      root,
-      researchLocator,
-      `${
-        wayfinder({
-          number: "01",
-          slug: "research",
-          type: "research",
-          status: "resolved",
-          question: "Which semantics are durable?",
-          answer: "See [missing proof](../evidence/missing.md).",
-        })[1]
-      }\n`,
-    );
-    const broken = await capture(root);
-    expect(broken.state).toBe("partial");
-    expect(broken.diagnostics.map((item) => item.code)).toContain(
-      "matt.local.evidence.unavailable",
     );
   });
 
