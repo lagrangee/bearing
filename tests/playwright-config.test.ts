@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { browserOutputContract } from "../browser-tests/browser-artifact-output";
-import portalContractConfig from "../browser-tests/portal-contract.playwright.config";
 import config from "../playwright.config";
 
 test("ordinary Bun test files do not launch Playwright browsers", async () => {
@@ -27,14 +27,20 @@ test("every broad browser suite excludes specs with a dedicated Host contract", 
     "packaged-catalog.spec.ts",
     "project-isolation-real-host.spec.ts",
     "project-preview-real-host.spec.ts",
-    "portal-reference-fidelity.spec.ts",
     "safe-markdown-reading-candidate.spec.ts",
   ];
 
   expect(config.testIgnore).toEqual(dedicatedHostSpecs);
-  for (const spec of dedicatedHostSpecs) {
-    expect(portalContractConfig.testIgnore).toContain(spec);
-  }
+  expect(
+    dedicatedHostSpecs.every((spec) =>
+      existsSync(join(import.meta.dir, "..", "browser-tests", spec)),
+    ),
+  ).toBe(true);
+  expect(
+    existsSync(
+      join(import.meta.dir, "..", "browser-tests", "portal-contract.playwright.config.ts"),
+    ),
+  ).toBe(false);
 });
 
 test("the root browser suite writes ordinary artifacts to disposable test output", () => {

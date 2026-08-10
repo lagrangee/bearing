@@ -1,7 +1,6 @@
 name: CI
 
 on:
-  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -10,60 +9,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: required-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  secrets:
-    name: Secret boundaries
+  source-quality:
+    name: Source Quality
     runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.8
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26.5'
-          cache: false
-      - run: bun run public-source:check
-      - name: Scan exact revision
-        run: bun run gitleaks:revision
-      - name: Scan pull request range
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --config .gitleaks.toml --no-banner --log-opts="$BASE_SHA..$HEAD_SHA" .
-
-  verify:
-    name: Node ${{ matrix.node-version }}
-    runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [24.15.0, 26]
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.8
-      - run: npm ci
-      - run: bun run typecheck
-      - run: bun run check
-      - run: npm audit --audit-level=high
-      - run: bun run verify
-      - name: Execute built CLI with Node ${{ matrix.node-version }}
-        run: node dist/cli.js --version
-      - run: bun run license:check
-      - run: bun run package:check
-
-  browser:
-    name: Browser smoke
-    runs-on: macos-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -73,8 +27,155 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.8
-      - run: npm ci
+      - name: Install source-quality dependencies
+        run: npm ci
+      - name: Run canonical aggregate repository verification
+        run: bun run verify
+
+  safety:
+    name: Safety
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.15.0
+          cache: npm
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.8
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Install audited dependencies
+        run: npm ci
+      - name: Check public-source residue policy
+        run: bun run public-source:check
+      - name: Scan exact revision
+        run: bun run gitleaks:revision
+      - name: Scan pull request range
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --config .gitleaks.toml --no-banner --log-opts="$BASE_SHA..$HEAD_SHA" .
+      - name: Audit production dependencies
+        run: npm audit --audit-level=high
+      - name: Build bundle metadata for license validation
+        run: bun run build
+      - name: Validate dependency licenses
+        run: bun run license:check
+
+  runtime-node-24:
+    name: Runtime Compatibility (Node 24)
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.15.0
+          cache: npm
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.8
+      - name: Install Node 24 compatibility dependencies
+        run: npm ci
+      - name: Build public CLI for runtime execution
+        run: bun run build
+      - name: Execute built public CLI with Node 24
+        run: node dist/cli.js --version
+
+  runtime-node-26:
+    name: Runtime Compatibility (Node 26)
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 26
+          cache: npm
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.8
+      - name: Install Node 26 compatibility dependencies
+        run: npm ci
+      - name: Build public CLI for runtime execution
+        run: bun run build
+      - name: Execute built public CLI with Node 26
+        run: node dist/cli.js --version
+
+  browser-behavior:
+    name: Browser Behavior
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.15.0
+          cache: npm
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.8
+      - name: Install browser dependencies
+        run: npm ci
       - run: npx playwright install chromium
       - run: bun run test:browser
       - run: npx playwright test --config browser-tests/packed-portal.playwright.config.ts
       - run: npx playwright test --config browser-tests/portal-isolation.playwright.config.ts
+      - name: Upload browser failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |-
+            test-results/playwright/
+            test-results/playwright-packed-portal/
+            test-results/playwright-portal-isolation/
+          if-no-files-found: warn
+          retention-days: 7
+
+  package-proof:
+    name: Package Proof
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.15.0
+          cache: npm
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.8
+      - name: Install package-proof dependencies
+        run: npm ci
+      - name: Build deterministic package inputs
+        run: bun run build
+      - name: Validate public package boundary
+        run: bun run package:check
+      - name: Prepare, install, and execute disposable package
+        run: |
+          set -euo pipefail
+          PROOF_ROOT="$(mktemp -d "$RUNNER_TEMP/bearing-package-proof.XXXXXX")"
+          PACK_A="$PROOF_ROOT/pack-a"
+          PACK_B="$PROOF_ROOT/pack-b"
+          INSTALL_ROOT="$PROOF_ROOT/install"
+          mkdir "$PACK_A" "$PACK_B" "$INSTALL_ROOT"
+          EXPECTED_VERSION="$(node -p "require('./package.json').version")"
+          npm pack --json --ignore-scripts --pack-destination "$PACK_A" > "$PROOF_ROOT/pack-a.json"
+          npm pack --json --ignore-scripts --pack-destination "$PACK_B" > "$PROOF_ROOT/pack-b.json"
+          TARBALL="$(node -e 'const [packed] = require(process.argv[1]); process.stdout.write(packed.filename)' "$PROOF_ROOT/pack-a.json")"
+          SECOND_TARBALL="$(node -e 'const [packed] = require(process.argv[1]); process.stdout.write(packed.filename)' "$PROOF_ROOT/pack-b.json")"
+          test "$TARBALL" = "$SECOND_TARBALL"
+          cmp "$PACK_A/$TARBALL" "$PACK_B/$TARBALL"
+          cd "$INSTALL_ROOT"
+          npm init --yes >/dev/null
+          npm install --ignore-scripts --no-audit --no-fund --save-exact "$PACK_A/$TARBALL"
+          test "$(./node_modules/.bin/bearing --version)" = "$EXPECTED_VERSION"
