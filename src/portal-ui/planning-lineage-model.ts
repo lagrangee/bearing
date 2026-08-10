@@ -412,7 +412,7 @@ export type PlanningLineageStatusToken =
 export type PlanningLineageStatusTag = Readonly<{
   token: PlanningLineageStatusToken;
   label: string;
-  tone: "neutral" | "active" | "positive" | "warning" | "muted";
+  tone: "neutral" | "current" | "active" | "positive" | "completed" | "warning" | "muted";
   tooltip: string;
   diagnostic?:
     | Readonly<{
@@ -856,7 +856,7 @@ const gateSections = (
 const STATUS_TAGS = {
   "position-current": {
     label: "Current",
-    tone: "neutral",
+    tone: "current",
     tooltip: "This is the Roadmap’s current Milestone Gate.",
   },
   "lifecycle-planned": {
@@ -876,7 +876,7 @@ const STATUS_TAGS = {
   },
   "lifecycle-completed": {
     label: "Completed",
-    tone: "muted",
+    tone: "completed",
     tooltip: "This lifecycle is completed.",
   },
   "lifecycle-superseded": {

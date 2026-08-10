@@ -1234,7 +1234,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     const successClick = loadSource.click();
     await expect(page.getByRole("button", { name: "Refreshing source" })).toBeDisabled();
     await successClick;
-    await expect(page.locator(".provider-observation-status")).toContainText("1 source checked");
+    await expect(page.getByRole("status")).toContainText("1 source checked");
     await expect(loadSource).toBeFocused();
     expect(providerBodies.at(-1)).toEqual({
       version: 1,
@@ -1256,7 +1256,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(page.getByText("Last verified", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Refresh source" }).click();
     await expect(page.getByText("Latest refresh failed", { exact: false })).toBeVisible();
-    await expect(page.locator(".provider-observation-status")).toContainText(
+    await expect(page.locator(".source-observation-feedback")).toContainText(
       "provider network was unavailable",
     );
     await expect(page.getByRole("button", { name: "Refresh source" })).toBeFocused();

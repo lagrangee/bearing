@@ -123,6 +123,16 @@ code {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
+.action-attention {
+  color: color-mix(in oklch, var(--warning) 72%, var(--ink));
+  background: var(--warning-wash);
+  border-color: color-mix(in oklch, var(--warning) 70%, var(--border));
+}
+.action-attention:hover {
+  color: color-mix(in oklch, var(--warning) 60%, var(--ink));
+  background: color-mix(in oklch, var(--warning) 12%, var(--white));
+  border-color: var(--warning);
+}
 
 .status-mark {
   display: inline-flex;

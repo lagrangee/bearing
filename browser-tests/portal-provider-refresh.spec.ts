@@ -100,10 +100,9 @@ test("provider observation actions are explicit, costed, contextual, and accessi
   await page.getByRole("button", { name: "Refresh all sources" }).click();
   holdAllSources = true;
   await dialog.getByRole("button", { name: "Confirm refresh all sources" }).click();
-  await expect(page.getByRole("status")).toContainText("Refreshing source");
-  await expect(page.getByRole("status")).toBeFocused();
+  await expect(page.getByRole("status")).toContainText("Refreshing sources");
+  await expect(page.getByRole("button", { name: "Refresh all sources" })).toBeDisabled();
   releaseAllSources?.();
-  await expect(page.getByRole("status")).toContainText("Source status");
   await expect(page.getByRole("status")).toContainText("2 sources checked");
   await expect(page.getByRole("button", { name: "Refresh all sources" })).toBeFocused();
   expect(posts).toEqual([
@@ -154,7 +153,7 @@ test("provider observation actions are explicit, costed, contextual, and accessi
 
   failure = true;
   await page.getByRole("button", { name: "Refresh source" }).click();
-  const attention = page.getByRole("status");
+  const attention = page.locator(".source-observation-feedback");
   await expect(attention).toContainText("provider network was unavailable");
   await expect(attention.locator('time[datetime="2026-07-28T00:00:00.000Z"]')).toBeVisible();
   await expect(
@@ -241,8 +240,8 @@ test("settled structural Provider Application states suppress every repeat obser
       page.getByRole("heading", { name: "Web Portal Validation", level: 1 }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Refresh source" }).click();
-    await expect(page.locator(".provider-observation-status")).toContainText(reference);
-    await expect(page.locator(".provider-observation-status")).toBeFocused();
+    await expect(page.locator(".source-observation-feedback")).toContainText(reference);
+    await expect(page.locator(".source-observation-feedback")).toBeFocused();
     await expect(page.getByRole("button", { name: "Copy diagnostic reference" })).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Refresh source|Refresh all sources/u }),
@@ -252,6 +251,7 @@ test("settled structural Provider Application states suppress every repeat obser
 
     await page.getByRole("link", { name: "Overview", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+    await expect(page.locator(".source-observation-feedback")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Refresh all sources" })).toHaveCount(0);
     expect(posts).toBe(1);
     await page.unroute(`**/api/v1/projects/${entryId}/read-model?section=*`);

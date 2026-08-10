@@ -67,32 +67,50 @@
   display: inline-flex;
   min-height: var(--control-size);
   align-items: center;
-  padding: 0 var(--space-2);
-  color: var(--muted);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  padding: 2px 0;
+  background: transparent;
+  border: 0;
   font-weight: 600;
   font-family: inherit;
   font-size: inherit;
   cursor: help;
 }
-.lineage-status-tag[data-status-tone="active"] {
+.lineage-status-pill {
+  display: inline-flex;
+  min-height: var(--control-compact);
+  align-items: center;
+  padding: 0 var(--space-2);
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.lineage-status-tag[data-status-tone="current"] .lineage-status-pill {
+  color: var(--white);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.lineage-status-tag[data-status-tone="active"] .lineage-status-pill {
   color: var(--info);
   background: var(--info-wash);
   border-color: color-mix(in oklch, var(--info) 36%, var(--border));
 }
-.lineage-status-tag[data-status-tone="positive"] {
+.lineage-status-tag[data-status-tone="positive"] .lineage-status-pill {
   color: color-mix(in oklch, var(--success) 76%, var(--ink));
   background: color-mix(in oklch, var(--success) 10%, var(--white));
   border-color: color-mix(in oklch, var(--success) 32%, var(--border));
 }
-.lineage-status-tag[data-status-tone="warning"] {
+.lineage-status-tag[data-status-tone="completed"] .lineage-status-pill {
+  color: var(--white);
+  background: color-mix(in oklch, var(--success) 74%, var(--ink));
+  border-color: color-mix(in oklch, var(--success) 74%, var(--ink));
+}
+.lineage-status-tag[data-status-tone="warning"] .lineage-status-pill {
   color: color-mix(in oklch, var(--warning) 76%, var(--ink));
   background: color-mix(in oklch, var(--warning) 10%, var(--white));
   border-color: color-mix(in oklch, var(--warning) 34%, var(--border));
 }
-.lineage-status-tag[data-status-tone="muted"] {
+.lineage-status-tag[data-status-tone="muted"] .lineage-status-pill {
   color: var(--muted);
   background: var(--canvas);
 }
@@ -204,6 +222,19 @@
 }
 .source-observation-action dt::after {
   content: ": ";
+}
+.source-observation-feedback {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding-top: var(--space-3);
+  color: color-mix(in oklch, var(--warning) 72%, var(--ink));
+  border-top: 1px solid color-mix(in oklch, var(--warning) 45%, var(--border));
+}
+.source-observation-feedback .provider-observation-time {
+  color: inherit;
 }
 .effort-observation-recovery {
   display: flex;
@@ -875,7 +906,7 @@
 }
 .lineage-event-history {
   max-width: 850px;
-  margin-top: var(--space-9);
+  margin-top: var(--space-8);
   padding: var(--space-7) 0;
   border-top: 1px solid var(--border);
   scroll-margin-top: calc(var(--topbar) + var(--space-5));

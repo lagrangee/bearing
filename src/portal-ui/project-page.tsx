@@ -62,6 +62,7 @@ export function ProjectPage({
   const technicalDetailsHistoryTokenRef = useRef<string | null>(null);
   const technicalDetailsScrollRef = useRef(0);
   const providerActionTriggerRef = useRef<HTMLElement | null>(null);
+  const providerActionRouteRef = useRef<string | null>(null);
   const providerStatusRef = useRef<HTMLDivElement>(null);
   const projectReadAttentionRef = useRef<HTMLDivElement>(null);
   const priorProviderStateRef = useRef(activation.providerApplication.state);
@@ -111,6 +112,7 @@ export function ProjectPage({
     returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null,
   ) => {
     providerActionTriggerRef.current = returnFocus;
+    providerActionRouteRef.current = routeIdentity;
     activation.applyProviderObservation(request);
   };
   const observeCurrentSource = () => {
@@ -136,6 +138,18 @@ export function ProjectPage({
   };
   const routeIdentity =
     section === "lineage" ? JSON.stringify({ subject, filteredView, semanticAnchor }) : section;
+  const providerAction =
+    activation.providerApplication.state === "idle"
+      ? undefined
+      : activation.providerApplication.state === "running"
+        ? activation.providerApplication.action
+        : activation.providerApplication.result.action;
+  const sourceProviderApplication =
+    providerAction !== undefined &&
+    providerAction !== "all-sources-refresh" &&
+    providerActionRouteRef.current === routeIdentity
+      ? activation.providerApplication
+      : undefined;
   const technicalDetailsContext = {
     entryId,
     routeIdentity: section === "lineage" ? routeIdentity : undefined,
@@ -223,22 +237,16 @@ export function ProjectPage({
     const priorState = priorProviderStateRef.current;
     const nextState = activation.providerApplication.state;
     priorProviderStateRef.current = nextState;
-    if (nextState === "running") {
-      providerStatusRef.current?.focus();
-      return;
-    }
+    if (nextState === "running") return;
     if (priorState !== "running" || nextState !== "settled") return;
     const trigger = providerActionTriggerRef.current;
-    if (
-      !structuralAttention &&
-      trigger?.isConnected === true &&
-      !(trigger instanceof HTMLButtonElement && trigger.disabled)
-    ) {
+    const result = activation.providerApplication.result;
+    if (result.state !== "attention" && trigger?.isConnected === true) {
       trigger.focus();
       return;
     }
     providerStatusRef.current?.focus();
-  }, [activation.providerApplication.state, structuralAttention]);
+  }, [activation.providerApplication]);
 
   useEffect(() => {
     const priorFailure = priorReadFailureRef.current;
@@ -323,11 +331,20 @@ export function ProjectPage({
             title="Native detail is not in the current source"
             detail="Refresh only this exact source. This does not inspect other Work Bindings."
             action={
-              structuralAttention ? undefined : (
-                <Action disabled={providerBusy} onClick={observeCurrentSource}>
-                  Refresh source
-                </Action>
-              )
+              <>
+                {structuralAttention ? null : (
+                  <Action disabled={providerBusy} onClick={observeCurrentSource}>
+                    Refresh source
+                  </Action>
+                )}
+                {sourceProviderApplication === undefined ? null : (
+                  <ProviderObservationStatus
+                    application={sourceProviderApplication}
+                    placement="source"
+                    statusRef={providerStatusRef}
+                  />
+                )}
+              </>
             }
           />
         </div>
@@ -342,6 +359,8 @@ export function ProjectPage({
           snapshot={snapshot}
           observationBusy={providerBusy}
           observationObservedAt={nativeObservation?.observedAt}
+          observationApplication={sourceProviderApplication}
+          observationStatusRef={providerStatusRef}
           {...(providerBinding === undefined || structuralAttention
             ? {}
             : {
@@ -440,6 +459,7 @@ export function ProjectPage({
       >
         <ProviderObservationStatus
           application={activation.providerApplication}
+          placement="project"
           statusRef={providerStatusRef}
         />
         {snapshot === undefined || activation.readFailure === undefined ? null : (

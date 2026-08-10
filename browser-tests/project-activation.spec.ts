@@ -263,7 +263,7 @@ test("an explicit Provider Application survives same-project navigation and re-r
     .getByRole("dialog", { name: "Refresh all sources" })
     .getByRole("button", { name: "Confirm refresh all sources" })
     .click();
-  await expect(page.getByRole("status")).toContainText("Refreshing source");
+  await expect(page.getByRole("status")).toContainText("Refreshing sources");
   await page.getByRole("link", { name: "Assets", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Assets", level: 1 })).toBeVisible();
 

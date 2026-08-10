@@ -1,4 +1,4 @@
-import { type MouseEvent, useEffect, useId } from "react";
+import { type MouseEvent, type RefObject, useEffect, useId } from "react";
 import type {
   RequestedPlanningLineageFilteredView,
   RequestedPlanningLineageSubject,
@@ -34,6 +34,10 @@ import {
 import { Action } from "./primitives";
 import { projectCanvasFocusKey } from "./project-canvas-history";
 import type { LineageModelData } from "./project-data";
+import {
+  type ProviderObservationApplication,
+  ProviderObservationStatus,
+} from "./provider-observation-status";
 import { ProviderObservationTime } from "./provider-observation-time";
 import { ReadDisclosure } from "./read-disclosure";
 import { SanitizedMarkdownContent } from "./sanitized-markdown";
@@ -58,7 +62,7 @@ function HeaderStatusTag({ status }: { readonly status: PlanningLineageStatusTag
           : { "data-diagnostic-code": status.diagnostic.code })}
         type="button"
       >
-        {status.label}
+        <span className="lineage-status-pill">{status.label}</span>
       </button>
       <span className="sr-only" id={descriptionId}>
         {status.tooltip}
@@ -289,10 +293,10 @@ function EffortRollupTable({
             <td data-label="Lifecycle">
               {row.lifecycle === undefined ? "Unavailable" : humanizeWorkState(row.lifecycle)}
             </td>
-            <td data-label="Claimed">{workRegionCountLabel(row.counts.claimed)}</td>
-            <td data-label="Ready">{workRegionCountLabel(row.counts.ready)}</td>
-            <td data-label="Blocked">{workRegionCountLabel(row.counts.blocked)}</td>
-            <td data-label="Resolved">{workRegionCountLabel(row.counts.resolved)}</td>
+            <td data-label="Claimed">{workRegionTableCountLabel(row.counts.claimed)}</td>
+            <td data-label="Ready">{workRegionTableCountLabel(row.counts.ready)}</td>
+            <td data-label="Blocked">{workRegionTableCountLabel(row.counts.blocked)}</td>
+            <td data-label="Resolved">{workRegionTableCountLabel(row.counts.resolved)}</td>
             <td data-label="Lifecycle time">
               {row.lifecycleTime?.time.availability === "available" ? (
                 <PlanningLineageTimeValue
@@ -926,6 +930,9 @@ const workRegionCountLabel = (count: MattNativeWorkRegionCount): string => {
   return count.mode === "exact" ? String(count.value) : `At least ${count.value}`;
 };
 
+const workRegionTableCountLabel = (count: MattNativeWorkRegionCount): string =>
+  count.mode === "unavailable" ? "Unavailable" : workRegionCountLabel(count);
+
 const workRegionSubjectHref = (entryId: string, reference: string, anchor?: string): string =>
   planningLineageSubjectHref(entryId, { kind: "native-subject", id: reference }, anchor);
 
@@ -1434,8 +1441,10 @@ export function PlanningLineagePage({
   onInspect,
   onNavigate,
   observationActionLabel,
+  observationApplication,
   observationBusy,
   observationObservedAt,
+  observationStatusRef,
   onObserveSource,
   requested,
   semanticAnchor,
@@ -1446,8 +1455,10 @@ export function PlanningLineagePage({
   readonly onInspect: Inspect;
   readonly onNavigate: Navigate;
   readonly observationActionLabel?: "Refresh source" | undefined;
+  readonly observationApplication?: ProviderObservationApplication | undefined;
   readonly observationBusy?: boolean | undefined;
   readonly observationObservedAt?: string | undefined;
+  readonly observationStatusRef?: RefObject<HTMLDivElement | null> | undefined;
   readonly onObserveSource?: (() => void) | undefined;
   readonly requested: RequestedPlanningLineageSubject;
   readonly semanticAnchor?: string | undefined;
@@ -1538,6 +1549,10 @@ export function PlanningLineagePage({
   }
   const ownerHref = planningLineageSubjectHref(entryId, requested.value);
   const effortObservation = model.effortLens?.managedWorkObservation;
+  const sourceAttention =
+    observationApplication?.state === "settled" &&
+    observationApplication.result.state === "attention" &&
+    observationApplication.result.action !== "all-sources-refresh";
   const observedAt = (() => {
     if (observationObservedAt !== undefined) return observationObservedAt;
     const workObservation = model.workRegion?.readingState.observation.observedAt;
@@ -1689,7 +1704,8 @@ export function PlanningLineagePage({
           </button>
         </div>
       </header>
-      {onObserveSource === undefined || observationActionLabel === undefined ? null : (
+      {(onObserveSource === undefined || observationActionLabel === undefined) &&
+      !sourceAttention ? null : (
         <div className="source-observation-action">
           <div>
             <strong>Source status</strong>
@@ -1706,10 +1722,27 @@ export function PlanningLineagePage({
               </div>
             </dl>
           </div>
-          <Action disabled={observationBusy} onClick={onObserveSource}>
-            <Icons.refresh className={observationBusy ? "is-spinning" : ""} />
-            {observationBusy ? "Refreshing source" : observationActionLabel}
-          </Action>
+          {onObserveSource === undefined || observationActionLabel === undefined ? null : (
+            <Action
+              disabled={observationBusy}
+              onClick={onObserveSource}
+              tone={
+                sourceAttention || model.effortLens?.managedWorkHealth === "Needs attention"
+                  ? "attention"
+                  : "quiet"
+              }
+            >
+              <Icons.refresh className={observationBusy ? "is-spinning" : ""} />
+              {observationBusy ? "Refreshing source" : observationActionLabel}
+            </Action>
+          )}
+          {observationApplication === undefined || observationStatusRef === undefined ? null : (
+            <ProviderObservationStatus
+              application={observationApplication}
+              placement="source"
+              statusRef={observationStatusRef}
+            />
+          )}
         </div>
       )}
       {effortObservation === undefined ? null : (

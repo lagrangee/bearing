@@ -4,7 +4,7 @@ import { assertNever } from "./assert-never";
 import { Icons } from "./icons";
 
 type ActionProps = PropsWithChildren<
-  ButtonHTMLAttributes<HTMLButtonElement> & { readonly tone?: "primary" | "quiet" }
+  ButtonHTMLAttributes<HTMLButtonElement> & { readonly tone?: "attention" | "primary" | "quiet" }
 >;
 
 export const Action = forwardRef<HTMLButtonElement, ActionProps>(function Action(

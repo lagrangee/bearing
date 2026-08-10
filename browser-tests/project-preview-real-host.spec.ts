@@ -678,6 +678,14 @@ test("compact Portal facts, statuses, Asset routes, and Work partitions hold on 
   await roadmapStatuses.focus();
   await expect(roadmapStatuses).toBeFocused();
   await expect(roadmapStatuses).toHaveAttribute("data-tooltip", "This lifecycle is active.");
+  expect(await roadmapStatuses.evaluate((status) => status.getBoundingClientRect().height)).toBe(
+    40,
+  );
+  expect(
+    await roadmapStatuses
+      .locator(".lineage-status-pill")
+      .evaluate((pill) => pill.getBoundingClientRect().height),
+  ).toBe(36);
 
   await page.goto(
     `${host.url}${planningLineageSubjectHref("g3-preview", {
@@ -688,6 +696,9 @@ test("compact Portal facts, statuses, Asset routes, and Work partitions hold on 
   await expect(
     page.locator('.lineage-status-tag[data-status-token="position-current"]'),
   ).toHaveText("Current");
+  await expect(
+    page.locator('.lineage-status-tag[data-status-token="position-current"]'),
+  ).toHaveAttribute("data-status-tone", "current");
   await expect(
     page.locator('.lineage-status-tag[data-status-token="lifecycle-active"]'),
   ).toHaveText("Active");
@@ -703,6 +714,23 @@ test("compact Portal facts, statuses, Asset routes, and Work partitions hold on 
   await expect(compactSourceTime).toHaveAttribute("data-absolute", /.+/u);
   await compactSourceTime.focus();
   await expect(compactSourceTime).toBeFocused();
+
+  await page.goto(
+    `${host.url}${planningLineageSubjectHref("g3-preview", {
+      kind: "native-subject",
+      id: ".scratch/work/issues/01-verify-isolation.md",
+    })}`,
+  );
+  const sourceAction = page.locator(".source-observation-action");
+  const eventHistory = page.locator(".lineage-event-history");
+  await expect(sourceAction).toBeVisible();
+  await expect(eventHistory).toBeVisible();
+  const sourceHistoryGap = await sourceAction.evaluate((source, historySelector) => {
+    const history = document.querySelector(historySelector);
+    if (!(history instanceof HTMLElement)) return -1;
+    return history.getBoundingClientRect().top - source.getBoundingClientRect().bottom;
+  }, ".lineage-event-history");
+  expect(sourceHistoryGap).toBeGreaterThanOrEqual(32);
 
   const effortHref = planningLineageSubjectHref("g3-preview", {
     kind: "effort",
@@ -877,4 +905,37 @@ test("prototype stays semantic-only while an ordinary HTML document keeps inert 
     "/projects/g3-preview/lineage/asset/asset%3Ag3-unsupported",
   );
   await unavailablePage.close();
+});
+
+test("explicit source refresh keeps routine feedback at the source action", async ({ page }) => {
+  if (host === undefined) throw new Error("Ticket 29 follow-up real Host did not start.");
+  const providerBodies: unknown[] = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/provider-observation")) {
+      providerBodies.push(request.postDataJSON());
+    }
+  });
+  await page.goto(
+    `${host.url}${planningLineageSubjectHref("g3-preview", {
+      kind: "effort",
+      id: "effort:fixture",
+    })}`,
+  );
+
+  const sourceAction = page.locator(".source-observation-action");
+  const refresh = sourceAction.getByRole("button", { name: "Refresh source" });
+  await expect(refresh).toBeVisible();
+  await refresh.click();
+  await expect(sourceAction.getByRole("button", { name: "Refreshing source" })).toBeDisabled();
+  await expect(page.getByRole("status")).toContainText("1 source checked");
+  await expect(page.locator(".provider-observation-status")).toHaveCount(0);
+  await expect(refresh).toBeFocused();
+  expect(providerBodies).toEqual([
+    {
+      version: 1,
+      action: "source-load",
+      binding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
+    },
+  ]);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });

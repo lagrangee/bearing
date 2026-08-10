@@ -112,6 +112,17 @@ test("fails closed with a diagnostic for an unknown status token", () => {
   ]);
 });
 
+test("keeps position and completed lifecycle statuses visually distinct", () => {
+  expect(resolvePlanningLineageStatusTag("position-current")).toMatchObject({
+    label: "Current",
+    tone: "current",
+  });
+  expect(resolvePlanningLineageStatusTag("lifecycle-completed")).toMatchObject({
+    label: "Completed",
+    tone: "completed",
+  });
+});
+
 const effortRollupFor = (section: PlanningLineageSection | undefined) =>
   section?.content.find((content) => content.kind === "effort-rollup")?.rows;
 

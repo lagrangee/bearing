@@ -10,7 +10,10 @@ import type {
 } from "../src/planning-lineage-route";
 import { renderProviderMarkdownSections } from "../src/portal/markdown-engine";
 import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
-import { ProviderObservationStatus } from "../src/portal-ui/provider-observation-status";
+import {
+  type ProviderObservationApplication,
+  ProviderObservationStatus,
+} from "../src/portal-ui/provider-observation-status";
 import { ProviderObservationTime } from "../src/portal-ui/provider-observation-time";
 import type { ProjectGeneration } from "../src/project-generation/contract";
 import { authoritySchema, effortSchema } from "../src/project-generation/schema";
@@ -53,6 +56,7 @@ const render = (
     semanticAnchor?: string;
     filteredView?: RequestedPlanningLineageFilteredView;
     observationActionLabel?: "Refresh source";
+    observationApplication?: ProviderObservationApplication;
     observationBusy?: boolean;
     onObserveSource?: () => void;
     omitRenderedMarkdown?: boolean;
@@ -78,6 +82,12 @@ const render = (
       ...(options.observationActionLabel === undefined
         ? {}
         : { observationActionLabel: options.observationActionLabel }),
+      ...(options.observationApplication === undefined
+        ? {}
+        : {
+            observationApplication: options.observationApplication,
+            observationStatusRef: createRef<HTMLDivElement>(),
+          }),
       ...(options.observationBusy === undefined
         ? {}
         : { observationBusy: options.observationBusy }),
@@ -153,7 +163,7 @@ test("renders typed Roadmap and Gate status tags with static accessible definiti
   expect(roadmapHeader).toContain('data-status-tone="active"');
   expect(roadmapHeader).toContain('data-tooltip="This lifecycle is active."');
   expect(roadmapHeader).toContain('type="button"');
-  expect(roadmapHeader).toContain(">Active</button>");
+  expect(roadmapHeader).toContain('<span class="lineage-status-pill">Active</span>');
   expect(roadmapHeader).not.toContain("Active roadmap");
   expect(roadmapHeader).not.toContain("active-horizon");
   expect(roadmap).not.toContain("Roadmap Lifecycle");
@@ -167,7 +177,7 @@ test("renders typed Roadmap and Gate status tags with static accessible definiti
   });
   const gateHeader = gate.match(/<header class="lineage-header"[\s\S]*?<\/header>/u)?.[0];
   expect(gateHeader).toContain('data-status-token="position-current"');
-  expect(gateHeader).toContain('data-status-tone="neutral"');
+  expect(gateHeader).toContain('data-status-tone="current"');
   expect(gateHeader).toContain('data-tooltip="This is the Roadmap’s current Milestone Gate."');
   expect(gateHeader).toContain('data-status-token="lifecycle-active"');
   expect(gateHeader).toContain('data-status-token="readiness-not-ready"');
@@ -445,6 +455,8 @@ test("uses one compact definition-list layout for facts, times, and event histor
   expect(css).toContain(".lineage-compact-facts > div");
   expect(css).toContain("flex-wrap: wrap");
   expect(css).not.toContain("grid-template-columns: minmax(130px, 0.25fr)");
+  expect(css).toContain("margin-top: var(--space-8)");
+  expect(css).not.toContain("var(--space-9)");
 });
 
 test("separates Planning Basis from exhaustive Current and Resolved Work", () => {
@@ -813,7 +825,7 @@ test("renders one degraded Effort indication and a bound-scope work-details reco
   expect(html).not.toContain("Source Event Time");
 });
 
-test("keeps provider observation feedback truthful for running and failed operations", () => {
+test("keeps routine provider feedback at its trigger and only exposes scoped attention", () => {
   const snapshot = createProjectOverviewFixture();
   const portal = snapshot.providerObservations.find(
     (observation) => observation.binding.nativeScope === ".scratch/portal",
@@ -847,41 +859,87 @@ test("keeps provider observation feedback truthful for running and failed operat
       onObserveSource: () => {},
     }),
   ).toContain("Refreshing source");
-  const failed = renderToStaticMarkup(
+  const sourceAttention = {
+    state: "settled",
+    result: {
+      version: 1,
+      state: "attention",
+      action: "source-load",
+      condition: "provider-network",
+      acquisitionCount: 1,
+      observations: [
+        {
+          scope: ".scratch/portal",
+          disposition: "retained-after-failure",
+          observedAt: "2026-07-28T00:00:00.000Z",
+        },
+      ],
+      diagnostics: [
+        {
+          reference: "matt.github.acquisition.network",
+          summary: "Source refresh needs Agent Surface attention.",
+        },
+      ],
+      explanation: "The provider network was unavailable for this observation.",
+      nextAction: "Open Bearing in the Agent Surface to diagnose provider connectivity.",
+    },
+  } as const satisfies ProviderObservationApplication;
+
+  const globalSourceAttention = renderToStaticMarkup(
     createElement(ProviderObservationStatus, {
       statusRef: createRef<HTMLDivElement>(),
+      application: sourceAttention,
+      placement: "project",
+    }),
+  );
+  expect(globalSourceAttention).toBe("");
+
+  const localSourceAttention = render(subject, {
+    snapshot: candidate,
+    observationActionLabel: "Refresh source",
+    observationApplication: sourceAttention,
+    onObserveSource: () => {},
+  });
+  expect(localSourceAttention).toContain('class="source-observation-feedback"');
+  expect(localSourceAttention).toContain("Source refresh needs attention.");
+  expect(localSourceAttention).toContain('dateTime="2026-07-28T00:00:00.000Z"');
+  expect(localSourceAttention).not.toContain("Last checked: 2026-07-28T00:00:00.000Z");
+  expect(localSourceAttention).toContain("matt.github.acquisition.network");
+  expect(localSourceAttention).toContain("action action-attention");
+
+  const routineCompletion = renderToStaticMarkup(
+    createElement(ProviderObservationStatus, {
+      statusRef: createRef<HTMLDivElement>(),
+      placement: "project",
       application: {
         state: "settled",
         result: {
           version: 1,
-          state: "attention",
-          action: "source-load",
-          condition: "provider-network",
-          acquisitionCount: 1,
-          observations: [
-            {
-              scope: ".scratch/portal",
-              disposition: "retained-after-failure",
-              observedAt: "2026-07-28T00:00:00.000Z",
-            },
-          ],
-          diagnostics: [
-            {
-              reference: "matt.github.acquisition.network",
-              summary: "Source refresh needs Agent Surface attention.",
-            },
-          ],
-          explanation: "The provider network was unavailable for this observation.",
-          nextAction: "Open Bearing in the Agent Surface to diagnose provider connectivity.",
+          state: "completed",
+          action: "all-sources-refresh",
+          acquisitionCount: 2,
+          observations: [],
+          diagnostics: [],
         },
       },
     }),
   );
-  expect(failed).toContain("Last checked:");
-  expect(failed).toContain("Source status needs attention.");
-  expect(failed).toContain('dateTime="2026-07-28T00:00:00.000Z"');
-  expect(failed).not.toContain("Last checked: 2026-07-28T00:00:00.000Z");
-  expect(failed).toContain("matt.github.acquisition.network");
+  expect(routineCompletion).toContain('class="sr-only"');
+  expect(routineCompletion).toContain("2 sources checked");
+  expect(routineCompletion).not.toContain('class="provider-observation-status"');
+
+  const allSourcesAttention = renderToStaticMarkup(
+    createElement(ProviderObservationStatus, {
+      statusRef: createRef<HTMLDivElement>(),
+      placement: "project",
+      application: {
+        ...sourceAttention,
+        result: { ...sourceAttention.result, action: "all-sources-refresh" },
+      },
+    }),
+  );
+  expect(allSourcesAttention).toContain("Refresh all sources needs attention.");
+  expect(allSourcesAttention).toContain('class="provider-observation-status');
 });
 
 test("renders provider subject diagnostics beside the affected native content", () => {
@@ -1044,6 +1102,31 @@ test("keeps Roadmap and Gate Effort relations in their single semantic owners", 
   expect(summarySection).toContain('<td data-label="Resolved">0</td>');
   expect(summarySection).toContain('<td data-label="Lifecycle time">Unavailable</td>');
   expect(gateHtml).not.toContain('id="relation.outcome.contributing-efforts"');
+
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
+  const unavailableGateHtml = render(
+    { validity: "valid", value: { kind: "gate", id: "gate:one" } },
+    {
+      snapshot: withLineage({
+        ...snapshot,
+        efforts: {
+          ...snapshot.efforts,
+          items: snapshot.efforts.items.map((effort) =>
+            effort.id === "effort:model"
+              ? {
+                  ...effort,
+                  workBinding: undefined,
+                  workBindingState: { state: "invalid" as const, reason: "missing" as const },
+                }
+              : effort,
+          ),
+        },
+      }),
+    },
+  );
+  expect(unavailableGateHtml).toContain('<td data-label="Claimed">Unavailable</td>');
+  expect(unavailableGateHtml).not.toContain("Count unavailable");
   for (const html of [roadmapHtml, gateHtml]) {
     expect(html).not.toContain('class="matt-work-region');
     expect(html).not.toContain("Reach the accepted project outcome.");

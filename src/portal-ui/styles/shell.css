@@ -146,10 +146,13 @@
   margin: var(--space-4) var(--space-6) 0;
   padding: var(--space-3) var(--space-4);
   background: var(--surface);
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
 }
 .provider-observation-attention {
-  border-left-color: var(--warning);
+  color: color-mix(in oklch, var(--warning) 72%, var(--ink));
+  background: var(--warning-wash);
+  border-color: color-mix(in oklch, var(--warning) 58%, var(--border));
 }
 .provider-observation-time {
   position: relative;
