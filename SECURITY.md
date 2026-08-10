@@ -23,3 +23,10 @@ Do not include sensitive repository data unless the maintainer asks for the mini
 ## Boundary
 
 Bearing is a local trusted-checkout tool with a loopback Portal. It provides no hosted service, no product-managed authentication, no public Internet Portal, and no telemetry. Public unauthenticated exposure is unsupported.
+
+The repository's browser-only demo is a separate static sample with fixed mock data. It does not
+read local repositories, start the Portal Host, call a provider or API, persist browser state, or
+add analytics. It does not change the supported local Portal boundary. See
+[Data and security](docs/data-and-security.md). GitHub Pages workflow activation and initial live
+acceptance require explicit maintainer action; a green pull request does not publish or accept the
+sample.

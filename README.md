@@ -66,6 +66,20 @@ Bearing is probably not a fit yet if:
 | Work Management Adapter | Matt-native local Markdown Maps and Tickets |
 | Telemetry | None. Bearing performs no analytics, crash upload, repository upload, or update polling. |
 
+## Interactive browser sample
+
+The repository includes a browser-only Portal demo with fixed mock Northstar data. It runs as a
+standalone static artifact under the GitHub project Pages base path. It does not start the local
+Portal Host, read a repository, call a provider or API, use analytics, or persist browser state.
+
+The demo is a sample, not a hosted Bearing project. Supported product use starts with the
+[local installation](#quickstart-complete-one-real-alignment-loop) and its loopback Portal. Read
+the [data and security boundary](docs/data-and-security.md) before sharing Portal captures or
+changing private reachability. Pull requests validate the static artifact but do not publish a
+public preview. Pages publication and the first live acceptance remain maintainer-owned actions.
+Changes to a production Portal visual owner rerun the demo checks and require a manual fidelity
+review before merge; the demo stays independent and does not import production Portal code.
+
 ## Feedback and support
 
 - Use [Bug report](https://github.com/lagrangee/bearing/issues/new?template=bug_report.yml) or [Documentation problem](https://github.com/lagrangee/bearing/issues/new?template=documentation.yml) for reproducible bugs and actionable documentation problems. Blank Issues are disabled.

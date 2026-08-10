@@ -1,7 +1,6 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
+import { unexpectedStaticRequests } from "./demo-static-boundary";
 
 const walkthrough = (page: Page) =>
   page.getByRole("dialog", { name: "Daily governance walkthrough" });
@@ -271,26 +270,8 @@ test("walkthrough and inherited Find, navigation, and Preview stay static and si
   await expect(page.getByText("Pre-rendered bundled sample", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Return to Asset detail", exact: true }).click();
 
-  const bundleRoot = join(
-    import.meta.dirname,
-    "../.scratch/bearing-portal-github-demo/evidence/ticket-06/pages-bundle",
-  );
-  const assetNames = readdirSync(join(bundleRoot, "assets"));
-  const staticPaths = new Set([
-    "/bearing/",
-    ...assetNames.map((name) => `/bearing/assets/${name}`),
-  ]);
-  expect(
-    requests.filter(({ method, url }) => {
-      const requestUrl = new URL(url);
-      return (
-        method !== "GET" ||
-        requestUrl.origin !== "http://127.0.0.1:4196" ||
-        !staticPaths.has(requestUrl.pathname)
-      );
-    }),
-  ).toEqual([]);
-  expect(readFileSync(join(bundleRoot, "index.html"), "utf8")).not.toContain("@vite/client");
+  expect(unexpectedStaticRequests(requests, new URL(page.url()).origin)).toEqual([]);
+  await expect(page.locator('script[src*="@vite/client"]')).toHaveCount(0);
   expect(await page.context().cookies()).toEqual([]);
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
   expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual([]);

@@ -66,6 +66,20 @@ Bearing 目前可能不适合你，如果：
 | Work Management Adapter | Matt-native 本地 Markdown Maps 与 Tickets |
 | Telemetry | 无。Bearing 不做 analytics、crash upload、repository upload 或 update polling。 |
 
+## Interactive browser sample
+
+仓库包含一个 browser-only Portal demo。它只使用固定的 mock Northstar 数据，并在 GitHub
+project Pages base path 下作为独立 static artifact 运行。它不启动本地 Portal Host，不读取
+repository，不调用 provider 或 API，不使用 analytics，也不持久化 browser state。
+
+这个 demo 是 sample，不是 hosted Bearing project。受支持的产品使用从
+[本地安装](#quickstart完成一次真实-alignment-loop)和 loopback Portal 开始。分享 Portal capture
+或修改 private reachability 前，请阅读 [data and security boundary](docs/data-and-security.zh-CN.md)。
+Pull request 只验证 static artifact，不发布 public preview。Pages publication 和首次 live
+acceptance 仍由 maintainer 明确执行。
+production Portal visual owner 的变化会重跑 demo checks，并且合并前必须完成 manual fidelity
+review；demo 保持独立，不 import production Portal code。
+
 ## Feedback 与支持
 
 - 可通过 [Bug report](https://github.com/lagrangee/bearing/issues/new?template=bug_report.yml) 或 [Documentation problem](https://github.com/lagrangee/bearing/issues/new?template=documentation.yml) 提交可复现 bug 与可执行的文档问题。Blank Issues 默认关闭。

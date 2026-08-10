@@ -2018,8 +2018,7 @@ code {
 
 .preview-mode .topbar,
 .preview-mode .project-navigation,
-.preview-mode .nav-scrim,
-.preview-mode .demo-footer {
+.preview-mode .nav-scrim {
   display: none;
 }
 
@@ -2106,6 +2105,10 @@ code {
 
 .demo-footer p {
   margin: 0;
+}
+
+.demo-footer a:hover {
+  color: var(--ink);
 }
 
 @container roadmap-horizon (max-width: 920px) {

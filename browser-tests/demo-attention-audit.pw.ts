@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { unexpectedStaticRequests } from "./demo-static-boundary";
 
 test("Overview Attention opens its dedicated reading screen", async ({ page }) => {
   await page.goto("./#/overview");
@@ -159,26 +160,7 @@ test("Attention and Audit stay accessible, responsive, and local to the static d
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("planning-review-360.png"), fullPage: true });
 
-  const viteEnvironmentPath = new URL("../node_modules/vite/dist/client/env.mjs", import.meta.url)
-    .pathname;
-  const staticPaths = new Set([
-    `/bearing/@fs${viteEnvironmentPath}`,
-    "/bearing/@vite/client",
-    "/bearing/",
-    "/bearing/app.js",
-    "/bearing/mock-data.js",
-    "/bearing/styles.css",
-  ]);
-  expect(
-    requests.filter(({ method, url }) => {
-      const requestUrl = new URL(url);
-      return (
-        method !== "GET" ||
-        requestUrl.origin !== "http://127.0.0.1:4193" ||
-        !staticPaths.has(requestUrl.pathname)
-      );
-    }),
-  ).toEqual([]);
+  expect(unexpectedStaticRequests(requests, new URL(page.url()).origin)).toEqual([]);
   expect(await page.context().cookies()).toEqual([]);
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
   expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual([]);

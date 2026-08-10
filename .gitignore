@@ -3,6 +3,7 @@ dist/
 coverage/
 test-results/
 playwright-report/
+pages-artifact/
 *.tgz
 *.log
 .env

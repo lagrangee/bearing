@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { unexpectedStaticRequests } from "./demo-static-boundary";
 
 test("root shows the standalone Northstar Overview", async ({ page }) => {
   await page.goto("./");
@@ -122,26 +123,7 @@ test("Overview has no API, external, persistence, telemetry, or console side eff
   await page.goto("./#/overview");
   await page.reload();
 
-  const viteEnvironmentPath = new URL("../node_modules/vite/dist/client/env.mjs", import.meta.url)
-    .pathname;
-  const staticPaths = new Set([
-    `/bearing/@fs${viteEnvironmentPath}`,
-    "/bearing/@vite/client",
-    "/bearing/",
-    "/bearing/app.js",
-    "/bearing/mock-data.js",
-    "/bearing/styles.css",
-  ]);
-  expect(
-    requests.filter(({ method, url }) => {
-      const requestUrl = new URL(url);
-      return (
-        method !== "GET" ||
-        requestUrl.origin !== "http://127.0.0.1:4191" ||
-        !staticPaths.has(requestUrl.pathname)
-      );
-    }),
-  ).toEqual([]);
+  expect(unexpectedStaticRequests(requests, new URL(page.url()).origin)).toEqual([]);
   expect(await page.context().cookies()).toEqual([]);
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
   expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual([]);

@@ -31,6 +31,8 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "check": "biome check .",
+    "demo:build": "vite build demo --base /bearing/ --outDir ../pages-artifact --emptyOutDir",
+    "demo:verify": "bun run build && bun run demo:build && bun test tests/demo-pages-contract.test.ts && playwright test --config browser-tests/demo-pages.playwright.config.ts && bun run package:check",
     "dev:ui": "vite",
     "test": "bun run build && bun test tests/*.test.ts && bun run test:catalog-node",
     "test:catalog-node": "bun run build && bun scripts/run-node-catalog-tests.ts",

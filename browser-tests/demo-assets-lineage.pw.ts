@@ -1,7 +1,6 @@
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { unexpectedStaticRequests } from "./demo-static-boundary";
 
 test("Assets presents eighteen fixed rows and composes simple filters", async ({
   page,
@@ -280,25 +279,7 @@ test("Assets journey is responsive, accessible, focused, and network-local", asy
     });
   }
 
-  const staticPaths = new Set([
-    "/bearing/",
-    ...readdirSync(
-      join(
-        import.meta.dirname,
-        "../.scratch/bearing-portal-github-demo/evidence/ticket-04/pages-bundle/assets",
-      ),
-    ).map((name) => `/bearing/assets/${name}`),
-  ]);
-  expect(
-    requests.filter(({ method, url }) => {
-      const requestUrl = new URL(url);
-      return (
-        method !== "GET" ||
-        requestUrl.origin !== "http://127.0.0.1:4194" ||
-        !staticPaths.has(requestUrl.pathname)
-      );
-    }),
-  ).toEqual([]);
+  expect(unexpectedStaticRequests(requests, new URL(page.url()).origin)).toEqual([]);
   expect(await page.context().cookies()).toEqual([]);
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
   expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual([]);

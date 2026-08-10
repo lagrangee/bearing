@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { unexpectedStaticRequests } from "./demo-static-boundary";
 
 test("Outcome Spine journey follows the prewritten hash screens", async ({ page }, testInfo) => {
   await page.goto("./#/overview");
@@ -183,26 +184,7 @@ test("keyboard navigation stays local to the static demo", async ({ page }) => {
     page.getByRole("heading", { name: "Release candidate ready", level: 1 }),
   ).toBeVisible();
 
-  const viteEnvironmentPath = new URL("../node_modules/vite/dist/client/env.mjs", import.meta.url)
-    .pathname;
-  const staticPaths = new Set([
-    `/bearing/@fs${viteEnvironmentPath}`,
-    "/bearing/@vite/client",
-    "/bearing/",
-    "/bearing/app.js",
-    "/bearing/mock-data.js",
-    "/bearing/styles.css",
-  ]);
-  expect(
-    requests.filter(({ method, url }) => {
-      const requestUrl = new URL(url);
-      return (
-        method !== "GET" ||
-        requestUrl.origin !== "http://127.0.0.1:4192" ||
-        !staticPaths.has(requestUrl.pathname)
-      );
-    }),
-  ).toEqual([]);
+  expect(unexpectedStaticRequests(requests, new URL(page.url()).origin)).toEqual([]);
 });
 
 test("production-aligned shell stays readable at 360px", async ({ page }, testInfo) => {
@@ -225,7 +207,7 @@ test("production-aligned shell stays readable at 360px", async ({ page }, testIn
   const close = page.getByRole("button", { name: "Close navigation" }).first();
   await expect(close).toBeFocused();
   await close.press("Shift+Tab");
-  await expect(navigation.getByRole("link", { name: "Roadmaps", exact: true })).toBeFocused();
+  await expect(navigation.getByRole("link", { name: "Audit", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).toBeFocused();
   await expect(page.locator(".topbar")).not.toHaveAttribute("aria-hidden", "true");
