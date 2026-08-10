@@ -13,6 +13,7 @@ export default defineConfig({
     "packaged-catalog.spec.ts",
     "project-isolation-real-host.spec.ts",
     "portal-reference-fidelity.spec.ts",
+    "safe-markdown-reading-candidate.spec.ts",
   ],
   outputDir: join(process.cwd(), "test-results/playwright-portal-contract"),
   fullyParallel: false,

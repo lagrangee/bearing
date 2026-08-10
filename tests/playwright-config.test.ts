@@ -21,14 +21,19 @@ test("ordinary Bun test files do not launch Playwright browsers", async () => {
   ).toEqual([]);
 });
 
-test("the root browser suite excludes specs with a dedicated Host contract", () => {
-  expect(config.testIgnore).toEqual([
+test("every broad browser suite excludes specs with a dedicated Host contract", () => {
+  const dedicatedHostSpecs = [
     "architecture-contraction-candidate.spec.ts",
     "packaged-catalog.spec.ts",
     "project-isolation-real-host.spec.ts",
     "portal-reference-fidelity.spec.ts",
-  ]);
-  expect(portalContractConfig.testIgnore).toContain("architecture-contraction-candidate.spec.ts");
+    "safe-markdown-reading-candidate.spec.ts",
+  ];
+
+  expect(config.testIgnore).toEqual(dedicatedHostSpecs);
+  for (const spec of dedicatedHostSpecs) {
+    expect(portalContractConfig.testIgnore).toContain(spec);
+  }
 });
 
 test("the root browser suite writes ordinary artifacts to disposable test output", () => {
