@@ -189,13 +189,20 @@ test("keyboard completes the walkthrough and the linked governance reading path"
   const nativeWork = page.getByRole("link", { name: /Full work history/iu });
   await nativeWork.focus();
   await nativeWork.press("Enter");
+  await expect(page).toHaveURL(/#\/native-work\/release-packaging$/u);
+  await expect(
+    page.getByRole("heading", { name: "Release Packaging native work", level: 1 }),
+  ).toBeFocused();
 
   const find = page.getByRole("button", { name: "Find in project" });
   await find.focus();
   await find.press("Enter");
-  const search = page.getByRole("searchbox", {
+  const findDialog = page.getByRole("dialog", { name: "Find in project" });
+  await expect(findDialog).toBeVisible();
+  const search = findDialog.getByRole("searchbox", {
     name: "Search identity, title, or semantic phrase",
   });
+  await expect(search).toBeFocused();
   await search.pressSequentially("release evidence scope");
   await search.press("Enter");
   const preview = page.getByRole("link", { name: "View Content", exact: true });

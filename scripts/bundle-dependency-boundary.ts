@@ -10,10 +10,11 @@ export type BundleDependency = Readonly<{
   version: string;
   license: string;
   bundles: readonly ("cli" | "portal")[];
+  locators: readonly string[];
 }>;
 
 export type BundleDependencyMetadata = Readonly<{
-  schemaVersion: 1;
+  schemaVersion: 2;
   bundles: Readonly<{
     cli: Readonly<{ packages: readonly string[]; moduleCount: number }>;
     portal: Readonly<{ packages: readonly string[]; moduleCount: number }>;
@@ -35,14 +36,26 @@ export const normalizeBundleModuleId = (id: string, projectRoot: string): string
     }
     return classified;
   }
-  const nodeMarker = "/node_modules/";
-  const nodeIndex = withoutQuery.lastIndexOf(nodeMarker);
-  if (nodeIndex !== -1) return `node_modules/${withoutQuery.slice(nodeIndex + nodeMarker.length)}`;
   if (withoutQuery.startsWith("node_modules/")) return withoutQuery;
   const absolute = isAbsolute(withoutQuery) ? withoutQuery : resolve(projectRoot, withoutQuery);
   const locator = relative(projectRoot, absolute).replaceAll("\\", "/");
-  if (locator === ".." || locator.startsWith("../")) return undefined;
-  return locator;
+  if (locator !== ".." && !locator.startsWith("../")) return locator;
+  const nodeMarker = "/node_modules/";
+  const nodeIndex = withoutQuery.lastIndexOf(nodeMarker);
+  return nodeIndex === -1
+    ? undefined
+    : `node_modules/${withoutQuery.slice(nodeIndex + nodeMarker.length)}`;
+};
+
+export const bundlePackageLocatorFromModule = (moduleId: string): string | undefined => {
+  if (!moduleId.startsWith("node_modules/")) return undefined;
+  const segments = moduleId.split("/");
+  const nodeModulesIndex = segments.lastIndexOf("node_modules");
+  const firstName = segments[nodeModulesIndex + 1];
+  if (nodeModulesIndex === -1 || firstName === undefined || firstName.length === 0)
+    return undefined;
+  const packageEnd = firstName.startsWith("@") ? nodeModulesIndex + 3 : nodeModulesIndex + 2;
+  return segments.length < packageEnd ? undefined : segments.slice(0, packageEnd).join("/");
 };
 
 export const expectedNoticeInventory = (metadata: BundleDependencyMetadata): readonly string[] =>
@@ -65,14 +78,28 @@ export const findBundleNoticeMismatches = (
   metadata: BundleDependencyMetadata,
   notices: string,
 ): readonly string[] => {
-  if (metadata.schemaVersion !== 1) return ["unsupported bundle dependency metadata schema"];
+  if (metadata.schemaVersion !== 2) return ["unsupported bundle dependency metadata schema"];
   const findings: string[] = [];
-  const packageNames = metadata.packages.map((dependency) => dependency.name);
+  const packageIdentities = metadata.packages.map(
+    (dependency) => `${dependency.name}@${dependency.version}`,
+  );
   if (
-    new Set(packageNames).size !== packageNames.length ||
-    [...packageNames].sort().join("\n") !== packageNames.join("\n")
+    new Set(packageIdentities).size !== packageIdentities.length ||
+    [...packageIdentities].sort().join("\n") !== packageIdentities.join("\n")
   ) {
-    findings.push("bundle dependency packages must be unique and sorted");
+    findings.push("bundle dependency package identities must be unique and sorted");
+  }
+  const packageLocators = metadata.packages.flatMap((dependency) => dependency.locators);
+  if (new Set(packageLocators).size !== packageLocators.length) {
+    findings.push("bundle dependency locators must be unique");
+  }
+  for (const dependency of metadata.packages) {
+    if (
+      dependency.locators.length === 0 ||
+      [...dependency.locators].sort().join("\n") !== dependency.locators.join("\n")
+    ) {
+      findings.push(`bundle dependency locators must be present and sorted: ${dependency.name}`);
+    }
   }
   for (const bundle of ["cli", "portal"] as const) {
     const expectedPackages = metadata.packages

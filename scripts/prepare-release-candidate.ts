@@ -104,7 +104,7 @@ const main = async (): Promise<void> => {
     await readFile("dist/bundle-dependencies.json", "utf8"),
   ) as BundleDependencyMetadata;
   if (
-    bundleMetadata.schemaVersion !== 1 ||
+    bundleMetadata.schemaVersion !== 2 ||
     bundleMetadata.packages.length === 0 ||
     bundleMetadata.bundles.cli.moduleCount === 0 ||
     bundleMetadata.bundles.portal.moduleCount === 0

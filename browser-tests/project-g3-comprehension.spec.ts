@@ -1175,9 +1175,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
 
     activeSnapshot = withEmptyCurrentWork(scenario.snapshot);
     await page.goto(`${host.url}${effortHref}`);
-    await expect(
-      page.getByText("No nonterminal managed work is established by this observation."),
-    ).toBeVisible();
+    await expect(page.getByText("No managed work is established for this scope.")).toBeVisible();
 
     activeSnapshot = withConcludedOpenWork(scenario.snapshot);
     await page.goto(`${host.url}${effortHref}`);
@@ -1234,7 +1232,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     const successClick = loadSource.click();
     await expect(page.getByRole("button", { name: "Refreshing source" })).toBeDisabled();
     await successClick;
-    await expect(page.getByRole("status")).toContainText("1 source checked");
+    await expect(page.locator("span[role='status']")).toContainText("1 source checked");
     await expect(loadSource).toBeFocused();
     expect(providerBodies.at(-1)).toEqual({
       version: 1,
@@ -1259,7 +1257,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await expect(page.locator(".source-observation-feedback")).toContainText(
       "provider network was unavailable",
     );
-    await expect(page.getByRole("button", { name: "Refresh source" })).toBeFocused();
+    await expect(page.locator(".source-observation-feedback")).toBeFocused();
 
     activeSnapshot = withoutEffortObservation(scenario.snapshot, "none");
     providerFails = false;

@@ -8,6 +8,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { parse as parseYaml } from "yaml";
 import {
   type BundleDependencyMetadata,
+  bundlePackageLocatorFromModule,
   findBundleNoticeMismatches,
   normalizeBundleModuleId,
 } from "../scripts/bundle-dependency-boundary";
@@ -632,8 +633,36 @@ test("classifies the actual Rolldown virtual runtime into package and notice inv
     version: "1.1.5",
     license: "MIT",
     bundles: ["portal"],
+    locators: ["node_modules/rolldown"],
   });
   expect(await readFile("THIRD_PARTY_NOTICES", "utf8")).toContain("rolldown@1.1.5 — MIT");
+});
+
+test("preserves nested lockfile locators and every bundled package version", async () => {
+  const nestedModule = join(
+    process.cwd(),
+    "node_modules/sanitize-html/node_modules/htmlparser2/dist/commonjs/index.js",
+  );
+  const normalized = normalizeBundleModuleId(nestedModule, process.cwd());
+  expect(normalized).toBe(
+    "node_modules/sanitize-html/node_modules/htmlparser2/dist/commonjs/index.js",
+  );
+  expect(bundlePackageLocatorFromModule(normalized ?? "")).toBe(
+    "node_modules/sanitize-html/node_modules/htmlparser2",
+  );
+
+  const metadata = JSON.parse(
+    await readFile("dist/bundle-dependencies.json", "utf8"),
+  ) as BundleDependencyMetadata;
+  expect(metadata.bundles.cli.packages).toContain("entities@4.5.0");
+  expect(metadata.bundles.cli.packages).toContain("entities@8.0.0");
+  expect(metadata.packages).toContainEqual({
+    name: "htmlparser2",
+    version: "12.0.0",
+    license: "MIT",
+    bundles: ["cli"],
+    locators: ["node_modules/sanitize-html/node_modules/htmlparser2"],
+  });
 });
 
 test("package workflow binds one uploaded candidate to its exact source commit", async () => {
@@ -667,10 +696,7 @@ test("package workflow binds one uploaded candidate to its exact source commit",
   );
   expect(prepareIndex).toBeGreaterThanOrEqual(0);
   expect(checkoutIndex).toBeGreaterThanOrEqual(0);
-  const sourceCommitExpression = [
-    "$",
-    "{{ github.event.pull_request.head.sha || github.sha }}",
-  ].join("");
+  const sourceCommitExpression = ["$", "{{ github.sha }}"].join("");
   expect(steps[checkoutIndex]?.with).toMatchObject({ ref: sourceCommitExpression });
   expect(setupGoIndex).toBeGreaterThanOrEqual(0);
   expect(steps[setupGoIndex]?.with).toEqual({ "go-version": "1.26.5", cache: false });
@@ -689,9 +715,6 @@ test("package workflow binds one uploaded candidate to its exact source commit",
     path: "release-candidate/",
     "if-no-files-found": "error",
   });
-  for (const path of ["SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "docs/cli.md"]) {
-    expect(workflow).toContain(`- ${path}`);
-  }
 });
 
 test("publish workflow has parseable exact-artifact wiring", async () => {

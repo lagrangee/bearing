@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { probeExactAssetSource } from "../src/portal/asset-source-probe";
 import { createPortalProjectQueryService } from "../src/portal/project-query-service";
 import type { AssetProjection } from "../src/project-generation/contract";
+import { createValidBearingRepo } from "./helpers";
 
 const asset = (sourceLocator: string) =>
   ({
@@ -53,7 +54,7 @@ test("returns a safe unverified HTTPS disposition without a network request", as
 test("Portal list reads do not probe and exact Asset Detail reads probe once", async () => {
   let probes = 0;
   const probedLocators: string[] = [];
-  const projectRoot = await realpath(join(import.meta.dir, ".."));
+  const projectRoot = await realpath(await createValidBearingRepo());
   const rows = {
     section: "assets" as const,
     objects: [],
@@ -63,89 +64,103 @@ test("Portal list reads do not probe and exact Asset Detail reads probe once", a
     diagnostics: [],
     sources: [],
   };
-  const service = createPortalProjectQueryService({
-    readCatalog: async () => ({
-      state: "ready",
-      entries: [
-        {
-          entryId: "project",
-          displayName: "Project",
-          repoRoot: projectRoot,
-          availability: "available",
-        },
-      ],
-    }),
-    readRows: async (_repoRoot, section = "overview", target) =>
-      ({
-        ...rows,
-        section,
-        ...(target ? { target } : {}),
-        objects:
-          section === "lineage" && target?.kind === "asset"
-            ? [{ kind: "asset" as const, value: asset("docs/asset.md") }]
-            : [],
-      }) as never,
-    probeAssetSource: async (_repoRoot, locator) => {
-      probes += 1;
-      probedLocators.push(locator);
-      return { kind: "local", locator: "docs/asset.md", availability: "file" };
-    },
-  });
+  try {
+    const service = createPortalProjectQueryService({
+      readCatalog: async () => ({
+        state: "ready",
+        entries: [
+          {
+            entryId: "project",
+            displayName: "Project",
+            repoRoot: projectRoot,
+            availability: "available",
+          },
+        ],
+      }),
+      readRows: async (_repoRoot, section = "overview", target) =>
+        ({
+          ...rows,
+          section,
+          ...(target ? { target } : {}),
+          objects:
+            section === "lineage" && target?.kind === "asset"
+              ? [{ kind: "asset" as const, value: asset("docs/asset.md") }]
+              : [],
+        }) as never,
+      probeAssetSource: async (_repoRoot, locator) => {
+        probes += 1;
+        probedLocators.push(locator);
+        return { kind: "local", locator: "docs/asset.md", availability: "file" };
+      },
+    });
 
-  const list = await service.read("project", "assets");
-  expect(list.kind).toBe("ready");
-  expect(probes).toBe(0);
+    const list = await service.read("project", "assets");
+    expect(list.kind).toBe("ready");
+    expect(probes).toBe(0);
 
-  const detail = await service.read("project", "lineage", { kind: "asset", id: "asset:detail" });
-  expect(detail.kind).toBe("ready");
-  expect(probes).toBe(1);
-  expect(probedLocators).toEqual(["docs/asset.md"]);
-  if (detail.kind !== "ready") throw new Error("Expected ready Asset detail.");
-  expect("assetSourceProbe" in detail.rows ? detail.rows.assetSourceProbe : undefined).toEqual({
-    kind: "local",
-    locator: "docs/asset.md",
-    availability: "file",
-  });
+    const detail = await service.read("project", "lineage", {
+      kind: "asset",
+      id: "asset:detail",
+    });
+    expect(detail.kind).toBe("ready");
+    expect(probes).toBe(1);
+    expect(probedLocators).toEqual(["docs/asset.md"]);
+    if (detail.kind !== "ready") throw new Error("Expected ready Asset detail.");
+    expect("assetSourceProbe" in detail.rows ? detail.rows.assetSourceProbe : undefined).toEqual({
+      kind: "local",
+      locator: "docs/asset.md",
+      availability: "file",
+    });
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
 });
 
 test("Asset Detail probes the locator from its committed row generation after concurrent publication", async () => {
-  const projectRoot = await realpath(join(import.meta.dir, ".."));
+  const projectRoot = await realpath(await createValidBearingRepo());
   let currentPublishedLocator = "docs/generation-n.md";
   const probedLocators: string[] = [];
-  const service = createPortalProjectQueryService({
-    readCatalog: async () => ({
-      state: "ready",
-      entries: [
-        {
-          entryId: "project",
-          displayName: "Project",
-          repoRoot: projectRoot,
-          availability: "available",
-        },
-      ],
-    }),
-    readRows: async (_repoRoot, section = "overview", target) => {
-      const committedLocator = currentPublishedLocator;
-      currentPublishedLocator = "docs/generation-n-plus-one.md";
-      return {
-        section,
-        ...(target ? { target } : {}),
-        objects: [{ kind: "asset" as const, value: asset(committedLocator) }],
-        lineage: [],
-        attentionCount: 0,
-        attention: [],
-        diagnostics: [],
-        sources: [],
-      } as never;
-    },
-    probeAssetSource: async (_repoRoot, locator) => {
-      probedLocators.push(locator);
-      return { kind: "local", locator, availability: "file" };
-    },
-  });
+  try {
+    const service = createPortalProjectQueryService({
+      readCatalog: async () => ({
+        state: "ready",
+        entries: [
+          {
+            entryId: "project",
+            displayName: "Project",
+            repoRoot: projectRoot,
+            availability: "available",
+          },
+        ],
+      }),
+      readRows: async (_repoRoot, section = "overview", target) => {
+        const committedLocator = currentPublishedLocator;
+        currentPublishedLocator = "docs/generation-n-plus-one.md";
+        return {
+          section,
+          ...(target ? { target } : {}),
+          objects: [{ kind: "asset" as const, value: asset(committedLocator) }],
+          lineage: [],
+          attentionCount: 0,
+          attention: [],
+          diagnostics: [],
+          sources: [],
+        } as never;
+      },
+      probeAssetSource: async (_repoRoot, locator) => {
+        probedLocators.push(locator);
+        return { kind: "local", locator, availability: "file" };
+      },
+    });
 
-  const detail = await service.read("project", "lineage", { kind: "asset", id: "asset:detail" });
-  expect(detail.kind).toBe("ready");
-  expect(currentPublishedLocator).toBe("docs/generation-n-plus-one.md");
-  expect(probedLocators).toEqual(["docs/generation-n.md"]);
+    const detail = await service.read("project", "lineage", {
+      kind: "asset",
+      id: "asset:detail",
+    });
+    expect(detail.kind).toBe("ready");
+    expect(currentPublishedLocator).toBe("docs/generation-n-plus-one.md");
+    expect(probedLocators).toEqual(["docs/generation-n.md"]);
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
 });

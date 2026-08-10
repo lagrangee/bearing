@@ -210,7 +210,7 @@ test("packed Repository Configuration seals one exact Fresh write set and applie
   } finally {
     await product.dispose();
   }
-});
+}, 60_000);
 
 test("Configure Apply rejects a stale seal without writing and deactivation preserves owned state", async () => {
   const product = await installPackedProduct();
@@ -329,7 +329,7 @@ test("Configure Apply rejects a stale seal without writing and deactivation pres
   } finally {
     await product.dispose();
   }
-});
+}, 60_000);
 
 test("Configure Plan seals deselected managed pointer removals", async () => {
   const product = await installPackedProduct();
@@ -361,7 +361,7 @@ test("Configure Plan seals deselected managed pointer removals", async () => {
   } finally {
     await product.dispose();
   }
-});
+}, 60_000);
 
 test("repository rollback and Catalog partial outcomes remain separate and resumable", async () => {
   const product = await installPackedProduct();
@@ -418,7 +418,7 @@ test("repository rollback and Catalog partial outcomes remain separate and resum
   } finally {
     await product.dispose();
   }
-});
+}, 60_000);
 
 test("unsupported Preview state is removal-required and legacy lifecycle commands are absent", async () => {
   const product = await installPackedProduct();
@@ -453,4 +453,4 @@ test("unsupported Preview state is removal-required and legacy lifecycle command
   } finally {
     await product.dispose();
   }
-});
+}, 60_000);

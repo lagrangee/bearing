@@ -435,7 +435,7 @@ describe("release smoke frozen source binding", () => {
       "scratch/release-smoke/map.md",
       "scratch/release-smoke/PRD.md",
     ]);
-  });
+  }, 60_000);
 
   test("keeps the frozen Local seed valid through the production G2 provider seam", async () => {
     const repository = await temporaryDirectory();

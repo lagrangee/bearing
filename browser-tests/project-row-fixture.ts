@@ -2,6 +2,7 @@ import {
   type PlanningLineageSubject,
   planningLineageSubjectSchema,
 } from "../src/planning-lineage-route";
+import { renderProviderMarkdownSections } from "../src/portal/markdown-engine";
 import {
   type PortalProjectSection,
   portalProjectReadEnvelopeSchema,
@@ -15,6 +16,7 @@ import {
 } from "../src/project-read-model/store";
 import { hasCompleteMattNativeEvidence } from "../src/providers/matt-skills-v1/native-read-model";
 import { mattNativeScopeKey } from "../src/providers/matt-skills-v1/native-subject";
+import { mattProviderSemanticSections } from "../src/providers/matt-skills-v1/projection";
 
 const sectionKinds: Readonly<Record<PortalProjectSection, ReadonlySet<string>>> = {
   overview: new Set([
@@ -184,6 +186,12 @@ export const projectRowEnvelope = (input: {
   const sources = candidate.sources
     .map((row) => JSON.parse(row.payload))
     .filter((source) => sourceReferences.has(source.reference));
+  const renderedMarkdown = renderProviderMarkdownSections(
+    [
+      ...input.snapshot.providerObservations,
+      ...input.snapshot.providerDetailEvidences.observations,
+    ].flatMap(mattProviderSemanticSections),
+  );
   return portalProjectReadEnvelopeSchema.parse({
     version: 1,
     state: "ready",
@@ -204,6 +212,7 @@ export const projectRowEnvelope = (input: {
       attention,
       diagnostics,
       sources,
+      renderedMarkdown,
     },
     session: { csrfToken: "ticket-11-csrf" },
   });

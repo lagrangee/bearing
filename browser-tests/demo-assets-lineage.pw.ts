@@ -75,8 +75,12 @@ test("Gate to Effort to native evidence to Asset, Authority, Preview, and Lineag
   await page.goto("./#/gates/release-candidate-ready");
   await page.getByRole("link", { name: "Release Packaging", exact: true }).press("Enter");
   await expect(page).toHaveURL(/#\/efforts\/release-packaging$/u);
+  await expect(page.getByRole("heading", { name: "Release Packaging", level: 1 })).toBeFocused();
   await page.getByRole("link", { name: /Full work history/iu }).press("Enter");
   await expect(page).toHaveURL(/#\/native-work\/release-packaging$/u);
+  await expect(
+    page.getByRole("heading", { name: "Release Packaging native work", level: 1 }),
+  ).toBeFocused();
   const asset = page.getByRole("link", { name: "Public Beta Readiness Review", exact: true });
   await asset.press("Enter");
   await expect(page).toHaveURL(/#\/assets\/public-beta-readiness-review$/u);
@@ -187,10 +191,16 @@ test("binary, directory, and live prototype previews stay honestly unavailable",
       "Preview not offered",
     ],
   ] as const;
+  await page.goto("./#/assets");
+  await expect(page.getByRole("heading", { name: "Assets", level: 1 })).toBeVisible();
   for (const [route, assetName, heading, status] of cases) {
     await page.goto(route);
-    await expect(page.getByRole("heading", { name: assetName, level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: assetName, level: 1 })).toBeFocused();
     await page.getByRole("link", { name: "Preview unavailable", exact: true }).press("Enter");
+    await expect(page).toHaveURL(/#\/preview\/unavailable$/u);
+    await expect(
+      page.getByRole("heading", { name: "Preview unavailable", level: 1 }),
+    ).toBeFocused();
     const region = page.getByRole("region", { name: heading });
     await expect(region.getByText(status, { exact: true })).toBeVisible();
   }
@@ -262,10 +272,17 @@ test("Assets journey is responsive, accessible, focused, and network-local", asy
     await page.setViewportSize({ width, height: 900 });
     await page.goto("./#/gates/release-candidate-ready");
     await page.getByRole("link", { name: "Release Packaging", exact: true }).press("Enter");
+    await expect(page).toHaveURL(/#\/efforts\/release-packaging$/u);
+    await expect(page.getByRole("heading", { name: "Release Packaging", level: 1 })).toBeVisible();
     await page.getByRole("link", { name: /Full work history/iu }).press("Enter");
+    await expect(page).toHaveURL(/#\/native-work\/release-packaging$/u);
+    await expect(
+      page.getByRole("heading", { name: "Release Packaging native work", level: 1 }),
+    ).toBeVisible();
     await page
       .getByRole("link", { name: "Public Beta Readiness Review", exact: true })
       .press("Enter");
+    await expect(page).toHaveURL(/#\/assets\/public-beta-readiness-review$/u);
     await expect(
       page.getByRole("heading", { name: "Public Beta Readiness Review", level: 1 }),
     ).toBeVisible();

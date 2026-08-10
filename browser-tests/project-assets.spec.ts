@@ -172,8 +172,13 @@ test("exact Asset Detail shows its request-scoped source probe and keeps Preview
 
   await expect(page.getByRole("heading", { name: "Planning Model Evidence" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Source" })).toBeVisible();
-  await expect(page.getByText("Current local source: file.")).toBeVisible();
-  await expect(page.getByText("Locator: .scratch/evidence/planning-model")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Source availability is observation evidence; it does not change the canonical locator.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByText(".scratch/evidence/planning-model", { exact: true })).toBeVisible();
+  await expect(page.getByText("file", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "View Content" })).toHaveAttribute(
     "href",
     "/preview/projects/assets/assets/asset%3Aplanning-model-evidence",

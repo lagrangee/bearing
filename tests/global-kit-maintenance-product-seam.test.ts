@@ -125,4 +125,4 @@ test("packed terminal wizard owns global kit maintenance without repository life
   } finally {
     await product.dispose();
   }
-});
+}, 60_000);

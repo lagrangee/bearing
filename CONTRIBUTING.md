@@ -6,9 +6,9 @@ Bearing is a maintainer-led Public Preview, so the first contribution rule is al
 
 ## Development branches
 
-`main` carries the latest released product source. The current development base is `0.1.1`.
+`main` is the integration baseline. It remains buildable, testable, and installable, but a commit on `main` is not a formal release by itself.
 
-Open pull requests against `0.1.1`. Unfinished maintainer work remains on topic branches and enters the version branch only after review and relevant checks pass.
+Open pull requests from short-lived topic branches into `main`. Keep the branch current with `main`, and merge only after review and the required checks pass. Version Roadmaps such as 0.1.1 define product scope; they do not define long-lived development branches.
 
 ## Before opening a pull request
 

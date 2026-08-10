@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import { projectRowEnvelope } from "../browser-tests/project-row-fixture";
 import { portalProjectRowsSchema } from "../src/portal-project-read-wire";
 import {
   assertProjectReadModelObjectIdentity,
@@ -55,6 +56,18 @@ test("v21 Portal rows require complete Host rendering without a presentation cou
       })),
     }).success,
   ).toBe(true);
+});
+
+test("browser project row fixtures include v21 Host-rendered Markdown", () => {
+  const envelope = projectRowEnvelope({
+    snapshot: createProjectOverviewFixture(),
+    section: "overview",
+    entryId: "bearing",
+  });
+
+  expect(envelope.state).toBe("ready");
+  if (envelope.state !== "ready") throw new Error("Expected a ready browser fixture.");
+  expect(envelope.rows.renderedMarkdown.length).toBeGreaterThan(0);
 });
 
 test("composite Portal rows bind their nested identity to the row key", () => {

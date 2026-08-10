@@ -464,12 +464,8 @@ test("Roadmap, Gate, and Effort subjects keep full contracts and Passage read-on
   await expect(
     page.getByText("Accept the planning model as ready.", { exact: false }),
   ).toBeVisible();
-  await expect(
-    page.getByText(
-      "Evidence: .scratch/evidence/planning-model · Accepted planning-model evidence.",
-      { exact: true },
-    ),
-  ).toBeVisible();
+  await expect(page.getByText(".scratch/evidence/planning-model", { exact: true })).toBeVisible();
+  await expect(page.getByText("Accepted planning-model evidence.", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("navigation", { name: "Canonical Parent Path" }).getByRole("link", {
       name: "Portal Evolution",

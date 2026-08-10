@@ -32,6 +32,8 @@ const acceptedLicenses = new Set([
 const requiredNoticeMarkers = [
   "Copyright (c) 2022 - present, Yusuke Wada and Hono contributors",
   "Copyright (c) 2022 Paul Miller",
+  "Copyright (c) 2018-present, iamkun",
+  "Copyright © 2022 The Cheerio contributors",
   "Copyright (c) 2021 - present, Yusuke Wada and Hono contributors",
   "Copyright (c) Meta Platforms, Inc. and affiliates.",
   "Copyright (c) 2024-present VoidZero Inc. & Contributors",
@@ -86,16 +88,15 @@ if (
   findings.push("bundle dependency metadata does not describe the built CLI and Portal graphs");
 }
 for (const dependency of bundleMetadata.packages) {
-  const locked = packages[`node_modules/${dependency.name}`];
-  const lockedLicense = dependencyLicenseFor(dependency.name, locked?.version, locked?.license);
-  if (
-    locked?.version !== dependency.version ||
-    lockedLicense !== dependency.license ||
-    dependency.bundles.length === 0
-  ) {
-    findings.push(
-      `bundle dependency metadata does not match package-lock.json: ${dependency.name}`,
-    );
+  if (dependency.bundles.length === 0 || dependency.locators.length === 0) {
+    findings.push(`bundle dependency metadata is incomplete: ${dependency.name}`);
+  }
+  for (const locator of dependency.locators) {
+    const locked = packages[locator];
+    const lockedLicense = dependencyLicenseFor(dependency.name, locked?.version, locked?.license);
+    if (locked?.version !== dependency.version || lockedLicense !== dependency.license) {
+      findings.push(`bundle dependency metadata does not match package-lock.json: ${locator}`);
+    }
   }
 }
 findings.push(...findBundleNoticeMismatches(bundleMetadata, notices));

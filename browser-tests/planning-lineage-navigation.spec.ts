@@ -599,7 +599,10 @@ test("semantic detail owns the reading contract while Technical Details stays tr
   await expect(page.getByText("Establish the model.", { exact: true })).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "Exit Criteria", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Passage", level: 2 })).toBeVisible();
-  await expect(header.getByText("Gate · Passed · Ready for review", { exact: true })).toBeVisible();
+  await expect(header.getByRole("button", { name: "Passed" })).toBeVisible();
+  await expect(
+    header.getByText("Gate Passage is recorded for this Milestone Gate.", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Contributing Efforts", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Event History", level: 2 })).toHaveCount(0);
 
@@ -922,9 +925,8 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Planning Use", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ancestor Context", level: 3 })).toBeVisible();
-  await expect(
-    page.getByText("Locator: .scratch/evidence/planning-model", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("Locator", { exact: true })).toBeVisible();
+  await expect(page.getByText(".scratch/evidence/planning-model", { exact: true })).toBeVisible();
   const technicalDetails = page.getByRole("button", { name: "Open Technical Details" });
   await technicalDetails.focus();
   await expect(technicalDetails).toBeFocused();

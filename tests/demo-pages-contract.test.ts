@@ -74,7 +74,7 @@ test("the Pages workflow validates pull requests and deploys only the verified m
     readonly permissions: Readonly<Record<string, unknown>>;
     readonly jobs: Readonly<Record<string, unknown>>;
   };
-  expect(workflow.on.pull_request.branches).toEqual(["main", "0.1.1"]);
+  expect(workflow.on.pull_request.branches).toEqual(["main"]);
   expect(workflow.on.push.branches).toEqual(["main"]);
   expect(workflow.permissions).toEqual({});
 

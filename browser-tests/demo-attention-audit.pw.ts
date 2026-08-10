@@ -134,6 +134,7 @@ test("Attention and Audit stay accessible, responsive, and local to the static d
   await page.screenshot({ path: testInfo.outputPath("attention-360.png"), fullPage: true });
 
   await page.getByRole("button", { name: "Open navigation" }).click();
+  await expect(page.getByRole("button", { name: "Close navigation" }).first()).toBeFocused();
   const auditLink = page
     .getByRole("navigation", { name: "Project navigation" })
     .getByRole("link", { name: "Audit", exact: true });

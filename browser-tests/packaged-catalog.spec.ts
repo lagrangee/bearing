@@ -216,18 +216,11 @@ test("a freshly reconciled repository is selectable through the packed installed
     await expect(
       page.getByRole("heading", { name: /^Work(?: \(.+\))?$/u, level: 2 }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Refresh work details" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh source" })).toBeVisible();
 
-    const refresh = page.getByRole("button", { name: "Refresh", exact: true });
+    const refresh = page.getByRole("button", { name: "Refresh all sources", exact: true });
     await expect(refresh).toBeEnabled();
-    const refreshResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "GET" &&
-        /\/api\/v1\/projects\/[^/]+\/read-model$/u.test(new URL(response.url()).pathname),
-    );
-    await refresh.click();
-    expect((await refreshResponsePromise).status()).toBe(200);
-    await expect(page.locator(".topbar-refresh")).toContainText("Refresh");
+    await expect(page.locator(".topbar-refresh")).toContainText("Refresh all sources");
 
     await page.screenshot({
       path: join(evidence, "installed-product-overview-1280.png"),

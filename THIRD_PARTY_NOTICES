@@ -10,24 +10,28 @@ The distributed CLI and Portal bundle code from the following packages. The buil
 - @noble/hashes@2.2.0 — MIT
 - ccount@2.0.1 — MIT
 - character-entities@2.0.2 — MIT
+- dayjs@1.11.21 — MIT
 - debug@4.4.3 — MIT
 - decode-named-character-reference@1.3.0 — MIT
 - deep-freeze-es6@5.0.0 — ISC
 - deepmerge@4.3.1 — MIT
 - dequal@2.0.3 — MIT
 - devlop@1.1.0 — MIT
-- dom-serializer@2.0.0 — MIT
-- domelementtype@2.3.0 — BSD-2-Clause
-- domhandler@5.0.3 — BSD-2-Clause
-- domutils@3.2.2 — BSD-2-Clause
+- dom-serializer@3.1.1 — MIT
+- domelementtype@3.0.0 — BSD-2-Clause
+- domhandler@6.0.1 — BSD-2-Clause
+- domutils@4.0.2 — BSD-2-Clause
 - entities@4.5.0 — BSD-2-Clause
+- entities@8.0.0 — BSD-2-Clause
+- escape-string-regexp@4.0.0 — MIT
 - escape-string-regexp@5.0.0 — MIT
 - fault@2.0.1 — MIT
 - format@0.2.2 — MIT
 - fuse.js@7.3.0 — Apache-2.0
 - hono@4.12.30 — MIT
-- htmlparser2@8.0.2 — MIT
+- htmlparser2@12.0.0 — MIT
 - is-plain-object@5.0.0 — MIT
+- launder@1.7.1 — MIT
 - linkify-it@5.0.2 — MIT
 - lucide-react@1.24.0 — ISC
 - markdown-it@14.3.0 — MIT
@@ -69,17 +73,17 @@ The distributed CLI and Portal bundle code from the following packages. The buil
 - micromark-util-subtokenize@2.1.0 — MIT
 - micromark-util-symbol@2.0.1 — MIT
 - ms@2.1.3 — MIT
-- nanoid@3.3.16 — MIT
+- nanoid@3.3.18 — MIT
 - parse-headers@2.0.6 — MIT
 - parse-srcset@1.0.2 — MIT
 - picocolors@1.1.1 — ISC
-- postcss@8.5.19 — MIT
+- postcss@8.5.26 — MIT
 - punycode.js@2.3.1 — MIT
 - react@19.2.7 — MIT
 - react-dom@19.2.7 — MIT
 - rolldown@1.1.5 — MIT
 - safe-stable-stringify@2.5.0 — MIT
-- sanitize-html@2.17.0 — MIT
+- sanitize-html@2.17.6 — MIT
 - semver@7.8.5 — ISC
 - scheduler@0.27.0 — MIT
 - signal-exit@4.1.0 — ISC
@@ -100,6 +104,10 @@ Development and test dependencies are not shipped in the npm tarball; the licens
 @hono/node-server: Copyright (c) 2022 - present, Yusuke Wada and Hono contributors
 
 @noble/hashes: Copyright (c) 2022 Paul Miller
+
+dayjs: Copyright (c) 2018-present, iamkun
+
+dom-serializer: Copyright © 2022 The Cheerio contributors
 
 hono: Copyright (c) 2021 - present, Yusuke Wada and Hono contributors
 
