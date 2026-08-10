@@ -13,10 +13,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { planningLineageSubjectHref } from "../src/planning-lineage-route";
 import { copyPortalProjectFixture } from "../tests/fixtures/repository-fixture";
 import {
+  fulfillOnePixelPng,
   type RunningTestPortal,
   runBuiltBearing,
   startBuiltPortal,
@@ -28,6 +29,22 @@ let host: RunningTestPortal | undefined;
 let homeRoot = "";
 let fixtureRoot = "";
 let markdownFixtureRoot = "";
+
+const remoteHttpImage = "http://images.example.test/http.png";
+const remoteHttpsImage = "https://images.example.test/https.png";
+const remoteMissingImage = "https://images.example.test/missing.png";
+
+const routeAuthoredRemoteImages = async (
+  page: Page,
+  missing: "fail" | "succeed" = "fail",
+): Promise<void> => {
+  for (const source of [remoteHttpImage, remoteHttpsImage]) {
+    await page.route(source, fulfillOnePixelPng);
+  }
+  await page.route(remoteMissingImage, (route) =>
+    missing === "fail" ? route.abort("failed") : fulfillOnePixelPng(route),
+  );
+};
 
 const markdownNativeScope = (() => {
   const scope = new URL("github-matt-v1://github.com/example/reference/issues/5");
@@ -238,7 +255,7 @@ Can current and resolved Work remain an exhaustive partition?
 
 [Safe source](https://example.com/spec) [Relative source](../PRD.md) [Unsafe source](javascript:alert(1))
 
-![Remote diagram](https://images.example.test/diagram.png)
+![Remote diagram](${remoteHttpsImage})
 
 [Local reading](../../docs/reading.html) [Missing local](../../docs/missing.pdf)
 [Directory local](../../docs/bundle) [Unsupported local](../../docs/payload.bin)
@@ -304,7 +321,9 @@ const safe = true;
 
 [Safe source](https://example.com/spec) [Relative source](../PRD.md) [Unsafe source](javascript:alert(1))
 
-![Remote diagram](https://images.example.test/diagram.png)
+![HTTP diagram](${remoteHttpImage})
+![HTTPS diagram](${remoteHttpsImage})
+![Missing diagram](${remoteMissingImage})
 
 <script>globalThis.__providerMarkdownRan = true</script>`;
   const fixtures = {
@@ -435,10 +454,14 @@ test.afterAll(async () => {
 
 test("real Provider to v21 to Host render stays safe and read-only", async ({ page }) => {
   if (host === undefined) throw new Error("Ticket 25 real Host did not start.");
+  const hostUrl = host.url;
   const posts: string[] = [];
+  const requests: string[] = [];
   const remoteImageRequests: string[] = [];
+  await routeAuthoredRemoteImages(page);
   page.on("request", (request) => {
     if (request.method() === "POST") posts.push(request.url());
+    requests.push(request.url());
     if (new URL(request.url()).hostname === "images.example.test") {
       remoteImageRequests.push(request.url());
     }
@@ -472,18 +495,46 @@ test("real Provider to v21 to Host render stays safe and read-only", async ({ pa
   );
   await expect(page.getByRole("link", { name: "Relative source" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Unsafe source" })).toHaveCount(0);
-  await expect(page.locator(".provider-markdown img")).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "image source" })).toHaveAttribute(
-    "href",
-    "https://images.example.test/diagram.png",
-  );
+  const disclosure = page.locator(".read-disclosure", {
+    has: page.getByRole("heading", { name: "Authored H1", level: 1 }),
+  });
+  const toggle = disclosure.getByRole("button", { name: /^Show more:/u });
+  if (await toggle.isVisible()) await toggle.click();
+  for (const [name, source] of [
+    ["HTTP diagram", remoteHttpImage],
+    ["HTTPS diagram", remoteHttpsImage],
+  ] as const) {
+    const image = disclosure.getByRole("img", { name });
+    await expect(image).toBeVisible();
+    await expect(image).toHaveAttribute("loading", "lazy");
+    await expect(image.locator("xpath=parent::a")).toHaveAttribute("href", source);
+    await expect
+      .poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
+  }
+  const failedImage = disclosure.getByRole("img", { name: "Missing diagram" });
+  await expect(failedImage).toHaveCount(1);
+  await expect(failedImage).toHaveAttribute("loading", "lazy");
+  await expect(failedImage.locator("xpath=parent::a")).toHaveAttribute("href", remoteMissingImage);
+  await expect
+    .poll(() => failedImage.evaluate((element) => (element as HTMLImageElement).naturalWidth))
+    .toBe(0);
+  await expect(page.getByRole("heading", { name: "Authored H2", level: 2 })).toBeVisible();
   expect(
     await page.evaluate(
       () => (globalThis as { __providerMarkdownRan?: boolean }).__providerMarkdownRan,
     ),
   ).toBeUndefined();
   expect(posts).toEqual([]);
-  expect(remoteImageRequests).toEqual([]);
+  expect([...new Set(remoteImageRequests)].sort()).toEqual(
+    [remoteHttpImage, remoteHttpsImage, remoteMissingImage].sort(),
+  );
+  expect(
+    [...new Set(requests.filter((url) => new URL(url).origin !== new URL(hostUrl).origin))].sort(),
+  ).toEqual([remoteHttpImage, remoteHttpsImage, remoteMissingImage].sort());
+  expect(requests.some((url) => url.startsWith(hostUrl) && url.includes("remote-image"))).toBe(
+    false,
+  );
 });
 
 test("local authored links use contained Preview and a responsive keyboard-safe thumbnail", async ({
@@ -492,6 +543,7 @@ test("local authored links use contained Preview and a responsive keyboard-safe 
   if (host === undefined) throw new Error("Ticket 32 real Host did not start.");
   const posts: string[] = [];
   const requests: string[] = [];
+  await routeAuthoredRemoteImages(page, "succeed");
   page.on("request", (request) => {
     if (request.method() === "POST") posts.push(request.url());
     requests.push(request.url());
@@ -610,6 +662,7 @@ test("shared disclosure responds to rendered height without changing authored co
   const posts: string[] = [];
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
+  await routeAuthoredRemoteImages(page, "succeed");
   page.on("request", (request) => {
     if (request.method() === "POST") posts.push(request.url());
   });
@@ -684,7 +737,7 @@ test("shared disclosure responds to rendered height without changing authored co
     return selection?.toString() ?? "";
   });
   expect(selectedText).toContain("const safe = true;");
-  expect(selectedText).toContain("Remote diagram");
+  await expect(longMarkdownContent.getByRole("img", { name: "HTTPS diagram" })).toHaveCount(1);
 
   const shortMarkdown = page.locator(".read-disclosure", {
     has: page.getByText("Short authored note.", { exact: true }),

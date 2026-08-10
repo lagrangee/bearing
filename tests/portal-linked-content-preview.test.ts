@@ -194,7 +194,9 @@ test("renders each local link from its containing document without exposing repo
     expect(rendered[0]?.html).toContain('class="markdown-linked-image-thumbnail"');
     expect(rendered[0]?.html).toContain('loading="lazy"');
     expect(rendered[0]?.html).toContain("Preview unavailable: The linked content is missing.");
-    expect(rendered[0]?.html).toContain('remote (<a href="https://images.example/remote.png"');
+    expect(rendered[0]?.html).toContain(
+      '<a class="markdown-linked-image" href="https://images.example/remote.png" target="_blank" rel="noopener noreferrer"><img class="markdown-linked-image-thumbnail" src="https://images.example/remote.png" alt="remote" loading="lazy" /></a>',
+    );
     expect(rendered[0]?.html).not.toContain(repoRoot);
     expect(rendered[0]?.html).not.toContain("docs/one");
     expect(rendered[0]?.html).not.toBe(rendered[1]?.html);

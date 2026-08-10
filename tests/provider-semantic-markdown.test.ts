@@ -157,22 +157,36 @@ const value = 1;
   expect(result.html).toContain('href="https://example.com/spec"');
 });
 
-test("shared Host engine removes active content and prevents remote image loads", () => {
+test("shared Host engine loads authored Web images but removes active content", () => {
   const result = sharedMarkdownEngine.renderFragment(`<script>alert(1)</script>
 
 [Relative](../spec) [Unsafe](javascript:alert(1)) [Mail](mailto:reader@example.com)
 
-![Remote plan](https://images.example/secret.png)
+![HTTP plan](http://images.example/http.png) ![HTTPS plan](https://images.example/https.png)
+
+![Protocol relative](//images.example/protocol.png) ![Local path](/etc/passwd) ![Unsafe image](javascript:alert(1))
 
 <form action="https://attacker.example"><input></form><iframe src="https://attacker.example"></iframe>
 `);
-  expect(result.html).not.toMatch(/<(?:script|form|iframe|img)\b/iu);
+  expect(result.html).not.toMatch(/<(?:script|form|iframe)\b/iu);
   expect(result.html).not.toContain("javascript:");
   expect(result.html).not.toContain('href="../spec"');
   expect(result.html).toContain("Relative");
   expect(result.html).toContain('href="mailto:reader@example.com"');
-  expect(result.html).toContain("Remote plan");
-  expect(result.html).toContain('href="https://images.example/secret.png"');
+  for (const [alt, source] of [
+    ["HTTP plan", "http://images.example/http.png"],
+    ["HTTPS plan", "https://images.example/https.png"],
+  ]) {
+    expect(result.html).toContain(
+      `<a class="markdown-linked-image" href="${source}" target="_blank" rel="noopener noreferrer"><img class="markdown-linked-image-thumbnail" src="${source}" alt="${alt}" loading="lazy" /></a>`,
+    );
+  }
+  expect(result.html.match(/<img\b/gu)).toHaveLength(2);
+  expect(result.html).not.toContain("//images.example/protocol.png");
+  expect(result.html).not.toContain("/etc/passwd");
+  expect(result.html).toContain("Protocol relative");
+  expect(result.html).toContain("Local path");
+  expect(result.html).toContain("Unsafe image");
 });
 
 test("shared Host engine returns escaped readable Markdown when rendering or sanitizing fails", () => {

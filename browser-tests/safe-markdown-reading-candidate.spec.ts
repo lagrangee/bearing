@@ -1,13 +1,17 @@
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { planningLineageSubjectHref } from "../src/planning-lineage-route";
 import { createMarkdownEngine } from "../src/portal/markdown-engine";
 import { portalProjectReadEnvelopeSchema } from "../src/portal-project-read-wire";
 import { PROJECT_READ_MODEL_PROJECTION_VERSION } from "../src/project-read-model/contract";
-import { runHarnessCommand, writeCatalogFixture } from "./real-host-test-support";
+import {
+  fulfillOnePixelPng,
+  runHarnessCommand,
+  writeCatalogFixture,
+} from "./real-host-test-support";
 import {
   armProviderReadMonitor,
   changedProviderReads,
@@ -29,6 +33,8 @@ let homeRoot = "";
 let portal: InstalledPortal | undefined;
 let selfHostRoot = "";
 let typedInspect: unknown;
+
+const authoredRemoteImage = "https://images.example.test/reading.png";
 
 test.beforeAll(async () => {
   candidate = await readReadingCandidate();
@@ -114,6 +120,7 @@ test("installed candidate records the safe self-host reading outcome", async ({ 
   const externalRequests: string[] = [];
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
+  await page.route(authoredRemoteImage, fulfillOnePixelPng);
   page.on("request", (request) => {
     if (request.method() === "POST") posts.push(request.url());
     if (!new URL(request.url()).hostname.match(/^(?:127\.0\.0\.1|localhost)$/u)) {
@@ -202,9 +209,17 @@ test("installed candidate records the safe self-host reading outcome", async ({ 
       "https://example.com/spec",
     );
     await expect(probe.getByRole("link", { name: "Relative source" })).toHaveCount(0);
-    await expect(probe.getByText("Relative source", { exact: true })).toBeVisible();
-    await expect(probe.locator("img")).toHaveCount(0);
-    await expect(probe.getByRole("link", { name: "image source" })).toBeVisible();
+    await expect(probe.getByText(/^Relative source — Preview unavailable:/u)).toBeVisible();
+    const remoteImage = probe.getByRole("img", { name: "Remote probe" });
+    await expect(remoteImage).toBeVisible();
+    await expect(remoteImage).toHaveAttribute("loading", "lazy");
+    await expect(remoteImage.locator("xpath=parent::a")).toHaveAttribute(
+      "href",
+      authoredRemoteImage,
+    );
+    await expect
+      .poll(() => remoteImage.evaluate((element) => (element as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
     expect(
       await page.evaluate(
         () => (globalThis as { __ticket27ActiveContent?: boolean }).__ticket27ActiveContent,
@@ -439,10 +454,27 @@ test("installed candidate records the safe self-host reading outcome", async ({ 
     expect(narrowAlignment[0]?.right).toBeCloseTo(narrowAlignment[1]?.right ?? 0, 0);
   }
 
-  expect(await changedProviderReads(providerReadMonitor)).toEqual([]);
+  expect(
+    (await changedProviderReads(providerReadMonitor))
+      .map((path) => relative(selfHostRoot, path))
+      .sort(),
+  ).toEqual(
+    [
+      ".scratch/bearing-architecture-contraction/PRD.md",
+      ".scratch/bearing-architecture-contraction/architecture-handoff-v2.md",
+      ".scratch/bearing-architecture-contraction/issues/03-decide-effort-and-prd-split-boundary.md",
+      ".scratch/bearing-architecture-contraction/issues/30-decide-non-markdown-local-evidence-acquisition.md",
+      ".scratch/bearing-architecture-contraction/research/01-lossless-contract-coverage-and-dependency-ledger.md",
+    ].sort(),
+  );
   expect(await digestReadingTruth(selfHostRoot, homeRoot)).toBe(truthBefore);
   expect(posts).toEqual([]);
-  expect(externalRequests).toEqual([]);
+  if (candidate.expectation === "fixed") {
+    expect(externalRequests.length).toBeGreaterThan(0);
+    expect([...new Set(externalRequests)]).toEqual([authoredRemoteImage]);
+  } else {
+    expect(externalRequests).toEqual([]);
+  }
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);

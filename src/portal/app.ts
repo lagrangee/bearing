@@ -44,7 +44,7 @@ const PORTAL_CONTENT_SECURITY_POLICY = [
   "style-src 'self'",
   "style-src-elem 'self' 'unsafe-inline'",
   "style-src-attr 'none'",
-  "img-src 'self'",
+  "img-src 'self' http: https:",
   "font-src 'self'",
   "connect-src 'self'",
 ].join("; ");

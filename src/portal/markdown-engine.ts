@@ -55,6 +55,9 @@ type MarkdownRenderEnvironment = {
 const linkedPresentationKey = (usage: "image" | "link", href: string): string =>
   `${usage}\0${href}`;
 
+const renderLinkedImage = (href: string, source: string, alt: string): string =>
+  `<a class="markdown-linked-image" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"><img class="markdown-linked-image-thumbnail" src="${escapeHtml(source)}" alt="${escapeHtml(alt)}" loading="lazy"></a>`;
+
 const markdown = new MarkdownIt({
   breaks: false,
   html: false,
@@ -80,13 +83,13 @@ markdown.renderer.rules.image = (tokens, index, _options, environment) => {
     linkedPresentationKey("image", source),
   );
   if (linked?.kind === "available" && linked.thumbnailSrc !== undefined) {
-    return `<a class="markdown-linked-image" href="${escapeHtml(linked.previewHref)}" target="_blank" rel="noopener noreferrer"><img class="markdown-linked-image-thumbnail" src="${escapeHtml(linked.thumbnailSrc)}" alt="${escapeHtml(alt)}" loading="lazy"></a>`;
+    return renderLinkedImage(linked.previewHref, linked.thumbnailSrc, alt);
   }
   if (linked?.kind === "unavailable") {
     return `<span class="markdown-linked-content-unavailable">${escapeHtml(alt)} — Preview unavailable: ${escapeHtml(linked.message)}</span>`;
   }
   return safeImageSourceHref(source)
-    ? `<span class="markdown-image-reference">${escapeHtml(alt)} (<a href="${escapeHtml(source)}">image source</a>)</span>`
+    ? renderLinkedImage(source, source, alt)
     : `<span class="markdown-image-reference">${escapeHtml(alt)}</span>`;
 };
 
@@ -179,7 +182,8 @@ const sanitizerOptions: sanitizeHtml.IOptions = {
           }
         : { tagName: "span", attribs: {} },
     img: (_tagName, attributes) =>
-      attributes["src"] !== undefined && safeLinkedPreviewHref(attributes["src"])
+      attributes["src"] !== undefined &&
+      (safeLinkedPreviewHref(attributes["src"]) || safeImageSourceHref(attributes["src"]))
         ? {
             tagName: "img",
             attribs: {

@@ -4,6 +4,15 @@ import { copyFile, mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import type { Route } from "@playwright/test";
+
+const onePixelPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
+
+export const fulfillOnePixelPng = (route: Route): Promise<void> =>
+  route.fulfill({ status: 200, contentType: "image/png", body: onePixelPng });
 
 export const writeCatalogFixture = async (
   homeDir: string,

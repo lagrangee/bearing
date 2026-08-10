@@ -239,7 +239,16 @@ Keep ![large image](../evidence/large.png), [binary target](../evidence/binary.b
         new RegExp(`href="/preview/projects/bearing/linked/[a-f0-9]{64}"[^>]*>${label}</a>`, "u"),
       );
     }
-    assert.match(linkedRender.html, /HTTP image \(<a href="http:\/\/images\.example\/plan\.png"/u);
+    for (const [label, source] of [
+      ["HTTP image", "http://images.example/plan.png"],
+      ["HTTPS image", "https://images.example/plan.png"],
+    ]) {
+      assert.ok(
+        linkedRender.html.includes(
+          `<a class="markdown-linked-image" href="${source}" target="_blank" rel="noopener noreferrer"><img class="markdown-linked-image-thumbnail" src="${source}" alt="${label}" loading="lazy" /></a>`,
+        ),
+      );
+    }
     assert.doesNotMatch(linkedRender.html, new RegExp(root, "u"));
     assert.doesNotMatch(linkedRender.html, /\.scratch\/work\/evidence/u);
     if (secondSnapshot.section !== "lineage") {
