@@ -3,18 +3,20 @@ import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import packageMetadata from "../package.json";
-import { parseMarkdownDocument, queryMarkdownHeading } from "../src/markdown-document";
 import type { BundleDependencyMetadata } from "./bundle-dependency-boundary";
+import { prepareReleaseCandidateNotes } from "./prepare-preview-release";
 import { assertCanonicalPackageBoundary } from "./release-boundary";
 import {
   type CandidateManifest,
   type CandidateReceipt,
   candidateSchemaVersion,
+  releaseCandidateId,
   serializeCandidateJson,
   sha256Bytes,
   sha256File,
   verifyReleaseCandidate,
 } from "./release-candidate-lib";
+import { assertExactReleaseCommit } from "./release-identity";
 
 type PackResult = Readonly<{
   id: string;
@@ -40,44 +42,68 @@ const run = (command: string, args: readonly string[]): string => {
   return result.stdout.trim();
 };
 
-const outputArgument = (): string => {
+const candidateArguments = (): Readonly<{
+  output: string;
+  version: string;
+  sourceCommit: string;
+}> => {
   const parsed = parseArgs({
     args: process.argv.slice(2),
     strict: true,
     allowPositionals: false,
     tokens: true,
-    options: { out: { type: "string" } },
+    options: {
+      out: { type: "string" },
+      version: { type: "string" },
+      "source-commit": { type: "string" },
+    },
   });
-  if (parsed.tokens.filter((token) => token.kind === "option" && token.name === "out").length > 1) {
-    fail("--out may be provided only once");
+  for (const name of ["out", "version", "source-commit"] as const) {
+    if (
+      parsed.tokens.filter((token) => token.kind === "option" && token.name === name).length > 1
+    ) {
+      fail(`--${name} may be provided only once`);
+    }
   }
-  const output = parsed.values.out;
-  if (output === undefined) {
-    return fail("usage: bun scripts/prepare-release-candidate.ts --out <empty-directory>");
-  }
-  return resolve(output);
+  return {
+    output: resolve(parsed.values.out ?? fail("missing --out")),
+    version: parsed.values.version ?? fail("missing --version"),
+    sourceCommit: parsed.values["source-commit"] ?? fail("missing --source-commit"),
+  };
 };
 
 const main = async (): Promise<void> => {
-  const output = outputArgument();
+  const { output, version, sourceCommit } = candidateArguments();
   if (packageMetadata.name !== "@lagrangee/bearing")
     fail("package name must be @lagrangee/bearing");
-  if (packageMetadata.version !== "0.1.0")
-    fail("first Public Preview candidate version must be 0.1.0");
-  const changelog = await readFile("CHANGELOG.md", "utf8");
-  const releaseHeading = queryMarkdownHeading(parseMarkdownDocument(changelog), {
-    title: "0.1.0 - Unreleased",
-    depth: 2,
-  });
-  if (releaseHeading.state !== "found") fail("CHANGELOG must contain 0.1.0 - Unreleased");
+  if (packageMetadata.version !== version) fail(`package version did not match ${version}`);
+  assertExactReleaseCommit(sourceCommit, "source commit");
+  const workflowName = process.env["GITHUB_WORKFLOW"] ?? fail("missing GITHUB_WORKFLOW");
+  const workflowRunId = process.env["GITHUB_RUN_ID"] ?? fail("missing GITHUB_RUN_ID");
+  const workflowRunAttemptText =
+    process.env["GITHUB_RUN_ATTEMPT"] ?? fail("missing GITHUB_RUN_ATTEMPT");
+  if (!/^[1-9][0-9]*$/u.test(workflowRunId)) fail("invalid GITHUB_RUN_ID");
+  const workflowRunAttempt = Number(workflowRunAttemptText);
+  if (!Number.isSafeInteger(workflowRunAttempt) || workflowRunAttempt <= 0) {
+    fail("invalid GITHUB_RUN_ATTEMPT");
+  }
 
   const sourceStatus = run("git", ["status", "--porcelain=v1", "--untracked-files=all"]);
   if (sourceStatus.length > 0) fail(`public source is not clean:\n${sourceStatus}`);
-  const sourceCommit = run("git", ["rev-parse", "HEAD"]);
-  if (!/^[a-f0-9]{40}$/u.test(sourceCommit)) fail("could not resolve an exact source commit");
+  if (run("git", ["rev-parse", "HEAD"]) !== sourceCommit) {
+    fail("checked out HEAD does not match the requested source commit");
+  }
 
   await mkdir(output, { recursive: true });
   if ((await readdir(output)).length > 0) fail("candidate output directory must be empty");
+  const releaseNotesFile = "release-notes.md";
+  const releaseNotesPath = resolve(output, releaseNotesFile);
+  await prepareReleaseCandidateNotes({
+    repositoryRoot: process.cwd(),
+    expectedPackage: packageMetadata.name,
+    expectedVersion: version,
+    notesPath: releaseNotesPath,
+  });
 
   run("bun", ["scripts/build.ts"]);
   const postBuildTrackedStatus = run("git", ["status", "--porcelain=v1", "--untracked-files=no"]);
@@ -125,21 +151,44 @@ const main = async (): Promise<void> => {
   const manifestPath = resolve(output, manifestFile);
   await writeFile(manifestPath, serializeCandidateJson(manifest), { flag: "wx" });
 
+  const artifactSha256 = await sha256File(artifactPath);
   const receipt: CandidateReceipt = {
     schemaVersion: candidateSchemaVersion,
     packageName: packed.name,
     packageVersion: packed.version,
     sourceCommit,
+    candidateId: releaseCandidateId(
+      packed.name,
+      packed.version,
+      sourceCommit,
+      artifactSha256,
+      workflowRunId,
+      workflowRunAttempt,
+    ),
+    workflow: {
+      name: workflowName,
+      runId: workflowRunId,
+      runAttempt: workflowRunAttempt,
+    },
+    toolchain: {
+      node: process.version,
+      bun: Bun.version,
+      npm: run("npm", ["--version"]),
+    },
     artifact: {
       file: packed.filename,
       size: (await lstat(artifactPath)).size,
-      sha256: await sha256File(artifactPath),
+      sha256: artifactSha256,
       npmIntegrity: packed.integrity,
       npmShasum: packed.shasum,
     },
     manifest: {
       file: manifestFile,
       sha256: sha256Bytes(Buffer.from(serializeCandidateJson(manifest))),
+    },
+    releaseNotes: {
+      file: releaseNotesFile,
+      sha256: await sha256File(releaseNotesPath),
     },
   };
   const receiptPath = resolve(output, "candidate-receipt.json");

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   cp,
@@ -32,6 +33,15 @@ import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1
 import { writeTarGzFixture } from "./release-archive-fixture";
 
 const temporaryDirectories: string[] = [];
+
+test("loads the release smoke entrypoint under the production Node runtime", () => {
+  const result = spawnSync("node", ["scripts/release-smoke.mjs", "--help"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout).toContain("Usage:");
+});
 
 const temporaryDirectory = async (): Promise<string> => {
   const directory = await mkdtemp(join(tmpdir(), "bearing-release-smoke-test-"));
@@ -167,6 +177,7 @@ const createMachineCandidate = async (
   tarball: string;
   sha256: string;
   repository: string;
+  releaseNotes: string;
   sourceCommit: string;
 }> => {
   const repository = join(root, "repository");
@@ -222,10 +233,11 @@ const createMachineCandidate = async (
     await rewriteTarEntryName(tarball, "package/hidden-link", "package/hidden-link/");
   }
   const artifact = await readFile(tarball);
+  const artifactSha256 = createHash("sha256").update(artifact).digest("hex");
   const manifest = Buffer.from(
     `${JSON.stringify(
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         packageName: "@lagrangee/bearing",
         packageVersion: "0.1.0",
         sourceCommit,
@@ -243,25 +255,43 @@ const createMachineCandidate = async (
     "utf8",
   );
   await writeFile(join(root, "candidate-manifest.json"), manifest);
+  const releaseNotes = join(root, "release-notes.md");
+  const releaseNotesBytes = Buffer.from("Final release notes.\n", "utf8");
+  await writeFile(releaseNotes, releaseNotesBytes);
   const receipt = join(root, "candidate-receipt.json");
   await writeFile(
     receipt,
     `${JSON.stringify(
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         packageName: "@lagrangee/bearing",
         packageVersion: "0.1.0",
         sourceCommit,
+        candidateId: `@lagrangee/bearing@0.1.0:${sourceCommit}:${artifactSha256}:run-123456789-1`,
+        workflow: {
+          name: "Prepare candidate artifact",
+          runId: "123456789",
+          runAttempt: 1,
+        },
+        toolchain: {
+          node: "v24.15.0",
+          bun: "1.3.8",
+          npm: "11.11.0",
+        },
         artifact: {
           file: "lagrangee-bearing-0.1.0.tgz",
           size: artifact.byteLength,
-          sha256: createHash("sha256").update(artifact).digest("hex"),
+          sha256: artifactSha256,
           npmIntegrity: `sha512-${createHash("sha512").update(artifact).digest("base64")}`,
           npmShasum: createHash("sha1").update(artifact).digest("hex"),
         },
         manifest: {
           file: "candidate-manifest.json",
           sha256: createHash("sha256").update(manifest).digest("hex"),
+        },
+        releaseNotes: {
+          file: "release-notes.md",
+          sha256: createHash("sha256").update(releaseNotesBytes).digest("hex"),
         },
       },
       null,
@@ -271,8 +301,9 @@ const createMachineCandidate = async (
   return {
     receipt,
     tarball,
-    sha256: createHash("sha256").update(artifact).digest("hex"),
+    sha256: artifactSha256,
     repository,
+    releaseNotes,
     sourceCommit,
   };
 };
@@ -554,6 +585,55 @@ describe("release smoke candidate and isolation boundaries", () => {
       },
       manifest: { files: 1 },
     });
+  });
+
+  test("requires the complete producer schema v2 receipt identity", async () => {
+    const root = await temporaryDirectory();
+    const machineCandidate = await createMachineCandidate(join(root, "candidate"), "A");
+    const candidate = await validateCandidateTarball(
+      await realpath(machineCandidate.tarball),
+      machineCandidate.sha256,
+    );
+    const receipt = JSON.parse(await readFile(machineCandidate.receipt, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    await writeFile(
+      machineCandidate.receipt,
+      `${JSON.stringify({ ...receipt, candidateId: "wrong" }, null, 2)}\n`,
+    );
+    await expect(
+      validateCandidateReceiptIdentity(machineCandidate.receipt, {
+        sourceCommit: machineCandidate.sourceCommit,
+        packageVersion: "0.1.0",
+        candidate,
+        repositoryRoot: machineCandidate.repository,
+      }),
+    ).rejects.toThrow("immutable identity mismatch");
+
+    await writeFile(
+      machineCandidate.receipt,
+      `${JSON.stringify({ ...receipt, schemaVersion: 1 }, null, 2)}\n`,
+    );
+    await expect(
+      validateCandidateReceiptIdentity(machineCandidate.receipt, {
+        sourceCommit: machineCandidate.sourceCommit,
+        packageVersion: "0.1.0",
+        candidate,
+        repositoryRoot: machineCandidate.repository,
+      }),
+    ).rejects.toThrow("Unsupported candidate receipt schema");
+
+    await writeFile(machineCandidate.receipt, `${JSON.stringify(receipt, null, 2)}\n`);
+    await writeFile(machineCandidate.releaseNotes, "changed notes\n");
+    await expect(
+      validateCandidateReceiptIdentity(machineCandidate.receipt, {
+        sourceCommit: machineCandidate.sourceCommit,
+        packageVersion: "0.1.0",
+        candidate,
+        repositoryRoot: machineCandidate.repository,
+      }),
+    ).rejects.toThrow("release notes digest mismatch");
   });
 
   test("rejects source A combined with receipt/tarball B or tarball B alone", async () => {

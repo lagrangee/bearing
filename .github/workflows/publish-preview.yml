@@ -31,6 +31,7 @@ jobs:
     environment: npm-publish
     steps:
       - name: Verify exact successful candidate workflow run
+        id: candidate_run
         env:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_RUN_ID: ${{ github.event.inputs.candidate_run_id }}
@@ -41,16 +42,23 @@ jobs:
           test "${#EXPECTED_COMMIT}" -eq 40
           case "$EXPECTED_COMMIT" in *[!0-9a-f]*) exit 1 ;; esac
           test "$GITHUB_REF_NAME" = "main"
-          test "$GITHUB_SHA" = "$EXPECTED_COMMIT"
-          RUN_FACTS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EXPECTED_RUN_ID" --jq '[.id, .path, .name, .event, .status, .conclusion, .head_sha] | @tsv')"
-          IFS=$'\t' read -r ACTUAL_RUN_ID ACTUAL_PATH ACTUAL_NAME ACTUAL_EVENT ACTUAL_STATUS ACTUAL_CONCLUSION ACTUAL_COMMIT <<< "$RUN_FACTS"
+          CURRENT_MAIN_STATUS="$(gh api "repos/$GITHUB_REPOSITORY/compare/$EXPECTED_COMMIT...$GITHUB_SHA" --jq '.status')"
+          case "$CURRENT_MAIN_STATUS" in ahead|identical) ;; *) exit 1 ;; esac
+          RUN_FACTS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EXPECTED_RUN_ID" --jq '[.id, .path, .name, .event, .status, .conclusion, .head_branch, .head_sha, .run_attempt] | @tsv')"
+          IFS=$'\t' read -r ACTUAL_RUN_ID ACTUAL_PATH ACTUAL_NAME ACTUAL_EVENT ACTUAL_STATUS ACTUAL_CONCLUSION ACTUAL_BRANCH ACTUAL_COMMIT ACTUAL_RUN_ATTEMPT <<< "$RUN_FACTS"
           test "$ACTUAL_RUN_ID" = "$EXPECTED_RUN_ID"
           test "$ACTUAL_PATH" = ".github/workflows/package.yml"
           test "$ACTUAL_NAME" = "Prepare candidate artifact"
           test "$ACTUAL_EVENT" = "workflow_dispatch"
           test "$ACTUAL_STATUS" = "completed"
           test "$ACTUAL_CONCLUSION" = "success"
-          test "$ACTUAL_COMMIT" = "$EXPECTED_COMMIT"
+          test "$ACTUAL_BRANCH" = "main"
+          test "${#ACTUAL_COMMIT}" -eq 40
+          case "$ACTUAL_COMMIT" in *[!0-9a-f]*) exit 1 ;; esac
+          case "$ACTUAL_RUN_ATTEMPT" in ""|0|*[!0-9]*) exit 1 ;; esac
+          RUN_MAIN_STATUS="$(gh api "repos/$GITHUB_REPOSITORY/compare/$EXPECTED_COMMIT...$ACTUAL_COMMIT" --jq '.status')"
+          case "$RUN_MAIN_STATUS" in ahead|identical) ;; *) exit 1 ;; esac
+          printf 'run_attempt=%s\n' "$ACTUAL_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.inputs.source_commit }}
@@ -66,7 +74,7 @@ jobs:
           EXPECTED_PACKAGE: "@lagrangee/bearing"
           EXPECTED_VERSION: ${{ github.event.inputs.version }}
           RELEASE_NOTES_PATH: ${{ runner.temp }}/bearing-release-notes.md
-        run: bun scripts/prepare-preview-release.ts --package "$EXPECTED_PACKAGE" --version "$EXPECTED_VERSION" --notes "$RELEASE_NOTES_PATH"
+        run: bun scripts/prepare-preview-release.ts --final --package "$EXPECTED_PACKAGE" --version "$EXPECTED_VERSION" --notes "$RELEASE_NOTES_PATH"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: bearing-candidate-${{ github.event.inputs.source_commit }}
@@ -78,10 +86,13 @@ jobs:
           EXPECTED_VERSION: ${{ github.event.inputs.version }}
           EXPECTED_COMMIT: ${{ github.event.inputs.source_commit }}
           EXPECTED_FROZEN_SHA256: ${{ github.event.inputs.frozen_sha256 }}
+          EXPECTED_WORKFLOW_NAME: "Prepare candidate artifact"
+          EXPECTED_RUN_ID: ${{ github.event.inputs.candidate_run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ steps.candidate_run.outputs.run_attempt }}
         run: |
           test "${#EXPECTED_COMMIT}" -eq 40
           test "${#EXPECTED_FROZEN_SHA256}" -eq 64
-          bun scripts/verify-release-candidate.ts --receipt release-candidate/candidate-receipt.json --version "$EXPECTED_VERSION" --source-commit "$EXPECTED_COMMIT" --repo-root "$GITHUB_WORKSPACE"
+          bun scripts/verify-release-candidate.ts --receipt release-candidate/candidate-receipt.json --version "$EXPECTED_VERSION" --source-commit "$EXPECTED_COMMIT" --repo-root "$GITHUB_WORKSPACE" --workflow-name "$EXPECTED_WORKFLOW_NAME" --workflow-run-id "$EXPECTED_RUN_ID" --workflow-run-attempt "$EXPECTED_RUN_ATTEMPT"
           RECEIPT_SHA256="$(node -e "const r=require('./release-candidate/candidate-receipt.json'); process.stdout.write(r.artifact.sha256)")"
           test "$RECEIPT_SHA256" = "$EXPECTED_FROZEN_SHA256"
       - name: Recover or publish exact preview state

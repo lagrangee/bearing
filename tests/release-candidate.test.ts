@@ -1,7 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFile, chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -13,11 +23,15 @@ import {
   normalizeBundleModuleId,
 } from "../scripts/bundle-dependency-boundary";
 import { findPublicSourceResidue } from "../scripts/check-public-source-residue";
-import { preparePreviewRelease } from "../scripts/prepare-preview-release";
+import {
+  preparePreviewRelease,
+  prepareReleaseCandidateNotes,
+} from "../scripts/prepare-preview-release";
 import { assertAllowedPackagePaths, requiredPackagePaths } from "../scripts/release-boundary";
 import {
   type CandidateManifest,
   type CandidateReceipt,
+  releaseCandidateId,
   serializeCandidateJson,
   sha256Bytes,
   verifyReleaseCandidate,
@@ -44,10 +58,12 @@ afterEach(async () => {
 
 const makeCandidate = async (
   extraFiles: Readonly<Record<string, string>> = { "dist/extra.js": "extra\n" },
+  version = "0.1.0",
 ): Promise<{
   root: string;
   artifactPath: string;
   manifestPath: string;
+  notesPath: string;
   receiptPath: string;
   packageRoot: string;
   receipt: CandidateReceipt;
@@ -55,7 +71,7 @@ const makeCandidate = async (
   const root = await mkdtemp(join(tmpdir(), "bearing-candidate-test-"));
   temporaryRoots.push(root);
   const packageRoot = join(root, "staging/package");
-  const packageJson = `${JSON.stringify({ name: "@lagrangee/bearing", version: "0.1.0" })}\n`;
+  const packageJson = `${JSON.stringify({ name: "@lagrangee/bearing", version })}\n`;
   const packageFiles: Record<string, string> = Object.fromEntries(
     requiredPackagePaths.map((path) => [path, `fixture for ${path}\n`]),
   );
@@ -67,7 +83,7 @@ const makeCandidate = async (
     await writeFile(target, bytes);
   }
 
-  const artifactPath = join(root, "lagrangee-bearing-0.1.0.tgz");
+  const artifactPath = join(root, `lagrangee-bearing-${version}.tgz`);
   await writeTarGzFixture(
     artifactPath,
     Object.entries(packageFiles).map(([path, bytes]) => ({
@@ -78,9 +94,9 @@ const makeCandidate = async (
   );
 
   const manifest: CandidateManifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     packageName: "@lagrangee/bearing",
-    packageVersion: "0.1.0",
+    packageVersion: version,
     sourceCommit: "a".repeat(40),
     files: Object.entries(packageFiles)
       .map(([path, bytes]) => ({ path, size: Buffer.byteLength(bytes), mode: 420 }))
@@ -88,14 +104,35 @@ const makeCandidate = async (
   };
   const manifestPath = join(root, "candidate-manifest.json");
   await writeFile(manifestPath, serializeCandidateJson(manifest));
+  const notesPath = join(root, "release-notes.md");
+  const releaseNotes = "Release notes.\n";
+  await writeFile(notesPath, releaseNotes);
   const artifact = await readFile(artifactPath);
   const receipt: CandidateReceipt = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     packageName: "@lagrangee/bearing",
-    packageVersion: "0.1.0",
+    packageVersion: version,
     sourceCommit: "a".repeat(40),
+    candidateId: releaseCandidateId(
+      "@lagrangee/bearing",
+      version,
+      "a".repeat(40),
+      sha256Bytes(artifact),
+      "123456789",
+      1,
+    ),
+    workflow: {
+      name: "Candidate Freeze",
+      runId: "123456789",
+      runAttempt: 1,
+    },
+    toolchain: {
+      node: "v24.15.0",
+      bun: "1.3.8",
+      npm: "11.11.0",
+    },
     artifact: {
-      file: "lagrangee-bearing-0.1.0.tgz",
+      file: `lagrangee-bearing-${version}.tgz`,
       size: artifact.byteLength,
       sha256: sha256Bytes(artifact),
       npmIntegrity: `sha512-${createHash("sha512").update(artifact).digest("base64")}`,
@@ -105,10 +142,14 @@ const makeCandidate = async (
       file: "candidate-manifest.json",
       sha256: sha256Bytes(Buffer.from(serializeCandidateJson(manifest))),
     },
+    releaseNotes: {
+      file: "release-notes.md",
+      sha256: sha256Bytes(Buffer.from(releaseNotes)),
+    },
   };
   const receiptPath = join(root, "candidate-receipt.json");
   await writeFile(receiptPath, serializeCandidateJson(receipt));
-  return { root, artifactPath, manifestPath, receiptPath, packageRoot, receipt };
+  return { root, artifactPath, manifestPath, notesPath, receiptPath, packageRoot, receipt };
 };
 
 const rewriteCandidateIdentity = async (
@@ -117,14 +158,23 @@ const rewriteCandidateIdentity = async (
 ): Promise<void> => {
   await writeFile(candidate.manifestPath, serializeCandidateJson(manifest));
   const artifact = await readFile(candidate.artifactPath);
+  const artifactSha256 = sha256Bytes(artifact);
   await writeFile(
     candidate.receiptPath,
     serializeCandidateJson({
       ...candidate.receipt,
+      candidateId: releaseCandidateId(
+        candidate.receipt.packageName,
+        candidate.receipt.packageVersion,
+        candidate.receipt.sourceCommit,
+        artifactSha256,
+        candidate.receipt.workflow.runId,
+        candidate.receipt.workflow.runAttempt,
+      ),
       artifact: {
         ...candidate.receipt.artifact,
         size: artifact.byteLength,
-        sha256: sha256Bytes(artifact),
+        sha256: artifactSha256,
         npmIntegrity: `sha512-${createHash("sha512").update(artifact).digest("base64")}`,
         npmShasum: createHash("sha1").update(artifact).digest("hex"),
       },
@@ -231,6 +281,141 @@ test("verifies one exact candidate artifact, manifest, and receipt", async () =>
   expect(receipt.artifact.sha256).toBe(candidate.receipt.artifact.sha256);
 });
 
+test("binds immutable Candidate identity, workflow run, toolchain, and frozen release notes", async () => {
+  const candidate = await makeCandidate();
+  await expect(
+    verifyReleaseCandidate(candidate.receiptPath, {
+      workflowName: "Candidate Freeze",
+      workflowRunId: "123456789",
+      workflowRunAttempt: 1,
+    }),
+  ).resolves.toMatchObject({ workflow: candidate.receipt.workflow });
+  for (const expected of [
+    { workflowName: "Different workflow" },
+    { workflowRunId: "123456790" },
+    { workflowRunAttempt: 2 },
+  ]) {
+    await expect(verifyReleaseCandidate(candidate.receiptPath, expected)).rejects.toThrow(
+      "candidate workflow identity did not match",
+    );
+  }
+  await appendFile(candidate.notesPath, "tampered");
+  await expect(verifyReleaseCandidate(candidate.receiptPath)).rejects.toThrow(
+    "candidate release notes digest mismatch",
+  );
+});
+
+test("accepts reusable stable 0.x identity and rejects incomplete workflow identity", async () => {
+  const candidate = await makeCandidate({ "dist/extra.js": "extra\n" }, "0.2.0");
+  await expect(
+    verifyReleaseCandidate(candidate.receiptPath, { version: "0.2.0" }),
+  ).resolves.toMatchObject({ packageVersion: "0.2.0" });
+
+  await writeFile(
+    candidate.receiptPath,
+    serializeCandidateJson({
+      ...candidate.receipt,
+      workflow: { ...candidate.receipt.workflow, runId: "latest" },
+    }),
+  );
+  await expect(verifyReleaseCandidate(candidate.receiptPath)).rejects.toThrow(
+    "candidate workflow identity is invalid",
+  );
+});
+
+test("changes immutable Candidate identity when workflow run provenance changes", async () => {
+  const candidate = await makeCandidate();
+  await writeFile(
+    candidate.receiptPath,
+    serializeCandidateJson({
+      ...candidate.receipt,
+      workflow: { ...candidate.receipt.workflow, runId: "123456790" },
+    }),
+  );
+  await expect(verifyReleaseCandidate(candidate.receiptPath)).rejects.toThrow(
+    "candidate immutable identity mismatch",
+  );
+});
+
+test("prepares deterministic real Candidate archive bytes and rejects output reuse", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bearing-candidate-preparation-"));
+  temporaryRoots.push(root);
+  const repository = join(root, "repository");
+  const cloned = spawnSync(
+    "git",
+    ["clone", "--local", "--no-hardlinks", process.cwd(), repository],
+    { encoding: "utf8" },
+  );
+  expect(cloned.status, cloned.stderr).toBe(0);
+
+  const metadataPath = join(repository, "package.json");
+  const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as Record<string, unknown>;
+  await writeFile(metadataPath, `${JSON.stringify({ ...metadata, version: "0.2.0" }, null, 2)}\n`);
+  const changelogPath = join(repository, "CHANGELOG.md");
+  await writeFile(
+    changelogPath,
+    (await readFile(changelogPath, "utf8")).replace(
+      "## 0.1.0 - Unreleased",
+      "## 0.2.0 - 2026-08-11",
+    ),
+  );
+  await symlink(resolve("node_modules"), join(repository, "node_modules"), "dir");
+  await appendFile(join(repository, ".git/info/exclude"), "\nnode_modules\n");
+  for (const args of [
+    ["config", "user.email", "candidate@example.invalid"],
+    ["config", "user.name", "Candidate Fixture"],
+    ["add", "package.json", "CHANGELOG.md"],
+    ["commit", "-qm", "fixture: controlled 0.2.0 candidate"],
+  ]) {
+    const result = spawnSync("git", ["-C", repository, ...args], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+  }
+  const sourceCommit = spawnSync("git", ["-C", repository, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).stdout.trim();
+  const prepare = (output: string) =>
+    spawnSync(
+      "bun",
+      [
+        "scripts/prepare-release-candidate.ts",
+        "--out",
+        output,
+        "--version",
+        "0.2.0",
+        "--source-commit",
+        sourceCommit,
+      ],
+      {
+        cwd: repository,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GITHUB_WORKFLOW: "Candidate Freeze",
+          GITHUB_RUN_ID: "7001",
+          GITHUB_RUN_ATTEMPT: "1",
+          npm_config_cache: join(root, "npm-cache"),
+        },
+      },
+    );
+  const first = join(root, "candidate-a");
+  const second = join(root, "candidate-b");
+  for (const output of [first, second]) {
+    const prepared = prepare(output);
+    expect(prepared.status, prepared.stderr).toBe(0);
+  }
+  for (const file of [
+    "lagrangee-bearing-0.2.0.tgz",
+    "candidate-manifest.json",
+    "candidate-receipt.json",
+    "release-notes.md",
+  ]) {
+    expect(await readFile(join(first, file))).toEqual(await readFile(join(second, file)));
+  }
+  const collision = prepare(first);
+  expect(collision.status).not.toBe(0);
+  expect(collision.stderr).toContain("candidate output directory must be empty");
+}, 30_000);
+
 test("rejects receipt identity mismatch", async () => {
   const candidate = await makeCandidate();
   await expect(
@@ -242,10 +427,10 @@ test("rejects the wrong package version and unsafe artifact names", async () => 
   const candidate = await makeCandidate();
   await writeFile(
     candidate.receiptPath,
-    serializeCandidateJson({ ...candidate.receipt, packageVersion: "0.2.0" }),
+    serializeCandidateJson({ ...candidate.receipt, packageVersion: "1.0.0" }),
   );
   await expect(verifyReleaseCandidate(candidate.receiptPath)).rejects.toThrow(
-    "candidate package version must be 0.1.0",
+    "candidate package version must be a stable 0.x semantic version",
   );
 
   await writeFile(
@@ -440,6 +625,14 @@ test("source-binds tracked package inputs while frozen artifact identity binds g
   const boundReceipt = {
     ...candidate.receipt,
     sourceCommit,
+    candidateId: releaseCandidateId(
+      candidate.receipt.packageName,
+      candidate.receipt.packageVersion,
+      sourceCommit,
+      candidate.receipt.artifact.sha256,
+      candidate.receipt.workflow.runId,
+      candidate.receipt.workflow.runAttempt,
+    ),
     manifest: {
       ...candidate.receipt.manifest,
       sha256: sha256Bytes(Buffer.from(serializeCandidateJson(boundManifest))),
@@ -469,6 +662,14 @@ test("source-binds tracked package inputs while frozen artifact identity binds g
     serializeCandidateJson({
       ...boundReceipt,
       sourceCommit: changedCommit,
+      candidateId: releaseCandidateId(
+        boundReceipt.packageName,
+        boundReceipt.packageVersion,
+        changedCommit,
+        boundReceipt.artifact.sha256,
+        boundReceipt.workflow.runId,
+        boundReceipt.workflow.runAttempt,
+      ),
       manifest: {
         ...boundReceipt.manifest,
         sha256: sha256Bytes(Buffer.from(serializeCandidateJson(changedManifest))),
@@ -503,6 +704,14 @@ test("source-binds tracked package inputs while frozen artifact identity binds g
     serializeCandidateJson({
       ...boundReceipt,
       sourceCommit: trackedSourceCommit,
+      candidateId: releaseCandidateId(
+        boundReceipt.packageName,
+        boundReceipt.packageVersion,
+        trackedSourceCommit,
+        boundReceipt.artifact.sha256,
+        boundReceipt.workflow.runId,
+        boundReceipt.workflow.runAttempt,
+      ),
       manifest: {
         ...boundReceipt.manifest,
         sha256: sha256Bytes(Buffer.from(serializeCandidateJson(trackedManifest))),
@@ -683,9 +892,7 @@ test("package workflow binds one uploaded candidate to its exact source commit",
   const checkoutIndex = steps.findIndex(
     (step) => step.uses === `actions/checkout@${reviewedActionPins["actions/checkout"]}`,
   );
-  const prepareIndex = steps.findIndex(
-    (step) => step.run === "bun scripts/prepare-release-candidate.ts --out release-candidate",
-  );
+  const prepareIndex = steps.findIndex((step) => step.name === "Prepare frozen Candidate bundle");
   const uploadIndex = steps.findIndex(
     (step) =>
       step.uses === `actions/upload-artifact@${reviewedActionPins["actions/upload-artifact"]}`,
@@ -696,7 +903,7 @@ test("package workflow binds one uploaded candidate to its exact source commit",
   );
   expect(prepareIndex).toBeGreaterThanOrEqual(0);
   expect(checkoutIndex).toBeGreaterThanOrEqual(0);
-  const sourceCommitExpression = ["$", "{{ github.sha }}"].join("");
+  const sourceCommitExpression = ["$", "{{ inputs.source_commit }}"].join("");
   expect(steps[checkoutIndex]?.with).toMatchObject({ ref: sourceCommitExpression });
   expect(setupGoIndex).toBeGreaterThanOrEqual(0);
   expect(steps[setupGoIndex]?.with).toEqual({ "go-version": "1.26.5", cache: false });
@@ -745,11 +952,11 @@ test("publish workflow has parseable exact-artifact wiring", async () => {
   expect(runProof).not.toContain("node ");
   expect(runProof).not.toContain("bun ");
   const dispatchBranchCheck = 'test "$GITHUB_REF_NAME" = "main"';
-  const dispatchCommitCheck = 'test "$GITHUB_SHA" = "$EXPECTED_COMMIT"';
   expect(runProof).toContain(dispatchBranchCheck);
-  expect(runProof).toContain(dispatchCommitCheck);
   expect(runProof.indexOf(dispatchBranchCheck)).toBeLessThan(runProof.indexOf("gh api"));
-  expect(runProof.indexOf(dispatchCommitCheck)).toBeLessThan(runProof.indexOf("gh api"));
+  expect(runProof).toContain("compare/$EXPECTED_COMMIT...$GITHUB_SHA");
+  expect(runProof).toContain("compare/$EXPECTED_COMMIT...$ACTUAL_COMMIT");
+  expect(runProof).toContain(".run_attempt");
   const fakeRoot = await mkdtemp(join(tmpdir(), "bearing-workflow-proof-"));
   temporaryRoots.push(fakeRoot);
   const fakeBin = join(fakeRoot, "bin");
@@ -759,14 +966,23 @@ test("publish workflow has parseable exact-artifact wiring", async () => {
     fakeGh,
     `#!/bin/sh
 test "$1" = "api"
-test "$2" = "repos/$GITHUB_REPOSITORY/actions/runs/$EXPECTED_RUN_ID"
 test "$3" = "--jq"
-printf '%s\\n' "$FAKE_RUN_FACTS"
+case "$2" in
+  "repos/$GITHUB_REPOSITORY/actions/runs/$EXPECTED_RUN_ID") printf '%s\\n' "$FAKE_RUN_FACTS" ;;
+  "repos/$GITHUB_REPOSITORY/compare/"*) printf '%s\\n' "$FAKE_COMPARE_STATUS" ;;
+  *) exit 1 ;;
+esac
 `,
   );
   await chmod(fakeGh, 0o755);
   const sourceCommit = "a".repeat(40);
-  const executeRunProof = (facts: string, dispatchCommit = sourceCommit, dispatchBranch = "main") =>
+  const githubOutput = join(fakeRoot, "github-output");
+  const executeRunProof = (
+    facts: string,
+    dispatchCommit = sourceCommit,
+    dispatchBranch = "main",
+    compareStatus = "identical",
+  ) =>
     spawnSync("/bin/bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", runProof], {
       encoding: "utf8",
       env: {
@@ -778,7 +994,9 @@ printf '%s\\n' "$FAKE_RUN_FACTS"
         GH_TOKEN: "test-token",
         GITHUB_REF_NAME: dispatchBranch,
         GITHUB_SHA: dispatchCommit,
+        GITHUB_OUTPUT: githubOutput,
         FAKE_RUN_FACTS: facts,
+        FAKE_COMPARE_STATUS: compareStatus,
       },
     });
   const successfulFacts = [
@@ -788,14 +1006,28 @@ printf '%s\\n' "$FAKE_RUN_FACTS"
     "workflow_dispatch",
     "completed",
     "success",
+    "main",
     sourceCommit,
+    "1",
   ];
   const successful = executeRunProof(successfulFacts.join("\t"));
   expect(successful.status, successful.stderr).toBe(0);
-  const wrongDispatchCommit = executeRunProof(successfulFacts.join("\t"), "b".repeat(40));
-  expect(wrongDispatchCommit.status).not.toBe(0);
+  const ancestorSource = executeRunProof(
+    successfulFacts.join("\t"),
+    "b".repeat(40),
+    "main",
+    "ahead",
+  );
+  expect(ancestorSource.status, ancestorSource.stderr).toBe(0);
   const wrongDispatchBranch = executeRunProof(successfulFacts.join("\t"), sourceCommit, "0.1.1");
   expect(wrongDispatchBranch.status).not.toBe(0);
+  const sourceOutsideMain = executeRunProof(
+    successfulFacts.join("\t"),
+    "b".repeat(40),
+    "main",
+    "diverged",
+  );
+  expect(sourceOutsideMain.status).not.toBe(0);
   for (const [index, mismatch] of [
     [0, "999"],
     [1, ".github/workflows/ci.yml"],
@@ -803,7 +1035,9 @@ printf '%s\\n' "$FAKE_RUN_FACTS"
     [3, "pull_request"],
     [4, "in_progress"],
     [5, "failure"],
-    [6, "b".repeat(40)],
+    [6, "0.1.1"],
+    [7, "not-a-commit"],
+    [8, "0"],
   ] as const) {
     const rejected = executeRunProof(successfulFacts.with(index, mismatch).join("\t"));
     expect(rejected.status).not.toBe(0);
@@ -821,6 +1055,11 @@ printf '%s\\n' "$FAKE_RUN_FACTS"
   const identity = steps.find((step) => step.name === "Verify exact candidate identity")?.run ?? "";
   expect(identity).toContain('--repo-root "$GITHUB_WORKSPACE"');
   expect(identity).toContain("EXPECTED_FROZEN_SHA256");
+  expect(identity).toContain('--workflow-name "$EXPECTED_WORKFLOW_NAME"');
+  expect(identity).toContain('--workflow-run-id "$EXPECTED_RUN_ID"');
+  expect(identity).toContain('--workflow-run-attempt "$EXPECTED_RUN_ATTEMPT"');
+  const sourceIdentity = steps[sourceIdentityIndex]?.run ?? "";
+  expect(sourceIdentity).toContain("--final");
   const recovery = steps[recoveryIndex]?.run ?? "";
   expect(recovery).toContain("absent:absent:absent:absent|present:absent:absent:absent");
   expect(recovery).toContain("present:exact:exact:absent|present:exact:exact:exact");
@@ -1384,6 +1623,43 @@ test("prepares release notes from one matching changelog section", async () => {
   );
   expect(prepared.status, prepared.stderr).toBe(0);
   expect(await readFile(notesPath, "utf8")).toBe("Preview notes.\n\n### Added\n\n- One thing.\n");
+});
+
+test("prepares Candidate release notes only from one final dated changelog section", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bearing-candidate-release-notes-"));
+  temporaryRoots.push(root);
+  await writeFile(
+    join(root, "package.json"),
+    `${JSON.stringify({ name: "@lagrangee/bearing", version: "0.2.0" })}\n`,
+  );
+  const changelogPath = join(root, "CHANGELOG.md");
+  await writeFile(
+    changelogPath,
+    "# Changelog\n\n## 0.2.0 - Unreleased\n\nNot final.\n\n## 0.1.0 - 2026-01-01\n\nOld notes.\n",
+  );
+  await expect(
+    prepareReleaseCandidateNotes({
+      repositoryRoot: root,
+      expectedPackage: "@lagrangee/bearing",
+      expectedVersion: "0.2.0",
+      notesPath: join(root, "unreleased.md"),
+    }),
+  ).rejects.toThrow("final YYYY-MM-DD date");
+
+  await writeFile(
+    changelogPath,
+    "# Changelog\n\n## 0.2.0 - 2026-08-11\n\nFinal notes.\n\n### Added\n\n- One thing.\n",
+  );
+  const notesPath = join(root, "final.md");
+  await expect(
+    prepareReleaseCandidateNotes({
+      repositoryRoot: root,
+      expectedPackage: "@lagrangee/bearing",
+      expectedVersion: "0.2.0",
+      notesPath,
+    }),
+  ).resolves.toBe("Final notes.\n\n### Added\n\n- One thing.");
+  expect(await readFile(notesPath, "utf8")).toBe("Final notes.\n\n### Added\n\n- One thing.\n");
 });
 
 test("rejects mismatched release identity and duplicate changelog sections", async () => {
