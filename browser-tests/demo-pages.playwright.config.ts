@@ -3,7 +3,7 @@ import { defineConfig } from "@playwright/test";
 
 const port = 4197;
 const repoRoot = join(import.meta.dirname, "..");
-const evidenceRoot = join(repoRoot, ".scratch/bearing-portal-github-demo/evidence/ticket-07");
+const evidenceRoot = join(repoRoot, "test-results", "demo-pages");
 const bundleRoot = join(repoRoot, "pages-artifact");
 const vite = join(repoRoot, "node_modules/vite/bin/vite.js");
 

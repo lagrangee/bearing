@@ -91,6 +91,18 @@ test("the Pages workflow validates pull requests and deploys only the verified m
       with: { path: "pages-artifact" },
     }),
   );
+  expect(validate.steps).toContainEqual(
+    expect.objectContaining({
+      name: "Upload demo failure diagnostics",
+      if: "failure()",
+      uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      with: expect.objectContaining({
+        path: "test-results/demo-pages/",
+        "if-no-files-found": "warn",
+        "retention-days": 7,
+      }),
+    }),
+  );
 
   const deploy = workflow.jobs["deploy"] as {
     readonly needs: string;
@@ -179,4 +191,55 @@ test("the public docs keep the browser sample separate from the supported local 
     expect(source).toContain("mock");
     expect(source).toContain("docs/data-and-security");
   }
+});
+
+test("the public demo and bilingual docs expose the final public intake boundaries", async () => {
+  const demoRoute = "https://lagrangee.github.io/bearing/";
+  const intakeRoutes = [
+    "https://github.com/lagrangee/bearing/issues/new?template=documentation.yml",
+    "https://github.com/lagrangee/bearing/discussions/categories/q-a",
+    "https://github.com/lagrangee/bearing/discussions/categories/ideas",
+    "https://github.com/lagrangee/bearing/security/advisories/new",
+  ];
+  const publicDocs = await Promise.all(
+    [
+      "README.md",
+      "README.zh-CN.md",
+      "docs/data-and-security.md",
+      "docs/data-and-security.zh-CN.md",
+    ].map((path) => readFile(join(repoRoot, path), "utf8")),
+  );
+
+  for (const source of publicDocs) {
+    for (const route of intakeRoutes) expect(source).toContain(route);
+    expect(source).toMatch(/public GitHub|公开 GitHub/iu);
+    expect(source).toMatch(/best-effort/iu);
+    expect(source).toMatch(/private vulnerability reporting/iu);
+  }
+  for (const source of publicDocs.slice(0, 2)) {
+    expect(source).toContain(demoRoute);
+    expect(source).not.toMatch(/\b(?:Codex|Claude Code|WorkBuddy|CodeBuddy)\b/u);
+  }
+
+  const [demo, demoData] = await Promise.all([
+    readFile(join(repoRoot, "demo/index.html"), "utf8"),
+    readFile(join(repoRoot, "demo/mock-data.js"), "utf8"),
+  ]);
+  for (const route of intakeRoutes) expect(demo).toContain(route);
+  expect(demo).not.toContain("/discussions/categories/ideas-feedback");
+  expect(demoData).toContain("Fixed-data static sample");
+  expect(demoData).toContain("Not a hosted Bearing project");
+
+  const [issueConfig, bugReport, browserConfig] = await Promise.all([
+    readFile(join(repoRoot, ".github/ISSUE_TEMPLATE/config.yml"), "utf8"),
+    readFile(join(repoRoot, ".github/ISSUE_TEMPLATE/bug_report.yml"), "utf8"),
+    readFile(join(repoRoot, "browser-tests/demo-pages.playwright.config.ts"), "utf8"),
+  ]);
+  for (const route of intakeRoutes.filter((route) => !route.includes("template=documentation"))) {
+    expect(issueConfig + bugReport).toContain(route);
+  }
+  expect(issueConfig).not.toContain("/discussions/categories/ideas-feedback");
+  expect(bugReport).toContain("id: agent_environment");
+  expect(bugReport).not.toMatch(/\b(?:Codex|Claude Code|WorkBuddy|CodeBuddy)\b/u);
+  expect(browserConfig).toContain('join(repoRoot, "test-results", "demo-pages")');
 });

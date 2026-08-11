@@ -4,7 +4,7 @@
 
 Bearing 为长期 coding-agent 项目提供一个本地、可检查的项目治理层。它把已经接受的方向、Planning Reviews、证据和 current Audit findings 保持可见，让你和 agent 每次开始新工作时都能回到同一幅项目全貌，而不是依赖旧对话里脆弱的记忆。
 
-Local-first · 开源 Public Preview · Codex verified path · Claude Code target surface 等待维护者验证 · Matt-native 本地 Markdown work management
+Local-first · 开源 Public Preview · Agent 代办安装 · Matt-native 本地 Markdown work management
 
 [Quickstart](#quickstart完成一次真实-alignment-loop) · [Bearing 适合你吗？](#bearing-适合你吗) · [数据边界](#local-first-数据与信任边界) · [English README](README.md)
 
@@ -23,10 +23,10 @@ Local-first · 开源 Public Preview · Codex verified path · Claude Code targe
 ## Bearing 连接了什么
 
 ```text
-你 + Codex / Claude Code
-          ↕
+你 + 你的 coding agent
+         ↕
   Bearing 项目治理
-          ↕
+         ↕
 Matt-native Maps 与 Tickets
 
 Portal 读取同一幅项目全貌
@@ -62,28 +62,25 @@ Bearing 目前可能不适合你，如果：
 | --- | --- |
 | 平台 | macOS |
 | Node.js | Node.js 24.15.0 及以上；CI 验证 Node.js 24.15.0 与 26 |
-| Agent Surfaces | Codex 已验证。Claude Code 是目标 surface，仍等待维护者验证。 |
 | Work Management Adapter | Matt-native 本地 Markdown Maps 与 Tickets |
 | Telemetry | 无。Bearing 不做 analytics、crash upload、repository upload 或 update polling。 |
 
 ## Interactive browser sample
 
-仓库包含一个 browser-only Portal demo。它只使用固定的 mock Northstar 数据，并在 GitHub
-project Pages base path 下作为独立 static artifact 运行。它不启动本地 Portal Host，不读取
-repository，不调用 provider 或 API，不使用 analytics，也不持久化 browser state。
+[打开 interactive browser sample](https://lagrangee.github.io/bearing/)。它是一个只使用固定
+mock Northstar 数据的 browser-only Portal demo。这个 demo 是 static sample，不是 hosted Bearing
+project、real repository、canonical planning surface 或 product-value proof。它不启动本地 Portal
+Host，不读取 repository，不调用 provider 或 API，不使用 analytics，也不持久化 browser state。
 
-这个 demo 是 sample，不是 hosted Bearing project。受支持的产品使用从
-[本地安装](#quickstart完成一次真实-alignment-loop)和 loopback Portal 开始。分享 Portal capture
-或修改 private reachability 前，请阅读 [data and security boundary](docs/data-and-security.zh-CN.md)。
-Pull request 只验证 static artifact，不发布 public preview。Pages publication 和首次 live
-acceptance 仍由 maintainer 明确执行。
-production Portal visual owner 的变化会重跑 demo checks，并且合并前必须完成 manual fidelity
-review；demo 保持独立，不 import production Portal code。
+受支持的产品使用从[本地安装](#quickstart完成一次真实-alignment-loop)和 loopback Portal 开始。
+Demo 可用不代表安装成功。分享 Portal capture 或修改 private reachability 前，请阅读
+[data and security boundary](docs/data-and-security.zh-CN.md)。Demo 与 production Portal runtime
+保持隔离，也不会进入 npm package。
 
 ## Feedback 与支持
 
 - 可通过 [Bug report](https://github.com/lagrangee/bearing/issues/new?template=bug_report.yml) 或 [Documentation problem](https://github.com/lagrangee/bearing/issues/new?template=documentation.yml) 提交可复现 bug 与可执行的文档问题。Blank Issues 默认关闭。
-- 安装、概念、工作流与故障排查问题请进入 [Q&A](https://github.com/lagrangee/bearing/discussions/categories/q-a)；体验、场景、痛点、建议及尚待成形的 feature ideas 请进入 [Ideas & Feedback](https://github.com/lagrangee/bearing/discussions/categories/ideas-feedback)。
+- 安装、概念、工作流与故障排查问题请进入 [Q&A](https://github.com/lagrangee/bearing/discussions/categories/q-a)；体验、场景、痛点、建议及尚待成形的 feature ideas 请进入 [Ideas](https://github.com/lagrangee/bearing/discussions/categories/ideas)。
 - 疑似漏洞只能通过 [GitHub private vulnerability reporting](https://github.com/lagrangee/bearing/security/advisories/new) 私下报告，绝不能发布在公开 Issue 或 Discussion 中。
 
 Issues 与 Discussions 都是公开 GitHub 数据。请勿提交 tokens、secrets、private source、完整 planning state、真实 absolute repository paths 或未打码 screenshots。Bearing 不会自动上传 diagnostics；logs、diagnostics 与 repository excerpts 只有在你明确提交时才会被分享。社区支持为 best-effort，不提供 SLA；公开 feedback 也不代表排期或交付承诺。

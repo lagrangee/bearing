@@ -8,7 +8,7 @@
 
 - macOS，这是当前 Preview 的已验证路径。
 - 当前 release candidate 选定的 Node.js 版本线。
-- Codex 是已验证路径。Claude Code 是目标 surface，等待维护者验证。
+- 一个能够阅读 repository guidance、安装 package 并接入 skill 的 coding agent。
 - 一个你正在真实使用的 Git 仓库。
 - 受支持的 Matt-native 本地 Markdown Map 与 Ticket 工作流，或愿意先建立它。
 

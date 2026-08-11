@@ -21,6 +21,15 @@ Bearing 不执行 analytics、crash upload、repository-content upload、update 
 
 分享 screenshot、log、diagnostic 或 repository excerpt 前，请先检查并打码。Catalog responses 与 Portal UI 会有意包含 absolute repository roots，因此即使截图或复制内容没有 source code，也可能暴露本地路径。
 
+## Public feedback 与 private security reporting
+
+- 问题和故障排查使用 [Q&A](https://github.com/lagrangee/bearing/discussions/categories/q-a)。
+- 体验、建议和 feature ideas 使用 [Ideas](https://github.com/lagrangee/bearing/discussions/categories/ideas)。
+- 可执行的文档问题使用 [Documentation problem](https://github.com/lagrangee/bearing/issues/new?template=documentation.yml)。
+- 疑似漏洞使用 [GitHub private vulnerability reporting](https://github.com/lagrangee/bearing/security/advisories/new)。绝不能在公开 Issue 或 Discussion 中披露。
+
+Issues 与 Discussions 是公开 GitHub 数据。请勿包含 tokens、secrets、private source、完整 planning state、真实 absolute repository paths 或未打码 screenshots。社区支持是 best-effort 且没有 SLA；公开报告不代表排期或交付承诺。
+
 ## Portal 边界
 
 Portal 是绑定 loopback、供本地检查的前台 single-user Host。它面向 owner 的 Catalog API 与 UI 会有意返回并显示每个仓库的 absolute `repoRoot`。浏览器操作使用 opaque Catalog entry IDs，但 screenshots、复制的 responses 与主动提交的 diagnostics 仍可能暴露本地 filesystem paths。

@@ -8,7 +8,7 @@ Only the latest Public Preview release line is expected to receive fixes. `0.x` 
 
 ## Reporting a vulnerability
 
-Use [GitHub private vulnerability reporting](https://github.com/lagrangee/bearing/security/advisories/new). Public Preview activation is blocked unless that private route is enabled and verified; if the link does not open a private report form, do not file a public Issue or Discussion and treat the release intake as unavailable until the maintainer restores it.
+Use [GitHub private vulnerability reporting](https://github.com/lagrangee/bearing/security/advisories/new). If the link does not open a private report form, do not file a public Issue or Discussion. Wait until the maintainer restores the private route.
 
 Please include:
 
@@ -26,7 +26,5 @@ Bearing is a local trusted-checkout tool with a loopback Portal. It provides no 
 
 The repository's browser-only demo is a separate static sample with fixed mock data. It does not
 read local repositories, start the Portal Host, call a provider or API, persist browser state, or
-add analytics. It does not change the supported local Portal boundary. See
-[Data and security](docs/data-and-security.md). GitHub Pages workflow activation and initial live
-acceptance require explicit maintainer action; a green pull request does not publish or accept the
-sample.
+add analytics. It does not change the supported local Portal boundary and does not prove product
+value or installation success. See [Data and security](docs/data-and-security.md).

@@ -8,7 +8,7 @@ This guide gets you to the first real Bearing governance loop.
 
 - macOS for the verified Preview path.
 - Node.js release line selected by the current release candidate.
-- Codex for the verified path. Claude Code is a target surface pending maintainer verification.
+- A coding agent that can read repository guidance, install a package, and integrate a skill.
 - A Git repository you actively work on.
 - The supported Matt-native local Markdown Map and Ticket workflow, or a willingness to create one before expecting strong first value.
 
