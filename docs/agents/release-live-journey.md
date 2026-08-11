@@ -157,6 +157,19 @@ Receipt. Verify exact npm identity and provenance, immutable tag target, GitHub 
 asset digests, and Pages deployment source. Then open the public README, linked Agent installation
 guidance, static demo, feedback routes, and private vulnerability reporting route.
 
+Run the readback with the exact values from the Candidate Receipt:
+
+```text
+bun run release:public-smoke -- --candidate-receipt <absolute-path> \
+  --version <exact-version> --source-commit <exact-commit> \
+  --workflow-name <candidate-workflow-name> --workflow-run-id <run-id> \
+  --workflow-run-attempt <run-attempt> --frozen-sha256 <tarball-sha256>
+```
+
+The command writes one JSON result to standard output. An incomplete result exits nonzero and names
+the exact public prefix and resumption point. It does not write evidence files or change a public
+surface. The Coordinating Agent may redirect the output into its existing private evidence location.
+
 Keep this readback bounded. It does not publish, reinstall the package, run packaged CLI smoke,
 launch an Agent, rerun the Browser suite, or rerun the Matrix. Report an unavailable or conflicting
 surface with the exact public prefix and resumption point. Preserve already-public immutable state.
