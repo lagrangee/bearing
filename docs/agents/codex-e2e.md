@@ -42,3 +42,8 @@ Historical reports and receipts remain historical and are not rewritten. A histo
 ## Change boundary
 
 Changing the required Codex model or reasoning effort is a repository-level test-policy decision. An Effort, ticket, release runbook, environment variable, or operator preference may not weaken it locally.
+
+## Release Live Journey
+
+Before coordinating a Bearing release, or defining, running, or reviewing a release Live Journey,
+read and follow the [Release Live Journey Runbook](release-live-journey.md).
