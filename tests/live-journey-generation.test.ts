@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -366,5 +367,38 @@ describe("one coherent Live Journey Matrix generation", () => {
     expect(runner).not.toContain("architecture-contraction-candidate");
     expect(packageMetadata.files).not.toContain("scripts");
     expect(packageMetadata.files).not.toContain("validation");
+  });
+
+  test("keeps the current Matrix as the only live release harness", () => {
+    const retiredImplementation = [
+      "scripts/g1-live-fixture.ts",
+      "scripts/setup-reliability-matrix.ts",
+      "tests/g1-live-fixture.test.ts",
+      "tests/setup-reliability-matrix.test.ts",
+    ];
+    expect(retiredImplementation.filter(existsSync)).toEqual([]);
+
+    const consumers = Bun.spawnSync(
+      [
+        "git",
+        "grep",
+        "--no-index",
+        "--fixed-strings",
+        "--line-number",
+        "-e",
+        "g1-live-fixture",
+        "-e",
+        "setup-reliability-matrix",
+        "--",
+        "package.json",
+        ".github",
+        "scripts",
+        "browser-tests",
+        "validation",
+      ],
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(consumers.stdout.toString()).toBe("");
+    expect(consumers.exitCode).toBe(1);
   });
 });
