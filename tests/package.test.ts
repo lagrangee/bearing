@@ -103,6 +103,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/docs/cli.zh-CN.md",
         "package/docs/data-and-security.md",
         "package/docs/data-and-security.zh-CN.md",
+        "package/docs/agent-installation.md",
         "package/docs/everyday-workflows.md",
         "package/docs/everyday-workflows.zh-CN.md",
         "package/docs/getting-started.md",
@@ -177,6 +178,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
       },
     );
     expect(help.exitCode).toBe(0);
+    expect(help.stdout).toContain("bearing install [--surface <agent-skills|claude>]");
     expect(help.stdout).not.toMatch(/^\s*bearing sync\b/mu);
     expect(help.stdout).not.toContain("benchmark:");
 
@@ -192,7 +194,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
     expect(retiredCommand.exitCode).toBe(1);
     expect(retiredCommand.stderr).toBe("Unknown command. Run bearing --help.\n");
 
-    const installCommand = [
+    const bundleInstallCommand = [
       "npm",
       "exec",
       "--yes",
@@ -201,6 +203,21 @@ test("the packed CLI runs through offline local npm exec", async () => {
       "--",
       "bearing",
       "install",
+    ];
+    const bundleInstalled = await run(bundleInstallCommand, {
+      HOME: homeDirectory,
+      npm_config_cache: join(root, "exec-cache"),
+      npm_config_update_notifier: "false",
+      npm_config_loglevel: "error",
+    });
+    expect(bundleInstalled.exitCode).toBe(0);
+    expect(bundleInstalled.stdout).toContain("Outcome: applied");
+    await access(join(homeDirectory, ".bearing/kit/current/skills/bearing/SKILL.md"));
+    await expect(access(join(homeDirectory, ".agents/skills/bearing"))).rejects.toThrow();
+    await expect(access(join(homeDirectory, ".claude/skills/bearing"))).rejects.toThrow();
+
+    const installCommand = [
+      ...bundleInstallCommand,
       "--surface",
       "agent-skills",
       "--surface",

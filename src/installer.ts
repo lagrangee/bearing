@@ -851,7 +851,6 @@ export const installKit = async (
   options: InstallOptions,
   hooks: InstallTransactionHooks = {},
 ): Promise<InstallResult> => {
-  if (options.surfaces.length === 0) throw new Error("Select at least one Agent Surface.");
   const homeDir = resolve(options.homeDir);
   const kitRoot = join(homeDir, ".bearing/kit");
   const current = join(kitRoot, "current");
@@ -870,7 +869,7 @@ export const installKit = async (
   const cliTarget = join(homeDir, ".bearing/bin/bearing");
   const cliSource = join(current, "dist/cli.js");
   const selected = new Set(options.surfaces);
-  const surfaceTargets = managedSurfaceTargets(homeDir);
+  const surfaceTargets = selected.size === 0 ? [] : managedSurfaceTargets(homeDir);
   await ensureInstallDirectoryTargets(homeDir, [
     cliTarget,
     ...surfaceTargets.map((item) => item.target),

@@ -90,7 +90,19 @@ Issues and Discussions are public GitHub data. Do not submit tokens, secrets, pr
 
 ## Quickstart: complete one real alignment loop
 
-### 1. Install Bearing
+### 1. Ask your Agent to install Bearing
+
+Give your Agent this prompt. It can follow the separate
+[Agent installation guide](docs/agent-installation.md) without adding implementation detail to this
+README.
+
+```text
+Install Bearing from https://github.com/lagrangee/bearing. Follow the repository's Agent installation guide, use the released package, integrate the Bearing skill with your Skill Directory, and stop before repository setup.
+```
+
+#### Terminal fallback
+
+If your Agent cannot perform the installation, use the interactive maintenance wizard:
 
 ```bash
 npx @lagrangee/bearing
@@ -114,9 +126,9 @@ Advanced users and agents can use explicit commands; see [CLI reference](docs/cl
 
 Start with a real Git repository that already has, or is ready to use, the supported local Markdown Map and Ticket workflow. Bearing creates first value when it can connect real direction to real work; an empty toy repository proves very little.
 
-### 3. Ask your agent to set up Bearing
+### 3. Ask your Agent to set up Bearing
 
-Open the repository in Codex and ask:
+Open the repository with your Agent and ask:
 
 ```text
 Set up Bearing for this project. Use the existing Map and Tickets as work context, and guide me through the minimum governance baseline.

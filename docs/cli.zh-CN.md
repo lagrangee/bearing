@@ -24,9 +24,14 @@ Uninstall。取消不产生写入。Install、Update 与 Repair 使用下文所�
 transaction。
 
 ```bash
+bearing install
 bearing install --surface agent-skills
 bearing install --surface agent-skills --surface claude
 ```
+
+不带 `--surface` 时，该命令只安装完整 bundle 与 canonical CLI。这是供自行管理 Skill Directory
+integration 的 Agent 使用的 non-interactive seam。提供一个或多个 `--surface` 时，Bearing 也会管理
+选定的 known Agent Surface links。
 
 Install、update 与 repair 会先 stage 一份完整的 package-owned bundle，再切换
 `$HOME/.bearing/kit/current`。所选 Agent Surface links 与 canonical CLI 都通过这一份 bundle

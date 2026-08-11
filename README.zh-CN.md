@@ -90,7 +90,18 @@ Issues 与 Discussions 都是公开 GitHub 数据。请勿提交 tokens、secret
 
 ## Quickstart：完成一次真实 alignment loop
 
-### 1. 安装 Bearing
+### 1. 让你的 Agent 安装 Bearing
+
+把下面的 prompt 交给你的 Agent。Agent 可以按独立的
+[Agent 安装指南](docs/agent-installation.md)执行，不需要在本 README 中展开 implementation details。
+
+```text
+请从 https://github.com/lagrangee/bearing 安装 Bearing。请遵循 repository 中的 Agent installation guide，使用已发布 package，把 Bearing skill 接入你的 Skill Directory，并在 repository setup 前停止。
+```
+
+#### Terminal fallback
+
+如果你的 Agent 不能执行安装，请使用 interactive maintenance wizard：
 
 ```bash
 npx @lagrangee/bearing
@@ -113,9 +124,9 @@ uninstall 是彼此独立的操作；见 [故障排查](docs/troubleshooting.zh-
 
 从一个真实 Git 仓库开始，这个仓库最好已经有、或准备使用受支持的本地 Markdown Map 与 Ticket 工作流。Bearing 在能把真实方向连接到真实工作时，最容易产生第一次价值；空白 toy repo 能证明的东西很少。
 
-### 3. 让 agent 设置 Bearing
+### 3. 让 Agent 设置 Bearing
 
-在 Codex 中打开仓库，然后问：
+用你的 Agent 打开 repository，然后问：
 
 ```text
 为这个项目设置 Bearing。把现有的 Map 和 Tickets 用作工作上下文，并引导我建立最低限度的治理基线。

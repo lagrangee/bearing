@@ -25,9 +25,14 @@ Global Uninstall. Cancellation writes nothing. Install, Update, and Repair use t
 bundle transaction described below.
 
 ```bash
+bearing install
 bearing install --surface agent-skills
 bearing install --surface agent-skills --surface claude
 ```
+
+With no `--surface`, the command installs only the complete bundle and canonical CLI. This is the
+non-interactive seam for an Agent that owns its own Skill Directory integration. With one or more
+`--surface` values, Bearing also manages the selected known Agent Surface links.
 
 Install, update, and repair stage a complete package-owned bundle before switching
 `$HOME/.bearing/kit/current`. Selected Agent Surface links and the canonical CLI resolve through
