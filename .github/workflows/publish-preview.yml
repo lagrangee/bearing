@@ -1,49 +1,60 @@
-name: Publish Public Preview
+name: Publish frozen release
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Exact package version to publish
+        description: Exact frozen package version to publish
         required: true
+        type: string
       source_commit:
-        description: Exact 40-character candidate source commit
+        description: Exact 40-character Candidate source commit
         required: true
+        type: string
       candidate_run_id:
-        description: GitHub Actions run ID that prepared the candidate artifact
+        description: Successful Candidate Freeze workflow run ID
         required: true
+        type: string
       frozen_sha256:
-        description: Frozen exact SHA-256 from the proven candidate receipt
+        description: Exact frozen tarball SHA-256 from the Candidate receipt
         required: true
+        type: string
       confirm:
         description: Type publish @lagrangee/bearing
         required: true
+        type: string
 
 permissions:
   actions: read
   contents: write
   id-token: write
 
+concurrency:
+  group: publication-@lagrangee/bearing
+  cancel-in-progress: false
+
 jobs:
   publish:
-    if: ${{ github.event.inputs.confirm == 'publish @lagrangee/bearing' }}
+    if: ${{ inputs.confirm == 'publish @lagrangee/bearing' }}
     runs-on: macos-latest
+    timeout-minutes: 30
     environment: npm-publish
     steps:
-      - name: Verify exact successful candidate workflow run
+      - name: Verify exact successful Candidate Freeze run
         id: candidate_run
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_RUN_ID: ${{ github.event.inputs.candidate_run_id }}
-          EXPECTED_COMMIT: ${{ github.event.inputs.source_commit }}
+          EXPECTED_RUN_ID: ${{ inputs.candidate_run_id }}
+          EXPECTED_COMMIT: ${{ inputs.source_commit }}
         run: |
-          test -n "$EXPECTED_RUN_ID"
-          case "$EXPECTED_RUN_ID" in *[!0-9]*) exit 1 ;; esac
-          test "${#EXPECTED_COMMIT}" -eq 40
-          case "$EXPECTED_COMMIT" in *[!0-9a-f]*) exit 1 ;; esac
-          test "$GITHUB_REF_NAME" = "main"
+          set -euo pipefail
+          [[ "$EXPECTED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_REF" = "refs/heads/main"
+
           CURRENT_MAIN_STATUS="$(gh api "repos/$GITHUB_REPOSITORY/compare/$EXPECTED_COMMIT...$GITHUB_SHA" --jq '.status')"
           case "$CURRENT_MAIN_STATUS" in ahead|identical) ;; *) exit 1 ;; esac
+
           RUN_FACTS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EXPECTED_RUN_ID" --jq '[.id, .path, .name, .event, .status, .conclusion, .head_branch, .head_sha, .run_attempt] | @tsv')"
           IFS=$'\t' read -r ACTUAL_RUN_ID ACTUAL_PATH ACTUAL_NAME ACTUAL_EVENT ACTUAL_STATUS ACTUAL_CONCLUSION ACTUAL_BRANCH ACTUAL_COMMIT ACTUAL_RUN_ATTEMPT <<< "$RUN_FACTS"
           test "$ACTUAL_RUN_ID" = "$EXPECTED_RUN_ID"
@@ -53,231 +64,73 @@ jobs:
           test "$ACTUAL_STATUS" = "completed"
           test "$ACTUAL_CONCLUSION" = "success"
           test "$ACTUAL_BRANCH" = "main"
-          test "${#ACTUAL_COMMIT}" -eq 40
-          case "$ACTUAL_COMMIT" in *[!0-9a-f]*) exit 1 ;; esac
-          case "$ACTUAL_RUN_ATTEMPT" in ""|0|*[!0-9]*) exit 1 ;; esac
+          [[ "$ACTUAL_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ACTUAL_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+
           RUN_MAIN_STATUS="$(gh api "repos/$GITHUB_REPOSITORY/compare/$EXPECTED_COMMIT...$ACTUAL_COMMIT" --jq '.status')"
           case "$RUN_MAIN_STATUS" in ahead|identical) ;; *) exit 1 ;; esac
+
+          NPM_STATUS="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --retry 0 --output /dev/null --write-out '%{http_code}' 'https://registry.npmjs.org/@lagrangee%2fbearing')"
+          case "$NPM_STATUS" in
+            200) PACKAGE_STATE=present ;;
+            404) PACKAGE_STATE=absent ;;
+            *) echo "npm package state is unverifiable: HTTP $NPM_STATUS" >&2; exit 1 ;;
+          esac
           printf 'run_attempt=%s\n' "$ACTUAL_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          printf 'package_state=%s\n' "$PACKAGE_STATE" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.inputs.source_commit }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.15.0
           registry-url: https://registry.npmjs.org
+          cache: npm
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.8
-      - name: Validate requested package, version, and changelog identity
-        env:
-          EXPECTED_PACKAGE: "@lagrangee/bearing"
-          EXPECTED_VERSION: ${{ github.event.inputs.version }}
-          RELEASE_NOTES_PATH: ${{ runner.temp }}/bearing-release-notes.md
-        run: bun scripts/prepare-preview-release.ts --final --package "$EXPECTED_PACKAGE" --version "$EXPECTED_VERSION" --notes "$RELEASE_NOTES_PATH"
+      - name: Install publication verifier dependencies
+        run: npm ci --ignore-scripts
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: bearing-candidate-${{ github.event.inputs.source_commit }}
+          name: bearing-candidate-${{ inputs.source_commit }}
           path: release-candidate
-          run-id: ${{ github.event.inputs.candidate_run_id }}
+          run-id: ${{ inputs.candidate_run_id }}
           github-token: ${{ github.token }}
-      - name: Verify exact candidate identity
-        env:
-          EXPECTED_VERSION: ${{ github.event.inputs.version }}
-          EXPECTED_COMMIT: ${{ github.event.inputs.source_commit }}
-          EXPECTED_FROZEN_SHA256: ${{ github.event.inputs.frozen_sha256 }}
-          EXPECTED_WORKFLOW_NAME: "Prepare candidate artifact"
-          EXPECTED_RUN_ID: ${{ github.event.inputs.candidate_run_id }}
-          EXPECTED_RUN_ATTEMPT: ${{ steps.candidate_run.outputs.run_attempt }}
-        run: |
-          test "${#EXPECTED_COMMIT}" -eq 40
-          test "${#EXPECTED_FROZEN_SHA256}" -eq 64
-          bun scripts/verify-release-candidate.ts --receipt release-candidate/candidate-receipt.json --version "$EXPECTED_VERSION" --source-commit "$EXPECTED_COMMIT" --repo-root "$GITHUB_WORKSPACE" --workflow-name "$EXPECTED_WORKFLOW_NAME" --workflow-run-id "$EXPECTED_RUN_ID" --workflow-run-attempt "$EXPECTED_RUN_ATTEMPT"
-          RECEIPT_SHA256="$(node -e "const r=require('./release-candidate/candidate-receipt.json'); process.stdout.write(r.artifact.sha256)")"
-          test "$RECEIPT_SHA256" = "$EXPECTED_FROZEN_SHA256"
-      - name: Recover or publish exact preview state
+      - name: Bootstrap only the absent npm package
+        if: ${{ steps.candidate_run.outputs.package_state == 'absent' }}
         env:
           GH_TOKEN: ${{ github.token }}
           NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
-          EXPECTED_PACKAGE: "@lagrangee/bearing"
-          EXPECTED_VERSION: ${{ github.event.inputs.version }}
-          EXPECTED_COMMIT: ${{ github.event.inputs.source_commit }}
-          RELEASE_NOTES_PATH: ${{ runner.temp }}/bearing-release-notes.md
+          EXPECTED_VERSION: ${{ inputs.version }}
+          EXPECTED_COMMIT: ${{ inputs.source_commit }}
+          EXPECTED_RUN_ID: ${{ inputs.candidate_run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ steps.candidate_run.outputs.run_attempt }}
+          EXPECTED_FROZEN_SHA256: ${{ inputs.frozen_sha256 }}
         run: |
-          set -euo pipefail
-
-          BOOTSTRAP_TOKEN="${NPM_BOOTSTRAP_TOKEN:-}"
-          unset NPM_BOOTSTRAP_TOKEN NODE_AUTH_TOKEN
-
-          RECEIPT_PATH="$GITHUB_WORKSPACE/release-candidate/candidate-receipt.json"
-          ARTIFACT_PATH="$GITHUB_WORKSPACE/release-candidate/$(node -e "const r=require(process.argv[1]); process.stdout.write(r.artifact.file)" "$RECEIPT_PATH")"
-          RELEASE_TAG="v$EXPECTED_VERSION"
-          RELEASE_TITLE="$EXPECTED_PACKAGE $EXPECTED_VERSION"
-          REGISTRY_PACKAGE_PATH='@lagrangee%2fbearing'
-          STATE_ROOT="$(mktemp -d)"
-          trap 'rm -rf "$STATE_ROOT"' EXIT
-
-          fail() {
-            echo "$*" >&2
-            exit 1
-          }
-
-          get_status() {
-            local output="$1"
-            local url="$2"
-            local auth="${3:-}"
-            local status
-            if test -n "$auth"; then
-              if ! status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --retry 0 --output "$output" --write-out '%{http_code}' \
-                --header 'Accept: application/vnd.github+json' \
-                --header "Authorization: Bearer $GH_TOKEN" \
-                --header 'X-GitHub-Api-Version: 2022-11-28' \
-                "$url")"; then
-                fail "could not verify release state: request failed for $url"
-              fi
-            elif ! status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --retry 0 --output "$output" --write-out '%{http_code}' "$url")"; then
-              fail "could not verify release state: request failed for $url"
-            fi
-            printf '%s' "$status"
-          }
-
-          registry_state() {
-            local status
-            status="$(get_status "$STATE_ROOT/registry.json" "https://registry.npmjs.org/$REGISTRY_PACKAGE_PATH/$EXPECTED_VERSION")"
-            case "$status" in
-              404) printf '%s' absent ;;
-              200)
-                local packument_status
-                packument_status="$(get_status "$STATE_ROOT/packument.json" "https://registry.npmjs.org/$REGISTRY_PACKAGE_PATH")"
-                test "$packument_status" = 200 || fail "could not verify npm full packument: HTTP $packument_status"
-                export RECEIPT_PATH EXPECTED_PACKAGE EXPECTED_VERSION
-                REGISTRY_METADATA_PATH="$STATE_ROOT/registry.json" PACKUMENT_PATH="$STATE_ROOT/packument.json" EXPECTED_ATTESTATIONS_URL="https://registry.npmjs.org/-/npm/v1/attestations/$REGISTRY_PACKAGE_PATH@$EXPECTED_VERSION" node -e '
-                  const fs = require("node:fs");
-                  const metadata = JSON.parse(fs.readFileSync(process.env.REGISTRY_METADATA_PATH, "utf8"));
-                  const packument = JSON.parse(fs.readFileSync(process.env.PACKUMENT_PATH, "utf8"));
-                  const receipt = require(process.env.RECEIPT_PATH);
-                  if (metadata.name !== process.env.EXPECTED_PACKAGE ||
-                      metadata.version !== process.env.EXPECTED_VERSION ||
-                      metadata.dist?.shasum !== receipt.artifact.npmShasum ||
-                      metadata.dist?.integrity !== receipt.artifact.npmIntegrity ||
-                      metadata.dist?.attestations?.url !== process.env.EXPECTED_ATTESTATIONS_URL ||
-                      metadata.dist?.attestations?.provenance?.predicateType !== "https://slsa.dev/provenance/v1" ||
-                      packument["dist-tags"]?.latest !== process.env.EXPECTED_VERSION) {
-                    process.exit(1);
-                  }
-                ' || fail "npm registry version, latest tag, or provenance conflicts with the frozen receipt: $EXPECTED_PACKAGE@$EXPECTED_VERSION"
-                printf '%s' exact
-                ;;
-              *) fail "could not verify npm registry version: HTTP $status" ;;
-            esac
-          }
-
-          package_state() {
-            local status
-            status="$(get_status "$STATE_ROOT/package.json" "https://registry.npmjs.org/$REGISTRY_PACKAGE_PATH")"
-            case "$status" in
-              404) printf '%s' absent ;;
-              200) printf '%s' present ;;
-              *) fail "could not verify npm package state: HTTP $status" ;;
-            esac
-          }
-
-          tag_state() {
-            local status
-            status="$(get_status "$STATE_ROOT/tag.json" "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" github)"
-            case "$status" in
-              404) printf '%s' absent ;;
-              200)
-                TAG_METADATA_PATH="$STATE_ROOT/tag.json" RELEASE_TAG="$RELEASE_TAG" EXPECTED_COMMIT="$EXPECTED_COMMIT" node -e '
-                  const fs = require("node:fs");
-                  const tag = JSON.parse(fs.readFileSync(process.env.TAG_METADATA_PATH, "utf8"));
-                  if (tag.ref !== `refs/tags/${process.env.RELEASE_TAG}` ||
-                      tag.object?.type !== "commit" ||
-                      tag.object?.sha !== process.env.EXPECTED_COMMIT) {
-                    process.exit(1);
-                  }
-                ' || fail "Git tag conflicts with the frozen source commit: $RELEASE_TAG"
-                printf '%s' exact
-                ;;
-              *) fail "could not verify Git tag: HTTP $status" ;;
-            esac
-          }
-
-          release_state() {
-            local status
-            status="$(get_status "$STATE_ROOT/release.json" "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" github)"
-            case "$status" in
-              404) printf '%s' absent ;;
-              200)
-                RELEASE_METADATA_PATH="$STATE_ROOT/release.json" RELEASE_NOTES_PATH="$RELEASE_NOTES_PATH" RELEASE_TAG="$RELEASE_TAG" RELEASE_TITLE="$RELEASE_TITLE" node -e '
-                  const fs = require("node:fs");
-                  const release = JSON.parse(fs.readFileSync(process.env.RELEASE_METADATA_PATH, "utf8"));
-                  const notes = fs.readFileSync(process.env.RELEASE_NOTES_PATH, "utf8");
-                  if (release.tag_name !== process.env.RELEASE_TAG ||
-                      release.name !== process.env.RELEASE_TITLE ||
-                      release.body !== notes ||
-                      release.draft !== false ||
-                      release.prerelease !== false) {
-                    process.exit(1);
-                  }
-                ' || fail "GitHub Release conflicts with the frozen tag, title, notes, or state: $RELEASE_TAG"
-                printf '%s' exact
-                ;;
-              *) fail "could not verify GitHub Release: HTTP $status" ;;
-            esac
-          }
-
-          PACKAGE_STATE="$(package_state)"
-          REGISTRY_STATE="$(registry_state)"
-          TAG_STATE="$(tag_state)"
-          RELEASE_STATE="$(release_state)"
-          case "$PACKAGE_STATE:$REGISTRY_STATE:$TAG_STATE:$RELEASE_STATE" in
-            absent:absent:absent:absent|present:absent:absent:absent|present:exact:absent:absent|present:exact:exact:absent|present:exact:exact:exact) ;;
-            *) fail "release state is not a recoverable package -> npm version -> tag -> Release prefix: $PACKAGE_STATE:$REGISTRY_STATE:$TAG_STATE:$RELEASE_STATE" ;;
-          esac
-
-          if test "$REGISTRY_STATE" = absent; then
-            case "$PACKAGE_STATE" in
-              absent)
-                test -n "$BOOTSTRAP_TOKEN" || fail "NPM_BOOTSTRAP_TOKEN is required only to create the absent package"
-                NODE_AUTH_TOKEN="$BOOTSTRAP_TOKEN" npm publish "$ARTIFACT_PATH" --access public --provenance --tag latest
-                ;;
-              present)
-                env -u NODE_AUTH_TOKEN npm publish "$ARTIFACT_PATH" --access public --provenance --tag latest
-                ;;
-            esac
-          fi
-          unset BOOTSTRAP_TOKEN
-
-          REGISTRY_READY=0
-          for ATTEMPT in 1 2 3 4 5 6; do
-            if test "$(registry_state)" = exact; then
-              REGISTRY_READY=1
-              break
-            fi
-            test "$ATTEMPT" -lt 6 || break
-            sleep 5
-          done
-          test "$REGISTRY_READY" -eq 1 || fail "npm registry did not expose exact frozen metadata within the bounded retry window"
-
-          SMOKE_ROOT="$(mktemp -d "$STATE_ROOT/smoke.XXXXXX")"
-          cd "$SMOKE_ROOT"
-          npm init --yes >/dev/null
-          npm install --ignore-scripts --no-audit --no-fund --save-exact --registry=https://registry.npmjs.org "$EXPECTED_PACKAGE@$EXPECTED_VERSION"
-          node -e 'const m=require(process.cwd() + "/node_modules/@lagrangee/bearing/package.json"); if (m.name !== process.env.EXPECTED_PACKAGE || m.version !== process.env.EXPECTED_VERSION) process.exit(1)'
-          test "$(./node_modules/.bin/bearing --version)" = "$EXPECTED_VERSION"
-          npm audit signatures --registry=https://registry.npmjs.org
-
-          cd "$GITHUB_WORKSPACE"
-          if test "$TAG_STATE" = absent; then
-            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" --field ref="refs/tags/$RELEASE_TAG" --field sha="$EXPECTED_COMMIT" >/dev/null
-          fi
-          test "$(tag_state)" = exact || fail "Git tag postcondition was not exact: $RELEASE_TAG"
-
-          if test "$RELEASE_STATE" = absent; then
-            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$RELEASE_TITLE" --notes-file "$RELEASE_NOTES_PATH"
-          fi
-
-          test "$(registry_state)" = exact || fail "npm registry postcondition was not exact"
-          test "$(tag_state)" = exact || fail "Git tag postcondition was not exact"
-          test "$(release_state)" = exact || fail "GitHub Release postcondition was not exact"
+          bun scripts/publish-release-candidate.ts \
+            --receipt release-candidate/candidate-receipt.json \
+            --version "$EXPECTED_VERSION" \
+            --source-commit "$EXPECTED_COMMIT" \
+            --workflow-run-id "$EXPECTED_RUN_ID" \
+            --workflow-run-attempt "$EXPECTED_RUN_ATTEMPT" \
+            --frozen-sha256 "$EXPECTED_FROZEN_SHA256" \
+            --bootstrap-absent-package
+      - name: Verify frozen bundle and recover exact publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+          EXPECTED_COMMIT: ${{ inputs.source_commit }}
+          EXPECTED_RUN_ID: ${{ inputs.candidate_run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ steps.candidate_run.outputs.run_attempt }}
+          EXPECTED_FROZEN_SHA256: ${{ inputs.frozen_sha256 }}
+        run: |
+          bun scripts/publish-release-candidate.ts \
+            --receipt release-candidate/candidate-receipt.json \
+            --version "$EXPECTED_VERSION" \
+            --source-commit "$EXPECTED_COMMIT" \
+            --workflow-run-id "$EXPECTED_RUN_ID" \
+            --workflow-run-attempt "$EXPECTED_RUN_ATTEMPT" \
+            --frozen-sha256 "$EXPECTED_FROZEN_SHA256"
