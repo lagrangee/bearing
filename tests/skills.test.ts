@@ -161,12 +161,16 @@ describe("public Bearing Agent surface", () => {
   test("root names every selectable runtime reference directly and no reference routes onward", async () => {
     const { body } = await readSkill();
     for (const reference of runtimeReferences) {
-      expect(body).toContain(`$HOME/.bearing/kit/current/skills/bearing/${reference}`);
+      expect(body).toContain(`\`${reference}\``);
       const source = await readRuntime(reference);
       expect(source).not.toContain("$HOME/.bearing/kit/current/skills/bearing/references/");
       expect(source).not.toMatch(/read (?:the )?(?:journey|owner|contract)/iu);
       expect(source).not.toMatch(/\bco-load(?:s|ed|ing)?\b/iu);
     }
+    expect(body).toMatch(
+      /All runtime reference[\s\S]*paths below are relative to this `SKILL\.md`/u,
+    );
+    expect(body).not.toContain("$HOME/.bearing/kit/current/skills/bearing/");
     expect(body).not.toMatch(/branch-manifest|references\/branches|references\/shared/iu);
   });
 
@@ -192,8 +196,13 @@ describe("public Bearing Agent surface", () => {
       /ambiguity[\s\S]*material conflict[\s\S]*unentailed collateral effect/iu,
     );
     expect(contract).toMatch(/re-read[\s\S]*precondition[\s\S]*immediately before/iu);
-    expect(contract).toMatch(/direct edit[\s\S]*schema and references[\s\S]*publish/iu);
-    expect(contract).toMatch(/affected[\s\S]*bearing inspect/iu);
+    expect(contract).toMatch(/direct edit[\s\S]*accepted owner files/iu);
+    expect(contract).toMatch(
+      /Immediately after editing[\s\S]*bearing inspect[\s\S]*every affected planning reference[\s\S]*bearing inspect diagnostics[\s\S]*once/iu,
+    );
+    expect(contract).toMatch(
+      /first post-edit inspect[\s\S]*schema and references[\s\S]*publishes[\s\S]*Project Read Model[\s\S]*read back[\s\S]*generation/iu,
+    );
     expect(contract).toMatch(/partial write[\s\S]*repair[\s\S]*own attempted write set/iu);
     expect(contract).toMatch(
       /Materiality means[\s\S]*Summary[\s\S]*accepted new project meaning[\s\S]*Brief[\s\S]*accepted truth/iu,
@@ -205,13 +214,10 @@ describe("public Bearing Agent surface", () => {
 
   test("completeness rules use the typed package surface without hidden fallback", async () => {
     const { body } = await readSkill();
-    expect(body).toContain("$HOME/.bearing/bin/bearing inspect project --repo <repo-root>");
-    expect(body).toContain(
-      "$HOME/.bearing/bin/bearing inspect <stable-planning-reference> --repo <repo-root>",
-    );
-    expect(body).toContain(
-      "$HOME/.bearing/bin/bearing inspect --native <native-reference> --repo <repo-root>",
-    );
+    expect(body.match(/\$HOME\/\.bearing\/bin\/bearing/gu)).toHaveLength(1);
+    expect(body).toContain("bearing inspect project --repo <repo-root>");
+    expect(body).toContain("bearing inspect <stable-planning-reference> --repo <repo-root>");
+    expect(body).toContain("bearing inspect --native <native-reference> --repo <repo-root>");
     expect(body).toMatch(/complete[\s\S]*coverage only[\s\S]*never[\s\S]*authority/iu);
     expect(body).toMatch(/partial|unfulfilled|recovery-required|need-update/iu);
     expect(body).toMatch(/no title match[\s\S]*repository scan[\s\S]*provider fallback/iu);

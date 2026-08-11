@@ -11,6 +11,9 @@ for contextual nomination. Trust that pointer to decide whether it nominated the
 do not reconstruct or broaden its conditions here. Explicit Bearing invocation remains the other
 authorized entry origin and the fallback when contextual nomination did not occur.
 
+All `bearing ...` commands in this skill use `$HOME/.bearing/bin/bearing`. All runtime reference
+paths below are relative to this `SKILL.md`.
+
 ## Execution spine
 
 1. **Establish the request boundary.** Identify the repository, the user request, and whether entry
@@ -18,13 +21,12 @@ authorized entry origin and the fallback when contextual nomination did not occu
    valid only for the nomination conditions above. Do not invent nomination from repository
    presence. Completion: one authorized entry origin and one repository are explicit.
 2. **Select the first functional operation.** Repository Configuration begins with
-   `$HOME/.bearing/bin/bearing configure inspect --repo <repo-root>`. Active governance normally
-   begins with `$HOME/.bearing/bin/bearing inspect project --repo <repo-root>`. Catalog, native
-   work, execution, reconciliation, and maintenance use their direct product seams. Each functional
-   Module independently validates its required Repository Integration Lifecycle before cache
-   creation, provider I/O, or mutation. A stale pointer fails closed at the requested operation;
-   there is no separate entry preflight. Completion: the first operation has one owner and one
-   lifecycle-validating product seam.
+   `bearing configure inspect --repo <repo-root>`. Active governance normally begins with
+   `bearing inspect project --repo <repo-root>`. Catalog, native work, execution, reconciliation,
+   and maintenance use their direct product seams. Each functional Module independently validates
+   its required Repository Integration Lifecycle before cache creation, provider I/O, or mutation.
+   A stale pointer fails closed at the requested operation; there is no separate entry preflight.
+   Completion: the first operation has one owner and one lifecycle-validating product seam.
 3. **Acquire only decision-relevant context.** Use Project Context and direct deeper-read
    references. Read repository sources progressively. Provider acquisition is an explicit cost;
    ordinary inspection performs no hidden provider traversal. A reliable direct continuation may
@@ -72,10 +74,10 @@ authorized entry origin and the fallback when contextual nomination did not occu
 
 Use the installed package-owned CLI:
 
-- Project Context: `$HOME/.bearing/bin/bearing inspect project --repo <repo-root>`
-- One planning target: `$HOME/.bearing/bin/bearing inspect <stable-planning-reference> --repo <repo-root>`
-- One native reference and local Binding fact: `$HOME/.bearing/bin/bearing inspect --native <native-reference> --repo <repo-root>`
-- Diagnostics: `$HOME/.bearing/bin/bearing inspect diagnostics --repo <repo-root>`
+- Project Context: `bearing inspect project --repo <repo-root>`
+- One planning target: `bearing inspect <stable-planning-reference> --repo <repo-root>`
+- One native reference and local Binding fact: `bearing inspect --native <native-reference> --repo <repo-root>`
+- Diagnostics: `bearing inspect diagnostics --repo <repo-root>`
 
 `complete` proves coverage only. It never proves readiness, lifecycle, Passage, acceptance, or
 mutation authority. Preserve `partial`, `unfulfilled`, `recovery-required`, and `need-update` as
@@ -89,60 +91,60 @@ All runtime references are selected here. No reference routes onward to another 
 ### Shared contract
 
 - For any accepted canonical semantic mutation, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/contracts/canonical-mutation.md`.
+  `references/contracts/canonical-mutation.md`.
 
 ### Journeys
 
 - For every Repository Configuration intent, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure.md`, plus exactly one
+  `references/journeys/configure.md`, plus exactly one
   lifecycle variant below.
 - For Fresh Configuration, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure-fresh.md`.
+  `references/journeys/configure-fresh.md`.
 - For Active modification, executor addition or removal, or ordinary repair, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure-active.md`.
+  `references/journeys/configure-active.md`.
 - For Deactivated reactivation, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure-reactivate.md`.
+  `references/journeys/configure-reactivate.md`.
 - For repository deactivation, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure-deactivate.md`.
+  `references/journeys/configure-deactivate.md`.
 - For Invalid or Unsupported state, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/configure-unsupported.md`.
+  `references/journeys/configure-unsupported.md`.
 - For Project Catalog inspect, rename, unregister, relink, or reset, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/catalog.md`.
+  `references/journeys/catalog.md`.
 - For an explicit Active-project Project Orientation or an accepted Fresh offer, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/project-orientation.md`. For a
+  `references/journeys/project-orientation.md`. For a
   complete Orientation that includes existing-work evidence, co-load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/scope-review.md`. Omit Scope Review
+  `references/journeys/scope-review.md`. Omit Scope Review
   when the user explicitly excludes existing-work evidence.
 - For an explicit whole-project Scope Review outside Orientation, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/scope-review.md`.
+  `references/journeys/scope-review.md`.
 - For native Work Management or a known native write, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/native-work.md`.
+  `references/journeys/native-work.md`.
 - For direct executor invocation, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/execution.md` and continue the
-  original executor command in the same visible operation.
+  `references/journeys/execution.md` and continue the original executor command in the same visible
+  operation.
 - For explicit Next Work guidance, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/journeys/next-work.md`.
+  `references/journeys/next-work.md`.
 
 ### Semantic owners
 
 - For Project Summary creation or material revision, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/owners/project-summary.md`.
+  `references/owners/project-summary.md`.
 - For Project Brief creation or material refresh, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/owners/project-brief.md`.
+  `references/owners/project-brief.md`.
 - For Roadmap horizon creation, revision, order, completion, or supersession, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/owners/roadmap.md`.
+  `references/owners/roadmap.md`.
 - For Milestone Gate definition, revision, order, lifecycle, or Passage, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/owners/milestone-gate.md`.
+  `references/owners/milestone-gate.md`.
 - For Effort creation, lifecycle, scope, or Work Binding, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/owners/effort.md`.
+  `references/owners/effort.md`.
 - For Asset admission, creation, metadata, ownership, source repair, or lifecycle, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/owners/asset.md`.
+  `references/owners/asset.md`.
 - For Authority Scope, current Baseline Assets, or baseline explanation, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/owners/authority.md`.
+  `references/owners/authority.md`.
 - For an explicit Planning Audit, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/owners/planning-audit.md`.
+  `references/owners/planning-audit.md`.
 - For a pending or accepted project-wide or exact-target decision, load
-  `$HOME/.bearing/kit/current/skills/bearing/references/owners/planning-review.md`.
+  `references/owners/planning-review.md`.
 
 ### Observable tool effects
 
@@ -150,9 +152,9 @@ All runtime references are selected here. No reference routes onward to another 
   `bearing configure apply` through the Configure journey.
 - A bound native write starts with `bearing inspect --native` and, after successful exact native
   effects, ends with `bearing reconcile-native` for only those subjects and relations.
-- A semantic mutation uses `bearing inspect project` or
-  `bearing inspect <stable-planning-reference>` before candidate authorship and inspects affected
-  targets after publication.
+- A semantic mutation reads the current target and preconditions with `bearing inspect project` or
+  `bearing inspect <stable-planning-reference>` before drafting the candidate, then runs planning
+  target inspection for every affected target immediately after accepted direct edits.
 
 ## Truthful outcomes
 

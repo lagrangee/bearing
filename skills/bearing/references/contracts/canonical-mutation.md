@@ -20,8 +20,10 @@ are not material semantic change.
 
 ## Operation
 
-1. Inspect the complete current target and the direct relations needed for the decision. A complete
-   read proves coverage only. Completion: every affected owner and current precondition is explicit.
+1. Before drafting the candidate, use `bearing inspect project --repo <repo-root>` or `bearing
+   inspect <stable-planning-reference> --repo <repo-root>` to read the complete current target and
+   the direct relations needed for the decision. A complete read proves coverage only. Completion:
+   every affected owner and current precondition is explicit.
 2. Author one complete Agent-authored candidate. Show semantic effect, rationale, relation
    consequences, exact owner write set, and preserved data. Completion: the candidate has no
    unresolved material choice.
@@ -32,11 +34,14 @@ are not material semantic change.
    precondition invalidates the candidate; do not merge silently. Completion: current revisions
    still support the accepted result.
 5. Direct edit only the accepted owner files. Generate any current Source Event Time inside the
-   same accepted owner operation. Validate the complete schema and references, then publish one
-   complete Project Read Model generation. Completion: canonical bytes validate and readers can see
-   one committed generation.
-6. Run `bearing inspect` for every affected planning reference and diagnostics. Completion: typed
-   affected-target inspection agrees with canonical sources and reports zero new structural defect.
+   same accepted owner operation. Completion: the exact accepted owner bytes are written and no
+   other canonical file changed.
+6. Immediately after editing, run `bearing inspect <stable-planning-reference> --repo <repo-root>`
+   for every affected planning reference, then run `bearing inspect diagnostics --repo <repo-root>`
+   once. The first post-edit inspect validates the complete schema and references and publishes the
+   changed Project Read Model generation. All affected-target and diagnostics inspections read back
+   that generation. Completion: affected-target inspection agrees with canonical sources in one
+   committed generation and diagnostics report zero new structural defect.
 7. Evaluate only the `Required`, `Consider`, and `Do not infer` guidance in each affected owner.
    Completion: required consistency effects are complete and recommendations remain recommendations.
 
@@ -50,5 +55,6 @@ Do not infer acceptance from tests, diagnostics, provider evidence, native lifec
 ## Completion criterion
 
 One accepted owner-authored result matches current preconditions, only affected owners changed,
-schema and references validate, one complete read-model generation published, affected inspection
-agrees, and any partial-write recovery is truthful and scoped.
+post-edit affected-target inspection reads one committed generation that agrees with canonical
+sources, diagnostics report zero new structural defect, and any partial-write recovery is truthful
+and scoped.
