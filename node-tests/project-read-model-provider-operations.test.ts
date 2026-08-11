@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { providerObservationIdentityFor } from "../src/native-work-provider";
 import { renderProviderMarkdownSections } from "../src/portal/markdown-engine";
 import { portalRowsToProjectData } from "../src/portal-ui/project-row-adapter";
+import { PROJECT_READ_MODEL_PROJECTION_VERSION } from "../src/project-read-model/contract";
 import {
   inspectProject,
   materializeProjectReadModelCandidate,
@@ -572,6 +573,21 @@ test("explicit rebuild recovers corrupt disposable bytes but never downgrades a 
   try {
     await rebuildProjectReadModel(fixture.root);
     const path = projectReadModelPath(fixture.root);
+    const futureProjection = new DatabaseSync(path);
+    futureProjection
+      .prepare("UPDATE read_model_metadata SET projection_version = ? WHERE singleton = 1")
+      .run(PROJECT_READ_MODEL_PROJECTION_VERSION + 1);
+    futureProjection.close();
+    const futureProjectionBytes = await readFile(path);
+    const projectionRefused = await rebuildProjectReadModel(fixture.root);
+    assert.equal(projectionRefused.outcome, "need-update");
+    assert.deepEqual(await readFile(path), futureProjectionBytes);
+
+    const currentProjection = new DatabaseSync(path);
+    currentProjection
+      .prepare("UPDATE read_model_metadata SET projection_version = ? WHERE singleton = 1")
+      .run(PROJECT_READ_MODEL_PROJECTION_VERSION);
+    currentProjection.close();
     const newer = new DatabaseSync(path);
     newer.exec("PRAGMA user_version = 2");
     newer.close();

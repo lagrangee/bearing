@@ -9,11 +9,9 @@ const artifacts = browserOutputContract();
 export default defineConfig({
   testDir: "./browser-tests",
   testIgnore: [
-    "architecture-contraction-candidate.spec.ts",
     "packaged-catalog.spec.ts",
     "project-isolation-real-host.spec.ts",
     "project-preview-real-host.spec.ts",
-    "safe-markdown-reading-candidate.spec.ts",
   ],
   outputDir: artifacts.outputDir,
   metadata: artifacts.metadata,
