@@ -116,6 +116,9 @@ test("Browser Behavior solely owns Playwright and retains bounded failure diagno
   expect(browserCommands).toContain(
     "npx playwright test --config browser-tests/portal-isolation.playwright.config.ts",
   );
+  expect(browserCommands).toContain(
+    "npx playwright test --config browser-tests/project-preview-real-host.playwright.config.ts",
+  );
 
   const upload = browserSteps.find((step) => step.name === "Upload browser failure diagnostics");
   expect(upload).toMatchObject({
@@ -126,6 +129,7 @@ test("Browser Behavior solely owns Playwright and retains bounded failure diagno
         "test-results/playwright/",
         "test-results/playwright-packed-portal/",
         "test-results/playwright-portal-isolation/",
+        "test-results/playwright-project-preview-real-host/",
       ].join("\n"),
       "if-no-files-found": "warn",
       "retention-days": 7,

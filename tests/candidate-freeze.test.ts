@@ -275,6 +275,7 @@ test("ordinary required CI has no Candidate artifact surface in any job", async 
           "test-results/playwright/",
           "test-results/playwright-packed-portal/",
           "test-results/playwright-portal-isolation/",
+          "test-results/playwright-project-preview-real-host/",
         ].join("\n"),
         "if-no-files-found": "warn",
         "retention-days": 7,

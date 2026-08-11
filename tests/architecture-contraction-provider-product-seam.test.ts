@@ -122,6 +122,35 @@ test("packed product exposes explicit provider cost classes and native typed rea
       result: { acquisitionCount: 9, missingEvidenceScopes: [] },
     });
 
+    for (const args of [
+      ["git", "init", "-q"],
+      ["git", "config", "user.name", "Provider Fixture"],
+      ["git", "config", "user.email", "provider@example.invalid"],
+      ["git", "add", "-A"],
+      ["git", "commit", "-qm", "fixture: provider basis"],
+    ]) {
+      expect(await Bun.spawn(args, { cwd: fixture.root }).exited).toBe(0);
+    }
+    const summaryPath = `${fixture.root}/${fixture.summaryLocator}`;
+    await writeFile(
+      summaryPath,
+      (await readFile(summaryPath, "utf8")).replace(
+        "variant A",
+        "variant B after an exact changed-basis publication",
+      ),
+    );
+    const changedBasis = await product.run(["inspect", "project", "--repo", "."], {
+      cwd: fixture.root,
+      observeRoots: [fixture.root],
+    });
+    expect(changedBasis.exitClass).toBe("success");
+    const reopened = await product.run(["inspect", "diagnostics", "--repo", "."], {
+      cwd: fixture.root,
+      observeRoots: [fixture.root],
+    });
+    expect(reopened.exitClass).toBe("success");
+    expect(JSON.parse(reopened.stdout)).toMatchObject({ outcome: "complete", diagnostics: [] });
+
     const invalid = await product.run(["provider", "verify", "--repo", "."], {
       cwd: fixture.root,
       observeRoots: [fixture.root],

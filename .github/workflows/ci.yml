@@ -129,6 +129,7 @@ jobs:
       - run: bun run test:browser
       - run: npx playwright test --config browser-tests/packed-portal.playwright.config.ts
       - run: npx playwright test --config browser-tests/portal-isolation.playwright.config.ts
+      - run: npx playwright test --config browser-tests/project-preview-real-host.playwright.config.ts
       - name: Upload browser failure diagnostics
         if: ${{ failure() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -138,6 +139,7 @@ jobs:
             test-results/playwright/
             test-results/playwright-packed-portal/
             test-results/playwright-portal-isolation/
+            test-results/playwright-project-preview-real-host/
           if-no-files-found: warn
           retention-days: 7
 
