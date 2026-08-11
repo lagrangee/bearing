@@ -295,7 +295,7 @@ test("repeated exact invocation reuses all public identities without mutation", 
 });
 
 test("Publication workflow is manual, main-owned, protected, serialized, and frozen-byte only", async () => {
-  const workflow = parseYaml(await readFile(".github/workflows/publish-preview.yml", "utf8")) as {
+  const workflow = parseYaml(await readFile(".github/workflows/publish.yml", "utf8")) as {
     readonly name: string;
     readonly on: Readonly<{
       workflow_dispatch: Readonly<{
@@ -308,7 +308,7 @@ test("Publication workflow is manual, main-owned, protected, serialized, and fro
       Record<
         string,
         Readonly<{
-          if: string;
+          if?: string;
           environment: string;
           "timeout-minutes": number;
           steps: readonly Readonly<{
@@ -328,9 +328,12 @@ test("Publication workflow is manual, main-owned, protected, serialized, and fro
   expect(workflow.on.workflow_dispatch.inputs).toMatchObject({
     version: { required: true, type: "string" },
     source_commit: { required: true, type: "string" },
+    candidate_workflow_name: { required: true, type: "string" },
     candidate_run_id: { required: true, type: "string" },
+    candidate_run_attempt: { required: true, type: "string" },
     frozen_sha256: { required: true, type: "string" },
   });
+  expect(workflow.on.workflow_dispatch.inputs).not.toHaveProperty("confirm");
   expect(workflow.permissions).toEqual({ actions: "read", contents: "write", "id-token": "write" });
   const concurrencyGroups = ["0.1.1", "0.1.2"].map((version) =>
     workflow.concurrency.group.replace(["$", "{{ inputs.version }}"].join(""), version),
@@ -342,7 +345,7 @@ test("Publication workflow is manual, main-owned, protected, serialized, and fro
   expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
 
   const job = workflow.jobs["publish"];
-  expect(job?.if).toBe(["$", "{{ inputs.confirm == 'publish @lagrangee/bearing' }}"].join(""));
+  expect(job?.if).toBeUndefined();
   expect(job?.environment).toBe("npm-publish");
   expect(job?.["timeout-minutes"]).toBeGreaterThan(0);
   expect(job?.["timeout-minutes"]).toBeLessThanOrEqual(30);
@@ -365,6 +368,8 @@ test("Publication workflow is manual, main-owned, protected, serialized, and fro
   expect(proof).toContain('test "$GITHUB_REF" = "refs/heads/main"');
   expect(proof).toContain("repos/$GITHUB_REPOSITORY/actions/runs/$EXPECTED_RUN_ID");
   expect(proof).toContain(".github/workflows/package.yml");
+  expect(proof).toContain('test "$ACTUAL_NAME" = "$EXPECTED_WORKFLOW_NAME"');
+  expect(proof).toContain('test "$ACTUAL_RUN_ATTEMPT" = "$EXPECTED_RUN_ATTEMPT"');
   expect(proof).toContain('test "$ACTUAL_EVENT" = "workflow_dispatch"');
   expect(proof).toContain('test "$ACTUAL_STATUS" = "completed"');
   expect(proof).toContain('test "$ACTUAL_CONCLUSION" = "success"');

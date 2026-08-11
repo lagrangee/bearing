@@ -154,10 +154,10 @@ const exactObservation: PublicReleaseObservation = {
       subjectSha512: Buffer.from("frozen", "base64").toString("hex"),
       sourceCommit: candidate.sourceCommit,
       workflowRepository: "https://github.com/lagrangee/bearing",
-      workflowPath: ".github/workflows/publish-preview.yml",
+      workflowPath: ".github/workflows/publish.yml",
       invocationId: "https://github.com/lagrangee/bearing/actions/runs/654321/attempts/1",
       invocationSourceCommit: candidate.sourceCommit,
-      invocationWorkflowPath: ".github/workflows/publish-preview.yml",
+      invocationWorkflowPath: ".github/workflows/publish.yml",
       invocationRunAttempt: 1,
       invocationConclusion: "success",
     },
@@ -429,7 +429,7 @@ test("live surfaces use only exact-version read-only requests", async () => {
     if (url.endsWith("/actions/runs/654321")) {
       return response(url, {
         head_sha: invocationSourceCommit,
-        path: ".github/workflows/publish-preview.yml",
+        path: ".github/workflows/publish.yml",
         run_attempt: 1,
         conclusion: "success",
       });

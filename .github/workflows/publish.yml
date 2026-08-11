@@ -11,16 +11,20 @@ on:
         description: Exact 40-character Candidate source commit
         required: true
         type: string
+      candidate_workflow_name:
+        description: Exact Candidate Freeze workflow name from the Candidate receipt
+        required: true
+        type: string
       candidate_run_id:
         description: Successful Candidate Freeze workflow run ID
         required: true
         type: string
-      frozen_sha256:
-        description: Exact frozen tarball SHA-256 from the Candidate receipt
+      candidate_run_attempt:
+        description: Exact Candidate Freeze workflow attempt from the Candidate receipt
         required: true
         type: string
-      confirm:
-        description: Type publish @lagrangee/bearing
+      frozen_sha256:
+        description: Exact frozen tarball SHA-256 from the Candidate receipt
         required: true
         type: string
 
@@ -35,7 +39,6 @@ concurrency:
 
 jobs:
   publish:
-    if: ${{ inputs.confirm == 'publish @lagrangee/bearing' }}
     runs-on: macos-latest
     timeout-minutes: 30
     environment: npm-publish
@@ -44,11 +47,14 @@ jobs:
         id: candidate_run
         env:
           GH_TOKEN: ${{ github.token }}
+          EXPECTED_WORKFLOW_NAME: ${{ inputs.candidate_workflow_name }}
           EXPECTED_RUN_ID: ${{ inputs.candidate_run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ inputs.candidate_run_attempt }}
           EXPECTED_COMMIT: ${{ inputs.source_commit }}
         run: |
           set -euo pipefail
           [[ "$EXPECTED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
           [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_REF" = "refs/heads/main"
 
@@ -59,13 +65,14 @@ jobs:
           IFS=$'\t' read -r ACTUAL_RUN_ID ACTUAL_PATH ACTUAL_NAME ACTUAL_EVENT ACTUAL_STATUS ACTUAL_CONCLUSION ACTUAL_BRANCH ACTUAL_COMMIT ACTUAL_RUN_ATTEMPT <<< "$RUN_FACTS"
           test "$ACTUAL_RUN_ID" = "$EXPECTED_RUN_ID"
           test "$ACTUAL_PATH" = ".github/workflows/package.yml"
-          test "$ACTUAL_NAME" = "Prepare candidate artifact"
+          test "$ACTUAL_NAME" = "$EXPECTED_WORKFLOW_NAME"
           test "$ACTUAL_EVENT" = "workflow_dispatch"
           test "$ACTUAL_STATUS" = "completed"
           test "$ACTUAL_CONCLUSION" = "success"
           test "$ACTUAL_BRANCH" = "main"
           [[ "$ACTUAL_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           [[ "$ACTUAL_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          test "$ACTUAL_RUN_ATTEMPT" = "$EXPECTED_RUN_ATTEMPT"
 
           RUN_MAIN_STATUS="$(gh api "repos/$GITHUB_REPOSITORY/compare/$EXPECTED_COMMIT...$ACTUAL_COMMIT" --jq '.status')"
           case "$RUN_MAIN_STATUS" in ahead|identical) ;; *) exit 1 ;; esac

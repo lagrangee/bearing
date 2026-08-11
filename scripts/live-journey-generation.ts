@@ -240,6 +240,58 @@ const generationResultSchema = z
   })
   .strict();
 
+const assertLiveJourneyGenerationResult = (
+  result: z.infer<typeof generationResultSchema>,
+): void => {
+  if (result.matrixDefinitionSha256 !== result.candidate.matrixDefinitionSha256) {
+    fail("Matrix result definition digest does not match its Candidate identity.");
+  }
+  const observedJourneys = result.journeys.map(({ journey }) => journey);
+  if (
+    observedJourneys.length !== journeyIds.length ||
+    new Set(observedJourneys).size !== journeyIds.length ||
+    journeyIds.some((journey) => !observedJourneys.includes(journey))
+  ) {
+    fail("Matrix result requires each Journey exactly once.");
+  }
+  const observedCases = result.cases.map(({ caseId }) => caseId);
+  if (
+    observedCases.length !== caseIds.length ||
+    new Set(observedCases).size !== caseIds.length ||
+    caseIds.some((caseId) => !observedCases.includes(caseId))
+  ) {
+    fail("Matrix result requires each Case exactly once.");
+  }
+  for (const entry of result.cases) {
+    if (!caseIdsByJourney.get(entry.journey)?.includes(entry.caseId)) {
+      fail(`Matrix Case is assigned to the wrong Journey: ${entry.caseId}.`);
+    }
+  }
+  for (const journey of result.journeys) {
+    const expectedOutcome = result.cases
+      .filter((entry) => entry.journey === journey.journey)
+      .every(({ outcome }) => outcome === "pass")
+      ? "pass"
+      : "not-pass";
+    if (journey.outcome !== expectedOutcome) {
+      fail(`Matrix Journey outcome contradicts its Case results: ${journey.journey}.`);
+    }
+  }
+  const releasePrerequisiteSatisfied = result.cases.every(({ outcome }) => outcome === "pass");
+  if (
+    result.releasePrerequisiteSatisfied !== releasePrerequisiteSatisfied ||
+    result.terminalOutcome !== (releasePrerequisiteSatisfied ? "pass" : "not-pass")
+  ) {
+    fail("Matrix terminal outcome contradicts its Case results.");
+  }
+};
+
+export const parseLiveJourneyGenerationResult = (value: unknown) => {
+  const result = generationResultSchema.parse(value);
+  assertLiveJourneyGenerationResult(result);
+  return result;
+};
+
 const schemaEncoding = (value: unknown): string => JSON.stringify(value);
 
 export const validateLiveJourneyVerdicts = (journeyInput: string, input: readonly unknown[]) => {
@@ -375,7 +427,7 @@ export const createLiveJourneyGenerationResult = (input: {
   const releasePrerequisiteSatisfied =
     cases.length === 18 && cases.every(({ outcome }) => outcome === "pass");
 
-  return generationResultSchema.parse({
+  return parseLiveJourneyGenerationResult({
     schemaVersion: 1,
     generationId,
     candidate,
@@ -425,7 +477,7 @@ export const assertJourneyRerunEligibility = (input: {
   candidate: unknown;
   matrixDefinitionSha256: string;
 }) => {
-  const generation = generationResultSchema.parse(input.generation);
+  const generation = parseLiveJourneyGenerationResult(input.generation);
   const journey = journeyIdSchema.parse(input.journey);
   const candidate = boundedCandidateSchema.parse(input.candidate);
   const freshFixtureSha256 = sha256Schema.parse(input.freshFixtureSha256);

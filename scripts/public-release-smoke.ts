@@ -626,9 +626,9 @@ const provenanceMatchesCandidate = (
     provenance.subjectSha512 === subjectSha512 &&
     provenance.sourceCommit === candidate.sourceCommit &&
     provenance.workflowRepository === "https://github.com/lagrangee/bearing" &&
-    provenance.workflowPath === ".github/workflows/publish-preview.yml" &&
+    provenance.workflowPath === ".github/workflows/publish.yml" &&
     provenance.invocationSourceCommit === candidate.sourceCommit &&
-    provenance.invocationWorkflowPath === ".github/workflows/publish-preview.yml" &&
+    provenance.invocationWorkflowPath === ".github/workflows/publish.yml" &&
     provenance.invocationRunAttempt > 0 &&
     provenance.invocationConclusion === "success" &&
     /^https:\/\/github\.com\/lagrangee\/bearing\/actions\/runs\/[1-9][0-9]*\/attempts\/[1-9][0-9]*$/u.test(
