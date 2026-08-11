@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
-import type { Stats } from "node:fs";
 import { cp, lstat, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { BEARING_POINTER } from "../src/agent-surface-entry";
-import { codexE2ERuntimeArguments } from "./codex-e2e-runtime";
+import {
+  CODEX_E2E_DISABLED_FEATURES,
+  codexE2ELaunchContract,
+  inspectCodexE2EOperatorContext,
+} from "./codex-e2e-runtime";
 
 export const G1_LIVE_PLAN_ID = "bearing-0.1.1-g1-live-v1";
 export const G1_LIVE_JOURNEYS = [
@@ -49,22 +52,7 @@ export const G1_MATT_SKILL_CLOSURE = [
   "code-review",
 ] as const;
 
-export const G1_CODEX_DISABLED_FEATURES = [
-  "apps",
-  "browser_use",
-  "browser_use_external",
-  "chronicle",
-  "computer_use",
-  "goals",
-  "hooks",
-  "image_generation",
-  "memories",
-  "plugin_sharing",
-  "plugins",
-  "skill_mcp_dependency_install",
-  "tool_suggest",
-  "workspace_dependencies",
-] as const;
+export const G1_CODEX_DISABLED_FEATURES = CODEX_E2E_DISABLED_FEATURES;
 
 type Arguments = Readonly<{
   journey: G1LiveJourney;
@@ -237,109 +225,7 @@ const assertTargetsOutsideBoundary = async (
   }
 };
 
-const optionalRegularFile = async (path: string): Promise<Uint8Array | undefined> => {
-  let state: Stats;
-  try {
-    state = await lstat(path);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
-    throw error;
-  }
-  if (!state.isFile()) {
-    throw new Error(`Codex operator input must be a regular file: ${path}`);
-  }
-  return readFile(path);
-};
-
-const discoverSkillFiles = async (
-  root: string,
-  directory = root,
-  ancestors = new Set<string>(),
-): Promise<string[]> => {
-  let canonicalDirectory: string;
-  try {
-    canonicalDirectory = await realpath(directory);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
-    throw error;
-  }
-  if (ancestors.has(canonicalDirectory)) {
-    throw new Error(`Codex operator skill inventory contains a directory cycle: ${directory}`);
-  }
-  const nextAncestors = new Set(ancestors);
-  nextAncestors.add(canonicalDirectory);
-
-  const files: string[] = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const target = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await discoverSkillFiles(root, target, nextAncestors)));
-      continue;
-    }
-    if (entry.isSymbolicLink()) {
-      const targetState = await lstat(await realpath(target));
-      if (targetState.isDirectory()) {
-        files.push(...(await discoverSkillFiles(root, target, nextAncestors)));
-      }
-      continue;
-    }
-    if (entry.isFile() && entry.name === "SKILL.md") files.push(target);
-  }
-  return files.sort((left, right) => left.localeCompare(right, "en"));
-};
-
-export const inspectCodexOperatorContext = async (
-  codexHome: string,
-): Promise<
-  Readonly<{
-    globalInstructions: FileDigest | null;
-    disabledSkills: readonly FileDigest[];
-    fingerprint: string;
-  }>
-> => {
-  let globalInstructions: FileDigest | null = null;
-  for (const filename of ["AGENTS.override.md", "AGENTS.md"] as const) {
-    const locator = join(codexHome, filename);
-    const bytes = await optionalRegularFile(locator);
-    if (bytes !== undefined && new TextDecoder().decode(bytes).trim() !== "") {
-      globalInstructions = { locator, sha256: sha256(bytes) };
-      break;
-    }
-  }
-  const skillFiles = await discoverSkillFiles(join(codexHome, "skills"));
-  const disabledSkills = await Promise.all(
-    skillFiles.map(async (locator) => ({ locator, sha256: sha256(await readFile(locator)) })),
-  );
-  return {
-    globalInstructions,
-    disabledSkills,
-    fingerprint: treeDigest([
-      ...(globalInstructions === null ? [] : [globalInstructions]),
-      ...disabledSkills,
-    ]),
-  };
-};
-
-const codexHardeningArguments = (disabledOperatorSkillPaths: readonly string[]): string[] => {
-  const arguments_: string[] = [];
-  for (const feature of G1_CODEX_DISABLED_FEATURES) {
-    arguments_.push("--disable", feature);
-  }
-  if (disabledOperatorSkillPaths.length > 0) {
-    const config = disabledOperatorSkillPaths
-      .map((path) => `{path=${JSON.stringify(path)},enabled=false}`)
-      .join(",");
-    arguments_.push("-c", `skills.config=[${config}]`);
-  }
-  return arguments_;
-};
-
-const codexApprovalArguments = [
-  "-c",
-  'approval_policy="on-request"',
-  "-c",
-  'approvals_reviewer="auto_review"',
-] as const;
+export const inspectCodexOperatorContext = inspectCodexE2EOperatorContext;
 
 export const surfaceLaunchContract = (
   input: Readonly<{
@@ -398,49 +284,24 @@ export const surfaceLaunchContract = (
   if (input.disabledOperatorSkillPaths === undefined) {
     throw new Error("Codex launch requires the complete disabled operator skill inventory.");
   }
-  const hardening = codexHardeningArguments(input.disabledOperatorSkillPaths);
+  const shared = codexE2ELaunchContract({
+    repositoryRoot: input.repositoryRoot,
+    isolatedHome: input.isolatedHome,
+    codexHome: input.codexHome,
+    disabledOperatorSkillPaths: input.disabledOperatorSkillPaths,
+  });
   return {
     mode: "codex-exec",
     codexHome: input.codexHome,
-    environment: { HOME: input.isolatedHome, CODEX_HOME: input.codexHome },
-    initial: {
+    environment: shared.environment,
+    initial: Object.freeze({
+      ...shared.initial,
       program: "codex",
-      arguments: [
-        "exec",
-        ...codexE2ERuntimeArguments(),
-        "--ignore-user-config",
-        "--ignore-rules",
-        ...codexApprovalArguments,
-        "--sandbox",
-        "workspace-write",
-        "--add-dir",
-        input.isolatedHome,
-        "--cd",
-        input.repositoryRoot,
-        "--json",
-        ...hardening,
-      ],
-      appendPromptAsFinalArgument: true,
-    },
-    resume: {
+    }),
+    resume: Object.freeze({
+      ...shared.resume,
       program: "codex",
-      arguments: [
-        "exec",
-        "resume",
-        ...codexE2ERuntimeArguments(),
-        "--ignore-user-config",
-        "--ignore-rules",
-        ...codexApprovalArguments,
-        "-c",
-        'sandbox_mode="workspace-write"',
-        "-c",
-        `sandbox_workspace_write.writable_roots=[${JSON.stringify(input.isolatedHome)}]`,
-        "--json",
-        ...hardening,
-        "<session-id>",
-      ],
-      appendPromptAsFinalArgument: true,
-    },
+    }),
   };
 };
 
