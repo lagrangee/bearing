@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { access, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { CODEX_E2E_RUNTIME, inspectCodexE2EOperatorContext } from "../scripts/codex-e2e-runtime";
 import {
   assertJourneyAgentPrompt,
@@ -37,12 +37,27 @@ const createSourceFixture = async () => {
     "validation/live-journey/matrix.json",
     "validation/live-journey/journeys/clean-installation-and-local-loop.md",
     "validation/live-journey/journeys/github-and-active-reconciliation.md",
+    "validation/live-journey/journeys/safety-and-lifecycle.md",
     "validation/live-journey/fixtures/local-loop/AGENTS.md",
     "validation/live-journey/fixtures/local-loop/README.md",
     "validation/live-journey/fixtures/local-loop/package.json",
     "validation/live-journey/fixtures/local-loop/src/format-label.ts",
     "validation/live-journey/fixtures/local-loop/tests/format-label.test.ts",
+    "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/PRD.md",
+    "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/map.md",
+    "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/issues/01-update-output.md",
+    "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/issues/02-update-output.md",
+    "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/issues/03-run-failing-delivery.md",
+    "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/issues/04-complete-secondary-format.md",
+    "validation/live-journey/fixtures/safety-lifecycle/AGENTS.md",
+    "validation/live-journey/fixtures/safety-lifecycle/CONTEXT.md",
+    "validation/live-journey/fixtures/safety-lifecycle/README.md",
+    "validation/live-journey/fixtures/safety-lifecycle/docs/agents/issue-tracker.md",
+    "validation/live-journey/fixtures/safety-lifecycle/package.json",
+    "validation/live-journey/fixtures/safety-lifecycle/src/format-label.ts",
+    "validation/live-journey/fixtures/safety-lifecycle/tests/format-label.test.ts",
   ]) {
+    await mkdir(dirname(join(root, locator)), { recursive: true });
     await writeFile(join(root, locator), await readFile(locator));
   }
   await writeFile(join(root, "docs/agent-installation.md"), "# Agent installation\n");

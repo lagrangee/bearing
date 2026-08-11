@@ -116,11 +116,25 @@ const cleanTrackedInputs = [
   "validation/live-journey/matrix.json",
   "validation/live-journey/journeys/clean-installation-and-local-loop.md",
   "validation/live-journey/journeys/github-and-active-reconciliation.md",
+  "validation/live-journey/journeys/safety-and-lifecycle.md",
   "validation/live-journey/fixtures/local-loop/AGENTS.md",
   "validation/live-journey/fixtures/local-loop/README.md",
   "validation/live-journey/fixtures/local-loop/package.json",
   "validation/live-journey/fixtures/local-loop/src/format-label.ts",
   "validation/live-journey/fixtures/local-loop/tests/format-label.test.ts",
+  "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/PRD.md",
+  "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/map.md",
+  "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/issues/01-update-output.md",
+  "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/issues/02-update-output.md",
+  "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/issues/03-run-failing-delivery.md",
+  "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/issues/04-complete-secondary-format.md",
+  "validation/live-journey/fixtures/safety-lifecycle/AGENTS.md",
+  "validation/live-journey/fixtures/safety-lifecycle/CONTEXT.md",
+  "validation/live-journey/fixtures/safety-lifecycle/README.md",
+  "validation/live-journey/fixtures/safety-lifecycle/docs/agents/issue-tracker.md",
+  "validation/live-journey/fixtures/safety-lifecycle/package.json",
+  "validation/live-journey/fixtures/safety-lifecycle/src/format-label.ts",
+  "validation/live-journey/fixtures/safety-lifecycle/tests/format-label.test.ts",
 ] as const;
 const cleanCaseIdSchema = z.enum(cleanCaseIds);
 const outcomeSchema = z.enum(["pass", "fail", "blocked", "not-run"]);
@@ -609,7 +623,8 @@ export const verifyLiveJourneyObservation = async (input: {
 }) => {
   if (
     !input.pointer.startsWith("observations/") &&
-    !input.pointer.startsWith("github/observations/")
+    !input.pointer.startsWith("github/observations/") &&
+    !input.pointer.startsWith("safety/observations/")
   ) {
     fail("Coordinator verdict must reference a generated observation.");
   }
@@ -660,23 +675,33 @@ export const writeCodexSessionState = async (
 
 type SnapshotEntry = Readonly<{ locator: string; kind: "file" | "symbolic-link" }>;
 
-const snapshotFiles = async (root: string, directory = root): Promise<readonly SnapshotEntry[]> => {
+const snapshotFiles = async (
+  root: string,
+  directory: string,
+  excludedLocators: ReadonlySet<string>,
+): Promise<readonly SnapshotEntry[]> => {
   const entries: SnapshotEntry[] = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (entry.name === ".git") continue;
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) entries.push(...(await snapshotFiles(root, path)));
-    else if (entry.isFile()) entries.push({ locator: relative(root, path), kind: "file" });
+    const locator = relative(root, path);
+    if (excludedLocators.has(locator)) continue;
+    if (entry.isDirectory()) entries.push(...(await snapshotFiles(root, path, excludedLocators)));
+    else if (entry.isFile()) entries.push({ locator, kind: "file" });
     else if (entry.isSymbolicLink()) {
-      entries.push({ locator: relative(root, path), kind: "symbolic-link" });
-    } else fail(`Live Journey snapshots refuse non-file entries: ${relative(root, path)}`);
+      entries.push({ locator, kind: "symbolic-link" });
+    } else fail(`Live Journey snapshots refuse non-file entries: ${locator}`);
   }
   return entries.sort((left, right) => left.locator.localeCompare(right.locator, "en"));
 };
 
-export const snapshotDirectory = async (root: string): Promise<string> => {
+export const snapshotDirectory = async (
+  root: string,
+  options: Readonly<{ exclude?: readonly string[] }> = {},
+): Promise<string> => {
+  const excludedLocators = new Set(options.exclude ?? []);
   const frames: string[] = [];
-  for (const entry of await snapshotFiles(root)) {
+  for (const entry of await snapshotFiles(root, root, excludedLocators)) {
     const bytes =
       entry.kind === "file"
         ? await readFile(join(root, entry.locator))

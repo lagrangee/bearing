@@ -32,6 +32,19 @@ import {
   writeCodexSessionState,
 } from "./live-journey-matrix";
 import { sha256File, verifyReleaseCandidate } from "./release-candidate-lib";
+import {
+  assertSafetyVerdictObservables,
+  captureSafetyRepositoryState,
+  createSafetyJourneyEvaluation,
+  createSafetyJourneyObservation,
+  introduceSafetyManagedSurfaceDrift,
+  introduceSafetyUnsupportedState,
+  prepareSafetyJourneyGeneration,
+  readSafetyJourneyGeneration,
+  validateSafetyJourneyVerdicts,
+  verifySafetyJourneyGeneration,
+  verifySafetyJourneyObservation,
+} from "./safety-live-journey";
 
 const usage = `Usage:
   bun scripts/run-live-journey.ts prepare-clean \\
@@ -60,6 +73,21 @@ const usage = `Usage:
   bun scripts/run-live-journey.ts evaluate-github \\
     --manifest <absolute-path> --verdicts <absolute-path> \\
     --authorized-issues <absolute-json-array-path> \\
+    --codex-cli-version <version> --coordinator-identity <identity> \\
+    --duration-ms <non-negative-integer> --output <absolute-new-path>
+
+  bun scripts/run-live-journey.ts prepare-safety \\
+    --clean-manifest <absolute-path> [--codex-program <path>]
+
+  bun scripts/run-live-journey.ts introduce-safety-drift --manifest <absolute-path>
+
+  bun scripts/run-live-journey.ts introduce-safety-unsupported --manifest <absolute-path>
+
+  bun scripts/run-live-journey.ts run-safety-turn \\
+    --manifest <absolute-path> --turn <positive-integer> --prompt-file <path|->
+
+  bun scripts/run-live-journey.ts evaluate-safety \\
+    --manifest <absolute-path> --verdicts <absolute-path> \\
     --codex-cli-version <version> --coordinator-identity <identity> \\
     --duration-ms <non-negative-integer> --output <absolute-new-path>
 `;
@@ -223,6 +251,9 @@ const verifiedGeneration = async (manifestPath: string) => {
 
 const verifiedGitHubGeneration = async (manifestPath: string) =>
   verifyGitHubJourneyGeneration(await readGitHubJourneyGeneration(manifestPath));
+
+const verifiedSafetyGeneration = async (manifestPath: string) =>
+  verifySafetyJourneyGeneration(await readSafetyJourneyGeneration(manifestPath));
 
 const promptBytes = async (path: string): Promise<string> => {
   const prompt =
@@ -597,6 +628,139 @@ const evaluateGitHub = async (): Promise<void> => {
   process.stdout.write(`${JSON.stringify({ output, outcome: result.outcome })}\n`);
 };
 
+const prepareSafety = async (): Promise<void> => {
+  const prepared = await prepareSafetyJourneyGeneration({
+    cleanManifestPath: resolve(required("clean-manifest")),
+    ...(parsed.values["codex-program"] === undefined
+      ? {}
+      : { codexProgram: parsed.values["codex-program"] }),
+  });
+  process.stdout.write(
+    `${JSON.stringify({
+      candidateManifest: prepared.paths.candidateManifest,
+      repository: prepared.paths.repository,
+      lifecycle: prepared.product.initialState.lifecycle,
+    })}\n`,
+  );
+};
+
+const introduceSafetyDrift = async (): Promise<void> => {
+  const manifest = await readSafetyJourneyGeneration(resolve(required("manifest")));
+  const state = await introduceSafetyManagedSurfaceDrift(manifest);
+  process.stdout.write(
+    `${JSON.stringify({ lifecycle: state.lifecycle, driftIntroduced: true })}\n`,
+  );
+};
+
+const introduceSafetyUnsupported = async (): Promise<void> => {
+  const manifest = await readSafetyJourneyGeneration(resolve(required("manifest")));
+  const state = await introduceSafetyUnsupportedState(manifest);
+  process.stdout.write(
+    `${JSON.stringify({ lifecycle: state.lifecycle, unsupportedIntroduced: true })}\n`,
+  );
+};
+
+const runSafetyTurn = async (): Promise<void> => {
+  const manifest = await verifiedSafetyGeneration(resolve(required("manifest")));
+  const turn = positiveInteger(required("turn"), "--turn");
+  const prepared = await prepareCodexTurn(manifest, turn);
+  const safetyBefore = await captureSafetyRepositoryState({
+    repositoryRoot: manifest.paths.repository,
+    productProgram: manifest.product.program,
+    productHome: manifest.paths.productHome,
+  });
+  const before = {
+    repository: await snapshotDirectory(manifest.paths.repository),
+    agentHome: await snapshotDirectory(manifest.paths.agentHome),
+  };
+  const result = await runPreparedCodexTurn(prepared);
+  const after = {
+    repository: await snapshotDirectory(manifest.paths.repository),
+    agentHome: await snapshotDirectory(manifest.paths.agentHome),
+  };
+  const safetyAfter = await captureSafetyRepositoryState({
+    repositoryRoot: manifest.paths.repository,
+    productProgram: manifest.product.program,
+    productHome: manifest.paths.productHome,
+  });
+  const observation = createSafetyJourneyObservation({
+    turn,
+    codexCliVersion: prepared.codexCliVersion,
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    before,
+    after,
+    transcriptPointer: `safety/transcripts/turn-${prepared.turnLabel}.jsonl`,
+    stderrPointer: `safety/transcripts/turn-${prepared.turnLabel}.stderr.log`,
+    safetyBefore,
+    safetyAfter,
+  });
+  await completeCodexTurn(prepared, result, observation);
+};
+
+const evaluateSafety = async (): Promise<void> => {
+  const manifest = await verifiedSafetyGeneration(resolve(required("manifest")));
+  const verdicts = JSON.parse(await readFile(resolve(required("verdicts")), "utf8")) as unknown[];
+  const output = resolve(required("output"));
+  await ensureMissing(output);
+  const codexCliVersion = required("codex-cli-version");
+  const observationNames = (await readdir(manifest.paths.observations)).sort((left, right) =>
+    left.localeCompare(right, "en"),
+  );
+  if (
+    observationNames.length === 0 ||
+    observationNames.some((name) => !/^turn-[0-9]{2,}\.json$/u.test(name))
+  ) {
+    fail("Safety evaluation requires only generated turn observations.");
+  }
+  const observations = new Map<
+    string,
+    Awaited<ReturnType<typeof verifySafetyJourneyObservation>>
+  >();
+  for (const [index, name] of observationNames.entries()) {
+    const expectedName = `turn-${String(index + 1).padStart(2, "0")}.json`;
+    if (name !== expectedName) fail("Safety turn observations must be complete and contiguous.");
+    const pointer = `safety/observations/${name}`;
+    observations.set(
+      pointer,
+      await verifySafetyJourneyObservation({
+        workspaceRoot: manifest.paths.workspaceRoot,
+        pointer,
+        expectedCodexCliVersion: codexCliVersion,
+      }),
+    );
+  }
+  const validatedVerdicts = validateSafetyJourneyVerdicts(verdicts);
+  for (const verdict of validatedVerdicts) {
+    if (verdict.observationPointers.some((pointer) => !observations.has(pointer))) {
+      fail("Safety verdict references an observation outside the complete turn set.");
+    }
+    if (
+      verdict.outcome === "pass" &&
+      !verdict.observationPointers.some((pointer) =>
+        observationSupportsSemanticPass(observations.get(pointer)),
+      )
+    ) {
+      fail(`Passing Safety Case lacks a completed Codex observation: ${verdict.caseId}`);
+    }
+  }
+  assertSafetyVerdictObservables(verdicts, observations);
+  const result = createSafetyJourneyEvaluation({
+    candidate: manifest.candidate,
+    codexCliVersion,
+    coordinatorIdentity: required("coordinator-identity"),
+    durationMs: nonNegativeInteger(required("duration-ms"), "--duration-ms"),
+    verdicts,
+  });
+  if (output.startsWith(`${manifest.paths.transcripts}/`)) {
+    fail("Bounded result cannot be written inside private Safety evidence storage.");
+  }
+  await writeFile(output, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx" });
+  await rm(manifest.paths.transcripts, { recursive: true });
+  process.stdout.write(`${JSON.stringify({ output, outcome: result.outcome })}\n`);
+};
+
 if (command === "prepare-clean") await prepareClean();
 else if (command === "run-clean-turn") await runCleanTurn();
 else if (command === "evaluate-clean") await evaluateClean();
@@ -604,4 +768,9 @@ else if (command === "configure-github-repository") await configureGitHubReposit
 else if (command === "prepare-github") await prepareGitHub();
 else if (command === "run-github-turn") await runGitHubTurn();
 else if (command === "evaluate-github") await evaluateGitHub();
+else if (command === "prepare-safety") await prepareSafety();
+else if (command === "introduce-safety-drift") await introduceSafetyDrift();
+else if (command === "introduce-safety-unsupported") await introduceSafetyUnsupported();
+else if (command === "run-safety-turn") await runSafetyTurn();
+else if (command === "evaluate-safety") await evaluateSafety();
 else fail(`Unknown command: ${command}.\n${usage}`);
