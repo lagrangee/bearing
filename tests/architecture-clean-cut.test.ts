@@ -63,9 +63,6 @@ test("retired architecture has no implementation surface", async () => {
   expect(present).toEqual([]);
   expect(Object.keys(packageMetadata.scripts)).not.toContain("benchmark:sync");
   expect(Object.keys(packageMetadata.scripts)).not.toContain("benchmark:inspect");
-  expect(packageMetadata.scripts["test:g2-local-validation"]).not.toContain(
-    "sync-benchmark.test.ts",
-  );
 });
 
 test("current product contains no retired command, cache, route, type, or import", async () => {

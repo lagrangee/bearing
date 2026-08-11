@@ -192,6 +192,11 @@ test("required CI has minimum authority and bounded ref-scoped execution", async
 
 test("Source Quality solely owns canonical aggregate repository verification", async () => {
   const workflow = await readCiWorkflow();
+  const scripts = (
+    JSON.parse(await readFile("package.json", "utf8")) as {
+      readonly scripts: Readonly<Record<string, string>>;
+    }
+  ).scripts;
   const sourceSteps = workflow.jobs["source-quality"]?.steps ?? [];
 
   expect(
@@ -205,6 +210,55 @@ test("Source Quality solely owns canonical aggregate repository verification", a
         : (job.steps ?? []).flatMap((step) => (step.run === undefined ? [] : [step.run])),
     ),
   ).not.toContain("bun run verify");
+
+  const directAggregate = scripts["verify"]?.split(" && ");
+  expect(directAggregate).toEqual([
+    "bun run typecheck",
+    "bun run check",
+    "bun run build",
+    "bun test tests/*.test.ts",
+    "bun run test:catalog-node",
+  ]);
+  expect(scripts["test:catalog-node"]).toBe("bun scripts/run-node-catalog-tests.ts");
+  expect(Object.keys(scripts).filter((name) => /^test:g[12](?:-|$)/u.test(name))).toEqual([]);
+
+  const requiredCommands = Object.values(workflow.jobs).flatMap((job) =>
+    (job.steps ?? []).flatMap((step) => (step.run === undefined ? [] : [step.run])),
+  );
+  expect(requiredCommands.join("\n")).not.toMatch(/bun run test:g[12](?:-|\b)/u);
+  expect(
+    Object.entries(scripts)
+      .filter(([, command]) => command.includes("bun test tests/*.test.ts"))
+      .map(([name]) => name),
+  ).toEqual(["test", "verify"]);
+  expect(
+    Object.entries(scripts)
+      .filter(([, command]) => command.includes("bun scripts/run-node-catalog-tests.ts"))
+      .map(([name]) => name),
+  ).toEqual(["test:catalog-node"]);
+  expect(
+    Object.entries(scripts)
+      .filter(([name]) => !["test", "test:catalog-node", "verify"].includes(name))
+      .map(([name, command]) => `${name}=${command}`)
+      .join("\n"),
+  ).not.toMatch(
+    /bun test tests\/\*\.test\.ts|bun scripts\/run-node-catalog-tests\.ts|bun run (?:verify|test(?:\s|$)|test:catalog-node)/u,
+  );
+
+  expect(sourceSteps.flatMap((step) => (step.run === undefined ? [] : [step.run]))).toEqual([
+    "npm ci",
+    "bun run verify",
+  ]);
+  expect(
+    Object.entries(workflow.jobs)
+      .filter(([jobId]) => jobId !== "source-quality")
+      .flatMap(([, job]) =>
+        (job.steps ?? []).flatMap((step) => (step.run === undefined ? [] : [step.run])),
+      )
+      .join("\n"),
+  ).not.toMatch(
+    /bun test tests\/\*\.test\.ts|bun scripts\/run-node-catalog-tests\.ts|bun run (?:verify|test(?:\s|$)|test:catalog-node)/u,
+  );
 });
 
 test("only owner-specific environment preparation repeats across required jobs", async () => {
