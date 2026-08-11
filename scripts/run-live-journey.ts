@@ -1,5 +1,5 @@
 import { lstat, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { inspectCodexE2EOperatorContext } from "./codex-e2e-runtime";
@@ -15,6 +15,10 @@ import {
   verifyGitHubJourneyGeneration,
   verifyGitHubJourneyObservation,
 } from "./github-live-journey";
+import {
+  createLiveJourneyGenerationResult,
+  scanLiveJourneyDurableEvidence,
+} from "./live-journey-generation";
 import {
   assertJourneyAgentPrompt,
   createCleanJourneyEvaluation,
@@ -90,6 +94,10 @@ const usage = `Usage:
     --manifest <absolute-path> --verdicts <absolute-path> \\
     --codex-cli-version <version> --coordinator-identity <identity> \\
     --duration-ms <non-negative-integer> --output <absolute-new-path>
+
+  bun scripts/run-live-journey.ts complete-matrix \\
+    --clean-result <absolute-path> --github-result <absolute-path> \\
+    --safety-result <absolute-path> --output <absolute-new-path>
 `;
 
 const fail = (message: string): never => {
@@ -125,6 +133,9 @@ const parsed = parseArgs({
     "coordinator-identity": { type: "string" },
     "duration-ms": { type: "string" },
     "authorized-issues": { type: "string" },
+    "clean-result": { type: "string" },
+    "github-result": { type: "string" },
+    "safety-result": { type: "string" },
     output: { type: "string" },
   },
 });
@@ -413,9 +424,11 @@ const evaluateClean = async (): Promise<void> => {
   await ensureMissing(output);
   const codexCliVersion = required("codex-cli-version");
   const result = createCleanJourneyEvaluation({
+    generationId: manifest.generationId,
     candidate: manifest.candidate,
     codexCliVersion,
     coordinatorIdentity: required("coordinator-identity"),
+    fixtureSha256: await sha256File(manifest.paths.candidateManifest),
     durationMs: nonNegativeInteger(required("duration-ms"), "--duration-ms"),
     verdicts,
   });
@@ -440,7 +453,11 @@ const evaluateClean = async (): Promise<void> => {
   if (output.startsWith(`${manifest.paths.transcripts}/`)) {
     fail("Bounded result cannot be written inside private transcript storage.");
   }
-  await writeFile(output, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx" });
+  await writeFile(
+    output,
+    scanLiveJourneyDurableEvidence({ value: result, configPath: resolve(".gitleaks.toml") }),
+    { flag: "wx" },
+  );
   await rm(manifest.paths.transcripts, { recursive: true });
   process.stdout.write(`${JSON.stringify({ output, outcome: result.outcome })}\n`);
 };
@@ -606,9 +623,11 @@ const evaluateGitHub = async (): Promise<void> => {
     authorizedIssueNumbers,
   });
   const result = createGitHubJourneyEvaluation({
+    generationId: manifest.generationId,
     candidate: manifest.candidate,
     codexCliVersion,
     coordinatorIdentity: required("coordinator-identity"),
+    fixtureSha256: await sha256File(manifest.paths.candidateManifest),
     durationMs: nonNegativeInteger(required("duration-ms"), "--duration-ms"),
     repositoryIdentitySha256: integrity.repositoryIdentitySha256,
     remoteIntegritySha256: integrity.integritySha256,
@@ -620,7 +639,11 @@ const evaluateGitHub = async (): Promise<void> => {
   ) {
     fail("Bounded result cannot be written inside private GitHub evidence storage.");
   }
-  await writeFile(output, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx" });
+  await writeFile(
+    output,
+    scanLiveJourneyDurableEvidence({ value: result, configPath: resolve(".gitleaks.toml") }),
+    { flag: "wx" },
+  );
   await Promise.all([
     rm(manifest.paths.transcripts, { recursive: true }),
     rm(manifest.paths.remoteInventories, { recursive: true }),
@@ -747,18 +770,51 @@ const evaluateSafety = async (): Promise<void> => {
   }
   assertSafetyVerdictObservables(verdicts, observations);
   const result = createSafetyJourneyEvaluation({
+    generationId: manifest.generationId,
     candidate: manifest.candidate,
     codexCliVersion,
     coordinatorIdentity: required("coordinator-identity"),
+    fixtureSha256: await sha256File(manifest.paths.candidateManifest),
     durationMs: nonNegativeInteger(required("duration-ms"), "--duration-ms"),
     verdicts,
   });
   if (output.startsWith(`${manifest.paths.transcripts}/`)) {
     fail("Bounded result cannot be written inside private Safety evidence storage.");
   }
-  await writeFile(output, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx" });
+  await writeFile(
+    output,
+    scanLiveJourneyDurableEvidence({ value: result, configPath: resolve(".gitleaks.toml") }),
+    { flag: "wx" },
+  );
   await rm(manifest.paths.transcripts, { recursive: true });
   process.stdout.write(`${JSON.stringify({ output, outcome: result.outcome })}\n`);
+};
+
+const completeMatrix = async (): Promise<void> => {
+  const output = resolve(required("output"));
+  await ensureMissing(output);
+  const resultPaths = [
+    resolve(required("clean-result")),
+    resolve(required("github-result")),
+    resolve(required("safety-result")),
+  ];
+  const outputRoot = dirname(output);
+  const journeyResults = await Promise.all(
+    resultPaths.map(async (path) => ({
+      result: JSON.parse(await readFile(path, "utf8")),
+      pointer: relative(outputRoot, path).replaceAll("\\", "/"),
+      sha256: await sha256File(path),
+    })),
+  );
+  const result = createLiveJourneyGenerationResult({ journeyResults });
+  const bytes = scanLiveJourneyDurableEvidence({
+    value: result,
+    configPath: resolve(".gitleaks.toml"),
+  });
+  await writeFile(output, bytes, { flag: "wx" });
+  process.stdout.write(
+    `${JSON.stringify({ output, outcome: result.terminalOutcome, cases: result.cases.length })}\n`,
+  );
 };
 
 if (command === "prepare-clean") await prepareClean();
@@ -773,4 +829,5 @@ else if (command === "introduce-safety-drift") await introduceSafetyDrift();
 else if (command === "introduce-safety-unsupported") await introduceSafetyUnsupported();
 else if (command === "run-safety-turn") await runSafetyTurn();
 else if (command === "evaluate-safety") await evaluateSafety();
+else if (command === "complete-matrix") await completeMatrix();
 else fail(`Unknown command: ${command}.\n${usage}`);

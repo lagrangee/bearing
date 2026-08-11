@@ -311,6 +311,7 @@ describe("GitHub and Active Reconciliation live Journey", () => {
       }),
     );
     const input = {
+      generationId: "00000000-0000-4000-8000-000000000011",
       candidate: {
         packageName: "@lagrangee/bearing" as const,
         packageVersion: "0.1.1",
@@ -325,6 +326,7 @@ describe("GitHub and Active Reconciliation live Journey", () => {
       },
       codexCliVersion: "codex-cli 0.147.0",
       coordinatorIdentity: "Codex coordinating agent",
+      fixtureSha256: "f".repeat(64),
       durationMs: 1234,
       repositoryIdentitySha256: "d".repeat(64),
       remoteIntegritySha256: "e".repeat(64),
@@ -336,7 +338,7 @@ describe("GitHub and Active Reconciliation live Journey", () => {
     expect(result.cases).toEqual(verdicts);
     expect(JSON.stringify(result)).not.toContain("example/bearing-validation");
     expect(() => createGitHubJourneyEvaluation({ ...input, verdicts: verdicts.slice(1) })).toThrow(
-      "each GitHub Case exactly once",
+      "Case exactly once",
     );
   });
 });

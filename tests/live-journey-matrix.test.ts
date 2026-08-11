@@ -35,6 +35,7 @@ const createSourceFixture = async () => {
   await mkdir(join(root, "docs"));
   for (const locator of [
     "validation/live-journey/matrix.json",
+    "validation/live-journey/generation.md",
     "validation/live-journey/journeys/clean-installation-and-local-loop.md",
     "validation/live-journey/journeys/github-and-active-reconciliation.md",
     "validation/live-journey/journeys/safety-and-lifecycle.md",
@@ -385,9 +386,11 @@ describe("reusable Agent Live E2E Matrix", () => {
     );
 
     const result = createCleanJourneyEvaluation({
+      generationId: "00000000-0000-4000-8000-000000000010",
       candidate,
       codexCliVersion: "codex-cli 0.147.0",
       coordinatorIdentity: "Codex coordinating agent",
+      fixtureSha256: "d".repeat(64),
       durationMs: 1234,
       verdicts,
     });
@@ -398,12 +401,14 @@ describe("reusable Agent Live E2E Matrix", () => {
     expect(JSON.stringify(result)).not.toContain("transcript");
     expect(() =>
       createCleanJourneyEvaluation({
+        generationId: "00000000-0000-4000-8000-000000000010",
         candidate,
         codexCliVersion: "codex-cli 0.147.0",
         coordinatorIdentity: "Codex coordinating agent",
+        fixtureSha256: "d".repeat(64),
         durationMs: 1234,
         verdicts: verdicts.slice(1),
       }),
-    ).toThrow("each Clean Case exactly once");
+    ).toThrow("Case exactly once");
   });
 });

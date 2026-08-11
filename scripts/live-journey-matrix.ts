@@ -17,6 +17,11 @@ import {
   codexE2ELaunchContract,
   inspectCodexE2EOperatorContext,
 } from "./codex-e2e-runtime";
+import {
+  createLiveJourneyEvaluation,
+  type LiveMatrixCandidate,
+  liveMatrixCandidateSchema,
+} from "./live-journey-generation";
 import { sha256Bytes, sha256File } from "./release-digest";
 
 const matrixCaseSchema = z.object({
@@ -39,18 +44,6 @@ const matrixSchema = z.object({
   journeys: z.array(matrixJourneySchema).length(3),
 });
 
-const workflowSchema = z.object({
-  name: z.string().min(1),
-  runId: z.string().min(1),
-  runAttempt: z.number(),
-});
-
-const artifactSchema = z.object({
-  path: z.string().min(1),
-  file: z.string().min(1),
-  sha256: z.string().regex(/^[0-9a-f]{64}$/u),
-});
-
 const launchStepSchema = z.object({
   program: z.string().min(1),
   arguments: z.array(z.string()),
@@ -63,28 +56,7 @@ const launchSchema = z.object({
   resume: launchStepSchema,
 });
 
-export const liveMatrixCandidateSchema = z
-  .object({
-    packageName: z.literal("@lagrangee/bearing"),
-    packageVersion: z.string().min(1),
-    sourceCommit: z.string().min(1),
-    workflow: workflowSchema,
-    artifact: artifactSchema,
-    matrixDefinitionSha256: z.string().regex(/^[0-9a-f]{64}$/u),
-  })
-  .superRefine((candidate, context) => {
-    if (
-      !isAbsolute(candidate.artifact.path) ||
-      basename(candidate.artifact.path) !== candidate.artifact.file
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "Candidate tarball locator must be one absolute path with the receipt file name.",
-      });
-    }
-  });
-
-export type LiveMatrixCandidate = z.infer<typeof liveMatrixCandidateSchema>;
+export { type LiveMatrixCandidate, liveMatrixCandidateSchema };
 
 const generationManifestSchema = z.object({
   schemaVersion: z.literal(1),
@@ -111,9 +83,9 @@ const generationManifestSchema = z.object({
   launch: launchSchema,
 });
 
-const cleanCaseIds = ["CLEAN-01", "CLEAN-02", "CLEAN-03", "CLEAN-04", "CLEAN-05"] as const;
 const cleanTrackedInputs = [
   "validation/live-journey/matrix.json",
+  "validation/live-journey/generation.md",
   "validation/live-journey/journeys/clean-installation-and-local-loop.md",
   "validation/live-journey/journeys/github-and-active-reconciliation.md",
   "validation/live-journey/journeys/safety-and-lifecycle.md",
@@ -136,21 +108,12 @@ const cleanTrackedInputs = [
   "validation/live-journey/fixtures/safety-lifecycle/src/format-label.ts",
   "validation/live-journey/fixtures/safety-lifecycle/tests/format-label.test.ts",
 ] as const;
-const cleanCaseIdSchema = z.enum(cleanCaseIds);
-const outcomeSchema = z.enum(["pass", "fail", "blocked", "not-run"]);
 const evidencePointerSchema = z
   .string()
   .min(1)
   .refine((value) => !isAbsolute(value) && !value.split(/[\\/]/u).includes(".."), {
     message: "Evidence pointers must stay relative to the generated workspace.",
   });
-const verdictSchema = z.object({
-  caseId: cleanCaseIdSchema,
-  outcome: outcomeSchema,
-  judgmentBasis: z.string().trim().min(1).max(600),
-  observationPointers: z.array(evidencePointerSchema).min(1),
-});
-
 const observationSchema = z.object({
   schemaVersion: z.literal(1),
   turn: z.number().int().positive(),
@@ -712,52 +675,15 @@ export const snapshotDirectory = async (
 };
 
 export const createCleanJourneyEvaluation = (input: {
+  generationId: string;
   candidate: LiveMatrixCandidate;
   codexCliVersion: string;
   coordinatorIdentity: string;
+  fixtureSha256: string;
   durationMs: number;
   verdicts: readonly unknown[];
-}) => {
-  const candidate = liveMatrixCandidateSchema.parse(input.candidate);
-  const verdicts = z.array(verdictSchema).parse(input.verdicts);
-  if (
-    verdicts.length !== cleanCaseIds.length ||
-    new Set(verdicts.map(({ caseId }) => caseId)).size !== cleanCaseIds.length ||
-    cleanCaseIds.some((caseId) => !verdicts.some((verdict) => verdict.caseId === caseId))
-  ) {
-    fail("Coordinator evaluation requires each Clean Case exactly once.");
-  }
-  if (
-    input.codexCliVersion.trim() !== input.codexCliVersion ||
-    input.codexCliVersion.length === 0 ||
-    input.coordinatorIdentity.trim() !== input.coordinatorIdentity ||
-    input.coordinatorIdentity.length === 0 ||
-    !Number.isSafeInteger(input.durationMs) ||
-    input.durationMs < 0
-  ) {
-    fail("Coordinator evaluation metadata is invalid.");
-  }
-  return Object.freeze({
-    schemaVersion: 1 as const,
-    journey: "clean-installation-and-local-loop" as const,
-    candidate: Object.freeze({
-      packageName: candidate.packageName,
-      packageVersion: candidate.packageVersion,
-      sourceCommit: candidate.sourceCommit,
-      workflow: Object.freeze(candidate.workflow),
-      artifact: Object.freeze({ file: candidate.artifact.file, sha256: candidate.artifact.sha256 }),
-      matrixDefinitionSha256: candidate.matrixDefinitionSha256,
-    }),
-    codex: Object.freeze({
-      cliVersion: input.codexCliVersion,
-      requestedModel: CODEX_E2E_RUNTIME.model,
-      requestedReasoningEffort: CODEX_E2E_RUNTIME.reasoningEffort,
-    }),
-    coordinatorIdentity: input.coordinatorIdentity,
-    durationMs: input.durationMs,
-    outcome: verdicts.every(({ outcome }) => outcome === "pass")
-      ? ("pass" as const)
-      : ("not-pass" as const),
-    cases: Object.freeze(verdicts.map((verdict) => Object.freeze(verdict))),
+}) =>
+  createLiveJourneyEvaluation({
+    ...input,
+    journey: "clean-installation-and-local-loop",
   });
-};

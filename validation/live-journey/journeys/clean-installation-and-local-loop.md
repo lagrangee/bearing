@@ -3,6 +3,8 @@
 This instruction is for the Coordinating Agent. Do not give this file, the Matrix definition, Case
 identities, acceptance criteria, expected commands, or expected file effects to the Journey Agent.
 Give the Journey Agent only one natural-language request at a time through the support runner.
+Use this instruction as part of `validation/live-journey/generation.md`; it is not an independent
+release proof.
 
 ## Preparation
 

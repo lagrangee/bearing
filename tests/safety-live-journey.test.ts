@@ -274,6 +274,7 @@ describe("Safety and Lifecycle live Journey", () => {
       observationPointers: [`safety/observations/turn-${String(index + 1).padStart(2, "0")}.json`],
     }));
     const result = createSafetyJourneyEvaluation({
+      generationId: "00000000-0000-4000-8000-000000000012",
       candidate: {
         packageName: "@lagrangee/bearing",
         packageVersion: "0.1.1",
@@ -288,6 +289,7 @@ describe("Safety and Lifecycle live Journey", () => {
       },
       codexCliVersion: "codex-cli 0.147.0",
       coordinatorIdentity: "Codex coordinating agent",
+      fixtureSha256: digest("d"),
       durationMs: 1234,
       verdicts,
     });

@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import { cp, lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
+import { codexE2ELaunchContract, inspectCodexE2EOperatorContext } from "./codex-e2e-runtime";
 import {
-  CODEX_E2E_RUNTIME,
-  codexE2ELaunchContract,
-  inspectCodexE2EOperatorContext,
-} from "./codex-e2e-runtime";
+  createLiveJourneyEvaluation,
+  liveJourneyCaseIds,
+  validateLiveJourneyVerdicts,
+} from "./live-journey-generation";
 import {
   createLiveJourneyObservation,
   type LiveMatrixCandidate,
@@ -461,40 +462,10 @@ export const verifySafetyJourneyObservation = async (input: {
   return Object.freeze({ ...base, safety: extension.safety });
 };
 
-const safetyCaseIds = [
-  "SAFETY-01",
-  "SAFETY-02",
-  "SAFETY-03",
-  "SAFETY-04",
-  "SAFETY-05",
-  "SAFETY-06",
-  "SAFETY-07",
-  "SAFETY-08",
-  "SAFETY-09",
-] as const;
-const safetyCaseIdSchema = z.enum(safetyCaseIds);
-const evidencePointerSchema = z
-  .string()
-  .min(1)
-  .refine((value) => !value.startsWith("/") && !value.split(/[\\/]/u).includes(".."));
-const verdictSchema = z.object({
-  caseId: safetyCaseIdSchema,
-  outcome: z.enum(["pass", "fail", "blocked", "not-run"]),
-  judgmentBasis: z.string().trim().min(1).max(600),
-  observationPointers: z.array(evidencePointerSchema).min(1),
-});
+const safetyCaseIds = liveJourneyCaseIds["safety-and-lifecycle"] ?? [];
 
-export const validateSafetyJourneyVerdicts = (input: readonly unknown[]) => {
-  const verdicts = z.array(verdictSchema).parse(input);
-  if (
-    verdicts.length !== safetyCaseIds.length ||
-    new Set(verdicts.map(({ caseId }) => caseId)).size !== safetyCaseIds.length ||
-    safetyCaseIds.some((caseId) => !verdicts.some((verdict) => verdict.caseId === caseId))
-  ) {
-    fail("Coordinator evaluation requires each Safety Case exactly once.");
-  }
-  return verdicts;
-};
+export const validateSafetyJourneyVerdicts = (input: readonly unknown[]) =>
+  validateLiveJourneyVerdicts("safety-and-lifecycle", input);
 
 type SafetyObservation = ReturnType<typeof createSafetyJourneyObservation>;
 
@@ -615,45 +586,15 @@ export const assertSafetyVerdictObservables = (
 };
 
 export const createSafetyJourneyEvaluation = (input: {
+  generationId: string;
   candidate: LiveMatrixCandidate;
   codexCliVersion: string;
   coordinatorIdentity: string;
+  fixtureSha256: string;
   durationMs: number;
   verdicts: readonly unknown[];
-}) => {
-  const candidate = liveMatrixCandidateSchema.parse(input.candidate);
-  const verdicts = validateSafetyJourneyVerdicts(input.verdicts);
-  if (
-    input.codexCliVersion.trim() !== input.codexCliVersion ||
-    input.codexCliVersion.length === 0 ||
-    input.coordinatorIdentity.trim() !== input.coordinatorIdentity ||
-    input.coordinatorIdentity.length === 0 ||
-    !Number.isSafeInteger(input.durationMs) ||
-    input.durationMs < 0
-  ) {
-    fail("Coordinator evaluation metadata is invalid.");
-  }
-  return Object.freeze({
-    schemaVersion: 1 as const,
-    journey: "safety-and-lifecycle" as const,
-    candidate: Object.freeze({
-      packageName: candidate.packageName,
-      packageVersion: candidate.packageVersion,
-      sourceCommit: candidate.sourceCommit,
-      workflow: Object.freeze(candidate.workflow),
-      artifact: Object.freeze({ file: candidate.artifact.file, sha256: candidate.artifact.sha256 }),
-      matrixDefinitionSha256: candidate.matrixDefinitionSha256,
-    }),
-    codex: Object.freeze({
-      cliVersion: input.codexCliVersion,
-      requestedModel: CODEX_E2E_RUNTIME.model,
-      requestedReasoningEffort: CODEX_E2E_RUNTIME.reasoningEffort,
-    }),
-    coordinatorIdentity: input.coordinatorIdentity,
-    durationMs: input.durationMs,
-    outcome: verdicts.every(({ outcome }) => outcome === "pass")
-      ? ("pass" as const)
-      : ("not-pass" as const),
-    cases: Object.freeze(verdicts.map((verdict) => Object.freeze(verdict))),
+}) =>
+  createLiveJourneyEvaluation({
+    ...input,
+    journey: "safety-and-lifecycle",
   });
-};

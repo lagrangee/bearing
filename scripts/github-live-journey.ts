@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
+import { codexE2ELaunchContract, inspectCodexE2EOperatorContext } from "./codex-e2e-runtime";
 import {
-  CODEX_E2E_RUNTIME,
-  codexE2ELaunchContract,
-  inspectCodexE2EOperatorContext,
-} from "./codex-e2e-runtime";
+  createLiveJourneyEvaluation,
+  validateLiveJourneyVerdicts,
+} from "./live-journey-generation";
 import {
   createLiveJourneyObservation,
   type LiveMatrixCandidate,
@@ -21,6 +21,11 @@ import { sha256Bytes, sha256File } from "./release-digest";
 const fail = (message: string): never => {
   throw new Error(message);
 };
+
+const evidencePointerSchema = z
+  .string()
+  .min(1)
+  .refine((value) => !value.startsWith("/") && !value.split(/[\\/]/u).includes(".."));
 
 const digestText = (value: string): string =>
   createHash("sha256").update(value, "utf8").digest("hex");
@@ -298,80 +303,42 @@ export const assertGitHubRemoteIntegrity = (input: {
   });
 };
 
-const githubCaseIds = ["GITHUB-01", "GITHUB-02", "GITHUB-03", "GITHUB-04"] as const;
-const githubCaseIdSchema = z.enum(githubCaseIds);
-const evidencePointerSchema = z
-  .string()
-  .min(1)
-  .refine((value) => !value.startsWith("/") && !value.split(/[\\/]/u).includes(".."));
-const verdictSchema = z.object({
-  caseId: githubCaseIdSchema,
-  outcome: z.enum(["pass", "fail", "blocked", "not-run"]),
-  judgmentBasis: z.string().trim().min(1).max(600),
-  observationPointers: z.array(evidencePointerSchema).min(1),
-});
-
-export const validateGitHubJourneyVerdicts = (input: readonly unknown[]) => {
-  const verdicts = z.array(verdictSchema).parse(input);
-  if (
-    verdicts.length !== githubCaseIds.length ||
-    new Set(verdicts.map(({ caseId }) => caseId)).size !== githubCaseIds.length ||
-    githubCaseIds.some((caseId) => !verdicts.some((verdict) => verdict.caseId === caseId))
-  ) {
-    fail("Coordinator evaluation requires each GitHub Case exactly once.");
-  }
-  return verdicts;
-};
+export const validateGitHubJourneyVerdicts = (input: readonly unknown[]) =>
+  validateLiveJourneyVerdicts("github-and-active-reconciliation", input);
 
 export const createGitHubJourneyEvaluation = (input: {
+  generationId: string;
   candidate: LiveMatrixCandidate;
   codexCliVersion: string;
   coordinatorIdentity: string;
+  fixtureSha256: string;
   durationMs: number;
   repositoryIdentitySha256: string;
   remoteIntegritySha256: string;
   verdicts: readonly unknown[];
 }) => {
-  const candidate = liveMatrixCandidateSchema.parse(input.candidate);
-  const verdicts = validateGitHubJourneyVerdicts(input.verdicts);
   if (
-    input.codexCliVersion.trim() !== input.codexCliVersion ||
-    input.codexCliVersion.length === 0 ||
-    input.coordinatorIdentity.trim() !== input.coordinatorIdentity ||
-    input.coordinatorIdentity.length === 0 ||
-    !Number.isSafeInteger(input.durationMs) ||
-    input.durationMs < 0 ||
     !/^[0-9a-f]{64}$/u.test(input.repositoryIdentitySha256) ||
     !/^[0-9a-f]{64}$/u.test(input.remoteIntegritySha256)
   ) {
     fail("Coordinator evaluation metadata is invalid.");
   }
-  return Object.freeze({
-    schemaVersion: 1 as const,
-    journey: "github-and-active-reconciliation" as const,
-    candidate: Object.freeze({
-      packageName: candidate.packageName,
-      packageVersion: candidate.packageVersion,
-      sourceCommit: candidate.sourceCommit,
-      workflow: Object.freeze(candidate.workflow),
-      artifact: Object.freeze({ file: candidate.artifact.file, sha256: candidate.artifact.sha256 }),
-      matrixDefinitionSha256: candidate.matrixDefinitionSha256,
-    }),
-    codex: Object.freeze({
-      cliVersion: input.codexCliVersion,
-      requestedModel: CODEX_E2E_RUNTIME.model,
-      requestedReasoningEffort: CODEX_E2E_RUNTIME.reasoningEffort,
-    }),
+  const evaluation = createLiveJourneyEvaluation({
+    generationId: input.generationId,
+    journey: "github-and-active-reconciliation",
+    candidate: input.candidate,
+    codexCliVersion: input.codexCliVersion,
     coordinatorIdentity: input.coordinatorIdentity,
+    fixtureSha256: input.fixtureSha256,
     durationMs: input.durationMs,
+    verdicts: input.verdicts,
+  });
+  return Object.freeze({
+    ...evaluation,
     remoteIntegrity: Object.freeze({
       repositoryIdentitySha256: input.repositoryIdentitySha256,
       sha256: input.remoteIntegritySha256,
     }),
-    outcome: verdicts.every(({ outcome }) => outcome === "pass")
-      ? ("pass" as const)
-      : ("not-pass" as const),
-    cases: Object.freeze(verdicts.map((verdict) => Object.freeze(verdict))),
   });
 };
 
