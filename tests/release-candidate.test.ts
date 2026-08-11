@@ -928,7 +928,7 @@ test("CI and release workflows pin every third-party action to a reviewed commit
       ],
     ],
     [".github/workflows/package.yml", ["candidate"]],
-    [".github/workflows/publish-preview.yml", ["publish"]],
+    [".github/workflows/publish.yml", ["publish"]],
   ] as const;
   for (const [path, jobNames] of workflowJobs) {
     const workflow = await readFile(path, "utf8");

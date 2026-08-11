@@ -4,7 +4,7 @@
 
 Bearing gives long-running coding-agent projects a local, inspectable project-governance layer. It keeps accepted direction, Planning Reviews, evidence, and current Audit findings visible to you and your agents, so new work can start from the same project picture instead of from a fragile memory of old chats.
 
-Local-first · Open-source Public Preview · Codex verified path · Claude Code target surface pending maintainer verification · Matt-native local Markdown work management
+Local-first · Open-source Public Preview · Agent-mediated installation · Matt-native local Markdown work management
 
 [Quickstart](#quickstart-complete-one-real-alignment-loop) · [Is Bearing for you?](#is-bearing-for-you) · [Data boundary](#local-first-data-and-trust-boundary) · [中文 README](README.zh-CN.md)
 
@@ -23,10 +23,10 @@ That is the point of Bearing: not perfect agent memory, and not a second task tr
 ## What Bearing connects
 
 ```text
-You + Codex / Claude Code
-           ↕
+You + your coding agent
+          ↕
  Bearing Project Governance
-           ↕
+          ↕
 Matt-native Maps and Tickets
 
 Portal reads the same project picture
@@ -62,35 +62,46 @@ Bearing is probably not a fit yet if:
 | --- | --- |
 | Platform | macOS |
 | Node.js | Node.js 24.15.0 or later; CI verifies Node.js 24.15.0 and 26 |
-| Agent Surfaces | Codex is verified. Claude Code is a target surface pending maintainer verification. |
 | Work Management Adapter | Matt-native local Markdown Maps and Tickets |
 | Telemetry | None. Bearing performs no analytics, crash upload, repository upload, or update polling. |
 
 ## Interactive browser sample
 
-The repository includes a browser-only Portal demo with fixed mock Northstar data. It runs as a
-standalone static artifact under the GitHub project Pages base path. It does not start the local
-Portal Host, read a repository, call a provider or API, use analytics, or persist browser state.
+[Open the interactive browser sample](https://lagrangee.github.io/bearing/). It is a browser-only
+Portal demo with fixed mock Northstar data. The demo is a static sample, not a hosted Bearing
+project, real repository, canonical planning surface, or proof of product value. It does not start
+the local Portal Host, read a repository, call a provider or API, use analytics, or persist browser
+state.
 
-The demo is a sample, not a hosted Bearing project. Supported product use starts with the
-[local installation](#quickstart-complete-one-real-alignment-loop) and its loopback Portal. Read
-the [data and security boundary](docs/data-and-security.md) before sharing Portal captures or
-changing private reachability. Pull requests validate the static artifact but do not publish a
-public preview. Pages publication and the first live acceptance remain maintainer-owned actions.
-Changes to a production Portal visual owner rerun the demo checks and require a manual fidelity
-review before merge; the demo stays independent and does not import production Portal code.
+Supported product use starts with [local installation](#quickstart-complete-one-real-alignment-loop)
+and a loopback Portal. Demo availability does not prove installation success. Read the
+[data and security boundary](docs/data-and-security.md) before sharing Portal captures or changing
+private reachability. The demo remains independent from production Portal runtime and is excluded
+from the npm package.
 
 ## Feedback and support
 
 - Use [Bug report](https://github.com/lagrangee/bearing/issues/new?template=bug_report.yml) or [Documentation problem](https://github.com/lagrangee/bearing/issues/new?template=documentation.yml) for reproducible bugs and actionable documentation problems. Blank Issues are disabled.
-- Use [Q&A](https://github.com/lagrangee/bearing/discussions/categories/q-a) for questions and troubleshooting, and [Ideas & Feedback](https://github.com/lagrangee/bearing/discussions/categories/ideas-feedback) for experiences, scenarios, pain points, suggestions, and feature ideas that still need shaping.
+- Use [Q&A](https://github.com/lagrangee/bearing/discussions/categories/q-a) for questions and troubleshooting, and [Ideas](https://github.com/lagrangee/bearing/discussions/categories/ideas) for experiences, scenarios, pain points, suggestions, and feature ideas that still need shaping.
 - Report suspected vulnerabilities only through [GitHub private vulnerability reporting](https://github.com/lagrangee/bearing/security/advisories/new), never in a public Issue or Discussion.
 
 Issues and Discussions are public GitHub data. Do not submit tokens, secrets, private source, complete planning state, real absolute repository paths, or unredacted screenshots. Bearing uploads no diagnostics automatically; logs, diagnostics, and repository excerpts are shared only when you explicitly submit them. Community support is best-effort with no SLA, and public feedback is not a scheduling or delivery commitment.
 
 ## Quickstart: complete one real alignment loop
 
-### 1. Install Bearing
+### 1. Ask your Agent to install Bearing
+
+Give your Agent this prompt. It can follow the separate
+[Agent installation guide](docs/agent-installation.md) without adding implementation detail to this
+README.
+
+```text
+Install Bearing from https://github.com/lagrangee/bearing. Follow the repository's Agent installation guide, use the released package, integrate the Bearing skill with your Skill Directory, and stop before repository setup.
+```
+
+#### Terminal fallback
+
+If your Agent cannot perform the installation, use the interactive maintenance wizard:
 
 ```bash
 npx @lagrangee/bearing
@@ -114,9 +125,9 @@ Advanced users and agents can use explicit commands; see [CLI reference](docs/cl
 
 Start with a real Git repository that already has, or is ready to use, the supported local Markdown Map and Ticket workflow. Bearing creates first value when it can connect real direction to real work; an empty toy repository proves very little.
 
-### 3. Ask your agent to set up Bearing
+### 3. Ask your Agent to set up Bearing
 
-Open the repository in Codex and ask:
+Open the repository with your Agent and ask:
 
 ```text
 Set up Bearing for this project. Use the existing Map and Tickets as work context, and guide me through the minimum governance baseline.

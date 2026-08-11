@@ -44,7 +44,7 @@ const HELP = `Bearing ${packageMetadata.version}
 
 Usage:
   bearing
-  bearing install --surface <agent-skills|claude> [--surface <agent-skills|claude>] [--confirm-downgrade]
+  bearing install [--surface <agent-skills|claude>] [--surface <agent-skills|claude>] [--confirm-downgrade]
   bearing configure
   bearing configure inspect [--repo <path>]
   bearing configure plan --intent <activate|deactivate> [--repo <path>] [--surface <agent-skills|claude>] [--provider-contract <repository-relative-path>] [--executor-mode <skip|configure>] [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>]
@@ -62,7 +62,7 @@ Usage:
 
 Commands:
   <none>   Run Global Kit Install, Update, Repair, or Uninstall in one terminal wizard.
-  install  Install the global bundle, CLI, and skills for selected Agent Surfaces.
+  install  Install the global bundle and CLI, with optional known Agent Surface integration.
   configure  Inspect, seal, and apply one exact Repository Configuration write set.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
   reconcile-native  Re-observe only the native subjects and relations affected by one completed Matt transaction.
@@ -75,7 +75,7 @@ Environment:
   BEARING_PORT  Override the Portal port when --port is absent.
 `;
 
-const surfaceSchema = z.array(z.enum(["agent-skills", "claude"])).min(1);
+const surfaceSchema = z.array(z.enum(["agent-skills", "claude"]));
 const configurationIntentSchema = z.enum(["activate", "deactivate"]);
 const executorModeSchema = z.enum(["skip", "configure"]);
 

@@ -21,6 +21,15 @@ Feedback, logs, diagnostics, or repository excerpts are shared only when the use
 
 Before sharing a screenshot, log, diagnostic, or repository excerpt, inspect and redact it. Catalog responses and Portal UI surfaces intentionally include absolute repository roots, so captured or copied material may reveal local paths even when it contains no source code.
 
+## Public feedback and private security reporting
+
+- Use [Q&A](https://github.com/lagrangee/bearing/discussions/categories/q-a) for questions and troubleshooting.
+- Use [Ideas](https://github.com/lagrangee/bearing/discussions/categories/ideas) for experiences, suggestions, and feature ideas.
+- Use [Documentation problem](https://github.com/lagrangee/bearing/issues/new?template=documentation.yml) for an actionable documentation issue.
+- Use [GitHub private vulnerability reporting](https://github.com/lagrangee/bearing/security/advisories/new) for suspected vulnerabilities. Never disclose them in a public Issue or Discussion.
+
+Issues and Discussions are public GitHub data. Do not include tokens, secrets, private source, complete planning state, real absolute repository paths, or unredacted screenshots. Community support is best-effort with no SLA, and a public report is not a scheduling or delivery commitment.
+
 ## Portal boundary
 
 Portal is a foreground, single-user Host that binds loopback for local inspection. Its owner-facing Catalog API and UI intentionally return and display each repository's absolute `repoRoot`. Browser actions use opaque Catalog entry IDs, but screenshots, copied responses, and submitted diagnostics can still disclose local filesystem paths.

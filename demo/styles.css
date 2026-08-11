@@ -2099,11 +2099,13 @@ code {
 }
 
 .demo-footer {
+  align-items: center;
   display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
   grid-column: 2;
   grid-row: 3;
   justify-content: space-between;
-  gap: var(--space-5);
   padding: var(--space-4) var(--space-8);
   color: var(--muted);
   border-top: 1px solid var(--border);
@@ -2113,6 +2115,21 @@ code {
 
 .demo-footer p {
   margin: 0;
+}
+
+.demo-footer-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.demo-footer-boundary {
+  flex: 1 1 28rem;
+  max-width: 56rem;
+}
+
+.demo-footer nav {
+  max-width: 42rem;
+  text-align: right;
 }
 
 .demo-footer a:hover {
@@ -2534,8 +2551,13 @@ code {
   }
 
   .demo-footer {
+    align-items: flex-start;
     flex-direction: column;
     padding: var(--space-4) var(--space-5);
+  }
+
+  .demo-footer nav {
+    text-align: left;
   }
 }
 

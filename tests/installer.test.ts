@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { access, lstat, mkdir, readFile, readlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readlink, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BEARING_POINTER } from "../src/agent-surface-entry";
 import { installKit } from "../src/installer";
@@ -74,6 +74,53 @@ describe("Bearing kit installer", () => {
     });
     expect(rerun.outcome).toBe("no-op");
     expect(rerun.changedTargets).toEqual([]);
+  });
+
+  test("installs only the complete canonical bundle when no Agent Surface is selected", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-bundle-only-");
+
+    const result = await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: [],
+    });
+
+    expect(result.outcome).toBe("applied");
+    await access(join(homeDir, ".bearing/bin/bearing"));
+    await access(join(homeDir, ".bearing/kit/current/package.json"));
+    await access(join(homeDir, ".bearing/kit/current/skills/bearing/SKILL.md"));
+    await access(
+      join(
+        homeDir,
+        ".bearing/kit/current/skills/bearing/references/contracts/canonical-mutation.md",
+      ),
+    );
+    await expect(access(join(homeDir, ".agents/skills/bearing"))).rejects.toThrow();
+    await expect(access(join(homeDir, ".claude/skills/bearing"))).rejects.toThrow();
+
+    const rerun = await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: [],
+    });
+    expect(rerun.outcome).toBe("no-op");
+    expect(rerun.changedTargets).toEqual([]);
+  });
+
+  test("bundle-only installation leaves Agent-managed Skill Directory integration unchanged", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-agent-managed-");
+    const agentDirectory = await makeTemporaryDirectory("bearing-agent-skill-directory-");
+    await symlink(agentDirectory, join(homeDir, ".agents"));
+
+    const result = await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: [],
+    });
+
+    expect(result.outcome).toBe("applied");
+    expect(await readlink(join(homeDir, ".agents"))).toBe(agentDirectory);
+    await access(join(homeDir, ".bearing/kit/current/skills/bearing/SKILL.md"));
   });
 
   test("fails closed on a user-owned public skill conflict before installing the branch package", async () => {

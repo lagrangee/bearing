@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "journeys": [
+    {
+      "id": "clean-installation-and-local-loop",
+      "name": "Clean Installation and Local Loop",
+      "cases": [
+        {
+          "id": "CLEAN-01",
+          "name": "Unconfigured ordinary-request exclusion"
+        },
+        {
+          "id": "CLEAN-02",
+          "name": "Agent-mediated installation and Fresh Setup"
+        },
+        {
+          "id": "CLEAN-03",
+          "name": "Explicit feature-scope disposition"
+        },
+        {
+          "id": "CLEAN-04",
+          "name": "Bound local delivery composition"
+        },
+        {
+          "id": "CLEAN-05",
+          "name": "Local planning readback"
+        }
+      ]
+    },
+    {
+      "id": "github-and-active-reconciliation",
+      "name": "GitHub and Active Reconciliation",
+      "cases": [
+        {
+          "id": "GITHUB-01",
+          "name": "Candidate-scoped baseline"
+        },
+        {
+          "id": "GITHUB-02",
+          "name": "Provider-owned delivery composition"
+        },
+        {
+          "id": "GITHUB-03",
+          "name": "Active no-op and accepted repair"
+        },
+        {
+          "id": "GITHUB-04",
+          "name": "Remote delta and exact readback"
+        }
+      ]
+    },
+    {
+      "id": "safety-and-lifecycle",
+      "name": "Safety and Lifecycle",
+      "cases": [
+        {
+          "id": "SAFETY-01",
+          "name": "Non-project conversation exclusion"
+        },
+        {
+          "id": "SAFETY-02",
+          "name": "Configured ordinary-work exclusion"
+        },
+        {
+          "id": "SAFETY-03",
+          "name": "Assisted-prerequisite refusal and resumption"
+        },
+        {
+          "id": "SAFETY-04",
+          "name": "Repair decline and later acceptance"
+        },
+        {
+          "id": "SAFETY-05",
+          "name": "Deactivate and reactivate"
+        },
+        {
+          "id": "SAFETY-06",
+          "name": "Ambiguous Ticket stop"
+        },
+        {
+          "id": "SAFETY-07",
+          "name": "Execution failure stop"
+        },
+        {
+          "id": "SAFETY-08",
+          "name": "Incomplete acceptance stop"
+        },
+        {
+          "id": "SAFETY-09",
+          "name": "Invalid or unsupported stop"
+        }
+      ]
+    }
+  ]
+}

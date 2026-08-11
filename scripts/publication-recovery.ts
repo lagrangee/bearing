@@ -61,7 +61,7 @@ export interface PublicationSurfaces {
   createRelease(candidate: FrozenPublication): Promise<void>;
 }
 
-type ClassifiedState = "absent" | "exact" | "conflicting" | "unverifiable";
+export type ClassifiedState = "absent" | "exact" | "conflicting" | "unverifiable";
 
 const sameAssets = (
   observed: readonly Readonly<{ name: string; size: number; sha256: string }>[],
@@ -80,9 +80,10 @@ const sameAssets = (
   );
 };
 
-const classify = (
+export const classifyFrozenPublication = (
   candidate: FrozenPublication,
   observation: PublicationObservation,
+  options: Readonly<{ requireLatest?: boolean }> = {},
 ): Readonly<{
   package: "absent" | "present" | "unverifiable";
   npmVersion: ClassifiedState;
@@ -97,7 +98,8 @@ const classify = (
           observation.npmVersion.value.version === candidate.version &&
           observation.npmVersion.value.shasum === candidate.npmShasum &&
           observation.npmVersion.value.integrity === candidate.npmIntegrity &&
-          observation.npmVersion.value.latest === candidate.version &&
+          (options.requireLatest === false ||
+            observation.npmVersion.value.latest === candidate.version) &&
           observation.npmVersion.value.provenanceUrl ===
             `https://registry.npmjs.org/-/npm/v1/attestations/${candidate.packageName.replace("/", "%2f")}@${candidate.version}` &&
           observation.npmVersion.value.provenancePredicateType === "https://slsa.dev/provenance/v1"
@@ -126,8 +128,8 @@ const classify = (
 const inspectPrefix = async (
   candidate: FrozenPublication,
   surfaces: PublicationSurfaces,
-): Promise<ReturnType<typeof classify>> => {
-  const state = classify(candidate, await surfaces.inspect());
+): Promise<ReturnType<typeof classifyFrozenPublication>> => {
+  const state = classifyFrozenPublication(candidate, await surfaces.inspect());
   if (
     state.package === "unverifiable" ||
     state.npmVersion === "unverifiable" ||

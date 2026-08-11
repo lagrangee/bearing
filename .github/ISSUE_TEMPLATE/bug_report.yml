@@ -40,16 +40,12 @@ body:
       placeholder: v24.0.0
     validations:
       required: true
-  - type: dropdown
-    id: surface
+  - type: input
+    id: agent_environment
     attributes:
-      label: Agent Surface
-      description: Where did you encounter the problem?
-      options:
-        - Codex / Agent Skills
-        - Claude Code
-        - CLI only
-        - Other
+      label: Agent environment
+      description: Name the Agent environment or say CLI only. Do not include account or workspace identifiers.
+      placeholder: Agent product and version, or CLI only
     validations:
       required: true
   - type: dropdown

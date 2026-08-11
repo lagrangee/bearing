@@ -20,9 +20,10 @@ test("Overview presents the fixed Northstar governance reading", async ({ page }
   await expect(page.getByText("Public Beta Readiness", { exact: true })).toBeVisible();
   await expect(page.getByText("Customer Trust", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("Interactive sample · Mock data · Runs entirely in your browser", {
-      exact: true,
-    }),
+    page.getByText(
+      "Fixed-data static sample · Not a hosted Bearing project · Runs entirely in your browser",
+      { exact: true },
+    ),
   ).toBeVisible();
   await expect(page.getByText("Sample data as of 8 August 2026", { exact: true })).toBeVisible();
   await expect(page.getByText(/Next work/iu)).toHaveCount(0);

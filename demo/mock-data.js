@@ -1,5 +1,6 @@
 globalThis.NORTHSTAR_DEMO = Object.freeze({
-  disclosure: "Interactive sample · Mock data · Runs entirely in your browser",
+  disclosure:
+    "Fixed-data static sample · Not a hosted Bearing project · Runs entirely in your browser",
   sampleDate: "Sample data as of 8 August 2026",
   roadmapEfforts: Object.freeze([
     "Product Baseline",

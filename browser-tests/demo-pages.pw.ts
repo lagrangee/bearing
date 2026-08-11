@@ -9,11 +9,14 @@ test("Pages root and hash deep links keep the browser-only sample boundary visib
   await expect(page).toHaveURL(/\/bearing\/$/u);
   await expect(page.getByRole("heading", { name: "Northstar", level: 1 })).toBeVisible();
   await expect(
-    page.getByText("Interactive sample · Mock data · Runs entirely in your browser", {
-      exact: true,
-    }),
+    page.getByText(
+      "Fixed-data static sample · Not a hosted Bearing project · Runs entirely in your browser",
+      {
+        exact: true,
+      },
+    ),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Install the local Portal" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Install Bearing locally" })).toHaveAttribute(
     "href",
     "https://github.com/lagrangee/bearing#quickstart-complete-one-real-alignment-loop",
   );
@@ -23,6 +26,24 @@ test("Pages root and hash deep links keep the browser-only sample boundary visib
     "href",
     "https://github.com/lagrangee/bearing/blob/main/docs/data-and-security.md",
   );
+  await expect(
+    page.getByText(/Questions, feedback, and documentation reports use public GitHub/u),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ask in Q&A" })).toHaveAttribute(
+    "href",
+    "https://github.com/lagrangee/bearing/discussions/categories/q-a",
+  );
+  await expect(page.getByRole("link", { name: "Share ideas and feedback" })).toHaveAttribute(
+    "href",
+    "https://github.com/lagrangee/bearing/discussions/categories/ideas",
+  );
+  await expect(page.getByRole("link", { name: "Report a documentation problem" })).toHaveAttribute(
+    "href",
+    "https://github.com/lagrangee/bearing/issues/new?template=documentation.yml",
+  );
+  await expect(
+    page.getByRole("link", { name: "Report a vulnerability privately" }),
+  ).toHaveAttribute("href", "https://github.com/lagrangee/bearing/security/advisories/new");
 
   await page.goto("./#/gates/release-candidate-ready");
   await page.reload();
@@ -33,11 +54,14 @@ test("Pages root and hash deep links keep the browser-only sample boundary visib
 
   await page.goto("./#/preview/public-beta-readiness-review");
   await expect(
-    page.getByText("Interactive sample · Mock data · Runs entirely in your browser", {
-      exact: true,
-    }),
+    page.getByText(
+      "Fixed-data static sample · Not a hosted Bearing project · Runs entirely in your browser",
+      {
+        exact: true,
+      },
+    ),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Install the local Portal" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Install Bearing locally" })).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Read the data and security boundary" }),
   ).toBeVisible();
