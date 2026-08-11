@@ -115,6 +115,7 @@ const cleanCaseIds = ["CLEAN-01", "CLEAN-02", "CLEAN-03", "CLEAN-04", "CLEAN-05"
 const cleanTrackedInputs = [
   "validation/live-journey/matrix.json",
   "validation/live-journey/journeys/clean-installation-and-local-loop.md",
+  "validation/live-journey/journeys/github-and-active-reconciliation.md",
   "validation/live-journey/fixtures/local-loop/AGENTS.md",
   "validation/live-journey/fixtures/local-loop/README.md",
   "validation/live-journey/fixtures/local-loop/package.json",
@@ -210,7 +211,22 @@ export const loadLiveJourneyMatrix = async (path: string) => {
   return matrix;
 };
 
-export const matrixDefinitionDigest = (path: string): Promise<string> => sha256File(path);
+export const matrixDefinitionDigest = async (path: string): Promise<string> => {
+  const matrixPath = resolve(path);
+  const sourceRoot = resolve(dirname(matrixPath), "../..");
+  const locators = git(sourceRoot, ["ls-files", "validation/live-journey"])
+    .split("\n")
+    .filter((locator) => locator.length > 0)
+    .sort((left, right) => left.localeCompare(right, "en"));
+  if (!locators.includes("validation/live-journey/matrix.json")) {
+    fail("Tracked Matrix definition is unavailable.");
+  }
+  const frames: string[] = [];
+  for (const locator of locators) {
+    frames.push(`${locator}\0${await sha256File(join(sourceRoot, locator))}\n`);
+  }
+  return sha256Bytes(Buffer.from(frames.join(""), "utf8"));
+};
 
 const git = (root: string, args: readonly string[]): string => {
   const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
@@ -576,7 +592,7 @@ export const extractCodexThreadId = (stdout: string): string | undefined => {
   return undefined;
 };
 
-const evidenceFile = async (workspaceRoot: string, pointer: string) => {
+export const readGeneratedEvidenceFile = async (workspaceRoot: string, pointer: string) => {
   const relativePointer = evidencePointerSchema.parse(pointer);
   const canonicalWorkspace = await realpath(workspaceRoot);
   const path = await realpath(join(canonicalWorkspace, relativePointer));
@@ -591,10 +607,13 @@ export const verifyLiveJourneyObservation = async (input: {
   pointer: string;
   expectedCodexCliVersion: string;
 }) => {
-  if (!input.pointer.startsWith("observations/")) {
+  if (
+    !input.pointer.startsWith("observations/") &&
+    !input.pointer.startsWith("github/observations/")
+  ) {
     fail("Coordinator verdict must reference a generated observation.");
   }
-  const observationFile = await evidenceFile(input.workspaceRoot, input.pointer);
+  const observationFile = await readGeneratedEvidenceFile(input.workspaceRoot, input.pointer);
   const observation = observationSchema.parse(JSON.parse(observationFile.bytes.toString("utf8")));
   if (observation.codex.cliVersion !== input.expectedCodexCliVersion) {
     fail("Observation Codex CLI version does not match the Coordinator evaluation.");
@@ -603,7 +622,7 @@ export const verifyLiveJourneyObservation = async (input: {
     observation.privateEvidence.transcript,
     observation.privateEvidence.stderr,
   ]) {
-    const file = await evidenceFile(input.workspaceRoot, evidence.pointer);
+    const file = await readGeneratedEvidenceFile(input.workspaceRoot, evidence.pointer);
     if (file.bytes.byteLength !== evidence.bytes || sha256Bytes(file.bytes) !== evidence.sha256) {
       fail(`Private observation evidence digest mismatch: ${evidence.pointer}`);
     }

@@ -36,6 +36,7 @@ const createSourceFixture = async () => {
   for (const locator of [
     "validation/live-journey/matrix.json",
     "validation/live-journey/journeys/clean-installation-and-local-loop.md",
+    "validation/live-journey/journeys/github-and-active-reconciliation.md",
     "validation/live-journey/fixtures/local-loop/AGENTS.md",
     "validation/live-journey/fixtures/local-loop/README.md",
     "validation/live-journey/fixtures/local-loop/package.json",
@@ -103,6 +104,18 @@ describe("reusable Agent Live E2E Matrix", () => {
       "SAFETY-08",
       "SAFETY-09",
     ]);
+  });
+
+  test("binds tracked Journey instructions and fixtures into the Matrix identity", async () => {
+    const source = await createSourceFixture();
+    const matrixPath = join(source.root, "validation/live-journey/matrix.json");
+    const before = await matrixDefinitionDigest(matrixPath);
+    await writeFile(
+      join(source.root, "validation/live-journey/journeys/github-and-active-reconciliation.md"),
+      "# Changed GitHub Journey\n",
+    );
+
+    expect(await matrixDefinitionDigest(matrixPath)).not.toBe(before);
   });
 
   test("prepares an ignored exact-candidate overlay, fresh fixture, and fixed launch", async () => {
