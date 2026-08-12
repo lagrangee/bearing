@@ -38,7 +38,32 @@ again. Never combine evidence from different identities.
 The Human does not need the Matrix Case order, release commands, retry rules, or evidence schema.
 Report a blocker and its resumption point when the next checkpoint is not ready.
 
-## 1. Inspect prerequisites
+## 1. Finalize the release source
+
+Start this stage only after all accepted Candidate-sensitive product, Skill, documentation, Matrix,
+release-workflow, and deterministic-cleanup changes are in protected `main`. Confirm that no other
+accepted Candidate-sensitive delivery is waiting to merge.
+
+On one exact source commit, select the intended stable package version. Read back the public package
+metadata and lockfile identity, one final dated changelog section, and the release notes derived from
+that same section. The target version must not remain `Unreleased`. Read the release-facing README,
+Agent installation guidance, static demo, feedback routes, security guidance, and Known Exceptions
+from the same source. Record Known Exceptions as an explicit list or as confirmed none.
+
+Finalization uses an ordinary Pull Request into protected `main`. Both the implementation PR and the
+exact main merge commit must have the six required CI contexts. Only then record `Release Content
+Complete` with the exact source commit, package version, changelog and release-notes identity,
+release-facing content basis, and CI basis.
+
+This stage does not dispatch Candidate Freeze or Publication. It creates no Candidate, npm version,
+tag, GitHub Release, environment approval, or Gate outcome. Any later Candidate-sensitive tracked
+change invalidates `Release Content Complete` and requires a new exact-main finalization readback.
+Private evidence capture does not change the source identity.
+
+Completion criterion: one exact main source is final, has successful required CI, and is ready for
+the component-owned Candidate Freeze without creating Candidate or public release state.
+
+## 2. Inspect prerequisites
 
 Reload current canonical lifecycle facts and current provider or CI evidence. Confirm all of these
 facts before Candidate Freeze:
@@ -56,7 +81,7 @@ conflicting, stop and identify the exact prerequisite owner and resumption point
 
 Completion criterion: every required prerequisite has a current, identity-bearing source of truth.
 
-## 2. Coordinate Candidate Freeze
+## 3. Coordinate Candidate Freeze
 
 Dispatch the component-owned Candidate Freeze for the exact source commit and package version. Wait
 for its successful terminal result. Download the private Candidate artifact and verify the Candidate
@@ -69,7 +94,7 @@ not the Candidate.
 Completion criterion: one verified Candidate Receipt and its matching frozen tarball are available
 locally, and their source commit still satisfies the release prerequisites.
 
-## 3. Enter the exact Candidate locally
+## 4. Enter the exact Candidate locally
 
 Use the tracked support runner to prepare a fresh local generation. Read
 `bun scripts/run-live-journey.ts --help` for the current command surface. Supply the verified
@@ -84,7 +109,7 @@ from mutable source or public `latest`.
 Completion criterion: the local manifest and overlay resolve to the verified Candidate identity and
 the prepared generation has no identity mismatch.
 
-## 4. Run the Codex Matrix
+## 5. Run the Codex Matrix
 
 Follow the tracked Matrix manifest, English Journey instructions, and support-runner interfaces. Run
 the Clean, GitHub, and Safety Journeys as one generation. The Coordinating Agent evaluates all 18
@@ -101,7 +126,7 @@ generation.
 Completion criterion: the single typed Matrix result records all 18 required Cases. Release
 readiness requires every Case to be `pass`.
 
-## 5. Collect Human compatibility
+## 6. Collect Human compatibility
 
 Give Claude Code and WorkBuddy the same exact Candidate used by Codex. Then proactively request one
 result for each attended lane. The Human can use the real product at a practical depth. Each lane
@@ -132,7 +157,7 @@ or inferred result. Use a new full generation if the Candidate or tracked behavi
 Completion criterion: both attended lanes have a Human-reported result for the same exact Candidate,
 and both required lanes are `pass` before Publication dispatch.
 
-## 6. Dispatch protected Publication
+## 7. Dispatch protected Publication
 
 Re-read the Candidate Receipt and confirm that component readiness, the Matrix result, both Human
 compatibility results, and Known Exceptions still match its exact identity. Read the package version,
@@ -150,7 +175,7 @@ material identity or semantic change requires fresh protected-environment approv
 Completion criterion: the protected Publication workflow has one truthful terminal outcome for the
 exact Candidate. A partial or failed outcome preserves its actual monotonic prefix.
 
-## 7. Read back the public release
+## 8. Read back the public release
 
 After successful Publication, run the tracked read-only public readback against the Candidate
 Receipt. Verify exact npm identity and provenance, immutable tag target, GitHub Release notes and
@@ -177,7 +202,7 @@ surface with the exact public prefix and resumption point. Preserve already-publ
 Completion criterion: exact public identity and every required user-entry route match the Candidate
 Receipt and intended release content, or the result names the exact incomplete public prefix.
 
-## 8. Hand off final evidence
+## 9. Hand off final evidence
 
 Present component readiness, Candidate proof, the one Matrix result, Claude Code result, WorkBuddy
 result, Publication outcome, public readback, and Known Exceptions as separate facts. Publication,

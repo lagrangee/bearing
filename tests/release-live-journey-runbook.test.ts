@@ -37,14 +37,15 @@ describe("reusable release Live Journey runbook", () => {
     ]);
 
     expectInOrder(runbook, [
-      "## 1. Inspect prerequisites",
-      "## 2. Coordinate Candidate Freeze",
-      "## 3. Enter the exact Candidate locally",
-      "## 4. Run the Codex Matrix",
-      "## 5. Collect Human compatibility",
-      "## 6. Dispatch protected Publication",
-      "## 7. Read back the public release",
-      "## 8. Hand off final evidence",
+      "## 1. Finalize the release source",
+      "## 2. Inspect prerequisites",
+      "## 3. Coordinate Candidate Freeze",
+      "## 4. Enter the exact Candidate locally",
+      "## 5. Run the Codex Matrix",
+      "## 6. Collect Human compatibility",
+      "## 7. Dispatch protected Publication",
+      "## 8. Read back the public release",
+      "## 9. Hand off final evidence",
     ]);
     expect(runbook).toContain("[Codex E2E Policy](codex-e2e.md)");
     expect(runbook).toContain("scripts/run-live-journey.ts --help");
@@ -52,6 +53,31 @@ describe("reusable release Live Journey runbook", () => {
     expect(runbook).not.toContain("model_reasoning_effort");
     expect(codexPolicy).toContain("gpt-5.6-luna");
     expect(codexPolicy).toContain('model_reasoning_effort="high"');
+  });
+
+  test("starts with one reusable source-finalization boundary", async () => {
+    const runbook = await read("docs/agents/release-live-journey.md");
+    const finalization = runbook.slice(
+      runbook.indexOf("## 1. Finalize the release source"),
+      runbook.indexOf("## 2. Inspect prerequisites"),
+    );
+
+    expect(finalization).toMatch(
+      /exact source commit[\s\S]*package version[\s\S]*dated changelog[\s\S]*release notes/iu,
+    );
+    expect(finalization).toMatch(
+      /README[\s\S]*Agent installation guidance[\s\S]*static demo[\s\S]*feedback[\s\S]*security/iu,
+    );
+    expect(finalization).toContain("Known Exceptions");
+    expect(finalization).toMatch(/ordinary Pull Request[\s\S]*protected `main`/u);
+    expect(finalization).toContain("six required CI contexts");
+    expect(finalization).toContain("Release Content Complete");
+    expect(finalization).toMatch(/does not dispatch Candidate Freeze or Publication/u);
+    expect(finalization).toMatch(
+      /Candidate-sensitive tracked\s+change[\s\S]*invalidates[\s\S]*finalization readback/u,
+    );
+    expect(finalization).toMatch(/private evidence[\s\S]*does not change[\s\S]*source identity/iu);
+    expect(finalization).not.toMatch(/candidate:prepare|workflow_dispatch|npm publish/u);
   });
 
   test("keeps four Human checkpoints and complete attended lane boundaries", async () => {
@@ -76,8 +102,8 @@ describe("reusable release Live Journey runbook", () => {
     );
 
     const compatibility = runbook.slice(
-      runbook.indexOf("## 5. Collect Human compatibility"),
-      runbook.indexOf("## 6. Dispatch protected Publication"),
+      runbook.indexOf("## 6. Collect Human compatibility"),
+      runbook.indexOf("## 7. Dispatch protected Publication"),
     );
     expect(compatibility).toMatch(/missing Human result[\s\S]*missing evidence/u);
     expect(compatibility).toMatch(/`fail` or `anomaly`[\s\S]*exact Candidate identity/u);

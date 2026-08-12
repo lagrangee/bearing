@@ -85,7 +85,7 @@ Roadmap 001 is active at Gate 001 under the representative delivery commitment.
     expect(version).toMatchObject({
       exitClass: "success",
       exitCode: 0,
-      stdout: "0.1.0\n",
+      stdout: "0.1.1\n",
       stderr: "",
       effects: { created: [], changed: [], removed: [] },
     });
