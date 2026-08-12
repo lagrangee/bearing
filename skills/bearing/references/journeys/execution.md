@@ -16,9 +16,10 @@ exact reconciliation of successful managed native effects.
    invoke it again. Resolve one exact Ticket and run local Binding lookup. Completion: Ticket,
    acceptance criteria, blockers, native scope, and bound or unbound fact are explicit.
 2. For bound work, inspect the affected Effort. An explicit request to execute an unambiguous Ticket
-   under a planned Effort directly entails its activation: state the effect, apply and inspect it,
-   then continue execution without duplicate confirmation. An active Effort continues directly.
-   Completion: lifecycle is valid for execution.
+   under a planned Effort directly entails its activation: state the effect, change the Effort
+   through the canonical mutation contract, inspect the Effort, then continue execution without
+   duplicate confirmation. An active Effort continues directly. Completion: lifecycle is valid for
+   execution.
 3. If the user refuses the entailed activation, perform no Effort, executor, or native mutation. A
    concluded Effort never reopens implicitly; stop for an accepted new, superseding, or Binding
    disposition decision. Completion: refusal or concluded state has no hidden effect.
