@@ -277,7 +277,7 @@ describe("Bearing kit installer", () => {
     });
 
     expect(result.outcome).toBe("applied");
-    expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe("0.1.0");
+    expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe("0.1.1");
   });
 
   test("repairs malformed installed package metadata from the exact candidate", async () => {
@@ -293,7 +293,7 @@ describe("Bearing kit installer", () => {
     });
 
     expect(result.outcome).toBe("applied");
-    expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe("0.1.0");
+    expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe("0.1.1");
   });
 
   test("uses SemVer ordering and permits only confirmed same or adjacent-minor downgrades", () => {
@@ -340,6 +340,6 @@ describe("Bearing kit installer", () => {
       surfaces: ["agent-skills"],
       confirmDowngrade: true,
     });
-    expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe("0.1.0");
+    expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe("0.1.1");
   });
 });

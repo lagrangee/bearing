@@ -165,7 +165,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
       },
     );
     expect(executed.exitCode).toBe(0);
-    expect(executed.stdout).toBe("0.1.0\n");
+    expect(executed.stdout).toBe("0.1.1\n");
     expect(executed.stderr).toBe("");
 
     const help = await run(

@@ -344,10 +344,7 @@ test("prepares deterministic real Candidate archive bytes and rejects output reu
   const changelogPath = join(repository, "CHANGELOG.md");
   await writeFile(
     changelogPath,
-    (await readFile(changelogPath, "utf8")).replace(
-      "## 0.1.0 - Unreleased",
-      "## 0.2.0 - 2026-08-11",
-    ),
+    "# Changelog\n\n## 0.2.0 - 2026-08-11\n\nControlled Candidate fixture notes.\n",
   );
   await symlink(resolve("node_modules"), join(repository, "node_modules"), "dir");
   await appendFile(join(repository, ".git/info/exclude"), "\nnode_modules\n");

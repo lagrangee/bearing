@@ -21,7 +21,7 @@ body:
     attributes:
       label: Bearing version
       description: Paste the output of `bearing --version`.
-      placeholder: 0.1.0
+      placeholder: 0.1.1
     validations:
       required: true
   - type: input
