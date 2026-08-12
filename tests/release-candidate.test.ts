@@ -346,12 +346,16 @@ test("prepares deterministic real Candidate archive bytes and rejects output reu
     changelogPath,
     "# Changelog\n\n## 0.2.0 - 2026-08-11\n\nControlled Candidate fixture notes.\n",
   );
+  await cp(
+    resolve("scripts/prepare-release-candidate.ts"),
+    join(repository, "scripts/prepare-release-candidate.ts"),
+  );
   await symlink(resolve("node_modules"), join(repository, "node_modules"), "dir");
   await appendFile(join(repository, ".git/info/exclude"), "\nnode_modules\n");
   for (const args of [
     ["config", "user.email", "candidate@example.invalid"],
     ["config", "user.name", "Candidate Fixture"],
-    ["add", "package.json", "CHANGELOG.md"],
+    ["add", "package.json", "CHANGELOG.md", "scripts/prepare-release-candidate.ts"],
     ["commit", "-qm", "fixture: controlled 0.2.0 candidate"],
   ]) {
     const result = spawnSync("git", ["-C", repository, ...args], { encoding: "utf8" });
@@ -390,6 +394,14 @@ test("prepares deterministic real Candidate archive bytes and rejects output reu
     const prepared = prepare(output);
     expect(prepared.status, prepared.stderr).toBe(0);
   }
+  const installedNodeVersion = spawnSync("node", ["--version"], {
+    cwd: repository,
+    encoding: "utf8",
+  }).stdout.trim();
+  const preparedReceipt = JSON.parse(
+    await readFile(join(first, "candidate-receipt.json"), "utf8"),
+  ) as CandidateReceipt;
+  expect(preparedReceipt.toolchain.node).toBe(installedNodeVersion);
   for (const file of [
     "lagrangee-bearing-0.2.0.tgz",
     "candidate-manifest.json",
