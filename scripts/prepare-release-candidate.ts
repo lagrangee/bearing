@@ -171,7 +171,7 @@ const main = async (): Promise<void> => {
       runAttempt: workflowRunAttempt,
     },
     toolchain: {
-      node: process.version,
+      node: run("node", ["--version"]),
       bun: Bun.version,
       npm: run("npm", ["--version"]),
     },
