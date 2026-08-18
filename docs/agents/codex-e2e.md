@@ -46,6 +46,12 @@ including Git objects, plus the exact registry when a test fixture places it els
 Coordinator access only after the child exits. Agent-readable prompts and installation files
 contain no criteria or answer hints.
 
+Scenario preparation and Agent execution are separate harness phases. Complete all Scenario
+preparation before launching an Agent child. Do not prepare or reprepare a Scenario while any Agent
+child is active. Up to two already-prepared Agent children can run concurrently. Before a fresh
+reprepare, wait for all active children to end. Before each turn, the runner rescans the opaque
+Scenario runtime roots and denies every other runtime root to that child.
+
 For the GitHub Scenario, the runner can add only the operator's GitHub account selection to the
 isolated home. It does not copy a token or unrelated GitHub configuration to disk. A short-lived
 per-turn broker resolves the token through the operator credential store and exposes only a bounded

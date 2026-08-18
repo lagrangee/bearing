@@ -76,6 +76,11 @@ The Coordinating Agent uses semantic judgment from the complete observations. It
 an exact command, file, confirmation count, or provider operation order. Deterministic tests remain
 the authority for provider shape and harness mechanics.
 
+Prepare every Scenario before starting Agent execution. Do not prepare or reprepare while an Agent
+child is active. At most two already-prepared Agent children can run concurrently. Before a fresh
+Scenario restart, wait for all active children to end. Each turn must use the runner's current
+runtime-root rescan so that the child cannot read another Scenario runtime.
+
 Continue until one local package passes every registered Scenario. A failed-Scenario-first probe
 reduces feedback time but is not Matrix evidence by itself. Merge accepted fixes through protected
 `main`, then begin source finalization. The frozen Candidate runs the complete Matrix again because

@@ -11,7 +11,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { isAbsolute, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 
 export const CODEX_E2E_RUNTIME = Object.freeze({
   model: "gpt-5.6-luna",
@@ -143,17 +143,32 @@ export const probeCodexE2EPermissionProfile = async (input: {
   manifestPath: string;
   registryPath: string;
   sourceRoot: string;
+  scenarioWorkspace: string;
+  installationEntryPath: string;
+  readDeniedPaths: readonly string[];
 }): Promise<void> => {
+  const scenarioContainer = dirname(input.scenarioWorkspace);
   const permissionProfile = codexE2EPermissionProfileConfiguration({
     repositoryRoot: input.repositoryRoot,
     isolatedHome: input.isolatedHome,
-    readDeniedPaths: [input.sourceRoot, input.registryPath],
+    readDeniedPaths: input.readDeniedPaths,
   });
   const controlPath = join(input.repositoryRoot, ".bearing-live-journey-permission-probe");
+  const siblingProbePath = join(
+    scenarioContainer,
+    `.bearing-live-journey-sibling-probe-${basename(input.scenarioWorkspace)}`,
+  );
   const manifestMode = (await lstat(input.manifestPath)).mode & 0o777;
-  await writeFile(controlPath, "repository-control\n", { flag: "wx", mode: 0o600 });
+  let controlCreated = false;
+  let siblingCreated = false;
+  let manifestHidden = false;
   try {
+    await writeFile(controlPath, "repository-control\n", { flag: "wx", mode: 0o600 });
+    controlCreated = true;
+    await writeFile(siblingProbePath, "sibling-control\n", { flag: "wx", mode: 0o600 });
+    siblingCreated = true;
     await chmod(input.manifestPath, 0o000);
+    manifestHidden = true;
     const probe = Bun.spawn(
       [
         input.program,
@@ -169,15 +184,19 @@ export const probeCodexE2EPermissionProfile = async (input: {
         "-c",
         [
           'cat "$1" >/dev/null || exit 81',
-          'if cat "$2" >/dev/null 2>&1; then exit 82; fi',
+          'cat "$2" >/dev/null || exit 82',
           'if cat "$3" >/dev/null 2>&1; then exit 83; fi',
-          'if /usr/bin/git -C "$4" show HEAD:validation/live-journey/registry.json >/dev/null 2>&1; then exit 84; fi',
+          'if cat "$4" >/dev/null 2>&1; then exit 84; fi',
+          'if /usr/bin/git -C "$5" show HEAD:validation/live-journey/registry.json >/dev/null 2>&1; then exit 85; fi',
+          'if cat "$6" >/dev/null 2>&1; then exit 86; fi',
         ].join("\n"),
         "bearing-live-journey-permission-probe",
         controlPath,
+        input.installationEntryPath,
         input.manifestPath,
         input.registryPath,
         input.sourceRoot,
+        siblingProbePath,
       ],
       {
         cwd: input.repositoryRoot,
@@ -194,7 +213,11 @@ export const probeCodexE2EPermissionProfile = async (input: {
       );
     }
   } finally {
-    await Promise.all([chmod(input.manifestPath, manifestMode), rm(controlPath, { force: true })]);
+    await Promise.all([
+      ...(manifestHidden ? [chmod(input.manifestPath, manifestMode)] : []),
+      ...(controlCreated ? [rm(controlPath, { force: true })] : []),
+      ...(siblingCreated ? [rm(siblingProbePath, { force: true })] : []),
+    ]);
   }
 };
 

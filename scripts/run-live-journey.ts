@@ -1127,7 +1127,7 @@ const evaluateScenario = async (): Promise<void> => {
   const [outputParent, cleanupDirectories, cleanupSessionState] = await Promise.all([
     realpath(dirname(output)),
     Promise.all(
-      [manifest.paths.transcripts, manifest.paths.agentHome].map((path) => realpath(path)),
+      [manifest.paths.transcripts, manifest.paths.runtimeRoot].map((path) => realpath(path)),
     ),
     realpath(manifest.paths.sessionState),
   ]);
@@ -1149,7 +1149,7 @@ const evaluateScenario = async (): Promise<void> => {
   await writeFile(durableOutput, durableResult, { flag: "wx" });
   await Promise.all([
     rm(manifest.paths.transcripts, { recursive: true }),
-    rm(manifest.paths.agentHome, { recursive: true }),
+    rm(manifest.paths.runtimeRoot, { recursive: true }),
     rm(manifest.paths.sessionState, { force: true }),
   ]);
   process.stdout.write(
