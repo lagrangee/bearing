@@ -124,7 +124,18 @@ export type PublicReleaseObservation = Readonly<{
       assets: readonly PublicReleaseAsset[];
     }>
   >;
-  pages: PublicObserved<Readonly<{ status: string; sourceCommit: string }>>;
+  pages: PublicObserved<
+    Readonly<{
+      status: string;
+      deploymentSourceCommit: string;
+      workflowSourceCommit: string;
+      workflowRunId: number;
+      workflowPath: string;
+      workflowEvent: string;
+      workflowConclusion: string;
+      artifactSourceCommit: string;
+    }>
+  >;
   entries: Readonly<
     Record<PublicEntryName, PublicObserved<Readonly<{ finalUrl: string; body: string }>>>
   >;
@@ -228,6 +239,108 @@ export class LivePublicReleaseSurfaces implements PublicReleaseSurfaces {
           draft: observed.value.draft ?? true,
           prerelease: observed.value.prerelease ?? true,
           assets,
+        },
+      };
+    } catch (error) {
+      return {
+        kind: "unverifiable",
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async observePages(
+    candidate: PublicReleaseCandidate,
+  ): Promise<PublicReleaseObservation["pages"]> {
+    const deployments = await this.fetchJson<readonly { id?: number; sha?: string }[]>(
+      "https://api.github.com/repos/lagrangee/bearing/deployments?environment=github-pages&per_page=1",
+      true,
+    );
+    if (deployments.kind !== "available") return deployments;
+    const deployment = deployments.value[0];
+    if (deployment === undefined) return { kind: "absent" };
+    if (!Number.isSafeInteger(deployment.id) || (deployment.id ?? 0) < 1) {
+      return { kind: "unverifiable", reason: "GitHub Pages deployment ID is invalid" };
+    }
+    const statuses = await this.fetchJson<readonly { state?: string; log_url?: string }[]>(
+      `https://api.github.com/repos/lagrangee/bearing/deployments/${deployment.id}/statuses?per_page=1`,
+      true,
+    );
+    if (statuses.kind !== "available") return statuses;
+    const status = statuses.value[0];
+    if (status === undefined) {
+      return { kind: "unverifiable", reason: "GitHub Pages deployment status is unavailable" };
+    }
+    const deploymentSourceCommit = deployment.sha ?? "";
+    if (status.state !== "success") {
+      return {
+        kind: "available",
+        value: {
+          status: status.state ?? "",
+          deploymentSourceCommit,
+          workflowSourceCommit: "",
+          workflowRunId: 0,
+          workflowPath: "",
+          workflowEvent: "",
+          workflowConclusion: "",
+          artifactSourceCommit: "",
+        },
+      };
+    }
+    try {
+      const logUrl = new URL(status.log_url ?? "");
+      const segments = logUrl.pathname.split("/").filter(Boolean);
+      if (
+        logUrl.origin !== "https://github.com" ||
+        segments[0] !== "lagrangee" ||
+        segments[1] !== "bearing" ||
+        segments[2] !== "actions" ||
+        segments[3] !== "runs"
+      ) {
+        fail("GitHub Pages deployment workflow URL is invalid");
+      }
+      const workflowRunId = Number(segments[4]);
+      if (!Number.isSafeInteger(workflowRunId) || workflowRunId < 1) {
+        fail("GitHub Pages deployment workflow run ID is invalid");
+      }
+      const workflow = await this.fetchJson<{
+        id?: number;
+        head_sha?: string;
+        path?: string;
+        event?: string;
+        conclusion?: string;
+      }>(`https://api.github.com/repos/lagrangee/bearing/actions/runs/${workflowRunId}`, true);
+      if (workflow.kind !== "available") return workflow;
+      const artifacts = await this.fetchJson<{
+        artifacts?: readonly {
+          name?: string;
+          expired?: boolean;
+          workflow_run?: { id?: number; head_sha?: string };
+        }[];
+      }>(
+        `https://api.github.com/repos/lagrangee/bearing/actions/runs/${workflowRunId}/artifacts?per_page=100`,
+        true,
+      );
+      if (artifacts.kind !== "available") return artifacts;
+      const expectedArtifactName = `github-pages-${candidate.sourceCommit}`;
+      const exactArtifacts = (artifacts.value.artifacts ?? []).filter(
+        (artifact) =>
+          artifact.name === expectedArtifactName &&
+          artifact.expired === false &&
+          artifact.workflow_run?.id === workflowRunId &&
+          artifact.workflow_run.head_sha === deploymentSourceCommit,
+      );
+      return {
+        kind: "available",
+        value: {
+          status: status.state,
+          deploymentSourceCommit,
+          workflowSourceCommit: workflow.value.head_sha ?? "",
+          workflowRunId: workflow.value.id ?? 0,
+          workflowPath: workflow.value.path ?? "",
+          workflowEvent: workflow.value.event ?? "",
+          workflowConclusion: workflow.value.conclusion ?? "",
+          artifactSourceCommit: exactArtifacts.length === 1 ? candidate.sourceCommit : "",
         },
       };
     } catch (error) {
@@ -452,10 +565,7 @@ export class LivePublicReleaseSurfaces implements PublicReleaseSurfaces {
         true,
       ),
       this.observeRelease(candidate),
-      this.fetchJson<{ status?: string; commit?: string }>(
-        "https://api.github.com/repos/lagrangee/bearing/pages/builds/latest",
-        true,
-      ),
+      this.observePages(candidate),
       this.observeEntries(candidate),
     ]);
     return Object.freeze({
@@ -465,10 +575,7 @@ export class LivePublicReleaseSurfaces implements PublicReleaseSurfaces {
         targetCommit: value.object?.type === "commit" ? (value.object.sha ?? "") : "",
       })),
       release,
-      pages: observedMap(pages, (value) => ({
-        status: value.status ?? "",
-        sourceCommit: value.commit ?? "",
-      })),
+      pages,
       entries,
     });
   }
@@ -679,7 +786,7 @@ const contentMatches = (name: PublicEntryName, body: string): boolean => {
       );
     case "agentInstallation":
       return (
-        lower.includes("released package") &&
+        lower.includes("published package") &&
         lower.includes("skill directory") &&
         lower.includes("repository setup")
       );
@@ -727,7 +834,14 @@ export const readPublicRelease = async (
   const release = publication.release;
   const pages = observedState(
     observation.pages,
-    (value) => value.status === "built" && value.sourceCommit === candidate.sourceCommit,
+    (value) =>
+      value.status === "success" &&
+      value.deploymentSourceCommit === value.workflowSourceCommit &&
+      value.workflowRunId > 0 &&
+      value.workflowPath === ".github/workflows/demo-pages.yml" &&
+      value.workflowEvent === "workflow_dispatch" &&
+      value.workflowConclusion === "success" &&
+      value.artifactSourceCommit === candidate.sourceCommit,
   );
   const routes = publicEntryRoutes(candidate);
   const entryChecks = Object.fromEntries(
