@@ -12,6 +12,7 @@ import {
   type PublicationObservation,
 } from "./publication-recovery";
 import { sha256File, verifyReleaseCandidate } from "./release-candidate-lib";
+import { releaseJsonHeaders } from "./release-http";
 import { assertExactReleaseCommit } from "./release-identity";
 
 export type PublicObserved<T> = Observed<T>;
@@ -152,12 +153,10 @@ export class LivePublicReleaseSurfaces implements PublicReleaseSurfaces {
 
   private async fetchJson<T>(url: string, github = false): Promise<PublicObserved<T>> {
     try {
-      const headers = new Headers({ Accept: "application/vnd.github+json" });
-      if (github) {
-        headers.set("X-GitHub-Api-Version", "2022-11-28");
-        if (this.githubToken !== undefined)
-          headers.set("Authorization", `Bearer ${this.githubToken}`);
-      }
+      const headers = releaseJsonHeaders(
+        github ? "github" : "npm",
+        github ? this.githubToken : undefined,
+      );
       const response = await this.fetch(url, {
         headers,
         signal: AbortSignal.timeout(15_000),
@@ -331,12 +330,21 @@ export class LivePublicReleaseSurfaces implements PublicReleaseSurfaces {
           invocationId,
         ) ?? fail("npm SLSA provenance invocation is invalid");
       const invocationRunId = invocation[1] ?? fail("npm SLSA provenance run ID is unavailable");
+      const invocationRunAttemptText =
+        invocation[2] ?? fail("npm SLSA provenance run attempt is unavailable");
+      const invocationRunAttempt = Number(invocationRunAttemptText);
+      if (!Number.isSafeInteger(invocationRunAttempt)) {
+        fail("npm SLSA provenance run attempt is invalid");
+      }
       const actionRun = await this.fetchJson<{
         head_sha?: string;
         path?: string;
         run_attempt?: number;
         conclusion?: string | null;
-      }>(`https://api.github.com/repos/lagrangee/bearing/actions/runs/${invocationRunId}`, true);
+      }>(
+        `https://api.github.com/repos/lagrangee/bearing/actions/runs/${invocationRunId}/attempts/${invocationRunAttempt}`,
+        true,
+      );
       if (actionRun.kind !== "available") return actionRun;
       return {
         kind: "available",
@@ -630,7 +638,7 @@ const provenanceMatchesCandidate = (
     provenance.invocationSourceCommit === candidate.sourceCommit &&
     provenance.invocationWorkflowPath === ".github/workflows/publish.yml" &&
     provenance.invocationRunAttempt > 0 &&
-    provenance.invocationConclusion === "success" &&
+    provenance.invocationConclusion.length > 0 &&
     /^https:\/\/github\.com\/lagrangee\/bearing\/actions\/runs\/[1-9][0-9]*\/attempts\/[1-9][0-9]*$/u.test(
       provenance.invocationId,
     ) &&

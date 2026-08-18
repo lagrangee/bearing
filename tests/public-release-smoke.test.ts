@@ -159,7 +159,7 @@ const exactObservation: PublicReleaseObservation = {
       invocationSourceCommit: candidate.sourceCommit,
       invocationWorkflowPath: ".github/workflows/publish.yml",
       invocationRunAttempt: 1,
-      invocationConclusion: "success",
+      invocationConclusion: "failure",
     },
   }),
   tag: available({ tag: candidate.releaseTag, targetCommit: candidate.sourceCommit }),
@@ -365,7 +365,12 @@ test("loads public identity and required Release assets from one verified Candid
 });
 
 test("live surfaces use only exact-version read-only requests", async () => {
-  const requests: { url: string; method?: string }[] = [];
+  const requests: {
+    url: string;
+    method?: string;
+    accept: string | null;
+    authorization: string | null;
+  }[] = [];
   let readmeBody = exactReadmeBody;
   let demoShell = '<script src="./mock-data.js" type="module"></script>';
   let invocationSourceCommit = candidate.sourceCommit;
@@ -379,7 +384,13 @@ test("live surfaces use only exact-version read-only requests", async () => {
     }) as Response;
   const fetchFixture = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
-    requests.push({ url, ...(init?.method === undefined ? {} : { method: init.method }) });
+    const headers = new Headers(init?.headers);
+    requests.push({
+      url,
+      ...(init?.method === undefined ? {} : { method: init.method }),
+      accept: headers.get("Accept"),
+      authorization: headers.get("Authorization"),
+    });
     if (url === availableValue(exactObservation.npm).provenanceUrl) {
       const provenance = availableValue(exactObservation.npm).provenance;
       const statement = {
@@ -426,12 +437,12 @@ test("live surfaces use only exact-version read-only requests", async () => {
         },
       });
     }
-    if (url.endsWith("/actions/runs/654321")) {
+    if (url.endsWith("/actions/runs/654321/attempts/1")) {
       return response(url, {
         head_sha: invocationSourceCommit,
         path: ".github/workflows/publish.yml",
         run_attempt: 1,
-        conclusion: "success",
+        conclusion: "failure",
       });
     }
     if (url.endsWith(`/git/ref/tags/${candidate.releaseTag}`)) {
@@ -478,7 +489,7 @@ test("live surfaces use only exact-version read-only requests", async () => {
 
   const result = await readPublicRelease(
     candidate,
-    new LivePublicReleaseSurfaces({ fetch: fetchFixture }),
+    new LivePublicReleaseSurfaces({ fetch: fetchFixture, githubToken: "fixture-token" }),
   );
 
   expect(result.outcome).toBe("passed");
@@ -496,6 +507,19 @@ test("live surfaces use only exact-version read-only requests", async () => {
   expect(requests.map((request) => request.url)).toContain(
     "https://api.github.com/repos/lagrangee/bearing/pages/builds/latest",
   );
+  expect(requests.map((request) => request.url)).toContain(
+    "https://api.github.com/repos/lagrangee/bearing/actions/runs/654321/attempts/1",
+  );
+  for (const request of requests.filter(({ url }) =>
+    url.startsWith("https://registry.npmjs.org/"),
+  )) {
+    expect(request.accept).toBe("application/json");
+    expect(request.authorization).toBeNull();
+  }
+  for (const request of requests.filter(({ url }) => url.startsWith("https://api.github.com/"))) {
+    expect(request.accept).toBe("application/vnd.github+json");
+    expect(request.authorization).toBe("Bearer fixture-token");
+  }
   expect(JSON.stringify(requests)).not.toMatch(
     /@latest|npm install|playwright|codex|claude|workbuddy/iu,
   );

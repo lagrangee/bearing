@@ -8,6 +8,7 @@ import {
   type PublicationSurfaces,
   recoverFrozenPublication,
 } from "../scripts/publication-recovery";
+import { releaseJsonHeaders } from "../scripts/release-http";
 
 const frozen: FrozenPublication = {
   packageName: "@lagrangee/bearing",
@@ -126,6 +127,18 @@ class FakePublicationSurfaces implements PublicationSurfaces {
     this.observation = { ...this.observation, release: available(exactRelease) };
   }
 }
+
+test("separates npm JSON requests from authenticated GitHub API requests", () => {
+  const npm = releaseJsonHeaders("npm");
+  expect(npm.get("Accept")).toBe("application/json");
+  expect(npm.get("Authorization")).toBeNull();
+  expect(npm.get("X-GitHub-Api-Version")).toBeNull();
+
+  const github = releaseJsonHeaders("github", "fixture-token");
+  expect(github.get("Accept")).toBe("application/vnd.github+json");
+  expect(github.get("Authorization")).toBe("Bearer fixture-token");
+  expect(github.get("X-GitHub-Api-Version")).toBe("2022-11-28");
+});
 
 const state = (
   npmVersion: PublicationObservation["npmVersion"],
@@ -414,4 +427,15 @@ test("Publication workflow is manual, main-owned, protected, serialized, and fro
   for (const action of steps.flatMap((step) => (step.uses === undefined ? [] : [step.uses]))) {
     expect(action).toMatch(/@[0-9a-f]{40}$/u);
   }
+});
+
+test("release runbook permits only bounded recovery repair after an exact immutable public prefix", async () => {
+  const runbook = await readFile("docs/agents/release-live-journey.md", "utf8");
+  expect(runbook).toMatch(/before (?:the )?first public effect/iu);
+  expect(runbook).toMatch(/exact immutable public prefix/iu);
+  expect(runbook).toMatch(/recovery-only tracked repair/iu);
+  expect(runbook).toMatch(/does not change.*frozen Candidate bytes/iu);
+  expect(runbook).toMatch(/pull request.*required CI/iu);
+  expect(runbook).toMatch(/fresh protected-environment approval/iu);
+  expect(runbook).toMatch(/does not\s+require.*Matrix/iu);
 });
