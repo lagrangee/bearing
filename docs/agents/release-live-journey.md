@@ -20,9 +20,18 @@ evidence reuse after a Matrix definition change. The Matrix generation ID stays 
 that uses the Matrix must match the Release Candidate identity, Matrix definition digest, and
 generation ID.
 
-A change to the product, Skill, release-facing documentation, Fixture, Scenario contract, Matrix
-registry, or release workflow invalidates the Candidate. Start Candidate Freeze and the complete
-Matrix again. Never combine evidence from different identities.
+Before the first public effect, a change to the product, Skill, release-facing documentation,
+Fixture, Scenario contract, Matrix registry, or release workflow invalidates the Candidate. Start
+Candidate Freeze and the complete Matrix again. Never combine evidence from different identities.
+
+After Publication has created an exact immutable public prefix, a recovery-only tracked repair may
+continue the same Candidate only when it does not change the frozen Candidate bytes, package
+version, target repository, mutation order, or intended public state. Merge that repair through a
+pull request with required CI and obtain fresh protected-environment approval. The repair does not
+require a new Candidate Freeze or Matrix because it changes only Publication observation or
+recovery mechanics; any product, package, Skill, release-facing documentation, Fixture, Scenario,
+Matrix, identity, or public-semantics change remains invalidating. Preserve and revalidate every
+existing public effect before the repaired workflow performs the next mutation.
 
 Use a local Matrix rehearsal before this formal release sequence. Rehearsal and frozen-Candidate
 proof use the same tracked Scenario registry, Codex policy, black-box interaction, and

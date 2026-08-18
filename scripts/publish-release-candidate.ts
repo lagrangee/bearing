@@ -13,6 +13,7 @@ import {
   recoverFrozenPublication,
 } from "./publication-recovery";
 import { sha256Bytes, sha256File, verifyReleaseCandidate } from "./release-candidate-lib";
+import { type ReleaseJsonProvider, releaseJsonHeaders } from "./release-http";
 import { assertExactReleaseCommit } from "./release-identity";
 
 const fail = (message: string): never => {
@@ -36,13 +37,13 @@ const run = (
   return result.stdout.trim();
 };
 
-const fetchJson = async <T>(url: string, token?: string): Promise<Observed<T>> => {
+const fetchJson = async <T>(
+  provider: ReleaseJsonProvider,
+  url: string,
+  token?: string,
+): Promise<Observed<T>> => {
   try {
-    const headers = new Headers({ Accept: "application/vnd.github+json" });
-    if (token !== undefined) {
-      headers.set("Authorization", `Bearer ${token}`);
-      headers.set("X-GitHub-Api-Version", "2022-11-28");
-    }
+    const headers = releaseJsonHeaders(provider, token);
     const response = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
     if (response.status === 404) return { kind: "absent" };
     if (!response.ok) return { kind: "unverifiable", reason: `HTTP ${response.status}` };
@@ -80,6 +81,7 @@ class LivePublicationSurfaces implements PublicationSurfaces {
   }> {
     const [packument, version] = await Promise.all([
       fetchJson<Readonly<{ "dist-tags"?: Readonly<Record<string, string>> }>>(
+        "npm",
         `https://registry.npmjs.org/${this.npmPath}`,
       ),
       fetchJson<
@@ -95,7 +97,7 @@ class LivePublicationSurfaces implements PublicationSurfaces {
             }>;
           }>;
         }>
-      >(`https://registry.npmjs.org/${this.npmPath}/${candidate.version}`),
+      >("npm", `https://registry.npmjs.org/${this.npmPath}/${candidate.version}`),
     ]);
     const packageState: PublicationObservation["package"] =
       packument.kind === "absent"
@@ -136,6 +138,7 @@ class LivePublicationSurfaces implements PublicationSurfaces {
         }>[];
       }>
     >(
+      "github",
       `${this.githubApiUrl}/repos/${this.repository}/releases/tags/${candidate.releaseTag}`,
       this.githubToken,
     );
@@ -179,6 +182,7 @@ class LivePublicationSurfaces implements PublicationSurfaces {
     const [npm, tag, release] = await Promise.all([
       this.npmObservation(candidate),
       fetchJson<Readonly<{ ref?: string; object?: Readonly<{ type?: string; sha?: string }> }>>(
+        "github",
         `${this.githubApiUrl}/repos/${this.repository}/git/ref/tags/${candidate.releaseTag}`,
         this.githubToken,
       ),
