@@ -1,9 +1,9 @@
 # 02 — Update output
 
-**Type:** task
+**What to build:** Normalize the separate secondary label output.
 
-**Blocked by:** None — can start immediately
+Blocked by: None — can start immediately
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] The separate requested output change is implemented.

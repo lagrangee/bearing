@@ -14,6 +14,17 @@
 
 期望结果：agent 要么带来源确认 fit，要么暴露 conflict。
 
+当 feature request 与已接受的 Bearing commitments 存在显式或高置信的实质关联时，agent 执行一次
+最小的 read-only orientation，并只列出相关的 proposed native scopes。你决定每个相关 scope 是通过
+Effort 与 Work Binding 进入 Bearing Scope，还是保持 Standalone Native Work。选择 standalone 后继续
+普通 delivery；Bearing 不强制 enrollment。选择 Bearing Scope 不代表接受尚未展示的 Roadmap、Gate、
+Effort 或 native planning 内容。Agent 必须先展示完整 candidate，并在获得你的接受后再写入。
+
+如果不存在这种关联，但出现高置信的 material planning opportunity，agent 可以给出一个成比例且
+owner-specific 的建议。只有该决定会改变 delivery scope 或 coordination 时，才需要在 delivery 前处理；
+否则 delivery 仍可继续，建议可以稍后提出。它不要求 scope disposition，也不会自动 enrollment。普通
+feature request 不需要上述任一 workflow，直接继续普通 delivery。
+
 ## 运行 Bearing Project Orientation
 
 可以问：

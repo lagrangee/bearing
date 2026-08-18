@@ -3,6 +3,8 @@
 ## Applicability
 
 Use for Roadmap horizon creation, revision, Gate order, extension, completion, or supersession.
+When the Human has decided to create an independent outcome horizon, select the Roadmap owner even
+when that horizon will answer a question about value, feasibility, or continuation.
 
 ## Authority
 

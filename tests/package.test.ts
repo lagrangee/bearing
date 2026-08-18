@@ -121,10 +121,12 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/skills/bearing/references/journeys/configure-unsupported.md",
         "package/skills/bearing/references/journeys/configure.md",
         "package/skills/bearing/references/journeys/execution.md",
+        "package/skills/bearing/references/journeys/feature-intake.md",
         "package/skills/bearing/references/journeys/native-work.md",
         "package/skills/bearing/references/journeys/next-work.md",
         "package/skills/bearing/references/journeys/project-orientation.md",
         "package/skills/bearing/references/journeys/scope-review.md",
+        "package/skills/bearing/references/journeys/update.md",
         "package/skills/bearing/references/owners/asset.md",
         "package/skills/bearing/references/owners/authority.md",
         "package/skills/bearing/references/owners/effort.md",
@@ -136,6 +138,32 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/skills/bearing/references/owners/roadmap.md",
       ].sort(),
     );
+    const packedText = (path: string): string => {
+      const entry = archiveFiles.get(path);
+      if (entry === undefined) throw new Error(`Packed file is absent: ${path}`);
+      return entry.bytes.toString("utf8");
+    };
+    const packedSkill = packedText("package/skills/bearing/SKILL.md");
+    expect(packedSkill).toContain("$HOME/.bearing/bin/bearing");
+    expect(packedSkill).toContain("there is no separate entry preflight");
+    expect(packedSkill).not.toMatch(/before the first command.*(?:--version|command -v)/isu);
+    const packedWorkflows = packedText("package/docs/everyday-workflows.md");
+    expect(packedWorkflows).toContain("explicit or high-confidence material relationship");
+    expect(packedWorkflows).toContain("owner-specific recommendation");
+    expect(packedWorkflows).toContain("does not require a scope disposition");
+    expect(packedWorkflows).toMatch(/An ordinary feature\s+continues through normal delivery/u);
+    const packedChineseWorkflows = packedText("package/docs/everyday-workflows.zh-CN.md");
+    expect(packedChineseWorkflows).toContain("显式或高置信的实质关联");
+    expect(packedChineseWorkflows).toContain("owner-specific 的建议");
+    expect(packedChineseWorkflows).toContain("不要求 scope disposition");
+    expect(packedChineseWorkflows).toContain("直接继续普通 delivery");
+    for (const path of ["package/docs/cli.md", "package/docs/cli.zh-CN.md"]) {
+      const cli = packedText(path);
+      expect(cli).toMatch(
+        /reasonable material planning or governance relevance|合理的实质 planning 或 governance relevance/u,
+      );
+      expect(cli).not.toContain("material new-feature request");
+    }
     const activeProductFiles = [...archiveFiles.entries()].filter(
       ([path]) =>
         path === "package/dist/cli.js" ||

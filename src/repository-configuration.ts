@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import packageMetadata from "../package.json";
-import { AGENT_SURFACES, agentSurfaceEntryFile, bearingManagedRange } from "./agent-surface-entry";
+import {
+  AGENT_SURFACES,
+  agentSurfaceEntryFile,
+  BEARING_MANAGED_BLOCK,
+  bearingManagedRange,
+} from "./agent-surface-entry";
 import { readCatalogState } from "./catalog/store";
 import { inspectInstallPath } from "./install-boundary";
 import { pointsToMattContractLocator } from "./matt-agent-surface";
@@ -58,23 +63,42 @@ export type RepositoryConfigurationInspection = Readonly<{
   command: "configure-inspect";
   repositoryRoot: string;
   lifecycle: Readonly<{
-    state: "fresh" | "active" | "deactivated" | "unsupported";
+    state:
+      | "fresh"
+      | "active"
+      | "deactivated"
+      | "repository-update-required"
+      | "kit-update-required"
+      | "unsupported";
     reason: string;
     removalRequired: boolean;
+    update?: Readonly<{
+      fromPackageVersion: string;
+      toPackageVersion: string;
+      guide: "references/journeys/update.md";
+    }>;
+    repositorySchemaVersion?: number;
+    runtimeSchemaVersion?: 1;
   }>;
   currentSelections: CurrentSelections;
   installedCapabilityEvidence: Readonly<{
     packageVersion: string;
     packageRoot: string;
     providerContract: "not-configured" | "supported" | "unsupported";
-    managedPointers: Readonly<Record<AgentSurface, "present" | "absent" | "unsafe">>;
+    managedPointers: Readonly<Record<AgentSurface, "present" | "absent" | "drifted" | "unsafe">>;
   }>;
   pathSafety: Readonly<{
     safe: boolean;
     targets: readonly PathFact[];
   }>;
   machineFacts: Readonly<{
-    manifest: "missing" | "active" | "deactivated" | "unsupported";
+    manifest:
+      | "missing"
+      | "active"
+      | "deactivated"
+      | "repository-update-required"
+      | "kit-update-required"
+      | "unsupported";
     cache: "missing" | "directory" | "unsafe";
     catalog: "ready" | "unavailable";
   }>;
@@ -161,6 +185,13 @@ const lifecycle = (
   state: inspected.kind === "invalid-or-unsupported" ? "unsupported" : inspected.kind,
   reason: inspected.reason,
   removalRequired: inspected.kind === "invalid-or-unsupported",
+  ...(inspected.update === undefined ? {} : { update: inspected.update }),
+  ...(inspected.repositorySchemaVersion === undefined
+    ? {}
+    : { repositorySchemaVersion: inspected.repositorySchemaVersion }),
+  ...(inspected.runtimeSchemaVersion === undefined
+    ? {}
+    : { runtimeSchemaVersion: inspected.runtimeSchemaVersion }),
 });
 
 const safeRead = async (root: string, target: string): Promise<string | undefined> => {
@@ -221,7 +252,7 @@ const pathFact = async (root: string, target: string): Promise<PathFact> => {
 const pointerEvidence = async (
   root: string,
   surface: AgentSurface,
-): Promise<"present" | "absent" | "unsafe"> => {
+): Promise<"present" | "absent" | "drifted" | "unsafe"> => {
   const target = agentSurfaceEntryFile(surface);
   const state = await inspectInstallPath(join(root, target));
   if (state.kind === "missing") return "absent";
@@ -229,7 +260,9 @@ const pointerEvidence = async (
   const source = await safeRead(root, target);
   if (source === undefined) return "unsafe";
   try {
-    return bearingManagedRange(source) === undefined ? "absent" : "present";
+    const range = bearingManagedRange(source);
+    if (range === undefined) return "absent";
+    return source.slice(range.start, range.end) === BEARING_MANAGED_BLOCK ? "present" : "drifted";
   } catch {
     return "unsafe";
   }
@@ -290,12 +323,7 @@ export const inspectRepositoryConfiguration = async (options: {
     },
     pathSafety: { safe: targets.every((item) => item.safe), targets },
     machineFacts: {
-      manifest:
-        inspectedLifecycle.state === "fresh"
-          ? "missing"
-          : inspectedLifecycle.state === "unsupported"
-            ? "unsupported"
-            : inspectedLifecycle.state,
+      manifest: inspectedLifecycle.state === "fresh" ? "missing" : inspectedLifecycle.state,
       cache:
         cache?.kind === "missing"
           ? "missing"
@@ -363,7 +391,10 @@ export const planRepositoryConfiguration = async (
   let preconditions: readonly RepositoryTargetPrecondition[] = [];
   let blockers: readonly RepositoryIntegrationBlocker[] = [];
   let canApply = false;
-  if (unresolvedChoices.length === 0 && inspection.lifecycle.state !== "unsupported") {
+  if (
+    unresolvedChoices.length === 0 &&
+    ["fresh", "active", "deactivated"].includes(inspection.lifecycle.state)
+  ) {
     if (request.intent === "deactivate") {
       targets = [
         ".bearing/manifest.json",
@@ -431,6 +462,28 @@ export const planRepositoryConfiguration = async (
         target: ".bearing",
         message:
           "Unsupported Preview state is removal-required. Use an explicit Agent-reviewed platform removal, then run Fresh Repository Configuration.",
+      },
+    ];
+    canApply = false;
+  }
+  if (inspection.lifecycle.state === "repository-update-required") {
+    blockers = [
+      {
+        code: "repository-update-required",
+        target: ".bearing",
+        message:
+          "Repository Configuration requires the Agent-guided repository update and Human confirmation before planning current configuration.",
+      },
+    ];
+    canApply = false;
+  }
+  if (inspection.lifecycle.state === "kit-update-required") {
+    blockers = [
+      {
+        code: "kit-update-required",
+        target: ".bearing/manifest.json",
+        message:
+          "This repository requires a newer Bearing Kit. Update the installed Kit before planning configuration.",
       },
     ];
     canApply = false;

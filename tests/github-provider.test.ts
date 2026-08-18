@@ -2857,5 +2857,29 @@ Require one canonical ticket per route entry.
     } catch (error) {
       expect(String(error)).not.toContain(credentialSentinel);
     }
+
+    let transientAttempts = 0;
+    const transient = createGhCliGitHubReadTransport({
+      execute: async () => {
+        transientAttempts += 1;
+        return { exitCode: 1, stdout: "", stderr: "tls: x509 transient failure" };
+      },
+    });
+    await expect(
+      transient.get({ endpoint: "repos/example/reference", apiVersion: "2026-03-10" }),
+    ).rejects.toMatchObject({ kind: "network" });
+    expect(transientAttempts).toBe(1);
+
+    let permissionAttempts = 0;
+    const permission = createGhCliGitHubReadTransport({
+      execute: async () => {
+        permissionAttempts += 1;
+        return { exitCode: 1, stdout: "", stderr: "HTTP 403 forbidden" };
+      },
+    });
+    await expect(
+      permission.get({ endpoint: "repos/example/reference", apiVersion: "2026-03-10" }),
+    ).rejects.toMatchObject({ kind: "permission" });
+    expect(permissionAttempts).toBe(1);
   });
 });

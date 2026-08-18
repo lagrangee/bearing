@@ -185,7 +185,22 @@ test("packed Repository Configuration seals one exact Fresh write set and applie
     });
     const manifest = JSON.parse(await readFile(join(root, ".bearing/manifest.json"), "utf8"));
     expect(manifest).toMatchObject({ status: "active", executorProfiles: [] });
-    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toContain(BEARING_POINTER);
+    const exactAgentSurface = await readFile(join(root, "AGENTS.md"), "utf8");
+    expect(exactAgentSurface).toContain(BEARING_POINTER);
+    await writeFile(
+      join(root, "AGENTS.md"),
+      exactAgentSurface.replace("For a new request", "For a changed request"),
+    );
+    const drifted = await product.run(["configure", "inspect", "--repo", root], {
+      observeRoots: [root, product.homeDir],
+    });
+    expect(drifted.exitClass, drifted.stderr).toBe("success");
+    expect(JSON.parse(drifted.stdout)).toMatchObject({
+      installedCapabilityEvidence: {
+        managedPointers: { "agent-skills": "drifted" },
+      },
+    });
+    await writeFile(join(root, "AGENTS.md"), exactAgentSurface);
     expect(
       await readSqliteUserVersion(join(root, ".bearing/cache/project-read-model.sqlite")),
     ).toBeGreaterThan(0);
@@ -420,7 +435,7 @@ test("repository rollback and Catalog partial outcomes remain separate and resum
   }
 }, 60_000);
 
-test("unsupported Preview state is removal-required and legacy lifecycle commands are absent", async () => {
+test("Preview lifecycle distinguishes Agent-guided update, newer runtime need, and unsupported state", async () => {
   const product = await installPackedProduct();
   const root = join(product.root, "unsupported-repository");
   await makeFreshRepository(root);
@@ -433,14 +448,90 @@ test("unsupported Preview state is removal-required and legacy lifecycle command
     const inspected = await product.run(["configure", "inspect", "--repo", root]);
     expect(inspected.exitClass).toBe("success");
     expect(JSON.parse(inspected.stdout)).toMatchObject({
-      lifecycle: { state: "unsupported", removalRequired: true },
+      lifecycle: { state: "kit-update-required", removalRequired: false },
     });
     const planned = await product.run(["configure", "plan", ...activateArguments(root)]);
     expect(planned.exitClass).toBe("product-outcome");
-    const body = JSON.parse(planned.stdout);
-    expect(body.canApply).toBe(false);
-    expect(body.blockers[0].message).toMatch(/removal-required.*Agent-reviewed platform removal/iu);
-    expect(body).not.toHaveProperty("sealedPlanToken");
+    expect(JSON.parse(planned.stdout).blockers[0].message).toMatch(/newer Bearing Kit/iu);
+
+    await writeFile(
+      join(root, ".bearing/manifest.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.0",
+        surfaces: ["agent-skills"],
+        executorProfiles: [],
+      })}\n`,
+    );
+    const updateRequired = await product.run(["configure", "inspect", "--repo", root]);
+    expect(updateRequired.exitClass).toBe("success");
+    expect(JSON.parse(updateRequired.stdout)).toMatchObject({
+      lifecycle: {
+        state: "repository-update-required",
+        removalRequired: false,
+        update: {
+          fromPackageVersion: "0.1.0",
+          toPackageVersion: "0.1.1",
+          guide: "references/journeys/update.md",
+        },
+      },
+    });
+    const updatePlan = await product.run(["configure", "plan", ...activateArguments(root)]);
+    expect(updatePlan.exitClass).toBe("product-outcome");
+    expect(JSON.parse(updatePlan.stdout).blockers[0].message).toMatch(
+      /Agent-guided repository update.*Human confirmation/iu,
+    );
+
+    await writeFile(
+      join(root, ".bearing/manifest.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.0",
+        status: "active",
+        surfaces: ["agent-skills"],
+        executorProfiles: [],
+      })}\n`,
+    );
+    const mixedPreview = await product.run(["configure", "inspect", "--repo", root]);
+    expect(mixedPreview.exitClass).toBe("success");
+    expect(JSON.parse(mixedPreview.stdout)).toMatchObject({
+      lifecycle: { state: "unsupported", removalRequired: true },
+    });
+
+    for (const duplicateManifest of [
+      {
+        schemaVersion: 1,
+        packageVersion: "0.1.0",
+        surfaces: ["agent-skills", "agent-skills"],
+        executorProfiles: [],
+      },
+      {
+        schemaVersion: 1,
+        packageVersion: "0.1.0",
+        surfaces: ["agent-skills"],
+        executorProfiles: ["default", "default"],
+      },
+    ]) {
+      await writeFile(
+        join(root, ".bearing/manifest.json"),
+        `${JSON.stringify(duplicateManifest)}\n`,
+      );
+      const duplicate = await product.run(["configure", "inspect", "--repo", root]);
+      expect(duplicate.exitClass).toBe("success");
+      expect(JSON.parse(duplicate.stdout)).toMatchObject({
+        lifecycle: { state: "unsupported", removalRequired: true },
+      });
+    }
+
+    await writeFile(
+      join(root, ".bearing/manifest.json"),
+      `${JSON.stringify({ schemaVersion: 1, packageVersion: "0.1.0", surfaces: [] })}\n`,
+    );
+    const unsupported = await product.run(["configure", "inspect", "--repo", root]);
+    expect(unsupported.exitClass).toBe("success");
+    expect(JSON.parse(unsupported.stdout)).toMatchObject({
+      lifecycle: { state: "unsupported", removalRequired: true },
+    });
 
     for (const command of ["setup", "activation", "deactivate", "purge"]) {
       const result = await product.run([command, "--repo", root]);

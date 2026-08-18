@@ -42,10 +42,14 @@ test("finalizes one 0.1.1 package identity and matching dated release notes", as
     expect(await readFile(notesPath, "utf8")).toBe(`${notes}\n`);
     expect(notes).toBe(releaseSection);
     expect(notes).toStartWith("Bearing 0.1.1 strengthens the Public Preview");
-    expect(notes).toContain(
-      "does not migrate, downgrade, dual-read, or apply compatibility fallback",
+    expect(notes).toMatch(
+      /exact 0\.1\.0 repository source[\s\S]*Repository Update[\s\S]*semantic update guide/u,
     );
-    expect(notes).toMatch(/explicit user-authorized removal[\s\S]*Fresh Setup/u);
+    expect(notes).toMatch(
+      /Canonical state[\s\S]*byte-for-byte unchanged[\s\S]*rebuilds[\s\S]*Project Read Model/u,
+    );
+    expect(notes).toMatch(/Unknown, corrupt, or unmatched old state[\s\S]*Unsupported/u);
+    expect(notes).toMatch(/does not provide a generic migration engine[\s\S]*dual-read/u);
   } finally {
     await rm(output, { recursive: true, force: true });
   }

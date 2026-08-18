@@ -3,7 +3,7 @@
 ## Applicability
 
 Use with exactly one root-selected lifecycle variant for Fresh activation, Active change or repair,
-reactivation, deactivation, or Unsupported removal-required state.
+reactivation, deactivation, or Invalid or Unsupported diagnosis.
 
 ## Authority
 

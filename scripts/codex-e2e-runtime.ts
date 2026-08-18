@@ -1,7 +1,17 @@
 import { createHash } from "node:crypto";
 import type { Stats } from "node:fs";
-import { lstat, readdir, readFile, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { isAbsolute, join, relative } from "node:path";
 
 export const CODEX_E2E_RUNTIME = Object.freeze({
   model: "gpt-5.6-luna",
@@ -25,6 +35,69 @@ export const CODEX_E2E_DISABLED_FEATURES = Object.freeze([
   "workspace_dependencies",
 ] as const);
 
+export const assertCodexE2EOutputIsolation = (input: {
+  stdout: string;
+  stderr: string;
+  operatorCodexHome: string;
+}): void => {
+  if (
+    input.stdout.includes(input.operatorCodexHome) ||
+    input.stderr.includes(input.operatorCodexHome)
+  ) {
+    throw new Error("Codex E2E output exposed the operator configuration path.");
+  }
+};
+
+export const prepareIsolatedCodexHome = async (input: {
+  operatorCodexHome: string;
+  isolatedHome: string;
+}): Promise<string> => {
+  const operatorCodexHome = await realpath(input.operatorCodexHome);
+  const isolatedHome = await realpath(input.isolatedHome);
+  const authSource = join(operatorCodexHome, "auth.json");
+  const authState = await lstat(authSource);
+  if (!authState.isFile()) {
+    throw new Error("Codex E2E authentication input must be one regular auth.json file.");
+  }
+  const agentCodexHome = join(isolatedHome, ".codex");
+  const skillDirectory = join(isolatedHome, "skill-directory");
+  const shellDirectory = join(isolatedHome, ".shell");
+  const runtimeAuthDirectory = join(isolatedHome, ".runtime-auth");
+  const runtimeAuth = join(runtimeAuthDirectory, "auth.json");
+  await Promise.all([
+    mkdir(agentCodexHome, { recursive: false }),
+    mkdir(skillDirectory, { recursive: false }),
+    mkdir(shellDirectory, { recursive: false }),
+    mkdir(runtimeAuthDirectory, { recursive: false }),
+  ]);
+  await symlink(authSource, runtimeAuth);
+  await symlink(relative(agentCodexHome, runtimeAuth), join(agentCodexHome, "auth.json"));
+  await symlink(skillDirectory, join(agentCodexHome, "skills"));
+  return agentCodexHome;
+};
+
+export const assertIsolatedCodexHomeControlLinks = async (isolatedHome: string): Promise<void> => {
+  const agentCodexHome = join(isolatedHome, ".codex");
+  const agentAuth = join(agentCodexHome, "auth.json");
+  const runtimeAuth = join(isolatedHome, ".runtime-auth/auth.json");
+  const agentSkills = join(agentCodexHome, "skills");
+  const skillDirectory = join(isolatedHome, "skill-directory");
+  const [agentAuthState, runtimeAuthState, agentSkillsState] = await Promise.all([
+    lstat(agentAuth),
+    lstat(runtimeAuth),
+    lstat(agentSkills),
+  ]);
+  if (
+    !agentAuthState.isSymbolicLink() ||
+    !runtimeAuthState.isSymbolicLink() ||
+    !agentSkillsState.isSymbolicLink() ||
+    (await realpath(agentAuth)) !== (await realpath(runtimeAuth)) ||
+    (await realpath(agentSkills)) !== (await realpath(skillDirectory))
+  ) {
+    throw new Error("Codex E2E isolated control links changed after preparation.");
+  }
+};
+
 export const codexE2ERuntimeArguments = (override?: unknown): readonly string[] => {
   if (override !== undefined) {
     throw new Error("The repository Codex E2E runtime does not accept runtime overrides.");
@@ -37,13 +110,104 @@ export const codexE2ERuntimeArguments = (override?: unknown): readonly string[] 
   ];
 };
 
+const CODEX_E2E_PERMISSION_PROFILE = "bearing_live_journey";
+
+const codexE2EPermissionProfileConfiguration = (input: {
+  repositoryRoot: string;
+  isolatedHome: string;
+  readDeniedPaths: readonly string[];
+}) => {
+  if (
+    input.readDeniedPaths.length === 0 ||
+    [input.repositoryRoot, input.isolatedHome, ...input.readDeniedPaths].some(
+      (path) => !isAbsolute(path),
+    )
+  ) {
+    throw new Error("Codex E2E permission paths must be non-empty absolute paths.");
+  }
+  const workspaceRoots = [input.repositoryRoot, input.isolatedHome]
+    .map((path) => `${JSON.stringify(path)}=true`)
+    .join(",");
+  const deniedPaths = input.readDeniedPaths
+    .map((path) => `${JSON.stringify(path)}="deny"`)
+    .join(",");
+  const gitMetadata = `${JSON.stringify(join(input.repositoryRoot, ".git"))}="write"`;
+  return `permissions.${CODEX_E2E_PERMISSION_PROFILE}={workspace_roots={${workspaceRoots}},filesystem={":root"="read",":workspace_roots"="write",${gitMetadata},${deniedPaths}},network={enabled=false}}`;
+};
+
+export const probeCodexE2EPermissionProfile = async (input: {
+  program: string;
+  repositoryRoot: string;
+  isolatedHome: string;
+  codexHome: string;
+  manifestPath: string;
+  registryPath: string;
+  sourceRoot: string;
+}): Promise<void> => {
+  const permissionProfile = codexE2EPermissionProfileConfiguration({
+    repositoryRoot: input.repositoryRoot,
+    isolatedHome: input.isolatedHome,
+    readDeniedPaths: [input.sourceRoot, input.registryPath],
+  });
+  const controlPath = join(input.repositoryRoot, ".bearing-live-journey-permission-probe");
+  const manifestMode = (await lstat(input.manifestPath)).mode & 0o777;
+  await writeFile(controlPath, "repository-control\n", { flag: "wx", mode: 0o600 });
+  try {
+    await chmod(input.manifestPath, 0o000);
+    const probe = Bun.spawn(
+      [
+        input.program,
+        "sandbox",
+        "--include-managed-config",
+        "-c",
+        permissionProfile,
+        "-P",
+        CODEX_E2E_PERMISSION_PROFILE,
+        "-C",
+        input.repositoryRoot,
+        "/bin/sh",
+        "-c",
+        [
+          'cat "$1" >/dev/null || exit 81',
+          'if cat "$2" >/dev/null 2>&1; then exit 82; fi',
+          'if cat "$3" >/dev/null 2>&1; then exit 83; fi',
+          'if /usr/bin/git -C "$4" show HEAD:validation/live-journey/registry.json >/dev/null 2>&1; then exit 84; fi',
+        ].join("\n"),
+        "bearing-live-journey-permission-probe",
+        controlPath,
+        input.manifestPath,
+        input.registryPath,
+        input.sourceRoot,
+      ],
+      {
+        cwd: input.repositoryRoot,
+        env: { ...process.env, HOME: input.isolatedHome, CODEX_HOME: input.codexHome },
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const [exitCode, stderr] = await Promise.all([probe.exited, new Response(probe.stderr).text()]);
+    if (exitCode !== 0) {
+      throw new Error(
+        stderr.trim() || `Codex E2E permission profile probe failed with exit ${exitCode}.`,
+      );
+    }
+  } finally {
+    await Promise.all([chmod(input.manifestPath, manifestMode), rm(controlPath, { force: true })]);
+  }
+};
+
 export const codexE2ELaunchContract = (input: {
   repositoryRoot: string;
   isolatedHome: string;
   codexHome: string;
   disabledOperatorSkillPaths: readonly string[];
+  readDeniedPaths: readonly string[];
   program?: string;
+  skipGitRepositoryCheck?: boolean;
 }) => {
+  const permissionProfile = codexE2EPermissionProfileConfiguration(input);
   const hardening: string[] = [];
   for (const feature of CODEX_E2E_DISABLED_FEATURES) {
     hardening.push("--disable", feature);
@@ -57,7 +221,9 @@ export const codexE2ELaunchContract = (input: {
     );
   }
   const program = input.program ?? "codex";
+  const repositoryTrust = input.skipGitRepositoryCheck ? ["--skip-git-repo-check"] : [];
   const common = [
+    "--strict-config",
     ...codexE2ERuntimeArguments(),
     "--ignore-user-config",
     "--ignore-rules",
@@ -65,18 +231,20 @@ export const codexE2ELaunchContract = (input: {
     'approval_policy="on-request"',
     "-c",
     'approvals_reviewer="auto_review"',
+    "-c",
+    `default_permissions=${JSON.stringify(CODEX_E2E_PERMISSION_PROFILE)}`,
+    "-c",
+    permissionProfile,
   ] as const;
   return Object.freeze({
     environment: Object.freeze({ HOME: input.isolatedHome, CODEX_HOME: input.codexHome }),
     initial: Object.freeze({
       program,
+      workingDirectory: input.repositoryRoot,
       arguments: Object.freeze([
         "exec",
         ...common,
-        "--sandbox",
-        "workspace-write",
-        "--add-dir",
-        input.isolatedHome,
+        ...repositoryTrust,
         "--cd",
         input.repositoryRoot,
         "--json",
@@ -86,14 +254,12 @@ export const codexE2ELaunchContract = (input: {
     }),
     resume: Object.freeze({
       program,
+      workingDirectory: input.repositoryRoot,
       arguments: Object.freeze([
         "exec",
         "resume",
         ...common,
-        "-c",
-        'sandbox_mode="workspace-write"',
-        "-c",
-        `sandbox_workspace_write.writable_roots=[${JSON.stringify(input.isolatedHome)}]`,
+        ...repositoryTrust,
         "--json",
         ...hardening,
         "<session-id>",

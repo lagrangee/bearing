@@ -38,6 +38,7 @@ describe("repository setup review regressions", () => {
     expect(pointer).toContain("repository-independent conversation");
     expect(pointer).toContain("contextual guidance, not an executable hook");
     expect(pointer).not.toContain("bearing configure inspect");
+    expect(pointer).toMatch(/functional operation validates[\s\S]*lifecycle/iu);
     expect(pointer).not.toContain("activation check");
   });
 

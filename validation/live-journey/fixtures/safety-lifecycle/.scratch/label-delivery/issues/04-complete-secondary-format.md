@@ -1,10 +1,10 @@
 # 04 — Complete secondary label formatting
 
-**Type:** task
+**What to build:** Complete and verify secondary label formatting.
 
-**Blocked by:** None — can start immediately
+Blocked by: None — can start immediately
 
-**Status:** claimed
+Status: claimed
 
 - [x] Primary labels are trimmed and uppercased.
 - [ ] Secondary labels are trimmed and lowercased.

@@ -13,8 +13,9 @@ and repeatable release validation.
 
 - Agent-mediated installation from the public README through the package-owned installation guide,
   complete bundle install, Agent Skill Directory integration, and explicit project setup handoff.
-- A reusable three-Journey, 18-Case Codex Live Matrix with separate Human-run Claude Code and
-  WorkBuddy compatibility lanes.
+- A reusable behavior-driven Codex Live Matrix with independent Scenarios, exact package identity,
+  Coordinator semantic evaluation, and separate Human-run Claude Code and WorkBuddy compatibility
+  lanes.
 - Read-only public release verification for npm provenance, immutable GitHub release identity,
   Pages source, and public user-entry routes.
 
@@ -34,10 +35,13 @@ and repeatable release validation.
 
 - Public JavaScript API: none. The supported surface is the `bearing` CLI and package-owned Agent
   Surface bundle.
-- Bearing 0.1.1 does not migrate, downgrade, dual-read, or apply compatibility fallback to the
-  0.1.0 repository integration or another incompatible Public Preview schema.
-- Recovery requires explicit user-authorized removal of the old repository integration before a
-  new Fresh Setup. Detection of old state never authorizes automatic deletion.
+- Bearing 0.1.1 recognizes the exact 0.1.0 repository source and can return Repository Update
+  Required with a package-owned, Human-confirmed semantic update guide. Canonical state already
+  matches the target schema and stays byte-for-byte unchanged; the Agent updates the named manifest
+  fields and rebuilds, rather than migrates, the disposable Project Read Model.
+- Newer repository state requires a newer kit. Unknown, corrupt, or unmatched old state remains
+  unchanged and Unsupported. Bearing does not provide a generic migration engine, downgrade,
+  dual-read, or compatibility fallback, and detection never authorizes automatic deletion.
 - Public Preview versions may make documented breaking changes.
 
 ## 0.1.0 - 2026-07-21

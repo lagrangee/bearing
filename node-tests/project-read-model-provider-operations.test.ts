@@ -423,6 +423,18 @@ test("exact reconciliation returns complete readback and never broadens a failed
     assert.ok(retained?.observation !== undefined);
     assert.equal(retained.selection.effectiveFreshness, "current");
     assert.equal(retained.selection.latestAttempt?.outcome, "failed");
+
+    const repeated = await reconcileProjectNative(fixture.root, {
+      binding: { provider: "matt-skills/v1", nativeScope: ".scratch/scope-001" },
+      subjects: [fixture.nativeLocator],
+      relations: [],
+    });
+    assert.equal(repeated.outcome, "unfulfilled");
+    assert.equal(repeated.result.acquisitionCount, 0);
+    const afterRepeatedRequest = (await readProjectProviderEvidence(fixture.root, "bound")).find(
+      (entry) => entry.selection.nativeScope === ".scratch/scope-001",
+    );
+    assert.equal(afterRepeatedRequest?.selection.latestAttempt?.outcome, "failed");
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

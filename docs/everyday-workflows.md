@@ -14,6 +14,20 @@ Check this request against current direction, accepted decisions, and active wor
 
 Expected result: the agent either confirms fit with sources or exposes a conflict.
 
+When a feature request has an explicit or high-confidence material relationship to accepted
+Bearing commitments, the agent performs one minimal read-only orientation and shows only the
+related proposed native scopes. You choose whether each related scope enters Bearing Scope through
+an Effort and Work Binding, or remains Standalone Native Work. A standalone choice continues
+normally; Bearing does not force enrollment. A Bearing Scope choice does not accept undisclosed
+Roadmap, Gate, Effort, or native planning content. The agent shows that complete candidate for your
+acceptance before writing it.
+
+A high-confidence material planning opportunity without that relationship can receive one
+proportionate, owner-specific recommendation. It is resolved before delivery only when it changes
+delivery scope or coordination; otherwise delivery remains usable and the recommendation can come
+later. It does not require a scope disposition or automatic enrollment. An ordinary feature
+continues through normal delivery without either workflow.
+
 ## Run Bearing Project Orientation
 
 Ask:

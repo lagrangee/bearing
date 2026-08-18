@@ -89,15 +89,20 @@ bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanTok
 
 Deactivation removes the managed pointer and disposable cache. It preserves canonical state,
 Provider Configuration, profiles, artifacts, and native work. Catalog unregister is a later,
-independently reported stage. Unsupported Preview state is removal-required. Bearing has no
-built-in migration, cutover, silent repair, or repository Purge. Repository removal is an external,
-explicitly authorized, Agent-reviewed platform operation followed by Fresh Configuration.
+independently reported stage. One listed older Preview source can return Repository Update Required
+with a package-owned, Human-confirmed semantic update guide. The Agent validates canonical state
+and updates it only when that guide requires a semantic change; the disposable Project Read Model
+is rebuilt, not migrated. Newer state returns Kit Update Required. Unknown or corrupt state remains
+Unsupported and unchanged. Bearing has no generic built-in migration, compatibility
+fallback, cutover, silent repair, or repository Purge. Repository removal is a separate, explicitly
+authorized, Agent-reviewed platform operation.
 
 The managed pointer gives contextual nomination guidance. Explicit Bearing requests, reliable
-continuations, and materially relevant planning or governance work can nominate Bearing. The
-working directory, generic roadmap words, repository-independent conversation, and ordinary code
-work do not nominate it. Functional operations validate Active lifecycle before cache creation,
-provider I/O, or mutation.
+direct continuations, and reasonable material planning or governance relevance can nominate
+Bearing. The working directory, generic roadmap words, repository-independent conversation, and
+ordinary non-governance code or documentation work do not nominate it. Configure Inspect reports
+an edited managed block as `drifted`. Functional operations validate Active lifecycle before cache
+creation, provider I/O, or mutation.
 
 ## Project Read Model operations
 

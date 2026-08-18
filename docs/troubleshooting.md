@@ -90,10 +90,15 @@ work. It removes managed pointers and disposable cache. Catalog unregister runs 
 reports a failure separately. An unsafe `.bearing` namespace or manifest fails closed before any
 write.
 
-Bearing has no built-in repository Purge, migration, cutover, recovery export, or quarantine path.
-If an Unsupported Preview repository is removal-required, inspect exact paths, get explicit user
-authorization, use an Agent-reviewed external platform removal, and then run Fresh Repository
-Configuration. Do not use `catalog unregister` as a substitute for repository removal.
+Bearing has no generic built-in repository migration, compatibility fallback, Purge, cutover,
+recovery export, or quarantine path. A listed supported older Preview source can return
+`repository-update-required`; follow the package-owned guide, show the complete semantic effect,
+and wait for Human confirmation. Validate canonical state, apply only the guide's accepted write
+scope, then rebuild the disposable Project Read Model. Do not edit SQLite rows. A newer repository
+returns `kit-update-required` and keeps repository bytes unchanged. Unknown or corrupt state
+remains Unsupported and unchanged. If the Human separately chooses
+repository removal, inspect exact paths and obtain explicit authorization. Do not use
+`catalog unregister` as a substitute for repository removal.
 
 Wizard Global Uninstall removes only the Global Kit bundle, CLI shim, and Bearing-managed Agent
 Surface pointers. It preserves the Project Catalog and repository state. Repository Deactivation

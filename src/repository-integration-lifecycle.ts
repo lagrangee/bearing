@@ -1,5 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
+import packageMetadata from "../package.json";
 import { inspectInstallPath } from "./install-boundary";
 import { isRepositoryPathBoundaryError, readContainedFile } from "./path-boundary";
 import { repositoryManifestSchema } from "./schema-definitions";
@@ -7,13 +9,38 @@ import { repositoryManifestSchema } from "./schema-definitions";
 const MAXIMUM_REPOSITORY_MANIFEST_BYTES = 64 * 1024;
 
 export type RepositoryIntegrationLifecycle = Readonly<{
-  kind: "fresh" | "active" | "deactivated" | "invalid-or-unsupported";
+  kind:
+    | "fresh"
+    | "active"
+    | "deactivated"
+    | "repository-update-required"
+    | "kit-update-required"
+    | "invalid-or-unsupported";
   reason: string;
+  update?: Readonly<{
+    fromPackageVersion: string;
+    toPackageVersion: string;
+    guide: "references/journeys/update.md";
+  }>;
+  repositorySchemaVersion?: number;
+  runtimeSchemaVersion?: 1;
 }>;
 
 const invalidLifecycle = (reason: string): RepositoryIntegrationLifecycle => ({
   kind: "invalid-or-unsupported",
   reason,
+});
+
+const preview010ManifestSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  packageVersion: z.literal("0.1.0"),
+  surfaces: z
+    .array(z.enum(["agent-skills", "claude"]))
+    .min(1)
+    .refine((surfaces) => new Set(surfaces).size === surfaces.length),
+  executorProfiles: z
+    .array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u))
+    .refine((profiles) => new Set(profiles).size === profiles.length),
 });
 
 export const inspectRepositoryIntegrationLifecycle = async (
@@ -96,12 +123,31 @@ export const inspectRepositoryIntegrationLifecycle = async (
     Number.isInteger(parsed.schemaVersion) &&
     parsed.schemaVersion > 1
   ) {
-    return invalidLifecycle(
-      `Repository uses newer Bearing schema ${parsed.schemaVersion}; this runtime reads schema 1 only.`,
-    );
+    return {
+      kind: "kit-update-required",
+      reason: `Repository uses newer Bearing schema ${parsed.schemaVersion}; the installed Kit reads schema 1 only.`,
+      repositorySchemaVersion: parsed.schemaVersion,
+      runtimeSchemaVersion: 1,
+    };
+  }
+  const preview010Manifest = preview010ManifestSchema.safeParse(parsed);
+  if (preview010Manifest.success && packageMetadata.version === "0.1.1") {
+    return {
+      kind: "repository-update-required",
+      reason:
+        "The repository uses the supported 0.1.0 Preview shape and requires the Agent-guided 0.1.1 repository update.",
+      update: {
+        fromPackageVersion: "0.1.0",
+        toPackageVersion: "0.1.1",
+        guide: "references/journeys/update.md",
+      },
+    };
   }
   const lifecycleManifest = repositoryManifestSchema.safeParse(parsed);
-  if (lifecycleManifest.success) {
+  if (
+    lifecycleManifest.success &&
+    lifecycleManifest.data.packageVersion === packageMetadata.version
+  ) {
     return {
       kind: lifecycleManifest.data.status,
       reason:
