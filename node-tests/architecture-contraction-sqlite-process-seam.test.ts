@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import packageMetadata from "../package.json";
 import { readCatalogDocument, upsertCatalogEntry } from "../src/catalog/store";
 import { resolveRepositoryRoot } from "../src/path-boundary";
 import { PROJECT_READ_MODEL_PROJECTION_VERSION } from "../src/project-read-model/contract";
@@ -32,7 +33,7 @@ const makeRepository = async (root: string): Promise<void> => {
     join(root, ".bearing/manifest.json"),
     `${JSON.stringify({
       schemaVersion: 1,
-      packageVersion: "0.1.0",
+      packageVersion: packageMetadata.version,
       status: "active",
       surfaces: ["agent-skills"],
       executorProfiles: [],

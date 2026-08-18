@@ -13,7 +13,8 @@ remove project truth, provider configuration, profiles, artifacts, or native wor
 
 1. Present the exact managed pointer and disposable cache removals, preserved canonical state,
    Provider Configuration, profiles, artifacts, and native work, plus the later Catalog unregister
-   effect. Completion: the user accepts the exact boundary.
+   effect. The repository manifest is retained with `status: deactivated`; it is not deleted or
+   removed. Completion: the user accepts the exact boundary.
 2. Use the common sealed plan and Apply sequence for deactivation. Then report Catalog unregister as
    an independent stage. Completion: repository lifecycle and Catalog outcome are both explicit.
 

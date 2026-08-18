@@ -4,6 +4,8 @@
 
 Use for one pending or accepted project-wide or exact-target material decision that requires durable
 coordination across one or more owners.
+Planning Review does not substitute for the Roadmap owner when the Human has already requested an
+independent outcome horizon.
 
 ## Authority
 

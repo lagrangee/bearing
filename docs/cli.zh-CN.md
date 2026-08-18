@@ -86,14 +86,19 @@ bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanTok
 
 Deactivation 移除 managed pointer 与 disposable cache。它保留 canonical state、Provider
 Configuration、profiles、artifacts 与 native work。Catalog unregister 是后续独立报告的 stage。
-Unsupported Preview state 是 removal-required。Bearing 不提供 built-in migration、cutover、silent
-repair 或 repository Purge。Repository removal 是外部、显式授权、由 Agent 审阅的 platform
-operation；完成后再运行 Fresh Configuration。
+一个列明的旧 Preview source 可以返回 Repository Update Required，并提供 package-owned、
+Human-confirmed semantic update guide。Agent 验证 canonical state，只在 guide 要求语义变化时
+更新它，并重建而非迁移 disposable Project Read Model。较新的 state 返回 Kit Update Required；
+未知或损坏的 state 保持 Unsupported 且不变。Bearing
+不提供通用 built-in migration、compatibility fallback、cutover、silent repair 或 repository
+Purge。Repository removal 是独立、显式授权、由 Agent 审阅的 platform operation。
 
-Managed pointer 提供 contextual nomination guidance。显式 Bearing request、可靠 continuation，以及
-有实质 planning 或 governance relevance 的工作可以 nominate Bearing。Working directory、generic
-roadmap words、repository-independent conversation 与 ordinary code work 不会 nominate Bearing。
-Functional operations 会在 cache creation、provider I/O 或 mutation 前验证 Active lifecycle。
+Managed pointer 提供 contextual nomination guidance。显式 Bearing request、可靠的直接
+continuation，以及合理的实质 planning 或 governance relevance 可以 nominate Bearing。Working
+directory、generic roadmap words、repository-independent conversation，以及 ordinary
+non-governance code 或 documentation work 不会 nominate Bearing。Configure Inspect 会把被编辑的
+managed block 报告为 `drifted`。Functional operations 会在 cache creation、provider I/O 或 mutation
+前验证 Active lifecycle。
 
 ## Project Read Model operations
 

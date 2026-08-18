@@ -254,6 +254,40 @@ const snapshotNativeBytes = async (root: string): Promise<Readonly<Record<string
 };
 
 describe("Local Markdown matt-skills/v1 capture", () => {
+  test("accepts a supported contract with several lists inside Conventions", async () => {
+    const root = await writeReferenceRepository();
+    await writeFixture(
+      root,
+      contractLocator,
+      `# Issue tracker: Local Markdown
+
+## Conventions
+
+- Feature specifications use \`.scratch/<feature-slug>/PRD.md\`.
+- Delivery tickets use \`.scratch/<feature-slug>/issues/<NN>-<slug>.md\`.
+- Triage vocabulary is defined by \`triage-labels.md\`.
+
+### Map rules
+
+- Maps have one title and one destination.
+
+### Delivery rules
+
+- Delivery tickets have one acceptance checklist.
+
+## Wayfinding operations
+
+- Read the Map at \`.scratch/<effort>/map.md\`.
+- Read tickets from \`.scratch/<effort>/issues/NN-<slug>.md\`.
+`,
+    );
+
+    const result = await capture(root);
+
+    expect(result.state).toBe("available");
+    expect(result.diagnostics).toEqual([]);
+  });
+
   test("captures the complete reference scope through the public seam without native writes", async () => {
     const root = await writeReferenceRepository();
     const before = await snapshotNativeBytes(root);
@@ -884,6 +918,63 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       nativeCategory: "enhancement",
       nativeState: "custom-ready",
     });
+  });
+
+  test("accepts adjacent provider field lines without a Bearing-specific spacing rule", async () => {
+    const root = await writeReferenceRepository();
+    await writeFixture(
+      root,
+      `${nativeScope}/issues/06-incoming.md`,
+      incoming.replace(
+        "Category: custom-enhancement\n\nStatus: custom-ready",
+        "Category: custom-enhancement\nStatus: custom-ready",
+      ),
+    );
+
+    const result = await capture(root);
+
+    expect(result.state).toBe("available");
+    expect(result.projection?.incomingIssues[0]?.classification).toEqual({
+      category: "enhancement",
+      state: "ready-for-agent",
+      nativeCategory: "custom-enhancement",
+      nativeState: "custom-ready",
+    });
+    expect(result.diagnostics.map(({ code }) => code)).not.toContain(
+      "matt.local.triage.incomplete",
+    );
+  });
+
+  test("does not treat prose, examples, or quotes as provider fields", async () => {
+    const root = await writeReferenceRepository();
+    await writeFixture(
+      root,
+      `${nativeScope}/issues/06-incoming.md`,
+      incoming.replace(
+        "Category: custom-enhancement\n\nStatus: custom-ready",
+        [
+          "This paragraph explains an example value.",
+          "Status: custom-ready",
+          "",
+          "```text",
+          "Category: custom-enhancement",
+          "```",
+          "",
+          "> Category: custom-enhancement",
+        ].join("\n"),
+      ),
+    );
+
+    const result = await capture(root);
+
+    expect(result.state).toBe("available");
+    expect(result.projection?.incomingIssues[0]?.classification).toMatchObject({
+      category: "unknown",
+      state: "unknown",
+    });
+    expect(result.diagnostics.map(({ code }) => code)).not.toContain(
+      "matt.local.triage.incomplete",
+    );
   });
 
   test("keeps non-Wayfinder Map links as native content without inventing decision relations", async () => {

@@ -11,6 +11,7 @@ import {
   queryMarkdownInlineCodes,
   queryMarkdownLinks,
   queryMarkdownList,
+  queryMarkdownLists,
   queryMarkdownPreamble,
   queryMarkdownSection,
   queryMarkdownTable,
@@ -394,15 +395,13 @@ export const parseLocalMattContract = (
     );
     return undefined;
   }
-  const conventionList = queryMarkdownList(file.document, { within: conventions.value });
-  const wayfindingList = queryMarkdownList(file.document, { within: wayfinding.value });
+  const conventionLists = queryMarkdownLists(file.document, { within: conventions.value });
+  const wayfindingLists = queryMarkdownLists(file.document, { within: wayfinding.value });
   const conventionCodes = queryMarkdownInlineCodes(file.document, {
     within: conventions.value,
   });
-  const conventionItems =
-    conventionList.state === "found" ? conventionList.value.items.map((item) => item.text) : [];
-  const wayfindingItems =
-    wayfindingList.state === "found" ? wayfindingList.value.items.map((item) => item.text) : [];
+  const conventionItems = conventionLists.flatMap((list) => list.items.map((item) => item.text));
+  const wayfindingItems = wayfindingLists.flatMap((list) => list.items.map((item) => item.text));
   const specTemplates = [
     ".scratch/<feature-slug>/spec.md",
     ".scratch/<feature-slug>/PRD.md",

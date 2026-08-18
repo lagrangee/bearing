@@ -14,9 +14,11 @@ const journeyReferences = [
   "references/journeys/configure-reactivate.md",
   "references/journeys/configure-deactivate.md",
   "references/journeys/configure-unsupported.md",
+  "references/journeys/update.md",
   "references/journeys/catalog.md",
   "references/journeys/project-orientation.md",
   "references/journeys/scope-review.md",
+  "references/journeys/feature-intake.md",
   "references/journeys/native-work.md",
   "references/journeys/execution.md",
   "references/journeys/next-work.md",
@@ -78,7 +80,9 @@ describe("public Bearing Agent surface", () => {
     const { frontmatter, body } = await readSkill();
     expect(frontmatter).toEqual({
       name: "bearing",
-      description: expect.stringMatching(/explicit Bearing invocation[\s\S]*managed pointer/iu),
+      description: expect.stringMatching(
+        /Use only[\s\S]*explicit Bearing invocation[\s\S]*managed pointer/iu,
+      ),
     });
     expect((frontmatter as { description: string }).description).not.toMatch(
       /repository-dependent request|working directory|ambiguous/iu,
@@ -136,6 +140,7 @@ describe("public Bearing Agent surface", () => {
     expect(body).toMatch(
       /accepted outcome[\s\S]*authority boundary[\s\S]*not[\s\S]*deterministic command[\s\S]*tool call[\s\S]*internal stage/iu,
     );
+    expect(body).not.toMatch(/before the first command[\s\S]*CLI package root/iu);
     expect(body).toMatch(
       /authority[\s\S]*scope[\s\S]*cost[\s\S]*risk[\s\S]*reversibility[\s\S]*collateral effects[\s\S]*ambiguity/iu,
     );
@@ -155,6 +160,21 @@ describe("public Bearing Agent surface", () => {
     );
     expect(execution).toMatch(
       /accepted Ticket outcome[\s\S]*writeback[\s\S]*exact\s+reconciliation[\s\S]*confirmation/iu,
+    );
+  });
+
+  test("stops native execution until one exact reference is selected", async () => {
+    const native = await readRuntime("references/journeys/native-work.md");
+    expect(native).toMatch(
+      /more than one plausible native\s+reference[\s\S]*stop[\s\S]*exact identity/iu,
+    );
+    expect(native).toMatch(/do not batch, order, claim, or\s+execute[\s\S]*candidate/iu);
+  });
+
+  test("states the retained manifest effect for repository deactivation", async () => {
+    const deactivation = await readRuntime("references/journeys/configure-deactivate.md");
+    expect(deactivation).toMatch(
+      /manifest[\s\S]*retained[\s\S]*status[\s\S]*deactivated[\s\S]*not[\s\S]*(?:deleted|removed)/iu,
     );
   });
 
@@ -249,11 +269,44 @@ describe("public Bearing Agent surface", () => {
     expect(variants[2]).toMatch(/Deactivated[\s\S]*reactivat/iu);
     expect(variants[3]).toMatch(/deactivat[\s\S]*preserve[\s\S]*canonical[\s\S]*native work/iu);
     expect(variants[4]).toMatch(/Unsupported[\s\S]*explicit[\s\S]*reviewed[\s\S]*removal/iu);
+    expect(variants[4]).toMatch(
+      /stop before[\s\S]*requested operation[\s\S]*do not use direct repository reads[\s\S]*degraded result/iu,
+    );
+  });
+
+  test("Preview update stays Agent-guided and rebuilds disposable SQLite", async () => {
+    const { body } = await readSkill();
+    const update = await readRuntime("references/journeys/update.md");
+    expect(body).toMatch(
+      /repository-update-required[\s\S]*references\/journeys\/update\.md[\s\S]*kit-update-required[\s\S]*required\s+newer bundle/iu,
+    );
+    expect(update).toMatch(
+      /supported source identit[\s\S]*target package version[\s\S]*installed Skill bundle/iu,
+    );
+    expect(update).toMatch(/complete visible repository update candidate/iu);
+    expect(update).toMatch(/Human confirmation before any write/iu);
+    expect(update).toMatch(
+      /later acceptance[\s\S]*only after[\s\S]*complete candidate is visible/iu,
+    );
+    expect(update).toMatch(/Agent owns semantic[\s\S]*canonical Bearing State/iu);
+    expect(update).toMatch(
+      /supported source identit[\s\S]*target schema[\s\S]*semantic invariant[\s\S]*write scope[\s\S]*validation/iu,
+    );
+    expect(update).toMatch(
+      /repository update[\s\S]*does not authorize[\s\S]*Global Kit maintenance/iu,
+    );
+    expect(update).toMatch(/Project Read Model[\s\S]*disposable[\s\S]*rebuild/iu);
+    expect(update).not.toMatch(
+      /manual SQL|migrate SQLite rows|generic migration engine|complete recovery basis|clean Git checkpoint/iu,
+    );
+    expect(update).toMatch(/unknown[\s\S]*unsupported[\s\S]*preserve/iu);
   });
 
   test("Orientation and Scope Review are one bounded read-only operation", async () => {
     const orientation = await readRuntime("references/journeys/project-orientation.md");
     const review = await readRuntime("references/journeys/scope-review.md");
+    expect(orientation).not.toContain("bearing configure inspect");
+    expect(review).not.toContain("bearing configure inspect");
     expect(orientation).toMatch(
       /Project Context[\s\S]*repository evidence[\s\S]*canonical planning/iu,
     );
@@ -266,6 +319,82 @@ describe("public Bearing Agent surface", () => {
     expect(review).toMatch(/same visible operation[\s\S]*no separate outcome/iu);
     expect(review).toMatch(/discard[\s\S]*inventory[\s\S]*no persist/iu);
     expect(review).toMatch(/Offer[\s\S]*high-cost/iu);
+  });
+
+  test("governance-related feature intake leaves native-scope disposition with the Human", async () => {
+    const { body } = await readSkill();
+    const intake = await readRuntime("references/journeys/feature-intake.md");
+    const [workflow, workflowZh, cli, cliZh] = await Promise.all([
+      readFile("docs/everyday-workflows.md", "utf8"),
+      readFile("docs/everyday-workflows.zh-CN.md", "utf8"),
+      readFile("docs/cli.md", "utf8"),
+      readFile("docs/cli.zh-CN.md", "utf8"),
+    ]);
+    expect(body).toMatch(
+      /feature request[\s\S]*material relationship[\s\S]*accepted[\s\S]*Bearing commitments[\s\S]*Roadmap[\s\S]*Gate[\s\S]*Effort opportunity[\s\S]*references\/journeys\/feature-intake\.md/iu,
+    );
+    expect(BEARING_POINTER).not.toContain("new-feature request");
+    expect(intake).toMatch(/minimal read-only orientation/iu);
+    expect(intake).toMatch(
+      /only[\s\S]*related native scope[\s\S]*Human[\s\S]*Bearing Scope[\s\S]*Standalone Native Work/iu,
+    );
+    expect(intake).toMatch(
+      /unrelated[\s\S]*ordinary native delivery[\s\S]*without[\s\S]*disposition/iu,
+    );
+    expect(intake).toMatch(
+      /high-confidence[\s\S]*relationship[\s\S]*before[\s\S]*implementation/iu,
+    );
+    expect(intake).toMatch(/directly names[\s\S]*accepted Roadmap or Gate/iu);
+    expect(intake).toMatch(
+      /relationship alone creates no Effort, Work Binding, or implementation authority/iu,
+    );
+    expect(intake).toMatch(
+      /limit from[\s\S]*another planning operation[\s\S]*not a disposition[\s\S]*Never reuse[\s\S]*Standalone Native Work/iu,
+    );
+    expect(intake).toMatch(/ordinary\s+feature\s+request[\s\S]*normal native delivery/iu);
+    expect(workflow).toMatch(
+      /high-confidence material relationship[\s\S]*Bearing Scope[\s\S]*Standalone Native Work/iu,
+    );
+    expect(workflow).toMatch(
+      /planning opportunity without that relationship[\s\S]*recommendation[\s\S]*delivery remains usable/iu,
+    );
+    expect(workflowZh).toMatch(
+      /高置信的实质关联[\s\S]*Bearing Scope[\s\S]*Standalone Native Work/iu,
+    );
+    expect(workflowZh).toMatch(
+      /不存在这种关联[\s\S]*planning opportunity[\s\S]*建议[\s\S]*delivery 仍可继续/iu,
+    );
+    expect(cli).toMatch(/reasonable material planning or governance relevance/iu);
+    expect(cliZh).toMatch(/合理的实质 planning 或 governance relevance/iu);
+    for (const document of [workflow, workflowZh, cli, cliZh]) {
+      expect(document).not.toMatch(/material new-feature request/iu);
+    }
+    for (const nonSignal of [
+      "Missing planning objects",
+      "unbound native inspection",
+      "apparent simplicity",
+      "permission to proceed",
+    ]) {
+      expect(intake).toMatch(new RegExp(nonSignal.replaceAll(" ", "\\s+"), "iu"));
+    }
+    expect(intake).toMatch(
+      /Standalone Native Work[\s\S]*normal delivery[\s\S]*without enrollment/iu,
+    );
+    expect(intake).toMatch(
+      /Bearing Scope[\s\S]*authority for the managed branch[\s\S]*does not accept[\s\S]*Roadmap[\s\S]*Gate[\s\S]*Effort[\s\S]*native planning/iu,
+    );
+    expect(intake).toMatch(
+      /complete owner-separated candidate[\s\S]*Human acceptance[\s\S]*before[\s\S]*write/iu,
+    );
+    expect(intake).toMatch(
+      /one answer[\s\S]*complete planning candidate[\s\S]*no complete\s+candidate[\s\S]*only the disposition[\s\S]*no fixed confirmation count/iu,
+    );
+    expect(intake).toMatch(
+      /Roadmap for an outcome horizon[\s\S]*Gate for a\s+decision boundary[\s\S]*Effort for a delivery commitment/iu,
+    );
+    expect(intake).toMatch(
+      /timing remains Agent judgment[\s\S]*before delivery[\s\S]*otherwise[\s\S]*offer it later/iu,
+    );
   });
 
   test("native work and execution preserve owners and exact reconciliation", async () => {
@@ -284,6 +413,24 @@ describe("public Bearing Agent surface", () => {
     expect(execution).toMatch(/refus[\s\S]*no\s+Effort[\s\S]*executor[\s\S]*native mutation/iu);
     expect(execution).toMatch(/concluded Effort[\s\S]*never[\s\S]*reopen/iu);
     expect(execution).toMatch(/lifecycle mismatch[\s\S]*facts only/iu);
+  });
+
+  test("Repository update guide names the supported 0.1.0 source and target invariants", async () => {
+    const update = await readRuntime("references/journeys/update.md");
+    expect(update).toMatch(/supported source identit[\s\S]*0\.1\.0[\s\S]*0\.1\.1/iu);
+    expect(update).toMatch(
+      /target schema[\s\S]*`packageVersion`[\s\S]*`0\.1\.1`[\s\S]*`status: active`/iu,
+    );
+    expect(update).toMatch(
+      /preserve[\s\S]*`schemaVersion`[\s\S]*`surfaces`[\s\S]*`executorProfiles`/iu,
+    );
+    expect(update).toMatch(/canonical[\s\S]*byte-for-byte unchanged/iu);
+    expect(update).toMatch(
+      /`\.bearing\/cache\/project-read-model\.sqlite`[\s\S]*`bearing cache rebuild --repo <repo-root>`/iu,
+    );
+    expect(update).toMatch(
+      /no standard backup format[\s\S]*complete old state[\s\S]*complete target state/iu,
+    );
   });
 
   test("semantic owners retain direct authority and domain-local follow-up", async () => {
@@ -313,7 +460,13 @@ describe("public Bearing Agent surface", () => {
       /validation or publication fails[\s\S]*previous Brief[\s\S]*Generated\s+at/iu,
     );
     expect(roadmap).toMatch(/Complete Roadmap[\s\S]*Extend Horizon[\s\S]*Leave Active for Now/iu);
+    expect(roadmap).toMatch(
+      /Human has decided[\s\S]*independent outcome horizon[\s\S]*Roadmap owner[\s\S]*question/iu,
+    );
     expect(gate).toMatch(/human[\s\S]*Passage[\s\S]*readiness[\s\S]*never/iu);
+    expect(gate).toMatch(
+      /contributing Efforts[\s\S]*before Passage[\s\S]*never require[\s\S]*Gate\s+Passage[\s\S]*Effort/iu,
+    );
     expect(effort).toMatch(/Work Binding[\s\S]*Effort owner/iu);
     expect(effort).toMatch(
       /\*\*Required:\*\*[\s\S]*new or changed[\s\S]*exact-scope[\s\S]*baseline acquisition/iu,
@@ -342,6 +495,9 @@ describe("public Bearing Agent surface", () => {
     expect(audit).toMatch(/reuse[\s\S]*instead of creating a duplicate/iu);
     expect(review).toMatch(/clear direct instruction[\s\S]*accepts one candidate/iu);
     expect(review).toMatch(/completed Review history[\s\S]*later question gets a new identity/iu);
+    expect(review).toMatch(
+      /does not substitute[\s\S]*Roadmap owner[\s\S]*independent outcome horizon/iu,
+    );
     expect(review).toMatch(
       /Audit, Project Read Model operations, Portal use, or evidence completion[\s\S]*changes\s+Review\s+status/iu,
     );

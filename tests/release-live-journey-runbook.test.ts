@@ -37,15 +37,16 @@ describe("reusable release Live Journey runbook", () => {
     ]);
 
     expectInOrder(runbook, [
-      "## 1. Finalize the release source",
-      "## 2. Inspect prerequisites",
-      "## 3. Coordinate Candidate Freeze",
-      "## 4. Enter the exact Candidate locally",
-      "## 5. Run the Codex Matrix",
-      "## 6. Collect Human compatibility",
-      "## 7. Dispatch protected Publication",
-      "## 8. Read back the public release",
-      "## 9. Hand off final evidence",
+      "## 1. Qualify the Matrix locally",
+      "## 2. Finalize the release source",
+      "## 3. Inspect prerequisites",
+      "## 4. Coordinate Candidate Freeze",
+      "## 5. Enter the exact Candidate locally",
+      "## 6. Run the frozen Candidate Matrix",
+      "## 7. Collect Human compatibility",
+      "## 8. Dispatch protected Publication",
+      "## 9. Read back the public release",
+      "## 10. Hand off final evidence",
     ]);
     expect(runbook).toContain("[Codex E2E Policy](codex-e2e.md)");
     expect(runbook).toContain("scripts/run-live-journey.ts --help");
@@ -55,11 +56,38 @@ describe("reusable release Live Journey runbook", () => {
     expect(codexPolicy).toContain('model_reasoning_effort="high"');
   });
 
+  test("separates iterative local rehearsal from release evidence", async () => {
+    const runbook = await read("docs/agents/release-live-journey.md");
+    const rehearsal = runbook.slice(
+      runbook.indexOf("## 1. Qualify the Matrix locally"),
+      runbook.indexOf("## 2. Finalize the release source"),
+    );
+
+    expect(rehearsal).toMatch(/local package[\s\S]*tracked Scenario registry/iu);
+    expect(rehearsal).toMatch(
+      /run one turn at a time[\s\S]*classify[\s\S]*Product, Skill[\s\S]*new Generation/iu,
+    );
+    expect(rehearsal).toMatch(
+      /Runner, broker, sandbox, or harness[\s\S]*package and Matrix[\s\S]*current turn/iu,
+    );
+    expect(rehearsal).toMatch(
+      /semantic judgment[\s\S]*does not require[\s\S]*exact command[\s\S]*provider operation order/iu,
+    );
+    expect(rehearsal).toMatch(/Transient model, network, or credential[\s\S]*bounded retry/iu);
+    expect(rehearsal).toMatch(/cannot prove Candidate readiness/iu);
+    expect(rehearsal).toMatch(
+      /cannot[\s\S]*Candidate readiness[\s\S]*Human compatibility[\s\S]*Publication readiness/iu,
+    );
+    expect(runbook).toMatch(
+      /local package passes[\s\S]*Finalize the release source[\s\S]*Candidate Freeze/iu,
+    );
+  });
+
   test("starts with one reusable source-finalization boundary", async () => {
     const runbook = await read("docs/agents/release-live-journey.md");
     const finalization = runbook.slice(
-      runbook.indexOf("## 1. Finalize the release source"),
-      runbook.indexOf("## 2. Inspect prerequisites"),
+      runbook.indexOf("## 2. Finalize the release source"),
+      runbook.indexOf("## 3. Inspect prerequisites"),
     );
 
     expect(finalization).toMatch(
@@ -102,8 +130,8 @@ describe("reusable release Live Journey runbook", () => {
     );
 
     const compatibility = runbook.slice(
-      runbook.indexOf("## 6. Collect Human compatibility"),
-      runbook.indexOf("## 7. Dispatch protected Publication"),
+      runbook.indexOf("## 7. Collect Human compatibility"),
+      runbook.indexOf("## 8. Dispatch protected Publication"),
     );
     expect(compatibility).toMatch(/missing Human result[\s\S]*missing evidence/u);
     expect(compatibility).toMatch(/`fail` or `anomaly`[\s\S]*exact Candidate identity/u);

@@ -212,9 +212,21 @@ const fieldFromParagraph = (
 
   if (first.type !== "text") return undefined;
   const prefix = separator === "colon" ? `${label}:` : `${label} `;
-  if (!first.value.startsWith(prefix)) return undefined;
   const paragraphText = mdastToString(paragraph);
-  const value = paragraphText.slice(prefix.length).trim();
+  const sourceLines = paragraphText.split(/\r?\n/u);
+  const matchingLines = sourceLines.filter((line) => line.startsWith(prefix));
+  if (matchingLines.length > 1) return { state: "malformed" };
+  const matchingLine = matchingLines[0];
+  if (matchingLine === undefined) return undefined;
+  const matchingIndex = sourceLines.indexOf(matchingLine);
+  const providerFieldLine = /^[A-Z][A-Za-z -]*:\s+\S/u;
+  if (
+    matchingIndex > 0 &&
+    !sourceLines.slice(0, matchingIndex).every((line) => providerFieldLine.test(line))
+  ) {
+    return undefined;
+  }
+  const value = matchingLine.slice(prefix.length).trim();
   if (value.length === 0 || value.startsWith(":")) return { state: "malformed" };
   return { state: "found", value: { label, value } };
 };

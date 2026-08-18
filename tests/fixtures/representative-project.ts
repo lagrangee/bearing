@@ -3,6 +3,7 @@ import { cpus, freemem, homedir, hostname, platform, release, tmpdir, totalmem }
 import { dirname, join } from "node:path";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
+import packageMetadata from "../../package.json";
 import { LOCAL_MATT_CONTRACT, LOCAL_MATT_TRIAGE_LABELS } from "./local-matt-contract";
 
 export type BenchmarkScale = "representative" | "stress";
@@ -90,7 +91,7 @@ const fixtureFiles = (scale: BenchmarkScale): FixtureFile[] => {
       content: `${JSON.stringify(
         {
           schemaVersion: 1,
-          packageVersion: "0.0.0-benchmark",
+          packageVersion: packageMetadata.version,
           status: "active",
           surfaces: ["agent-skills"],
           executorProfiles: [],

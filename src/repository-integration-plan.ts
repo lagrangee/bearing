@@ -51,6 +51,8 @@ export type RepositoryIntegrationPlan = Readonly<{
 export type RepositoryIntegrationBlocker = Readonly<{
   code:
     | "unsafe-repository-target"
+    | "repository-update-required"
+    | "kit-update-required"
     | "unsupported-executor-registration"
     | "unsupported-provider-contract";
   target: string;

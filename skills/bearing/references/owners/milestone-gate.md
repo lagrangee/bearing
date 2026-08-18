@@ -30,6 +30,8 @@ and accepted Passage record. The user alone accepts Passage.
 
 - **Required:** Keep direct Passage evidence, readiness, and human Passage acceptance as separate
   facts.
+- **Required:** Contributing Efforts can produce evidence before Passage. Never require Gate
+  Passage before an accepted contributing Effort is planned or activated.
 - **Consider:** A material accepted Passage may justify Brief refresh or a Roadmap horizon decision.
 - **Do not infer:** Green tests, resolved Tickets, diagnostics, provider completion, or an accepted
   Effort transition passes the Gate.

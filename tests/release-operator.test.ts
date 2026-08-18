@@ -1,10 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { liveJourneyCaseIds } from "../scripts/live-journey-generation";
+import {
+  createLiveScenarioMatrixResult,
+  createLiveScenarioResult,
+} from "../scripts/live-scenario-generation";
+import {
+  createLiveScenarioEvaluation,
+  parseLiveScenarioRegistry,
+} from "../scripts/live-scenario-registry";
+import { liveScenarioDefinitionDigest } from "../scripts/live-scenario-runner";
 import { requiredPackagePaths } from "../scripts/release-boundary";
 import {
   type CandidateManifest,
@@ -22,6 +30,7 @@ import {
   requiredReleaseComponentEffortIds,
   runReleaseOperator,
 } from "../scripts/release-operator";
+import liveScenarioRegistry from "../validation/live-journey/registry.json";
 import { writeTarGzFixture } from "./release-archive-fixture";
 
 const temporaryRoots: string[] = [];
@@ -104,55 +113,79 @@ const makeCandidate = async () => {
   return { root, receipt, receiptPath };
 };
 
-const matrixResult = (receipt: CandidateReceipt) => {
+const writeMatrixResult = async (root: string, receipt: CandidateReceipt) => {
+  const registry = parseLiveScenarioRegistry(liveScenarioRegistry);
+  const matrixDefinitionSha256 = await liveScenarioDefinitionDigest({
+    sourceRoot: process.cwd(),
+    registryPath: "validation/live-journey/registry.json",
+  });
   const candidate = {
+    evidenceClass: "release-candidate" as const,
     packageName: receipt.packageName,
     packageVersion: receipt.packageVersion,
     sourceCommit: receipt.sourceCommit,
     workflow: receipt.workflow,
-    artifact: { file: receipt.artifact.file, sha256: receipt.artifact.sha256 },
-    matrixDefinitionSha256: "b".repeat(64),
-  } as const;
-  const journeys = Object.entries(liveJourneyCaseIds).map(([journey, caseIds], journeyIndex) => ({
-    journey,
-    outcome: "pass" as const,
-    durationMs: 1000,
-    fixtureSha256: String(journeyIndex).repeat(64),
-    result: { pointer: `journey-results/${journey}.json`, sha256: "c".repeat(64) },
-    caseIds,
-  }));
-  return {
-    schemaVersion: 1 as const,
-    generationId: "00000000-0000-4000-8000-000000000016",
-    candidate,
-    matrixDefinitionSha256: candidate.matrixDefinitionSha256,
-    codex: {
-      cliVersion: "codex-cli 0.147.0",
-      requestedModel: "gpt-5.6-luna" as const,
-      requestedReasoningEffort: "high" as const,
+    artifact: {
+      path: join(root, receipt.artifact.file),
+      file: receipt.artifact.file,
+      sha256: receipt.artifact.sha256,
     },
-    coordinatorIdentity: "Codex coordinating agent",
-    semanticEvaluationAuthority: "coordinating-agent" as const,
-    durationMs: 3000,
-    terminalOutcome: "pass" as const,
-    releasePrerequisiteSatisfied: true,
-    journeys: journeys.map(({ caseIds: _caseIds, ...journey }) => journey),
-    cases: journeys.flatMap(({ journey, caseIds }) =>
-      caseIds.map((caseId) => ({
-        caseId,
-        journey,
-        outcome: "pass" as const,
-        judgmentBasis: `Observed ${caseId}.`,
-        evidencePointers: [`${journey}/observations/${caseId.toLowerCase()}.json`],
-      })),
-    ),
-  };
+    matrixDefinitionSha256,
+  } as const;
+  const resultsRoot = join(root, "scenario-results");
+  await mkdir(resultsRoot);
+  const scenarioResults = await Promise.all(
+    registry.scenarios.map(async (scenario, index) => {
+      const result = createLiveScenarioResult({
+        evidenceClass: "release-candidate",
+        generationId: "00000000-0000-4000-8000-000000000016",
+        package: candidate,
+        matrixDefinitionSha256: candidate.matrixDefinitionSha256,
+        codexCliVersion: "codex-cli 0.147.0",
+        coordinatorIdentity: "Codex coordinating agent",
+        startingStateSha256: String(index % 10).repeat(64),
+        durationMs: 1000,
+        evaluation: createLiveScenarioEvaluation({
+          scenario,
+          outcome: "pass",
+          coordinatorIdentity: "Codex coordinating agent",
+          rationale: `Observed ${scenario.id}.`,
+          requiredOutcomeObservations: scenario.requiredOutcomes.map((requirement) => ({
+            requirement,
+            observed: true,
+            evidencePointers: [`observations/${scenario.id}.json`],
+          })),
+          forbiddenOutcomeObservations: scenario.forbiddenOutcomes.map((requirement) => ({
+            requirement,
+            observed: false,
+            evidencePointers: [`observations/${scenario.id}.json`],
+          })),
+        }),
+        ...(scenario.fixture.materializer === "active-github-repository"
+          ? {
+              remoteIntegrity: {
+                repositoryIdentitySha256: "d".repeat(64),
+                authorizedCandidateIssueCount: 1,
+                integritySha256: "e".repeat(64),
+              },
+            }
+          : {}),
+      });
+      const pointer = `scenario-results/${scenario.id}.json`;
+      const bytes = serializeCandidateJson(result);
+      await writeFile(join(root, pointer), bytes);
+      return { result, pointer, sha256: sha256Bytes(Buffer.from(bytes)) };
+    }),
+  );
+  const result = createLiveScenarioMatrixResult({ registry, scenarioResults });
+  const path = join(root, "matrix-result.json");
+  await writeFile(path, serializeCandidateJson(result));
+  return path;
 };
 
 const readyInput = async (): Promise<ReleaseOperatorInput> => {
   const fixture = await makeCandidate();
-  const matrixResultPath = join(fixture.root, "matrix-result.json");
-  await writeFile(matrixResultPath, serializeCandidateJson(matrixResult(fixture.receipt)));
+  const matrixResultPath = await writeMatrixResult(fixture.root, fixture.receipt);
   const identity = {
     packageVersion: fixture.receipt.packageVersion,
     sourceCommit: fixture.receipt.sourceCommit,
@@ -288,6 +321,25 @@ test("dispatches the protected main Publication from exact receipt identity and 
   });
 });
 
+test("rejects a Matrix whose cited Scenario result bytes no longer match", async () => {
+  const input = await readyInput();
+  await writeFile(
+    join(dirname(input.matrixResultPath), "scenario-results/INSTALL-01.json"),
+    "{}\n",
+  );
+  const publication = new FakePublication();
+  const publicSmoke = new FakePublicSmoke();
+
+  const result = await runReleaseOperator(input, { publication, publicSmoke });
+
+  expect(result).toMatchObject({
+    outcome: "blocked",
+    blocker: { stage: "matrix", resumptionPoint: "regenerate-complete-matrix-result" },
+  });
+  expect(publication.dispatches).toEqual([]);
+  expect(publicSmoke.calls).toEqual([]);
+});
+
 test("stops on non-canonical, incomplete, or non-current release prerequisites", async () => {
   const baseline = await readyInput();
   const firstEffort = requiredReleaseComponentEffortIds[0];
@@ -365,49 +417,68 @@ test("stops on non-canonical, incomplete, or non-current release prerequisites",
   }
 });
 
-test("rejects a non-passing or identity-mismatched Matrix before Publication dispatch", async () => {
+test("rejects Matrix summary tampering before Publication dispatch", async () => {
   const baseline = await readyInput();
   const originalMatrix = JSON.parse(await readFile(baseline.matrixResultPath, "utf8")) as Record<
     string,
     unknown
   >;
-  const duplicateCases = structuredClone(originalMatrix["cases"] as unknown[]);
-  duplicateCases[duplicateCases.length - 1] = duplicateCases[0];
-  const nonPassingCases = structuredClone(originalMatrix["cases"] as Record<string, unknown>[]);
-  const failedCase = nonPassingCases[0];
-  if (failedCase === undefined) throw new Error("Matrix fixture has no Cases");
-  failedCase["outcome"] = "fail";
-  const nonPassingJourneys = structuredClone(
-    originalMatrix["journeys"] as Record<string, unknown>[],
+  const originalPackage = originalMatrix["package"] as Readonly<{
+    packageVersion: string;
+    sourceCommit: string;
+    artifact: unknown;
+    matrixDefinitionSha256: string;
+  }>;
+  const duplicateScenarios = structuredClone(originalMatrix["scenarios"] as unknown[]);
+  duplicateScenarios[duplicateScenarios.length - 1] = duplicateScenarios[0];
+  const nonPassingScenarios = structuredClone(
+    originalMatrix["scenarios"] as Record<string, unknown>[],
   );
-  const failedJourney = nonPassingJourneys.find(({ journey }) => journey === failedCase["journey"]);
-  if (failedJourney === undefined) throw new Error("Matrix fixture has no matching Journey");
-  failedJourney["outcome"] = "not-pass";
+  const failedScenario = nonPassingScenarios[0];
+  if (failedScenario === undefined) throw new Error("Matrix fixture has no Scenarios");
+  failedScenario["outcome"] = "fail";
   const scenarios = [
     {
       matrix: {
         ...originalMatrix,
-        journeys: nonPassingJourneys,
-        cases: nonPassingCases,
+        scenarios: nonPassingScenarios,
         terminalOutcome: "not-pass",
         releasePrerequisiteSatisfied: false,
       },
       stage: "matrix",
-      resumptionPoint: "complete-one-passing-matrix-generation",
+      resumptionPoint: "regenerate-complete-matrix-result",
     },
     {
       matrix: {
         ...originalMatrix,
-        candidate: {
-          ...(originalMatrix["candidate"] as Record<string, unknown>),
+        evidenceClass: "local-rehearsal",
+        package: {
+          evidenceClass: "local-rehearsal",
+          packageName: "@lagrangee/bearing",
+          packageVersion: originalPackage.packageVersion,
+          sourceHead: originalPackage.sourceCommit,
+          worktreeSha256: "d".repeat(64),
+          artifact: originalPackage.artifact,
+          matrixDefinitionSha256: originalPackage.matrixDefinitionSha256,
+        },
+        releasePrerequisiteSatisfied: false,
+      },
+      stage: "matrix",
+      resumptionPoint: "regenerate-complete-matrix-result",
+    },
+    {
+      matrix: {
+        ...originalMatrix,
+        package: {
+          ...(originalMatrix["package"] as Record<string, unknown>),
           sourceCommit: "d".repeat(40),
         },
       },
-      stage: "candidate-identity",
-      resumptionPoint: "restart-candidate-freeze-and-full-matrix",
+      stage: "matrix",
+      resumptionPoint: "regenerate-complete-matrix-result",
     },
     {
-      matrix: { ...originalMatrix, cases: duplicateCases },
+      matrix: { ...originalMatrix, scenarios: duplicateScenarios },
       stage: "matrix",
       resumptionPoint: "regenerate-complete-matrix-result",
     },

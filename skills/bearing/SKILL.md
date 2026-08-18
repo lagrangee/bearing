@@ -1,6 +1,6 @@
 ---
 name: bearing
-description: Use for explicit Bearing invocation or when the current repository's Repository Configuration managed pointer nominates this skill.
+description: Use only for explicit Bearing invocation or when the current repository's Repository Configuration managed pointer nominates Bearing for this request; otherwise use normal Agent behavior.
 ---
 
 # Bearing
@@ -62,8 +62,11 @@ paths below are relative to this `SKILL.md`.
   lifecycle and revision facts, provider acquisition, exact reconciliation, SQLite publication,
   and typed diagnostics. They fail closed and return their typed outcomes. They do not expand scope,
   choose semantic recovery, or translate failure into success.
-- Repository Configuration alone owns deterministic Inspect, sealed Plan, and Apply because it
-  changes machine-owned configuration and managed pointers.
+- Repository Configuration owns ordinary deterministic Inspect, sealed Plan, and Apply because it
+  changes machine-owned configuration and managed pointers. A package-owned Repository Update
+  guide may authorize Agent-owned semantic edits for one supported source identity, plus the
+  manifest fields named by that guide, after the Human accepts the complete update candidate. This
+  narrow exception is not generic configuration mutation.
 - Work Management owns native status, claim, blockers, dependencies, checklists, Answer, and
   resolution. Execution owns implementation, tests, review, commit, and its own outcome.
 - Portal is read-oriented. It does not authorize canonical or native mutation.
@@ -108,6 +111,10 @@ All runtime references are selected here. No reference routes onward to another 
   `references/journeys/configure-deactivate.md`.
 - For Invalid or Unsupported state, load
   `references/journeys/configure-unsupported.md`.
+- When a functional operation returns `repository-update-required`, load
+  `references/journeys/update.md`. When it returns `kit-update-required`, keep the repository
+  unchanged, present the separate Global Kit target, obtain any authority not already supplied by
+  an explicit Kit request, install the required newer bundle, and retry the original operation.
 - For Project Catalog inspect, rename, unregister, relink, or reset, load
   `references/journeys/catalog.md`.
 - For an explicit Active-project Project Orientation or an accepted Fresh offer, load
@@ -117,6 +124,9 @@ All runtime references are selected here. No reference routes onward to another 
   when the user explicitly excludes existing-work evidence.
 - For an explicit whole-project Scope Review outside Orientation, load
   `references/journeys/scope-review.md`.
+- For a feature request with an explicit or high-confidence material relationship to accepted
+  Bearing commitments, or a high-confidence material Roadmap, Gate, or Effort opportunity, load
+  `references/journeys/feature-intake.md`.
 - For native Work Management or a known native write, load
   `references/journeys/native-work.md`.
 - For direct executor invocation, load

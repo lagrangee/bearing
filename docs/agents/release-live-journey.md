@@ -20,9 +20,14 @@ evidence reuse after a Matrix definition change. The Matrix generation ID stays 
 that uses the Matrix must match the Release Candidate identity, Matrix definition digest, and
 generation ID.
 
-A change to the product, Skill, release-facing documentation, fixture, Journey, Case contract, or
-release workflow invalidates the Candidate. Start Candidate Freeze and the full three-Journey Matrix
-again. Never combine evidence from different identities.
+A change to the product, Skill, release-facing documentation, Fixture, Scenario contract, Matrix
+registry, or release workflow invalidates the Candidate. Start Candidate Freeze and the complete
+Matrix again. Never combine evidence from different identities.
+
+Use a local Matrix rehearsal before this formal release sequence. Rehearsal and frozen-Candidate
+proof use the same tracked Scenario registry, Codex policy, black-box interaction, and
+Coordinator judgment. Their evidence classes stay separate: rehearsal finds and fixes defects;
+only the later frozen-Candidate Matrix can satisfy the release prerequisite.
 
 ## Human checkpoints
 
@@ -35,10 +40,51 @@ again. Never combine evidence from different identities.
 4. Final Gate decision — present the separated evidence after public readback and ask the Human to
    accept or reject Gate Passage.
 
-The Human does not need the Matrix Case order, release commands, retry rules, or evidence schema.
+The Human does not need the Scenario registry details, release commands, retry rules, or evidence schema.
 Report a blocker and its resumption point when the next checkpoint is not ready.
 
-## 1. Finalize the release source
+## 1. Qualify the Matrix locally
+
+Build one local package and freeze the complete tracked Scenario registry and Fixture definition.
+Run every independent Scenario as `local-rehearsal` evidence. This evidence can find product and
+harness defects. It cannot prove Candidate readiness, Human compatibility, Publication readiness,
+or Gate Passage.
+
+Before packaging, run the Matrix preflight and complete the Coordinating Agent semantic review in
+`validation/live-journey/generation.md`. Use its stabilization probes and convergence checkpoints
+until the definitions and package are stable. These checks do not replace the final complete local
+Generation.
+
+Use the loop in `validation/live-journey/generation.md`. Run one turn at a time. When a turn does
+not pass, classify the cause before any change:
+
+- Product, Skill, release-facing document, prompt semantic, Fixture, or Matrix registry: repack,
+  create a new Generation, and restart the affected Scenario first as a regression probe. Earlier
+  Scenario passes are only historical diagnostics and do not enter the new Matrix result. After
+  the probe passes, run every registered Scenario in that Generation before completing the Matrix.
+- Runner, broker, sandbox, or harness: keep the Generation only when visible package and Matrix
+  identities remain exact. Rerun the current turn once from its recorded local checkpoint only when
+  remote state is unchanged. Restart that Scenario from a fresh Fixture after unrecorded local
+  drift, any remote effect, or a crossed turn boundary.
+- Transient model, network, or credential failure before behavior: preserve the attempt and permit
+  one bounded retry of the same turn.
+- Semantic failure: do not resample it. Record the Coordinator verdict. Continue other independent
+  Scenarios only while the Generation remains active; an accepted identity-changing fix abandons
+  it immediately.
+
+The Coordinating Agent uses semantic judgment from the complete observations. It does not require
+an exact command, file, confirmation count, or provider operation order. Deterministic tests remain
+the authority for provider shape and harness mechanics.
+
+Continue until one local package passes every registered Scenario. A failed-Scenario-first probe
+reduces feedback time but is not Matrix evidence by itself. Merge accepted fixes through protected
+`main`, then begin source finalization. The frozen Candidate runs the complete Matrix again because
+its source, bytes, workflow identity, and evidence class differ.
+
+Completion criterion: one current local package passes the complete Matrix and every accepted fix
+is ready to enter protected `main`, without creating Candidate or public release state.
+
+## 2. Finalize the release source
 
 Start this stage only after all accepted Candidate-sensitive product, Skill, documentation, Matrix,
 release-workflow, and deterministic-cleanup changes are in protected `main`. Confirm that no other
@@ -63,7 +109,7 @@ Private evidence capture does not change the source identity.
 Completion criterion: one exact main source is final, has successful required CI, and is ready for
 the component-owned Candidate Freeze without creating Candidate or public release state.
 
-## 2. Inspect prerequisites
+## 3. Inspect prerequisites
 
 Reload current canonical lifecycle facts and current provider or CI evidence. Confirm all of these
 facts before Candidate Freeze:
@@ -81,7 +127,7 @@ conflicting, stop and identify the exact prerequisite owner and resumption point
 
 Completion criterion: every required prerequisite has a current, identity-bearing source of truth.
 
-## 3. Coordinate Candidate Freeze
+## 4. Coordinate Candidate Freeze
 
 Dispatch the component-owned Candidate Freeze for the exact source commit and package version. Wait
 for its successful terminal result. Download the private Candidate artifact and verify the Candidate
@@ -94,39 +140,43 @@ not the Candidate.
 Completion criterion: one verified Candidate Receipt and its matching frozen tarball are available
 locally, and their source commit still satisfies the release prerequisites.
 
-## 4. Enter the exact Candidate locally
+## 5. Enter the exact Candidate locally
 
-Use the tracked support runner to prepare a fresh local generation. Read
-`bun scripts/run-live-journey.ts --help` for the current command surface. Supply the verified
-Candidate Receipt, matching tarball, exact source root, a fresh workspace, and a fresh isolated Agent
-home.
+Use `prepare-candidate-package` to bind the verified Receipt, matching tarball, exact source
+checkout, executing runner checkout, and current tracked Matrix definition. The generated package
+basis retains the Receipt locator and digest; each Scenario preparation revalidates the basis,
+Receipt, tarball package metadata, and exact checkout before Agent behavior. Choose one new
+Generation UUID. Use
+`prepare-scenario` for every registry entry with that same package and Generation. Give each
+Scenario a new external workspace and the same operator authentication source.
+Read `bun scripts/run-live-journey.ts --help` for the current command surface.
 
-Use the generated ignored `README.local.md` as the installation entry. It lets an Agent follow the
-real public installation behavior while consuming frozen local bytes. Verify the generated Candidate
-manifest, local entry overlay, fixture, and Matrix digest before an Agent turn starts. Do not install
-from mutable source or public `latest`.
+The generated `README.local.md` lets the installation Scenario follow the public Agent guidance
+while consuming frozen local bytes. Other Scenarios receive the installed exact package and their
+verified precondition. `DELIVERY-02` also receives the fixed private validation checkout. The
+runner validates package, registry, Fixture, remote identity, and prompt bytes before turn 1. Do not
+install from mutable source or public `latest`.
 
-Completion criterion: the local manifest and overlay resolve to the verified Candidate identity and
-the prepared generation has no identity mismatch.
+Completion criterion: every Scenario manifest resolves to the same verified Candidate, Matrix
+digest, Generation, and required isolated baseline.
 
-## 5. Run the Codex Matrix
+## 6. Run the frozen Candidate Matrix
 
-Follow the tracked Matrix manifest, English Journey instructions, and support-runner interfaces. Run
-the Clean, GitHub, and Safety Journeys as one generation. The Coordinating Agent evaluates all 18
-Cases from conversation, tool activity, before-and-after state, provider outcomes, diagnostics, typed
-Inspect, and Portal readback. Journey Agent self-report and deterministic tooling are not semantic
-pass authorities.
+Follow `validation/live-journey/registry.json`, the Codex E2E policy, and the support-runner
+interface. Run every independent Scenario. The Coordinating Agent evaluates each Scenario from the
+complete conversation, tool activity, before-and-after state, provider outcomes, diagnostics,
+typed Inspect, and relevant Portal or remote readback. The Scenario Agent's self-report and
+deterministic tooling are not semantic pass authorities.
 
-Continue independent Journeys after a semantic failure to collect the issue set. Mark dependent or
-contaminated Cases `not-run`. A pre-behavior model, network, credential, or harness block can resume
-only the affected Journey with the same Candidate and Matrix identities in a fresh fixture. A
-semantic failure is not resampled. An identity or tracked-definition change requires a new full
-generation.
+Continue independent Scenarios after a semantic failure while the Candidate Generation remains
+active. Apply the same recovery classification as the local rehearsal. A changed Candidate or
+tracked definition abandons the Generation and requires a new complete Generation. Never carry a
+Scenario pass across that identity change.
 
-Completion criterion: the single typed Matrix result records all 18 required Cases. Release
-readiness requires every Case to be `pass`.
+Completion criterion: the single typed Matrix result records every registered Scenario. Release
+readiness requires every Scenario to be `pass`.
 
-## 6. Collect Human compatibility
+## 7. Collect Human compatibility
 
 Give Claude Code and WorkBuddy the same exact Candidate used by Codex. Then proactively request one
 result for each attended lane. The Human can use the real product at a practical depth. Each lane
@@ -140,7 +190,7 @@ must cover these checkpoints in one coherent flow:
 6. Exact reconciliation and typed or Portal readback.
 7. A truthful outcome that matches observed state.
 
-Do not copy the 18 Codex Cases into either lane. A clean profile, screenshots, full transcript, or
+Do not copy the Codex Scenario registry into either lane. A clean profile, screenshots, full transcript, or
 separate report is not required. Accept the Human's concise `pass`, `fail`, or `anomaly` result with
 enough detail to locate a blocker.
 
@@ -157,7 +207,7 @@ or inferred result. Use a new full generation if the Candidate or tracked behavi
 Completion criterion: both attended lanes have a Human-reported result for the same exact Candidate,
 and both required lanes are `pass` before Publication dispatch.
 
-## 7. Dispatch protected Publication
+## 8. Dispatch protected Publication
 
 Re-read the Candidate Receipt and confirm that component readiness, the Matrix result, both Human
 compatibility results, and Known Exceptions still match its exact identity. Read the package version,
@@ -175,7 +225,7 @@ material identity or semantic change requires fresh protected-environment approv
 Completion criterion: the protected Publication workflow has one truthful terminal outcome for the
 exact Candidate. A partial or failed outcome preserves its actual monotonic prefix.
 
-## 8. Read back the public release
+## 9. Read back the public release
 
 After successful Publication, run the tracked read-only public readback against the Candidate
 Receipt. Verify exact npm identity and provenance, immutable tag target, GitHub Release notes and
@@ -202,7 +252,7 @@ surface with the exact public prefix and resumption point. Preserve already-publ
 Completion criterion: exact public identity and every required user-entry route match the Candidate
 Receipt and intended release content, or the result names the exact incomplete public prefix.
 
-## 9. Hand off final evidence
+## 10. Hand off final evidence
 
 Present component readiness, Candidate proof, the one Matrix result, Claude Code result, WorkBuddy
 result, Publication outcome, public readback, and Known Exceptions as separate facts. Publication,
@@ -219,8 +269,9 @@ make the Gate decision without reconstructing the release sequence.
 ## Failure and resumption
 
 For each stop, report the failed stage, exact Candidate identity when one exists, observed blocker,
-owner, unchanged state, and exact resumption point. Keep evidence already valid for the same identity.
-Restart Candidate Freeze and the full Matrix when a tracked change invalidates that identity.
+owner, recorded current state, and exact resumption point. Keep evidence already valid for the same
+identity. Restart Candidate Freeze and the full Matrix when a tracked change invalidates that
+identity.
 
 A concise blocker is sufficient. Resume from the named stage after its owner restores the required
 fact. Keep the four Human checkpoints as the complete interaction contract; do not create additional

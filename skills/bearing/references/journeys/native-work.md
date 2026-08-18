@@ -13,8 +13,10 @@ managed effects. Provider reads never mutate native work.
 
 ## Operation
 
-1. Resolve the exact native reference and run `bearing inspect --native <native-reference>
-   --repo <repo-root>`. Completion: the local result is bound to one Effort or explicitly unbound.
+1. Resolve the exact native reference. If the request can identify more than one plausible native
+   reference, stop and ask the Human to select the exact identity. Do not batch, order, claim, or
+   execute any approximate candidate. Then run `bearing inspect --native <native-reference> --repo
+   <repo-root>`. Completion: the local result is bound to one Effort or explicitly unbound.
 2. Give Work Management the original request and preserve its contract and outcome. Do not translate
    failed, ambiguous, incomplete, or spec-only results. Completion: native owner effects and
    affected subjects/relations are exact.

@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { parseLiveJourneyGenerationResult } from "./live-journey-generation";
+import { verifyLiveScenarioMatrixResult } from "./live-scenario-generation";
+import { liveScenarioDefinitionDigest } from "./live-scenario-runner";
 import type { PublicReleaseSmokeOptions } from "./public-release-smoke";
 import { verifyReleaseCandidate } from "./release-candidate-lib";
 
@@ -123,8 +123,6 @@ type PublicSmokeResult = Readonly<{
 export interface PublicSmokeCapability {
   run(input: PublicReleaseSmokeOptions): Promise<PublicSmokeResult>;
 }
-
-const readJson = async (path: string): Promise<unknown> => JSON.parse(await readFile(path, "utf8"));
 
 const dispatchFromReceipt = (identity: CandidateIdentity): PublicationDispatch =>
   Object.freeze({
@@ -316,12 +314,10 @@ export const runReleaseOperator = async (
       retainedEvidence: { candidateProof, componentReadiness },
     });
   }
-  const matrixResult = await readJson(input.matrixResultPath)
-    .then(parseLiveJourneyGenerationResult)
-    .then(
-      (value) => ({ value }) as const,
-      (error: unknown) => ({ error }) as const,
-    );
+  const matrixResult = await verifyLiveScenarioMatrixResult(input.matrixResultPath).then(
+    (value) => ({ value }) as const,
+    (error: unknown) => ({ error }) as const,
+  );
   if ("error" in matrixResult) {
     return blocked({
       stage: "matrix",
@@ -332,17 +328,21 @@ export const runReleaseOperator = async (
     });
   }
   const matrix = matrixResult.value;
+  const currentMatrixDefinitionSha256 = await liveScenarioDefinitionDigest({
+    sourceRoot: process.cwd(),
+    registryPath: "validation/live-journey/registry.json",
+  });
   if (
+    matrix.evidenceClass !== "release-candidate" ||
+    matrix.package.evidenceClass !== "release-candidate" ||
     matrix.terminalOutcome !== "pass" ||
     matrix.releasePrerequisiteSatisfied !== true ||
-    matrix.journeys.length !== 3 ||
-    matrix.journeys.some((journey) => journey.outcome !== "pass") ||
-    matrix.cases.length !== 18 ||
-    matrix.cases.some((entry) => entry.outcome !== "pass")
+    matrix.scenarios.some((scenario) => scenario.outcome !== "pass") ||
+    matrix.matrixDefinitionSha256 !== currentMatrixDefinitionSha256
   ) {
     return blocked({
       stage: "matrix",
-      reason: "The complete three-Journey Matrix is not one all-pass release prerequisite.",
+      reason: "The complete Scenario Matrix is not one all-pass release prerequisite.",
       owner: "live-journey-coordinating-agent",
       resumptionPoint: "complete-one-passing-matrix-generation",
       retainedEvidence: {
@@ -353,10 +353,10 @@ export const runReleaseOperator = async (
     });
   }
   const matrixIdentity: CandidateIdentity = {
-    packageVersion: matrix.candidate.packageVersion,
-    sourceCommit: matrix.candidate.sourceCommit,
-    workflow: matrix.candidate.workflow,
-    frozenSha256: matrix.candidate.artifact.sha256,
+    packageVersion: matrix.package.packageVersion,
+    sourceCommit: matrix.package.sourceCommit,
+    workflow: matrix.package.workflow,
+    frozenSha256: matrix.package.artifact.sha256,
   };
   if (!sameCandidateIdentity(matrixIdentity, identity)) {
     return blocked({
