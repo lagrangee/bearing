@@ -6,14 +6,16 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
+  realpath,
   rm,
   symlink,
   utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import {
   assertJourneyAgentPrompt,
   createCodexJourneyEnvironment,
@@ -1173,6 +1175,7 @@ describe("independent Agent Live scenarios", () => {
       sourceHead: "fixture-head",
       worktreeSha256: await localRehearsalWorktreeDigest(process.cwd()),
     } as const;
+    const generationId = "57a55e6d-7f68-4382-9a9d-4f011a79dcc9";
 
     await expect(
       prepareLiveScenarioGeneration({
@@ -1203,6 +1206,7 @@ describe("independent Agent Live scenarios", () => {
       registryPath: "validation/live-journey/registry.json",
       scenarioId: "INSTALL-01",
       codexProgram,
+      generationId,
       package: {
         evidenceClass: "local-rehearsal",
         packageName: "@lagrangee/bearing",
@@ -1223,8 +1227,27 @@ describe("independent Agent Live scenarios", () => {
     expect(verified.scenario.id).toBe("INSTALL-01");
     expect(verified.paths.repository).not.toBe(process.cwd());
     expect(verified.paths.prompts).toHaveLength(1);
+    expect(relative(verified.paths.agentHome, verified.paths.installationEntry)).toBe(
+      "install-source/README.local.md",
+    );
+    expect(relative(verified.paths.agentHome, verified.paths.installationGuide)).toBe(
+      "install-source/agent-installation.md",
+    );
+    expect(await sha256File(join(verified.paths.agentHome, "install-source", "bearing.tgz"))).toBe(
+      await sha256File(tarball),
+    );
+    expect(verified.launch.initial.arguments.join("\n")).toContain(
+      `${JSON.stringify(await realpath(dirname(workspaceRoot)))}="deny"`,
+    );
+    expect(verified.paths.runtimeRoot).not.toContain(verified.scenario.id);
+    for (const scenarioId of expectedScenarioIds) {
+      expect(verified.paths.runtimeRoot).not.toContain(scenarioId);
+    }
     expect(await readFile(verified.paths.prompts[0] as string, "utf8")).toContain(
       verified.paths.installationEntry,
+    );
+    expect(await readFile(verified.paths.installationEntry, "utf8")).toContain(
+      join(verified.paths.agentHome, "install-source", "bearing.tgz"),
     );
     expect(await readFile(join(verified.paths.repository, "README.md"), "utf8")).toContain(
       "Local loop fixture",
@@ -1232,6 +1255,106 @@ describe("independent Agent Live scenarios", () => {
     expect(Bun.file(join(verified.paths.agentHome, ".bearing/kit/current/package.json")).size).toBe(
       0,
     );
+
+    const freshManifest = await prepareLiveScenarioGeneration({
+      sourceRoot: process.cwd(),
+      workspaceRoot: join(root, "fresh-workspace"),
+      operatorCodexHome,
+      registryPath: "validation/live-journey/registry.json",
+      scenarioId: "INSTALL-01",
+      codexProgram,
+      generationId,
+      package: {
+        evidenceClass: "local-rehearsal",
+        packageName: "@lagrangee/bearing",
+        packageVersion: "0.1.1",
+        ...localSourceIdentity,
+        artifact: {
+          path: tarball,
+          file: "bearing.tgz",
+          sha256: await sha256File(tarball),
+        },
+        matrixDefinitionSha256,
+      },
+    });
+    expect(freshManifest.paths.runtimeRoot).not.toBe(manifest.paths.runtimeRoot);
+    expect(
+      (await verifyLiveScenarioGeneration(manifest.paths.manifest)).launch.initial.arguments.join(
+        "\n",
+      ),
+    ).toContain(`${JSON.stringify(freshManifest.paths.runtimeRoot)}="deny"`);
+
+    const collisionWorkspace = join(root, "collision-workspace");
+    const collisionProbe = join(root, ".bearing-live-journey-sibling-probe-collision-workspace");
+    const temporaryRoot = await realpath(tmpdir());
+    const runtimeRootsBefore = (await readdir(temporaryRoot))
+      .filter((name) => name.startsWith("bearing-live-scenario-"))
+      .sort();
+    await writeFile(collisionProbe, "user-owned\n");
+    await expect(
+      prepareLiveScenarioGeneration({
+        sourceRoot: process.cwd(),
+        workspaceRoot: collisionWorkspace,
+        operatorCodexHome,
+        registryPath: "validation/live-journey/registry.json",
+        scenarioId: "INSTALL-01",
+        codexProgram,
+        generationId: "790fd236-988e-4bcb-8055-348d7486d052",
+        package: {
+          evidenceClass: "local-rehearsal",
+          packageName: "@lagrangee/bearing",
+          packageVersion: "0.1.1",
+          ...localSourceIdentity,
+          artifact: {
+            path: tarball,
+            file: "bearing.tgz",
+            sha256: await sha256File(tarball),
+          },
+          matrixDefinitionSha256,
+        },
+      }),
+    ).rejects.toThrow();
+    expect(await readFile(collisionProbe, "utf8")).toBe("user-owned\n");
+    expect(
+      (await readdir(temporaryRoot))
+        .filter((name) => name.startsWith("bearing-live-scenario-"))
+        .sort(),
+    ).toEqual(runtimeRootsBefore);
+    await rm(collisionProbe);
+
+    await writeFile(verified.paths.installationEntry, "# changed\n");
+    await expect(verifyLiveScenarioGeneration(manifest.paths.manifest)).rejects.toThrow(
+      "installation guidance changed",
+    );
+    await rm(workspaceRoot, { recursive: true });
+    await expect(
+      prepareLiveScenarioGeneration({
+        sourceRoot: process.cwd(),
+        workspaceRoot,
+        operatorCodexHome,
+        registryPath: "validation/live-journey/registry.json",
+        scenarioId: "INSTALL-01",
+        codexProgram,
+        generationId,
+        package: {
+          evidenceClass: "local-rehearsal",
+          packageName: "@lagrangee/bearing",
+          packageVersion: "0.1.1",
+          ...localSourceIdentity,
+          artifact: {
+            path: tarball,
+            file: "bearing.tgz",
+            sha256: await sha256File(tarball),
+          },
+          matrixDefinitionSha256,
+        },
+      }),
+    ).rejects.toThrow("already exists");
+    expect(await readFile(verified.paths.installationEntry, "utf8")).toBe("# changed\n");
+    await Promise.all([
+      rm(manifest.paths.runtimeRoot, { recursive: true }),
+      rm(freshManifest.paths.runtimeRoot, { recursive: true }),
+    ]);
   });
 
   test("preserves session and attempt evidence for bounded retries on the first and later turns", async () => {
@@ -1566,6 +1689,7 @@ printf '%s\\n' '{"type":"turn.completed"}'
       ],
     });
     await expect(lstat(manifest.paths.transcripts)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(manifest.paths.runtimeRoot)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(lstat(manifest.paths.agentHome)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(lstat(manifest.paths.sessionState)).rejects.toMatchObject({ code: "ENOENT" });
   });
