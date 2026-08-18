@@ -97,12 +97,20 @@ const blackBoxTerms = /(?:pass criteria|expected commands?|expected files?|matri
 export const assertJourneyAgentPrompt = (
   prompt: string,
   scenarioIds: readonly string[],
+  allowedLocators: readonly string[] = [],
 ): string => {
+  if (allowedLocators.some((locator) => locator.length === 0 || !isAbsolute(locator))) {
+    fail("Journey Agent prompt violates the black-box boundary.");
+  }
+  const semanticPrompt = allowedLocators.reduce(
+    (value, locator) => value.replaceAll(locator, "<agent-visible-locator>"),
+    prompt,
+  );
   if (
     prompt.trim() !== prompt ||
     prompt.length === 0 ||
-    blackBoxTerms.test(prompt) ||
-    scenarioIds.some((scenarioId) => prompt.includes(scenarioId))
+    blackBoxTerms.test(semanticPrompt) ||
+    scenarioIds.some((scenarioId) => semanticPrompt.includes(scenarioId))
   ) {
     fail("Journey Agent prompt violates the black-box boundary.");
   }
