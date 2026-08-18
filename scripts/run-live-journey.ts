@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import packageMetadata from "../package.json";
@@ -1117,21 +1117,36 @@ const evaluateScenario = async (): Promise<void> => {
     remoteIntegrity,
     attempts,
   });
-  if (output.startsWith(`${manifest.paths.transcripts}/`)) {
-    fail("Bounded Scenario result cannot be written inside private transcript storage.");
+  const [outputParent, cleanupDirectories, cleanupSessionState] = await Promise.all([
+    realpath(dirname(output)),
+    Promise.all(
+      [manifest.paths.transcripts, manifest.paths.agentHome].map((path) => realpath(path)),
+    ),
+    realpath(manifest.paths.sessionState),
+  ]);
+  const durableOutput = join(outputParent, basename(output));
+  const outputInCleanupDirectory = cleanupDirectories.some((directory) => {
+    const relation = relative(directory, durableOutput);
+    return (
+      relation === "" ||
+      (!isAbsolute(relation) && relation !== ".." && !relation.startsWith(`..${sep}`))
+    );
+  });
+  if (outputInCleanupDirectory || durableOutput === cleanupSessionState) {
+    fail("Bounded Scenario result cannot be written inside cleanup-owned storage.");
   }
   const durableResult = scanLiveScenarioDurableEvidence({
     value: result,
     configPath: resolve(".gitleaks.toml"),
   });
-  await writeFile(output, durableResult, { flag: "wx" });
+  await writeFile(durableOutput, durableResult, { flag: "wx" });
   await Promise.all([
     rm(manifest.paths.transcripts, { recursive: true }),
     rm(manifest.paths.agentHome, { recursive: true }),
     rm(manifest.paths.sessionState, { force: true }),
   ]);
   process.stdout.write(
-    `${JSON.stringify({ output, scenarioId: result.scenarioId, outcome: result.evaluation.outcome })}\n`,
+    `${JSON.stringify({ output: durableOutput, scenarioId: result.scenarioId, outcome: result.evaluation.outcome })}\n`,
   );
 };
 

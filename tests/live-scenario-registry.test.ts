@@ -8,6 +8,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  symlink,
   utimes,
   writeFile,
 } from "node:fs/promises";
@@ -1444,6 +1445,57 @@ printf '%s\\n' '{"type":"turn.completed"}'
     );
     expect(rejectedEvaluation.exitCode).not.toBe(0);
     await expect(access(rejectedOutput)).rejects.toMatchObject({ code: "ENOENT" });
+    const cleanupOwnedOutput = join(manifest.paths.agentHome, "scenario-result.json");
+    const cleanupScannerRoot = join(root, "cleanup-output");
+    await mkdir(cleanupScannerRoot);
+    const cleanupScannerPath = await acceptingGitleaksPath(cleanupScannerRoot);
+    const rejectedCleanupOutput = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "evaluate-scenario",
+        "--manifest",
+        manifest.paths.manifest,
+        "--verdicts",
+        verdictPath,
+        "--output",
+        cleanupOwnedOutput,
+      ],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, PATH: cleanupScannerPath },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(rejectedCleanupOutput.exitCode).not.toBe(0);
+    expect(rejectedCleanupOutput.stderr.toString()).toContain("cleanup-owned storage");
+    await expect(access(cleanupOwnedOutput)).rejects.toMatchObject({ code: "ENOENT" });
+    const cleanupAlias = join(root, "agent-home-output-alias");
+    await symlink(manifest.paths.agentHome, cleanupAlias, "dir");
+    const aliasedCleanupOutput = join(cleanupAlias, "scenario-result.json");
+    const rejectedAliasedCleanupOutput = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "evaluate-scenario",
+        "--manifest",
+        manifest.paths.manifest,
+        "--verdicts",
+        verdictPath,
+        "--output",
+        aliasedCleanupOutput,
+      ],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, PATH: cleanupScannerPath },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(rejectedAliasedCleanupOutput.exitCode).not.toBe(0);
+    expect(rejectedAliasedCleanupOutput.stderr.toString()).toContain("cleanup-owned storage");
+    await expect(access(aliasedCleanupOutput)).rejects.toMatchObject({ code: "ENOENT" });
     const evaluation = Bun.spawnSync(
       [
         process.execPath,
