@@ -3,7 +3,7 @@ import { cpus, freemem, homedir, hostname, platform, release, tmpdir, totalmem }
 import { dirname, join } from "node:path";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
-import packageMetadata from "../../package.json";
+import packageMetadata from "../../package.json" with { type: "json" };
 import { LOCAL_MATT_CONTRACT, LOCAL_MATT_TRIAGE_LABELS } from "./local-matt-contract";
 
 export type BenchmarkScale = "representative" | "stress";

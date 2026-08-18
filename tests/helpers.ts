@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import packageMetadata from "../package.json";
+import packageMetadata from "../package.json" with { type: "json" };
 import type { ProjectCompilation } from "../src/project-compilation";
 import { buildProjectGeneration } from "../src/project-generation/projection";
 import { LOCAL_MATT_CONTRACT, LOCAL_MATT_TRIAGE_LABELS } from "./fixtures/local-matt-contract";

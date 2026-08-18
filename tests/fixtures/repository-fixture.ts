@@ -1,7 +1,8 @@
-import { cp, mkdtemp, readdir, readFile, rename } from "node:fs/promises";
+import { cp, mkdtemp, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import packageMetadata from "../../package.json" with { type: "json" };
 
 const FIXTURE_ROOT = fileURLToPath(new URL("./repositories/portal-project/", import.meta.url));
 
@@ -13,6 +14,12 @@ export const copyPortalProjectFixture = async (
   await cp(FIXTURE_ROOT, target, { recursive: true, errorOnExist: true });
   await rename(join(target, "_bearing"), join(target, ".bearing"));
   await rename(join(target, "_scratch"), join(target, ".scratch"));
+  const manifestPath = join(target, ".bearing/manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  await writeFile(
+    manifestPath,
+    `${JSON.stringify({ ...manifest, packageVersion: packageMetadata.version }, null, 2)}\n`,
+  );
   return target;
 };
 

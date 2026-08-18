@@ -85,6 +85,28 @@ const rejectingGitleaksPath = async (root: string): Promise<string> => {
   return `${bin}:${process.env["PATH"] ?? "/usr/bin:/bin"}`;
 };
 
+const acceptingGitleaksPath = async (root: string): Promise<string> => {
+  const bin = join(root, "accepting-gitleaks-bin");
+  await mkdir(bin);
+  const program = join(bin, "gitleaks");
+  await writeFile(
+    program,
+    '#!/bin/sh\nif [ "$1" = "version" ]; then echo 8.30.1; exit 0; fi\nif [ "$1" = "stdin" ]; then cat >/dev/null; exit 0; fi\nexit 64\n',
+  );
+  await chmod(program, 0o755);
+  return `${bin}:${process.env["PATH"] ?? "/usr/bin:/bin"}`;
+};
+
+const recordingCodexPermissionProbe = async (root: string): Promise<string> => {
+  const program = join(root, "codex-permission-probe");
+  await writeFile(
+    program,
+    '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$0.args"\n[ "$1" = "sandbox" ] || exit 64\n',
+  );
+  await chmod(program, 0o755);
+  return program;
+};
+
 describe("independent Agent Live scenarios", () => {
   test("keeps current Scenario identity and operator secrets outside Agent input", () => {
     expect(() =>
@@ -1027,7 +1049,12 @@ describe("independent Agent Live scenarios", () => {
         "--output",
         output,
       ],
-      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, PATH: await acceptingGitleaksPath(root) },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
     );
     expect(completed.exitCode).toBe(0);
     expect(JSON.parse(await readFile(output, "utf8"))).toMatchObject({
@@ -1106,6 +1133,7 @@ describe("independent Agent Live scenarios", () => {
     if (packed.exitCode !== 0) throw new Error(packed.stderr.toString());
     await mkdir(operatorCodexHome);
     await writeFile(join(operatorCodexHome, "auth.json"), "{}\n");
+    const codexProgram = await recordingCodexPermissionProbe(root);
     const matrixDefinitionSha256 = await liveScenarioDefinitionDigest({
       sourceRoot: process.cwd(),
       registryPath: "validation/live-journey/registry.json",
@@ -1143,6 +1171,7 @@ describe("independent Agent Live scenarios", () => {
       operatorCodexHome,
       registryPath: "validation/live-journey/registry.json",
       scenarioId: "INSTALL-01",
+      codexProgram,
       package: {
         evidenceClass: "local-rehearsal",
         packageName: "@lagrangee/bearing",
@@ -1157,6 +1186,7 @@ describe("independent Agent Live scenarios", () => {
       },
     });
     expect(manifest.coordinatorIdentity).toBe("codex-coordinator");
+    expect(await readFile(`${codexProgram}.args`, "utf8")).toContain("bearing_live_journey");
     const verified = await verifyLiveScenarioGeneration(manifest.paths.manifest);
 
     expect(verified.scenario.id).toBe("INSTALL-01");
@@ -1426,7 +1456,12 @@ printf '%s\\n' '{"type":"turn.completed"}'
         "--output",
         output,
       ],
-      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, PATH: await acceptingGitleaksPath(root) },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
     );
     expect(evaluation.exitCode).toBe(0);
     expect(JSON.parse(await readFile(output, "utf8"))).toMatchObject({
