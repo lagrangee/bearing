@@ -467,7 +467,11 @@ const prepareCandidatePackage = async (): Promise<void> => {
   );
 };
 
-const promptBytes = async (path: string, scenarioIds: readonly string[]): Promise<string> => {
+const promptBytes = async (
+  path: string,
+  scenarioIds: readonly string[],
+  allowedLocators: readonly string[],
+): Promise<string> => {
   const prompt =
     path === "-"
       ? await new Response(Bun.stdin.stream()).text()
@@ -475,6 +479,7 @@ const promptBytes = async (path: string, scenarioIds: readonly string[]): Promis
   return assertJourneyAgentPrompt(
     prompt.endsWith("\n") ? prompt.slice(0, -1) : prompt,
     scenarioIds,
+    allowedLocators,
   );
 };
 
@@ -512,6 +517,7 @@ type CodexTurnManifest = Readonly<{
     manifest: string;
     manifestDigest: string;
     registry: string;
+    installationEntry: string;
     agentHome: string;
     repository: string;
     prompts: readonly string[];
@@ -573,6 +579,7 @@ const prepareCodexTurn = async (manifest: CodexTurnManifest, turn: number, attem
   const prompt = await promptBytes(
     required("prompt-file"),
     registry.scenarios.map(({ id }) => id),
+    [manifest.paths.installationEntry],
   );
   const environment = createCodexJourneyEnvironment(process.env, manifest.launch.environment);
   const operatorCodexHome = dirname(

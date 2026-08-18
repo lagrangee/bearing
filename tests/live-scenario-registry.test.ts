@@ -120,6 +120,36 @@ describe("independent Agent Live scenarios", () => {
       ]),
     ).toBe("Please complete the installation request.");
 
+    const installationEntry = "/private/tmp/formal-generation/INSTALL-01/README.local.md";
+    const installationPrompt = `Please install Bearing from ${installationEntry}.`;
+    expect(
+      assertJourneyAgentPrompt(installationPrompt, ["INSTALL-01", "ENTRY-01"], [installationEntry]),
+    ).toBe(installationPrompt);
+    expect(() =>
+      assertJourneyAgentPrompt(
+        `${installationPrompt} This is Scenario INSTALL-01.`,
+        ["INSTALL-01", "ENTRY-01"],
+        [installationEntry],
+      ),
+    ).toThrow("black-box");
+    for (const privateTerm of [
+      "pass criteria",
+      "expected command",
+      "expected files",
+      "matrix case",
+    ]) {
+      expect(() =>
+        assertJourneyAgentPrompt(
+          `${installationPrompt} The ${privateTerm} stays private.`,
+          ["INSTALL-01", "ENTRY-01"],
+          [installationEntry],
+        ),
+      ).toThrow("black-box");
+    }
+    expect(() =>
+      assertJourneyAgentPrompt(installationPrompt, ["INSTALL-01", "ENTRY-01"], [""]),
+    ).toThrow("black-box");
+
     const environment = createCodexJourneyEnvironment(
       {
         PATH: "/usr/bin:/bin",
