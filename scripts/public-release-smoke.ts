@@ -73,21 +73,27 @@ const linkedAgentInstallationRoute = (markdown: string, readmeUrl: string): stri
   return new URL(links[0] ?? "", readmeUrl).href;
 };
 
-const loadsDemoDisclosure = (html: string): boolean => {
-  let matches = 0;
+const loadedDemoDisclosureRoute = (html: string, pageUrl: string): string => {
+  const sources: string[] = [];
   sanitizeHtml(html, {
     allowedTags: [],
     allowedAttributes: {},
     transformTags: {
       script: (tagName, attributes) => {
-        if (attributes["src"] === "./mock-data.js" && attributes["type"] === "module") {
-          matches += 1;
+        if (attributes["type"] === "module" && attributes["src"] !== undefined) {
+          sources.push(attributes["src"]);
         }
         return { tagName, attribs: attributes };
       },
     },
   });
-  return matches === 1;
+  if (sources.length !== 1) fail("static demo disclosure module is not unique");
+  const page = new URL(pageUrl);
+  const route = new URL(sources[0] ?? "", page);
+  if (route.origin !== page.origin || !route.pathname.startsWith(page.pathname)) {
+    fail("static demo disclosure module is outside the demo route");
+  }
+  return route.href;
 };
 
 export type PublicReleaseObservation = Readonly<{
@@ -536,23 +542,27 @@ export class LivePublicReleaseSurfaces implements PublicReleaseSurfaces {
     }
     if (demoPage.kind !== "available") {
       entries.demo = demoPage;
-    } else if (!loadsDemoDisclosure(demoPage.value.body)) {
-      entries.demo = {
-        kind: "unverifiable",
-        reason: "static demo disclosure script is not loaded",
-      };
     } else {
-      const disclosure = await this.fetchText(`${routes.demo}mock-data.js`);
-      entries.demo =
-        disclosure.kind === "available"
-          ? {
-              kind: "available",
-              value: {
-                finalUrl: demoPage.value.finalUrl,
-                body: `${demoPage.value.body}\n${disclosure.value.body}`,
-              },
-            }
-          : disclosure;
+      try {
+        const disclosure = await this.fetchText(
+          loadedDemoDisclosureRoute(demoPage.value.body, demoPage.value.finalUrl),
+        );
+        entries.demo =
+          disclosure.kind === "available"
+            ? {
+                kind: "available",
+                value: {
+                  finalUrl: demoPage.value.finalUrl,
+                  body: `${demoPage.value.body}\n${disclosure.value.body}`,
+                },
+              }
+            : disclosure;
+      } catch (error) {
+        entries.demo = {
+          kind: "unverifiable",
+          reason: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
     return entries as PublicReleaseObservation["entries"];
   }
