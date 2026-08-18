@@ -171,7 +171,16 @@ const exactObservation: PublicReleaseObservation = {
     prerelease: false,
     assets: candidate.releaseAssets,
   }),
-  pages: available({ status: "built", sourceCommit: candidate.sourceCommit }),
+  pages: available({
+    status: "success",
+    deploymentSourceCommit: "a".repeat(40),
+    workflowSourceCommit: "a".repeat(40),
+    workflowRunId: 888,
+    workflowPath: ".github/workflows/demo-pages.yml",
+    workflowEvent: "workflow_dispatch",
+    workflowConclusion: "success",
+    artifactSourceCommit: candidate.sourceCommit,
+  }),
   entries: {
     readme: available({
       finalUrl: entryRoutes.readme,
@@ -179,7 +188,7 @@ const exactObservation: PublicReleaseObservation = {
     }),
     agentInstallation: available({
       finalUrl: entryRoutes.agentInstallation,
-      body: "Use the released package with your Skill Directory and stop before repository setup",
+      body: "Use the published package with your Skill Directory and stop before repository setup",
     }),
     demo: available({
       finalUrl: entryRoutes.demo,
@@ -374,6 +383,19 @@ test("live surfaces use only exact-version read-only requests", async () => {
   let readmeBody = exactReadmeBody;
   let demoShell = '<script src="./mock-data.js" type="module"></script>';
   let invocationSourceCommit = candidate.sourceCommit;
+  const pagesWorkflowSourceCommit = "a".repeat(40);
+  let pagesRunSourceCommit = pagesWorkflowSourceCommit;
+  let pagesWorkflowPath = ".github/workflows/demo-pages.yml";
+  let pagesDeployments: readonly { readonly id: number; readonly sha: string }[] = [
+    { id: 777, sha: pagesWorkflowSourceCommit },
+  ];
+  let pagesStatuses: readonly { readonly state: string; readonly log_url: string }[] = [
+    {
+      state: "success",
+      log_url: "https://github.com/lagrangee/bearing/actions/runs/888/job/999",
+    },
+  ];
+  let pagesArtifactName = `github-pages-${candidate.sourceCommit}`;
   const response = (url: string, value: unknown, body = "public entry") =>
     ({
       ok: true,
@@ -465,8 +487,31 @@ test("live surfaces use only exact-version read-only requests", async () => {
         })),
       });
     }
-    if (url.endsWith("/pages/builds/latest")) {
-      return response(url, { status: "built", commit: candidate.sourceCommit });
+    if (url.endsWith("/deployments?environment=github-pages&per_page=1")) {
+      return response(url, pagesDeployments);
+    }
+    if (url.endsWith("/deployments/777/statuses?per_page=1")) {
+      return response(url, pagesStatuses);
+    }
+    if (url.endsWith("/actions/runs/888")) {
+      return response(url, {
+        id: 888,
+        head_sha: pagesRunSourceCommit,
+        path: pagesWorkflowPath,
+        event: "workflow_dispatch",
+        conclusion: "success",
+      });
+    }
+    if (url.endsWith("/actions/runs/888/artifacts?per_page=100")) {
+      return response(url, {
+        artifacts: [
+          {
+            name: pagesArtifactName,
+            expired: false,
+            workflow_run: { id: 888, head_sha: pagesRunSourceCommit },
+          },
+        ],
+      });
     }
     if (url === entryRoutes.readme) {
       return response(url, {}, "canonical public repository page");
@@ -505,7 +550,16 @@ test("live surfaces use only exact-version read-only requests", async () => {
   expect(requests.map((request) => request.url)).toContain(exactReadmeRoute);
   expect(requests.map((request) => request.url)).toContain(entryRoutes.agentInstallation);
   expect(requests.map((request) => request.url)).toContain(
-    "https://api.github.com/repos/lagrangee/bearing/pages/builds/latest",
+    "https://api.github.com/repos/lagrangee/bearing/deployments?environment=github-pages&per_page=1",
+  );
+  expect(requests.map((request) => request.url)).toContain(
+    "https://api.github.com/repos/lagrangee/bearing/deployments/777/statuses?per_page=1",
+  );
+  expect(requests.map((request) => request.url)).toContain(
+    "https://api.github.com/repos/lagrangee/bearing/actions/runs/888",
+  );
+  expect(requests.map((request) => request.url)).toContain(
+    "https://api.github.com/repos/lagrangee/bearing/actions/runs/888/artifacts?per_page=100",
   );
   expect(requests.map((request) => request.url)).toContain(
     "https://api.github.com/repos/lagrangee/bearing/actions/runs/654321/attempts/1",
@@ -557,6 +611,88 @@ test("live surfaces use only exact-version read-only requests", async () => {
     outcome: "incomplete",
     checks: { userEntry: "unverifiable" },
     resumptionPoint: "user-entry:demo",
+  });
+
+  demoShell = '<script src="./mock-data.js" type="module"></script>';
+  pagesStatuses = [
+    {
+      state: "failure",
+      log_url: "https://github.com/lagrangee/bearing/actions/runs/888/job/999",
+    },
+  ];
+  const failedPagesDeployment = await readPublicRelease(
+    candidate,
+    new LivePublicReleaseSurfaces({ fetch: fetchFixture }),
+  );
+  expect(failedPagesDeployment).toMatchObject({
+    outcome: "incomplete",
+    checks: { pages: "conflicting" },
+    resumptionPoint: "pages",
+  });
+
+  pagesStatuses = [
+    {
+      state: "success",
+      log_url: "https://github.com/lagrangee/bearing/actions/runs/888/job/999",
+    },
+  ];
+  pagesArtifactName = `github-pages-${"f".repeat(40)}`;
+  const wrongPagesSource = await readPublicRelease(
+    candidate,
+    new LivePublicReleaseSurfaces({ fetch: fetchFixture }),
+  );
+  expect(wrongPagesSource).toMatchObject({
+    outcome: "incomplete",
+    checks: { pages: "conflicting" },
+    resumptionPoint: "pages",
+  });
+
+  pagesArtifactName = `github-pages-${candidate.sourceCommit}`;
+  pagesRunSourceCommit = "f".repeat(40);
+  const wrongPagesWorkflow = await readPublicRelease(
+    candidate,
+    new LivePublicReleaseSurfaces({ fetch: fetchFixture }),
+  );
+  expect(wrongPagesWorkflow).toMatchObject({
+    outcome: "incomplete",
+    checks: { pages: "conflicting" },
+    resumptionPoint: "pages",
+  });
+
+  pagesRunSourceCommit = pagesWorkflowSourceCommit;
+  pagesWorkflowPath = ".github/workflows/ci.yml";
+  const wrongPagesWorkflowOwner = await readPublicRelease(
+    candidate,
+    new LivePublicReleaseSurfaces({ fetch: fetchFixture }),
+  );
+  expect(wrongPagesWorkflowOwner).toMatchObject({
+    outcome: "incomplete",
+    checks: { pages: "conflicting" },
+    resumptionPoint: "pages",
+  });
+
+  pagesWorkflowPath = ".github/workflows/demo-pages.yml";
+  pagesDeployments = [{ id: 777, sha: pagesWorkflowSourceCommit }];
+  pagesStatuses = [];
+  const missingPagesStatus = await readPublicRelease(
+    candidate,
+    new LivePublicReleaseSurfaces({ fetch: fetchFixture }),
+  );
+  expect(missingPagesStatus).toMatchObject({
+    outcome: "incomplete",
+    checks: { pages: "unverifiable" },
+    resumptionPoint: "pages",
+  });
+
+  pagesDeployments = [];
+  const absentPagesDeployment = await readPublicRelease(
+    candidate,
+    new LivePublicReleaseSurfaces({ fetch: fetchFixture }),
+  );
+  expect(absentPagesDeployment).toMatchObject({
+    outcome: "incomplete",
+    checks: { pages: "absent" },
+    resumptionPoint: "pages",
   });
 });
 

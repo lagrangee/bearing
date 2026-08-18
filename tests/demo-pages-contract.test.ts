@@ -64,31 +64,103 @@ test("the demo exposes one deterministic production Pages build command", async 
   }
 });
 
-test("the Pages workflow validates pull requests and deploys only the verified main artifact", async () => {
+test("the Pages workflow validates main and deploys only one exact public release", async () => {
   const source = await readFile(join(repoRoot, ".github/workflows/demo-pages.yml"), "utf8");
   const workflow = parse(source) as {
     readonly on: {
       readonly pull_request: { readonly branches: readonly string[] };
       readonly push: { readonly branches: readonly string[] };
+      readonly workflow_dispatch: {
+        readonly inputs: Readonly<
+          Record<string, { readonly required: boolean; readonly type: string }>
+        >;
+      };
     };
     readonly permissions: Readonly<Record<string, unknown>>;
     readonly jobs: Readonly<Record<string, unknown>>;
   };
   expect(workflow.on.pull_request.branches).toEqual(["main"]);
   expect(workflow.on.push.branches).toEqual(["main"]);
+  expect(workflow.on.workflow_dispatch.inputs).toMatchObject({
+    version: { required: true, type: "string" },
+    source_commit: { required: true, type: "string" },
+    candidate_workflow_name: { required: true, type: "string" },
+    candidate_run_id: { required: true, type: "string" },
+    candidate_run_attempt: { required: true, type: "string" },
+    frozen_sha256: { required: true, type: "string" },
+  });
   expect(workflow.permissions).toEqual({});
 
   const validate = workflow.jobs["validate"] as {
     readonly permissions: Readonly<Record<string, string>>;
     readonly steps: readonly Readonly<Record<string, unknown>>[];
   };
-  expect(validate.permissions).toEqual({ contents: "read" });
+  expect(validate.permissions).toEqual({ actions: "read", contents: "read" });
+  const checkoutIndexes = validate.steps.flatMap((step, index) =>
+    String(step["uses"] ?? "").startsWith("actions/checkout@") ? [index] : [],
+  );
+  const downloadIndex = validate.steps.findIndex((step) =>
+    String(step["uses"] ?? "").startsWith("actions/download-artifact@"),
+  );
+  const prefixIndex = validate.steps.findIndex(
+    (step) => step["name"] === "Verify exact published prefix",
+  );
+  const identityIndex = validate.steps.findIndex(
+    (step) => step["name"] === "Verify exact Candidate source",
+  );
+  const prefixRun = String(validate.steps[prefixIndex]?.["run"]);
+  expect(checkoutIndexes).toHaveLength(2);
+  expect(validate.steps[checkoutIndexes[0] ?? -1]).toMatchObject({
+    with: { ref: "$" + "{{ github.sha }}", "persist-credentials": false },
+  });
+  expect(validate.steps[downloadIndex]).toMatchObject({
+    with: {
+      name: "bearing-candidate-$" + "{{ inputs.source_commit }}",
+      path: "release-candidate",
+      "run-id": "$" + "{{ inputs.candidate_run_id }}",
+      "github-token": "$" + "{{ github.token }}",
+    },
+  });
+  expect(validate.steps[prefixIndex]).toMatchObject({
+    env: {
+      GITHUB_TOKEN: "$" + "{{ github.token }}",
+      EXPECTED_VERSION: "$" + "{{ inputs.version }}",
+      SOURCE_COMMIT: "$" + "{{ inputs.source_commit }}",
+      CANDIDATE_WORKFLOW_NAME: "$" + "{{ inputs.candidate_workflow_name }}",
+      CANDIDATE_RUN_ID: "$" + "{{ inputs.candidate_run_id }}",
+      CANDIDATE_RUN_ATTEMPT: "$" + "{{ inputs.candidate_run_attempt }}",
+      FROZEN_SHA256: "$" + "{{ inputs.frozen_sha256 }}",
+    },
+    run: expect.stringContaining("scripts/public-release-smoke.ts"),
+  });
+  expect(prefixRun).toContain(
+    'result.checks.npm !== "exact" || result.checks.tag !== "exact" || result.checks.release !== "exact"',
+  );
+  expect(checkoutIndexes[1]).toBeGreaterThan(prefixIndex);
+  expect(validate.steps[checkoutIndexes[1] ?? -1]).toMatchObject({
+    with: {
+      ref: "$" + "{{ inputs.source_commit }}",
+      "persist-credentials": false,
+    },
+  });
+  expect(validate.steps[identityIndex]).toMatchObject({
+    if: "github.event_name == 'workflow_dispatch'",
+    env: {
+      EXPECTED_VERSION: "$" + "{{ inputs.version }}",
+      SOURCE_COMMIT: "$" + "{{ inputs.source_commit }}",
+    },
+    run: expect.stringContaining('test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"'),
+  });
   expect(validate.steps.some((step) => step["run"] === "bun run demo:verify")).toBe(true);
   expect(validate.steps).toContainEqual(
     expect.objectContaining({
-      if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+      if: "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
       uses: "actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9",
-      with: { path: "pages-artifact" },
+      with: {
+        name: "github-pages-$" + "{{ inputs.source_commit }}",
+        path: "pages-artifact",
+        "retention-days": 7,
+      },
     }),
   );
   expect(validate.steps).toContainEqual(
@@ -112,7 +184,9 @@ test("the Pages workflow validates pull requests and deploys only the verified m
     readonly steps: readonly Readonly<Record<string, unknown>>[];
   };
   expect(deploy.needs).toBe("validate");
-  expect(deploy.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/main'");
+  expect(deploy.if).toBe(
+    "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+  );
   expect(deploy.permissions).toEqual({ pages: "write", "id-token": "write" });
   expect(deploy.concurrency).toEqual({ group: "github-pages", "cancel-in-progress": false });
   expect(deploy.steps).toEqual([
@@ -120,6 +194,7 @@ test("the Pages workflow validates pull requests and deploys only the verified m
       name: "Deploy verified artifact",
       id: "deployment",
       uses: "actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128",
+      with: { artifact_name: "github-pages-$" + "{{ inputs.source_commit }}" },
     },
   ]);
 });

@@ -241,6 +241,14 @@ exact Candidate. A partial or failed outcome preserves its actual monotonic pref
 
 ## 9. Read back the public release
 
+After successful Publication, dispatch the tracked Pages workflow from protected `main`. Pass the
+exact Candidate Receipt inputs and wait for its successful deployment. Before any Pages artifact
+upload, the workflow verifies the existing npm, immutable tag, and GitHub Release prefix against
+that Receipt. It then builds the exact Candidate source and gives the Pages artifact a
+Candidate-bound identity. This does not change the Candidate, package, or tag. The public readback
+binds the successful deployment to that exact workflow run and artifact. Then continue the other
+public entry checks.
+
 After successful Publication, run the tracked read-only public readback against the Candidate
 Receipt. Verify exact npm identity and provenance, immutable tag target, GitHub Release notes and
 asset digests, and Pages deployment source. Then open the public README, linked Agent installation

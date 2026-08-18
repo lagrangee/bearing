@@ -159,6 +159,9 @@ describe("reusable release Live Journey runbook", () => {
     expect(runbook).toMatch(/Publication workflow[\s\S]*npm[\s\S]*tag[\s\S]*GitHub Release/u);
     expect(runbook).toMatch(/read-only public readback[\s\S]*Candidate\s+Receipt/u);
     expect(runbook).toMatch(
+      /successful Publication[\s\S]*Pages workflow[\s\S]*exact Candidate Receipt[\s\S]*successful deployment[\s\S]*public readback/iu,
+    );
+    expect(runbook).toMatch(
       /Publication[\s\S]*public readback[\s\S]*Gate Passage[\s\S]*separate outcomes/u,
     );
   });
