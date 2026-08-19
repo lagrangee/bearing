@@ -168,7 +168,18 @@ the evidence exposes a new product decision outside the accepted Matrix contract
 
 ## Product-change evidence gate
 
-Before changing Bearing product or Skill behavior, verify all of these facts:
+Classify the mismatch before editing. A clear implementation defect against a documented contract
+belongs to the product implementation. A clear Scenario or Fixture mismatch against that contract
+belongs to the Scenario or Fixture. A runner, broker, sandbox, or evidence defect belongs to the
+harness. Preserve the contract while repairing any of these layers.
+
+A Skill semantic contract change that changes an owner, authority, consent, lifecycle, trigger,
+recovery rule, or user-visible meaning requires a Human decision before editing. An ambiguous or
+contradictory product contract has the same boundary. Scenario pass is evidence only; it is never
+authority to redefine Bearing. Do not change a Skill semantic contract or Matrix semantics merely
+to turn a failure into a pass.
+
+Before changing Bearing implementation to match a documented contract, verify all of these facts:
 
 - The natural request, required outcomes, and forbidden outcomes define a valid user result without
   prescribing one implementation path.
@@ -180,8 +191,10 @@ Before changing Bearing product or Skill behavior, verify all of these facts:
 - The proposed change is the smallest contract-aligned correction, has focused regression coverage,
   and will be rerun first in the affected stabilization Scenario.
 
-If any fact is absent, keep Bearing unchanged. Correct the owning Scenario, Fixture, runner, or
-harness, or record the semantic result truthfully.
+If any fact is absent, keep Bearing unchanged. Correct the owning Scenario or Fixture when it
+misstates the contract, correct the runner or harness when mechanics are wrong, or record the
+semantic result truthfully. When the evidence exposes a new product decision, stop at that exact
+boundary and present the contract conflict to the Human.
 
 ## Coordinator evaluation
 

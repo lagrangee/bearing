@@ -742,6 +742,12 @@ describe("independent Agent Live scenarios", () => {
     expect(generation).toContain("second identity-changing repair");
     expect(generation).toContain("same failure class twice");
     expect(generation).toContain("## Product-change evidence gate");
+    expect(generation).toMatch(
+      /Skill semantic contract[\s\S]*Human decision[\s\S]*Scenario pass/iu,
+    );
+    expect(generation).toMatch(
+      /implementation[\s\S]*documented contract[\s\S]*Scenario or Fixture[\s\S]*contract/iu,
+    );
     expect(generation).toContain("exact package and isolated runtime");
     expect(generation).toContain("violates a documented Bearing product contract");
     expect(generation).toContain("Judge from the user's observable outcome");

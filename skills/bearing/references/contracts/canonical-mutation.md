@@ -16,7 +16,8 @@ Materiality means that accepted project meaning changed or that a current synthe
 materially misleading. A Summary changes only for accepted new project meaning. A Brief may refresh
 when accepted truth materially changes its usefulness for current orientation, but any new meaning
 belongs to its actual semantic owner. Ordinary file changes, native completion, and evidence alone
-are not material semantic change.
+are not material semantic change. Materiality decides whether a selected owner mutates its target;
+it does not make the root's required post-transition owner evaluation optional.
 
 ## Operation
 

@@ -41,6 +41,8 @@ or persistence.
   at`; report the exact failed owner stage separately.
 - **Required:** Route new project meaning through its actual owner and acceptance before using it in
   a later Brief refresh.
+- **Required:** When root selects this owner after an accepted terminal transition, evaluate the
+  current orientation and return either a material refresh or an explicit `no-op`.
 - **Consider:** Combine several accepted transitions visible in one operation into one material
   refresh.
 - **Do not infer:** Brief text becomes canonical project truth or a work recommendation.

@@ -434,6 +434,7 @@ describe("public Bearing Agent surface", () => {
   });
 
   test("semantic owners retain direct authority and domain-local follow-up", async () => {
+    const { body } = await readSkill();
     const summary = await readRuntime("references/owners/project-summary.md");
     const brief = await readRuntime("references/owners/project-brief.md");
     const roadmap = await readRuntime("references/owners/roadmap.md");
@@ -460,6 +461,16 @@ describe("public Bearing Agent surface", () => {
       /validation or publication fails[\s\S]*previous Brief[\s\S]*Generated\s+at/iu,
     );
     expect(roadmap).toMatch(/Complete Roadmap[\s\S]*Extend Horizon[\s\S]*Leave Active for Now/iu);
+    expect(body).toMatch(
+      /Effort\s+conclusion[\s\S]*Gate\s+Passage[\s\S]*Project Brief[\s\S]*Roadmap completion[\s\S]*Project Summary[\s\S]*Project Brief[\s\S]*Roadmap supersession[\s\S]*Project Brief/iu,
+    );
+    expect(roadmap).toMatch(
+      /accepted Roadmap completion[\s\S]*Project Summary owner[\s\S]*Project Brief owner/iu,
+    );
+    expect(effort).toMatch(/accepted Effort conclusion[\s\S]*Project Brief owner/iu);
+    expect(gate).toMatch(/accepted Gate Passage[\s\S]*Project Brief owner/iu);
+    expect(summary).toMatch(/Roadmap completion[\s\S]*no-op[\s\S]*Project Brief/iu);
+    expect(brief).toMatch(/accepted terminal transition[\s\S]*refresh[\s\S]*no-op/iu);
     expect(roadmap).toMatch(
       /Human has decided[\s\S]*independent outcome horizon[\s\S]*Roadmap owner[\s\S]*question/iu,
     );

@@ -43,10 +43,15 @@ paths below are relative to this `SKILL.md`.
    even when the next operation uses another product seam. Judge authority, scope, cost, risk,
    reversibility, collateral effects, and ambiguity; continue without repeat confirmation unless
    the evidence creates a materially new boundary that needs a user decision. Complete and
-   validate each owner boundary in dependency-safe order. Sequential composition has no persisted
-   session mode, operation object, transition dispatcher, or global follow-up engine. There is no
-   hidden loop or fallback. Completion: the current stage is complete or has one exact resumption
-   point.
+   validate each owner boundary in dependency-safe order. After an accepted terminal planning
+   transition, complete one bounded orientation evaluation in the same visible operation: Effort
+   conclusion and Gate Passage select Project Brief; Roadmap completion selects Project Summary
+   and then Project Brief; Roadmap supersession selects Project Brief. Each selected owner applies
+   materiality and can return `no-op`; owner evaluation is required while mutation remains
+   conditional. Sequential composition has no persisted session mode, operation object,
+   transition dispatcher, or global follow-up engine. There is no hidden loop or fallback.
+   Completion: the current stage and its required orientation evaluation are complete, or one exact
+   resumption point is visible.
 6. **Return the original outcome.** Preserve native, executor, provider, and deterministic outcomes
    without translation. State what changed, what did not change, and which acceptance or authority
    is still required. User-visible interaction and new human-reviewed planning content use the
