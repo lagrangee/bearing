@@ -381,7 +381,9 @@ test("live surfaces use only exact-version read-only requests", async () => {
     authorization: string | null;
   }[] = [];
   let readmeBody = exactReadmeBody;
-  let demoShell = '<script src="./mock-data.js" type="module"></script>';
+  const demoModuleRoute = `${entryRoutes.demo}assets/index-Candidate.js`;
+  let demoShell =
+    '<script type="module" crossorigin src="/bearing/assets/index-Candidate.js"></script>';
   let invocationSourceCommit = candidate.sourceCommit;
   const pagesWorkflowSourceCommit = "a".repeat(40);
   let pagesRunSourceCommit = pagesWorkflowSourceCommit;
@@ -523,7 +525,7 @@ test("live surfaces use only exact-version read-only requests", async () => {
       return response(url, {}, availableValue(exactObservation.entries.agentInstallation).body);
     }
     if (url === entryRoutes.demo) return response(url, {}, demoShell);
-    if (url === `${entryRoutes.demo}mock-data.js`) {
+    if (url === demoModuleRoute) {
       return response(url, {}, availableValue(exactObservation.entries.demo).body);
     }
     const entry = Object.values(exactObservation.entries).find(
@@ -613,7 +615,8 @@ test("live surfaces use only exact-version read-only requests", async () => {
     resumptionPoint: "user-entry:demo",
   });
 
-  demoShell = '<script src="./mock-data.js" type="module"></script>';
+  demoShell =
+    '<script type="module" crossorigin src="/bearing/assets/index-Candidate.js"></script>';
   pagesStatuses = [
     {
       state: "failure",
