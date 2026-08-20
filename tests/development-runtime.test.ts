@@ -142,7 +142,7 @@ test("stable repositories resolve without Development Runtime material", async (
   expect(result.context.homeDir).toBe(publicHomeDir);
 });
 
-test("Development Runtime resolves one coherent receipt and runtime-qualified cache", async () => {
+test("compatible Development Runtime identities reuse one isolated Project Read Model", async () => {
   const value = await fixture();
   const result = await resolveRepositoryRuntime({
     repoRoot: value.root,
@@ -161,8 +161,14 @@ test("Development Runtime resolves one coherent receipt and runtime-qualified ca
   expect(result.context.homeDir).toBe(
     join(await realpath(value.root), ".bearing", "local", "runtime-home"),
   );
-  expect(result.context.projectReadModelPath).toMatch(
-    /\.bearing\/cache\/development\/[0-9a-f]{64}\/project-read-model\.sqlite$/u,
+  expect(result.context.projectReadModelPath).toBe(
+    join(
+      await realpath(value.root),
+      ".bearing",
+      "cache",
+      "development",
+      "project-read-model.sqlite",
+    ),
   );
   await withRuntimeExecutionContext(result.context, async () => {
     expect(projectReadModelPath(result.context.repositoryRoot)).toBe(
@@ -172,6 +178,39 @@ test("Development Runtime resolves one coherent receipt and runtime-qualified ca
   expect(projectReadModelPath(value.root)).toBe(
     join(value.root, ".bearing", "cache", "project-read-model.sqlite"),
   );
+
+  const nextSourceIdentity = {
+    ...fixtureSourceIdentity,
+    gitHead: "2".repeat(40),
+    declaredBuildInputSha256: `sha256:${"3".repeat(64)}`,
+  } as const;
+  const nextPayload = {
+    schemaVersion: 1 as const,
+    runtimeContractVersion: 1 as const,
+    channel: "development" as const,
+    packageVersion: packageMetadata.version,
+    ...nextSourceIdentity,
+    cliSha256: await sha256File(value.cliLocator),
+    skillTreeSha256: await developmentRuntimeSkillTreeSha256(value.root),
+  };
+  await writeFile(
+    value.runtimeManifest,
+    `${JSON.stringify({
+      ...nextPayload,
+      runtimeIdentity: developmentRuntimeIdentity(nextPayload),
+    })}\n`,
+  );
+  const next = await resolveRepositoryRuntime({
+    repoRoot: value.root,
+    packageRoot: value.root,
+    publicHomeDir: value.publicHomeDir,
+    invokedCliPath: value.cliLocator,
+    sourceIdentity: async () => nextSourceIdentity,
+  });
+  expect(next.outcome).toBe("resolved");
+  if (next.outcome !== "resolved") return;
+  expect(next.context.receipt.runtimeIdentity).not.toBe(result.context.receipt.runtimeIdentity);
+  expect(next.context.projectReadModelPath).toBe(result.context.projectReadModelPath);
 });
 
 test("Development Runtime fails closed for missing binding without creating state", async () => {

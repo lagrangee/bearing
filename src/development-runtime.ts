@@ -449,7 +449,6 @@ export const resolveRepositoryRuntime = async (options: {
         "Development Runtime source, build, CLI, and Skill identity is not coherent.",
       );
     }
-    const digest = runtime.data.runtimeIdentity.slice("sha256:".length);
     const receipt: RuntimeReceipt = {
       schemaVersion: 1,
       channel: "development",
@@ -468,7 +467,6 @@ export const resolveRepositoryRuntime = async (options: {
           ".bearing",
           "cache",
           "development",
-          digest,
           "project-read-model.sqlite",
         ),
         receipt,

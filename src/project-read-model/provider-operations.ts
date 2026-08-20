@@ -1,3 +1,6 @@
+import type { Dirent } from "node:fs";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import {
   affectedReadReferences,
   type NativeReconciliationRequest,
@@ -14,6 +17,7 @@ import {
 } from "../providers/matt-skills-v1/native-subject";
 import { mattObjects } from "../providers/matt-skills-v1/projection";
 import { assertActiveRepositoryIntegration } from "../repository-integration-lifecycle";
+import { activeRuntimeExecutionContext, withRuntimeExecutionContext } from "../runtime-context";
 import type { StructuralDiagnostic } from "../types";
 import { materializeProjectReadModelCandidate, prepareProjectReadModelCandidate } from "./inspect";
 import {
@@ -59,6 +63,81 @@ const boundStore = (evidence: readonly ProjectProviderEvidence[]): ProviderEvide
   ),
   selections: evidence.flatMap((entry) => (entry.role === "bound" ? [entry.selection] : [])),
 });
+
+const projectEvidenceInputs = (evidence: readonly ProjectProviderEvidence[]) => {
+  const detail = evidence.filter((entry) => entry.role === "detail");
+  return {
+    providerObservationStore: boundStore(evidence),
+    providerDetailEvidenceState: createProviderDetailEvidenceState({
+      observations: detail.flatMap((entry) =>
+        entry.observation === undefined ? [] : [entry.observation],
+      ),
+      selections: detail.map((entry) => entry.selection),
+    }),
+  };
+};
+
+const legacyDevelopmentEvidence = async (
+  repoRoot: string,
+): Promise<readonly (readonly ProjectProviderEvidence[])[]> => {
+  const context = activeRuntimeExecutionContext(repoRoot);
+  if (context?.receipt.channel !== "development") return [];
+  const cacheRoot = join(repoRoot, ".bearing", "cache", "development");
+  let entries: Dirent<string>[];
+  try {
+    entries = await readdir(cacheRoot, { withFileTypes: true });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+    throw error;
+  }
+  const evidence: (readonly ProjectProviderEvidence[])[] = [];
+  for (const entry of entries
+    .filter((candidate) => candidate.isDirectory() && /^[0-9a-f]{64}$/u.test(candidate.name))
+    .sort((left, right) => left.name.localeCompare(right.name, "en"))) {
+    const projectReadModelPath = join(cacheRoot, entry.name, "project-read-model.sqlite");
+    const compatible = await withRuntimeExecutionContext(
+      { ...context, projectReadModelPath },
+      async () => {
+        const state = await inspectProjectReadModel(repoRoot);
+        return state.state === "ready" ? readProjectProviderEvidence(repoRoot) : undefined;
+      },
+    );
+    if (compatible !== undefined) evidence.push(compatible);
+  }
+  return evidence;
+};
+
+const reuseCompatibleProjectEvidence = (
+  current: readonly ProjectProviderEvidence[],
+  legacyStores: readonly (readonly ProjectProviderEvidence[])[],
+): readonly ProjectProviderEvidence[] => {
+  const key = (entry: ProjectProviderEvidence): string => `${entry.bindingKey}\0${entry.role}`;
+  const currentByKey = new Map(current.map((entry) => [key(entry), entry]));
+  const legacyByKey = new Map<string, ProjectProviderEvidence[]>();
+  for (const entry of legacyStores.flat()) {
+    if (entry.observation === undefined || entry.selection.effectiveFreshness !== "current") {
+      continue;
+    }
+    const entries = legacyByKey.get(key(entry)) ?? [];
+    entries.push(entry);
+    legacyByKey.set(key(entry), entries);
+  }
+  const keys = new Set([...currentByKey.keys(), ...legacyByKey.keys()]);
+  const reusable: ProjectProviderEvidence[] = [];
+  for (const evidenceKey of [...keys].sort((left, right) => left.localeCompare(right, "en"))) {
+    const currentEntry = currentByKey.get(evidenceKey);
+    if (currentEntry?.observation !== undefined) {
+      reusable.push(currentEntry);
+      continue;
+    }
+    const variants = new Map(
+      (legacyByKey.get(evidenceKey) ?? []).map((entry) => [JSON.stringify(entry), entry]),
+    );
+    if (variants.size === 1) reusable.push([...variants.values()][0] as ProjectProviderEvidence);
+    else if (currentEntry !== undefined) reusable.push(currentEntry);
+  }
+  return reusable;
+};
 
 type LocalStore =
   | Readonly<{ state: "available"; evidence: readonly ProjectProviderEvidence[] }>
@@ -540,9 +619,17 @@ export const rebuildProjectReadModel = async (
       diagnostics: [],
     };
   }
+  const currentEvidence = state.state === "ready" ? await readProjectProviderEvidence(root) : [];
+  const reusableEvidence = reuseCompatibleProjectEvidence(
+    currentEvidence,
+    state.state === "ready" || state.state === "missing"
+      ? await legacyDevelopmentEvidence(root)
+      : [],
+  );
   const candidate = await materializeProjectReadModelCandidate(root, {
-    providerObservationStore: null,
-    providerDetailEvidenceState: null,
+    ...(reusableEvidence.length === 0
+      ? { providerObservationStore: null, providerDetailEvidenceState: null }
+      : projectEvidenceInputs(reusableEvidence)),
   });
   if (state.state === "recovery-required") await removeProjectReadModelForRebuild(root);
   const receipt = await publishProjectReadModel(root, candidate);
