@@ -333,7 +333,11 @@ export function ProjectPage({
             action={
               <>
                 {structuralAttention ? null : (
-                  <Action disabled={providerBusy} onClick={observeCurrentSource}>
+                  <Action
+                    data-project-activation-action="manual"
+                    disabled={providerBusy}
+                    onClick={observeCurrentSource}
+                  >
                     Refresh source
                   </Action>
                 )}

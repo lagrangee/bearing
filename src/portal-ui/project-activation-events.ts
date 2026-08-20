@@ -20,7 +20,7 @@ export const visibilityReturnNeedsActivation = (
 
 export const manualActionOwnsActivation = (event: Event): boolean =>
   event.target instanceof Element &&
-  event.target.closest('[data-project-activation-action="manual"]') !== null;
+  event.target.closest('a[href], [data-project-activation-action="manual"]') !== null;
 
 type DeferredActivation = Readonly<{
   cancel: () => void;

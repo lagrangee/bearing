@@ -1724,6 +1724,7 @@ export function PlanningLineagePage({
           </div>
           {onObserveSource === undefined || observationActionLabel === undefined ? null : (
             <Action
+              data-project-activation-action="manual"
               disabled={observationBusy}
               onClick={onObserveSource}
               tone={

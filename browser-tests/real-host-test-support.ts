@@ -280,7 +280,9 @@ export type RunningTestPortal = Readonly<{
 
 export const startBuiltPortal = async (homeDir: string): Promise<RunningTestPortal> => {
   const port = await reservePort();
-  const child = spawnHarnessProcess("node", ["dist/cli.js", "portal", "--port", String(port)], {
+  const cliLocator = join(process.cwd(), "dist/cli.js");
+  const child = spawnHarnessProcess("node", [cliLocator, "portal", "--port", String(port)], {
+    cwd: homeDir,
     environment: { ...process.env, HOME: homeDir },
   });
   child.stdin.end();

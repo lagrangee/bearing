@@ -96,6 +96,7 @@ export function ProjectTopbar({
             <Action
               ref={refreshTriggerRef}
               className="topbar-refresh"
+              data-project-activation-action="manual"
               tone="primary"
               disabled={providerBusy}
               onClick={() => setConfirming(true)}
@@ -125,6 +126,7 @@ export function ProjectTopbar({
               Cancel
             </Action>
             <Action
+              data-project-activation-action="manual"
               tone="primary"
               onClick={() => {
                 setConfirming(false);

@@ -50,6 +50,92 @@ test.afterAll(async () => {
   );
 });
 
+test("real Host keeps Project Activation GET-only across browser lifecycle returns", async ({
+  page,
+}, testInfo) => {
+  if (host === undefined) throw new Error("Ticket 07 real Host did not start.");
+  let reads = 0;
+  const writes: string[] = [];
+  await page.clock.install({ time: new Date("2026-08-21T12:00:00+08:00") });
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      request.method() === "GET" &&
+      url.pathname.endsWith("/read-model") &&
+      url.searchParams.get("section") === "overview"
+    ) {
+      reads += 1;
+    }
+    if (request.method() !== "GET") writes.push(`${request.method()} ${url.pathname}`);
+  });
+
+  await page.goto(`${host.url}/projects/ticket-12-refresh`);
+  await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
+  await expect.poll(() => reads).toBe(1);
+
+  await page.clock.fastForward(600_000);
+  await page.waitForTimeout(50);
+  expect(reads).toBe(1);
+
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(() => reads).toBe(2);
+  await page.locator("main").click({ position: { x: 4, y: 4 } });
+  await page.waitForTimeout(50);
+  expect(reads).toBe(2);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(1_000);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForTimeout(50);
+  expect(reads).toBe(2);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(300_000);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => reads).toBe(3);
+  await page.locator("main").click({ position: { x: 4, y: 4 } });
+  await page.waitForTimeout(50);
+  expect(reads).toBe(3);
+
+  await page.clock.fastForward(300_000);
+  await page.locator("main").click({ position: { x: 4, y: 4 } });
+  await expect.poll(() => reads).toBe(4);
+  await page.locator("main").click({ position: { x: 4, y: 4 } });
+  await page.waitForTimeout(50);
+
+  expect(reads).toBe(4);
+  expect(writes).toEqual([]);
+  expect(await readRepositorySourceBytes(fixtureRoot)).toEqual(sourceBytes);
+  expect(await sha256(join(homeRoot, ".bearing/catalog.sqlite"))).toBe(catalogHash);
+  await writeFile(
+    await browserArtifactPath(testInfo, "project-activation-receipt.json"),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        host: "foreground-loopback",
+        typedReads: reads,
+        nonGetRequests: writes.length,
+        sourceBytesPreserved: true,
+        catalogBytesPreserved: true,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+});
+
 test("real Host performs only explicit contextual acquisitions without source or Catalog mutation", async ({
   page,
 }, testInfo) => {
