@@ -4,7 +4,7 @@ import packageMetadata from "../package.json";
 import {
   AGENT_SURFACES,
   agentSurfaceEntryFile,
-  BEARING_MANAGED_BLOCK,
+  bearingManagedBlock,
   bearingManagedRange,
 } from "./agent-surface-entry";
 import { readCatalogState } from "./catalog/store";
@@ -25,7 +25,7 @@ import {
   type RepositoryTargetPrecondition,
 } from "./repository-integration-plan";
 import { repositoryManifestSchema } from "./schema-definitions";
-import type { AgentSurface, ExecutorRegistration } from "./types";
+import type { AgentSurface, ExecutorRegistration, RuntimeChannel } from "./types";
 
 export type RepositoryConfigurationIntent = "activate" | "deactivate";
 export type RepositoryExecutorDecision = "skip" | "configure";
@@ -35,6 +35,7 @@ export type RepositoryConfigurationRequest = Readonly<{
   packageRoot: string;
   homeDir: string;
   intent: RepositoryConfigurationIntent;
+  runtime?: RuntimeChannel;
   surfaces?: readonly AgentSurface[];
   provider?: Readonly<{
     key: "matt-skills/v1";
@@ -47,6 +48,7 @@ export type RepositoryConfigurationRequest = Readonly<{
 }>;
 
 type CurrentSelections = Readonly<{
+  runtime: RuntimeChannel;
   surfaces: readonly AgentSurface[];
   provider?: Readonly<{ key: "matt-skills/v1"; contractLocator: string }>;
   executorProfiles: readonly string[];
@@ -111,6 +113,7 @@ export type RepositoryConfigurationPlan = Readonly<{
   intent: RepositoryConfigurationIntent;
   lifecycle: RepositoryConfigurationInspection["lifecycle"];
   acceptedDesiredConfiguration: Readonly<{
+    runtime: RuntimeChannel;
     surfaces: readonly AgentSurface[];
     provider?: Readonly<{ key: "matt-skills/v1"; contractLocator: string }>;
     executorDecision?: RepositoryExecutorDecision;
@@ -207,7 +210,7 @@ const currentSelections = async (
   state: RepositoryConfigurationInspection["lifecycle"]["state"],
 ): Promise<CurrentSelections> => {
   if (state !== "active" && state !== "deactivated") {
-    return { surfaces: [], executorProfiles: [] };
+    return { runtime: "stable", surfaces: [], executorProfiles: [] };
   }
   const manifestSource = await safeRead(root, ".bearing/manifest.json");
   const providerSource = await safeRead(root, ".bearing/provider.json");
@@ -215,10 +218,10 @@ const currentSelections = async (
   try {
     manifestValue = manifestSource === undefined ? undefined : JSON.parse(manifestSource);
   } catch {
-    return { surfaces: [], executorProfiles: [] };
+    return { runtime: "stable", surfaces: [], executorProfiles: [] };
   }
   const manifest = repositoryManifestSchema.safeParse(manifestValue);
-  if (!manifest.success) return { surfaces: [], executorProfiles: [] };
+  if (!manifest.success) return { runtime: "stable", surfaces: [], executorProfiles: [] };
   let provider: CurrentSelections["provider"];
   try {
     const decoded =
@@ -230,6 +233,7 @@ const currentSelections = async (
     provider = undefined;
   }
   return {
+    runtime: manifest.data.runtime ?? "stable",
     surfaces: manifest.data.surfaces,
     ...(provider === undefined ? {} : { provider }),
     executorProfiles: manifest.data.executorProfiles,
@@ -252,6 +256,7 @@ const pathFact = async (root: string, target: string): Promise<PathFact> => {
 const pointerEvidence = async (
   root: string,
   surface: AgentSurface,
+  runtime: RuntimeChannel,
 ): Promise<"present" | "absent" | "drifted" | "unsafe"> => {
   const target = agentSurfaceEntryFile(surface);
   const state = await inspectInstallPath(join(root, target));
@@ -262,7 +267,9 @@ const pointerEvidence = async (
   try {
     const range = bearingManagedRange(source);
     if (range === undefined) return "absent";
-    return source.slice(range.start, range.end) === BEARING_MANAGED_BLOCK ? "present" : "drifted";
+    return source.slice(range.start, range.end) === bearingManagedBlock(runtime)
+      ? "present"
+      : "drifted";
   } catch {
     return "unsafe";
   }
@@ -317,8 +324,8 @@ export const inspectRepositoryConfiguration = async (options: {
       packageRoot: resolve(options.packageRoot),
       providerContract: await providerEvidence(root, selections),
       managedPointers: {
-        "agent-skills": await pointerEvidence(root, "agent-skills"),
-        claude: await pointerEvidence(root, "claude"),
+        "agent-skills": await pointerEvidence(root, "agent-skills", selections.runtime),
+        claude: await pointerEvidence(root, "claude", selections.runtime),
       },
     },
     pathSafety: { safe: targets.every((item) => item.safe), targets },
@@ -368,7 +375,9 @@ export const planRepositoryConfiguration = async (
   );
   const retainProfiles = normalizedProfiles(request.retainProfiles);
   const removeProfiles = normalizedProfiles(request.removeProfiles);
+  const runtime = request.runtime ?? inspection.currentSelections.runtime;
   const acceptedDesiredConfiguration = {
+    runtime,
     surfaces,
     ...(request.provider === undefined ? {} : { provider: request.provider }),
     ...(request.executorDecision === undefined
@@ -424,6 +433,7 @@ export const planRepositoryConfiguration = async (
       const integration = await planRepositoryIntegration({
         repoRoot: inspection.repositoryRoot,
         packageRoot: request.packageRoot,
+        runtime,
         surfaces,
         profiles,
         registrations,
@@ -650,6 +660,7 @@ export const applyRepositoryConfiguration = async (
     repoRoot: plan.repositoryRoot,
     packageRoot: request.packageRoot,
     homeDir: request.homeDir,
+    runtime: desired.runtime,
     surfaces: desired.surfaces,
     profiles: normalizedProfiles([
       ...desired.registrations.map((registration) => registration.profileKey),

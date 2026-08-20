@@ -17,6 +17,7 @@ export type AdvisoryId = "planning-audit:current";
 export type AdvisoryFreshness = Readonly<Partial<Record<AdvisoryId, SemanticFreshness>>>;
 
 export type AgentSurface = "agent-skills" | "claude";
+export type RuntimeChannel = "stable" | "development";
 
 export type InstallOptions = Readonly<{
   homeDir: string;
@@ -41,6 +42,7 @@ export type RepositoryConfigurationApplyOptions = Readonly<{
   packageRoot: string;
   surfaces: readonly AgentSurface[];
   profiles: readonly string[];
+  runtime?: RuntimeChannel;
   registrations?: readonly ExecutorRegistration[];
   executorHomeDir?: string;
   confirmRepair?: boolean;

@@ -167,6 +167,7 @@ const buildFreshRepositoryPlans = async (
             schemaVersion: 1,
             packageVersion: await packageVersion(options.packageRoot),
             status: "active",
+            ...(options.runtime === "development" ? { runtime: "development" as const } : {}),
             surfaces,
             executorProfiles: profiles,
           },
@@ -206,7 +207,10 @@ const buildFreshRepositoryPlans = async (
     const existing = await readOptional(target);
     plans.push({
       target,
-      bytes: Buffer.from(withBearingManagedPointer(existing?.toString("utf8") ?? ""), "utf8"),
+      bytes: Buffer.from(
+        withBearingManagedPointer(existing?.toString("utf8") ?? "", options.runtime),
+        "utf8",
+      ),
       executable: false,
     });
   }

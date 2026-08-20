@@ -11,8 +11,11 @@ for contextual nomination. Trust that pointer to decide whether it nominated the
 do not reconstruct or broaden its conditions here. Explicit Bearing invocation remains the other
 authorized entry origin and the fallback when contextual nomination did not occur.
 
-All `bearing ...` commands in this skill use `$HOME/.bearing/bin/bearing`. All runtime reference
-paths below are relative to this `SKILL.md`.
+Select the CLI from the managed pointer. A Stable Runtime pointer uses
+`$HOME/.bearing/bin/bearing`. A Development Runtime pointer uses the same repository's
+`node <repo-root>/dist/cli.js` and requires a successful `runtime inspect` receipt before a
+functional command. The Development Runtime never falls back to the Stable CLI, Skill, or state.
+All runtime reference paths below are relative to this `SKILL.md`.
 
 ## Execution spine
 
@@ -80,7 +83,7 @@ paths below are relative to this `SKILL.md`.
 
 ## Completeness-sensitive reads
 
-Use the installed package-owned CLI:
+Use the selected package-owned CLI:
 
 - Project Context: `bearing inspect project --repo <repo-root>`
 - One planning target: `bearing inspect <stable-planning-reference> --repo <repo-root>`

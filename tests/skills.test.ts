@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, readlink, realpath } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { parseDocument } from "yaml";
-import { BEARING_POINTER } from "../src/agent-surface-entry";
+import { BEARING_DEVELOPMENT_POINTER, BEARING_POINTER } from "../src/agent-surface-entry";
 
 const skillRoot = join(process.cwd(), "skills/bearing");
+const developmentSkillRoot = join(process.cwd(), "skills/bearing-dev");
 
 const contractReferences = ["references/contracts/canonical-mutation.md"] as const;
 const journeyReferences = [
@@ -54,8 +55,8 @@ const walk = async (directory: string): Promise<string[]> => {
 const readRuntime = (reference: (typeof runtimeReferences)[number]): Promise<string> =>
   readFile(join(skillRoot, reference), "utf8");
 
-const readSkill = async (): Promise<{ frontmatter: unknown; body: string }> => {
-  const source = await readFile(join(skillRoot, "SKILL.md"), "utf8");
+const readSkillAt = async (root: string): Promise<{ frontmatter: unknown; body: string }> => {
+  const source = await readFile(join(root, "SKILL.md"), "utf8");
   const match = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/u.exec(source);
   if (!match?.[1] || match[2] === undefined) throw new Error("bearing has no YAML frontmatter");
   const document = parseDocument(match[1]);
@@ -63,8 +64,10 @@ const readSkill = async (): Promise<{ frontmatter: unknown; body: string }> => {
   return { frontmatter: document.toJS(), body: match[2] };
 };
 
+const readSkill = (): Promise<{ frontmatter: unknown; body: string }> => readSkillAt(skillRoot);
+
 describe("public Bearing Agent surface", () => {
-  test("ships exactly one root router and the accepted one-hop runtime graph", async () => {
+  test("keeps one public root router and the accepted one-hop runtime graph", async () => {
     expect(await walk(skillRoot)).toEqual(["SKILL.md", ...runtimeReferences].sort());
 
     const topLevel = await readdir(join(process.cwd(), "skills"), { withFileTypes: true });
@@ -73,7 +76,22 @@ describe("public Bearing Agent surface", () => {
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
         .sort(),
-    ).toEqual(["bearing"]);
+    ).toEqual(["bearing", "bearing-dev"]);
+  });
+
+  test("provides one repo-discoverable Development Runtime entry", async () => {
+    const { frontmatter, body } = await readSkillAt(developmentSkillRoot);
+    expect(frontmatter).toEqual({
+      name: "bearing-dev",
+      description: expect.stringMatching(/Bearing source repository[\s\S]*Development Runtime/iu),
+    });
+    expect(body).toMatch(/read[\s\S]*\.\.\/bearing\/SKILL\.md[\s\S]*completely/iu);
+    expect(body).toMatch(/runtime inspect[\s\S]*dist\/cli\.js/iu);
+    expect(body).not.toContain("## Reference map");
+
+    const discoveryEntry = join(process.cwd(), ".agents/skills/bearing-dev");
+    expect(await readlink(discoveryEntry)).toBe("../../skills/bearing-dev");
+    expect(await realpath(discoveryEntry)).toBe(await realpath(developmentSkillRoot));
   });
 
   test("keeps the global description narrow and delegates contextual nomination to the pointer", async () => {
@@ -91,6 +109,11 @@ describe("public Bearing Agent surface", () => {
     expect(body).toMatch(/do not reconstruct or broaden[\s\S]*conditions/iu);
     expect(body).toMatch(/explicit Bearing[\s\S]*fallback/iu);
     expect(body).not.toMatch(/activation check|activation-policy/iu);
+    expect(body).toMatch(/Development Runtime[\s\S]*dist\/cli\.js[\s\S]*never falls back/iu);
+    expect(BEARING_DEVELOPMENT_POINTER).toMatch(
+      /repository-local[\s\S]*\$bearing-dev[\s\S]*dist\/cli\.js[\s\S]*Do not use or fall back/iu,
+    );
+    expect(BEARING_DEVELOPMENT_POINTER).not.toMatch(/Explicit `?\/?bearing`?/u);
 
     expect(BEARING_POINTER).toMatch(
       /explicit Bearing concepts[\s\S]*reliable direct continuation[\s\S]*material planning\/governance/iu,

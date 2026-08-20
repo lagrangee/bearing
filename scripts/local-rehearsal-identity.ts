@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { lstat, readlink, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { sha256Bytes, sha256File } from "./release-digest";
 
@@ -48,7 +48,17 @@ export const localRehearsalWorktreeDigest = async (sourceRoot: string): Promise<
     .sort((left, right) => left.localeCompare(right, "en"));
   const untrackedFrames: string[] = [];
   for (const locator of untracked) {
-    untrackedFrames.push(`${locator}\0${await sha256File(join(root, locator))}\n`);
+    const path = join(root, locator);
+    const metadata = await lstat(path);
+    if (metadata.isSymbolicLink()) {
+      untrackedFrames.push(
+        `${locator}\0symlink\0${sha256Bytes(Buffer.from(await readlink(path)))}\n`,
+      );
+    } else if (metadata.isFile()) {
+      untrackedFrames.push(`${locator}\0${await sha256File(path)}\n`);
+    } else {
+      fail(`Local rehearsal input contains an unsupported entry: ${path}`);
+    }
   }
   return sha256Bytes(
     Buffer.from(`${head}\0${sha256Bytes(Buffer.from(diff))}\0${untrackedFrames.join("")}`),

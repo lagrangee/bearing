@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { BEARING_POINTER } from "../src/agent-surface-entry";
+import { BEARING_DEVELOPMENT_POINTER, BEARING_POINTER } from "../src/agent-surface-entry";
 import { type InstalledProduct, installPackedProduct } from "./product-seams/installed-product";
 
 const makeFreshRepository = async (root: string): Promise<void> => {
@@ -88,6 +88,39 @@ const readSqliteUserVersion = async (path: string): Promise<number> => {
   if (exitCode !== 0) throw new Error(stderr);
   return Number(stdout);
 };
+
+test("Repository Configuration selects Development Runtime without public fallback", async () => {
+  const product = await installPackedProduct();
+  const root = join(product.root, "development-repository");
+  await makeFreshRepository(root);
+  const args = [...activateArguments(root), "--runtime", "development"];
+  try {
+    const reviewed = await plan(product, args);
+    expect(reviewed).toMatchObject({
+      acceptedDesiredConfiguration: { runtime: "development" },
+    });
+    const token = reviewed["sealedPlanToken"];
+    if (typeof token !== "string") throw new Error("Configure plan returned no seal.");
+    const applied = await apply(product, args, token);
+    expect(applied.exitClass, applied.stderr).toBe("success");
+    expect(JSON.parse(await readFile(join(root, ".bearing/manifest.json"), "utf8"))).toMatchObject({
+      runtime: "development",
+    });
+    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toContain(BEARING_DEVELOPMENT_POINTER);
+
+    const blocked = await product.run(["inspect", "project", "--repo", root], {
+      observeRoots: [root, product.homeDir],
+    });
+    expect(blocked.exitClass).toBe("product-outcome");
+    expect(JSON.parse(blocked.stdout)).toMatchObject({
+      outcome: "unfulfilled",
+      diagnostics: [{ code: "development-runtime-binding-missing" }],
+    });
+    expect(blocked.effects).toEqual({ created: [], changed: [], removed: [] });
+  } finally {
+    await rm(product.root, { recursive: true, force: true });
+  }
+});
 
 test("packed Repository Configuration seals one exact Fresh write set and applies it without provider acquisition", async () => {
   const product = await installPackedProduct();

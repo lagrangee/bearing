@@ -6,6 +6,12 @@ import { build as viteBuild } from "vite";
 import packageMetadata from "../package.json";
 import lockfile from "../package-lock.json";
 import {
+  developmentRuntimeIdentity,
+  developmentRuntimeSkillTreeSha256,
+  developmentRuntimeSourceIdentity,
+  sha256File,
+} from "../src/development-runtime";
+import {
   buildPortalAssetManifest,
   loadPortalAssets,
   writePortalAssetManifest,
@@ -221,6 +227,24 @@ const build = async (): Promise<void> => {
       `${JSON.stringify(dependencyMetadata, null, 2)}\n`,
     );
     await chmod(join(stagingDist, "cli.js"), 0o755);
+    const sourceIdentity = await developmentRuntimeSourceIdentity(projectRoot);
+    const runtimePayload = {
+      schemaVersion: 1 as const,
+      runtimeContractVersion: 1 as const,
+      channel: "development" as const,
+      packageVersion: packageMetadata.version,
+      ...sourceIdentity,
+      cliSha256: await sha256File(join(stagingDist, "cli.js")),
+      skillTreeSha256: await developmentRuntimeSkillTreeSha256(projectRoot),
+    };
+    await Bun.write(
+      join(stagingDist, "development-runtime.json"),
+      `${JSON.stringify(
+        { ...runtimePayload, runtimeIdentity: developmentRuntimeIdentity(runtimePayload) },
+        null,
+        2,
+      )}\n`,
+    );
     await loadPortalAssets(stagingRoot, packageMetadata.version);
 
     const hadPrevious = await exists(finalDist);

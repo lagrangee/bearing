@@ -5,6 +5,7 @@ import type {
   AgentSurface,
   ExecutorRegistration,
   RepositoryConfigurationApplyResult,
+  RuntimeChannel,
 } from "./types";
 
 export type ReconcileRepositoryResult = Readonly<{
@@ -21,6 +22,7 @@ export const reconcileRepository = async (options: {
   readonly homeDir: string;
   readonly surfaces: readonly AgentSurface[];
   readonly profiles: readonly string[];
+  readonly runtime?: RuntimeChannel;
   readonly registrations?: readonly ExecutorRegistration[];
   readonly confirmRepair?: boolean;
   readonly confirmReactivate?: boolean;
