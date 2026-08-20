@@ -1,15 +1,20 @@
 import { randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as viteBuild } from "vite";
 import packageMetadata from "../package.json";
 import lockfile from "../package-lock.json";
 import {
-  developmentRuntimeIdentity,
-  developmentRuntimeSkillTreeSha256,
-  developmentRuntimeSourceIdentity,
+  createDevelopmentBuildFreshnessRecord,
+  developmentBuildInputSha256,
+  inspectDevelopmentBuildFreshness,
+  publishAtomicDevelopmentBuild,
   sha256File,
+} from "../src/development-build";
+import {
+  developmentRuntimeManifestSchema,
+  developmentRuntimeSourceIdentity,
 } from "../src/development-runtime";
 import {
   buildPortalAssetManifest,
@@ -104,16 +109,6 @@ const createBundleDependencyMetadata = (
   };
 };
 
-const exists = async (target: string): Promise<boolean> => {
-  try {
-    await lstat(target);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-    throw error;
-  }
-};
-
 const assertProductionPortal = async (
   portalRoot: string,
   assetPaths: readonly string[],
@@ -158,7 +153,8 @@ const build = async (): Promise<void> => {
   const stagingRoot = join(projectRoot, `.bearing-build-${identity}`);
   const stagingDist = join(stagingRoot, "dist");
   const portalRoot = join(stagingDist, "portal");
-  const previousDist = join(projectRoot, `.bearing-dist-previous-${identity}`);
+  const declaredInputSha256 = await developmentBuildInputSha256(projectRoot);
+  const sourceProvenance = await developmentRuntimeSourceIdentity(projectRoot);
   await mkdir(portalRoot, { recursive: true });
   try {
     let portalModules: string[] = [];
@@ -227,38 +223,48 @@ const build = async (): Promise<void> => {
       `${JSON.stringify(dependencyMetadata, null, 2)}\n`,
     );
     await chmod(join(stagingDist, "cli.js"), 0o755);
-    const sourceIdentity = await developmentRuntimeSourceIdentity(projectRoot);
-    const runtimePayload = {
-      schemaVersion: 1 as const,
-      runtimeContractVersion: 1 as const,
-      channel: "development" as const,
+    const buildRecord = createDevelopmentBuildFreshnessRecord({
       packageVersion: packageMetadata.version,
-      ...sourceIdentity,
+      declaredInputSha256,
       cliSha256: await sha256File(join(stagingDist, "cli.js")),
-      skillTreeSha256: await developmentRuntimeSkillTreeSha256(projectRoot),
-    };
+      portalBuildId: portalManifest.buildId,
+      bundleDependenciesSha256: await sha256File(join(stagingDist, "bundle-dependencies.json")),
+    });
+    await Bun.write(
+      join(stagingDist, "development-build.json"),
+      `${JSON.stringify(buildRecord, null, 2)}\n`,
+    );
+    const runtimeManifest = developmentRuntimeManifestSchema.parse({
+      schemaVersion: 2,
+      runtimeContractVersion: 2,
+      channel: "development",
+      packageVersion: packageMetadata.version,
+      builtFrom: sourceProvenance,
+      buildIdentity: buildRecord.buildIdentity,
+    });
     await Bun.write(
       join(stagingDist, "development-runtime.json"),
-      `${JSON.stringify(
-        { ...runtimePayload, runtimeIdentity: developmentRuntimeIdentity(runtimePayload) },
-        null,
-        2,
-      )}\n`,
+      `${JSON.stringify(runtimeManifest, null, 2)}\n`,
     );
     await loadPortalAssets(stagingRoot, packageMetadata.version);
-
-    const hadPrevious = await exists(finalDist);
-    if (hadPrevious) await rename(finalDist, previousDist);
-    try {
-      await rename(stagingDist, finalDist);
-    } catch (error) {
-      if (hadPrevious) await rename(previousDist, finalDist);
-      throw error;
+    if ((await developmentBuildInputSha256(projectRoot)) !== declaredInputSha256) {
+      throw new Error("Development build inputs changed while the atomic build was in progress.");
     }
-    if (hadPrevious) await rm(previousDist, { recursive: true, force: true });
+    const freshness = await inspectDevelopmentBuildFreshness({
+      packageRoot: stagingRoot,
+      declaredInputSha256,
+      expectedPackageVersion: packageMetadata.version,
+    });
+    if (freshness.status !== "current") {
+      throw new Error(`Development build staging validation failed: ${freshness.reason}.`);
+    }
+    await publishAtomicDevelopmentBuild(stagingDist, finalDist);
   } finally {
-    await rm(stagingRoot, { recursive: true, force: true });
-    await rm(previousDist, { recursive: true, force: true });
+    try {
+      await rm(stagingRoot, { recursive: true, force: true });
+    } catch {
+      // Cleanup must not replace the build or publication outcome.
+    }
   }
 };
 

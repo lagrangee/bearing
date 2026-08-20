@@ -1,9 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readdir, readFile, readlink, realpath, rmdir } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rmdir } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import packageMetadata from "../package.json";
+import {
+  type DevelopmentBuildFreshnessRecord,
+  developmentBuildInputSha256,
+  inspectDevelopmentBuildFreshness,
+} from "./development-build";
 import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans, preflightInstallTargets } from "./installer";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
@@ -23,21 +28,21 @@ export const developmentRuntimeBindingSchema = z.strictObject({
   stateRoot: absolutePathSchema,
 });
 
-export const developmentRuntimeManifestPayloadSchema = z.strictObject({
-  schemaVersion: z.literal(1),
-  runtimeContractVersion: z.literal(1),
-  channel: z.literal("development"),
-  packageVersion: z.string().min(1),
+export const developmentRuntimeSourceIdentitySchema = z.strictObject({
   gitHead: z.string().regex(/^[0-9a-f]{40}$/u),
-  declaredBuildInputSha256: sha256Schema,
   dirty: z.boolean(),
-  cliSha256: sha256Schema,
-  skillTreeSha256: sha256Schema,
 });
 
-export const developmentRuntimeManifestSchema = developmentRuntimeManifestPayloadSchema.extend({
-  runtimeIdentity: sha256Schema,
+export const developmentRuntimeManifestPayloadSchema = z.strictObject({
+  schemaVersion: z.literal(2),
+  runtimeContractVersion: z.literal(2),
+  channel: z.literal("development"),
+  packageVersion: z.string().min(1),
+  builtFrom: developmentRuntimeSourceIdentitySchema,
+  buildIdentity: sha256Schema,
 });
+
+export const developmentRuntimeManifestSchema = developmentRuntimeManifestPayloadSchema;
 
 export type DevelopmentRuntimeManifestPayload = z.infer<
   typeof developmentRuntimeManifestPayloadSchema
@@ -75,55 +80,8 @@ export type DevelopmentRuntimeBootstrapResult =
 
 const sha256 = (bytes: Uint8Array | string): string =>
   `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-const sha256Raw = (bytes: Uint8Array | string): string =>
-  createHash("sha256").update(bytes).digest("hex");
 
-export const sha256File = async (path: string): Promise<string> => sha256(await readFile(path));
-
-const treeEntries = async (root: string, directory = root): Promise<readonly string[]> => {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name, "en"))) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await treeEntries(root, path)));
-    else if (entry.isFile()) files.push(relative(root, path).replaceAll(sep, "/"));
-    else throw new Error(`Runtime identity tree contains an unsupported entry: ${path}`);
-  }
-  return files;
-};
-
-export const digestDirectoryTree = async (root: string): Promise<string> => {
-  const frames: string[] = [];
-  for (const locator of await treeEntries(root)) {
-    frames.push(`${locator}\0${await sha256File(join(root, locator))}\n`);
-  }
-  return sha256(frames.join(""));
-};
-
-export const developmentRuntimeSkillTreeSha256 = async (packageRoot: string): Promise<string> => {
-  const bearing = await digestDirectoryTree(join(packageRoot, "skills", "bearing"));
-  const bearingDev = await digestDirectoryTree(join(packageRoot, "skills", "bearing-dev"));
-  return sha256(
-    `bearing-development-skill-set-v1\nbearing\0${bearing}\nbearing-dev\0${bearingDev}\n`,
-  );
-};
-
-const developmentRuntimeProductPathspecs = [
-  ".",
-  ":(exclude)README.local.md",
-  ":(exclude)tests",
-  ":(exclude)node-tests",
-  ":(exclude)browser-tests",
-  ":(exclude)docs/agents/codex-e2e.md",
-  ":(exclude)docs/agents/release-live-journey.md",
-  ":(exclude)scripts/codex-e2e-runtime.ts",
-  ":(exclude)scripts/github-live-journey.ts",
-  ":(exclude,glob)scripts/live-*.ts",
-  ":(exclude)scripts/local-rehearsal-identity.ts",
-  ":(exclude)scripts/run-live-journey.ts",
-  ":(exclude)validation/live-journey/generation.md",
-  ":(exclude)validation/live-journey/journeys",
-] as const;
+export { sha256File } from "./development-build";
 
 const git = (root: string, args: readonly string[]): string => {
   const result = spawnSync("git", args, {
@@ -139,7 +97,6 @@ const git = (root: string, args: readonly string[]): string => {
 
 export type DevelopmentRuntimeSourceIdentity = Readonly<{
   gitHead: string;
-  declaredBuildInputSha256: string;
   dirty: boolean;
 }>;
 
@@ -148,38 +105,19 @@ export const developmentRuntimeSourceIdentity = async (
 ): Promise<DevelopmentRuntimeSourceIdentity> => {
   const root = await realpath(resolve(sourceRoot));
   const gitHead = git(root, ["rev-parse", "HEAD"]);
-  const diff = git(root, ["diff", "--binary", "HEAD", "--", ...developmentRuntimeProductPathspecs]);
-  const untracked = git(root, [
-    "ls-files",
-    "--others",
-    "--exclude-standard",
-    "--",
-    ...developmentRuntimeProductPathspecs,
-  ])
-    .split("\n")
-    .filter((locator) => locator.length > 0)
-    .sort((left, right) => left.localeCompare(right, "en"));
-  const untrackedFrames: string[] = [];
-  for (const locator of untracked) {
-    const path = join(root, locator);
-    const metadata = await lstat(path);
-    if (metadata.isSymbolicLink()) {
-      untrackedFrames.push(`${locator}\0symlink\0${sha256Raw(await readlink(path))}\n`);
-    } else if (metadata.isFile()) {
-      untrackedFrames.push(`${locator}\0file\0${sha256Raw(await readFile(path))}\n`);
-    } else {
-      throw new Error(`Runtime identity input contains an unsupported entry: ${path}`);
-    }
-  }
   return {
     gitHead,
-    declaredBuildInputSha256: sha256(`${gitHead}\0${sha256Raw(diff)}\0${untrackedFrames.join("")}`),
     dirty: git(root, ["status", "--porcelain=v1"]).length > 0,
   };
 };
 
-export const developmentRuntimeIdentity = (payload: DevelopmentRuntimeManifestPayload): string =>
-  sha256(`bearing-development-runtime-v1\n${JSON.stringify(payload)}\n`);
+export const developmentRuntimeIdentity = (
+  buildIdentity: string,
+  sourceProvenance: DevelopmentRuntimeSourceIdentity,
+): string =>
+  sha256(
+    `bearing-development-runtime-v2\n${JSON.stringify({ buildIdentity, sourceProvenance })}\n`,
+  );
 
 const diagnostic = (code: string, target: string, message: string): RuntimeDiagnostic => ({
   code,
@@ -243,6 +181,52 @@ const schemaVersion = (value: unknown): number | undefined =>
 const stateRootIdentity = (stateRoot: string): string =>
   sha256(`bearing-development-state-root-v1\n${stateRoot}\n`);
 
+type DevelopmentRuntimeMaterialInspection =
+  | Readonly<{
+      status: "current";
+      build: DevelopmentBuildFreshnessRecord;
+      sourceProvenance: DevelopmentRuntimeSourceIdentity;
+    }>
+  | Readonly<{ status: "newer" }>
+  | Readonly<{ status: "invalid" }>
+  | Readonly<{ status: "stale" }>;
+
+const inspectDevelopmentRuntimeMaterial = async (options: {
+  packageRoot: string;
+  runtimeManifestPath: string;
+  sourceIdentity?: () => Promise<DevelopmentRuntimeSourceIdentity>;
+  buildInputSha256?: () => Promise<string>;
+}): Promise<DevelopmentRuntimeMaterialInspection> => {
+  let runtimeValue: unknown;
+  try {
+    runtimeValue = JSON.parse(await readFile(options.runtimeManifestPath, "utf8")) as unknown;
+  } catch {
+    return { status: "invalid" };
+  }
+  if ((schemaVersion(runtimeValue) ?? 1) > 2) return { status: "newer" };
+  const runtime = developmentRuntimeManifestSchema.safeParse(runtimeValue);
+  if (!runtime.success) return { status: "invalid" };
+  const declaredInputSha256 = await (
+    options.buildInputSha256 ?? (() => developmentBuildInputSha256(options.packageRoot))
+  )();
+  const build = await inspectDevelopmentBuildFreshness({
+    packageRoot: options.packageRoot,
+    declaredInputSha256,
+    expectedPackageVersion: packageMetadata.version,
+  });
+  if (
+    build.status !== "current" ||
+    runtime.data.packageVersion !== packageMetadata.version ||
+    runtime.data.buildIdentity !== build.record.buildIdentity
+  ) {
+    return { status: "stale" };
+  }
+  const sourceProvenance = await (
+    options.sourceIdentity ?? (() => developmentRuntimeSourceIdentity(options.packageRoot))
+  )();
+  return { status: "current", build: build.record, sourceProvenance };
+};
+
 const stableResolution = async (
   repositoryRoot: string,
   publicHomeDir: string,
@@ -275,6 +259,7 @@ export const resolveRepositoryRuntime = async (options: {
   publicHomeDir: string;
   invokedCliPath: string;
   sourceIdentity?: () => Promise<DevelopmentRuntimeSourceIdentity>;
+  buildInputSha256?: () => Promise<string>;
 }): Promise<RuntimeResolution> => {
   const repositoryRoot = await resolveRepositoryRoot(options.repoRoot);
   const packageRoot = await canonicalDirectory(options.packageRoot);
@@ -410,8 +395,15 @@ export const resolveRepositoryRuntime = async (options: {
       );
     }
 
-    const runtimeValue = JSON.parse(await readFile(runtimeManifestPath, "utf8")) as unknown;
-    if ((schemaVersion(runtimeValue) ?? 1) > 1) {
+    const material = await inspectDevelopmentRuntimeMaterial({
+      packageRoot,
+      runtimeManifestPath,
+      ...(options.sourceIdentity === undefined ? {} : { sourceIdentity: options.sourceIdentity }),
+      ...(options.buildInputSha256 === undefined
+        ? {}
+        : { buildInputSha256: options.buildInputSha256 }),
+    });
+    if (material.status === "newer") {
       return failed(
         "need-update",
         "development-runtime-manifest-newer",
@@ -419,8 +411,7 @@ export const resolveRepositoryRuntime = async (options: {
         "The built Development Runtime identity requires a newer resolver.",
       );
     }
-    const runtime = developmentRuntimeManifestSchema.safeParse(runtimeValue);
-    if (!runtime.success) {
+    if (material.status === "invalid") {
       return failed(
         "recovery-required",
         "development-runtime-manifest-invalid",
@@ -428,34 +419,26 @@ export const resolveRepositoryRuntime = async (options: {
         "The built Development Runtime identity manifest is invalid.",
       );
     }
-    const { runtimeIdentity: _runtimeIdentity, ...payloadValue } = runtime.data;
-    const payload = developmentRuntimeManifestPayloadSchema.parse(payloadValue);
-    const sourceIdentity = await (
-      options.sourceIdentity ?? (() => developmentRuntimeSourceIdentity(packageRoot))
-    )();
-    if (
-      runtime.data.packageVersion !== packageMetadata.version ||
-      runtime.data.gitHead !== sourceIdentity.gitHead ||
-      runtime.data.declaredBuildInputSha256 !== sourceIdentity.declaredBuildInputSha256 ||
-      runtime.data.dirty !== sourceIdentity.dirty ||
-      runtime.data.runtimeIdentity !== developmentRuntimeIdentity(payload) ||
-      runtime.data.cliSha256 !== (await sha256File(cliLocator)) ||
-      runtime.data.skillTreeSha256 !== (await developmentRuntimeSkillTreeSha256(packageRoot))
-    ) {
+    if (material.status === "stale") {
       return failed(
         "unfulfilled",
-        "development-runtime-identity-mismatch",
-        "dist/development-runtime.json",
-        "Development Runtime source, build, CLI, and Skill identity is not coherent.",
+        "development-build-stale",
+        "dist/development-build.json",
+        "Development Runtime build inputs and published CLI or Portal outputs are not coherent.",
       );
     }
     const receipt: RuntimeReceipt = {
       schemaVersion: 1,
       channel: "development",
-      runtimeIdentity: runtime.data.runtimeIdentity,
+      runtimeIdentity: developmentRuntimeIdentity(
+        material.build.buildIdentity,
+        material.sourceProvenance,
+      ),
       stateRootIdentity: stateRootIdentity(stateRoot),
-      cliSha256: runtime.data.cliSha256,
-      skillTreeSha256: runtime.data.skillTreeSha256,
+      buildIdentity: material.build.buildIdentity,
+      sourceProvenance: material.sourceProvenance,
+      cliSha256: material.build.outputs.cliSha256,
+      portalBuildId: material.build.outputs.portalBuildId,
     };
     return {
       outcome: "resolved",
@@ -504,6 +487,7 @@ export const bootstrapDevelopmentRuntime = async (options: {
   publicHomeDir: string;
   invokedCliPath: string;
   sourceIdentity?: () => Promise<DevelopmentRuntimeSourceIdentity>;
+  buildInputSha256?: () => Promise<string>;
 }): Promise<DevelopmentRuntimeBootstrapResult> => {
   const repositoryRoot = await resolveRepositoryRoot(options.repoRoot);
   const packageRoot = await canonicalDirectory(options.packageRoot);
@@ -563,35 +547,36 @@ export const bootstrapDevelopmentRuntime = async (options: {
         "Development Runtime bootstrap must run through this source checkout's CLI.",
       );
     }
-    const runtimeValue = JSON.parse(await readFile(runtimeManifest, "utf8")) as unknown;
-    const runtime = developmentRuntimeManifestSchema.safeParse(runtimeValue);
-    if (!runtime.success) {
+    const material = await inspectDevelopmentRuntimeMaterial({
+      packageRoot,
+      runtimeManifestPath: runtimeManifest,
+      ...(options.sourceIdentity === undefined ? {} : { sourceIdentity: options.sourceIdentity }),
+      ...(options.buildInputSha256 === undefined
+        ? {}
+        : { buildInputSha256: options.buildInputSha256 }),
+    });
+    if (material.status === "newer") {
       return failed(
-        (schemaVersion(runtimeValue) ?? 1) > 1 ? "need-update" : "recovery-required",
+        "need-update",
+        "development-runtime-manifest-newer",
+        "dist/development-runtime.json",
+        "The built Development Runtime identity requires a newer resolver.",
+      );
+    }
+    if (material.status === "invalid") {
+      return failed(
+        "recovery-required",
         "development-runtime-manifest-invalid",
         "dist/development-runtime.json",
         "Build the current source checkout before Development Runtime bootstrap.",
       );
     }
-    const { runtimeIdentity: _runtimeIdentity, ...payloadValue } = runtime.data;
-    const payload = developmentRuntimeManifestPayloadSchema.parse(payloadValue);
-    const sourceIdentity = await (
-      options.sourceIdentity ?? (() => developmentRuntimeSourceIdentity(packageRoot))
-    )();
-    if (
-      runtime.data.packageVersion !== packageMetadata.version ||
-      runtime.data.gitHead !== sourceIdentity.gitHead ||
-      runtime.data.declaredBuildInputSha256 !== sourceIdentity.declaredBuildInputSha256 ||
-      runtime.data.dirty !== sourceIdentity.dirty ||
-      runtime.data.runtimeIdentity !== developmentRuntimeIdentity(payload) ||
-      runtime.data.cliSha256 !== (await sha256File(cliLocator)) ||
-      runtime.data.skillTreeSha256 !== (await developmentRuntimeSkillTreeSha256(packageRoot))
-    ) {
+    if (material.status === "stale") {
       return failed(
         "unfulfilled",
-        "development-runtime-identity-mismatch",
-        "dist/development-runtime.json",
-        "Build output and source Skill do not have one coherent Development Runtime identity.",
+        "development-build-stale",
+        "dist/development-build.json",
+        "Build the declared Development Runtime inputs before bootstrap.",
       );
     }
 

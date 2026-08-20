@@ -3,8 +3,10 @@ export type RuntimeReceipt = Readonly<{
   channel: "stable" | "development";
   runtimeIdentity: string;
   stateRootIdentity: string;
+  buildIdentity?: string;
+  sourceProvenance?: Readonly<{ gitHead: string; dirty: boolean }>;
   cliSha256?: string;
-  skillTreeSha256?: string;
+  portalBuildId?: string;
 }>;
 
 export type RuntimeExecutionContext = Readonly<{

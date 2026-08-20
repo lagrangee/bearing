@@ -50,6 +50,7 @@ const developmentRuntimeContext = (
   repositoryRoot: string,
   runtimeDigest: string,
   legacyNamespace?: string,
+  buildDigest = runtimeDigest,
 ) => ({
   repositoryRoot,
   homeDir: join(repositoryRoot, ".bearing", "local", "runtime-home"),
@@ -69,6 +70,7 @@ const developmentRuntimeContext = (
     channel: "development" as const,
     runtimeIdentity: `sha256:${runtimeDigest}`,
     stateRootIdentity: `sha256:${"f".repeat(64)}`,
+    buildIdentity: `sha256:${buildDigest}`,
   },
 });
 
@@ -380,7 +382,7 @@ test("physical rebuild is local-only and exact capture replaces current bound ev
   }
 });
 
-test("Development namespace cutover reuses compatible provider evidence without acquisition", async () => {
+test("compatible Development build replacement keeps provider evidence current without acquisition", async () => {
   const fixture = await createRepresentativeProject("representative");
   try {
     const repositoryRoot = await realpath(fixture.root);

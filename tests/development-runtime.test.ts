@@ -2,13 +2,14 @@ import { expect, test } from "bun:test";
 import { mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import packageMetadata from "../package.json";
+import { createDevelopmentBuildFreshnessRecord, sha256File } from "../src/development-build";
 import {
   bootstrapDevelopmentRuntime,
   developmentRuntimeIdentity,
-  developmentRuntimeSkillTreeSha256,
+  developmentRuntimeManifestSchema,
   resolveRepositoryRuntime,
-  sha256File,
 } from "../src/development-runtime";
+import { buildPortalAssetManifest, writePortalAssetManifest } from "../src/portal/assets";
 import { projectReadModelPath } from "../src/project-read-model/store";
 import { withRuntimeExecutionContext } from "../src/runtime-context";
 import { makeTemporaryDirectory } from "./helpers";
@@ -33,9 +34,10 @@ const writeRepositoryManifest = async (
 
 const fixtureSourceIdentity = {
   gitHead: "0".repeat(40),
-  declaredBuildInputSha256: `sha256:${"1".repeat(64)}`,
   dirty: true,
 } as const;
+
+const fixtureDeclaredInputSha256 = `sha256:${"1".repeat(64)}`;
 
 const fixture = async (withBinding = true) => {
   const root = await makeTemporaryDirectory("bearing-development-runtime-");
@@ -52,24 +54,36 @@ const fixture = async (withBinding = true) => {
   await mkdir(join(root, ".agents", "skills"), { recursive: true });
   await symlink("../../skills/bearing-dev", join(root, ".agents", "skills", "bearing-dev"));
   await mkdir(join(root, "dist"), { recursive: true });
+  await mkdir(join(root, "dist", "portal"), { recursive: true });
   if (withBinding) await mkdir(stateRoot, { recursive: true });
   await mkdir(publicHomeDir, { recursive: true });
   await writeFile(cliLocator, "development cli\n");
+  await writeFile(join(root, "dist", "bundle-dependencies.json"), "{}\n");
+  await writeFile(join(root, "dist", "portal", "index.html"), "development portal\n");
   await writeFile(join(publicSkillRoot, "SKILL.md"), "bearing skill\n");
   await writeFile(join(skillRoot, "SKILL.md"), "bearing-dev entry\n");
-  const payload = {
-    schemaVersion: 1 as const,
-    runtimeContractVersion: 1 as const,
-    channel: "development" as const,
-    packageVersion: packageMetadata.version,
-    ...fixtureSourceIdentity,
-    cliSha256: await sha256File(cliLocator),
-    skillTreeSha256: await developmentRuntimeSkillTreeSha256(root),
-  };
-  await writeFile(
-    runtimeManifest,
-    `${JSON.stringify({ ...payload, runtimeIdentity: developmentRuntimeIdentity(payload) })}\n`,
+  const portal = await buildPortalAssetManifest(
+    join(root, "dist", "portal"),
+    packageMetadata.version,
   );
+  await writePortalAssetManifest(join(root, "dist", "portal"), portal);
+  const buildRecord = createDevelopmentBuildFreshnessRecord({
+    packageVersion: packageMetadata.version,
+    cliSha256: await sha256File(cliLocator),
+    declaredInputSha256: fixtureDeclaredInputSha256,
+    portalBuildId: portal.buildId,
+    bundleDependenciesSha256: await sha256File(join(root, "dist", "bundle-dependencies.json")),
+  });
+  await writeFile(join(root, "dist", "development-build.json"), `${JSON.stringify(buildRecord)}\n`);
+  const runtime = developmentRuntimeManifestSchema.parse({
+    schemaVersion: 2,
+    runtimeContractVersion: 2,
+    channel: "development",
+    packageVersion: packageMetadata.version,
+    builtFrom: fixtureSourceIdentity,
+    buildIdentity: buildRecord.buildIdentity,
+  });
+  await writeFile(runtimeManifest, `${JSON.stringify(runtime)}\n`);
   const binding = {
     schemaVersion: 1,
     channel: "development",
@@ -92,6 +106,8 @@ const fixture = async (withBinding = true) => {
     binding,
     bindingPath,
     sourceIdentity: async () => fixtureSourceIdentity,
+    buildInputSha256: async () => fixtureDeclaredInputSha256,
+    buildRecord,
   };
 };
 
@@ -103,6 +119,7 @@ test("Development Runtime bootstrap explicitly materializes one local binding", 
     publicHomeDir: value.publicHomeDir,
     invokedCliPath: value.cliLocator,
     sourceIdentity: value.sourceIdentity,
+    buildInputSha256: value.buildInputSha256,
   });
   expect(result).toMatchObject({
     outcome: "applied",
@@ -121,6 +138,7 @@ test("Development Runtime bootstrap explicitly materializes one local binding", 
       publicHomeDir: value.publicHomeDir,
       invokedCliPath: value.cliLocator,
       sourceIdentity: value.sourceIdentity,
+      buildInputSha256: value.buildInputSha256,
     }),
   ).resolves.toMatchObject({ outcome: "resolved", context: { receipt: result.receipt } });
 });
@@ -150,14 +168,17 @@ test("compatible Development Runtime identities reuse one isolated Project Read 
     publicHomeDir: value.publicHomeDir,
     invokedCliPath: value.cliLocator,
     sourceIdentity: value.sourceIdentity,
+    buildInputSha256: value.buildInputSha256,
   });
   expect(result.outcome).toBe("resolved");
   if (result.outcome !== "resolved") return;
   expect(result.context.receipt).toMatchObject({
     channel: "development",
+    buildIdentity: value.buildRecord.buildIdentity,
+    sourceProvenance: fixtureSourceIdentity,
     cliSha256: await sha256File(value.cliLocator),
-    skillTreeSha256: await developmentRuntimeSkillTreeSha256(value.root),
   });
+  expect(result.context.receipt).not.toHaveProperty("skillTreeSha256");
   expect(result.context.homeDir).toBe(
     join(await realpath(value.root), ".bearing", "local", "runtime-home"),
   );
@@ -182,34 +203,23 @@ test("compatible Development Runtime identities reuse one isolated Project Read 
   const nextSourceIdentity = {
     ...fixtureSourceIdentity,
     gitHead: "2".repeat(40),
-    declaredBuildInputSha256: `sha256:${"3".repeat(64)}`,
+    dirty: false,
   } as const;
-  const nextPayload = {
-    schemaVersion: 1 as const,
-    runtimeContractVersion: 1 as const,
-    channel: "development" as const,
-    packageVersion: packageMetadata.version,
-    ...nextSourceIdentity,
-    cliSha256: await sha256File(value.cliLocator),
-    skillTreeSha256: await developmentRuntimeSkillTreeSha256(value.root),
-  };
-  await writeFile(
-    value.runtimeManifest,
-    `${JSON.stringify({
-      ...nextPayload,
-      runtimeIdentity: developmentRuntimeIdentity(nextPayload),
-    })}\n`,
-  );
   const next = await resolveRepositoryRuntime({
     repoRoot: value.root,
     packageRoot: value.root,
     publicHomeDir: value.publicHomeDir,
     invokedCliPath: value.cliLocator,
     sourceIdentity: async () => nextSourceIdentity,
+    buildInputSha256: value.buildInputSha256,
   });
   expect(next.outcome).toBe("resolved");
   if (next.outcome !== "resolved") return;
+  expect(next.context.receipt.runtimeIdentity).toBe(
+    developmentRuntimeIdentity(value.buildRecord.buildIdentity, nextSourceIdentity),
+  );
   expect(next.context.receipt.runtimeIdentity).not.toBe(result.context.receipt.runtimeIdentity);
+  expect(next.context.receipt.buildIdentity).toBe(result.context.receipt.buildIdentity);
   expect(next.context.projectReadModelPath).toBe(result.context.projectReadModelPath);
 });
 
@@ -232,7 +242,7 @@ test("Development Runtime fails closed for missing binding without creating stat
   expect(await readFile(join(root, ".bearing", "manifest.json"))).toEqual(before);
 });
 
-test("Development Runtime rejects identity drift and newer binding schemas", async () => {
+test("Development Runtime separates provenance and live Skill loading from Build Freshness", async () => {
   const sourceDrifted = await fixture();
   await expect(
     resolveRepositoryRuntime({
@@ -241,10 +251,11 @@ test("Development Runtime rejects identity drift and newer binding schemas", asy
       publicHomeDir: sourceDrifted.publicHomeDir,
       invokedCliPath: sourceDrifted.cliLocator,
       sourceIdentity: async () => ({ ...fixtureSourceIdentity, dirty: false }),
+      buildInputSha256: sourceDrifted.buildInputSha256,
     }),
   ).resolves.toMatchObject({
-    outcome: "unfulfilled",
-    diagnostics: [{ code: "development-runtime-identity-mismatch" }],
+    outcome: "resolved",
+    context: { receipt: { buildIdentity: sourceDrifted.buildRecord.buildIdentity } },
   });
 
   const drifted = await fixture();
@@ -256,10 +267,11 @@ test("Development Runtime rejects identity drift and newer binding schemas", asy
       publicHomeDir: drifted.publicHomeDir,
       invokedCliPath: drifted.cliLocator,
       sourceIdentity: drifted.sourceIdentity,
+      buildInputSha256: drifted.buildInputSha256,
     }),
   ).resolves.toMatchObject({
     outcome: "unfulfilled",
-    diagnostics: [{ code: "development-runtime-identity-mismatch" }],
+    diagnostics: [{ code: "development-build-stale" }],
   });
 
   const publicSkillDrifted = await fixture();
@@ -271,10 +283,11 @@ test("Development Runtime rejects identity drift and newer binding schemas", asy
       publicHomeDir: publicSkillDrifted.publicHomeDir,
       invokedCliPath: publicSkillDrifted.cliLocator,
       sourceIdentity: publicSkillDrifted.sourceIdentity,
+      buildInputSha256: publicSkillDrifted.buildInputSha256,
     }),
   ).resolves.toMatchObject({
-    outcome: "unfulfilled",
-    diagnostics: [{ code: "development-runtime-identity-mismatch" }],
+    outcome: "resolved",
+    context: { receipt: { buildIdentity: publicSkillDrifted.buildRecord.buildIdentity } },
   });
 
   const devEntryDrifted = await fixture();
@@ -286,10 +299,26 @@ test("Development Runtime rejects identity drift and newer binding schemas", asy
       publicHomeDir: devEntryDrifted.publicHomeDir,
       invokedCliPath: devEntryDrifted.cliLocator,
       sourceIdentity: devEntryDrifted.sourceIdentity,
+      buildInputSha256: devEntryDrifted.buildInputSha256,
+    }),
+  ).resolves.toMatchObject({
+    outcome: "resolved",
+    context: { receipt: { buildIdentity: devEntryDrifted.buildRecord.buildIdentity } },
+  });
+
+  const declaredInputDrifted = await fixture();
+  await expect(
+    resolveRepositoryRuntime({
+      repoRoot: declaredInputDrifted.root,
+      packageRoot: declaredInputDrifted.root,
+      publicHomeDir: declaredInputDrifted.publicHomeDir,
+      invokedCliPath: declaredInputDrifted.cliLocator,
+      sourceIdentity: declaredInputDrifted.sourceIdentity,
+      buildInputSha256: async () => `sha256:${"3".repeat(64)}`,
     }),
   ).resolves.toMatchObject({
     outcome: "unfulfilled",
-    diagnostics: [{ code: "development-runtime-identity-mismatch" }],
+    diagnostics: [{ code: "development-build-stale" }],
   });
 
   const newer = await fixture();
@@ -301,6 +330,7 @@ test("Development Runtime rejects identity drift and newer binding schemas", asy
       publicHomeDir: newer.publicHomeDir,
       invokedCliPath: newer.cliLocator,
       sourceIdentity: newer.sourceIdentity,
+      buildInputSha256: newer.buildInputSha256,
     }),
   ).resolves.toMatchObject({
     outcome: "need-update",
@@ -324,6 +354,7 @@ test("Development Runtime rejects unsafe and public state roots", async () => {
       publicHomeDir: unsafe.publicHomeDir,
       invokedCliPath: unsafe.cliLocator,
       sourceIdentity: unsafe.sourceIdentity,
+      buildInputSha256: unsafe.buildInputSha256,
     }),
   ).resolves.toMatchObject({
     outcome: "recovery-required",
@@ -345,6 +376,7 @@ test("Development Runtime rejects unsafe and public state roots", async () => {
       publicHomeDir,
       invokedCliPath: publicSelected.cliLocator,
       sourceIdentity: publicSelected.sourceIdentity,
+      buildInputSha256: publicSelected.buildInputSha256,
     }),
   ).resolves.toMatchObject({
     outcome: "unfulfilled",
