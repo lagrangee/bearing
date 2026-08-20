@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import packageMetadata from "../package.json";
 import { readReleaseTarGz } from "../scripts/release-archive";
 import { writeStandardMattLocalRepository, writeValidBearingState } from "./helpers";
 
@@ -195,7 +196,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
       root,
     );
     expect(executed.exitCode).toBe(0);
-    expect(executed.stdout).toBe("0.1.1\n");
+    expect(executed.stdout).toBe(`${packageMetadata.version}\n`);
     expect(executed.stderr).toBe("");
 
     const help = await run(

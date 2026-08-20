@@ -43,6 +43,12 @@ const preview010ManifestSchema = z.strictObject({
     .refine((profiles) => new Set(profiles).size === profiles.length),
 });
 
+const developmentLineStart011ManifestSchema = repositoryManifestSchema.extend({
+  packageVersion: z.literal("0.1.1"),
+  status: z.literal("active"),
+  runtime: z.literal("development"),
+});
+
 export const inspectRepositoryIntegrationLifecycle = async (
   root: string,
 ): Promise<RepositoryIntegrationLifecycle> => {
@@ -139,6 +145,19 @@ export const inspectRepositoryIntegrationLifecycle = async (
       update: {
         fromPackageVersion: "0.1.0",
         toPackageVersion: "0.1.1",
+        guide: "references/journeys/update.md",
+      },
+    };
+  }
+  const developmentLineStart011Manifest = developmentLineStart011ManifestSchema.safeParse(parsed);
+  if (developmentLineStart011Manifest.success && packageMetadata.version === "0.1.2-dev") {
+    return {
+      kind: "repository-update-required",
+      reason:
+        "The source repository uses the listed active 0.1.1 Development Configuration and requires the Agent-guided 0.1.2-dev Development Line Start update.",
+      update: {
+        fromPackageVersion: "0.1.1",
+        toPackageVersion: "0.1.2-dev",
         guide: "references/journeys/update.md",
       },
     };

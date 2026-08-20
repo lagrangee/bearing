@@ -43,6 +43,22 @@ it does not authorize or provide evidence for Global Kit maintenance.
 
 ## Supported source identities
 
+### Source repository 0.1.1 Active Development Configuration to target Kit 0.1.2-dev
+
+- **Source identity:** `schemaVersion` is `1`, `packageVersion` is `0.1.1`, `status` is `active`,
+  `runtime` is `development`, `surfaces` is a non-empty unique list of supported Agent Surfaces,
+  `executorProfiles` is a unique list of valid profile IDs, and no other manifest field exists.
+  This source is supported only by the exact `0.1.2-dev` Development Kit.
+- **Target schema:** Preserve `schemaVersion`, `status`, `runtime`, `surfaces`, and
+  `executorProfiles`; set `packageVersion` to `0.1.2-dev`; add no other manifest field.
+- **Semantic invariants:** Canonical Bearing State, Provider Configuration, provider-owned native
+  work, Execution Profiles, and managed instruction content stay byte-for-byte unchanged.
+- **Write scope:** `.bearing/manifest.json` and the disposable Development Project Read Model only.
+- **Validation:** Read back the target manifest and every preserved invariant, rebuild the isolated
+  Development Project Read Model through `bearing cache rebuild --repo <repo-root>`, then re-run
+  lifecycle and diagnostics. The old SQLite file is not update input, and rebuild performs no
+  provider acquisition.
+
 ### Repository 0.1.0 to target Kit 0.1.1
 
 - **Source identity:** `schemaVersion` is `1`, `packageVersion` is `0.1.0`, `status` is absent,

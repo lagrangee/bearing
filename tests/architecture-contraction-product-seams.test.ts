@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import packageMetadata from "../package.json";
 import { createRepresentativeProject } from "./fixtures/representative-project";
 import { installPackedProduct } from "./product-seams/installed-product";
 
@@ -85,7 +86,7 @@ Roadmap 001 is active at Gate 001 under the representative delivery commitment.
     expect(version).toMatchObject({
       exitClass: "success",
       exitCode: 0,
-      stdout: "0.1.1\n",
+      stdout: `${packageMetadata.version}\n`,
       stderr: "",
       effects: { created: [], changed: [], removed: [] },
     });
