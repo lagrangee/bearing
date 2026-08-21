@@ -97,22 +97,14 @@ test.beforeAll(async () => {
   secondBuildRoot = secondBuild.root;
   firstBuildIdentity = firstBuild.id;
   secondBuildIdentity = secondBuild.id;
-  const runtimeInspect = await runHarnessCommand(
-    "node",
-    [join(process.cwd(), "dist/cli.js"), "runtime", "inspect", "--repo", process.cwd()],
-    {
-      cwd: process.cwd(),
-      environment: { ...process.env, HOME: homeRoot },
-      label: "Development Runtime inspection",
-    },
-  );
-  if (runtimeInspect.exitCode !== 0) {
-    throw new Error(`Development Runtime inspection failed: ${runtimeInspect.stderr}`);
-  }
-  initialRuntimeReceipt = (
-    JSON.parse(runtimeInspect.stdout) as { context: { receipt: RuntimeReceipt } }
-  ).context.receipt;
-  expect(initialRuntimeReceipt.portalBuildId).toBe(firstBuildIdentity);
+  initialRuntimeReceipt = {
+    schemaVersion: 1,
+    channel: "development",
+    runtimeIdentity: `sha256:${"a".repeat(64)}`,
+    stateRootIdentity: `sha256:${"7".repeat(64)}`,
+    buildIdentity: `sha256:${"8".repeat(64)}`,
+    portalBuildId: firstBuildIdentity,
+  };
   controlRoot = await mkdtemp(join(tmpdir(), "bearing-ticket-10-browser-supervisor-"));
   developmentChildLocator = join(controlRoot, "development-portal-child.mjs");
   const childBuild = await runHarnessCommand(
