@@ -1,5 +1,6 @@
 import type { PortalCatalogEnvelope } from "../portal-catalog-wire";
 import { portalCatalogEnvelopeSchema } from "../portal-catalog-wire";
+import { portalGet } from "./portal-build-identity";
 
 export class CatalogResponseError extends Error {
   readonly name = "CatalogResponseError";
@@ -10,8 +11,7 @@ export class CatalogResponseError extends Error {
 }
 
 export async function readCatalog(signal: AbortSignal): Promise<PortalCatalogEnvelope> {
-  const response = await window.fetch("/api/v1/catalog", {
-    method: "GET",
+  const response = await portalGet("/api/v1/catalog", {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
     signal,

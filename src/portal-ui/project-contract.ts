@@ -11,6 +11,7 @@ import {
   type PortalProviderApplicationResponse,
   portalProviderApplicationResponseSchema,
 } from "../portal-provider-application-wire";
+import { portalGet } from "./portal-build-identity";
 import type { ProjectData } from "./project-data";
 import { portalRowsToProjectData } from "./project-row-adapter";
 
@@ -91,10 +92,9 @@ export const readProjectRows = async (
     parameters.set("targetKind", target.kind);
     parameters.set("targetId", target.id);
   }
-  const response = await window.fetch(
+  const response = await portalGet(
     `/api/v1/projects/${encodeURIComponent(entryId)}/read-model?${parameters.toString()}`,
     {
-      method: "GET",
       credentials: "same-origin",
       headers: { Accept: "application/json" },
       signal,
@@ -133,10 +133,9 @@ export const findProjectRows = async (
   Pick<Extract<PortalProjectFindEnvelope, { state: "ready" }>, "results" | "scopeState">
 > => {
   const parameters = new URLSearchParams({ query });
-  const response = await window.fetch(
+  const response = await portalGet(
     `/api/v1/projects/${encodeURIComponent(entryId)}/find?${parameters.toString()}`,
     {
-      method: "GET",
       credentials: "same-origin",
       headers: { Accept: "application/json" },
       signal,

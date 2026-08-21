@@ -13,6 +13,10 @@ import {
   writePortalAssetManifest,
 } from "../src/portal/assets";
 import { parsePortalPort } from "../src/portal/port";
+import {
+  PORTAL_BUILD_IDENTITY_HEADER,
+  portalBootstrapEnvelopeSchema,
+} from "../src/portal-build-identity-wire";
 import { portalCatalogEnvelopeSchema } from "../src/portal-catalog-wire";
 
 const INDEX_HTML = '<!doctype html><html><body><div id="root"></div></body></html>';
@@ -340,7 +344,14 @@ test("bootstraps the API-scoped Portal session before concurrent API reads", asy
   expect(entrypoint.headers.get("set-cookie")).toBeNull();
   expect(bootstrap.headers.get("cache-control")).toBe("no-store");
   expect(bootstrap.status).toBe(200);
-  expect(await bootstrap.json()).toEqual({ version: 1, state: "ready" });
+  expect(portalBootstrapEnvelopeSchema.parse(await bootstrap.json())).toEqual({
+    version: 1,
+    state: "ready",
+    portalBuildIdentity: assets.manifest.buildId,
+  });
+  expect(bootstrap.headers.get(PORTAL_BUILD_IDENTITY_HEADER)).toBe(assets.manifest.buildId);
+  expect(catalog.headers.get(PORTAL_BUILD_IDENTITY_HEADER)).toBe(assets.manifest.buildId);
+  expect(project.headers.get(PORTAL_BUILD_IDENTITY_HEADER)).toBe(assets.manifest.buildId);
   expect(cookie).toContain("bearing_session=");
   expect(cookie).toContain("HttpOnly");
   expect(cookie).toContain("SameSite=Strict");

@@ -1,9 +1,20 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { planningLineageSubjectHref } from "../src/planning-lineage-route";
+import { buildPortalAssetManifest, writePortalAssetManifest } from "../src/portal/assets";
+import { PORTAL_BUILD_IDENTITY_HEADER } from "../src/portal-build-identity-wire";
 import {
   copyPortalProjectFixture,
   readRepositorySourceBytes,
@@ -20,6 +31,11 @@ import {
 let host: RunningTestPortal | undefined;
 let homeRoot = "";
 let fixtureRoot = "";
+let firstBuildRoot = "";
+let secondBuildRoot = "";
+let firstBuildIdentity = "";
+let secondBuildIdentity = "";
+let packageVersion = "";
 let sourceBytes: Readonly<Record<string, string>> = {};
 let catalogHash = "";
 
@@ -28,7 +44,26 @@ const sha256 = async (path: string): Promise<string> =>
     .update(await readFile(path))
     .digest("hex");
 
+const createBuildRoot = async (
+  changed: boolean,
+): Promise<Readonly<{ root: string; id: string }>> => {
+  const root = await mkdtemp(join(tmpdir(), "bearing-ticket-08-build-"));
+  const portalRoot = join(root, "dist/portal");
+  await cp(join(process.cwd(), "dist"), join(root, "dist"), { recursive: true });
+  await mkdir(join(root, "skills"));
+  if (changed)
+    await appendFile(join(portalRoot, "index.html"), "\n<!-- Ticket 08 next build -->\n");
+  const manifest = await buildPortalAssetManifest(portalRoot, packageVersion);
+  await writePortalAssetManifest(portalRoot, manifest);
+  return { root, id: manifest.buildId };
+};
+
 test.beforeAll(async () => {
+  packageVersion = (
+    JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8")) as {
+      version: string;
+    }
+  ).version;
   fixtureRoot = await realpath(await copyPortalProjectFixture("Ticket 12 Refresh Project"));
   await runBuiltBearing(["provider", "capture", "--repo", fixtureRoot, "--scope", ".scratch/work"]);
   sourceBytes = await readRepositorySourceBytes(fixtureRoot);
@@ -38,13 +73,21 @@ test.beforeAll(async () => {
     { entryId: "ticket-12-refresh", repoRoot: fixtureRoot, displayName: "Ticket 12 Refresh" },
   ]);
   catalogHash = await sha256(join(homeRoot, ".bearing/catalog.sqlite"));
-  host = await startBuiltPortal(homeRoot);
+  const firstBuild = await createBuildRoot(false);
+  const secondBuild = await createBuildRoot(true);
+  firstBuildRoot = firstBuild.root;
+  secondBuildRoot = secondBuild.root;
+  firstBuildIdentity = firstBuild.id;
+  secondBuildIdentity = secondBuild.id;
+  host = await startBuiltPortal(homeRoot, {
+    cliLocator: join(firstBuildRoot, "dist/cli.js"),
+  });
 });
 
 test.afterAll(async () => {
   await stopBuiltPortal(host);
   await Promise.all(
-    [homeRoot, fixtureRoot]
+    [homeRoot, fixtureRoot, firstBuildRoot, secondBuildRoot]
       .filter((root) => root.length > 0)
       .map((root) => rm(root, { recursive: true, force: true })),
   );
@@ -55,23 +98,35 @@ test("real Host keeps Project Activation GET-only across browser lifecycle retur
 }, testInfo) => {
   if (host === undefined) throw new Error("Ticket 07 real Host did not start.");
   let reads = 0;
+  const readSections: string[] = [];
   const writes: string[] = [];
+  const bootstrapIdentities: string[] = [];
+  let documentRequests = 0;
+  let interruptedProviderPosts = 0;
   await page.clock.install({ time: new Date("2026-08-21T12:00:00+08:00") });
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (
-      request.method() === "GET" &&
-      url.pathname.endsWith("/read-model") &&
-      url.searchParams.get("section") === "overview"
-    ) {
+    if (request.resourceType() === "document") documentRequests += 1;
+    if (request.method() === "GET" && url.pathname.endsWith("/read-model")) {
       reads += 1;
+      readSections.push(url.searchParams.get("section") ?? "missing");
     }
     if (request.method() !== "GET") writes.push(`${request.method()} ${url.pathname}`);
+  });
+  page.on("response", (response) => {
+    if (new URL(response.url()).pathname === "/api/v1/bootstrap") {
+      const identity = response.headers()[PORTAL_BUILD_IDENTITY_HEADER.toLowerCase()];
+      if (identity !== undefined) bootstrapIdentities.push(identity);
+    }
   });
 
   await page.goto(`${host.url}/projects/ticket-12-refresh`);
   await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
   await expect.poll(() => reads).toBe(1);
+  const firstSession = (await page.context().cookies(`${host.url}/api/`)).find(
+    (cookie) => cookie.name === "bearing_session",
+  )?.value;
+  expect(firstSession).toBeDefined();
 
   await page.clock.fastForward(600_000);
   await page.waitForTimeout(50);
@@ -117,6 +172,43 @@ test("real Host keeps Project Activation GET-only across browser lifecycle retur
 
   expect(reads).toBe(4);
   expect(writes).toEqual([]);
+
+  await page.route("**/api/v1/projects/ticket-12-refresh/provider-observation", async (route) => {
+    interruptedProviderPosts += 1;
+    await route.abort("connectionfailed");
+  });
+  await page.getByRole("button", { name: "Refresh all sources" }).click();
+  await page
+    .getByRole("dialog", { name: "Refresh all sources" })
+    .getByRole("button", { name: "Confirm refresh all sources" })
+    .click();
+  await expect(page.getByText("Refresh all sources needs attention.")).toBeVisible();
+  expect(interruptedProviderPosts).toBe(1);
+
+  const port = Number(new URL(host.url).port);
+  await stopBuiltPortal(host);
+  host = await startBuiltPortal(homeRoot, {
+    port,
+    cliLocator: join(secondBuildRoot, "dist/cli.js"),
+  });
+  await page.getByRole("link", { name: "Roadmaps", exact: true }).click();
+  await expect.poll(() => bootstrapIdentities).toEqual([firstBuildIdentity, secondBuildIdentity]);
+  await expect(page.getByRole("heading", { name: "Roadmaps", level: 1 })).toBeVisible();
+  const secondSession = (await page.context().cookies(`${host.url}/api/`)).find(
+    (cookie) => cookie.name === "bearing_session",
+  )?.value;
+  expect(secondSession).toBeDefined();
+  expect(secondSession).not.toBe(firstSession);
+  expect(documentRequests).toBe(2);
+  expect(reads).toBe(6);
+
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(() => reads).toBe(7);
+  await page.waitForTimeout(50);
+  expect(bootstrapIdentities).toEqual([firstBuildIdentity, secondBuildIdentity]);
+  expect(documentRequests).toBe(2);
+  expect(interruptedProviderPosts).toBe(1);
+  expect(writes).toEqual(["POST /api/v1/projects/ticket-12-refresh/provider-observation"]);
   expect(await readRepositorySourceBytes(fixtureRoot)).toEqual(sourceBytes);
   expect(await sha256(join(homeRoot, ".bearing/catalog.sqlite"))).toBe(catalogHash);
   await writeFile(
@@ -126,7 +218,13 @@ test("real Host keeps Project Activation GET-only across browser lifecycle retur
         schemaVersion: 1,
         host: "foreground-loopback",
         typedReads: reads,
+        readSections,
         nonGetRequests: writes.length,
+        buildIdentities: bootstrapIdentities,
+        documentRequests,
+        interruptedProviderPosts,
+        providerPostReplays: interruptedProviderPosts - 1,
+        sessionReestablished: secondSession !== firstSession,
         sourceBytesPreserved: true,
         catalogBytesPreserved: true,
       },

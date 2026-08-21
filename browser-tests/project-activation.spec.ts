@@ -1,8 +1,56 @@
 import { expect, test } from "@playwright/test";
+import { PORTAL_BUILD_IDENTITY_HEADER } from "../src/portal-build-identity-wire";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { projectRowEnvelope } from "./project-row-fixture";
 
 const snapshot = createProjectOverviewFixture();
+const firstBuildIdentity = "1".repeat(64);
+const secondBuildIdentity = "2".repeat(64);
+
+test("a changed Portal Build Identity reloads once and an unchanged identity stays calm", async ({
+  page,
+}) => {
+  let bootstrapReads = 0;
+  let projectReads = 0;
+  let activeBuildIdentity = firstBuildIdentity;
+  let documentRequests = 0;
+  page.on("request", (request) => {
+    if (request.resourceType() === "document") documentRequests += 1;
+  });
+  await page.route("**/api/v1/bootstrap", (route) => {
+    bootstrapReads += 1;
+    return route.fulfill({
+      headers: { [PORTAL_BUILD_IDENTITY_HEADER]: activeBuildIdentity },
+      json: { version: 1, state: "ready", portalBuildIdentity: activeBuildIdentity },
+    });
+  });
+  await page.route("**/api/v1/projects/overview/read-model?section=overview", (route) => {
+    projectReads += 1;
+    return route.fulfill({
+      headers: { [PORTAL_BUILD_IDENTITY_HEADER]: activeBuildIdentity },
+      json: projectRowEnvelope({ snapshot, section: "overview", entryId: "overview" }),
+    });
+  });
+
+  await page.goto("/projects/overview");
+  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  expect({ bootstrapReads, projectReads, documentRequests }).toEqual({
+    bootstrapReads: 1,
+    projectReads: 1,
+    documentRequests: 1,
+  });
+
+  activeBuildIdentity = secondBuildIdentity;
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(() => bootstrapReads).toBe(2);
+  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  expect({ projectReads, documentRequests }).toEqual({ projectReads: 3, documentRequests: 2 });
+
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(() => projectReads).toBe(4);
+  await page.waitForTimeout(50);
+  expect({ bootstrapReads, documentRequests }).toEqual({ bootstrapReads: 2, documentRequests: 2 });
+});
 
 test("Project activation reads one typed section and performs no hidden write", async ({
   page,
