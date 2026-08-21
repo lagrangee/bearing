@@ -4,7 +4,9 @@ import packageMetadata from "../package.json";
 import { assertCanonicalPackageBoundary, assertPackagedReadmeTargets } from "./release-boundary";
 
 const expectedFiles = [
-  "dist",
+  "dist/cli.js",
+  "dist/bundle-dependencies.json",
+  "dist/portal",
   "docs/cli.md",
   "docs/cli.zh-CN.md",
   "docs/data-and-security.md",
@@ -16,7 +18,7 @@ const expectedFiles = [
   "docs/getting-started.zh-CN.md",
   "docs/troubleshooting.md",
   "docs/troubleshooting.zh-CN.md",
-  "skills",
+  "skills/bearing",
   "README.md",
   "README.zh-CN.md",
   "CHANGELOG.md",
