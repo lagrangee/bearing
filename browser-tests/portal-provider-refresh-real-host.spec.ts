@@ -9,12 +9,14 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { planningLineageSubjectHref } from "../src/planning-lineage-route";
 import { buildPortalAssetManifest, writePortalAssetManifest } from "../src/portal/assets";
 import { PORTAL_BUILD_IDENTITY_HEADER } from "../src/portal-build-identity-wire";
+import type { RuntimeReceipt } from "../src/runtime-context";
 import {
   copyPortalProjectFixture,
   readRepositorySourceBytes,
@@ -23,8 +25,10 @@ import { browserArtifactPath } from "./browser-artifact-output";
 import {
   type RunningTestPortal,
   runBuiltBearing,
-  startBuiltPortal,
+  runHarnessCommand,
+  spawnHarnessProcess,
   stopBuiltPortal,
+  waitForHarnessLine,
   writeCatalogFixture,
 } from "./real-host-test-support";
 
@@ -36,6 +40,9 @@ let secondBuildRoot = "";
 let firstBuildIdentity = "";
 let secondBuildIdentity = "";
 let packageVersion = "";
+let controlRoot = "";
+let developmentChildLocator = "";
+let initialRuntimeReceipt: RuntimeReceipt | undefined;
 let sourceBytes: Readonly<Record<string, string>> = {};
 let catalogHash = "";
 
@@ -56,6 +63,17 @@ const createBuildRoot = async (
   const manifest = await buildPortalAssetManifest(portalRoot, packageVersion);
   await writePortalAssetManifest(portalRoot, manifest);
   return { root, id: manifest.buildId };
+};
+
+const reservePort = async (): Promise<number> => {
+  const reservation = createNetServer();
+  await new Promise<void>((resolve) => reservation.listen(0, "127.0.0.1", resolve));
+  const address = reservation.address();
+  if (address === null || typeof address === "string") throw new Error("No test port available.");
+  await new Promise<void>((resolve, reject) =>
+    reservation.close((error) => (error === undefined ? resolve() : reject(error))),
+  );
+  return address.port;
 };
 
 test.beforeAll(async () => {
@@ -79,15 +97,100 @@ test.beforeAll(async () => {
   secondBuildRoot = secondBuild.root;
   firstBuildIdentity = firstBuild.id;
   secondBuildIdentity = secondBuild.id;
-  host = await startBuiltPortal(homeRoot, {
-    cliLocator: join(firstBuildRoot, "dist/cli.js"),
-  });
+  const runtimeInspect = await runHarnessCommand(
+    "node",
+    [join(process.cwd(), "dist/cli.js"), "runtime", "inspect", "--repo", process.cwd()],
+    {
+      cwd: process.cwd(),
+      environment: { ...process.env, HOME: homeRoot },
+      label: "Development Runtime inspection",
+    },
+  );
+  if (runtimeInspect.exitCode !== 0) {
+    throw new Error(`Development Runtime inspection failed: ${runtimeInspect.stderr}`);
+  }
+  initialRuntimeReceipt = (
+    JSON.parse(runtimeInspect.stdout) as { context: { receipt: RuntimeReceipt } }
+  ).context.receipt;
+  expect(initialRuntimeReceipt.portalBuildId).toBe(firstBuildIdentity);
+  controlRoot = await mkdtemp(join(tmpdir(), "bearing-ticket-10-browser-supervisor-"));
+  developmentChildLocator = join(controlRoot, "development-portal-child.mjs");
+  const childBuild = await runHarnessCommand(
+    "bun",
+    [
+      "build",
+      join(process.cwd(), "tests/fixtures/development-portal-child-harness.ts"),
+      "--target=node",
+      "--format=esm",
+      `--outfile=${developmentChildLocator}`,
+    ],
+    {
+      cwd: process.cwd(),
+      environment: process.env,
+      label: "Development Portal child harness build",
+    },
+  );
+  if (childBuild.exitCode !== 0) {
+    throw new Error(`Development Portal child harness build failed: ${childBuild.stderr}`);
+  }
+  await writeFile(join(controlRoot, "publication"), "0\n");
+  await writeFile(
+    join(controlRoot, "runtime.json"),
+    `${JSON.stringify({
+      outcome: "resolved",
+      receipt: initialRuntimeReceipt,
+      packageRoot: firstBuildRoot,
+      packageVersion,
+      homeDir: homeRoot,
+    })}\n`,
+  );
+  const port = await reservePort();
+  const child = spawnHarnessProcess(
+    "bun",
+    [
+      join(process.cwd(), "tests/fixtures/development-portal-supervisor-harness.ts"),
+      process.cwd(),
+      String(port),
+      "0",
+      controlRoot,
+    ],
+    {
+      cwd: process.cwd(),
+      environment: {
+        ...process.env,
+        HOME: homeRoot,
+        BEARING_TEST_DEVELOPMENT_CHILD_EXECUTABLE: process.execPath,
+        BEARING_TEST_DEVELOPMENT_CHILD_LOCATOR: developmentChildLocator,
+        BEARING_TEST_DEVELOPMENT_IDENTITY: join(controlRoot, "runtime.json"),
+      },
+    },
+  );
+  child.stdin.end();
+  host = { child, url: `http://127.0.0.1:${port}` };
+  const expectedIdentity = {
+    schemaVersion: 1,
+    channel: "development",
+    runtimeIdentity: initialRuntimeReceipt.runtimeIdentity,
+    stateRootIdentity: initialRuntimeReceipt.stateRootIdentity,
+    portalBuildIdentity: firstBuildIdentity,
+  };
+  try {
+    await waitForHarnessLine(
+      child,
+      `Bearing Development Portal current: ${JSON.stringify(expectedIdentity)}`,
+      { label: "Development Portal supervisor", timeoutMs: 15_000 },
+    );
+  } catch (error) {
+    await stopBuiltPortal(host);
+    host = undefined;
+    throw error;
+  }
 });
 
 test.afterAll(async () => {
   await stopBuiltPortal(host);
   await Promise.all(
-    [homeRoot, fixtureRoot, firstBuildRoot, secondBuildRoot]
+    [homeRoot, fixtureRoot, firstBuildRoot, secondBuildRoot, controlRoot]
       .filter((root) => root.length > 0)
       .map((root) => rm(root, { recursive: true, force: true })),
   );
@@ -185,12 +288,38 @@ test("real Host keeps Project Activation GET-only across browser lifecycle retur
   await expect(page.getByText("Refresh all sources needs attention.")).toBeVisible();
   expect(interruptedProviderPosts).toBe(1);
 
-  const port = Number(new URL(host.url).port);
-  await stopBuiltPortal(host);
-  host = await startBuiltPortal(homeRoot, {
-    port,
-    cliLocator: join(secondBuildRoot, "dist/cli.js"),
-  });
+  if (initialRuntimeReceipt === undefined) {
+    throw new Error("Development Runtime receipt is unavailable.");
+  }
+  const nextRuntimeReceipt = {
+    ...initialRuntimeReceipt,
+    buildIdentity: `sha256:${"b".repeat(64)}`,
+    runtimeIdentity: `sha256:${"c".repeat(64)}`,
+    portalBuildId: secondBuildIdentity,
+  };
+  await writeFile(
+    join(controlRoot, "runtime.json"),
+    `${JSON.stringify({
+      outcome: "resolved",
+      receipt: nextRuntimeReceipt,
+      packageRoot: secondBuildRoot,
+      packageVersion,
+      homeDir: homeRoot,
+    })}\n`,
+  );
+  await writeFile(join(controlRoot, "publication"), "coherent-build\n");
+  await expect
+    .poll(async () => {
+      try {
+        const value = (await (await fetch(`${host?.url}/healthz`)).json()) as {
+          development?: { portalBuildIdentity?: string };
+        };
+        return value.development?.portalBuildIdentity;
+      } catch {
+        return undefined;
+      }
+    })
+    .toBe(secondBuildIdentity);
   await page.getByRole("link", { name: "Roadmaps", exact: true }).click();
   await expect.poll(() => bootstrapIdentities).toEqual([firstBuildIdentity, secondBuildIdentity]);
   await expect(page.getByRole("heading", { name: "Roadmaps", level: 1 })).toBeVisible();

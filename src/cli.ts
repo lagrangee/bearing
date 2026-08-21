@@ -542,6 +542,13 @@ const runDevelopmentCommand = async (args: readonly string[]): Promise<void> => 
     context,
     packageRoot: packageRoot(),
     cliLocator: fileURLToPath(import.meta.url),
+    resolveCurrentRuntime: () =>
+      resolveRepositoryRuntime({
+        repoRoot: context.repositoryRoot,
+        packageRoot: packageRoot(),
+        publicHomeDir: homeDirectory(),
+        invokedCliPath: fileURLToPath(import.meta.url),
+      }),
     port: DEVELOPMENT_PORTAL_PORT,
   });
 };

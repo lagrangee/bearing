@@ -21,7 +21,9 @@ import {
 import {
   DEVELOPMENT_PORTAL_PORT,
   DEVELOPMENT_PORTAL_RUNTIME_REQUIRED,
+  observeDevelopmentBuildPublications,
 } from "../src/development-portal-supervisor";
+import type { RuntimeReceipt } from "../src/runtime-context";
 
 const projectRoot = await realpath(join(import.meta.dir, ".."));
 const harness = join(projectRoot, "tests/fixtures/development-portal-supervisor-harness.ts");
@@ -53,13 +55,30 @@ const spawnSupervisor = (
   publicHome: string,
   port: number,
   healthDelay = 0,
+  controlRoot?: string,
 ): ChildProcessWithoutNullStreams =>
-  spawn("bun", [harness, repositoryRoot, String(port), String(healthDelay)], {
-    cwd: projectRoot,
-    detached: true,
-    env: { ...process.env, HOME: publicHome },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  spawn(
+    "bun",
+    [
+      harness,
+      repositoryRoot,
+      String(port),
+      String(healthDelay),
+      ...(controlRoot ? [controlRoot] : []),
+    ],
+    {
+      cwd: projectRoot,
+      detached: true,
+      env: {
+        ...process.env,
+        HOME: publicHome,
+        ...(controlRoot === undefined
+          ? {}
+          : { BEARING_TEST_DEVELOPMENT_IDENTITY: join(controlRoot, "runtime.json") }),
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
 
 type PublicStateSnapshot = Readonly<{
   catalog: string;
@@ -167,6 +186,58 @@ const waitForHealth = async (port: number): Promise<void> => {
   throw new Error("Development Portal child health did not become reachable.");
 };
 
+const readInstance = async (port: number): Promise<string> => {
+  const response = await fetch(`http://127.0.0.1:${port}/instance`);
+  const value = (await response.json()) as { instance: string };
+  return value.instance;
+};
+
+type DevelopmentStateSnapshot = Readonly<{
+  catalog: string;
+  state: string;
+  projectReadModel: string;
+}>;
+
+const readDevelopmentState = async (port: number): Promise<DevelopmentStateSnapshot> => {
+  const response = await fetch(`http://127.0.0.1:${port}/state`);
+  return (await response.json()) as DevelopmentStateSnapshot;
+};
+
+const waitForInstanceChange = async (port: number, initial: string): Promise<string> => {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      const current = await readInstance(port);
+      if (current !== initial) return current;
+    } catch {
+      // A bounded interruption is expected while the owned child is replaced.
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Development Portal child was not replaced.");
+};
+
+const waitForResolutionReadback = async (
+  controlRoot: string,
+  expected: (value: { outcome: string; receipt?: RuntimeReceipt }) => boolean,
+): Promise<void> => {
+  const path = join(controlRoot, "resolution-readback.json");
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      const value = JSON.parse(await readFile(path, "utf8")) as {
+        outcome: string;
+        receipt?: RuntimeReceipt;
+      };
+      if (expected(value)) return;
+    } catch {
+      // The controlled resolver has not completed this publication yet.
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Development Runtime resolution readback timed out.");
+};
+
 const runSupervisorToExit = async (
   repositoryRoot: string,
   publicHome: string,
@@ -193,6 +264,276 @@ const runSupervisorToExit = async (
 test("the source-only Development Portal command owns fixed port 4188", () => {
   expect(DEVELOPMENT_PORTAL_PORT).toBe(4188);
 });
+
+test("build publication observation follows the atomic dist entry", async () => {
+  const root = await temporaryDirectory("bearing-ticket-10-observer-");
+  await mkdir(join(root, "dist"));
+  const controller = new AbortController();
+  const iterator = observeDevelopmentBuildPublications(root, controller.signal)[
+    Symbol.asyncIterator
+  ]();
+  const publication = iterator.next();
+  await rm(join(root, "dist"), { recursive: true });
+  await mkdir(join(root, "dist"));
+  const published = await Promise.race([
+    publication.then((result) => !result.done),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2_000)),
+  ]);
+  controller.abort();
+  expect(published).toBe(true);
+});
+
+test("one real supervisor keeps its child until a different coherent Build Identity is published", async () => {
+  const publicHome = await temporaryDirectory("bearing-ticket-10-public-home-");
+  const publicState = await seedPublicState(publicHome);
+  const controlRoot = await temporaryDirectory("bearing-ticket-10-control-");
+  const developmentHome = join(controlRoot, "runtime-home");
+  const developmentStateRoot = join(developmentHome, ".bearing");
+  const projectReadModelPath = join(controlRoot, "cache/development/project-read-model.sqlite");
+  await Promise.all([
+    mkdir(join(developmentStateRoot, "state"), { recursive: true }),
+    mkdir(join(controlRoot, "cache/development"), { recursive: true }),
+  ]);
+  const sentinels = {
+    catalog: join(developmentStateRoot, "catalog.sqlite"),
+    state: join(developmentStateRoot, "state/sentinel.json"),
+    projectReadModel: projectReadModelPath,
+  };
+  await Promise.all([
+    writeFile(sentinels.catalog, "development-catalog\n"),
+    writeFile(sentinels.state, "development-state\n"),
+    writeFile(
+      sentinels.projectReadModel,
+      `${JSON.stringify({ providerEvidence: "current-provider-evidence", acquisitionCount: 0 })}\n`,
+    ),
+    writeFile(join(controlRoot, "publication"), "0\n"),
+  ]);
+  const runtimeInspect = Bun.spawnSync(
+    ["node", join(projectRoot, "dist/cli.js"), "runtime", "inspect", "--repo", projectRoot],
+    { cwd: projectRoot, env: { ...process.env, HOME: publicHome } },
+  );
+  expect(runtimeInspect.exitCode).toBe(0);
+  const inspected = (
+    JSON.parse(runtimeInspect.stdout.toString()) as {
+      context: { receipt: RuntimeReceipt };
+    }
+  ).context.receipt;
+  const selected = {
+    ...inspected,
+    stateRootIdentity: `sha256:${"7".repeat(64)}`,
+  };
+  const initial = {
+    ...selected,
+    buildIdentity: `sha256:${"8".repeat(64)}`,
+    runtimeIdentity: `sha256:${"9".repeat(64)}`,
+    portalBuildId: "a".repeat(64),
+  };
+  await writeFile(
+    join(controlRoot, "runtime.json"),
+    `${JSON.stringify({
+      outcome: "resolved",
+      commandReceipt: selected,
+      receipt: initial,
+      context: { homeDir: developmentHome, projectReadModelPath },
+    })}\n`,
+  );
+  let retainedState = await Promise.all(
+    Object.values(sentinels).map((path) => readFile(path, "utf8")),
+  );
+  const publicListener = createHttpServer((_request, response) => response.end("public-portal"));
+  await new Promise<void>((resolve) => publicListener.listen(0, "127.0.0.1", resolve));
+  const publicAddress = publicListener.address();
+  if (publicAddress === null || typeof publicAddress === "string") {
+    throw new Error("Public listener did not bind.");
+  }
+  const port = await reservePort();
+  const supervisor = spawnSupervisor(projectRoot, publicHome, port, 0, controlRoot);
+  supervisor.stdin.end();
+  let stdout = "";
+  let stderr = "";
+  supervisor.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  supervisor.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  try {
+    await waitForLine(supervisor, "Bearing Development Portal current: ");
+    const firstInstance = await readInstance(port);
+    const firstHealth = developmentPortalHealthSchema.parse(
+      await (await fetch(`http://127.0.0.1:${port}/healthz`)).json(),
+    );
+    expect(firstHealth.development.portalBuildIdentity).toBe(initial.portalBuildId);
+    const firstDevelopmentState = await readDevelopmentState(port);
+    expect(firstDevelopmentState).toEqual({
+      catalog: "development-catalog\n",
+      state: "development-state\n",
+      projectReadModel: `${JSON.stringify({
+        providerEvidence: "current-provider-evidence",
+        acquisitionCount: 0,
+      })}\n`,
+    });
+
+    const updatedProjectReadModel = `${JSON.stringify({
+      providerEvidence: "updated-provider-evidence",
+      acquisitionCount: 0,
+    })}\n`;
+    await writeFile(sentinels.projectReadModel, updatedProjectReadModel);
+    await rm(join(controlRoot, "resolution-readback.json"), { force: true });
+    await writeFile(join(controlRoot, "publication"), "provider-evidence-only\n");
+    await waitForResolutionReadback(
+      controlRoot,
+      (value) => value.receipt?.buildIdentity === initial.buildIdentity,
+    );
+    expect(await readInstance(port)).toBe(firstInstance);
+    expect(await readDevelopmentState(port)).toEqual({
+      ...firstDevelopmentState,
+      projectReadModel: updatedProjectReadModel,
+    });
+    retainedState = await Promise.all(
+      Object.values(sentinels).map((path) => readFile(path, "utf8")),
+    );
+
+    await Promise.all([
+      writeFile(join(controlRoot, "skill-only.md"), "live skill changed\n"),
+      writeFile(join(controlRoot, ".bearing-build-staging"), "incomplete build\n"),
+    ]);
+
+    const sameBuild = {
+      ...initial,
+      runtimeIdentity: `sha256:${"a".repeat(64)}`,
+      sourceProvenance: { gitHead: "a".repeat(40), dirty: false },
+    };
+    await writeFile(
+      join(controlRoot, "runtime.json"),
+      `${JSON.stringify({
+        outcome: "resolved",
+        receipt: sameBuild,
+        context: { homeDir: developmentHome, projectReadModelPath },
+      })}\n`,
+    );
+    await rm(join(controlRoot, "resolution-readback.json"), { force: true });
+    await writeFile(join(controlRoot, "publication"), "same-build\n");
+    await waitForResolutionReadback(
+      controlRoot,
+      (value) => value.receipt?.runtimeIdentity === sameBuild.runtimeIdentity,
+    );
+    expect(await readInstance(port)).toBe(firstInstance);
+
+    await writeFile(
+      join(controlRoot, "runtime.json"),
+      `${JSON.stringify({
+        outcome: "unfulfilled",
+        diagnostics: [{ code: "development-build-stale", impact: "blocking", target: "dist" }],
+      })}\n`,
+    );
+    await rm(join(controlRoot, "resolution-readback.json"), { force: true });
+    await writeFile(join(controlRoot, "publication"), "failed-build\n");
+    await waitForResolutionReadback(controlRoot, (value) => value.outcome === "unfulfilled");
+    expect(await readInstance(port)).toBe(firstInstance);
+
+    const incoherent = {
+      ...initial,
+      buildIdentity: `sha256:${"4".repeat(64)}`,
+      runtimeIdentity: `sha256:${"5".repeat(64)}`,
+      stateRootIdentity: `sha256:${"6".repeat(64)}`,
+    };
+    await writeFile(
+      join(controlRoot, "runtime.json"),
+      `${JSON.stringify({
+        outcome: "resolved",
+        receipt: incoherent,
+        context: { homeDir: developmentHome, projectReadModelPath },
+      })}\n`,
+    );
+    await rm(join(controlRoot, "resolution-readback.json"), { force: true });
+    await writeFile(join(controlRoot, "publication"), "incoherent-receipt\n");
+    await waitForResolutionReadback(
+      controlRoot,
+      (value) => value.receipt?.buildIdentity === incoherent.buildIdentity,
+    );
+    expect(await readInstance(port)).toBe(firstInstance);
+
+    const next = {
+      ...initial,
+      buildIdentity: `sha256:${"b".repeat(64)}`,
+      runtimeIdentity: `sha256:${"c".repeat(64)}`,
+      portalBuildId: "d".repeat(64),
+    };
+    await writeFile(
+      join(controlRoot, "runtime.json"),
+      `${JSON.stringify({
+        outcome: "resolved",
+        receipt: next,
+        context: { homeDir: developmentHome, projectReadModelPath },
+      })}\n`,
+    );
+    await writeFile(join(controlRoot, "transient-failures.txt"), "1\n");
+    await writeFile(join(controlRoot, "publication"), "coherent-build\n");
+    const secondInstance = await waitForInstanceChange(port, firstInstance);
+    const health = developmentPortalHealthSchema.parse(
+      await (await fetch(`http://127.0.0.1:${port}/healthz`)).json(),
+    );
+    expect(health.development).toMatchObject({
+      runtimeIdentity: next.runtimeIdentity,
+      stateRootIdentity: next.stateRootIdentity,
+      portalBuildIdentity: next.portalBuildId,
+    });
+    expect(await readDevelopmentState(port)).toEqual({
+      ...firstDevelopmentState,
+      projectReadModel: updatedProjectReadModel,
+    });
+
+    await rm(join(controlRoot, "resolution-readback.json"), { force: true });
+    await writeFile(join(controlRoot, "publication"), "repeated-event\n");
+    await waitForResolutionReadback(
+      controlRoot,
+      (value) => value.receipt?.buildIdentity === next.buildIdentity,
+    );
+    expect(await readInstance(port)).toBe(secondInstance);
+    expect(
+      await Promise.all(Object.values(sentinels).map((path) => readFile(path, "utf8"))),
+    ).toEqual(retainedState);
+    expect(await readPublicState(publicHome)).toEqual(publicState);
+    expect(await (await fetch(`http://127.0.0.1:${publicAddress.port}`)).text()).toBe(
+      "public-portal",
+    );
+
+    const failedStart = {
+      ...next,
+      buildIdentity: `sha256:${"e".repeat(64)}`,
+      runtimeIdentity: `sha256:${"f".repeat(64)}`,
+      portalBuildId: "e".repeat(64),
+    };
+    await writeFile(
+      join(controlRoot, "runtime.json"),
+      `${JSON.stringify({
+        outcome: "resolved",
+        receipt: failedStart,
+        context: { homeDir: developmentHome, projectReadModelPath },
+      })}\n`,
+    );
+    await writeFile(join(controlRoot, "fail-start"), "fail\n");
+    await writeFile(join(controlRoot, "publication"), "final-startup-failure\n");
+    await waitForSupervisorExit(supervisor);
+    expect(supervisor.exitCode).toBe(1);
+    expect(stderr).toContain("Development Portal child failed before readiness");
+    expect(
+      stdout
+        .split(/\r?\n/u)
+        .filter((line) => line.startsWith("Bearing Development Portal current: ")),
+    ).toHaveLength(2);
+    await expect(fetch(`http://127.0.0.1:${port}/healthz`)).rejects.toThrow();
+    expect(await (await fetch(`http://127.0.0.1:${publicAddress.port}`)).text()).toBe(
+      "public-portal",
+    );
+  } finally {
+    await stopSupervisor(supervisor);
+    await new Promise<void>((resolve, reject) =>
+      publicListener.close((error) => (error === undefined ? resolve() : reject(error))),
+    );
+  }
+}, 30_000);
 
 test("a public or external repository cannot start the Development Portal command", async () => {
   const publicHome = await temporaryDirectory("bearing-ticket-09-public-home-");

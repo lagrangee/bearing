@@ -1,9 +1,20 @@
+import { readFile, watch, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { runDevelopmentPortalCommand } from "../../src/development-portal-supervisor";
 import { resolveRepositoryRuntime } from "../../src/development-runtime";
+import type { RuntimeExecutionContext, RuntimeReceipt } from "../../src/runtime-context";
 
-const [repositoryRoot, encodedPort, encodedHealthDelay = "0"] = process.argv.slice(2);
+type ControlledRuntimeResolution =
+  | Readonly<{ outcome: "unfulfilled"; diagnostics: unknown[] }>
+  | Readonly<{
+      outcome: "resolved";
+      receipt: RuntimeReceipt;
+      commandReceipt?: RuntimeReceipt;
+      context?: Pick<RuntimeExecutionContext, "homeDir" | "projectReadModelPath">;
+    }>;
+
+const [repositoryRoot, encodedPort, encodedHealthDelay = "0", controlRoot] = process.argv.slice(2);
 if (repositoryRoot === undefined || encodedPort === undefined) {
   throw new Error("Development Portal test harness requires a repository and port.");
 }
@@ -28,13 +39,81 @@ if (runtime.outcome !== "resolved") {
   process.exitCode = 1;
 } else {
   try {
+    const controlledInitial =
+      controlRoot === undefined
+        ? undefined
+        : (JSON.parse(
+            await readFile(join(controlRoot, "runtime.json"), "utf8"),
+          ) as ControlledRuntimeResolution);
+    const initialContext =
+      controlledInitial?.outcome === "resolved"
+        ? {
+            ...runtime.context,
+            ...controlledInitial.context,
+            receipt: controlledInitial.commandReceipt ?? controlledInitial.receipt,
+          }
+        : runtime.context;
     const childExecutable = Bun.which("node");
     if (childExecutable === null) throw new Error("Node.js test runtime is unavailable.");
     await runDevelopmentPortalCommand({
-      context: runtime.context,
+      context: initialContext,
       packageRoot,
-      cliLocator,
-      childExecutable,
+      cliLocator:
+        controlRoot === undefined
+          ? cliLocator
+          : (process.env["BEARING_TEST_DEVELOPMENT_CHILD_LOCATOR"] ??
+            join(packageRoot, "tests/fixtures/development-portal-child-harness.ts")),
+      childExecutable:
+        controlRoot === undefined
+          ? childExecutable
+          : (process.env["BEARING_TEST_DEVELOPMENT_CHILD_EXECUTABLE"] ?? Bun.which("bun") ?? "bun"),
+      ...(controlRoot === undefined
+        ? {}
+        : {
+            resolveCurrentRuntime: async () => {
+              const transientFailuresPath = join(controlRoot, "transient-failures.txt");
+              const transientFailures = await readFile(transientFailuresPath, "utf8").then(
+                (value) => Number(value.trim()),
+                () => 0,
+              );
+              if (transientFailures > 0) {
+                await writeFile(transientFailuresPath, `${transientFailures - 1}\n`);
+                const transient = {
+                  outcome: "unfulfilled" as const,
+                  diagnostics: [
+                    {
+                      code: "development-build-publication-in-progress",
+                      impact: "blocking",
+                      target: "dist",
+                    },
+                  ],
+                };
+                await writeFile(
+                  join(controlRoot, "resolution-readback.json"),
+                  `${JSON.stringify(transient)}\n`,
+                );
+                return transient;
+              }
+              const value = JSON.parse(
+                await readFile(join(controlRoot, "runtime.json"), "utf8"),
+              ) as ControlledRuntimeResolution;
+              await writeFile(
+                join(controlRoot, "resolution-readback.json"),
+                `${JSON.stringify(value)}\n`,
+              );
+              return value.outcome === "resolved"
+                ? {
+                    outcome: "resolved" as const,
+                    context: { ...runtime.context, ...value.context, receipt: value.receipt },
+                  }
+                : value;
+            },
+            observeBuildPublications: async function* (signal: AbortSignal) {
+              for await (const event of watch(controlRoot, { signal })) {
+                if (event.filename === "publication") yield;
+              }
+            },
+          }),
       ...(healthDelay === 0
         ? {}
         : {
