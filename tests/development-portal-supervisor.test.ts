@@ -28,6 +28,12 @@ import type { RuntimeReceipt } from "../src/runtime-context";
 const projectRoot = await realpath(join(import.meta.dir, ".."));
 const harness = join(projectRoot, "tests/fixtures/development-portal-supervisor-harness.ts");
 const temporaryRoots: string[] = [];
+type ControlledDevelopmentReceipt = RuntimeReceipt &
+  Readonly<{
+    channel: "development";
+    buildIdentity: string;
+    portalBuildId: string;
+  }>;
 
 afterAll(async () => {
   await Promise.all(temporaryRoots.map((root) => rm(root, { recursive: true, force: true })));
@@ -37,6 +43,35 @@ const temporaryDirectory = async (prefix: string): Promise<string> => {
   const root = await mkdtemp(join(tmpdir(), prefix));
   temporaryRoots.push(root);
   return root;
+};
+
+const prepareControlledDevelopmentRuntime = async (
+  publicHome: string,
+): Promise<Readonly<{ controlRoot: string; receipt: ControlledDevelopmentReceipt }>> => {
+  const controlRoot = await temporaryDirectory("bearing-development-runtime-control-");
+  const receipt: ControlledDevelopmentReceipt = {
+    schemaVersion: 1,
+    channel: "development",
+    runtimeIdentity: `sha256:${"9".repeat(64)}`,
+    stateRootIdentity: `sha256:${"7".repeat(64)}`,
+    buildIdentity: `sha256:${"8".repeat(64)}`,
+    portalBuildId: "a".repeat(64),
+  };
+  await Promise.all([
+    writeFile(join(controlRoot, "publication"), "0\n"),
+    writeFile(
+      join(controlRoot, "runtime.json"),
+      `${JSON.stringify({
+        outcome: "resolved",
+        receipt,
+        context: {
+          homeDir: publicHome,
+          projectReadModelPath: join(controlRoot, "project-read-model.sqlite"),
+        },
+      })}\n`,
+    ),
+  ]);
+  return { controlRoot, receipt };
 };
 
 const reservePort = async (): Promise<number> => {
@@ -56,6 +91,7 @@ const spawnSupervisor = (
   port: number,
   healthDelay = 0,
   controlRoot?: string,
+  useBuiltPortalChild = false,
 ): ChildProcessWithoutNullStreams =>
   spawn(
     "bun",
@@ -75,6 +111,12 @@ const spawnSupervisor = (
         ...(controlRoot === undefined
           ? {}
           : { BEARING_TEST_DEVELOPMENT_IDENTITY: join(controlRoot, "runtime.json") }),
+        ...(useBuiltPortalChild
+          ? {
+              BEARING_TEST_DEVELOPMENT_CHILD_EXECUTABLE: Bun.which("node") ?? "node",
+              BEARING_TEST_DEVELOPMENT_CHILD_LOCATOR: join(projectRoot, "dist/cli.js"),
+            }
+          : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     },
@@ -242,8 +284,17 @@ const runSupervisorToExit = async (
   repositoryRoot: string,
   publicHome: string,
   port: number,
+  controlRoot?: string,
+  useBuiltPortalChild = false,
 ): Promise<Readonly<{ code: number | null; stderr: string }>> => {
-  const child = spawnSupervisor(repositoryRoot, publicHome, port);
+  const child = spawnSupervisor(
+    repositoryRoot,
+    publicHome,
+    port,
+    0,
+    controlRoot,
+    useBuiltPortalChild,
+  );
   child.stdin.end();
   let stderr = "";
   child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
@@ -308,19 +359,13 @@ test("one real supervisor keeps its child until a different coherent Build Ident
     ),
     writeFile(join(controlRoot, "publication"), "0\n"),
   ]);
-  const runtimeInspect = Bun.spawnSync(
-    ["node", join(projectRoot, "dist/cli.js"), "runtime", "inspect", "--repo", projectRoot],
-    { cwd: projectRoot, env: { ...process.env, HOME: publicHome } },
-  );
-  expect(runtimeInspect.exitCode).toBe(0);
-  const inspected = (
-    JSON.parse(runtimeInspect.stdout.toString()) as {
-      context: { receipt: RuntimeReceipt };
-    }
-  ).context.receipt;
-  const selected = {
-    ...inspected,
+  const selected: RuntimeReceipt = {
+    schemaVersion: 1,
+    channel: "development",
+    runtimeIdentity: `sha256:${"7".repeat(64)}`,
     stateRootIdentity: `sha256:${"7".repeat(64)}`,
+    buildIdentity: `sha256:${"7".repeat(64)}`,
+    portalBuildId: "7".repeat(64),
   };
   const initial = {
     ...selected,
@@ -552,6 +597,7 @@ test("a public or external repository cannot start the Development Portal comman
 test("one foreground supervisor proves health and releases only its owned Development child", async () => {
   const publicHome = await temporaryDirectory("bearing-ticket-09-public-home-");
   const publicState = await seedPublicState(publicHome);
+  const controlled = await prepareControlledDevelopmentRuntime(publicHome);
   const port = await reservePort();
   const unrelated = createHttpServer((_request, response) => response.end("public-listener"));
   await new Promise<void>((resolve) => unrelated.listen(0, "127.0.0.1", resolve));
@@ -560,24 +606,9 @@ test("one foreground supervisor proves health and releases only its owned Develo
     throw new Error("Unrelated listener did not bind.");
   }
   try {
-    const child = spawnSupervisor(projectRoot, publicHome, port);
+    const child = spawnSupervisor(projectRoot, publicHome, port, 0, controlled.controlRoot);
     child.stdin.end();
     try {
-      const runtimeInspect = Bun.spawnSync(
-        ["node", join(projectRoot, "dist/cli.js"), "runtime", "inspect", "--repo", projectRoot],
-        { cwd: projectRoot, env: { ...process.env, HOME: publicHome } },
-      );
-      expect(runtimeInspect.exitCode).toBe(0);
-      const runtime = JSON.parse(runtimeInspect.stdout.toString()) as {
-        outcome: "resolved";
-        context: {
-          receipt: {
-            runtimeIdentity: string;
-            stateRootIdentity: string;
-            portalBuildId: string;
-          };
-        };
-      };
       const prefix = "Bearing Development Portal current: ";
       const line = await waitForLine(child, prefix);
       const reported = developmentPortalIdentitySchema.parse(
@@ -591,9 +622,9 @@ test("one foreground supervisor proves health and releases only its owned Develo
       expect(health.development).toEqual({
         schemaVersion: 1,
         channel: "development",
-        runtimeIdentity: runtime.context.receipt.runtimeIdentity,
-        stateRootIdentity: runtime.context.receipt.stateRootIdentity,
-        portalBuildIdentity: runtime.context.receipt.portalBuildId,
+        runtimeIdentity: controlled.receipt.runtimeIdentity,
+        stateRootIdentity: controlled.receipt.stateRootIdentity,
+        portalBuildIdentity: controlled.receipt.portalBuildId,
       });
       expect(JSON.stringify(health)).not.toContain(projectRoot);
       expect(await readPublicState(publicHome)).toEqual(publicState);
@@ -619,8 +650,9 @@ test("one foreground supervisor proves health and releases only its owned Develo
 test("shutdown during child health validation absorbs repeated signals and releases the child", async () => {
   const publicHome = await temporaryDirectory("bearing-ticket-09-public-home-");
   const publicState = await seedPublicState(publicHome);
+  const controlled = await prepareControlledDevelopmentRuntime(publicHome);
   const port = await reservePort();
-  const child = spawnSupervisor(projectRoot, publicHome, port, 5_000);
+  const child = spawnSupervisor(projectRoot, publicHome, port, 5_000, controlled.controlRoot);
   child.stdin.end();
   await waitForHealth(port);
 
@@ -639,12 +671,19 @@ test("shutdown during child health validation absorbs repeated signals and relea
 test("an unknown listener produces an exact conflict without termination or adoption", async () => {
   const publicHome = await temporaryDirectory("bearing-ticket-09-public-home-");
   const publicState = await seedPublicState(publicHome);
+  const controlled = await prepareControlledDevelopmentRuntime(publicHome);
   const sentinel = createHttpServer((_request, response) => response.end("unknown-listener"));
   await new Promise<void>((resolve) => sentinel.listen(0, "127.0.0.1", resolve));
   const address = sentinel.address();
   if (address === null || typeof address === "string") throw new Error("Sentinel did not bind.");
   try {
-    const result = await runSupervisorToExit(projectRoot, publicHome, address.port);
+    const result = await runSupervisorToExit(
+      projectRoot,
+      publicHome,
+      address.port,
+      controlled.controlRoot,
+      true,
+    );
     expect(result.code).toBe(1);
     expect(result.stderr.trim()).toBe(
       `Development Portal port conflict: 127.0.0.1:${address.port} is already owned by another process. The process was not inspected, terminated, or adopted.`,
