@@ -87,7 +87,7 @@
     "parse-headers": "^2.0.6",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-grab": "^0.1.48",
+    "react-grab": "^0.2.0",
     "safe-stable-stringify": "^2.5.0",
     "sanitize-html": "2.17.6",
     "semver": "7.8.5",
