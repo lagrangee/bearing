@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { z } from "zod";
 import packageMetadata from "../package.json";
+import { developmentPortalHealthSchema } from "../src/development-portal-health";
 import { createPortalApp } from "../src/portal/app";
 import {
   buildPortalAssetManifest,
@@ -116,6 +117,32 @@ test("reports Host and fixed-asset readiness independently of Catalog health", a
     packageVersion: packageMetadata.version,
     readModelVersion: PROJECT_GENERATION_VERSION,
   });
+});
+
+test("exposes only the exact non-secret Development Portal health identity when selected", async () => {
+  const app = createPortalApp({
+    assets,
+    sessions: { secret: TEST_SESSION_SECRET },
+    developmentRuntimeIdentity: {
+      schemaVersion: 1,
+      channel: "development",
+      runtimeIdentity: `sha256:${"1".repeat(64)}`,
+      stateRootIdentity: `sha256:${"2".repeat(64)}`,
+    },
+    readCatalog: async () => ({ state: "ready" as const, entries: [] }),
+  });
+
+  const response = await app.request("http://127.0.0.1:4188/healthz");
+  const body = developmentPortalHealthSchema.parse(await response.json());
+
+  expect(body.development).toEqual({
+    schemaVersion: 1,
+    channel: "development",
+    runtimeIdentity: `sha256:${"1".repeat(64)}`,
+    stateRootIdentity: `sha256:${"2".repeat(64)}`,
+    portalBuildIdentity: assets.manifest.buildId,
+  });
+  expect(JSON.stringify(body)).not.toContain(assetRoot);
 });
 
 test("returns the typed Catalog read model without accepting a repository path", async () => {

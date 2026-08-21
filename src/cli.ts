@@ -9,6 +9,10 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 import packageMetadata from "../package.json";
 import { CatalogCommandUsageError, runCatalogCommand } from "./catalog/cli";
+import {
+  DEVELOPMENT_PORTAL_PORT,
+  runDevelopmentPortalCommand,
+} from "./development-portal-supervisor";
 import { bootstrapDevelopmentRuntime, resolveRepositoryRuntime } from "./development-runtime";
 import {
   executorNominationAssessmentSchema,
@@ -73,6 +77,7 @@ Commands:
   cache     Rebuild only the disposable repository Project Read Model.
   inspect  Read one typed result from the current Project Read Model generation.
   portal   Run the foreground loopback Portal Host and compiled browser Module.
+  development portal  Run the source-only Development Portal supervisor on fixed port 4188.
   runtime  Inspect or explicitly bootstrap the selected repository runtime.
 
 Environment:
@@ -494,11 +499,22 @@ class CommandUsageError extends Error {
 
 const runPortal = async (args: readonly string[]): Promise<void> => {
   const port = parsePortalPort(args, process.env);
+  const runtime = activeRuntimeContext();
   const server = await startPortalServer({
     packageRoot: packageRoot(),
     packageVersion: packageMetadata.version,
     homeDir: selectedHomeDirectory(),
     port,
+    ...(runtime?.receipt.channel === "development"
+      ? {
+          developmentRuntimeIdentity: {
+            schemaVersion: 1 as const,
+            channel: "development" as const,
+            runtimeIdentity: runtime.receipt.runtimeIdentity,
+            stateRootIdentity: runtime.receipt.stateRootIdentity,
+          },
+        }
+      : {}),
   });
   process.stdout.write(`Bearing Portal ready: ${server.url}\n`);
   await new Promise<void>((resolve) => {
@@ -507,6 +523,27 @@ const runPortal = async (args: readonly string[]): Promise<void> => {
   });
   await server.close();
   process.stdout.write("Bearing Portal stopped.\n");
+};
+
+const runDevelopmentCommand = async (args: readonly string[]): Promise<void> => {
+  const [operation, ...operationArgs] = args;
+  if (operation !== "portal") {
+    throw new CommandUsageError("Usage: bearing development portal [--repo <path>]");
+  }
+  parseArgs({
+    args: operationArgs,
+    options: { repo: { type: "string" } },
+    allowPositionals: false,
+    strict: true,
+  });
+  const context = activeRuntimeContext();
+  if (context === undefined) throw new Error("Development Runtime context is unavailable.");
+  await runDevelopmentPortalCommand({
+    context,
+    packageRoot: packageRoot(),
+    cliLocator: fileURLToPath(import.meta.url),
+    port: DEVELOPMENT_PORTAL_PORT,
+  });
 };
 
 const repositoryRootArgument = (args: readonly string[]): string => {
@@ -571,6 +608,10 @@ const dispatchRepositoryCommand = async (
   }
   if (command === "portal") {
     await runPortal(args);
+    return;
+  }
+  if (command === "development") {
+    await runDevelopmentCommand(args);
     return;
   }
   throw new Error("Unknown command. Run bearing --help.");

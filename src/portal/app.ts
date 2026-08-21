@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { DevelopmentRuntimeHealthIdentity } from "../development-portal-health";
 import { PORTAL_BUILD_IDENTITY_HEADER } from "../portal-build-identity-wire";
 import type { PortalCatalogEnvelope } from "../portal-catalog-wire";
 import { type AssetPreviewService, createAssetPreviewService } from "./asset-preview";
@@ -27,6 +28,7 @@ type PortalAppOptions = Readonly<{
   providerApplicationService?: PortalProviderApplicationService;
   assetPreviewService?: AssetPreviewService;
   linkedContentPreviewService?: LinkedContentPreviewService;
+  developmentRuntimeIdentity?: DevelopmentRuntimeHealthIdentity;
 }>;
 
 const isSessionManager = (value: PortalAppOptions["sessions"]): value is PortalSessionManager =>
@@ -123,13 +125,24 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     return next();
   });
 
-  app.get("/healthz", (context) =>
-    context.json({
+  app.get("/healthz", (context) => {
+    const publicHealth = {
       state: "ready",
       packageVersion: options.assets.manifest.packageVersion,
       readModelVersion: PROJECT_GENERATION_VERSION,
-    }),
-  );
+    } as const;
+    return context.json(
+      options.developmentRuntimeIdentity === undefined
+        ? publicHealth
+        : {
+            ...publicHealth,
+            development: {
+              ...options.developmentRuntimeIdentity,
+              portalBuildIdentity: options.assets.manifest.buildId,
+            },
+          },
+    );
+  });
 
   app.get("/favicon.ico", (context) => context.body(null, 204));
 
