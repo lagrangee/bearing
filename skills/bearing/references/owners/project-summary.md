@@ -24,6 +24,8 @@ future candidates, and material revisions. It is not a work log, Project Brief, 
 
 - **Required:** Keep Summary update time distinct from Brief generation, provider observation, and
   native chronology.
+- **Required:** When Roadmap completion selects this owner, return `no-op` if accepted project
+  meaning is already current, then continue to the separately selected Project Brief owner.
 - **Consider:** Refresh Project Brief only when accepted truth materially changes its current
   orientation.
 - **Do not infer:** Effort conclusion, Gate Passage, or Roadmap transition automatically authors new

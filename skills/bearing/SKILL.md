@@ -11,8 +11,11 @@ for contextual nomination. Trust that pointer to decide whether it nominated the
 do not reconstruct or broaden its conditions here. Explicit Bearing invocation remains the other
 authorized entry origin and the fallback when contextual nomination did not occur.
 
-All `bearing ...` commands in this skill use `$HOME/.bearing/bin/bearing`. All runtime reference
-paths below are relative to this `SKILL.md`.
+Select the CLI from the managed pointer. A Stable Runtime pointer uses
+`$HOME/.bearing/bin/bearing`. A Development Runtime pointer uses the same repository's
+`node <repo-root>/dist/cli.js` and requires a successful `runtime inspect` receipt before a
+functional command. The Development Runtime never falls back to the Stable CLI, Skill, or state.
+All runtime reference paths below are relative to this `SKILL.md`.
 
 ## Execution spine
 
@@ -43,10 +46,15 @@ paths below are relative to this `SKILL.md`.
    even when the next operation uses another product seam. Judge authority, scope, cost, risk,
    reversibility, collateral effects, and ambiguity; continue without repeat confirmation unless
    the evidence creates a materially new boundary that needs a user decision. Complete and
-   validate each owner boundary in dependency-safe order. Sequential composition has no persisted
-   session mode, operation object, transition dispatcher, or global follow-up engine. There is no
-   hidden loop or fallback. Completion: the current stage is complete or has one exact resumption
-   point.
+   validate each owner boundary in dependency-safe order. After an accepted terminal planning
+   transition, complete one bounded orientation evaluation in the same visible operation: Effort
+   conclusion and Gate Passage select Project Brief; Roadmap completion selects Project Summary
+   and then Project Brief; Roadmap supersession selects Project Brief. Each selected owner applies
+   materiality and can return `no-op`; owner evaluation is required while mutation remains
+   conditional. Sequential composition has no persisted session mode, operation object,
+   transition dispatcher, or global follow-up engine. There is no hidden loop or fallback.
+   Completion: the current stage and its required orientation evaluation are complete, or one exact
+   resumption point is visible.
 6. **Return the original outcome.** Preserve native, executor, provider, and deterministic outcomes
    without translation. State what changed, what did not change, and which acceptance or authority
    is still required. User-visible interaction and new human-reviewed planning content use the
@@ -75,7 +83,7 @@ paths below are relative to this `SKILL.md`.
 
 ## Completeness-sensitive reads
 
-Use the installed package-owned CLI:
+Use the selected package-owned CLI:
 
 - Project Context: `bearing inspect project --repo <repo-root>`
 - One planning target: `bearing inspect <stable-planning-reference> --repo <repo-root>`

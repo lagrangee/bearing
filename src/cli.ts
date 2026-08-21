@@ -10,6 +10,11 @@ import { z } from "zod";
 import packageMetadata from "../package.json";
 import { CatalogCommandUsageError, runCatalogCommand } from "./catalog/cli";
 import {
+  DEVELOPMENT_PORTAL_PORT,
+  runDevelopmentPortalCommand,
+} from "./development-portal-supervisor";
+import { bootstrapDevelopmentRuntime, resolveRepositoryRuntime } from "./development-runtime";
+import {
   executorNominationAssessmentSchema,
   resolveExecutorNominations,
 } from "./executor-registration";
@@ -35,6 +40,7 @@ import {
   inspectRepositoryConfiguration,
   planRepositoryConfiguration,
 } from "./repository-configuration";
+import { activeRuntimeContext, withRuntimeExecutionContext } from "./runtime-context";
 import type { AgentSurface } from "./types";
 
 const INSPECT_USAGE =
@@ -47,7 +53,7 @@ Usage:
   bearing install [--surface <agent-skills|claude>] [--surface <agent-skills|claude>] [--confirm-downgrade]
   bearing configure
   bearing configure inspect [--repo <path>]
-  bearing configure plan --intent <activate|deactivate> [--repo <path>] [--surface <agent-skills|claude>] [--provider-contract <repository-relative-path>] [--executor-mode <skip|configure>] [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>]
+  bearing configure plan --intent <activate|deactivate> [--repo <path>] [--runtime <stable|development>] [--surface <agent-skills|claude>] [--provider-contract <repository-relative-path>] [--executor-mode <skip|configure>] [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>]
   bearing configure apply --intent <activate|deactivate> --plan-token <sha256> [configuration options from the reviewed plan]
   bearing catalog <inspect|rename|unregister|relink|reset> [options]
   bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
@@ -57,6 +63,7 @@ Usage:
   bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]
   bearing inspect --native <native-reference> [--repo <path>]
   bearing portal [--port <1-65535>]
+  bearing runtime <inspect|bootstrap> [--repo <path>]
   bearing --help
   bearing --version
 
@@ -70,6 +77,8 @@ Commands:
   cache     Rebuild only the disposable repository Project Read Model.
   inspect  Read one typed result from the current Project Read Model generation.
   portal   Run the foreground loopback Portal Host and compiled browser Module.
+  development portal  Run the source-only Development Portal supervisor on fixed port 4188.
+  runtime  Inspect or explicitly bootstrap the selected repository runtime.
 
 Environment:
   BEARING_PORT  Override the Portal port when --port is absent.
@@ -78,6 +87,7 @@ Environment:
 const surfaceSchema = z.array(z.enum(["agent-skills", "claude"]));
 const configurationIntentSchema = z.enum(["activate", "deactivate"]);
 const executorModeSchema = z.enum(["skip", "configure"]);
+const runtimeChannelSchema = z.enum(["stable", "development"]);
 
 const packageRoot = (): string => {
   const adjacent = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -85,6 +95,16 @@ const packageRoot = (): string => {
 };
 
 const homeDirectory = (): string => process.env["HOME"] ?? homedir();
+const selectedHomeDirectory = (): string => activeRuntimeContext()?.homeDir ?? homeDirectory();
+
+const writeJson = (value: unknown): void => {
+  const context = activeRuntimeContext();
+  const output =
+    context?.receipt.channel === "development" && typeof value === "object" && value !== null
+      ? { ...value, runtime: context.receipt }
+      : value;
+  process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+};
 
 const detectedSurfaces = (homeDir: string): readonly AgentSurface[] => {
   const surfaces: AgentSurface[] = [];
@@ -165,7 +185,7 @@ const runConfigure = async (args: readonly string[]): Promise<void> => {
   const [subcommand, ...values] = args;
   if (subcommand === undefined) {
     process.stdout.write(
-      "Repository Configuration is Agent-led. Load the public Bearing skill, inspect machine facts, resolve one material choice at a time, then review one sealed plan.\n",
+      "Repository Configuration is Agent-led. Load the selected Bearing Skill, inspect machine facts, resolve one material choice at a time, then review one sealed plan.\n",
     );
     return;
   }
@@ -179,9 +199,9 @@ const runConfigure = async (args: readonly string[]): Promise<void> => {
     const result = await inspectRepositoryConfiguration({
       repoRoot: resolve(parsed.values.repo ?? process.cwd()),
       packageRoot: packageRoot(),
-      homeDir: homeDirectory(),
+      homeDir: selectedHomeDirectory(),
     });
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    writeJson(result);
     return;
   }
   if (subcommand !== "plan" && subcommand !== "apply") {
@@ -197,6 +217,7 @@ const runConfigure = async (args: readonly string[]): Promise<void> => {
       "executor-assessment": { type: "string", multiple: true },
       "executor-mode": { type: "string" },
       "provider-contract": { type: "string" },
+      runtime: { type: "string" },
       "retain-executor": { type: "string", multiple: true },
       "remove-executor": { type: "string", multiple: true },
       "plan-token": { type: "string" },
@@ -215,7 +236,7 @@ const runConfigure = async (args: readonly string[]): Promise<void> => {
           contractLocator: parsed.values["provider-contract"],
         };
   const registrations = await resolveExecutorNominations(
-    homeDirectory(),
+    selectedHomeDirectory(),
     parsed.values.executor ?? [],
     (parsed.values["executor-assessment"] ?? []).map((encoded) => {
       let assessment: unknown;
@@ -230,8 +251,11 @@ const runConfigure = async (args: readonly string[]): Promise<void> => {
   const request = {
     repoRoot: resolve(parsed.values.repo ?? process.cwd()),
     packageRoot: packageRoot(),
-    homeDir: homeDirectory(),
+    homeDir: selectedHomeDirectory(),
     intent,
+    ...(parsed.values.runtime === undefined
+      ? {}
+      : { runtime: runtimeChannelSchema.parse(parsed.values.runtime) }),
     surfaces,
     ...(provider === undefined ? {} : { provider }),
     ...(parsed.values["executor-mode"] === undefined
@@ -243,7 +267,7 @@ const runConfigure = async (args: readonly string[]): Promise<void> => {
   };
   if (subcommand === "plan") {
     const plan = await planRepositoryConfiguration(request);
-    process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+    writeJson(plan);
     if (!plan.canApply) process.exitCode = 1;
     return;
   }
@@ -254,7 +278,7 @@ const runConfigure = async (args: readonly string[]): Promise<void> => {
     ...request,
     sealedPlanToken: parsed.values["plan-token"],
   });
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  writeJson(result);
   if (result.outcome === "partial" || result.outcome === "blocked") {
     process.exitCode = 1;
   }
@@ -342,7 +366,7 @@ const runNativeReconciliationCommand = async (args: readonly string[]): Promise<
       relations: request.relations,
     },
   );
-  process.stdout.write(`${JSON.stringify({ ...result, request }, null, 2)}\n`);
+  writeJson({ ...result, request });
   if (result.outcome !== "complete") process.exitCode = 1;
 };
 
@@ -386,7 +410,7 @@ const runProviderCommand = async (args: readonly string[]): Promise<void> => {
     operation === "capture"
       ? await captureProjectProviderScopes(repoRoot, parsed.values.scope ?? [])
       : await verifyAllProjectProviderScopes(repoRoot);
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  writeJson(result);
   if (result.outcome !== "complete") process.exitCode = 1;
 };
 
@@ -412,7 +436,7 @@ const runCacheCommand = async (args: readonly string[]): Promise<void> => {
   const result = await rebuildProjectReadModel(
     await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd())),
   );
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  writeJson(result);
   if (result.outcome !== "complete") process.exitCode = 1;
 };
 
@@ -456,7 +480,7 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
       await resolveRepositoryRoot(resolve(parsed.values.repo ?? process.cwd())),
       inspectRequest,
     );
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    writeJson(result);
     if (
       result.outcome === "unfulfilled" ||
       result.outcome === "recovery-required" ||
@@ -475,11 +499,22 @@ class CommandUsageError extends Error {
 
 const runPortal = async (args: readonly string[]): Promise<void> => {
   const port = parsePortalPort(args, process.env);
+  const runtime = activeRuntimeContext();
   const server = await startPortalServer({
     packageRoot: packageRoot(),
     packageVersion: packageMetadata.version,
-    homeDir: homeDirectory(),
+    homeDir: selectedHomeDirectory(),
     port,
+    ...(runtime?.receipt.channel === "development"
+      ? {
+          developmentRuntimeIdentity: {
+            schemaVersion: 1 as const,
+            channel: "development" as const,
+            runtimeIdentity: runtime.receipt.runtimeIdentity,
+            stateRootIdentity: runtime.receipt.stateRootIdentity,
+          },
+        }
+      : {}),
   });
   process.stdout.write(`Bearing Portal ready: ${server.url}\n`);
   await new Promise<void>((resolve) => {
@@ -490,30 +525,76 @@ const runPortal = async (args: readonly string[]): Promise<void> => {
   process.stdout.write("Bearing Portal stopped.\n");
 };
 
-const main = async (): Promise<void> => {
-  const [command, ...args] = process.argv.slice(2);
-  if (command === undefined) {
-    await runInstallWizard();
-    return;
+const runDevelopmentCommand = async (args: readonly string[]): Promise<void> => {
+  const [operation, ...operationArgs] = args;
+  if (operation !== "portal") {
+    throw new CommandUsageError("Usage: bearing development portal [--repo <path>]");
   }
-  if (command === "--help" || command === "-h") {
-    process.stdout.write(HELP);
-    return;
+  parseArgs({
+    args: operationArgs,
+    options: { repo: { type: "string" } },
+    allowPositionals: false,
+    strict: true,
+  });
+  const context = activeRuntimeContext();
+  if (context === undefined) throw new Error("Development Runtime context is unavailable.");
+  await runDevelopmentPortalCommand({
+    context,
+    packageRoot: packageRoot(),
+    cliLocator: fileURLToPath(import.meta.url),
+    resolveCurrentRuntime: () =>
+      resolveRepositoryRuntime({
+        repoRoot: context.repositoryRoot,
+        packageRoot: packageRoot(),
+        publicHomeDir: homeDirectory(),
+        invokedCliPath: fileURLToPath(import.meta.url),
+      }),
+    port: DEVELOPMENT_PORTAL_PORT,
+  });
+};
+
+const repositoryRootArgument = (args: readonly string[]): string => {
+  const index = args.indexOf("--repo");
+  return resolve(index === -1 ? process.cwd() : (args[index + 1] ?? process.cwd()));
+};
+
+const runRuntimeCommand = async (args: readonly string[]): Promise<void> => {
+  const [operation, ...operationArgs] = args;
+  if (operation !== "inspect" && operation !== "bootstrap") {
+    throw new CommandUsageError("Usage: bearing runtime <inspect|bootstrap> [--repo <path>]");
   }
-  if (command === "--version" || command === "-v") {
-    process.stdout.write(`${packageMetadata.version}\n`);
-    return;
+  const parsed = parseArgs({
+    args: operationArgs,
+    options: { repo: { type: "string" } },
+    allowPositionals: false,
+    strict: true,
+  });
+  const options = {
+    repoRoot: resolve(parsed.values.repo ?? process.cwd()),
+    packageRoot: packageRoot(),
+    publicHomeDir: homeDirectory(),
+    invokedCliPath: fileURLToPath(import.meta.url),
+  };
+  const result =
+    operation === "bootstrap"
+      ? await bootstrapDevelopmentRuntime(options)
+      : await resolveRepositoryRuntime(options);
+  writeJson(result);
+  if (result.outcome !== "resolved" && result.outcome !== "applied" && result.outcome !== "no-op") {
+    process.exitCode = 1;
   }
-  if (command === "install") {
-    await runInstall(args);
-    return;
-  }
+};
+
+const dispatchRepositoryCommand = async (
+  command: string,
+  args: readonly string[],
+): Promise<void> => {
   if (command === "configure") {
     await runConfigure(args);
     return;
   }
   if (command === "catalog") {
-    process.stdout.write(await runCatalogCommand(args, homeDirectory()));
+    process.stdout.write(await runCatalogCommand(args, selectedHomeDirectory()));
     return;
   }
   if (command === "reconcile-native") {
@@ -536,7 +617,57 @@ const main = async (): Promise<void> => {
     await runPortal(args);
     return;
   }
+  if (command === "development") {
+    await runDevelopmentCommand(args);
+    return;
+  }
   throw new Error("Unknown command. Run bearing --help.");
+};
+
+const main = async (): Promise<void> => {
+  const [command, ...args] = process.argv.slice(2);
+  if (command === undefined) {
+    await runInstallWizard();
+    return;
+  }
+  if (command === "--help" || command === "-h") {
+    process.stdout.write(HELP);
+    return;
+  }
+  if (command === "--version" || command === "-v") {
+    process.stdout.write(`${packageMetadata.version}\n`);
+    return;
+  }
+  if (command === "install") {
+    await runInstall(args);
+    return;
+  }
+  if (command === "runtime") {
+    await runRuntimeCommand(args);
+    return;
+  }
+  if (command === "configure" && args.length === 0) {
+    await runConfigure(args);
+    return;
+  }
+  if (command === "catalog" && ["--help", "-h"].includes(args[0] ?? "")) {
+    await dispatchRepositoryCommand(command, args);
+    return;
+  }
+  const runtime = await resolveRepositoryRuntime({
+    repoRoot: repositoryRootArgument(args),
+    packageRoot: packageRoot(),
+    publicHomeDir: homeDirectory(),
+    invokedCliPath: fileURLToPath(import.meta.url),
+  });
+  if (runtime.outcome !== "resolved") {
+    writeJson(runtime);
+    process.exitCode = 1;
+    return;
+  }
+  await withRuntimeExecutionContext(runtime.context, () =>
+    dispatchRepositoryCommand(command, args),
+  );
 };
 
 try {

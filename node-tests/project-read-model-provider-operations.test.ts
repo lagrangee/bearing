@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { providerObservationIdentityFor } from "../src/native-work-provider";
@@ -34,6 +35,7 @@ import {
 } from "../src/providers/matt-skills-v1/github-native-scope";
 import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
 import { mattProviderSemanticSections } from "../src/providers/matt-skills-v1/projection";
+import { withRuntimeExecutionContext } from "../src/runtime-context";
 import {
   createGitHubMattRepository,
   createReferenceGitHubFixtures,
@@ -43,6 +45,34 @@ import {
 } from "../tests/fixtures/github-matt-api";
 import { createRepresentativeProject } from "../tests/fixtures/representative-project";
 import { createValidBearingRepo } from "../tests/helpers";
+
+const developmentRuntimeContext = (
+  repositoryRoot: string,
+  runtimeDigest: string,
+  legacyNamespace?: string,
+  buildDigest = runtimeDigest,
+) => ({
+  repositoryRoot,
+  homeDir: join(repositoryRoot, ".bearing", "local", "runtime-home"),
+  projectReadModelPath:
+    legacyNamespace === undefined
+      ? join(repositoryRoot, ".bearing", "cache", "development", "project-read-model.sqlite")
+      : join(
+          repositoryRoot,
+          ".bearing",
+          "cache",
+          "development",
+          legacyNamespace,
+          "project-read-model.sqlite",
+        ),
+  receipt: {
+    schemaVersion: 1 as const,
+    channel: "development" as const,
+    runtimeIdentity: `sha256:${runtimeDigest}`,
+    stateRootIdentity: `sha256:${"f".repeat(64)}`,
+    buildIdentity: `sha256:${buildDigest}`,
+  },
+});
 
 test("all-scope verification completes truthfully when the active project has no Work Bindings", async () => {
   const root = await createValidBearingRepo();
@@ -347,6 +377,79 @@ test("physical rebuild is local-only and exact capture replaces current bound ev
       effectiveFreshness: "current",
       planningReferences: ["effort:e001"],
     });
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("compatible Development build replacement keeps provider evidence current without acquisition", async () => {
+  const fixture = await createRepresentativeProject("representative");
+  try {
+    const repositoryRoot = await realpath(fixture.root);
+    const digest = "a".repeat(64);
+    const legacyContext = developmentRuntimeContext(repositoryRoot, digest, digest);
+    await withRuntimeExecutionContext(legacyContext, async () => {
+      await rebuildProjectReadModel(repositoryRoot);
+      const captured = await captureProjectProviderScopes(repositoryRoot, [".scratch/scope-001"]);
+      assert.equal(captured.outcome, "complete");
+    });
+
+    const currentContext = developmentRuntimeContext(repositoryRoot, "c".repeat(64));
+    await withRuntimeExecutionContext(currentContext, async () => {
+      const rebuilt = await rebuildProjectReadModel(repositoryRoot);
+      assert.equal(rebuilt.outcome, "complete");
+      assert.equal(rebuilt.result.acquisitionCount, 0);
+      assert.ok(!rebuilt.result.missingEvidenceScopes.includes(".scratch/scope-001"));
+      const retained = (await readProjectProviderEvidence(repositoryRoot, "bound")).find(
+        (entry) => entry.selection.nativeScope === ".scratch/scope-001",
+      );
+      assert.equal(retained?.selection.effectiveFreshness, "current");
+      assert.ok(retained?.observation !== undefined);
+    });
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("Development namespace cutover rejects conflicting legacy evidence without acquisition", async () => {
+  const fixture = await createRepresentativeProject("representative");
+  try {
+    const repositoryRoot = await realpath(fixture.root);
+    const firstDigest = "a".repeat(64);
+    await withRuntimeExecutionContext(
+      developmentRuntimeContext(repositoryRoot, firstDigest, firstDigest),
+      async () => {
+        await rebuildProjectReadModel(repositoryRoot);
+        await captureProjectProviderScopes(repositoryRoot, [".scratch/scope-001"]);
+      },
+    );
+
+    const nativePath = join(repositoryRoot, fixture.nativeLocator);
+    const originalNative = await readFile(nativePath, "utf8");
+    await writeFile(nativePath, originalNative.replace("Status: resolved", "Status: claimed"));
+    const secondDigest = "b".repeat(64);
+    await withRuntimeExecutionContext(
+      developmentRuntimeContext(repositoryRoot, secondDigest, secondDigest),
+      async () => {
+        await rebuildProjectReadModel(repositoryRoot);
+        await captureProjectProviderScopes(repositoryRoot, [".scratch/scope-001"]);
+      },
+    );
+    await writeFile(nativePath, originalNative);
+
+    await withRuntimeExecutionContext(
+      developmentRuntimeContext(repositoryRoot, "c".repeat(64)),
+      async () => {
+        const rebuilt = await rebuildProjectReadModel(repositoryRoot);
+        assert.equal(rebuilt.outcome, "complete");
+        assert.equal(rebuilt.result.acquisitionCount, 0);
+        assert.ok(rebuilt.result.missingEvidenceScopes.includes(".scratch/scope-001"));
+        const rejected = (await readProjectProviderEvidence(repositoryRoot, "bound")).find(
+          (entry) => entry.selection.nativeScope === ".scratch/scope-001",
+        );
+        assert.equal(rejected?.observation, undefined);
+      },
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

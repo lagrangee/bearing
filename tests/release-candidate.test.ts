@@ -763,6 +763,27 @@ test("detects only Bearing-owned private staging and dogfood residue", async () 
   ]);
 });
 
+test("allows tracked symbolic links only when their targets stay inside the repository", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bearing-public-source-symlink-test-"));
+  const outside = await mkdtemp(join(tmpdir(), "bearing-public-source-outside-test-"));
+  temporaryRoots.push(root, outside);
+  await mkdir(join(root, ".agents/skills"), { recursive: true });
+  await mkdir(join(root, "skills/bearing-dev"), { recursive: true });
+  await writeFile(join(root, "skills/bearing-dev/SKILL.md"), "development skill\n");
+  await symlink("../../skills/bearing-dev", join(root, ".agents/skills/bearing-dev"));
+  await symlink(outside, join(root, ".agents/skills/outside"));
+
+  expect(
+    await findPublicSourceResidue(root, [
+      ".agents/skills/bearing-dev",
+      "skills/bearing-dev/SKILL.md",
+    ]),
+  ).toEqual([]);
+  expect(await findPublicSourceResidue(root, [".agents/skills/outside"])).toEqual([
+    ".agents/skills/outside: tracked symbolic link is outside the readable public-source boundary",
+  ]);
+});
+
 test("does not report its own public-source policy implementation as residue", async () => {
   expect(
     await findPublicSourceResidue(resolve("."), ["scripts/check-public-source-residue.ts"]),

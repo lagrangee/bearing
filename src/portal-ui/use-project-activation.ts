@@ -9,6 +9,12 @@ import type {
   PortalProviderApplicationResponse,
 } from "../portal-provider-application-wire";
 import {
+  createDeferredActivation,
+  interactionNeedsActivation,
+  manualActionOwnsActivation,
+  visibilityReturnNeedsActivation,
+} from "./project-activation-events";
+import {
   type ActivationState,
   activationStateForEntry,
   projectActivationReducer,
@@ -150,6 +156,62 @@ export const useProjectActivation = (
     },
     [],
   );
+
+  useEffect(() => {
+    let lastActivityAt = Date.now();
+    let previousVisibilityState = document.visibilityState;
+    let hiddenAt = previousVisibilityState === "hidden" ? Date.now() : undefined;
+    const deferredActivation = createDeferredActivation(() => void read());
+    const queueActivation = () => {
+      if (readControllersRef.current.size === 0 && providerControllersRef.current.size === 0) {
+        deferredActivation.schedule();
+      }
+    };
+    const online = () => {
+      lastActivityAt = Date.now();
+      queueActivation();
+    };
+    const visibilityChanged = () => {
+      const currentActivityAt = Date.now();
+      const currentVisibilityState = document.visibilityState;
+      if (previousVisibilityState !== "hidden" && currentVisibilityState === "hidden") {
+        hiddenAt = currentActivityAt;
+      }
+      const shouldActivate = visibilityReturnNeedsActivation(
+        previousVisibilityState,
+        currentVisibilityState,
+        hiddenAt,
+        currentActivityAt,
+      );
+      previousVisibilityState = currentVisibilityState;
+      if (currentVisibilityState === "visible") hiddenAt = undefined;
+      if (shouldActivate) {
+        lastActivityAt = currentActivityAt;
+        queueActivation();
+      }
+    };
+    const interaction = (event: PointerEvent | KeyboardEvent) => {
+      const currentActivityAt = Date.now();
+      const shouldActivate = interactionNeedsActivation(lastActivityAt, currentActivityAt);
+      lastActivityAt = currentActivityAt;
+      if (manualActionOwnsActivation(event)) {
+        deferredActivation.cancel();
+        return;
+      }
+      if (shouldActivate) queueActivation();
+    };
+    window.addEventListener("online", online);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    window.addEventListener("pointerdown", interaction, true);
+    window.addEventListener("keydown", interaction, true);
+    return () => {
+      window.removeEventListener("online", online);
+      document.removeEventListener("visibilitychange", visibilityChanged);
+      window.removeEventListener("pointerdown", interaction, true);
+      window.removeEventListener("keydown", interaction, true);
+      deferredActivation.cancel();
+    };
+  }, [read]);
 
   const applyProviderObservation = useCallback(
     (request: PortalProviderApplicationRequest) => {

@@ -1,8 +1,56 @@
 import { expect, test } from "@playwright/test";
+import { PORTAL_BUILD_IDENTITY_HEADER } from "../src/portal-build-identity-wire";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { projectRowEnvelope } from "./project-row-fixture";
 
 const snapshot = createProjectOverviewFixture();
+const firstBuildIdentity = "1".repeat(64);
+const secondBuildIdentity = "2".repeat(64);
+
+test("a changed Portal Build Identity reloads once and an unchanged identity stays calm", async ({
+  page,
+}) => {
+  let bootstrapReads = 0;
+  let projectReads = 0;
+  let activeBuildIdentity = firstBuildIdentity;
+  let documentRequests = 0;
+  page.on("request", (request) => {
+    if (request.resourceType() === "document") documentRequests += 1;
+  });
+  await page.route("**/api/v1/bootstrap", (route) => {
+    bootstrapReads += 1;
+    return route.fulfill({
+      headers: { [PORTAL_BUILD_IDENTITY_HEADER]: activeBuildIdentity },
+      json: { version: 1, state: "ready", portalBuildIdentity: activeBuildIdentity },
+    });
+  });
+  await page.route("**/api/v1/projects/overview/read-model?section=overview", (route) => {
+    projectReads += 1;
+    return route.fulfill({
+      headers: { [PORTAL_BUILD_IDENTITY_HEADER]: activeBuildIdentity },
+      json: projectRowEnvelope({ snapshot, section: "overview", entryId: "overview" }),
+    });
+  });
+
+  await page.goto("/projects/overview");
+  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  expect({ bootstrapReads, projectReads, documentRequests }).toEqual({
+    bootstrapReads: 1,
+    projectReads: 1,
+    documentRequests: 1,
+  });
+
+  activeBuildIdentity = secondBuildIdentity;
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(() => bootstrapReads).toBe(2);
+  await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
+  expect({ projectReads, documentRequests }).toEqual({ projectReads: 3, documentRequests: 2 });
+
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(() => projectReads).toBe(4);
+  await page.waitForTimeout(50);
+  expect({ bootstrapReads, documentRequests }).toEqual({ bootstrapReads: 2, documentRequests: 2 });
+});
 
 test("Project activation reads one typed section and performs no hidden write", async ({
   page,
@@ -27,8 +75,135 @@ test("Project activation reads one typed section and performs no hidden write", 
   expect(requests.filter((request) => request.method === "POST")).toEqual([]);
 });
 
+test("qualified Project Activation events perform one typed GET without hidden writes", async ({
+  page,
+}) => {
+  let reads = 0;
+  const writes: string[] = [];
+  await page.clock.install({ time: new Date("2026-08-21T10:00:00+08:00") });
+  page.on("request", (request) => {
+    if (request.method() !== "GET") writes.push(`${request.method()} ${request.url()}`);
+  });
+  await page.route("**/api/v1/projects/overview/read-model?section=overview", (route) => {
+    reads += 1;
+    return route.fulfill({
+      json: projectRowEnvelope({ snapshot, section: "overview", entryId: "overview" }),
+    });
+  });
+
+  await page.goto("/projects/overview");
+  await expect.poll(() => reads).toBe(1);
+
+  await page.clock.fastForward(300_000);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(() => reads).toBe(2);
+  await page.locator("main").click({ position: { x: 4, y: 4 } });
+  await page.waitForTimeout(50);
+  expect(reads).toBe(2);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(1_000);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForTimeout(50);
+  expect(reads).toBe(2);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(300_000);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => reads).toBe(3);
+  await page.locator("main").click({ position: { x: 4, y: 4 } });
+  await page.waitForTimeout(50);
+  expect(reads).toBe(3);
+
+  await page.clock.fastForward(300_000);
+  await page.locator("main").click({ position: { x: 4, y: 4 } });
+  await expect.poll(() => reads).toBe(4);
+  await page.locator("main").click({ position: { x: 4, y: 4 } });
+  await page.waitForTimeout(50);
+
+  expect(reads).toBe(4);
+  expect(writes).toEqual([]);
+});
+
+test("deferred activation deduplicates signals and gives a manual provider action precedence", async ({
+  page,
+}) => {
+  let reads = 0;
+  let providerPosts = 0;
+  let releaseProvider = () => {};
+  const providerGate = new Promise<void>((resolve) => {
+    releaseProvider = resolve;
+  });
+  await page.clock.install({ time: new Date("2026-08-21T11:00:00+08:00") });
+  await page.route("**/api/v1/projects/overview/read-model?section=overview", (route) => {
+    reads += 1;
+    return route.fulfill({
+      json: projectRowEnvelope({ snapshot, section: "overview", entryId: "overview" }),
+    });
+  });
+  await page.route("**/api/v1/projects/overview/provider-observation", async (route) => {
+    providerPosts += 1;
+    await providerGate;
+    return route.fulfill({
+      json: {
+        version: 1,
+        state: "completed",
+        action: "all-sources-refresh",
+        acquisitionCount: 1,
+        observations: [],
+        diagnostics: [],
+      },
+    });
+  });
+
+  await page.goto("/projects/overview");
+  await expect.poll(() => reads).toBe(1);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("online"));
+    window.dispatchEvent(new Event("online"));
+    window.dispatchEvent(new Event("online"));
+  });
+  await expect.poll(() => reads).toBe(2);
+
+  await page.clock.fastForward(300_000);
+  await page.getByRole("button", { name: "Refresh all sources" }).click();
+  await page.waitForTimeout(50);
+  expect(reads).toBe(2);
+  expect(providerPosts).toBe(0);
+
+  await page
+    .getByRole("dialog", { name: "Refresh all sources" })
+    .getByRole("button", { name: "Confirm refresh all sources" })
+    .click();
+  await expect.poll(() => providerPosts).toBe(1);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await page.waitForTimeout(50);
+  expect(reads).toBe(2);
+
+  releaseProvider();
+  await expect.poll(() => reads).toBe(3);
+  await page.waitForTimeout(50);
+
+  expect(reads).toBe(3);
+  expect(providerPosts).toBe(1);
+});
+
 test("direct navigation requests only the addressed typed section", async ({ page }) => {
   const sections: string[] = [];
+  await page.clock.install({ time: new Date("2026-08-21T13:00:00+08:00") });
   await page.route("**/api/v1/projects/overview/read-model?section=*", (route) => {
     const section = new URL(route.request().url()).searchParams.get("section");
     if (section !== "overview" && section !== "roadmaps") throw new Error("Unexpected section.");
@@ -40,7 +215,14 @@ test("direct navigation requests only the addressed typed section", async ({ pag
 
   await page.goto("/projects/overview/roadmaps");
   await expect(page.getByRole("heading", { name: "Roadmaps", level: 1 })).toBeVisible();
-  await page.getByRole("link", { name: "Overview", exact: true }).click();
+  await page.clock.fastForward(300_000);
+  const overview = page.getByRole("link", { name: "Overview", exact: true });
+  const box = await overview.boundingBox();
+  if (box === null) throw new Error("Expected the Overview link to have a bounding box.");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(50);
+  await page.mouse.up();
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
   expect(sections).toEqual(["roadmaps", "overview"]);
 });

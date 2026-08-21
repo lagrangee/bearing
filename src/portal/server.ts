@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
 import { readCatalog } from "../catalog/probe";
+import type { DevelopmentRuntimeHealthIdentity } from "../development-portal-health";
 import { createPortalApp } from "./app";
 import { loadPortalAssets } from "./assets";
 
@@ -16,6 +17,7 @@ export const startPortalServer = async (options: {
   readonly homeDir: string;
   readonly port: number;
   readonly sessionSecret?: string;
+  readonly developmentRuntimeIdentity?: DevelopmentRuntimeHealthIdentity;
 }): Promise<RunningPortalServer> => {
   const assets = await loadPortalAssets(options.packageRoot, options.packageVersion);
   const app = createPortalApp({
@@ -24,6 +26,9 @@ export const startPortalServer = async (options: {
       secret: options.sessionSecret ?? randomBytes(32).toString("base64url"),
     },
     readCatalog: () => readCatalog({ homeDir: options.homeDir }),
+    ...(options.developmentRuntimeIdentity === undefined
+      ? {}
+      : { developmentRuntimeIdentity: options.developmentRuntimeIdentity }),
   });
 
   let resolveListening: ((address: AddressInfo) => void) | undefined;

@@ -1,28 +1,12 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { prepareReleaseCandidateNotes } from "../scripts/prepare-preview-release";
 
 const repoRoot = join(import.meta.dirname, "..");
 
-test("finalizes one 0.1.1 package identity and matching dated release notes", async () => {
-  const [packageMetadata, packageLock, changelog] = await Promise.all([
-    readFile(join(repoRoot, "package.json"), "utf8").then(JSON.parse) as Promise<{
-      readonly name: string;
-      readonly version: string;
-    }>,
-    readFile(join(repoRoot, "package-lock.json"), "utf8").then(JSON.parse) as Promise<{
-      readonly version: string;
-      readonly packages: Readonly<Record<string, { readonly version?: string }>>;
-    }>,
-    readFile(join(repoRoot, "CHANGELOG.md"), "utf8"),
-  ]);
-
-  expect(packageMetadata).toMatchObject({ name: "@lagrangee/bearing", version: "0.1.1" });
-  expect(packageLock.version).toBe("0.1.1");
-  expect(packageLock.packages[""]?.version).toBe("0.1.1");
+test("retains the published 0.1.1 release history on the development line", async () => {
+  const changelog = await readFile(join(repoRoot, "CHANGELOG.md"), "utf8");
   expect(changelog).toContain("## 0.1.1 - 2026-08-12");
   expect(changelog).not.toContain("## 0.1.1 - Unreleased");
   const releaseSection = changelog
@@ -30,29 +14,15 @@ test("finalizes one 0.1.1 package identity and matching dated release notes", as
     ?.trim();
   if (releaseSection === undefined) throw new Error("0.1.1 changelog section is missing");
 
-  const output = await mkdtemp(join(tmpdir(), "bearing-release-notes-"));
-  const notesPath = join(output, "release-notes.md");
-  try {
-    const notes = await prepareReleaseCandidateNotes({
-      repositoryRoot: repoRoot,
-      expectedPackage: "@lagrangee/bearing",
-      expectedVersion: "0.1.1",
-      notesPath,
-    });
-    expect(await readFile(notesPath, "utf8")).toBe(`${notes}\n`);
-    expect(notes).toBe(releaseSection);
-    expect(notes).toStartWith("Bearing 0.1.1 strengthens the Public Preview");
-    expect(notes).toMatch(
-      /exact 0\.1\.0 repository source[\s\S]*Repository Update[\s\S]*semantic update guide/u,
-    );
-    expect(notes).toMatch(
-      /Canonical state[\s\S]*byte-for-byte unchanged[\s\S]*rebuilds[\s\S]*Project Read Model/u,
-    );
-    expect(notes).toMatch(/Unknown, corrupt, or unmatched old state[\s\S]*Unsupported/u);
-    expect(notes).toMatch(/does not provide a generic migration engine[\s\S]*dual-read/u);
-  } finally {
-    await rm(output, { recursive: true, force: true });
-  }
+  expect(releaseSection).toStartWith("Bearing 0.1.1 strengthens the Public Preview");
+  expect(releaseSection).toMatch(
+    /exact 0\.1\.0 repository source[\s\S]*Repository Update[\s\S]*semantic update guide/u,
+  );
+  expect(releaseSection).toMatch(
+    /Canonical state[\s\S]*byte-for-byte unchanged[\s\S]*rebuilds[\s\S]*Project Read Model/u,
+  );
+  expect(releaseSection).toMatch(/Unknown, corrupt, or unmatched old state[\s\S]*Unsupported/u);
+  expect(releaseSection).toMatch(/does not provide a generic migration engine[\s\S]*dual-read/u);
 });
 
 test("keeps the release-facing entry points in one tracked source basis", async () => {

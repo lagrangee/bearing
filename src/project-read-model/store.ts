@@ -1,5 +1,5 @@
 import { lstat, mkdir, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
 import { z } from "zod";
 import type { AssetContentObservation } from "../asset-inputs";
@@ -31,6 +31,7 @@ import {
   sameMattNativeBindingDefinition,
 } from "../providers/matt-skills-v1/native-subject";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
+import { activeRuntimeExecutionContext } from "../runtime-context";
 import {
   assertProjectReadModelObjectIdentity,
   assertProjectReadModelObjectRelationships,
@@ -110,6 +111,7 @@ export class ProjectReadModelBusyError extends Error {
 }
 
 export const projectReadModelPath = (repoRoot: string): string =>
+  activeRuntimeExecutionContext(repoRoot)?.projectReadModelPath ??
   join(repoRoot, ".bearing", "cache", "project-read-model.sqlite");
 
 export const removeProjectReadModelForRebuild = async (repoRoot: string): Promise<boolean> => {
@@ -517,8 +519,22 @@ export const compileProjectReadModel = (input: {
   };
 };
 
-const pathSafety = async (repoRoot: string): Promise<"missing" | "safe" | "unsafe"> => {
-  for (const directory of [join(repoRoot, ".bearing"), join(repoRoot, ".bearing", "cache")]) {
+const projectReadModelDirectorySafety = async (
+  repoRoot: string,
+): Promise<"missing" | "safe" | "unsafe"> => {
+  const cacheBoundary = join(repoRoot, ".bearing", "cache");
+  const targetDirectory = dirname(projectReadModelPath(repoRoot));
+  const fromBoundary = relative(cacheBoundary, targetDirectory);
+  if (isAbsolute(fromBoundary) || fromBoundary === ".." || fromBoundary.startsWith(`..${sep}`)) {
+    return "unsafe";
+  }
+  const nestedDirectories =
+    fromBoundary === ""
+      ? []
+      : fromBoundary
+          .split(sep)
+          .map((_, index, parts) => join(cacheBoundary, ...parts.slice(0, index + 1)));
+  for (const directory of [join(repoRoot, ".bearing"), cacheBoundary, ...nestedDirectories]) {
     try {
       const metadata = await lstat(directory);
       if (!metadata.isDirectory() || metadata.isSymbolicLink()) return "unsafe";
@@ -527,6 +543,12 @@ const pathSafety = async (repoRoot: string): Promise<"missing" | "safe" | "unsaf
       return "unsafe";
     }
   }
+  return "safe";
+};
+
+const pathSafety = async (repoRoot: string): Promise<"missing" | "safe" | "unsafe"> => {
+  const directorySafety = await projectReadModelDirectorySafety(repoRoot);
+  if (directorySafety !== "safe") return directorySafety;
   try {
     const metadata = await lstat(projectReadModelPath(repoRoot));
     return metadata.isFile() && !metadata.isSymbolicLink() && metadata.nlink === 1
@@ -877,13 +899,16 @@ export const publishProjectReadModel = async (
 ): Promise<ProjectReadModelReceipt> => {
   await validateProjectReadModelCandidate(candidate);
   const cacheRoot = dirname(projectReadModelPath(repoRoot));
-  const bearingRoot = dirname(cacheRoot);
+  const bearingRoot = join(repoRoot, ".bearing");
   const bearingMetadata = await lstat(bearingRoot);
   if (!bearingMetadata.isDirectory() || bearingMetadata.isSymbolicLink()) {
     throw new Error("Bearing state boundary is unavailable.");
   }
+  if ((await projectReadModelDirectorySafety(repoRoot)) === "unsafe") {
+    throw new Error("Project Read Model target is unsafe.");
+  }
   await mkdir(cacheRoot, { recursive: true, mode: 0o755 });
-  if ((await pathSafety(repoRoot)) === "unsafe") {
+  if ((await projectReadModelDirectorySafety(repoRoot)) !== "safe") {
     throw new Error("Project Read Model target is unsafe.");
   }
   const path = projectReadModelPath(repoRoot);

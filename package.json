@@ -1,13 +1,15 @@
 {
   "name": "@lagrangee/bearing",
-  "version": "0.1.1",
+  "version": "0.1.2-dev",
   "description": "Local-first project governance for coding agents.",
   "type": "module",
   "bin": {
     "bearing": "dist/cli.js"
   },
   "files": [
-    "dist",
+    "dist/cli.js",
+    "dist/bundle-dependencies.json",
+    "dist/portal",
     "docs/cli.md",
     "docs/cli.zh-CN.md",
     "docs/data-and-security.md",
@@ -19,7 +21,7 @@
     "docs/getting-started.zh-CN.md",
     "docs/troubleshooting.md",
     "docs/troubleshooting.zh-CN.md",
-    "skills",
+    "skills/bearing",
     "README.md",
     "README.zh-CN.md",
     "CHANGELOG.md",

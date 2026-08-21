@@ -1,12 +1,18 @@
-import type { AgentSurface } from "./types";
+import type { AgentSurface, RuntimeChannel } from "./types";
 
 export const AGENT_SURFACES = ["agent-skills", "claude"] as const;
 export const BEARING_MANAGED_START = "<!-- bearing:managed-start -->";
 export const BEARING_MANAGED_END = "<!-- bearing:managed-end -->";
 export const BEARING_POINTER =
   "For a new request, load `bearing` only for explicit Bearing concepts, a reliable direct continuation of Bearing work in this repository, or reasonable material planning/governance relevance. Do not load for working directory, generic roadmap words, repository-independent conversation, or ordinary non-governance code/documentation work. Reuse visibly reliable Bearing orientation only for a direct continuation of the same request and repository. This pointer is contextual guidance, not an executable hook or lifecycle preflight. Each requested functional operation validates its required lifecycle. Explicit `/bearing` loads the skill directly when contextual nomination did not occur.";
+export const BEARING_DEVELOPMENT_POINTER =
+  "This repository selects the Bearing Development Runtime. For a new request, load the repository-local `$bearing-dev` Skill from `.agents/skills/bearing-dev` only for explicit Bearing concepts, a reliable direct continuation of Bearing work in this repository, or reasonable material planning/governance relevance. Do not load it for working directory, generic roadmap words, repository-independent conversation, or ordinary non-governance code/documentation work. Run repository-scoped Bearing commands through this checkout's `dist/cli.js`; each command must return a coherent Development Runtime receipt before it can operate. Use `$bearing-dev`, not the public `$bearing`, for this repository. Do not use or fall back to the public Stable Kit, CLI, Skill, or state. Explicit `$bearing-dev` follows this repository-local Development Runtime selection.";
 
 export const BEARING_MANAGED_BLOCK = `${BEARING_MANAGED_START}\n${BEARING_POINTER}\n${BEARING_MANAGED_END}`;
+export const BEARING_DEVELOPMENT_MANAGED_BLOCK = `${BEARING_MANAGED_START}\n${BEARING_DEVELOPMENT_POINTER}\n${BEARING_MANAGED_END}`;
+
+export const bearingManagedBlock = (runtime: RuntimeChannel = "stable"): string =>
+  runtime === "development" ? BEARING_DEVELOPMENT_MANAGED_BLOCK : BEARING_MANAGED_BLOCK;
 
 export const agentSurfaceEntryFile = (surface: AgentSurface): string =>
   surface === "agent-skills" ? "AGENTS.md" : "CLAUDE.md";
@@ -31,12 +37,16 @@ export const bearingManagedRange = (
   return { start, end: endStart + BEARING_MANAGED_END.length };
 };
 
-export const withBearingManagedPointer = (source: string): string => {
+export const withBearingManagedPointer = (
+  source: string,
+  runtime: RuntimeChannel = "stable",
+): string => {
+  const managedBlock = bearingManagedBlock(runtime);
   const range = bearingManagedRange(source);
   if (range !== undefined)
-    return `${source.slice(0, range.start)}${BEARING_MANAGED_BLOCK}${source.slice(range.end)}`;
+    return `${source.slice(0, range.start)}${managedBlock}${source.slice(range.end)}`;
   const separator = source.length === 0 ? "" : source.endsWith("\n") ? "\n" : "\n\n";
-  return `${source}${separator}${BEARING_MANAGED_BLOCK}\n`;
+  return `${source}${separator}${managedBlock}\n`;
 };
 
 export const withoutBearingManagedPointer = (source: string): string => {

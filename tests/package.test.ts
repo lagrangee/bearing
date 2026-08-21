@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import packageMetadata from "../package.json";
 import { readReleaseTarGz } from "../scripts/release-archive";
 import { writeStandardMattLocalRepository, writeValidBearingState } from "./helpers";
 
@@ -15,9 +16,10 @@ type CommandResult = Readonly<{
 const run = async (
   command: readonly string[],
   environment: Readonly<Record<string, string>>,
+  cwd = process.cwd(),
 ): Promise<CommandResult> => {
   const processHandle = Bun.spawn([...command], {
-    cwd: process.cwd(),
+    cwd,
     env: { ...process.env, ...environment },
     stdout: "pipe",
     stderr: "pipe",
@@ -191,9 +193,10 @@ test("the packed CLI runs through offline local npm exec", async () => {
         npm_config_update_notifier: "false",
         npm_config_loglevel: "error",
       },
+      root,
     );
     expect(executed.exitCode).toBe(0);
-    expect(executed.stdout).toBe("0.1.1\n");
+    expect(executed.stdout).toBe(`${packageMetadata.version}\n`);
     expect(executed.stderr).toBe("");
 
     const help = await run(
@@ -218,6 +221,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
         npm_config_update_notifier: "false",
         npm_config_loglevel: "error",
       },
+      root,
     );
     expect(retiredCommand.exitCode).toBe(1);
     expect(retiredCommand.stderr).toBe("Unknown command. Run bearing --help.\n");
@@ -370,6 +374,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
     const portal = Bun.spawn(
       [join(homeDirectory, ".bearing/bin/bearing"), "portal", "--port", String(portalPort)],
       {
+        cwd: root,
         env: { ...process.env, HOME: homeDirectory },
         stdout: "pipe",
         stderr: "pipe",
@@ -502,6 +507,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
         npm_config_update_notifier: "false",
         npm_config_loglevel: "error",
       },
+      root,
     );
     expect(rejected.exitCode).toBe(1);
     expect(rejected.stderr).toBe("Unknown command. Run bearing --help.\n");

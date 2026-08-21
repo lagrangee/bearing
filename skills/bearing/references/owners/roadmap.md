@@ -28,7 +28,9 @@ does not own Effort lifecycle, Gate Passage, or native completion.
 ## After this operation
 
 - **Required:** Record current event time only with an accepted Roadmap event.
-- **Consider:** Material completion may call for Summary and Brief owners.
+- **Required:** After an accepted Roadmap completion, root selects the Project Summary owner and
+  then the Project Brief owner in the same visible operation. After accepted supersession, root
+  selects only the Project Brief owner. Each owner evaluates materiality and can return `no-op`.
 - **Do not infer:** Gate readiness, Passage, Effort completion, or an empty frontier completes or
   extends a Roadmap.
 

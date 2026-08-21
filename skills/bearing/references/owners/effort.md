@@ -29,6 +29,8 @@ choose the relation. Native lifecycle remains with Work Management.
 
 - **Required:** A new or changed Work Binding requires exact-scope provider baseline acquisition
   after the canonical change; do not claim current native coverage until it succeeds.
+- **Required:** After an accepted Effort conclusion, root selects the Project Brief owner for the
+  bounded terminal-orientation evaluation. Creation and activation do not select it.
 - **Consider:** Offer evidence-backed Gate or Roadmap opportunities without transitioning them.
 - **Do not infer:** Native status, provider completion, tests, or diagnostics activates or concludes
   an Effort.

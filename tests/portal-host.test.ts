@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { z } from "zod";
 import packageMetadata from "../package.json";
+import { developmentPortalHealthSchema } from "../src/development-portal-health";
 import { createPortalApp } from "../src/portal/app";
 import {
   buildPortalAssetManifest,
@@ -13,6 +14,10 @@ import {
   writePortalAssetManifest,
 } from "../src/portal/assets";
 import { parsePortalPort } from "../src/portal/port";
+import {
+  PORTAL_BUILD_IDENTITY_HEADER,
+  portalBootstrapEnvelopeSchema,
+} from "../src/portal-build-identity-wire";
 import { portalCatalogEnvelopeSchema } from "../src/portal-catalog-wire";
 
 const INDEX_HTML = '<!doctype html><html><body><div id="root"></div></body></html>';
@@ -112,6 +117,32 @@ test("reports Host and fixed-asset readiness independently of Catalog health", a
     packageVersion: packageMetadata.version,
     readModelVersion: PROJECT_GENERATION_VERSION,
   });
+});
+
+test("exposes only the exact non-secret Development Portal health identity when selected", async () => {
+  const app = createPortalApp({
+    assets,
+    sessions: { secret: TEST_SESSION_SECRET },
+    developmentRuntimeIdentity: {
+      schemaVersion: 1,
+      channel: "development",
+      runtimeIdentity: `sha256:${"1".repeat(64)}`,
+      stateRootIdentity: `sha256:${"2".repeat(64)}`,
+    },
+    readCatalog: async () => ({ state: "ready" as const, entries: [] }),
+  });
+
+  const response = await app.request("http://127.0.0.1:4188/healthz");
+  const body = developmentPortalHealthSchema.parse(await response.json());
+
+  expect(body.development).toEqual({
+    schemaVersion: 1,
+    channel: "development",
+    runtimeIdentity: `sha256:${"1".repeat(64)}`,
+    stateRootIdentity: `sha256:${"2".repeat(64)}`,
+    portalBuildIdentity: assets.manifest.buildId,
+  });
+  expect(JSON.stringify(body)).not.toContain(assetRoot);
 });
 
 test("returns the typed Catalog read model without accepting a repository path", async () => {
@@ -340,7 +371,14 @@ test("bootstraps the API-scoped Portal session before concurrent API reads", asy
   expect(entrypoint.headers.get("set-cookie")).toBeNull();
   expect(bootstrap.headers.get("cache-control")).toBe("no-store");
   expect(bootstrap.status).toBe(200);
-  expect(await bootstrap.json()).toEqual({ version: 1, state: "ready" });
+  expect(portalBootstrapEnvelopeSchema.parse(await bootstrap.json())).toEqual({
+    version: 1,
+    state: "ready",
+    portalBuildIdentity: assets.manifest.buildId,
+  });
+  expect(bootstrap.headers.get(PORTAL_BUILD_IDENTITY_HEADER)).toBe(assets.manifest.buildId);
+  expect(catalog.headers.get(PORTAL_BUILD_IDENTITY_HEADER)).toBe(assets.manifest.buildId);
+  expect(project.headers.get(PORTAL_BUILD_IDENTITY_HEADER)).toBe(assets.manifest.buildId);
   expect(cookie).toContain("bearing_session=");
   expect(cookie).toContain("HttpOnly");
   expect(cookie).toContain("SameSite=Strict");

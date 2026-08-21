@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { lstat, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 const privateStagingPrefixes = [".bearing/", ".scratch/", "release-candidate/"] as const;
 const dogfoodOutputPrefixes = [
@@ -19,6 +19,7 @@ export const findPublicSourceResidue = async (
   paths: readonly string[],
 ): Promise<string[]> => {
   const findings: string[] = [];
+  const canonicalRepositoryRoot = await realpath(repositoryRoot);
   for (const path of paths) {
     const normalized = path.replaceAll("\\", "/").replace(/^\.\//u, "");
     if (privateStagingPrefixes.some((prefix) => matchesPathBoundary(normalized, prefix))) {
@@ -38,9 +39,27 @@ export const findPublicSourceResidue = async (
       throw error;
     }
     if (metadata.isSymbolicLink()) {
-      findings.push(
-        `${path}: tracked symbolic link is outside the readable public-source boundary`,
-      );
+      let canonicalTarget: string;
+      try {
+        canonicalTarget = await realpath(resolve(repositoryRoot, path));
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+          findings.push(`${path}: tracked symbolic link is broken or unreadable`);
+          continue;
+        }
+        throw error;
+      }
+      const relativeTarget = relative(canonicalRepositoryRoot, canonicalTarget);
+      if (
+        relativeTarget.length === 0 ||
+        relativeTarget === ".." ||
+        relativeTarget.startsWith(`..${sep}`) ||
+        isAbsolute(relativeTarget)
+      ) {
+        findings.push(
+          `${path}: tracked symbolic link is outside the readable public-source boundary`,
+        );
+      }
       continue;
     }
     if (!metadata.isFile()) continue;

@@ -1,8 +1,75 @@
 import { expect, test } from "bun:test";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { BEARING_POINTER } from "../src/agent-surface-entry";
+import { BEARING_DEVELOPMENT_POINTER, BEARING_POINTER } from "../src/agent-surface-entry";
 import { type InstalledProduct, installPackedProduct } from "./product-seams/installed-product";
+
+const sourceRoot = join(import.meta.dirname, "..");
+
+const runProcess = async (
+  command: readonly string[],
+  options: Readonly<{ cwd: string; environment?: NodeJS.ProcessEnv }>,
+) => {
+  const child = Bun.spawn([...command], {
+    cwd: options.cwd,
+    env: { ...process.env, ...options.environment },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  return { exitCode, stdout, stderr };
+};
+
+const createDevelopmentSourceProduct = async (root: string) => {
+  await mkdir(root);
+  for (const locator of [
+    "dist",
+    "index.html",
+    "package-lock.json",
+    "package.json",
+    "scripts",
+    "skills/bearing",
+    "skills/bearing-dev",
+    "src",
+    "tsconfig.json",
+    "vite.config.ts",
+  ]) {
+    await cp(join(sourceRoot, locator), join(root, locator), { recursive: true });
+  }
+  await mkdir(join(root, ".agents/skills"), { recursive: true });
+  await symlink("../../skills/bearing-dev", join(root, ".agents/skills/bearing-dev"));
+  for (const args of [
+    ["init", "--quiet"],
+    ["add", "."],
+    [
+      "-c",
+      "user.name=Bearing Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "--quiet",
+      "-m",
+      "fixture",
+    ],
+  ]) {
+    const result = await runProcess(["git", ...args], { cwd: root });
+    if (result.exitCode !== 0) throw new Error(result.stderr);
+  }
+  const homeDir = join(root, "home");
+  await mkdir(homeDir);
+  return {
+    root,
+    run: (args: readonly string[]) =>
+      runProcess(["node", join(root, "dist/cli.js"), ...args], {
+        cwd: root,
+        environment: { HOME: homeDir },
+      }),
+  };
+};
 
 const makeFreshRepository = async (root: string): Promise<void> => {
   await mkdir(join(root, "docs/agents"), { recursive: true });
@@ -88,6 +155,39 @@ const readSqliteUserVersion = async (path: string): Promise<number> => {
   if (exitCode !== 0) throw new Error(stderr);
   return Number(stdout);
 };
+
+test("Repository Configuration selects Development Runtime without public fallback", async () => {
+  const product = await installPackedProduct();
+  const root = join(product.root, "development-repository");
+  await makeFreshRepository(root);
+  const args = [...activateArguments(root), "--runtime", "development"];
+  try {
+    const reviewed = await plan(product, args);
+    expect(reviewed).toMatchObject({
+      acceptedDesiredConfiguration: { runtime: "development" },
+    });
+    const token = reviewed["sealedPlanToken"];
+    if (typeof token !== "string") throw new Error("Configure plan returned no seal.");
+    const applied = await apply(product, args, token);
+    expect(applied.exitClass, applied.stderr).toBe("success");
+    expect(JSON.parse(await readFile(join(root, ".bearing/manifest.json"), "utf8"))).toMatchObject({
+      runtime: "development",
+    });
+    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toContain(BEARING_DEVELOPMENT_POINTER);
+
+    const blocked = await product.run(["inspect", "project", "--repo", root], {
+      observeRoots: [root, product.homeDir],
+    });
+    expect(blocked.exitClass).toBe("product-outcome");
+    expect(JSON.parse(blocked.stdout)).toMatchObject({
+      outcome: "unfulfilled",
+      diagnostics: [{ code: "development-runtime-binding-missing" }],
+    });
+    expect(blocked.effects).toEqual({ created: [], changed: [], removed: [] });
+  } finally {
+    await rm(product.root, { recursive: true, force: true });
+  }
+});
 
 test("packed Repository Configuration seals one exact Fresh write set and applies it without provider acquisition", async () => {
   const product = await installPackedProduct();
@@ -435,7 +535,7 @@ test("repository rollback and Catalog partial outcomes remain separate and resum
   }
 }, 60_000);
 
-test("Preview lifecycle distinguishes Agent-guided update, newer runtime need, and unsupported state", async () => {
+test("Development Preview lifecycle distinguishes newer runtime need and unsupported state", async () => {
   const product = await installPackedProduct();
   const root = join(product.root, "unsupported-repository");
   await makeFreshRepository(root);
@@ -454,6 +554,98 @@ test("Preview lifecycle distinguishes Agent-guided update, newer runtime need, a
     expect(planned.exitClass).toBe("product-outcome");
     expect(JSON.parse(planned.stdout).blockers[0].message).toMatch(/newer Bearing Kit/iu);
 
+    const developmentProduct = await createDevelopmentSourceProduct(
+      join(product.root, "development-source-product"),
+    );
+    await makeFreshRepository(developmentProduct.root);
+    await mkdir(join(developmentProduct.root, ".bearing"), { recursive: true });
+    await writeFile(
+      join(developmentProduct.root, ".bearing/manifest.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.1",
+        status: "active",
+        runtime: "development",
+        surfaces: ["agent-skills"],
+        executorProfiles: [],
+      })}\n`,
+    );
+    const bootstrap = await developmentProduct.run([
+      "runtime",
+      "bootstrap",
+      "--repo",
+      developmentProduct.root,
+    ]);
+    expect(bootstrap.exitCode, bootstrap.stderr).toBe(0);
+
+    const developmentLineStart = await developmentProduct.run([
+      "configure",
+      "inspect",
+      "--repo",
+      developmentProduct.root,
+    ]);
+    expect(developmentLineStart.exitCode, developmentLineStart.stderr).toBe(0);
+    expect(JSON.parse(developmentLineStart.stdout)).toMatchObject({
+      lifecycle: {
+        state: "repository-update-required",
+        removalRequired: false,
+        update: {
+          fromPackageVersion: "0.1.1",
+          toPackageVersion: "0.1.2-dev",
+          guide: "references/journeys/update.md",
+        },
+      },
+    });
+    const developmentLinePlan = await developmentProduct.run([
+      "configure",
+      "plan",
+      ...activateArguments(developmentProduct.root),
+    ]);
+    expect(developmentLinePlan.exitCode).toBe(1);
+    expect(JSON.parse(developmentLinePlan.stdout).blockers[0].message).toMatch(
+      /Agent-guided repository update.*Human confirmation/iu,
+    );
+
+    await writeFile(
+      join(developmentProduct.root, ".bearing/manifest.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.2-dev",
+        status: "active",
+        runtime: "development",
+        surfaces: ["agent-skills"],
+        executorProfiles: [],
+      })}\n`,
+    );
+    const activeDevelopment = await developmentProduct.run([
+      "configure",
+      "inspect",
+      "--repo",
+      developmentProduct.root,
+    ]);
+    expect(activeDevelopment.exitCode, activeDevelopment.stderr).toBe(0);
+    expect(JSON.parse(activeDevelopment.stdout)).toMatchObject({
+      lifecycle: { state: "active", removalRequired: false },
+      currentSelections: { runtime: "development", surfaces: ["agent-skills"] },
+      runtime: { channel: "development" },
+    });
+
+    await writeFile(
+      join(root, ".bearing/manifest.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.1",
+        status: "active",
+        surfaces: ["agent-skills"],
+        executorProfiles: [],
+      })}\n`,
+    );
+    const stableOldConfiguration = await product.run(["configure", "inspect", "--repo", root]);
+    expect(stableOldConfiguration.exitClass).toBe("success");
+    expect(JSON.parse(stableOldConfiguration.stdout)).toMatchObject({
+      lifecycle: { state: "unsupported", removalRequired: true },
+    });
+
     await writeFile(
       join(root, ".bearing/manifest.json"),
       `${JSON.stringify({
@@ -463,24 +655,11 @@ test("Preview lifecycle distinguishes Agent-guided update, newer runtime need, a
         executorProfiles: [],
       })}\n`,
     );
-    const updateRequired = await product.run(["configure", "inspect", "--repo", root]);
-    expect(updateRequired.exitClass).toBe("success");
-    expect(JSON.parse(updateRequired.stdout)).toMatchObject({
-      lifecycle: {
-        state: "repository-update-required",
-        removalRequired: false,
-        update: {
-          fromPackageVersion: "0.1.0",
-          toPackageVersion: "0.1.1",
-          guide: "references/journeys/update.md",
-        },
-      },
+    const oldPreview = await product.run(["configure", "inspect", "--repo", root]);
+    expect(oldPreview.exitClass).toBe("success");
+    expect(JSON.parse(oldPreview.stdout)).toMatchObject({
+      lifecycle: { state: "unsupported", removalRequired: true },
     });
-    const updatePlan = await product.run(["configure", "plan", ...activateArguments(root)]);
-    expect(updatePlan.exitClass).toBe("product-outcome");
-    expect(JSON.parse(updatePlan.stdout).blockers[0].message).toMatch(
-      /Agent-guided repository update.*Human confirmation/iu,
-    );
 
     await writeFile(
       join(root, ".bearing/manifest.json"),

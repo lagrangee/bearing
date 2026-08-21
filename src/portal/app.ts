@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import type { DevelopmentRuntimeHealthIdentity } from "../development-portal-health";
+import { PORTAL_BUILD_IDENTITY_HEADER } from "../portal-build-identity-wire";
 import type { PortalCatalogEnvelope } from "../portal-catalog-wire";
 import { type AssetPreviewService, createAssetPreviewService } from "./asset-preview";
 import { type PortalAssets, PROJECT_GENERATION_VERSION } from "./assets";
@@ -26,6 +28,7 @@ type PortalAppOptions = Readonly<{
   providerApplicationService?: PortalProviderApplicationService;
   assetPreviewService?: AssetPreviewService;
   linkedContentPreviewService?: LinkedContentPreviewService;
+  developmentRuntimeIdentity?: DevelopmentRuntimeHealthIdentity;
 }>;
 
 const isSessionManager = (value: PortalAppOptions["sessions"]): value is PortalSessionManager =>
@@ -112,6 +115,7 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
   });
 
   app.use("/api/*", async (context, next) => {
+    context.header(PORTAL_BUILD_IDENTITY_HEADER, options.assets.manifest.buildId);
     if (isCrossSiteBrowserRequest(context.req.raw)) {
       return context.json(
         { code: "cross-origin-request", message: "Cross-origin API request rejected." },
@@ -121,13 +125,24 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     return next();
   });
 
-  app.get("/healthz", (context) =>
-    context.json({
+  app.get("/healthz", (context) => {
+    const publicHealth = {
       state: "ready",
       packageVersion: options.assets.manifest.packageVersion,
       readModelVersion: PROJECT_GENERATION_VERSION,
-    }),
-  );
+    } as const;
+    return context.json(
+      options.developmentRuntimeIdentity === undefined
+        ? publicHealth
+        : {
+            ...publicHealth,
+            development: {
+              ...options.developmentRuntimeIdentity,
+              portalBuildIdentity: options.assets.manifest.buildId,
+            },
+          },
+    );
+  });
 
   app.get("/favicon.ico", (context) => context.body(null, 204));
 
@@ -135,7 +150,11 @@ export const createPortalApp = (options: PortalAppOptions): Hono => {
     context.header("Cache-Control", "no-store");
     const session = sessions.establish(context.req.header("cookie"));
     if (session.cookie !== undefined) context.header("Set-Cookie", session.cookie);
-    return context.json({ version: 1, state: "ready" });
+    return context.json({
+      version: 1,
+      state: "ready",
+      portalBuildIdentity: options.assets.manifest.buildId,
+    });
   });
 
   app.get("/api/v1/catalog", async (context) => {

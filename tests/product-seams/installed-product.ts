@@ -206,7 +206,7 @@ export const installPackedProduct = async (): Promise<InstalledProduct> => {
         const observeRoots = options.observeRoots ?? [];
         const before = await snapshotRoots(observeRoots);
         const result = await runCommand([cliPath, ...args], {
-          cwd: options.cwd ?? projectRoot,
+          cwd: options.cwd ?? root,
           environment: { ...environment, ...options.environment },
         });
         const after = await snapshotRoots(observeRoots);
@@ -220,7 +220,7 @@ export const installPackedProduct = async (): Promise<InstalledProduct> => {
         const observeRoots = options.observeRoots ?? [];
         const before = await snapshotRoots(observeRoots);
         const result = await runCommand(terminalCommand([cliPath, ...args]), {
-          cwd: options.cwd ?? projectRoot,
+          cwd: options.cwd ?? root,
           environment: { ...environment, ...options.environment },
           input,
         });

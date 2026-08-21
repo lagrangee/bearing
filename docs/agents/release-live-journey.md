@@ -38,6 +38,31 @@ proof use the same tracked Scenario registry, Codex policy, black-box interactio
 Coordinator judgment. Their evidence classes stay separate: rehearsal finds and fixes defects;
 only the later frozen-Candidate Matrix can satisfy the release prerequisite.
 
+## Development source version lifecycle
+
+`package.json` is the Package Version source of truth. The root lockfile entry is derived and must
+match it. Development Line Start is one explicit Human decision and one reviewed source change that
+moves both files to the accepted `<next>-dev` line. Ordinary commits, local builds, and CI do not
+change Package Version. Do not add a `.dev.N` ordinal or publish a development package unless a real
+prerelease artifact must be retained or ordered.
+
+When the source repository has an exact listed Active Development Configuration from the previous
+stable Kit, the new Development Kit returns Repository Update Required. Apply only the installed
+guide's bounded manifest transition after Human review, preserve canonical State and configuration,
+and rebuild the disposable Development Project Read Model without provider acquisition. An unlisted
+or non-development repository remains Invalid or Unsupported.
+
+Run the complete local Matrix rehearsal on the development line. Merge every accepted fix through
+protected `main`, then begin source finalization through another reviewed source change. Source
+finalization changes `<next>-dev` to the matching stable version only once. Candidate Freeze verifies
+that clean exact-main stable source and does not mutate version state. Publication consumes the same
+frozen Candidate bytes and does not own source version changes.
+
+A failed unpublished Candidate keeps the same stable Package Version. A replacement requires a new
+source commit, artifact and Candidate Receipt identity, protected-environment approval, and complete
+Matrix identity. Do not return the source to `-dev`, increment the stable version, or reuse proof from
+the failed Candidate.
+
 ## Human checkpoints
 
 1. Natural-language release start — accept a request such as "Release the current Bearing version."
