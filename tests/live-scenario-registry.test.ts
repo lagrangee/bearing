@@ -30,7 +30,10 @@ import {
   createLiveScenarioResult,
   parseLiveScenarioAttemptDisposition,
 } from "../scripts/live-scenario-generation";
-import { materializeGitHubLiveScenarioPlanningState } from "../scripts/live-scenario-product";
+import {
+  materializeGitHubLiveScenarioPlanningState,
+  materializeLiveScenarioProductState,
+} from "../scripts/live-scenario-product";
 import {
   createLiveScenarioEvaluation,
   loadLiveScenarioRegistry,
@@ -48,6 +51,7 @@ import {
 } from "../scripts/live-scenario-runner";
 import { localRehearsalWorktreeDigest } from "../scripts/local-rehearsal-identity";
 import { sha256File } from "../scripts/release-digest";
+import { BEARING_DEVELOPMENT_POINTER } from "../src/agent-surface-entry";
 import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
 
 const expectedScenarioIds = [
@@ -111,6 +115,75 @@ const recordingCodexPermissionProbe = async (root: string): Promise<string> => {
 };
 
 describe("independent Agent Live scenarios", () => {
+  test("materializes CONFIG-04 from the current listed Development source", async () => {
+    const registry = await loadLiveScenarioRegistry("validation/live-journey/registry.json");
+    const scenario = registry.scenarios.find(({ id }) => id === "CONFIG-04");
+    if (scenario === undefined) throw new Error("CONFIG-04 is unavailable.");
+    const root = await mkdtemp(join(tmpdir(), "bearing-config-04-fixture-"));
+    const repositoryRoot = join(root, "repository");
+    const agentHome = join(root, "home");
+    const productProgram = join(process.cwd(), "dist/cli.js");
+    await Promise.all([mkdir(repositoryRoot), mkdir(agentHome)]);
+    const initialized = Bun.spawnSync(["git", "init", "-q"], {
+      cwd: repositoryRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (initialized.exitCode !== 0) throw new Error(initialized.stderr.toString());
+
+    await materializeLiveScenarioProductState({
+      scenario,
+      sourceRoot: process.cwd(),
+      repositoryRoot,
+      productProgram,
+      agentHome,
+    });
+
+    expect(
+      JSON.parse(await readFile(join(repositoryRoot, ".bearing/manifest.json"), "utf8")),
+    ).toEqual({
+      schemaVersion: 1,
+      packageVersion: "0.1.1",
+      status: "active",
+      runtime: "development",
+      surfaces: ["agent-skills"],
+      executorProfiles: [],
+    });
+    expect(await readFile(join(repositoryRoot, "AGENTS.md"), "utf8")).toContain(
+      BEARING_DEVELOPMENT_POINTER,
+    );
+    expect(
+      JSON.parse(
+        await readFile(join(repositoryRoot, ".bearing/local/development-runtime.json"), "utf8"),
+      ),
+    ).toMatchObject({
+      schemaVersion: 1,
+      channel: "development",
+      repositoryRoot: await realpath(repositoryRoot),
+    });
+    const inspected = Bun.spawnSync(
+      ["node", join(repositoryRoot, "dist/cli.js"), "runtime", "inspect", "--repo", repositoryRoot],
+      {
+        cwd: repositoryRoot,
+        env: { ...process.env, HOME: agentHome },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(inspected.exitCode, inspected.stderr.toString()).toBe(0);
+    expect(JSON.parse(inspected.stdout.toString())).toMatchObject({
+      outcome: "resolved",
+      context: { receipt: { channel: "development" } },
+    });
+    const clean = Bun.spawnSync(["git", "status", "--porcelain=v1"], {
+      cwd: repositoryRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(clean.exitCode, clean.stderr.toString()).toBe(0);
+    expect(clean.stdout.toString()).toBe("");
+  });
+
   test("keeps current Scenario identity and operator secrets outside Agent input", () => {
     expect(() =>
       assertJourneyAgentPrompt("Please complete ENTRY-01.", ["INSTALL-01", "ENTRY-01"]),

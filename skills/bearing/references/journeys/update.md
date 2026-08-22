@@ -59,23 +59,6 @@ it does not authorize or provide evidence for Global Kit maintenance.
   lifecycle and diagnostics. The old SQLite file is not update input, and rebuild performs no
   provider acquisition.
 
-### Repository 0.1.0 to target Kit 0.1.1
-
-- **Source identity:** `schemaVersion` is `1`, `packageVersion` is `0.1.0`, `status` is absent,
-  `surfaces` is a non-empty unique list of supported Agent Surfaces, `executorProfiles` is a unique
-  list of valid profile IDs, and no other manifest field exists.
-- **Target schema:** Preserve `schemaVersion`, `surfaces`, and `executorProfiles`; set
-  `packageVersion` to `0.1.1`; add `status: active`; add no other manifest field.
-- **Semantic invariants:** Every canonical Bearing State record already validates under the target
-  schema, so canonical State stays byte-for-byte unchanged. Provider Configuration,
-  provider-owned native work, Execution Profiles, and managed instruction content also stay
-  byte-for-byte unchanged.
-- **Write scope:** `.bearing/manifest.json` and the disposable
-  `.bearing/cache/project-read-model.sqlite` only.
-- **Validation:** Read back the target manifest and all preserved invariants, rebuild the Project
-  Read Model through `bearing cache rebuild --repo <repo-root>`, then re-run lifecycle and
-  diagnostics. The old SQLite file is not update input.
-
 ## After this operation
 
 - **Required:** `kit-update-required` keeps repository bytes unchanged and routes to a separately
@@ -84,9 +67,3 @@ it does not authorize or provide evidence for Global Kit maintenance.
   Unsupported and unchanged.
 - **Do not infer:** Package version alone proves canonical meaning, provider observation, event
   time, or successful update.
-
-## Completion criterion
-
-The accepted source reached the complete target schema with its semantic invariants preserved, the
-disposable Project Read Model was rebuilt, and the original functional operation resumed from
-current typed readback.

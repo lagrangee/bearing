@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import { access, cp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BEARING_DEVELOPMENT_POINTER, BEARING_POINTER } from "../src/agent-surface-entry";
+import { renderExecutionProfile } from "../src/executor-registration";
+import { writeStandardMattLocalRepository, writeValidBearingState } from "./helpers";
 import { type InstalledProduct, installPackedProduct } from "./product-seams/installed-product";
 
 const sourceRoot = join(import.meta.dirname, "..");
@@ -154,6 +156,26 @@ const readSqliteUserVersion = async (path: string): Promise<number> => {
   ]);
   if (exitCode !== 0) throw new Error(stderr);
   return Number(stdout);
+};
+
+const snapshotOwnerBytes = async (root: string): Promise<ReadonlyMap<string, Buffer>> => {
+  const snapshot = new Map<string, Buffer>();
+  const visit = async (locator: string): Promise<void> => {
+    for (const entry of (await readdir(join(root, locator), { withFileTypes: true })).sort(
+      (left, right) => left.name.localeCompare(right.name, "en"),
+    )) {
+      const child = join(locator, entry.name);
+      if (entry.isDirectory()) await visit(child);
+      else if (entry.isFile()) snapshot.set(child, await readFile(join(root, child)));
+      else throw new Error(`Preserved owner path is not a regular file or directory: ${child}`);
+    }
+  };
+  snapshot.set(".bearing/provider.json", await readFile(join(root, ".bearing/provider.json")));
+  snapshot.set("AGENTS.md", await readFile(join(root, "AGENTS.md")));
+  for (const locator of [".bearing/state", ".bearing/executor-profiles", ".scratch/work"]) {
+    await visit(locator);
+  }
+  return snapshot;
 };
 
 test("Repository Configuration selects Development Runtime without public fallback", async () => {
@@ -535,7 +557,7 @@ test("repository rollback and Catalog partial outcomes remain separate and resum
   }
 }, 60_000);
 
-test("Development Preview lifecycle distinguishes newer runtime need and unsupported state", async () => {
+test("Repository Update lists only the exact active 0.1.1 Development source", async () => {
   const product = await installPackedProduct();
   const root = join(product.root, "unsupported-repository");
   await makeFreshRepository(root);
@@ -557,8 +579,57 @@ test("Development Preview lifecycle distinguishes newer runtime need and unsuppo
     const developmentProduct = await createDevelopmentSourceProduct(
       join(product.root, "development-source-product"),
     );
-    await makeFreshRepository(developmentProduct.root);
-    await mkdir(join(developmentProduct.root, ".bearing"), { recursive: true });
+    await writeStandardMattLocalRepository(developmentProduct.root);
+    const developmentArguments = [
+      ...activateArguments(developmentProduct.root),
+      "--runtime",
+      "development",
+    ];
+    const sourcePlan = await developmentProduct.run(["configure", "plan", ...developmentArguments]);
+    expect(sourcePlan.exitCode, sourcePlan.stderr).toBe(0);
+    const sourcePlanValue = JSON.parse(sourcePlan.stdout) as Readonly<{
+      sealedPlanToken?: unknown;
+    }>;
+    expect(typeof sourcePlanValue.sealedPlanToken).toBe("string");
+    const sourceApply = await developmentProduct.run([
+      "configure",
+      "apply",
+      ...developmentArguments,
+      "--plan-token",
+      sourcePlanValue.sealedPlanToken as string,
+    ]);
+    expect(sourceApply.exitCode, sourceApply.stderr).toBe(0);
+    const bootstrap = await developmentProduct.run([
+      "runtime",
+      "bootstrap",
+      "--repo",
+      developmentProduct.root,
+    ]);
+    expect(bootstrap.exitCode, bootstrap.stderr).toBe(0);
+    await writeValidBearingState(developmentProduct.root);
+    const capture = await developmentProduct.run([
+      "provider",
+      "capture",
+      "--scope",
+      ".scratch/work",
+      "--repo",
+      developmentProduct.root,
+    ]);
+    expect(capture.exitCode, capture.stderr).toBe(0);
+    const profileKey = "agent-skills-fixture";
+    await mkdir(join(developmentProduct.root, ".bearing/executor-profiles"), { recursive: true });
+    await writeFile(
+      join(developmentProduct.root, `.bearing/executor-profiles/${profileKey}.md`),
+      renderExecutionProfile({
+        profileKey,
+        displayName: "/fixture",
+        surface: "agent-skills",
+        capabilityLocator: "agent-skills:fixture",
+        nativeArtifacts: ["Verified implementation output."],
+        writebackBehavior: "Record the verified execution outcome.",
+      }),
+    );
+    const preservedBefore = await snapshotOwnerBytes(developmentProduct.root);
     await writeFile(
       join(developmentProduct.root, ".bearing/manifest.json"),
       `${JSON.stringify({
@@ -567,16 +638,9 @@ test("Development Preview lifecycle distinguishes newer runtime need and unsuppo
         status: "active",
         runtime: "development",
         surfaces: ["agent-skills"],
-        executorProfiles: [],
+        executorProfiles: [profileKey],
       })}\n`,
     );
-    const bootstrap = await developmentProduct.run([
-      "runtime",
-      "bootstrap",
-      "--repo",
-      developmentProduct.root,
-    ]);
-    expect(bootstrap.exitCode, bootstrap.stderr).toBe(0);
 
     const developmentLineStart = await developmentProduct.run([
       "configure",
@@ -599,12 +663,22 @@ test("Development Preview lifecycle distinguishes newer runtime need and unsuppo
     const developmentLinePlan = await developmentProduct.run([
       "configure",
       "plan",
-      ...activateArguments(developmentProduct.root),
+      ...developmentArguments,
     ]);
     expect(developmentLinePlan.exitCode).toBe(1);
     expect(JSON.parse(developmentLinePlan.stdout).blockers[0].message).toMatch(
       /Agent-guided repository update.*Human confirmation/iu,
     );
+    expect(
+      JSON.parse(await readFile(join(developmentProduct.root, ".bearing/manifest.json"), "utf8")),
+    ).toEqual({
+      schemaVersion: 1,
+      packageVersion: "0.1.1",
+      status: "active",
+      runtime: "development",
+      surfaces: ["agent-skills"],
+      executorProfiles: [profileKey],
+    });
 
     await writeFile(
       join(developmentProduct.root, ".bearing/manifest.json"),
@@ -614,9 +688,37 @@ test("Development Preview lifecycle distinguishes newer runtime need and unsuppo
         status: "active",
         runtime: "development",
         surfaces: ["agent-skills"],
-        executorProfiles: [],
+        executorProfiles: [profileKey],
       })}\n`,
     );
+    const rebuilt = await developmentProduct.run([
+      "cache",
+      "rebuild",
+      "--repo",
+      developmentProduct.root,
+    ]);
+    expect(rebuilt.exitCode, rebuilt.stderr).toBe(0);
+    expect(JSON.parse(rebuilt.stdout)).toMatchObject({
+      outcome: "complete",
+      diagnostics: [],
+      result: { acquisitionCount: 0 },
+    });
+    await access(
+      join(developmentProduct.root, ".bearing/cache/development/project-read-model.sqlite"),
+    );
+    expect(
+      await readSqliteUserVersion(
+        join(developmentProduct.root, ".bearing/cache/development/project-read-model.sqlite"),
+      ),
+    ).toBeGreaterThan(0);
+    const diagnostics = await developmentProduct.run([
+      "inspect",
+      "diagnostics",
+      "--repo",
+      developmentProduct.root,
+    ]);
+    expect(diagnostics.exitCode, diagnostics.stderr).toBe(0);
+    expect(JSON.parse(diagnostics.stdout)).toMatchObject({ outcome: "complete", diagnostics: [] });
     const activeDevelopment = await developmentProduct.run([
       "configure",
       "inspect",
@@ -628,6 +730,19 @@ test("Development Preview lifecycle distinguishes newer runtime need and unsuppo
       lifecycle: { state: "active", removalRequired: false },
       currentSelections: { runtime: "development", surfaces: ["agent-skills"] },
       runtime: { channel: "development" },
+    });
+    expect(await snapshotOwnerBytes(developmentProduct.root)).toEqual(preservedBefore);
+    const resumedPlan = await developmentProduct.run([
+      "configure",
+      "plan",
+      ...developmentArguments,
+      "--retain-executor",
+      profileKey,
+    ]);
+    expect(resumedPlan.exitCode, `${resumedPlan.stderr}\n${resumedPlan.stdout}`).toBe(0);
+    expect(JSON.parse(resumedPlan.stdout)).toMatchObject({
+      canApply: true,
+      acceptedDesiredConfiguration: { runtime: "development" },
     });
 
     await writeFile(

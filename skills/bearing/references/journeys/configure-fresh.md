@@ -11,16 +11,13 @@ native scope.
 
 ## Operation
 
-1. Confirm Agent Surface, one valid Matt provider contract, and the optional executor decision.
-   Completion: every activation choice is explicit.
-2. Plan and apply the minimal repository manifest, Provider Configuration, managed pointer,
-   optional validated profiles, disposable Project Read Model, and Catalog registration. Create no
-   substantive planning object and perform no provider acquisition. Completion: Fresh becomes
-   Active with validated local machine configuration.
-3. After repository, Catalog, and Portal handoff all report their outcomes, offer one optional
-   read-only Project Orientation in ordinary language. State that it will inspect current project
-   files, existing work, and progress without automatically changing planning. Completion: the
-   offer is accepted, declined, or left pending without affecting Configuration.
+1. Resolve Agent Surface, one valid Matt provider contract, and the optional executor decision.
+2. Keep the activation delta to the minimal repository manifest, Provider Configuration, managed
+   pointer, optional validated profiles, and disposable Project Read Model. Create no substantive
+   planning object and perform no provider acquisition.
+3. After Configuration completes, offer one optional read-only Project Orientation in ordinary
+   language. State that it will inspect current project files, existing work, and progress without
+   automatically changing planning.
 
 ## After this operation
 
@@ -32,6 +29,6 @@ native scope.
 
 ## Completion criterion
 
-Fresh activation created only machine configuration and a disposable local read model, used no
-provider acquisition or substantive planning, and any Project Orientation remained optional and
+Fresh activation choices produce only machine configuration and a disposable local read model,
+use no provider acquisition or substantive planning, and keep Project Orientation optional and
 post-Configuration.
