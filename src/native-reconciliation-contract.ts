@@ -1,11 +1,10 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { z } from "zod";
-import type { NativeWorkAffectedRelation, NativeWorkAffectedSet } from "./native-work-provider";
+import type { NativeWorkAffectedSet } from "./native-work-provider";
 import type { MattSkillsV1WorkBinding } from "./providers/matt-skills-v1/capture";
 
 const MAXIMUM_AFFECTED_SUBJECTS = 256;
-const MAXIMUM_AFFECTED_RELATIONS = 512;
 const MAXIMUM_REFERENCE_BYTES = 4096;
 
 export const nativeReferenceSchema = z
@@ -29,31 +28,16 @@ export const nativeReferenceSchema = z
     "Native references cannot contain control characters.",
   );
 
-export const nativeWorkAffectedRelationSchema = z.strictObject({
-  kind: z.enum(["parent-child", "blocked-by"]),
-  source: nativeReferenceSchema,
-  target: nativeReferenceSchema,
-});
-
 export const nativeReconciliationRequestSchema = z
   .strictObject({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     binding: z.strictObject({
       provider: z.literal("matt-skills/v1"),
       nativeScope: nativeReferenceSchema,
     }),
-    subjects: z.array(nativeReferenceSchema).max(MAXIMUM_AFFECTED_SUBJECTS),
-    relations: z.array(nativeWorkAffectedRelationSchema).max(MAXIMUM_AFFECTED_RELATIONS),
+    subjects: z.array(nativeReferenceSchema).min(1).max(MAXIMUM_AFFECTED_SUBJECTS),
   })
-  .superRefine((request, context) => {
-    if (request.subjects.length === 0 && request.relations.length === 0) {
-      context.addIssue({
-        code: "custom",
-        path: ["subjects"],
-        message: "Targeted reconciliation requires at least one affected subject or relation.",
-      });
-    }
-  });
+  .readonly();
 
 export type NativeReconciliationRequest = Readonly<
   z.infer<typeof nativeReconciliationRequestSchema>
@@ -78,44 +62,29 @@ const utf8Compare = (left: string, right: string): number => {
   return leftBytes.length - rightBytes.length;
 };
 
-const relationKey = (relation: NativeWorkAffectedRelation): string =>
-  `${relation.kind}\0${relation.source}\0${relation.target}`;
-
 export const normalizeNativeReconciliationRequest = (
   input: Readonly<{
     binding: MattSkillsV1WorkBinding;
     subjects?: readonly string[];
-    relations?: readonly NativeWorkAffectedRelation[];
   }>,
 ): NativeReconciliationRequest =>
   nativeReconciliationRequestSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     binding: input.binding,
     subjects: [...new Set(input.subjects ?? [])].sort(utf8Compare),
-    relations: [
-      ...new Map(
-        (input.relations ?? []).map((relation) => [relationKey(relation), relation]),
-      ).values(),
-    ].sort((left, right) => utf8Compare(relationKey(left), relationKey(right))),
   });
 
 export const affectedSetFor = (request: NativeReconciliationRequest): NativeWorkAffectedSet => ({
   subjects: request.subjects,
-  relations: request.relations,
 });
 
 export const nativeReconciliationRequestFingerprint = (
   request: NativeReconciliationRequest,
 ): string => {
   const normalized = normalizeNativeReconciliationRequest(request);
-  const payload = `bearing-native-reconciliation-request-v1\n${JSON.stringify(normalized)}`;
+  const payload = `bearing-native-reconciliation-request-v2\n${JSON.stringify(normalized)}`;
   return `sha256:${bytesToHex(sha256(utf8ToBytes(payload)))}`;
 };
 
 export const affectedReadReferences = (affected: NativeWorkAffectedSet): readonly string[] =>
-  [
-    ...new Set([
-      ...affected.subjects,
-      ...affected.relations.flatMap((relation) => [relation.source, relation.target]),
-    ]),
-  ].sort(utf8Compare);
+  [...new Set(affected.subjects)].sort(utf8Compare);

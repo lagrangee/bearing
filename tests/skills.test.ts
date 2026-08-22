@@ -190,7 +190,7 @@ describe("public Bearing Agent surface", () => {
         "bearing inspect <stable-planning-reference> --repo <repo-root>",
         "bearing inspect --native <native-reference> --repo <repo-root>",
         "bearing inspect diagnostics --repo <repo-root>",
-        "bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope> --ref <native-reference> --relation <native-relation>",
+        "bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope> --ref <native-reference> [--ref <native-reference>]",
       ].sort(),
     );
     expect(queryMarkdownLists(document, { ordered: true })).toEqual([]);

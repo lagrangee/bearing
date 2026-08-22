@@ -108,15 +108,8 @@ export type ProviderObservationEvidenceAssessment = Readonly<{
   frontierEvidence: "trustworthy" | "withheld";
 }>;
 
-export type NativeWorkAffectedRelation = Readonly<{
-  kind: "parent-child" | "blocked-by";
-  source: string;
-  target: string;
-}>;
-
 export type NativeWorkAffectedSet = Readonly<{
   subjects: readonly string[];
-  relations: readonly NativeWorkAffectedRelation[];
 }>;
 
 export type NativeWorkReconciliationInput<

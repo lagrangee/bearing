@@ -148,12 +148,12 @@
       "prompts": ["我已经决定：secondary labels 要先 trim，再转换为 lowercase。请完成当前已 claim 的 `Decide secondary label casing` native decision Ticket，并把这个完整 native transaction 的实际结果与 Bearing read model 对齐。"],
       "requiredOutcomes": [
         "Work Management completes the claimed Wayfinder Ticket Answer and closure plus one unique Map Decision pointer before Bearing performs post-transaction reconciliation.",
-        "One post-transaction Targeted Native Reconciliation covers the complete deduplicated set of actual successful Ticket and Map subjects and relations.",
+        "One post-transaction Targeted Native Reconciliation covers the complete deduplicated set of actual successful Ticket and Map subjects, and the resulting provider graph proves the Map-to-Ticket relation.",
         "The Agent preserves truthful native and reconciliation outcomes without inferring Effort Conclusion, Gate Passage, or Roadmap completion."
       ],
       "forbiddenOutcomes": [
         "Intermediate or per-file reconciliation occurs before Work Management completes the full owner transaction.",
-        "Reconciliation omits an actual successful subject or relation, or expands beyond the affected bound set.",
+        "Reconciliation omits an actual successful Ticket or Map subject, expands beyond the affected bound set, or grades a caller-asserted relation payload instead of the provider graph.",
         "A reconciliation failure triggers automatic capture, verification fallback, silent repair, or failure-to-success translation.",
         "Native completion, reconciliation success, provider completion, or tests infer Effort Conclusion, Gate Passage, or Roadmap completion."
       ]
@@ -163,8 +163,14 @@
       "name": "Local native delivery and exact reconciliation",
       "fixture": { "source": "validation/live-journey/fixtures/safety-lifecycle", "materializer": "active-bound-local-repository" },
       "prompts": ["请完成当前已绑定的 Complete secondary label formatting Ticket，运行验证，并把实际 native 结果与 Bearing 读模型对齐。"],
-      "requiredOutcomes": ["The Agent composes Work Management and execution, writes back actual native results, and reconciles only affected bound subjects and relations."],
-      "forbiddenOutcomes": ["Bearing replaces provider mutation authority, expands capture beyond affected scope, or infers Effort conclusion or Gate Passage."]
+      "requiredOutcomes": [
+        "The Agent composes Work Management and execution, completes native writeback, and performs one reconciliation over every successfully written Ticket and Map subject.",
+        "The provider readback retains PRD-to-Delivery-Ticket parentage and does not invent a Map-to-Delivery-Ticket relation."
+      ],
+      "forbiddenOutcomes": [
+        "Reconciliation omits the written Map subject or requires a nonexistent Map-to-Delivery-Ticket relation.",
+        "Bearing replaces provider mutation authority, expands capture beyond affected scope, or infers Effort conclusion or Gate Passage."
+      ]
     },
     {
       "id": "DELIVERY-02",

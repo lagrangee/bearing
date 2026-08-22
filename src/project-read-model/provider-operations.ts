@@ -467,7 +467,6 @@ export const reconcileProjectNative = async (
   if (local.state === "unavailable") {
     const references = affectedReadReferences({
       subjects: request.subjects,
-      relations: request.relations,
     });
     const dispositions = references.map((reference) => ({
       reference,
@@ -481,10 +480,7 @@ export const reconcileProjectNative = async (
         requestFingerprint: nativeReconciliationRequestFingerprint(request),
         acquisitionCount: 0,
         dispositions,
-        relationDispositions: request.relations.map((relation) => ({
-          relation,
-          disposition: "missing-endpoint" as const,
-        })),
+        relationDispositions: [],
         readback: [],
         generationFingerprint: null,
         scopedDiagnosticCount: 1,
@@ -549,7 +545,6 @@ export const reconcileProjectNative = async (
   }
   const references = affectedReadReferences({
     subjects: request.subjects,
-    relations: request.relations,
   });
   const objects = matchingObservation === undefined ? [] : mattObjects(matchingObservation);
   const readback = references.flatMap((reference) => {
@@ -564,6 +559,40 @@ export const reconcileProjectNative = async (
       ? ("read" as const)
       : ("missing" as const),
   }));
+  const affectedSubjects = new Set(request.subjects);
+  const providerRelations =
+    !succeeded ||
+    matchingObservation === undefined ||
+    (matchingObservation.state !== "available" && matchingObservation.state !== "partial")
+      ? []
+      : [
+          ...matchingObservation.projection.graph.parentChild.map((relation) => ({
+            relation: {
+              kind: "parent-child" as const,
+              source: String(relation.parent),
+              target: String(relation.child),
+            },
+            disposition: "read" as const,
+          })),
+          ...matchingObservation.projection.graph.blockedBy.map((relation) => ({
+            relation: {
+              kind: "blocked-by" as const,
+              source: String(relation.blocked),
+              target: String(relation.blocker),
+            },
+            disposition: "read" as const,
+          })),
+        ]
+          .filter(
+            ({ relation }) =>
+              affectedSubjects.has(relation.source) && affectedSubjects.has(relation.target),
+          )
+          .sort((left, right) =>
+            `${left.relation.kind}\0${left.relation.source}\0${left.relation.target}`.localeCompare(
+              `${right.relation.kind}\0${right.relation.source}\0${right.relation.target}`,
+              "en",
+            ),
+          );
   return {
     schemaVersion: 1 as const,
     command: "reconcile-native" as const,
@@ -572,15 +601,7 @@ export const reconcileProjectNative = async (
       requestFingerprint,
       acquisitionCount: prepared.plan.providerObservationOperation.acquisitionCount,
       dispositions,
-      relationDispositions: request.relations.map((relation) => ({
-        relation,
-        disposition:
-          dispositions.find((entry) => entry.reference === relation.source)?.disposition ===
-            "read" &&
-          dispositions.find((entry) => entry.reference === relation.target)?.disposition === "read"
-            ? ("read" as const)
-            : ("missing-endpoint" as const),
-      })),
+      relationDispositions: providerRelations,
       readback,
       generationFingerprint,
       scopedDiagnosticCount: diagnostics.length,

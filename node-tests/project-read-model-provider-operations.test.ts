@@ -469,8 +469,7 @@ test("exact reconciliation returns complete readback and never broadens a failed
     );
     const reconciled = await reconcileProjectNative(fixture.root, {
       binding: { provider: "matt-skills/v1", nativeScope: ".scratch/scope-001" },
-      subjects: [fixture.nativeLocator],
-      relations: [],
+      subjects: [".scratch/scope-001/map.md", fixture.nativeLocator],
     });
     assert.equal(reconciled.outcome, "complete");
     assert.equal(reconciled.result.acquisitionCount, 1);
@@ -478,10 +477,22 @@ test("exact reconciliation returns complete readback and never broadens a failed
     assert.match(reconciled.result.generationFingerprint, /^sha256:/u);
     assert.deepEqual(reconciled.result.dispositions, [
       { reference: fixture.nativeLocator, disposition: "read" },
+      { reference: ".scratch/scope-001/map.md", disposition: "read" },
     ]);
-    assert.equal(reconciled.result.readback.length, 1);
-    assert.equal(reconciled.result.readback[0]?.nativeReference, fixture.nativeLocator);
-    const entity = reconciled.result.readback[0]?.entity;
+    assert.deepEqual(reconciled.result.relationDispositions, [
+      {
+        relation: {
+          kind: "parent-child",
+          source: ".scratch/scope-001/map.md",
+          target: fixture.nativeLocator,
+        },
+        disposition: "read",
+      },
+    ]);
+    assert.equal(reconciled.result.readback.length, 2);
+    const entity = reconciled.result.readback.find(
+      (entry) => entry.nativeReference === fixture.nativeLocator,
+    )?.entity;
     assert.ok(entity !== undefined && entity.kind === "wayfinder-ticket");
     assert.equal(entity.claim.state, "claimed");
 
@@ -492,7 +503,6 @@ test("exact reconciliation returns complete readback and never broadens a failed
       {
         binding: { provider: "matt-skills/v1", nativeScope: ".scratch/scope-001" },
         subjects: [fixture.nativeLocator],
-        relations: [],
       },
       {
         providerFactory: (input) => {
@@ -530,7 +540,6 @@ test("exact reconciliation returns complete readback and never broadens a failed
     const repeated = await reconcileProjectNative(fixture.root, {
       binding: { provider: "matt-skills/v1", nativeScope: ".scratch/scope-001" },
       subjects: [fixture.nativeLocator],
-      relations: [],
     });
     assert.equal(repeated.outcome, "unfulfilled");
     assert.equal(repeated.result.acquisitionCount, 0);
@@ -717,7 +726,6 @@ test("explicit rebuild recovers corrupt disposable bytes but never downgrades a 
     const reconcileRefused = await reconcileProjectNative(fixture.root, {
       binding: { provider: "matt-skills/v1", nativeScope: ".scratch/scope-001" },
       subjects: [fixture.nativeLocator],
-      relations: [],
     });
     assert.equal(reconcileRefused.outcome, "need-update");
     assert.equal(reconcileRefused.result.generationFingerprint, null);
@@ -729,7 +737,6 @@ test("explicit rebuild recovers corrupt disposable bytes but never downgrades a 
     const corruptReconciliation = await reconcileProjectNative(fixture.root, {
       binding: { provider: "matt-skills/v1", nativeScope: ".scratch/scope-001" },
       subjects: [fixture.nativeLocator],
-      relations: [],
     });
     assert.equal(corruptReconciliation.outcome, "recovery-required");
     assert.equal(corruptReconciliation.result.acquisitionCount, 0);
@@ -831,7 +838,9 @@ test("SQLite acquisition preserves complete GitHub Matt semantics through the sa
     assert.equal(evidence.observation.projection.deliveryTickets.length, 1);
     assert.equal(evidence.observation.projection.incomingIssues.length, 1);
     const delivery = evidence.observation.projection.deliveryTickets[0];
+    const spec = evidence.observation.projection.spec;
     assert.ok(delivery !== undefined);
+    assert.ok(spec !== undefined);
     assert.equal(delivery.native.kind, "github");
     if (delivery.native.kind !== "github") throw new Error("Expected GitHub native evidence.");
     const inspectedUrl = await inspectProject(root, {
@@ -841,19 +850,47 @@ test("SQLite acquisition preserves complete GitHub Matt semantics through the sa
     assert.equal(inspectedUrl.outcome, "complete");
     assert.ok(inspectedUrl.result !== undefined && "binding" in inspectedUrl.result);
     assert.equal(inspectedUrl.result.binding.state, "bound");
+    const requestsBeforeReconciliation = transport.requests.length;
     const reconciled = await reconcileProjectNative(
       root,
       {
         binding: { provider: "matt-skills/v1", nativeScope: repository.nativeScope },
-        subjects: [delivery.ref],
-        relations: [],
+        subjects: [spec.ref, delivery.ref],
       },
       { providerFactory },
     );
     assert.equal(reconciled.outcome, "complete");
     assert.equal(reconciled.result.acquisitionCount, 1);
-    assert.equal(reconciled.result.readback[0]?.entity.kind, "delivery-ticket");
-    assert.ok(transport.requests.length > 0);
+    assert.ok(reconciled.result.readback.some((entry) => entry.entity.kind === "delivery-ticket"));
+    assert.deepEqual(reconciled.result.relationDispositions, [
+      {
+        relation: {
+          kind: "parent-child" as const,
+          source: String(spec.ref),
+          target: String(delivery.ref),
+        },
+        disposition: "read" as const,
+      },
+    ]);
+    const reconciliationRequests = transport.requests.slice(requestsBeforeReconciliation);
+    assert.ok(reconciliationRequests.length > 0);
+    assert.ok(
+      reconciliationRequests.every(
+        (request) =>
+          request.endpoint === "repos/example/reference" ||
+          /^repos\/example\/reference\/issues\/(?:2|4)(?:$|\/)/u.test(request.endpoint),
+      ),
+    );
+    assert.ok(
+      reconciliationRequests.some(
+        (request) => request.endpoint === "repos/example/reference/issues/2",
+      ),
+    );
+    assert.ok(
+      reconciliationRequests.some(
+        (request) => request.endpoint === "repos/example/reference/issues/4",
+      ),
+    );
 
     const currentBound = await readProjectProviderEvidence(root, "bound");
     const current = currentBound.find(
@@ -889,7 +926,6 @@ test("SQLite acquisition preserves complete GitHub Matt semantics through the sa
       {
         binding: { provider: "matt-skills/v1", nativeScope: repository.nativeScope },
         subjects: [delivery.ref],
-        relations: [],
       },
       { providerFactory },
     );

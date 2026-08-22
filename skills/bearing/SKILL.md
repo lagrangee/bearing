@@ -52,7 +52,7 @@ selected for the current operation.
 | One planning target | `bearing inspect <stable-planning-reference> --repo <repo-root>` |
 | One native target and local Binding | `bearing inspect --native <native-reference> --repo <repo-root>` |
 | Current deterministic diagnostics | `bearing inspect diagnostics --repo <repo-root>` |
-| Exact readback of successful managed native effects | `bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope> --ref <native-reference> --relation <native-relation>` |
+| Exact readback of successful managed native effects | `bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope> --ref <native-reference> [--ref <native-reference>]` |
 
 Commands return typed outcomes. `complete` proves only the coverage declared by that operation; it
 does not prove readiness, acceptance, lifecycle transition, or mutation authority.

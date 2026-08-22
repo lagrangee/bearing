@@ -89,6 +89,8 @@ test("packed product exposes explicit provider cost classes and native typed rea
         "--scope",
         ".scratch/scope-001",
         "--ref",
+        ".scratch/scope-001/map.md",
+        "--ref",
         fixture.nativeLocator,
         "--repo",
         ".",
@@ -96,20 +98,64 @@ test("packed product exposes explicit provider cost classes and native typed rea
       { cwd: fixture.root, observeRoots: [fixture.root] },
     );
     expect(reconciled.exitClass).toBe("success");
-    expect(JSON.parse(reconciled.stdout)).toMatchObject({
+    const reconciliationReceipt = JSON.parse(reconciled.stdout);
+    expect(reconciliationReceipt.request).toEqual({
+      schemaVersion: 2,
+      binding: { provider: "matt-skills/v1", nativeScope: ".scratch/scope-001" },
+      subjects: [fixture.nativeLocator, ".scratch/scope-001/map.md"],
+    });
+    expect(reconciliationReceipt).toMatchObject({
       command: "reconcile-native",
       outcome: "complete",
       result: {
         acquisitionCount: 1,
-        dispositions: [{ reference: fixture.nativeLocator, disposition: "read" }],
-        readback: [
+        dispositions: [
+          { reference: fixture.nativeLocator, disposition: "read" },
+          { reference: ".scratch/scope-001/map.md", disposition: "read" },
+        ],
+        relationDispositions: [
           {
-            nativeReference: fixture.nativeLocator,
-            entity: { kind: "wayfinder-ticket", claim: { state: "claimed" } },
+            relation: {
+              kind: "parent-child",
+              source: ".scratch/scope-001/map.md",
+              target: fixture.nativeLocator,
+            },
+            disposition: "read",
           },
         ],
       },
     });
+    expect(reconciliationReceipt.result.readback).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nativeReference: fixture.nativeLocator,
+          entity: expect.objectContaining({
+            kind: "wayfinder-ticket",
+            claim: { state: "claimed" },
+          }),
+        }),
+      ]),
+    );
+
+    const callerAssertedRelation = await product.run(
+      [
+        "reconcile-native",
+        "--scope",
+        ".scratch/scope-001",
+        "--ref",
+        fixture.nativeLocator,
+        "--relation",
+        JSON.stringify({
+          kind: "parent-child",
+          source: fixture.nativeLocator,
+          target: ".scratch/scope-001/map.md",
+        }),
+        "--repo",
+        ".",
+      ],
+      { cwd: fixture.root, observeRoots: [fixture.root] },
+    );
+    expect(callerAssertedRelation.exitClass).toBe("usage-error");
 
     const verified = await product.run(["provider", "verify", "--all", "--repo", "."], {
       cwd: fixture.root,
