@@ -17,14 +17,16 @@ managed effects. Provider reads never mutate native work.
    reference, stop and ask the Human to select the exact identity. Do not batch, order, claim, or
    execute any approximate candidate. Then run `bearing inspect --native <native-reference> --repo
    <repo-root>`. Completion: the local result is bound to one Effort or explicitly unbound.
-2. Give Work Management the original request and preserve its contract and outcome. Do not translate
-   failed, ambiguous, incomplete, or spec-only results. Completion: native owner effects and
-   affected subjects/relations are exact.
-3. After a successful write inside an accepted Binding, deduplicate only the successfully affected
-   entities and relations and run `bearing reconcile-native --repo <repo-root> --scope
-   <opaque-native-scope>` with exact `--ref` and `--relation` values. Completion: readback and
-   publication result cover that exact set. The accepted native outcome authorizes this exact
-   reconciliation; the product seam change does not require another confirmation.
+2. Give Work Management the original request. Let it complete its full owner operation before it
+   returns control. Preserve one terminal outcome plus the actual successfully affected native
+   subjects and relations. Do not define or validate a provider-neutral candidate write set, and
+   do not translate failed, ambiguous, incomplete, or spec-only results. Completion: the owner
+   operation is terminal and its actual successful set is exact.
+3. Only after the Matt Native Work Transaction closes, deduplicate its complete actual successful
+   set and run one Targeted Native Reconciliation through `bearing reconcile-native --repo
+   <repo-root> --scope <opaque-native-scope>` with exact `--ref` and `--relation` values. The
+   accepted native outcome authorizes this exact readback without another confirmation.
+   Completion: one post-transaction result covers the complete deduplicated set.
 4. If work is unbound, complete Work Management normally. Offer at most one material planning
    recommendation when evidence supports it; enrollment is not a prerequisite. Completion: the
    recommendation is accepted later by an owner or the work remains standalone.
@@ -34,10 +36,6 @@ managed effects. Provider reads never mutate native work.
 - **Required:** A failed targeted reconciliation stops at its exact resumption point with prior
   evidence non-current; there is no full-scope capture or verification fallback.
 - **Consider:** A lifecycle-mismatch diagnostic may support a later Effort decision.
-- **Do not infer:** Native completion does not activate or conclude an Effort, pass a Gate, complete
-  a Roadmap, create a Binding, or supply event time.
-
-## Completion criterion
-
-Work Management retained native authority, each successful bound write had one exact
-reconciliation result, failures did not expand cost, and unbound work stayed usable.
+- **Do not infer:** Native completion, reconciliation success, provider completion, and tests do
+  not activate or conclude an Effort, pass a Gate, complete a Roadmap, create a Binding, or supply
+  event time.

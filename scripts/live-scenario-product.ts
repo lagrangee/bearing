@@ -310,6 +310,7 @@ const retainNativeTickets = async (
     "02-update-output.md",
     "03-run-failing-delivery.md",
     "04-complete-secondary-format.md",
+    "05-decide-secondary-label-casing.md",
   ]) {
     if (!retained.includes(name)) await rm(join(issueRoot, name), { force: true });
   }
@@ -359,6 +360,7 @@ export const materializeLiveScenarioProductState = async (input: {
       "active-planning-repository",
       "active-unbound-native-repository",
       "active-bound-local-repository",
+      "active-bound-wayfinder-repository",
       "active-github-repository",
       "active-ambiguous-native-repository",
       "active-failing-execution-repository",
@@ -372,6 +374,27 @@ export const materializeLiveScenarioProductState = async (input: {
           "- [Complete secondary label formatting](issues/04-complete-secondary-format.md) — Finish the accepted secondary behavior.",
         ],
       );
+    }
+    if (materializer === "active-bound-wayfinder-repository") {
+      await writeFile(
+        join(
+          input.repositoryRoot,
+          ".scratch/label-delivery/issues/05-decide-secondary-label-casing.md",
+        ),
+        `# 05 — Decide secondary label casing
+
+Type: task
+
+Status: claimed
+
+Blocked by: None — can start immediately
+
+## Question
+
+How should secondary labels normalize surrounding whitespace and letter casing?
+`,
+      );
+      await retainNativeTickets(input.repositoryRoot, ["05-decide-secondary-label-casing.md"], []);
     }
     if (materializer === "active-ambiguous-native-repository") {
       await retainNativeTickets(

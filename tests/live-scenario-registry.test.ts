@@ -72,6 +72,7 @@ const expectedScenarioIds = [
   "PLAN-03",
   "INTAKE-01",
   "NATIVE-01",
+  "NATIVE-02",
   "DELIVERY-01",
   "DELIVERY-02",
   "STOP-01",
@@ -114,29 +115,44 @@ const recordingCodexPermissionProbe = async (root: string): Promise<string> => {
   return program;
 };
 
+const materializeLocalScenarioProductState = async (input: {
+  scenarioId: string;
+  temporaryPrefix: string;
+  fixtureSource?: string;
+}) => {
+  const registry = await loadLiveScenarioRegistry("validation/live-journey/registry.json");
+  const scenario = registry.scenarios.find(({ id }) => id === input.scenarioId);
+  if (scenario === undefined) throw new Error(`${input.scenarioId} is unavailable.`);
+  const root = await mkdtemp(join(tmpdir(), input.temporaryPrefix));
+  const repositoryRoot = join(root, "repository");
+  const agentHome = join(root, "home");
+  await Promise.all([
+    input.fixtureSource === undefined
+      ? mkdir(repositoryRoot)
+      : cp(input.fixtureSource, repositoryRoot, { recursive: true }),
+    mkdir(agentHome),
+  ]);
+  const initialized = Bun.spawnSync(["git", "init", "-q"], {
+    cwd: repositoryRoot,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (initialized.exitCode !== 0) throw new Error(initialized.stderr.toString());
+  await materializeLiveScenarioProductState({
+    scenario,
+    sourceRoot: process.cwd(),
+    repositoryRoot,
+    productProgram: join(process.cwd(), "dist/cli.js"),
+    agentHome,
+  });
+  return { repositoryRoot, agentHome };
+};
+
 describe("independent Agent Live scenarios", () => {
   test("materializes CONFIG-04 from the current listed Development source", async () => {
-    const registry = await loadLiveScenarioRegistry("validation/live-journey/registry.json");
-    const scenario = registry.scenarios.find(({ id }) => id === "CONFIG-04");
-    if (scenario === undefined) throw new Error("CONFIG-04 is unavailable.");
-    const root = await mkdtemp(join(tmpdir(), "bearing-config-04-fixture-"));
-    const repositoryRoot = join(root, "repository");
-    const agentHome = join(root, "home");
-    const productProgram = join(process.cwd(), "dist/cli.js");
-    await Promise.all([mkdir(repositoryRoot), mkdir(agentHome)]);
-    const initialized = Bun.spawnSync(["git", "init", "-q"], {
-      cwd: repositoryRoot,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    if (initialized.exitCode !== 0) throw new Error(initialized.stderr.toString());
-
-    await materializeLiveScenarioProductState({
-      scenario,
-      sourceRoot: process.cwd(),
-      repositoryRoot,
-      productProgram,
-      agentHome,
+    const { repositoryRoot, agentHome } = await materializeLocalScenarioProductState({
+      scenarioId: "CONFIG-04",
+      temporaryPrefix: "bearing-config-04-fixture-",
     });
 
     expect(
@@ -182,6 +198,43 @@ describe("independent Agent Live scenarios", () => {
     });
     expect(clean.exitCode, clean.stderr.toString()).toBe(0);
     expect(clean.stdout.toString()).toBe("");
+  });
+
+  test("materializes NATIVE-02 as one claimed bound Wayfinder transaction", async () => {
+    const { repositoryRoot } = await materializeLocalScenarioProductState({
+      scenarioId: "NATIVE-02",
+      temporaryPrefix: "bearing-native-02-fixture-",
+      fixtureSource: "validation/live-journey/fixtures/safety-lifecycle",
+    });
+
+    expect((await readdir(join(repositoryRoot, ".scratch/label-delivery/issues"))).sort()).toEqual([
+      "05-decide-secondary-label-casing.md",
+    ]);
+    expect(
+      await readdir(
+        "validation/live-journey/fixtures/safety-lifecycle/.scratch/label-delivery/issues",
+      ),
+    ).not.toContain("05-decide-secondary-label-casing.md");
+    const capture = await createLocalMarkdownMattProvider({
+      repoRoot: repositoryRoot,
+      contractLocator: "docs/agents/issue-tracker.md",
+      triageLocator: "docs/agents/triage-labels.md",
+      clock: () => new Date("2026-08-22T00:00:00Z"),
+    }).capture({ provider: "matt-skills/v1", nativeScope: ".scratch/label-delivery" });
+    expect(capture.state).toBe("available");
+    if (capture.state !== "available") throw new Error("NATIVE-02 capture is unavailable.");
+    expect(capture.diagnostics).toEqual([]);
+    expect(capture.projection.map?.lifecycle.state).toBe("active");
+    expect(capture.projection.wayfinderTickets).toHaveLength(1);
+    expect(capture.projection.wayfinderTickets[0]).toMatchObject({
+      title: "05 — Decide secondary label casing",
+      claim: { state: "claimed" },
+      answer: { availability: "unavailable", reason: "not-authored" },
+      lifecycle: { state: "open" },
+    });
+    expect(
+      await readFile(join(repositoryRoot, ".bearing/state/efforts/label-delivery.md"), "utf8"),
+    ).toContain("Lifecycle: active");
   });
 
   test("keeps current Scenario identity and operator secrets outside Agent input", () => {
@@ -596,6 +649,16 @@ describe("independent Agent Live scenarios", () => {
     expect(githubDelivery?.prompts.join("\n")).not.toMatch(
       /candidate marker|GITHUB_SCOPE|bearing-live-|验证标识/iu,
     );
+
+    const nativeTransaction = registry.scenarios.find(({ id }) => id === "NATIVE-02");
+    if (nativeTransaction === undefined) throw new Error("NATIVE-02 is unavailable.");
+    expect(nativeTransaction.fixture.materializer).toBe("active-bound-wayfinder-repository");
+    expect(nativeTransaction.prompts).toHaveLength(1);
+    const [nativePrompt] = nativeTransaction.prompts;
+    if (nativePrompt === undefined) throw new Error("NATIVE-02 prompt is unavailable.");
+    expect(assertJourneyAgentPrompt(nativePrompt, [...expectedScenarioIds])).toBe(nativePrompt);
+    expect(nativeTransaction.requiredOutcomes).toHaveLength(3);
+    expect(nativeTransaction.forbiddenOutcomes).toHaveLength(4);
 
     const githubProviderContract = await readFile(
       "validation/live-journey/fixtures/github-provider/docs/agents/issue-tracker.md",
@@ -1113,7 +1176,7 @@ describe("independent Agent Live scenarios", () => {
 
     expect(result.evidenceClass).toBe("local-rehearsal");
     expect(result.generationId).toBe("2e3f0d28-2415-46a6-a46e-f99218f8c721");
-    expect(result.durationMs).toBe(2_300);
+    expect(result.durationMs).toBe(expectedScenarioIds.length * 100);
 
     expect(result.scenarios).toHaveLength(expectedScenarioIds.length);
     expect(result.scenarios.at(-1)?.scenarioId).toBe("CATALOG-01");
