@@ -31,10 +31,12 @@ and Ticket or file count are not relationship evidence or enrollment authority.
    Feature Scope Disposition before implementation: place only the related native scope in Bearing
    Scope through an Effort and Work Binding, or keep it as Standalone Native Work. One answer may
    cover several clearly related visible scopes and may also accept a complete planning candidate
-   shown with that choice. Without a complete visible candidate, the answer selects only the
-   disposition. Directly naming an accepted Roadmap or Gate establishes a relationship but creates
-   no Effort, Work Binding, or implementation authority. A limit from another planning operation is
-   not a later native-scope disposition.
+   shown with that choice. Without a complete candidate visible before the answer, the answer
+   selects only the disposition. The Agent must then show the candidate and stop for a separate
+   explicit acceptance; a request to continue does not authorize writes in that turn. Directly
+   naming an accepted Roadmap or Gate establishes a relationship but creates no Effort, Work
+   Binding, or implementation authority. A limit from another planning operation is not a later
+   native-scope disposition.
 4. When the feature exposes a material planning opportunity without an accepted commitment, select
    only the semantic owner whose meaning would change: Roadmap for an outcome horizon, Gate for a
    decision boundary, or Effort for a delivery commitment. Offer one proportionate recommendation
@@ -43,8 +45,8 @@ and Ticket or file count are not relationship evidence or enrollment authority.
 5. Treat a Bearing Scope choice as authority for the managed branch only. It does not accept
    undisclosed Roadmap, Gate, Effort, Binding, or native planning meaning. When the branch requires
    any of that new meaning, show one complete owner-separated candidate and obtain Human acceptance
-   before any canonical or native write. Direct acceptance of a complete candidate already shown
-   with the disposition is sufficient.
+   before any canonical or native write. Apply the visible-candidate acceptance boundary from step
+   3 to this candidate.
 6. Continue the accepted Bearing Scope through its required semantic owners and exact native
    binding. Continue Standalone Native Work through normal delivery without enrollment.
 

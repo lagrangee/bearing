@@ -18,15 +18,23 @@ managed effects. Provider reads never mutate native work.
    execute any approximate candidate. Then run `bearing inspect --native <native-reference> --repo
    <repo-root>`. Completion: the local result is bound to one Effort or explicitly unbound.
 2. Give Work Management the original request. Let it complete its full owner operation before it
-   returns control. Preserve one terminal outcome plus the actual successfully affected native
-   subjects and relations. Do not define or validate a provider-neutral candidate write set, and
-   do not translate failed, ambiguous, incomplete, or spec-only results. Completion: the owner
-   operation is terminal and its actual successful set is exact.
+   returns control, including its provider-specific final review. Preserve one terminal outcome plus
+   the actual successfully affected native subjects and relations that Work Management returns.
+   Require that returned set to enumerate every successful owner write and relation from the full
+   operation, not only the initial reference. Return each relation as reconciliation-ready
+   `kind`/`source`/`target` data. Work Management must explicitly name these provider-owned values
+   before it returns control; Bearing does not derive, guess, replace, or reduce them to subject
+   references. Do not define or validate a provider-neutral candidate write set, and do not translate
+   failed, ambiguous, incomplete, or spec-only results. Completion: the owner operation is terminal
+   and its returned actual successful set is exact.
 3. Only after the Matt Native Work Transaction closes, deduplicate its complete actual successful
-   set and run one Targeted Native Reconciliation through `bearing reconcile-native --repo
-   <repo-root> --scope <opaque-native-scope>` with exact `--ref` and `--relation` values. The
-   accepted native outcome authorizes this exact readback without another confirmation.
-   Completion: one post-transaction result covers the complete deduplicated set.
+   set and run exactly one Targeted Native Reconciliation through `bearing reconcile-native --repo
+   <repo-root> --scope <opaque-native-scope>` with exact `--ref` and `--relation` values. Construct
+   and check the full payload from the owner-returned set before issuing the command; reconciliation
+   is not a payload probe. The accepted native outcome authorizes this exact readback without another
+   confirmation. Any issued reconciliation command is the sole attempt: its failure is terminal, not
+   authority for a corrected second command. Completion: one post-transaction result covers the
+   complete deduplicated set.
 4. If work is unbound, complete Work Management normally. Offer at most one material planning
    recommendation when evidence supports it; enrollment is not a prerequisite. Completion: the
    recommendation is accepted later by an owner or the work remains standalone.
