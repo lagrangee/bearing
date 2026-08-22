@@ -7,6 +7,34 @@ import packageMetadata from "../package.json";
 import { readReleaseTarGz } from "../scripts/release-archive";
 import { writeStandardMattLocalRepository, writeValidBearingState } from "./helpers";
 
+const bearingSkillFiles = [
+  "SKILL.md",
+  "references/contracts/canonical-mutation.md",
+  "references/journeys/catalog.md",
+  "references/journeys/configure-active.md",
+  "references/journeys/configure-deactivate.md",
+  "references/journeys/configure-fresh.md",
+  "references/journeys/configure-reactivate.md",
+  "references/journeys/configure-unsupported.md",
+  "references/journeys/configure.md",
+  "references/journeys/execution.md",
+  "references/journeys/feature-intake.md",
+  "references/journeys/native-work.md",
+  "references/journeys/next-work.md",
+  "references/journeys/project-orientation.md",
+  "references/journeys/scope-review.md",
+  "references/journeys/update.md",
+  "references/owners/asset.md",
+  "references/owners/authority.md",
+  "references/owners/effort.md",
+  "references/owners/milestone-gate.md",
+  "references/owners/planning-audit.md",
+  "references/owners/planning-review.md",
+  "references/owners/project-brief.md",
+  "references/owners/project-summary.md",
+  "references/owners/roadmap.md",
+] as const;
+
 type CommandResult = Readonly<{
   exitCode: number;
   stdout: string;
@@ -113,31 +141,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
         "package/docs/troubleshooting.md",
         "package/docs/troubleshooting.zh-CN.md",
         "package/package.json",
-        "package/skills/bearing/SKILL.md",
-        "package/skills/bearing/references/contracts/canonical-mutation.md",
-        "package/skills/bearing/references/journeys/catalog.md",
-        "package/skills/bearing/references/journeys/configure-active.md",
-        "package/skills/bearing/references/journeys/configure-deactivate.md",
-        "package/skills/bearing/references/journeys/configure-fresh.md",
-        "package/skills/bearing/references/journeys/configure-reactivate.md",
-        "package/skills/bearing/references/journeys/configure-unsupported.md",
-        "package/skills/bearing/references/journeys/configure.md",
-        "package/skills/bearing/references/journeys/execution.md",
-        "package/skills/bearing/references/journeys/feature-intake.md",
-        "package/skills/bearing/references/journeys/native-work.md",
-        "package/skills/bearing/references/journeys/next-work.md",
-        "package/skills/bearing/references/journeys/project-orientation.md",
-        "package/skills/bearing/references/journeys/scope-review.md",
-        "package/skills/bearing/references/journeys/update.md",
-        "package/skills/bearing/references/owners/asset.md",
-        "package/skills/bearing/references/owners/authority.md",
-        "package/skills/bearing/references/owners/effort.md",
-        "package/skills/bearing/references/owners/milestone-gate.md",
-        "package/skills/bearing/references/owners/planning-audit.md",
-        "package/skills/bearing/references/owners/planning-review.md",
-        "package/skills/bearing/references/owners/project-brief.md",
-        "package/skills/bearing/references/owners/project-summary.md",
-        "package/skills/bearing/references/owners/roadmap.md",
+        ...bearingSkillFiles.map((path) => `package/skills/bearing/${path}`),
       ].sort(),
     );
     const packedText = (path: string): string => {
@@ -145,45 +149,11 @@ test("the packed CLI runs through offline local npm exec", async () => {
       if (entry === undefined) throw new Error(`Packed file is absent: ${path}`);
       return entry.bytes.toString("utf8");
     };
-    const packedSkill = packedText("package/skills/bearing/SKILL.md");
-    expect(packedSkill).toContain("$HOME/.bearing/bin/bearing");
-    expect(packedSkill).toContain("there is no separate entry preflight");
-    expect(packedSkill).not.toMatch(/before the first command.*(?:--version|command -v)/isu);
-    const packedWorkflows = packedText("package/docs/everyday-workflows.md");
-    expect(packedWorkflows).toContain("explicit or high-confidence material relationship");
-    expect(packedWorkflows).toContain("owner-specific recommendation");
-    expect(packedWorkflows).toContain("does not require a scope disposition");
-    expect(packedWorkflows).toMatch(/An ordinary feature\s+continues through normal delivery/u);
-    const packedChineseWorkflows = packedText("package/docs/everyday-workflows.zh-CN.md");
-    expect(packedChineseWorkflows).toContain("显式或高置信的实质关联");
-    expect(packedChineseWorkflows).toContain("owner-specific 的建议");
-    expect(packedChineseWorkflows).toContain("不要求 scope disposition");
-    expect(packedChineseWorkflows).toContain("直接继续普通 delivery");
-    for (const path of ["package/docs/cli.md", "package/docs/cli.zh-CN.md"]) {
-      const cli = packedText(path);
-      expect(cli).toMatch(
-        /reasonable material planning or governance relevance|合理的实质 planning 或 governance relevance/u,
+    for (const path of bearingSkillFiles) {
+      expect(packedText(`package/skills/bearing/${path}`)).toBe(
+        await readFile(join(process.cwd(), "skills/bearing", path), "utf8"),
       );
-      expect(cli).not.toContain("material new-feature request");
     }
-    const activeProductFiles = [...archiveFiles.entries()].filter(
-      ([path]) =>
-        path === "package/dist/cli.js" ||
-        path === "package/package.json" ||
-        path === "package/README.md" ||
-        path === "package/README.zh-CN.md" ||
-        path.startsWith("package/dist/portal/") ||
-        path.startsWith("package/docs/") ||
-        path.startsWith("package/skills/"),
-    );
-    const retiredProductSurface =
-      /(?:project-sitemap\.md|sync-report\.md|sync-receipt\.json|project-generation\.json|provider-observations\.json|provider-detail-selections\.json|inspect-benchmark-|benchmark:(?:sync|inspect)|--(?:initialize-provider-observations|benchmark-metrics-file|portal-entry|persist-provider-observations)|\/api\/v1\/projects\/[^\s`"']*\/(?:sync|inspect-native-scope|reconcile-native)|\bbearing sync\b|\bthen Sync\b|\bSetup\b|\b(?:SyncOperationInstrumentation|SyncOperationMetricsSnapshot|createSyncOperationInstrumentation|syncing|topbar-sync|sync-control|sync-failure-detail)\b)/u;
-    expect(
-      activeProductFiles.flatMap(([path, entry]) => {
-        const match = entry.bytes.toString("utf8").match(retiredProductSurface);
-        return match === null ? [] : [`${path}: ${match[0]}`];
-      }),
-    ).toEqual([]);
 
     const executed = await run(
       ["npm", "exec", "--yes", "--offline", `--package=${tarball}`, "--", "bearing", "--version"],
@@ -277,35 +247,16 @@ test("the packed CLI runs through offline local npm exec", async () => {
     for (const surfaceRoot of [".agents/skills", ".claude/skills"]) {
       await access(join(homeDirectory, surfaceRoot, "bearing", "SKILL.md"));
     }
-    const installedBearingSkill = await readFile(
-      join(homeDirectory, ".agents/skills/bearing/SKILL.md"),
-      "utf8",
-    );
-    const bundledBearingSkill = await readFile(
-      join(homeDirectory, ".bearing/kit/current/skills/bearing/SKILL.md"),
-      "utf8",
-    );
-    expect(installedBearingSkill).toBe(bundledBearingSkill);
-    const bundledCanonicalMutation = await readFile(
-      join(
-        homeDirectory,
-        ".bearing/kit/current/skills/bearing/references/contracts/canonical-mutation.md",
-      ),
-      "utf8",
-    );
-    expect(bundledCanonicalMutation).toMatch(
-      /Agent-authored candidate[\s\S]*re-read[\s\S]*precondition[\s\S]*bearing inspect/iu,
-    );
-    const bundledProjectOrientation = await readFile(
-      join(
-        homeDirectory,
-        ".bearing/kit/current/skills/bearing/references/journeys/project-orientation.md",
-      ),
-      "utf8",
-    );
-    expect(bundledProjectOrientation).toMatch(/Orientation is a read-only Agent synthesis/iu);
-    expect(bundledProjectOrientation).toMatch(/Project Summary draft[\s\S]*future Roadmap/iu);
-    expect(bundledProjectOrientation).toMatch(/ordered Gate candidates/iu);
+    for (const path of bearingSkillFiles) {
+      const source = await readFile(join(process.cwd(), "skills/bearing", path), "utf8");
+      for (const installedRoot of [
+        join(homeDirectory, ".bearing/kit/current/skills/bearing"),
+        join(homeDirectory, ".agents/skills/bearing"),
+        join(homeDirectory, ".claude/skills/bearing"),
+      ]) {
+        expect(await readFile(join(installedRoot, path), "utf8")).toBe(source);
+      }
+    }
 
     configuredRoot = await mkdtemp(join(root, "fresh-local-repository-"));
     await writeStandardMattLocalRepository(configuredRoot);

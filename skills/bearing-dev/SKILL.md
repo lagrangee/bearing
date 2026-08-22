@@ -5,12 +5,14 @@ description: Use only in the Bearing source repository when its managed pointer 
 
 # Bearing Development Runtime
 
-1. Read `../bearing/SKILL.md` completely before any Bearing operation and use it as the governing
-   workflow. Completion: the public contract and its directly selected references are available
-   from this source checkout.
-2. Run `node <repo-root>/dist/cli.js runtime inspect --repo <repo-root>` and continue only when it
-   returns a coherent Development Runtime receipt. Completion: the selected CLI, Skill identity,
-   and state root belong to one Development Runtime identity.
-3. Run every repository-scoped Bearing command through `node <repo-root>/dist/cli.js`. Preserve its
-   typed outcomes and Development Runtime receipt. Completion: no public Stable Kit CLI, Skill, or
-   state participated in the operation.
+Read `../bearing/SKILL.md` completely and use that public root for operation and reference selection.
+Pin all repository-scoped Bearing commands to `node <repo-root>/dist/cli.js` from this checkout.
+
+First run `node <repo-root>/dist/cli.js runtime inspect --repo <repo-root>`. Continue only when its
+receipt proves that the selected CLI, public Skill, and state root share one coherent Development
+Runtime identity. Never use or fall back to the public Stable Kit, CLI, Skill, or state.
+
+## Completion criterion
+
+The public root is loaded, the coherent Development receipt is preserved, and every
+repository-scoped Bearing command uses the pinned Development CLI.
