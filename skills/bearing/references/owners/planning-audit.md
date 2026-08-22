@@ -12,18 +12,17 @@ and coordinate their promotion, but it cannot accept decisions or mutate other p
 ## Operation
 
 1. Inspect Project Context, diagnostics, current planning, trustworthy bound native evidence, and
-   existing equivalent Review questions. Completion: audit coverage and limits are explicit.
-2. Separate structural facts, semantic findings, and recommendations. Completion: every material
-   finding states consequence and evidence.
+   existing equivalent Review questions. State audit coverage and limits.
+2. Separate structural facts, semantic findings, and recommendations. Give every material finding
+   its consequence and evidence.
 3. Replace only the current Audit result authorized by this explicit operation. A material
    unresolved finding may create or refresh one evidence-matched pending Review only when Planning
    Review is already in the accepted write set. Reuse an equivalent pending Question, Scope, and
-   exact `Target` when the Scope is `exact-target` instead of creating a duplicate. Completion:
-   ordinary findings stay advisory and material questions have one owner.
+   exact `Target` when the Scope is `exact-target` instead of creating a duplicate. Ordinary
+   findings stay advisory and material questions have one owner.
 
 ## After this operation
 
-- **Required:** Validate Audit and any co-owned Review through affected-target inspection.
 - **Consider:** Offer owner-specific changes only as recommendations.
 - **Do not infer:** Audit evidence accepts a decision, changes lifecycle, or repairs planning.
 - **Do not infer:** Project Read Model operations, Portal use, or a changed input starts or replaces an Audit.

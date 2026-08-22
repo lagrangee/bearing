@@ -14,20 +14,15 @@ does not own Effort lifecycle, Gate Passage, or native completion.
 ## Operation
 
 1. Inspect the complete Roadmap reference, ordered Gates, contributing Efforts, relevant
-   Authorities, and direct diagnostics. Completion: one exact horizon and all order effects are
-   explicit.
+   Authorities, and direct diagnostics. Make one exact horizon and all order effects explicit.
 2. Author one coherent candidate. When creation or extension also creates Gate records, the
    Milestone Gate owner must already be selected by root; other inspected domains need no owner.
-   Completion: every changed domain is named.
 3. For an exhausted horizon, explain and obtain one decision: **Complete Roadmap** records achieved
    outcome, **Extend Horizon** adds accepted future Gates, or **Leave Active for Now** preserves the
-   open horizon and states why. Completion: no terminal transition is inferred.
-4. Apply through the canonical contract and inspect the Roadmap plus changed Gates. Completion:
-   canonical order, lifecycle, and direct relations agree.
+   open horizon and states why. Record a current event time only with an accepted Roadmap event.
 
 ## After this operation
 
-- **Required:** Record current event time only with an accepted Roadmap event.
 - **Required:** After an accepted Roadmap completion, root selects the Project Summary owner and
   then the Project Brief owner in the same visible operation. After accepted supersession, root
   selects only the Project Brief owner. Each owner evaluates materiality and can return `no-op`.

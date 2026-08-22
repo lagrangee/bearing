@@ -19,22 +19,18 @@ admit an Asset by themselves. Do not run automatic registration or classificatio
 
 1. Inspect the Asset reference, current owner, source facts requested for this decision, lifecycle,
    and direct planning relations. For an exact local source question, use only the bounded Asset
-   Detail probe. Do not use Asset lists or Attention to probe sources. Completion: Asset identity
-   and affected owner set are exact.
+   Detail probe. Do not use Asset lists or Attention to probe sources. Identify one exact Asset and
+   every affected owner before making the candidate.
 2. For admission, state the continuing planning value or first-class artifact purpose. Author only
    `ID`, `Title`, `Purpose`, closed `Kind`, contained local or safe HTTPS `Source`, current `Owner`,
    `Added at`, lifecycle disposition, and optional human-facing `Origin`. Allowed Kinds are
    `specification`, `prototype`, `design`, `research`, `baseline`, `reference`, and `runbook`.
    Another owner participates only when root selected it because its canonical state will actually
-   change.
-   Completion: Asset and non-Asset effects are separated.
+   change. Keep Asset and non-Asset effects separate.
 3. Preserve identity while meaning continues. A superseded Asset names one active replacement; an
    archived Asset does not invent a replacement. Before an Effort concludes, transfer, supersede,
    or archive each active Asset it owns. Update an affected Authority baseline in the same accepted
-   logical scope. Completion: lifecycle and owner transitions are complete.
-4. Apply through the canonical contract and inspect the Asset plus affected relations. A missing or
-   unreadable source does not auto-archive the Asset or rematerialize the project. Completion:
-   identity continuity, metadata, owner, lifecycle, and affected Authority baseline agree.
+   logical scope. Account for every lifecycle and owner transition in the candidate.
 
 ## After this operation
 
@@ -42,8 +38,8 @@ admit an Asset by themselves. Do not run automatic registration or classificatio
   logical scope.
 - **Consider:** Preserve semantic identity across ordinary content refinement.
 - **Do not infer:** Citation, source availability, production, or Gate evidence changes Asset
-  lifecycle or ownership. HTTPS source availability remains unverified until a separate authorized
-  check exists.
+  lifecycle or ownership. A missing or unreadable source does not rematerialize the project. HTTPS
+  source availability remains unverified until a separate authorized check exists.
 
 ## Completion criterion
 

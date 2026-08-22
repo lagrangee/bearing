@@ -17,14 +17,11 @@ semantics.
 
 1. Inspect the Review, exact targets, evidence, affected owners, and equivalent pending questions.
    Set `Scope` to `project`, or set it to `exact-target` and name exactly one `Target`. Deduplicate
-   by Question and Scope, including the exact Target for `exact-target`. Completion: one material
-   Question, one Scope, and one deduplicated identity are explicit.
+   by Question and Scope, including the exact Target for `exact-target`.
 2. Author distinct candidates with consequences, preserved intent, and exact owner write sets.
-   Completion: the user can accept, refine, or leave the Review pending.
-3. On a clear direct instruction that accepts one candidate, apply one logical accepted scope with
-   every affected owner already selected by root. Re-read all preconditions, use the canonical
-   contract, and complete the Review with rationale and current accepted event time. Completion:
-   Review and owner effects validate together.
+   Keep the Review pending until the user accepts, refines, or leaves a candidate.
+3. On Human acceptance, complete the Review with rationale and current accepted event time in one
+   logical scope with every affected owner already selected by root.
 
 ## After this operation
 

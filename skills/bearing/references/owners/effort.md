@@ -14,16 +14,14 @@ choose the relation. Native lifecycle remains with Work Management.
 ## Operation
 
 1. Inspect the complete Effort reference, owning Roadmap, Target Gate, current Binding, direct
-   Authorities, current native facts, and diagnostics. Completion: current scope and lifecycle are
-   complete.
-2. Author one candidate for planned creation, activation, conclusion, or Binding change. Provider
-   completion, native lifecycle, Gate readiness, and Passage are evidence only. Completion: no
-   transition is inferred.
-3. Obtain acceptance. An explicit execution request for an unambiguous Ticket bound to a planned
-   Effort directly entails activation after the effect is stated; refusal performs no effects.
-   Concluded Efforts never reopen implicitly. Completion: lifecycle authority is explicit.
-4. Apply through the canonical contract and inspect the Effort plus affected Gate/Roadmap facts.
-   Completion: lifecycle, scope, and Binding agree with current canonical sources.
+   Authorities, current native facts, and diagnostics. Establish one complete scope and lifecycle
+   baseline.
+2. Author one exact candidate for planned creation, activation, conclusion, or Binding change.
+   Provider completion, native lifecycle, Gate readiness, and Passage remain evidence rather than
+   transition authority.
+3. An explicit execution request for an unambiguous Ticket bound to a planned Effort directly
+   entails activation after the effect is stated; refusal performs no effects. Concluded Efforts
+   never reopen implicitly. State the resulting activation, refusal, or unchanged concluded state.
 
 ## After this operation
 

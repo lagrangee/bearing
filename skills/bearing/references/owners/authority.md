@@ -12,14 +12,13 @@ membership derives the current adoption relation. There is no adoption event rec
 ## Operation
 
 1. Inspect the Authority reference, current Scope, Baseline Assets, explanation, candidate Assets,
-   dependent planning objects, and diagnostics. Completion: current baseline and consequences are
-   complete.
-2. Author an adopt, replace, remove, scope, or explanation candidate. A direct unambiguous user
-   instruction supplies acceptance. Citation, Asset creation, or source change is not baseline
-   acceptance. Completion: exact membership and meaning are visible.
-3. Change Asset state only when root also selected the Asset owner for this operation. Apply the
-   Authority change through the canonical contract and inspect affected Authority and relations.
-   Completion: current membership and explanation agree.
+   dependent planning objects, and diagnostics. Identify the complete current baseline and every
+   affected consequence.
+2. Author an adopt, replace, remove, scope, or explanation candidate. Baseline membership changes
+   only through an accepted Authority candidate. Citation, Asset creation, or source change is not
+   baseline acceptance. Make exact membership and meaning visible.
+3. Keep Asset state unchanged unless root also selected the Asset owner for this operation. Record
+   no synthetic adoption event or timestamp on the Authority.
 
 ## After this operation
 
