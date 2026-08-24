@@ -11,6 +11,11 @@ import { resolveRepositoryRoot } from "../path-boundary";
 import type { MattProviderFactory } from "../provider-acquisition";
 import { createProviderDetailEvidenceState } from "../provider-detail-selection";
 import type { ProviderEvidenceState } from "../provider-evidence-selection";
+import { decodeGitHubMattNativeScope } from "../providers/matt-skills-v1/github-native-scope";
+import {
+  canonicalizeLocalNativeReference,
+  localNativeReferenceBelongsToScope,
+} from "../providers/matt-skills-v1/local-native-reference";
 import {
   mattNativeSubjectForObject,
   sameMattNativeBindingDefinition,
@@ -55,6 +60,29 @@ const uniqueDiagnostics = (
     ]),
   ).values(),
 ];
+
+const rejectedNativeReconciliation = (
+  request: NativeReconciliationRequest,
+  diagnostic: StructuralDiagnostic,
+) => ({
+  schemaVersion: 1 as const,
+  command: "reconcile-native" as const,
+  outcome: "unfulfilled" as const,
+  request,
+  result: {
+    requestFingerprint: nativeReconciliationRequestFingerprint(request),
+    acquisitionCount: 0,
+    dispositions: request.subjects.map((reference) => ({
+      reference,
+      disposition: "missing" as const,
+    })),
+    relationDispositions: [],
+    readback: [],
+    generationFingerprint: null,
+    scopedDiagnosticCount: 1,
+  },
+  diagnostics: [diagnostic],
+});
 
 const boundStore = (evidence: readonly ProjectProviderEvidence[]): ProviderEvidenceState => ({
   schemaVersion: 1,
@@ -462,7 +490,44 @@ export const reconcileProjectNative = async (
 ) => {
   const root = await resolveRepositoryRoot(repoRoot);
   await assertActiveRepositoryIntegration(root, "reconcile-native");
-  const request = normalizeNativeReconciliationRequest(input);
+  let request = normalizeNativeReconciliationRequest(input);
+  if (decodeGitHubMattNativeScope(request.binding.nativeScope) === undefined) {
+    let admissionDiagnostic: StructuralDiagnostic | undefined;
+    try {
+      const canonicalSubjects = await Promise.all(
+        request.subjects.map((reference) => canonicalizeLocalNativeReference(root, reference)),
+      );
+      request = normalizeNativeReconciliationRequest({
+        binding: request.binding,
+        subjects: canonicalSubjects,
+      });
+    } catch {
+      admissionDiagnostic = {
+        code: "native-reconciliation-reference-invalid",
+        impact: "blocking",
+        target: request.binding.nativeScope,
+        message:
+          "Local native references must resolve to repository-relative subjects inside the repository.",
+      };
+    }
+    if (
+      admissionDiagnostic === undefined &&
+      request.subjects.some(
+        (reference) => !localNativeReferenceBelongsToScope(request.binding.nativeScope, reference),
+      )
+    ) {
+      admissionDiagnostic = {
+        code: "native-reconciliation-reference-outside-scope",
+        impact: "blocking",
+        target: request.binding.nativeScope,
+        message:
+          "Local native references must identify a supported Markdown subject inside the bound scope.",
+      };
+    }
+    if (admissionDiagnostic !== undefined) {
+      return rejectedNativeReconciliation(request, admissionDiagnostic);
+    }
+  }
   const local = await localStore(root);
   if (local.state === "unavailable") {
     const references = affectedReadReferences({
@@ -476,6 +541,7 @@ export const reconcileProjectNative = async (
       schemaVersion: 1 as const,
       command: "reconcile-native" as const,
       outcome: local.outcome,
+      request,
       result: {
         requestFingerprint: nativeReconciliationRequestFingerprint(request),
         acquisitionCount: 0,
@@ -512,6 +578,12 @@ export const reconcileProjectNative = async (
     prepared.plan.providerObservationOperation.outcome === "acquired" &&
     matchingSelection?.latestAttempt?.outcome === "succeeded" &&
     matchingSelection.latestAttempt.requestFingerprint === requestFingerprint;
+  const referenceRejected = diagnostics.some(
+    (diagnostic) =>
+      diagnostic.code === "matt.local.reconciliation.reference-invalid" ||
+      diagnostic.code === "matt.local.reconciliation.reference-outside-scope" ||
+      diagnostic.code === "matt.github.reconciliation.reference-invalid",
+  );
   const currentState = await inspectProjectReadModel(root);
   if (currentState.state !== "ready") {
     throw new Error("Project Read Model generation became unavailable during reconciliation.");
@@ -531,7 +603,7 @@ export const reconcileProjectNative = async (
       generationFingerprint = (await publishProjectReadModel(root, prepared.candidate))
         .basisFingerprint;
     }
-  } else if (matchingSelection !== undefined) {
+  } else if (!referenceRejected && matchingSelection !== undefined) {
     await replaceProjectProviderEvidence(root, {
       bindingKey: projectProviderEvidenceBindingKey(matchingSelection),
       role: "bound",
@@ -597,6 +669,7 @@ export const reconcileProjectNative = async (
     schemaVersion: 1 as const,
     command: "reconcile-native" as const,
     outcome: succeeded ? ("complete" as const) : ("unfulfilled" as const),
+    request,
     result: {
       requestFingerprint,
       acquisitionCount: prepared.plan.providerObservationOperation.acquisitionCount,

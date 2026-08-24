@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { posix } from "node:path";
+import { isAbsolute, posix } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import packageMetadata from "../../package.json";
 import type { AssetContentObservation, AssetContentShape } from "../asset-inputs";
@@ -24,6 +24,7 @@ import { sourceRecordSchema } from "../project-generation/source-schema";
 import type { ProviderDetailEvidenceState } from "../provider-detail-selection";
 import { providerObservationSelectionSchema } from "../provider-evidence-contract";
 import type { ProviderEvidenceState } from "../provider-evidence-selection";
+import { canonicalizeLocalNativeReference } from "../providers/matt-skills-v1/local-native-reference";
 import { mattNativeSubjectForObject } from "../providers/matt-skills-v1/native-subject";
 import { mattObjects } from "../providers/matt-skills-v1/projection";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
@@ -604,16 +605,34 @@ const busyProjectInspectEnvelope = (request: ProjectInspectRequest): ProjectInsp
   result: { reason: "project-read-model-busy" },
 });
 
+const canonicalInspectRequest = async (
+  root: string,
+  request: ProjectInspectRequest,
+): Promise<ProjectInspectRequest> => {
+  if (request.kind !== "native-reference" || !isAbsolute(request.reference)) return request;
+  try {
+    return {
+      kind: "native-reference",
+      reference: await canonicalizeLocalNativeReference(root, request.reference),
+    };
+  } catch {
+    return request;
+  }
+};
+
 export const queryCommittedProject = async (
   repoRoot: string,
   request: ProjectInspectRequest,
 ): Promise<ProjectInspectEnvelope> => {
   const root = await resolveRepositoryRoot(repoRoot);
   await assertActiveRepositoryIntegration(root, "inspect");
+  const canonicalRequest = await canonicalInspectRequest(root, request);
   try {
-    return await queryCommittedProjectReadModel(root, request);
+    return await queryCommittedProjectReadModel(root, canonicalRequest);
   } catch (error) {
-    if (error instanceof ProjectReadModelBusyError) return busyProjectInspectEnvelope(request);
+    if (error instanceof ProjectReadModelBusyError) {
+      return busyProjectInspectEnvelope(canonicalRequest);
+    }
     throw error;
   }
 };
@@ -626,13 +645,14 @@ export const inspectProject = async (
   try {
     const root = await resolveRepositoryRoot(repoRoot);
     await assertActiveRepositoryIntegration(root, "inspect");
+    const canonicalRequest = await canonicalInspectRequest(root, request);
     const current = await ensureCurrent(root, dependencies);
     if (current.state === "need-update") {
       return {
         schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,
         command: "inspect",
         outcome: "need-update",
-        request,
+        request: canonicalRequest,
         diagnostics: [],
       };
     }
@@ -641,12 +661,12 @@ export const inspectProject = async (
         schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,
         command: "inspect",
         outcome: "recovery-required",
-        request,
+        request: canonicalRequest,
         diagnostics: [],
         result: { reason: current.reason },
       };
     }
-    return queryCommittedProjectReadModel(root, request);
+    return queryCommittedProjectReadModel(root, canonicalRequest);
   } catch (error) {
     if (error instanceof ProjectReadModelBusyError) return busyProjectInspectEnvelope(request);
     throw error;

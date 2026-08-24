@@ -350,7 +350,7 @@ const runNativeReconciliationCommand = async (args: readonly string[]): Promise<
       subjects: request.subjects,
     },
   );
-  writeJson({ ...result, request });
+  writeJson(result);
   if (result.outcome !== "complete") process.exitCode = 1;
 };
 

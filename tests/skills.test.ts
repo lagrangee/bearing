@@ -176,6 +176,16 @@ describe("public Bearing Agent surface", () => {
     ).toEqual(expectedReferences.sort());
   });
 
+  test("hands Native Work the canonical Inspect reference without same-transaction recovery", async () => {
+    const document = parseMarkdownDocument(await readRuntime("references/journeys/native-work.md"));
+    const text = markdownSemanticPlainText(markdownDocumentBody(document));
+
+    expect(text).toContain("canonical result.reference returned by Inspect exactly as returned");
+    expect(text).toContain("do not absolutize, relativize, normalize independently");
+    expect(text).toContain("a separate recovery operation");
+    expect(text).toContain("retroactively prove the failed transaction succeeded");
+  });
+
   test("keeps the public root as a compact router with one command table", async () => {
     const { document } = await readSkillAt(skillRoot);
     const commandTable = tableWithColumns(document, ["Meaning", "Command form"]);

@@ -63,6 +63,16 @@ test("packed product exposes explicit provider cost classes and native typed rea
         },
       },
     });
+    const absoluteNative = await product.run(
+      ["inspect", "--native", `${fixture.root}/${fixture.nativeLocator}`, "--repo", "."],
+      { cwd: fixture.root, observeRoots: [fixture.root] },
+    );
+    expect(absoluteNative.exitClass).toBe("success");
+    expect(absoluteNative.effects).toEqual({ created: [], changed: [], removed: [] });
+    expect(JSON.parse(absoluteNative.stdout)).toMatchObject({
+      request: { kind: "native-reference", reference: fixture.nativeLocator },
+      result: { reference: fixture.nativeLocator, binding: { state: "bound" } },
+    });
     const unbound = await product.run(
       ["inspect", "--native", ".scratch/unbound/issues/01.md", "--repo", "."],
       { cwd: fixture.root, observeRoots: [fixture.root] },
@@ -83,15 +93,36 @@ test("packed product exposes explicit provider cost classes and native typed rea
       nativePath,
       (await readFile(nativePath, "utf8")).replace("Status: resolved", "Status: claimed"),
     );
+    const rejected = await product.run(
+      [
+        "reconcile-native",
+        "--scope",
+        ".scratch/scope-001",
+        "--ref",
+        ".scratch/outside-scope/issues/01.md",
+        "--repo",
+        ".",
+      ],
+      { cwd: fixture.root, observeRoots: [fixture.root] },
+    );
+    expect(rejected.exitClass).toBe("product-outcome");
+    expect(rejected.effects).toEqual({ created: [], changed: [], removed: [] });
+    expect(JSON.parse(rejected.stdout)).toMatchObject({
+      command: "reconcile-native",
+      outcome: "unfulfilled",
+      result: { acquisitionCount: 0 },
+      diagnostics: [{ code: "native-reconciliation-reference-outside-scope" }],
+    });
+
     const reconciled = await product.run(
       [
         "reconcile-native",
         "--scope",
         ".scratch/scope-001",
         "--ref",
-        ".scratch/scope-001/map.md",
+        `${fixture.root}/.scratch/scope-001/map.md`,
         "--ref",
-        fixture.nativeLocator,
+        nativePath,
         "--repo",
         ".",
       ],
