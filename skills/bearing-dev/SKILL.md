@@ -14,5 +14,5 @@ Runtime identity. Never use or fall back to the public Stable Kit, CLI, Skill, o
 
 ## Completion criterion
 
-The public root is loaded, the coherent Development receipt is preserved, and every
-repository-scoped Bearing command uses the pinned Development CLI.
+The public root is loaded from the coherent Development Runtime, and every repository-scoped
+Bearing command uses the pinned Development CLI.
