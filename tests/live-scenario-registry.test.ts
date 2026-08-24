@@ -73,6 +73,7 @@ const expectedScenarioIds = [
   "INTAKE-01",
   "NATIVE-01",
   "NATIVE-02",
+  "NATIVE-03",
   "DELIVERY-01",
   "DELIVERY-02",
   "STOP-01",
@@ -235,6 +236,44 @@ describe("independent Agent Live scenarios", () => {
     expect(
       await readFile(join(repositoryRoot, ".bearing/state/efforts/label-delivery.md"), "utf8"),
     ).toContain("Lifecycle: active");
+  });
+
+  test("materializes NATIVE-03 with one failed latest provider attempt", async () => {
+    const { repositoryRoot, agentHome } = await materializeLocalScenarioProductState({
+      scenarioId: "NATIVE-03",
+      temporaryPrefix: "bearing-native-03-fixture-",
+      fixtureSource: "validation/live-journey/fixtures/safety-lifecycle",
+    });
+
+    const inspected = Bun.spawnSync(
+      [
+        "node",
+        join(process.cwd(), "dist/cli.js"),
+        "inspect",
+        "--native",
+        ".scratch/label-delivery/issues/05-decide-secondary-label-casing.md",
+        "--repo",
+        repositoryRoot,
+      ],
+      {
+        cwd: repositoryRoot,
+        env: { ...process.env, HOME: agentHome },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(inspected.exitCode, inspected.stderr.toString()).toBe(0);
+    expect(JSON.parse(inspected.stdout.toString())).toMatchObject({
+      result: {
+        binding: {
+          effectiveFreshness: "current",
+          targetedReconciliationBasis: {
+            state: "capture-required",
+            reason: "latest-attempt-failed",
+          },
+        },
+      },
+    });
   });
 
   test("keeps current Scenario identity and operator secrets outside Agent input", () => {
@@ -659,6 +698,20 @@ describe("independent Agent Live scenarios", () => {
     expect(assertJourneyAgentPrompt(nativePrompt, [...expectedScenarioIds])).toBe(nativePrompt);
     expect(nativeTransaction.requiredOutcomes).toHaveLength(3);
     expect(nativeTransaction.forbiddenOutcomes).toHaveLength(4);
+
+    const providerRecovery = registry.scenarios.find(({ id }) => id === "NATIVE-03");
+    if (providerRecovery === undefined) throw new Error("NATIVE-03 is unavailable.");
+    expect(providerRecovery.fixture.materializer).toBe(
+      "active-bound-wayfinder-capture-required-repository",
+    );
+    expect(providerRecovery.prompts).toHaveLength(1);
+    const [providerRecoveryPrompt] = providerRecovery.prompts;
+    if (providerRecoveryPrompt === undefined) throw new Error("NATIVE-03 prompt is unavailable.");
+    expect(assertJourneyAgentPrompt(providerRecoveryPrompt, [...expectedScenarioIds])).toBe(
+      providerRecoveryPrompt,
+    );
+    expect(providerRecovery.requiredOutcomes).toHaveLength(3);
+    expect(providerRecovery.forbiddenOutcomes).toHaveLength(2);
 
     const githubProviderContract = await readFile(
       "validation/live-journey/fixtures/github-provider/docs/agents/issue-tracker.md",

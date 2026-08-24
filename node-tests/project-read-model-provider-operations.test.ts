@@ -375,6 +375,7 @@ test("physical rebuild is local-only and exact capture replaces current bound ev
       role: "bound",
       observationId: native.result.binding.observationId,
       effectiveFreshness: "current",
+      targetedReconciliationBasis: { state: "ready" },
       planningReferences: ["effort:e001"],
     });
   } finally {

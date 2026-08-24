@@ -20,6 +20,7 @@ import type {
   ProviderObservationOperation,
   ProviderObservationSelection,
 } from "./provider-evidence-contract";
+import { targetedReconciliationBasis } from "./provider-evidence-contract";
 import type {
   MattSkillsV1ProviderObservation,
   MattSkillsV1WorkBinding,
@@ -312,11 +313,7 @@ export const selectProviderObservations = async (
     let observation: MattSkillsV1ProviderObservation | undefined;
     let attemptDiagnostics: readonly StructuralDiagnostic[] = [];
     let acquisitionCount = 0;
-    if (
-      priorObservation === undefined ||
-      priorSelection?.effectiveFreshness !== "current" ||
-      priorSelection.latestAttempt?.outcome === "failed"
-    ) {
+    if (targetedReconciliationBasis(priorSelection, priorObservation).state !== "ready") {
       attemptDiagnostics = [
         unavailableDiagnostic(
           "provider-targeted-reconciliation-basis-unavailable",
@@ -325,6 +322,9 @@ export const selectProviderObservations = async (
         ),
       ];
     } else {
+      if (priorObservation === undefined) {
+        throw new TypeError("A ready Targeted Reconciliation Basis requires one observation.");
+      }
       const resolution = resolveMattProvider(input.generation, input.providerFactory);
       if (resolution.state === "unavailable") {
         attemptDiagnostics = resolution.diagnostics;

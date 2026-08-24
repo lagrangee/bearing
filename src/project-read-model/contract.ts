@@ -27,6 +27,7 @@ import { sourceRecordSchema } from "../project-generation/source-schema";
 import {
   providerObservationSelectionFreshnessIsCoherent,
   providerObservationSelectionSchema,
+  targetedReconciliationBasisSchema,
 } from "../provider-evidence-contract";
 import {
   mattNativeObjectForSubject,
@@ -420,6 +421,7 @@ export const nativeInspectResultSchema = z.strictObject({
       role: z.literal("bound"),
       observationId: z.string().nullable(),
       effectiveFreshness: z.enum(["current", "stale", "undetermined"]),
+      targetedReconciliationBasis: targetedReconciliationBasisSchema,
       planningReferences: z.array(planningReferenceSchema),
     }),
   ]),

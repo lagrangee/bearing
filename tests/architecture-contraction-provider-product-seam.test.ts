@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { createRepresentativeProject } from "./fixtures/representative-project";
 import { installPackedProduct } from "./product-seams/installed-product";
 
@@ -11,6 +11,7 @@ test("packed product exposes explicit provider cost classes and native typed rea
       cwd: fixture.root,
       observeRoots: [fixture.root],
     });
+
     expect(rebuilt.exitClass).toBe("success");
     expect(JSON.parse(rebuilt.stdout)).toMatchObject({
       schemaVersion: 1,
@@ -59,6 +60,7 @@ test("packed product exposes explicit provider cost classes and native typed rea
         binding: {
           state: "bound",
           nativeScope: ".scratch/scope-001",
+          targetedReconciliationBasis: { state: "ready" },
           planningReferences: ["effort:e001"],
         },
       },
@@ -251,6 +253,67 @@ test("packed product exposes explicit provider cost classes and native typed rea
       command: "provider-capture",
       outcome: "unfulfilled",
       result: { acquisitionCount: 0 },
+    });
+  } finally {
+    await product.dispose();
+  }
+}, 60_000);
+
+test("native inspect exposes capture-required after a failed targeted reconciliation", async () => {
+  const product = await installPackedProduct();
+  const fixture = await createRepresentativeProject("representative", product.root);
+  const contractPath = `${fixture.root}/docs/agents/issue-tracker.md`;
+  const contract = await readFile(contractPath);
+  try {
+    expect(
+      (
+        await product.run(["cache", "rebuild", "--repo", "."], {
+          cwd: fixture.root,
+          observeRoots: [fixture.root],
+        })
+      ).exitClass,
+    ).toBe("success");
+    expect(
+      (
+        await product.run(["provider", "capture", "--scope", ".scratch/scope-001", "--repo", "."], {
+          cwd: fixture.root,
+          observeRoots: [fixture.root],
+        })
+      ).exitClass,
+    ).toBe("success");
+
+    await rm(contractPath);
+    const failed = await product.run(
+      [
+        "reconcile-native",
+        "--scope",
+        ".scratch/scope-001",
+        "--ref",
+        fixture.nativeLocator,
+        "--repo",
+        ".",
+      ],
+      { cwd: fixture.root, observeRoots: [fixture.root] },
+    );
+    expect(failed.exitClass).toBe("product-outcome");
+    await writeFile(contractPath, contract);
+
+    const inspected = await product.run(
+      ["inspect", "--native", fixture.nativeLocator, "--repo", "."],
+      { cwd: fixture.root, observeRoots: [fixture.root] },
+    );
+    expect(inspected.exitClass).toBe("success");
+    expect(JSON.parse(inspected.stdout)).toMatchObject({
+      result: {
+        binding: {
+          state: "bound",
+          effectiveFreshness: "current",
+          targetedReconciliationBasis: {
+            state: "capture-required",
+            reason: "latest-attempt-failed",
+          },
+        },
+      },
     });
   } finally {
     await product.dispose();

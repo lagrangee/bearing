@@ -18,7 +18,10 @@ managed effects. Provider reads never mutate native work.
    execute any approximate candidate. Then run `bearing inspect --native <native-reference> --repo
    <repo-root>`. Preserve the canonical `result.reference` returned by Inspect exactly as returned;
    do not absolutize, relativize, normalize independently, or reconstruct it from filesystem
-   knowledge. Completion: the local result is bound to one Effort or explicitly unbound.
+   knowledge. For a bound result, preserve its `nativeScope` and Targeted Reconciliation Basis.
+   When the basis is `capture-required`, complete the selected exact-scope baseline operation before
+   Work Management starts; a failed capture stops without native mutation. Completion: the local
+   result is unbound, or it is bound to one Effort with a `ready` basis.
 2. Give Work Management the original request. Let it complete its full owner operation before it
    returns control, including its provider-specific final review. Preserve one terminal outcome plus
    every native subject that the owner operation confirms it successfully wrote. For a successful

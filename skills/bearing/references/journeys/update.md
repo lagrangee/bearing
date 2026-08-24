@@ -54,10 +54,9 @@ it does not authorize or provide evidence for Global Kit maintenance.
 - **Semantic invariants:** Canonical Bearing State, Provider Configuration, provider-owned native
   work, Execution Profiles, and managed instruction content stay byte-for-byte unchanged.
 - **Write scope:** `.bearing/manifest.json` and the disposable Development Project Read Model only.
-- **Validation:** Read back the target manifest and every preserved invariant, rebuild the isolated
-  Development Project Read Model through `bearing cache rebuild --repo <repo-root>`, then re-run
-  lifecycle and diagnostics. The old SQLite file is not update input, and rebuild performs no
-  provider acquisition.
+- **Validation:** Read back the target manifest and every preserved invariant, run the selected
+  disposable Project Read Model rebuild, then re-run lifecycle and diagnostics. The old SQLite file
+  is not update input, and rebuild performs no provider acquisition.
 
 ## After this operation
 

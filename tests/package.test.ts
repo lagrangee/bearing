@@ -22,6 +22,7 @@ const bearingSkillFiles = [
   "references/journeys/native-work.md",
   "references/journeys/next-work.md",
   "references/journeys/project-orientation.md",
+  "references/journeys/project-read-model.md",
   "references/journeys/scope-review.md",
   "references/journeys/update.md",
   "references/owners/asset.md",

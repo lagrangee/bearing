@@ -50,6 +50,7 @@ const fixtureSchema = z
       "active-unbound-native-repository",
       "active-bound-local-repository",
       "active-bound-wayfinder-repository",
+      "active-bound-wayfinder-capture-required-repository",
       "active-github-repository",
       "active-ambiguous-native-repository",
       "active-failing-execution-repository",

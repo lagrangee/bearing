@@ -22,7 +22,10 @@ import { planningLineageSubjectProjectionSchema } from "../project-generation/sc
 import { projectSummarySchema } from "../project-generation/schema-summary";
 import { sourceRecordSchema } from "../project-generation/source-schema";
 import type { ProviderDetailEvidenceState } from "../provider-detail-selection";
-import { providerObservationSelectionSchema } from "../provider-evidence-contract";
+import {
+  providerObservationSelectionSchema,
+  targetedReconciliationBasis,
+} from "../provider-evidence-contract";
 import type { ProviderEvidenceState } from "../provider-evidence-selection";
 import { canonicalizeLocalNativeReference } from "../providers/matt-skills-v1/local-native-reference";
 import { mattNativeSubjectForObject } from "../providers/matt-skills-v1/native-subject";
@@ -521,6 +524,7 @@ const nativeResult = (
         role: "bound",
         observationId: selection.observationId,
         effectiveFreshness: selection.effectiveFreshness,
+        targetedReconciliationBasis: targetedReconciliationBasis(selection, observation),
         planningReferences,
       },
       coverage:

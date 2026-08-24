@@ -33,6 +33,7 @@ const journeyReferences = [
   "references/journeys/scope-review.md",
   "references/journeys/feature-intake.md",
   "references/journeys/native-work.md",
+  "references/journeys/project-read-model.md",
   "references/journeys/execution.md",
   "references/journeys/next-work.md",
 ] as const;
@@ -161,7 +162,7 @@ describe("public Bearing Agent surface", () => {
     }
   });
 
-  test("routes Direct Execution through both owner contracts", async () => {
+  test("routes Direct Execution through execution, native, and conditional basis contracts", async () => {
     const { document } = await readSkillAt(skillRoot);
     const routing = tableWithColumns(document, ["Operation", "Load directly"]);
     const directExecution = routing.rows.find(([operation]) => operation === "Direct Execution");
@@ -169,6 +170,7 @@ describe("public Bearing Agent surface", () => {
     const expectedReferences: (typeof runtimeReferences)[number][] = [
       "references/journeys/execution.md",
       "references/journeys/native-work.md",
+      "references/journeys/project-read-model.md",
     ];
 
     expect(
@@ -201,6 +203,11 @@ describe("public Bearing Agent surface", () => {
         "bearing inspect --native <native-reference> --repo <repo-root>",
         "bearing inspect diagnostics --repo <repo-root>",
         "bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope> --ref <native-reference> [--ref <native-reference>]",
+        "bearing provider capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] --repo <repo-root>",
+        "bearing provider verify --all --repo <repo-root>",
+        "bearing cache rebuild --repo <repo-root>",
+        "bearing catalog <catalog-operation> <accepted-arguments>",
+        "bearing portal [--port <1-65535>]",
       ].sort(),
     );
     expect(queryMarkdownLists(document, { ordered: true })).toEqual([]);
@@ -214,6 +221,9 @@ describe("public Bearing Agent surface", () => {
     expect(operationalTokens).toContain("node <repo-root>/dist/cli.js");
     expect(operationalTokens).toContain(
       "node <repo-root>/dist/cli.js runtime inspect --repo <repo-root>",
+    );
+    expect(operationalTokens).toContain(
+      "node <repo-root>/dist/cli.js runtime bootstrap --repo <repo-root>",
     );
     expect(operationalTokens).not.toContain("$HOME/.bearing/bin/bearing");
     expect(referencePaths(document)).toEqual([]);

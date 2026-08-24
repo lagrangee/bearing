@@ -58,6 +58,11 @@ operation. A no-op, failed, or rolled-back transition does not change the loaded
 | One native target and local Binding | `bearing inspect --native <native-reference> --repo <repo-root>` |
 | Current deterministic diagnostics | `bearing inspect diagnostics --repo <repo-root>` |
 | Exact readback of successful managed native effects | `bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope> --ref <native-reference> [--ref <native-reference>]` |
+| Exact Work Binding provider baseline | `bearing provider capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] --repo <repo-root>` |
+| Explicit all-Binding provider verification | `bearing provider verify --all --repo <repo-root>` |
+| Disposable Project Read Model rebuild | `bearing cache rebuild --repo <repo-root>` |
+| Project Catalog operation | `bearing catalog <catalog-operation> <accepted-arguments>` |
+| Foreground Portal Host | `bearing portal [--port <1-65535>]` |
 
 Commands return typed outcomes. `complete` proves only the coverage declared by that operation; it
 does not prove readiness, acceptance, lifecycle transition, or mutation authority.
@@ -68,19 +73,20 @@ does not prove readiness, acceptance, lifecycle transition, or mutation authorit
 | --- | --- |
 | Accepted canonical semantic mutation | `references/contracts/canonical-mutation.md` plus each affected semantic owner below |
 | Repository Configuration | `references/journeys/configure.md` plus exactly one of `references/journeys/configure-fresh.md`, `references/journeys/configure-active.md`, `references/journeys/configure-reactivate.md`, `references/journeys/configure-deactivate.md`, or `references/journeys/configure-unsupported.md` |
-| Repository Update | `references/journeys/update.md` |
+| Repository Update | `references/journeys/update.md` and `references/journeys/project-read-model.md` |
 | Project Catalog | `references/journeys/catalog.md` |
+| Project Read Model rebuild, provider capture, or provider verification | `references/journeys/project-read-model.md` |
 | Project Orientation | `references/journeys/project-orientation.md`; also `references/journeys/scope-review.md` when existing-work evidence is included |
 | Whole-project Scope Review | `references/journeys/scope-review.md` |
 | Feature Intake with a material accepted commitment or planning opportunity | `references/journeys/feature-intake.md` |
-| Native Work | `references/journeys/native-work.md` |
-| Direct Execution | `references/journeys/execution.md` and `references/journeys/native-work.md` |
+| Native Work | `references/journeys/native-work.md`; also `references/journeys/project-read-model.md` when Native Inspect reports `capture-required` |
+| Direct Execution | `references/journeys/execution.md` and `references/journeys/native-work.md`; also `references/journeys/project-read-model.md` when Native Inspect reports `capture-required` |
 | Explicit Next Work guidance | `references/journeys/next-work.md` |
 | Project Summary | `references/owners/project-summary.md` |
 | Project Brief | `references/owners/project-brief.md` |
 | Roadmap | `references/owners/roadmap.md` |
 | Milestone Gate | `references/owners/milestone-gate.md` |
-| Effort | `references/owners/effort.md` |
+| Effort | `references/owners/effort.md`; also `references/journeys/project-read-model.md` for Work Binding creation or change |
 | Asset | `references/owners/asset.md` |
 | Authority | `references/owners/authority.md` |
 | Explicit Planning Audit | `references/owners/planning-audit.md` |
