@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   chmod,
   link,
+  lstat,
   mkdir,
   open,
   readdir,
@@ -13,7 +14,7 @@ import {
   symlink,
   unlink,
 } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { compare as compareSemver, parse as parseSemver, valid as validSemver } from "semver";
 import writeFileAtomic from "write-file-atomic";
 import {
@@ -28,8 +29,18 @@ import type {
   SymlinkTargetPlan,
   TargetPlan,
 } from "./install-manifest";
-import { buildBundlePlans } from "./install-manifest";
-import type { AgentSurface, GlobalUninstallResult, InstallOptions, InstallResult } from "./types";
+import {
+  buildBundlePlans,
+  installSurfaceDirectory,
+  knownInstallSurfaces,
+} from "./install-manifest";
+import type {
+  GlobalUninstallResult,
+  InstallOptions,
+  InstallResult,
+  InstallSurface,
+  SurfaceIntegrationResult,
+} from "./types";
 
 type FileSnapshot = Readonly<{
   kind: "file";
@@ -193,6 +204,12 @@ const restoreSnapshots = async (snapshots: readonly Snapshot[]): Promise<void> =
 
 export type InstallTargetWriter = (plan: TargetPlan, ordinal: number) => Promise<void>;
 
+type InstallPlanResult = Readonly<{
+  outcome: "applied" | "no-op";
+  cliPath: string;
+  changedTargets: readonly string[];
+}>;
+
 export { preflightInstallTargets };
 
 export const applyInstallPlans = async (
@@ -202,7 +219,7 @@ export const applyInstallPlans = async (
   beforeSnapshot: () => Promise<void> = async () => {},
   afterWrite: () => Promise<readonly TargetPlan[] | undefined> = async () => undefined,
   afterAllWrites: () => Promise<void> = async () => {},
-): Promise<InstallResult> => {
+): Promise<InstallPlanResult> => {
   await ensureInstallDirectoryTargets(
     homeDir,
     plans.map((plan) => plan.target),
@@ -685,11 +702,9 @@ const replaceWithManagedLink = async (
 ): Promise<ManagedLinkMutation> => {
   let retiredOriginal: string | undefined;
   if (snapshot.kind === "symlink") {
-    throw new Error(
-      `Managed-link replacement received an already managed link: ${snapshot.target}`,
-    );
-  }
-  if (snapshot.kind === "legacy-cli") {
+    await quarantineExpectedSymlink(snapshot.target, snapshot.source, quarantine);
+    retiredOriginal = quarantine;
+  } else if (snapshot.kind === "legacy-cli") {
     await rename(snapshot.target, quarantine);
     const state = await inspectInstallPath(quarantine);
     if (
@@ -763,37 +778,179 @@ const bundleMatches = async (
 
 const skillNamesForInstall = ["bearing"] as const;
 
+export type DetectedInstallSurface = Readonly<{
+  surface: InstallSurface;
+  path: string;
+}>;
+
+export const detectInstallSurfaces = async (
+  homeDirectory: string,
+): Promise<readonly DetectedInstallSurface[]> => {
+  const homeDir = resolve(homeDirectory);
+  const detected: DetectedInstallSurface[] = [];
+  for (const surface of knownInstallSurfaces) {
+    const path = installSurfaceDirectory(homeDir, surface);
+    try {
+      if ((await inspectInstallPath(path)).kind !== "directory") continue;
+      await ensureInstallDirectoryTargets(homeDir, [join(path, "bearing")]);
+    } catch {
+      continue;
+    }
+    detected.push({ surface, path });
+  }
+  return detected;
+};
+
 const managedSurfaceTargets = (
   homeDir: string,
 ): readonly {
   target: string;
   source: string;
-  selectedBy: AgentSurface;
+  selectedBy: InstallSurface;
 }[] =>
-  (["agent-skills", "claude"] as const).flatMap((surface) =>
+  knownInstallSurfaces.flatMap((surface) =>
     skillNamesForInstall.map((skillName) => ({
-      target: join(
-        homeDir,
-        surface === "agent-skills" ? ".agents/skills" : ".claude/skills",
-        skillName,
-      ),
+      target: join(installSurfaceDirectory(homeDir, surface), skillName),
       source: join(homeDir, ".bearing/kit/current/skills", skillName),
       selectedBy: surface,
     })),
   );
 
+const isOwnedSurfaceSource = (homeDir: string, target: string, source: string): boolean => {
+  const kitRoot = join(homeDir, ".bearing/kit");
+  const normalized = normalizedLinkTarget(target, source);
+  const fromKit = relative(kitRoot, normalized);
+  const segments = fromKit.split(sep);
+  return (
+    fromKit !== "" &&
+    fromKit !== ".." &&
+    !fromKit.startsWith(`..${sep}`) &&
+    !isAbsolute(fromKit) &&
+    segments.length >= 3 &&
+    segments.at(-2) === "skills" &&
+    segments.at(-1) === "bearing"
+  );
+};
+
+type SurfaceDirectoryIdentity = Readonly<{ device: number; inode: number }>;
+
+const surfaceDirectoryIdentity = async (path: string): Promise<SurfaceDirectoryIdentity> => {
+  const metadata = await lstat(path);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+    throw new Error(`Skill Directory is not an existing directory: ${path}`);
+  }
+  return { device: metadata.dev, inode: metadata.ino };
+};
+
+const sameSurfaceDirectory = (
+  expected: SurfaceDirectoryIdentity,
+  actual: SurfaceDirectoryIdentity,
+): boolean => expected.device === actual.device && expected.inode === actual.inode;
+
+const integrateInstallSurface = async (
+  homeDir: string,
+  surface: InstallSurface,
+  hooks: InstallTransactionHooks,
+): Promise<SurfaceIntegrationResult> => {
+  const path = installSurfaceDirectory(homeDir, surface);
+  const target = join(path, "bearing");
+  const source = join(homeDir, ".bearing/kit/current/skills/bearing");
+  let transactionRoot: string | undefined;
+  let mutation: ManagedLinkMutation | undefined;
+  try {
+    if ((await inspectInstallPath(path)).kind !== "directory") {
+      return {
+        surface,
+        path,
+        outcome: "conflict",
+        message: `Skill Directory is not an existing directory: ${path}`,
+      };
+    }
+    await ensureInstallDirectoryTargets(homeDir, [target]);
+    const directoryIdentity = await surfaceDirectoryIdentity(path);
+
+    const state = await inspectInstallPath(target);
+    let snapshot: ManagedLinkSnapshot;
+    if (state.kind === "missing") {
+      snapshot = { kind: "missing", target };
+    } else if (state.kind === "symbolic-link") {
+      const existingSource = await readlink(target);
+      if (normalizedLinkTarget(target, existingSource) === source) {
+        return { surface, path, outcome: "no-op" };
+      }
+      if (!isOwnedSurfaceSource(homeDir, target, existingSource)) {
+        return {
+          surface,
+          path,
+          outcome: "conflict",
+          message: `Non-owned symbolic link is preserved: ${target}`,
+        };
+      }
+      snapshot = { kind: "symlink", target, source: existingSource };
+    } else {
+      return {
+        surface,
+        path,
+        outcome: "conflict",
+        message: `${state.kind === "file" ? "Regular file" : "Directory"} is preserved: ${target}`,
+      };
+    }
+
+    transactionRoot = join(homeDir, ".bearing/kit", `.surface-link-${randomUUID()}`);
+    await mkdir(transactionRoot, { mode: 0o700 });
+    await hooks.beforeSurfaceWrite?.(surface, path);
+    await ensureInstallDirectoryTargets(homeDir, [target]);
+    if (!sameSurfaceDirectory(directoryIdentity, await surfaceDirectoryIdentity(path))) {
+      throw new Error(`Skill Directory changed before Agent Surface write: ${path}`);
+    }
+    await hooks.afterSurfacePreconditionCheck?.(surface, path);
+    mutation = await replaceWithManagedLink(snapshot, source, join(transactionRoot, "original"));
+    if (!sameSurfaceDirectory(directoryIdentity, await surfaceDirectoryIdentity(path))) {
+      throw new Error(`Skill Directory changed during Agent Surface write: ${path}`);
+    }
+    await discardRetiredOriginal(mutation);
+    mutation = undefined;
+    await removeEmptyDirectoryWhenPresent(transactionRoot);
+    return { surface, path, outcome: "applied" };
+  } catch (error) {
+    let message = error instanceof Error ? error.message : String(error);
+    if (mutation !== undefined && transactionRoot !== undefined) {
+      try {
+        await restoreManagedLinkMutation(mutation, join(transactionRoot, "rollback"));
+      } catch (recoveryError) {
+        message = `Agent Surface integration and recovery both failed. Blocked resumption point: ${transactionRoot}. Cause: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`;
+      }
+    }
+    if (transactionRoot !== undefined) {
+      try {
+        await removeEmptyDirectoryIfEmpty(transactionRoot);
+      } catch (cleanupError) {
+        message = `${message} Cleanup remains at: ${transactionRoot}. Cause: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`;
+      }
+    }
+    return {
+      surface,
+      path,
+      outcome: "conflict",
+      message,
+    };
+  }
+};
+
 export type InstallTransactionHooks = Readonly<{
   afterCurrentMoved?: () => Promise<void> | void;
+  beforeSurfaceWrite?: (surface: InstallSurface, path: string) => Promise<void> | void;
+  afterSurfacePreconditionCheck?: (surface: InstallSurface, path: string) => Promise<void> | void;
 }>;
 
 export type GlobalUninstallTransactionHooks = Readonly<{
   removeDetachedBundle?: (target: string) => Promise<void>;
 }>;
 
-export const installKit = async (
+const installGlobalKit = async (
   options: InstallOptions,
   hooks: InstallTransactionHooks = {},
-): Promise<InstallResult> => {
+): Promise<InstallPlanResult> => {
   const homeDir = resolve(options.homeDir);
   const kitRoot = join(homeDir, ".bearing/kit");
   const current = join(kitRoot, "current");
@@ -808,31 +965,12 @@ export const installKit = async (
 
   const cliTarget = join(homeDir, ".bearing/bin/bearing");
   const cliSource = join(current, "dist/cli.js");
-  const selected = new Set(options.surfaces);
-  const surfaceTargets = selected.size === 0 ? [] : managedSurfaceTargets(homeDir);
-  await ensureInstallDirectoryTargets(homeDir, [
-    cliTarget,
-    ...surfaceTargets.map((item) => item.target),
-  ]);
+  await ensureInstallDirectoryTargets(homeDir, [cliTarget]);
   const cliSnapshot = await inspectManagedLink(
     cliTarget,
     cliSource,
     currentState.kind === "directory" ? join(current, "dist/cli.js") : undefined,
   );
-  const surfaceSnapshots = new Map<string, ManagedLinkSnapshot>();
-  for (const item of surfaceTargets) {
-    const state = await inspectInstallPath(item.target);
-    if (selected.has(item.selectedBy)) {
-      surfaceSnapshots.set(item.target, await inspectManagedLink(item.target, item.source));
-      continue;
-    }
-    if (state.kind === "symbolic-link") {
-      const source = await readlink(item.target);
-      if (source === item.source || normalizedLinkTarget(item.target, source) === item.source) {
-        surfaceSnapshots.set(item.target, { kind: "symlink", target: item.target, source });
-      }
-    }
-  }
   const transaction = randomUUID();
   const staging = join(kitRoot, `.staged-${transaction}`);
   const backup = join(kitRoot, `.previous-${transaction}`);
@@ -850,15 +988,7 @@ export const installKit = async (
     if ((await packageVersionAt(staging)) !== candidateVersion) {
       throw new Error("Staged Bearing bundle package version does not match the candidate.");
     }
-    const linksAlreadyCurrent =
-      cliSnapshot.kind === "symlink" &&
-      surfaceTargets.every((item) => {
-        const snapshot = surfaceSnapshots.get(item.target);
-        return selected.has(item.selectedBy)
-          ? snapshot?.kind === "symlink"
-          : snapshot === undefined;
-      });
-    if ((await bundleMatches(current, staging, bundlePlans)) && linksAlreadyCurrent) {
+    if ((await bundleMatches(current, staging, bundlePlans)) && cliSnapshot.kind === "symlink") {
       await removeExactTree(staging);
       return { outcome: "no-op", cliPath: cliTarget, changedTargets: [] };
     }
@@ -867,20 +997,6 @@ export const installKit = async (
       mutatedLinks.push(
         await replaceWithManagedLink(cliSnapshot, cliSource, nextLinkRetirement("original")),
       );
-    }
-    for (const item of surfaceTargets) {
-      const snapshot = surfaceSnapshots.get(item.target);
-      if (selected.has(item.selectedBy)) {
-        if (snapshot?.kind === "symlink") continue;
-        if (snapshot === undefined) throw new Error(`Missing preflight state: ${item.target}`);
-        mutatedLinks.push(
-          await replaceWithManagedLink(snapshot, item.source, nextLinkRetirement("original")),
-        );
-        continue;
-      }
-      if (snapshot?.kind === "symlink") {
-        mutatedLinks.push(await removeManagedLink(snapshot, nextLinkRetirement("original")));
-      }
     }
     if (currentState.kind === "directory") {
       await rename(current, backup);
@@ -962,14 +1078,40 @@ export const installKit = async (
   const changedTargets = [
     ".bearing/kit/current/",
     ...(cliSnapshot.kind === "symlink" ? [] : [relative(homeDir, cliTarget)]),
-    ...mutatedLinks
-      .filter((mutation) => mutation.original.target !== cliTarget)
-      .map((mutation) => relative(homeDir, mutation.original.target)),
   ].sort();
   return {
     outcome: "applied",
     cliPath: cliTarget,
     changedTargets,
+  };
+};
+
+export const installKit = async (
+  options: InstallOptions,
+  hooks: InstallTransactionHooks = {},
+): Promise<InstallResult> => {
+  const homeDir = resolve(options.homeDir);
+  const kit = await installGlobalKit({ ...options, homeDir }, hooks);
+  const selectedSurfaces = [...new Set(options.surfaces)];
+  const surfaceResults: SurfaceIntegrationResult[] = [];
+  for (const surface of selectedSurfaces) {
+    surfaceResults.push(await integrateInstallSurface(homeDir, surface, hooks));
+  }
+  const changedSurfaceTargets = surfaceResults
+    .filter((result) => result.outcome === "applied")
+    .map((result) => relative(homeDir, join(result.path, "bearing")));
+  const hasConflict = surfaceResults.some((result) => result.outcome === "conflict");
+  const hasAppliedSurface = changedSurfaceTargets.length > 0;
+  return {
+    outcome: hasConflict
+      ? "partial"
+      : kit.outcome === "applied" || hasAppliedSurface
+        ? "applied"
+        : "no-op",
+    kitOutcome: kit.outcome,
+    cliPath: kit.cliPath,
+    changedTargets: [...kit.changedTargets, ...changedSurfaceTargets].sort(),
+    surfaceResults,
   };
 };
 

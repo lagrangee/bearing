@@ -3,6 +3,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { emitKeypressEvents } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
@@ -17,7 +18,9 @@ import {
   executorNominationAssessmentSchema,
   resolveExecutorNominations,
 } from "./executor-registration";
-import { installKit, uninstallGlobalKit } from "./installer";
+import { knownInstallSurfaces } from "./install-manifest";
+import type { DetectedInstallSurface } from "./installer";
+import { detectInstallSurfaces, installKit, uninstallGlobalKit } from "./installer";
 import {
   nativeReferenceSchema,
   normalizeNativeReconciliationRequest,
@@ -40,6 +43,7 @@ import {
   planRepositoryConfiguration,
 } from "./repository-configuration";
 import { activeRuntimeContext, withRuntimeExecutionContext } from "./runtime-context";
+import type { InstallSurface } from "./types";
 
 const INSPECT_USAGE =
   "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]\n       bearing inspect --native <native-reference> [--repo <path>]\n       bearing inspect activity --repo <path> --date <YYYY-MM-DD> --time-zone <IANA-zone>";
@@ -48,7 +52,7 @@ const HELP = `Bearing ${packageMetadata.version}
 
 Usage:
   bearing
-  bearing install [--surface <agent-skills|claude>] [--surface <agent-skills|claude>]
+  bearing install [--surface <agent-skills|claude|workbuddy>]...
   bearing uninstall
   bearing configure
   bearing configure inspect [--repo <path>]
@@ -86,6 +90,7 @@ Environment:
 `;
 
 const surfaceSchema = z.array(z.enum(["agent-skills", "claude"]));
+const installSurfaceSchema = z.array(z.enum(knownInstallSurfaces));
 const configurationIntentSchema = z.enum(["activate", "deactivate"]);
 const executorModeSchema = z.enum(["skip", "configure"]);
 const runtimeChannelSchema = z.enum(["stable", "development"]);
@@ -210,6 +215,65 @@ const runConfigure = async (args: readonly string[]): Promise<void> => {
   }
 };
 
+const selectInstallSurfaces = async (
+  detected: readonly DetectedInstallSurface[],
+): Promise<readonly InstallSurface[]> => {
+  if (detected.length === 0) return [];
+  process.stdout.write(
+    "Detected Agent Surface Skill Directories:\nUse up/down to navigate, Space to toggle, and Enter to confirm.\n",
+  );
+  const selected = new Set<InstallSurface>();
+  let active = 0;
+  let rendered = false;
+  const render = (): void => {
+    if (rendered) process.stdout.write(`\u001b[${detected.length}A`);
+    for (const [index, item] of detected.entries()) {
+      process.stdout.write(
+        `\r\u001b[2K${index === active ? ">" : " "} [${selected.has(item.surface) ? "x" : " "}] ${item.surface} — ${item.path}\n`,
+      );
+    }
+    rendered = true;
+  };
+  render();
+  emitKeypressEvents(process.stdin);
+  const wasRaw = process.stdin.isRaw;
+  return new Promise((resolveSelection, rejectSelection) => {
+    const cleanup = (): void => {
+      process.stdin.off("keypress", onKeypress);
+      process.stdin.setRawMode(wasRaw);
+      process.stdin.pause();
+    };
+    const onKeypress = (value: string, key: Readonly<{ name?: string; ctrl?: boolean }>): void => {
+      if (key.ctrl === true && key.name === "c") {
+        cleanup();
+        rejectSelection(
+          new Error("Agent Surface selection cancelled; Global Kit was not changed."),
+        );
+        return;
+      }
+      if (key.name === "up") active = (active - 1 + detected.length) % detected.length;
+      else if (key.name === "down") active = (active + 1) % detected.length;
+      else if (key.name === "space" || value === " ") {
+        const surface = detected[active]?.surface;
+        if (surface !== undefined) {
+          if (selected.has(surface)) selected.delete(surface);
+          else selected.add(surface);
+        }
+      } else if (key.name === "return" || key.name === "enter") {
+        cleanup();
+        resolveSelection(
+          detected.flatMap((item) => (selected.has(item.surface) ? [item.surface] : [])),
+        );
+        return;
+      } else return;
+      render();
+    };
+    process.stdin.on("keypress", onKeypress);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+  });
+};
+
 const runInstall = async (args: readonly string[]): Promise<void> => {
   const parsed = parseArgs({
     args: [...args],
@@ -219,15 +283,30 @@ const runInstall = async (args: readonly string[]): Promise<void> => {
     allowPositionals: false,
     strict: true,
   });
-  const surfaces = surfaceSchema.parse(parsed.values.surface ?? []);
+  const surfaces =
+    parsed.values.surface === undefined
+      ? process.stdin.isTTY && process.stdout.isTTY
+        ? await selectInstallSurfaces(await detectInstallSurfaces(homeDirectory()))
+        : []
+      : installSurfaceSchema.parse(parsed.values.surface);
   const result = await installKit({
     homeDir: homeDirectory(),
     packageRoot: packageRoot(),
     surfaces,
   });
   process.stdout.write(
-    `Outcome: ${result.outcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n\nTo use bearing in the current session:\n  export PATH="$HOME/.bearing/bin:$PATH"\nTo persist this for future terminals, add the same export to your shell startup profile. Bearing did not write or source any profile.\n`,
+    `Outcome: ${result.outcome}\nGlobal Kit: ${result.kitOutcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n${
+      result.surfaceResults.length === 0
+        ? "Agent Surface Integration: none selected\n"
+        : `Agent Surface Integration:\n${result.surfaceResults
+            .map(
+              (surface) =>
+                `  ${surface.surface}: ${surface.outcome} — ${surface.path}${surface.message === undefined ? "" : ` — ${surface.message}`}`,
+            )
+            .join("\n")}\n`
+    }\nTo use bearing in the current session:\n  export PATH="$HOME/.bearing/bin:$PATH"\nTo persist this for future terminals, add the same export to your shell startup profile. Bearing did not write or source any profile.\n`,
   );
+  if (result.outcome === "partial") process.exitCode = 1;
 };
 
 const runUninstall = async (args: readonly string[]): Promise<void> => {

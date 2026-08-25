@@ -22,8 +22,11 @@ current target，也不要把它分类为 repair input。
 
 ## 缺少 skill
 
-针对目标 Agent Surface 重新运行 `bearing install`。如果使用多个 surfaces，显式选择每个预期的
-known surface。
+先确认目标 complete Skill Directory 已存在于 `~/.agents/skills`、`~/.claude/skills` 或
+`~/.workbuddy/skills`，再运行 `bearing install` 并在 keyboard checklist 中选择它。
+Non-interactive caller 可以传入对应的 resolved `--surface` 值。Bearing 不创建缺失的 surface
+directory。User-created copy 属于 unsupported unmanaged integration，不提供 install 或 refresh
+fallback。
 
 ## 裸命令不可发现
 

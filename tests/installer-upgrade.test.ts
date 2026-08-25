@@ -7,6 +7,7 @@ import {
   readdir,
   readFile,
   readlink,
+  rename,
   rm,
   stat,
   symlink,
@@ -18,6 +19,7 @@ import {
   applyInstallPlans,
   assertCandidateIsNotOlder,
   comparePackageVersions,
+  detectInstallSurfaces,
   installKit,
 } from "../src/installer";
 import { makeTemporaryDirectory } from "./helpers";
@@ -68,15 +70,15 @@ describe("Bearing kit installer", () => {
     await mkdir(join(homeDir, ".agents/skills/bearing"), { recursive: true });
     await writeFile(target, "user-owned skill\n");
 
-    await expect(
-      installKit({
-        homeDir,
-        packageRoot: process.cwd(),
-        surfaces: ["agent-skills"],
-      }),
-    ).rejects.toThrow("Installation symlink target conflicts with existing content");
+    const result = await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills"],
+    });
+    expect(result.outcome).toBe("partial");
+    expect(result.surfaceResults).toMatchObject([{ surface: "agent-skills", outcome: "conflict" }]);
     expect(await readFile(target, "utf8")).toBe("user-owned skill\n");
-    await expect(access(join(homeDir, ".bearing/bin/bearing"))).rejects.toThrow();
+    await access(join(homeDir, ".bearing/bin/bearing"));
   });
 
   test("updates the canonical bundle while preserving owned Agent Surface symlinks", async () => {
@@ -99,38 +101,33 @@ describe("Bearing kit installer", () => {
     expect(await readFile(join(surfaceTarget, "SKILL.md"), "utf8")).toBe("new package bytes\n");
   });
 
-  test("rollback preserves a concurrently replaced managed-link post-image", async () => {
+  test("bundle rollback preserves an existing owned Agent Surface link", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
-    const userSkill = await makeTemporaryDirectory("bearing-user-skill-");
-    await writeFile(join(userSkill, "SKILL.md"), "concurrent user skill\n");
+    await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
-    const concurrentTarget = join(homeDir, ".claude/skills/bearing");
+    const surfaceTarget = join(homeDir, ".agents/skills/bearing");
+    await writeFile(join(homeDir, ".bearing/kit/current/old-only.txt"), "old bytes\n");
 
     await expect(
       installKit(
         {
           homeDir,
           packageRoot: process.cwd(),
-          surfaces: ["agent-skills", "claude"],
+          surfaces: ["agent-skills"],
         },
         {
           afterCurrentMoved: async () => {
-            await rm(concurrentTarget);
-            await symlink(userSkill, concurrentTarget, "dir");
-            throw new Error("injected switch failure after concurrent replacement");
+            throw new Error("injected switch failure");
           },
         },
       ),
-    ).rejects.toThrow(
-      /installation and complete-bundle recovery both failed[\s\S]*Blocked resumption point: transaction [\s\S]*\.previous-/u,
-    );
+    ).rejects.toThrow("previous complete bundle was restored");
 
-    expect(await readlink(concurrentTarget)).toBe(userSkill);
-    expect(await readFile(join(concurrentTarget, "SKILL.md"), "utf8")).toBe(
-      "concurrent user skill\n",
+    expect(await readlink(surfaceTarget)).toBe(
+      join(homeDir, ".bearing/kit/current/skills/bearing"),
     );
     await access(join(homeDir, ".bearing/kit/current/package.json"));
-    await access(join(homeDir, ".agents/skills/bearing/SKILL.md"));
+    await access(join(surfaceTarget, "SKILL.md"));
   });
 
   test("never overwrites a concurrent legacy recovery staging path", async () => {
@@ -181,14 +178,14 @@ describe("Bearing kit installer", () => {
     await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
     await symlink(outside, target, "dir");
 
-    await expect(
-      installKit({
-        homeDir,
-        packageRoot: process.cwd(),
-        surfaces: ["agent-skills"],
-      }),
-    ).rejects.toThrow("Installation symlink target points outside the Bearing bundle");
-    await expect(access(join(homeDir, ".bearing/bin/bearing"))).rejects.toThrow();
+    const result = await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills"],
+    });
+    expect(result.outcome).toBe("partial");
+    expect(result.surfaceResults[0]?.message).toContain("Non-owned symbolic link is preserved");
+    await access(join(homeDir, ".bearing/bin/bearing"));
   });
 
   test("rejects linked installation ancestors without external writes", async () => {
@@ -196,18 +193,113 @@ describe("Bearing kit installer", () => {
     const outside = await makeTemporaryDirectory("bearing-outside-");
     await symlink(outside, join(homeDir, ".agents"));
 
-    await expect(
-      installKit({
+    const result = await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills"],
+    });
+    expect(result.outcome).toBe("partial");
+    expect(result.surfaceResults[0]?.message).toContain(
+      "Skill Directory is not an existing directory",
+    );
+    await expect(access(join(outside, "skills/bearing/SKILL.md"))).rejects.toThrow();
+  });
+
+  test("isolates a surface directory replaced after preflight without writing outside home", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const outside = await makeTemporaryDirectory("bearing-outside-");
+    const agentSkills = join(homeDir, ".agents/skills");
+    const parkedAgentSkills = join(homeDir, ".agents/parked-skills");
+    const workbuddySkill = join(homeDir, ".workbuddy/skills/bearing");
+    await Promise.all([
+      mkdir(agentSkills, { recursive: true }),
+      mkdir(join(homeDir, ".workbuddy/skills"), { recursive: true }),
+    ]);
+
+    const result = await installKit(
+      {
         homeDir,
         packageRoot: process.cwd(),
-        surfaces: ["agent-skills"],
-      }),
-    ).rejects.toThrow("Installation target cannot use a symbolic link");
-    await expect(access(join(outside, "skills/bearing/SKILL.md"))).rejects.toThrow();
+        surfaces: ["agent-skills", "workbuddy"],
+      },
+      {
+        beforeSurfaceWrite: async (surface) => {
+          if (surface !== "agent-skills") return;
+          await rename(agentSkills, parkedAgentSkills);
+          await symlink(outside, agentSkills, "dir");
+        },
+      },
+    );
+
+    expect(result.outcome).toBe("partial");
+    expect(result.surfaceResults).toMatchObject([
+      { surface: "agent-skills", outcome: "conflict" },
+      { surface: "workbuddy", outcome: "applied" },
+    ]);
+    await expect(access(join(outside, "bearing"))).rejects.toThrow();
+    await expect(access(join(parkedAgentSkills, "bearing"))).rejects.toThrow();
+    await access(join(workbuddySkill, "SKILL.md"));
+    await access(join(homeDir, ".bearing/kit/current/package.json"));
+  });
+
+  test("rolls back a surface directory replaced after its final precondition check", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const outside = await makeTemporaryDirectory("bearing-outside-");
+    const agentSkills = join(homeDir, ".agents/skills");
+    const parkedAgentSkills = join(homeDir, ".agents/parked-skills");
+    const workbuddySkill = join(homeDir, ".workbuddy/skills/bearing");
+    await Promise.all([
+      mkdir(agentSkills, { recursive: true }),
+      mkdir(join(homeDir, ".workbuddy/skills"), { recursive: true }),
+    ]);
+
+    const result = await installKit(
+      {
+        homeDir,
+        packageRoot: process.cwd(),
+        surfaces: ["agent-skills", "workbuddy"],
+      },
+      {
+        afterSurfacePreconditionCheck: async (surface) => {
+          if (surface !== "agent-skills") return;
+          await rename(agentSkills, parkedAgentSkills);
+          await symlink(outside, agentSkills, "dir");
+        },
+      },
+    );
+
+    expect(result.outcome).toBe("partial");
+    expect(result.surfaceResults).toMatchObject([
+      { surface: "agent-skills", outcome: "conflict" },
+      { surface: "workbuddy", outcome: "applied" },
+    ]);
+    await expect(access(join(outside, "bearing"))).rejects.toThrow();
+    await expect(access(join(parkedAgentSkills, "bearing"))).rejects.toThrow();
+    await access(join(workbuddySkill, "SKILL.md"));
+    await access(join(homeDir, ".bearing/kit/current/package.json"));
+  });
+
+  test("isolates an unreadable detected surface and keeps later known surfaces", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    const inaccessible = join(homeDir, ".agents");
+    const workbuddySkills = join(homeDir, ".workbuddy/skills");
+    await Promise.all([
+      mkdir(join(inaccessible, "skills"), { recursive: true }),
+      mkdir(workbuddySkills, { recursive: true }),
+    ]);
+    await chmod(inaccessible, 0o000);
+    try {
+      expect(await detectInstallSurfaces(homeDir)).toEqual([
+        { surface: "workbuddy", path: workbuddySkills },
+      ]);
+    } finally {
+      await chmod(inaccessible, 0o700);
+    }
   });
 
   test("switches the complete current bundle and routes the CLI through it", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
+    await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
     const stale = join(homeDir, ".bearing/kit/current/stale-old-release.txt");
     await writeFile(stale, "old-only\n");
@@ -228,6 +320,7 @@ describe("Bearing kit installer", () => {
 
   test("restores the previous complete bundle when directory switching fails", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
+    await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
     const previous = join(homeDir, ".bearing/kit/current/previous-release-marker.txt");
     await writeFile(previous, "previous complete bundle\n");
@@ -279,6 +372,7 @@ describe("Bearing kit installer", () => {
 
   test("repairs a missing executable bit instead of treating the bundle as current", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
+    await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
     const cli = join(homeDir, ".bearing/kit/current/dist/cli.js");
     await chmod(cli, 0o644);

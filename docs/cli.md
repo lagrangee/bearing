@@ -23,18 +23,24 @@ bearing --version
 ```bash
 bearing install
 bearing install --surface agent-skills
-bearing install --surface agent-skills --surface claude
+bearing install --surface agent-skills --surface claude --surface workbuddy
 bearing uninstall
 ```
 
-With no `--surface`, the command installs only the complete bundle and canonical CLI. This is the
-non-interactive seam for an Agent that owns its own Skill Directory integration. With one or more
-`--surface` values, Bearing also manages the selected known Agent Surface links.
+In an interactive terminal with no `--surface`, Bearing detects only complete, already-existing
+`~/.agents/skills`, `~/.claude/skills`, and `~/.workbuddy/skills` directories and presents one
+up/down, Space, and Enter checklist. Zero selections are valid. A non-interactive caller passes
+resolved supported `--surface` values; it does not emulate key input or infer its current surface.
+Bearing never creates a missing surface directory, scans arbitrary locations, or accepts an
+arbitrary target.
 
 Install stages and validates a complete package-owned bundle before switching
 `$HOME/.bearing/kit/current`. Selected Agent Surface links and the canonical CLI resolve through
-that one bundle. A failed switch restores the previous complete bundle and never changes repository
-state. An older exact candidate is always blocked without writes or an override. If the current
+that one bundle. Each selected surface is then applied independently as a package-owned symbolic
+link and reports `applied`, `no-op`, or `conflict`; one conflict does not roll back the Kit or another
+surface. Regular files, directories, non-owned links, and user-created copies are preserved as
+unsupported unmanaged integrations. A failed Kit switch restores the previous complete bundle and
+never changes repository state. An older exact candidate is always blocked without writes or an override. If the current
 `kit/current/package.json` is missing, malformed, or unsafe, the result is `Current Kit
 Unverifiable`: install does not overwrite it. Recovery requires a separately authorized
 `bearing uninstall`, then a verified Fresh Install from the intended exact candidate.

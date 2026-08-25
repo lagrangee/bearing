@@ -530,6 +530,7 @@ test("basic exact-candidate install does not inspect Catalog repositories", asyn
   const repoRoot = join(root, "project");
   await Promise.all([
     mkdir(homeDir, { recursive: true }),
+    mkdir(join(homeDir, ".agents/skills"), { recursive: true }),
     mkdir(join(repoRoot, ".bearing"), { recursive: true }),
   ]);
   const manifestPath = join(repoRoot, ".bearing", "manifest.json");

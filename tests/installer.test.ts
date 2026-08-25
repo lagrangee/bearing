@@ -40,11 +40,16 @@ describe("Bearing kit installer", () => {
   test("installs the package bundle, CLI, and owned skill symlinks at user scope", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
     const packageRoot = process.cwd();
+    await Promise.all([
+      mkdir(join(homeDir, ".agents/skills"), { recursive: true }),
+      mkdir(join(homeDir, ".claude/skills"), { recursive: true }),
+      mkdir(join(homeDir, ".workbuddy/skills"), { recursive: true }),
+    ]);
 
     const result = await installKit({
       homeDir,
       packageRoot,
-      surfaces: ["agent-skills", "claude"],
+      surfaces: ["agent-skills", "claude", "workbuddy"],
     });
 
     expect(result.outcome).toBe("applied");
@@ -60,7 +65,7 @@ describe("Bearing kit installer", () => {
     );
     for (const skillName of publicSkillNames) {
       const canonical = join(homeDir, ".bearing/kit/current/skills", skillName);
-      for (const surfaceRoot of [".agents/skills", ".claude/skills"]) {
+      for (const surfaceRoot of [".agents/skills", ".claude/skills", ".workbuddy/skills"]) {
         const surfaceSkill = join(homeDir, surfaceRoot, skillName);
         expect((await lstat(surfaceSkill)).isSymbolicLink()).toBe(true);
         expect(await readlink(surfaceSkill)).toBe(canonical);
@@ -70,7 +75,7 @@ describe("Bearing kit installer", () => {
     const rerun = await installKit({
       homeDir,
       packageRoot,
-      surfaces: ["agent-skills", "claude"],
+      surfaces: ["agent-skills", "claude", "workbuddy"],
     });
     expect(rerun.outcome).toBe("no-op");
     expect(rerun.changedTargets).toEqual([]);
@@ -123,22 +128,23 @@ describe("Bearing kit installer", () => {
     await access(join(homeDir, ".bearing/kit/current/skills/bearing/SKILL.md"));
   });
 
-  test("fails closed on a user-owned public skill conflict before installing the branch package", async () => {
+  test("preserves a user-owned public skill conflict after installing the Kit", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-conflict-");
     const conflict = join(homeDir, ".agents/skills/bearing");
     await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
     await writeFile(conflict, "user-owned skill entry\n");
 
-    await expect(
-      installKit({
-        homeDir,
-        packageRoot: process.cwd(),
-        surfaces: ["agent-skills"],
-      }),
-    ).rejects.toThrow("conflicts with existing content");
+    const result = await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills"],
+    });
 
+    expect(result.outcome).toBe("partial");
+    expect(result.kitOutcome).toBe("applied");
+    expect(result.surfaceResults).toMatchObject([{ surface: "agent-skills", outcome: "conflict" }]);
     expect(await readFile(conflict, "utf8")).toBe("user-owned skill entry\n");
-    await expect(access(join(homeDir, ".bearing/kit/current/package.json"))).rejects.toThrow();
+    await access(join(homeDir, ".bearing/kit/current/package.json"));
   });
 
   test("enables a provider-backed repository without copying package contracts, skills, or profiles", async () => {

@@ -180,7 +180,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
       },
     );
     expect(help.exitCode).toBe(0);
-    expect(help.stdout).toContain("bearing install [--surface <agent-skills|claude>]");
+    expect(help.stdout).toContain("bearing install [--surface <agent-skills|claude|workbuddy>]...");
     expect(help.stdout).not.toMatch(/^\s*bearing sync\b/mu);
     expect(help.stdout).not.toContain("benchmark:");
 
@@ -218,6 +218,13 @@ test("the packed CLI runs through offline local npm exec", async () => {
     await access(join(homeDirectory, ".bearing/kit/current/skills/bearing/SKILL.md"));
     await expect(access(join(homeDirectory, ".agents/skills/bearing"))).rejects.toThrow();
     await expect(access(join(homeDirectory, ".claude/skills/bearing"))).rejects.toThrow();
+    await expect(access(join(homeDirectory, ".workbuddy/skills/bearing"))).rejects.toThrow();
+
+    await Promise.all([
+      mkdir(join(homeDirectory, ".agents/skills"), { recursive: true }),
+      mkdir(join(homeDirectory, ".claude/skills"), { recursive: true }),
+      mkdir(join(homeDirectory, ".workbuddy/skills"), { recursive: true }),
+    ]);
 
     const installCommand = [
       ...bundleInstallCommand,
@@ -225,6 +232,8 @@ test("the packed CLI runs through offline local npm exec", async () => {
       "agent-skills",
       "--surface",
       "claude",
+      "--surface",
+      "workbuddy",
     ];
     const installed = await run(installCommand, {
       HOME: homeDirectory,
@@ -245,7 +254,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
     expect(repeated.exitCode).toBe(0);
     expect(repeated.stdout).toContain("Outcome: no-op");
     expect(repeated.stdout).toContain("Changed targets: 0");
-    for (const surfaceRoot of [".agents/skills", ".claude/skills"]) {
+    for (const surfaceRoot of [".agents/skills", ".claude/skills", ".workbuddy/skills"]) {
       await access(join(homeDirectory, surfaceRoot, "bearing", "SKILL.md"));
     }
     for (const path of bearingSkillFiles) {
@@ -254,6 +263,7 @@ test("the packed CLI runs through offline local npm exec", async () => {
         join(homeDirectory, ".bearing/kit/current/skills/bearing"),
         join(homeDirectory, ".agents/skills/bearing"),
         join(homeDirectory, ".claude/skills/bearing"),
+        join(homeDirectory, ".workbuddy/skills/bearing"),
       ]) {
         expect(await readFile(join(installedRoot, path), "utf8")).toBe(source);
       }

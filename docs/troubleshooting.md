@@ -23,8 +23,11 @@ candidate. Do not overwrite or classify the untrustworthy current target as a re
 
 ## Missing skill
 
-Run `bearing install` again for the intended Agent Surface. If you use multiple surfaces, select
-each intended known surface explicitly.
+Confirm that the intended complete Skill Directory already exists at `~/.agents/skills`,
+`~/.claude/skills`, or `~/.workbuddy/skills`, then run `bearing install` again and select it in the
+keyboard checklist. Non-interactive callers may pass the corresponding resolved `--surface` value.
+Bearing does not create missing surface directories. User-created copies are unsupported unmanaged
+integrations and receive no install or refresh fallback.
 
 ## Bare command is not discoverable
 

@@ -23,17 +23,22 @@ bearing --version
 ```bash
 bearing install
 bearing install --surface agent-skills
-bearing install --surface agent-skills --surface claude
+bearing install --surface agent-skills --surface claude --surface workbuddy
 bearing uninstall
 ```
 
-不带 `--surface` 时，该命令只安装完整 bundle 与 canonical CLI。这是供自行管理 Skill Directory
-integration 的 Agent 使用的 non-interactive seam。提供一个或多个 `--surface` 时，Bearing 也会管理
-选定的 known Agent Surface links。
+Interactive terminal 不带 `--surface` 时，Bearing 只检测已经完整存在的 `~/.agents/skills`、
+`~/.claude/skills` 与 `~/.workbuddy/skills`，并显示一个使用 up/down、Space 与 Enter 的 checklist；
+选择 zero surfaces 也是有效结果。Non-interactive caller 传入已经解析的 supported `--surface`
+值，不模拟 keyboard input，也不推断 current surface。Bearing 不创建缺失的 surface directory、
+不扫描 arbitrary location，也不接受 arbitrary target。
 
 Install 会先 stage 并验证一份完整的 package-owned bundle，再切换
 `$HOME/.bearing/kit/current`。所选 Agent Surface links 与 canonical CLI 都通过这一份 bundle
-解析。切换失败会恢复上一份完整 bundle，且绝不会修改 repository state。任何 older exact
+解析。随后每个 selected surface 会作为 package-owned symbolic link 独立处理，并分别报告
+`applied`、`no-op` 或 `conflict`；一个 conflict 不会回滚 Kit 或另一个 surface。Regular file、
+directory、non-owned link 与 user-created copy 会被保留为 unsupported unmanaged integration。
+Kit 切换失败会恢复上一份完整 bundle，且绝不会修改 repository state。任何 older exact
 candidate 都会无写入地被阻止，也不存在 override。若当前 `kit/current/package.json` 缺失、
 malformed 或 unsafe，结果为 `Current Kit Unverifiable`；install 不会覆盖它。恢复需要另行授权
 `bearing uninstall`，然后从预期的 exact candidate 执行 verified Fresh Install。

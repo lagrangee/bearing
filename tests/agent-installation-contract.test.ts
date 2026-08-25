@@ -32,14 +32,17 @@ test("Agent guidance owns complete package installation, Skill Directory integra
   expect(guidance).toMatch(/published package[\s\S]*complete[\s\S]*canonical bundle/iu);
   expect(guidance).toMatch(/do not[\s\S]*(?:clone|mutable)[\s\S]*main/iu);
   expect(guidance).toMatch(/Skill Directory[\s\S]*symbolic link/iu);
-  expect(guidance).toMatch(/hard copy[\s\S]*refresh[\s\S]*cleanup/iu);
+  expect(guidance).toContain("~/.agents/skills");
+  expect(guidance).toContain("~/.claude/skills");
+  expect(guidance).toContain("~/.workbuddy/skills");
+  expect(guidance).toMatch(/user-created copies[\s\S]*unsupported unmanaged[\s\S]*integration/iu);
+  expect(guidance).not.toMatch(/hard copy[\s\S]*refresh[\s\S]*cleanup/iu);
   expect(guidance).toMatch(/does not[\s\S]*configure[\s\S]*repository/iu);
   expect(guidance).toMatch(/does not[\s\S]*start[\s\S]*Portal/iu);
   expect(guidance).toMatch(/does not[\s\S]*planning objects/iu);
   expect(guidance).toContain("git rev-parse --is-inside-work-tree");
   expect(guidance).toMatch(/Human confirms[\s\S]*explicitly load[\s\S]*Bearing skill/iu);
   expect(guidance).toContain("/bearing setup");
-  expect(guidance).not.toMatch(/\b(?:Codex|Claude|WorkBuddy)\b/u);
 });
 
 test("public installation guidance describes the same explicit basic CLI contract", async () => {
@@ -53,11 +56,13 @@ test("public installation guidance describes the same explicit basic CLI contrac
     "docs/agent-installation.md",
   ];
   const documents = await Promise.all(paths.map(read));
+  const installedSkill = await read("skills/bearing/SKILL.md");
 
-  for (const [index, document] of documents.entries()) {
+  for (const [index, document] of [...documents, installedSkill].entries()) {
     expect(document).not.toContain("--confirm-downgrade");
     expect(document).not.toMatch(/maintenance wizard/iu);
     expect(document).not.toMatch(/Install[／/,、 ]+Update[／/,、 ]+Repair/iu);
+    expect(document).not.toMatch(/hard copy[\s\S]*refresh/iu);
     if (index < 6) expect(document).toContain("bearing install");
   }
 
@@ -74,4 +79,7 @@ test("public installation guidance describes the same explicit basic CLI contrac
   expect(agent).toMatch(/Current Kit\s+Unverifiable/u);
   expect(agent).toContain("bearing uninstall");
   expect(agent).toContain("Fresh Install");
+  for (const document of [cli, cliZh, troubleshooting, troubleshootingZh, agent]) {
+    expect(document).toMatch(/workbuddy/iu);
+  }
 });
