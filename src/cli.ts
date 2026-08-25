@@ -3,7 +3,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
@@ -41,7 +40,6 @@ import {
   planRepositoryConfiguration,
 } from "./repository-configuration";
 import { activeRuntimeContext, withRuntimeExecutionContext } from "./runtime-context";
-import type { AgentSurface } from "./types";
 
 const INSPECT_USAGE =
   "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]\n       bearing inspect --native <native-reference> [--repo <path>]\n       bearing inspect activity --repo <path> --date <YYYY-MM-DD> --time-zone <IANA-zone>";
@@ -50,7 +48,8 @@ const HELP = `Bearing ${packageMetadata.version}
 
 Usage:
   bearing
-  bearing install [--surface <agent-skills|claude>] [--surface <agent-skills|claude>] [--confirm-downgrade]
+  bearing install [--surface <agent-skills|claude>] [--surface <agent-skills|claude>]
+  bearing uninstall
   bearing configure
   bearing configure inspect [--repo <path>]
   bearing configure plan --intent <activate|deactivate> [--repo <path>] [--runtime <stable|development>] [--surface <agent-skills|claude>] [--provider-contract <repository-relative-path>] [--executor-mode <skip|configure>] [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>]
@@ -69,8 +68,9 @@ Usage:
   bearing --version
 
 Commands:
-  <none>   Run Global Kit Install, Update, Repair, or Uninstall in one terminal wizard.
+  <none>   Show this help. It performs no mutation and does not start Portal.
   install  Install the global bundle and CLI, with optional known Agent Surface integration.
+  uninstall  Remove only the package-owned Global Kit and known owned integration links.
   configure  Inspect, seal, and apply one exact Repository Configuration write set.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
   reconcile-native  Re-observe only the native subjects and relations affected by one completed Matt transaction.
@@ -105,81 +105,6 @@ const writeJson = (value: unknown): void => {
       ? { ...value, runtime: context.receipt }
       : value;
   process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-};
-
-const detectedSurfaces = (homeDir: string): readonly AgentSurface[] => {
-  const surfaces: AgentSurface[] = [];
-  if (existsSync(join(homeDir, ".agents"))) surfaces.push("agent-skills");
-  if (existsSync(join(homeDir, ".claude"))) surfaces.push("claude");
-  return surfaces.length === 0 ? ["agent-skills"] : surfaces;
-};
-
-const describeSurfaces = (surfaces: readonly AgentSurface[]): string =>
-  surfaces
-    .map((surface) => (surface === "agent-skills" ? "Codex/Agent Skills" : "Claude Code"))
-    .join(", ");
-
-type GlobalKitAction = "Install" | "Update" | "Repair" | "Global Uninstall";
-
-const selectGlobalKitAction = async (): Promise<GlobalKitAction | undefined> => {
-  process.stdout.write("1) Install\n2) Update\n3) Repair\n4) Global Uninstall\nq) Cancel\n");
-  if (!process.stdin.isTTY) {
-    process.stdout.write(
-      "Interactive terminal required. Automation can use `bearing install --surface <surface>`.\n",
-    );
-    return undefined;
-  }
-  const input = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    while (true) {
-      const answer = (await input.question("Select an action [1-4, q]: ")).trim().toLowerCase();
-      if (answer === "1") return "Install";
-      if (answer === "2") return "Update";
-      if (answer === "3") return "Repair";
-      if (answer === "4") return "Global Uninstall";
-      if (answer === "" || answer === "q") return undefined;
-      process.stdout.write("Select 1, 2, 3, 4, or q.\n");
-    }
-  } finally {
-    input.close();
-  }
-};
-
-const runInstallWizard = async (): Promise<void> => {
-  const homeDir = homeDirectory();
-  const surfaces = detectedSurfaces(homeDir);
-  process.stdout.write(`Bearing Global Kit maintenance\n`);
-  process.stdout.write(`Home: ${homeDir}\n`);
-  process.stdout.write(`Agent Surfaces: ${describeSurfaces(surfaces)}\n`);
-  process.stdout.write(`Managed bundle: ${join(homeDir, ".bearing/kit/current")}\n`);
-  process.stdout.write(`CLI: ${join(homeDir, ".bearing/bin/bearing")}\n`);
-  process.stdout.write(
-    "Agent Surface skills are owned symlinks to the version-consistent Bearing bundle.\n",
-  );
-  process.stdout.write(
-    "Network: npm may download this package before the wizard starts; Bearing itself performs no telemetry, analytics, crash upload, repository upload, or update polling.\n",
-  );
-  const action = await selectGlobalKitAction();
-  if (action === undefined) {
-    process.stdout.write("Outcome: cancelled\n");
-    return;
-  }
-  process.stdout.write(`Action: ${action}\n`);
-  if (action === "Global Uninstall") {
-    const result = await uninstallGlobalKit(homeDir);
-    process.stdout.write(
-      `Outcome: ${result.outcome}\nRemoved targets: ${result.removedTargets.length}\nPreserved: Project Catalog, repository state, provider configuration, profiles, artifacts, and native work.\n`,
-    );
-    return;
-  }
-  const result = await installKit({
-    homeDir,
-    packageRoot: packageRoot(),
-    surfaces,
-  });
-  process.stdout.write(
-    `Outcome: ${result.outcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n`,
-  );
 };
 
 const runConfigure = async (args: readonly string[]): Promise<void> => {
@@ -290,7 +215,6 @@ const runInstall = async (args: readonly string[]): Promise<void> => {
     args: [...args],
     options: {
       surface: { type: "string", multiple: true },
-      "confirm-downgrade": { type: "boolean" },
     },
     allowPositionals: false,
     strict: true,
@@ -300,10 +224,17 @@ const runInstall = async (args: readonly string[]): Promise<void> => {
     homeDir: homeDirectory(),
     packageRoot: packageRoot(),
     surfaces,
-    confirmDowngrade: parsed.values["confirm-downgrade"] === true,
   });
   process.stdout.write(
-    `Outcome: ${result.outcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n`,
+    `Outcome: ${result.outcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n\nTo use bearing in the current session:\n  export PATH="$HOME/.bearing/bin:$PATH"\nTo persist this for future terminals, add the same export to your shell startup profile. Bearing did not write or source any profile.\n`,
+  );
+};
+
+const runUninstall = async (args: readonly string[]): Promise<void> => {
+  if (args.length > 0) throw new CommandUsageError("Usage: bearing uninstall");
+  const result = await uninstallGlobalKit(homeDirectory());
+  process.stdout.write(
+    `Outcome: ${result.outcome}\nRemoved targets: ${result.removedTargets.length}\nPreserved: Project Catalog, repository state, Provider Configuration, Execution Profiles, Assets, and native work.\n`,
   );
 };
 
@@ -648,7 +579,7 @@ const dispatchRepositoryCommand = async (
 const main = async (): Promise<void> => {
   const [command, ...args] = process.argv.slice(2);
   if (command === undefined) {
-    await runInstallWizard();
+    process.stdout.write(HELP);
     return;
   }
   if (command === "--help" || command === "-h") {
@@ -661,6 +592,10 @@ const main = async (): Promise<void> => {
   }
   if (command === "install") {
     await runInstall(args);
+    return;
+  }
+  if (command === "uninstall") {
+    await runUninstall(args);
     return;
   }
   if (command === "runtime") {

@@ -2,14 +2,14 @@
 
 [简体中文](cli.zh-CN.md)
 
-Most users should start with:
+Most users should ask an Agent to verify one exact published candidate, then run its installer:
 
 ```bash
-npx @lagrangee/bearing
+npx --yes @lagrangee/bearing@<resolved-version> install
 ```
 
-The wizard is the public Global Kit maintenance path. The explicit commands below are for agents,
-smoke tests, and advanced recovery.
+The package candidate and installed CLI expose the same explicit basic primitives. Bare `bearing`
+shows concise help; it does not install, configure a repository, or start Portal.
 
 ## Help
 
@@ -20,37 +20,34 @@ bearing --version
 
 ## Maintain the user-level Global Kit
 
-Run `bearing` with no arguments in an interactive terminal. Select Install, Update, Repair, or
-Global Uninstall. Cancellation writes nothing. Install, Update, and Repair use the same complete
-bundle transaction described below.
-
 ```bash
 bearing install
 bearing install --surface agent-skills
 bearing install --surface agent-skills --surface claude
+bearing uninstall
 ```
 
 With no `--surface`, the command installs only the complete bundle and canonical CLI. This is the
 non-interactive seam for an Agent that owns its own Skill Directory integration. With one or more
 `--surface` values, Bearing also manages the selected known Agent Surface links.
 
-Install, update, and repair stage a complete package-owned bundle before switching
+Install stages and validates a complete package-owned bundle before switching
 `$HOME/.bearing/kit/current`. Selected Agent Surface links and the canonical CLI resolve through
 that one bundle. A failed switch restores the previous complete bundle and never changes repository
-state. Rerunning the exact candidate also repairs a missing or malformed installed
-`kit/current/package.json`; valid installed metadata still governs downgrade checks.
+state. An older exact candidate is always blocked without writes or an override. If the current
+`kit/current/package.json` is missing, malformed, or unsafe, the result is `Current Kit
+Unverifiable`: install does not overwrite it. Recovery requires a separately authorized
+`bearing uninstall`, then a verified Fresh Install from the intended exact candidate.
 
-An explicit downgrade is an advanced recovery action:
+After every successful install, Bearing prints:
 
 ```bash
-npx @lagrangee/bearing@<version> install --surface agent-skills --confirm-downgrade
+export PATH="$HOME/.bearing/bin:$PATH"
 ```
 
-Downgrade requires the flag and a read-only compatibility scan of every Catalog repository. SemVer
-ordering applies to patches and prereleases. Only a same-minor downgrade or one step to the
-immediately preceding minor is supported; cross-major and multi-minor skips are refused. Downgrade
-is not repository-state rollback. If state was upgraded, restore the release-specific verified
-backup first; otherwise the downgrade fails closed.
+Running that export affects only the current session. Add the same line to the appropriate shell
+startup profile if future terminals should discover bare `bearing`. The CLI neither writes nor
+sources a profile.
 
 ## Configure one repository
 
@@ -143,7 +140,7 @@ Use `bearing catalog --help` for the complete Catalog CLI: inspect, rename, unre
 
 ## Global Uninstall and package-manager boundary
 
-Wizard Global Uninstall removes `$HOME/.bearing/kit/current`, the canonical CLI shim, and only
+Explicit `bearing uninstall` removes `$HOME/.bearing/kit/current`, the canonical CLI shim, and only
 Bearing-managed Agent Surface pointers. It does not read or change the Project Catalog,
 repository canonical state, Provider Configuration, profiles, artifacts, or native work. It is not
 repository Deactivation or repository-state removal, and Bearing has no repository-scoped package

@@ -6,23 +6,36 @@
 
 ## 安装目标冲突
 
-运行 Global Kit wizard，选择 Install、Update 或 Repair，并阅读 target preview。Bearing 会拒绝
-冲突文件和 symbolic links，而不是静默覆盖。
+运行预期 exact package candidate 自带的 `bearing install`。Bearing 会拒绝冲突文件和 symbolic
+links，而不是静默覆盖。
 
 ## Update 中断或 bundle 损坏
 
-重新运行同一个显式 `npx @lagrangee/bearing` lifecycle 入口。Bearing 会先 stage 并验证完整的
+重新运行同一个 verified exact candidate 的 `bearing install` 入口。Bearing 会先 stage 并验证完整的
 CLI 与 single-skill bundle，再执行切换。切换失败会恢复上一份完整 bundle，
 且不会触碰 repository state。不要单独修复某一个 CLI 或 skill 文件，那会拆分版本匹配的 bundle。
 
-如果 installed `kit/current/package.json` 缺失或 malformed，请重新运行预期的 exact candidate。
-Bearing 会把不可信 installed metadata 当作 repair input，先 stage candidate，再替换完整 bundle。
-有效的 installed manifest 仍然约束 downgrade ordering 与 confirmation，repository schema
-compatibility 也始终保持 fail closed。
+如果 installed `kit/current/package.json` 缺失、malformed 或 unsafe，install 会返回 `Current Kit
+Unverifiable`、报告这个 exact target，并且不改变任何 bytes。若 Human 接受恢复，运行
+`bearing uninstall`，再从预期 exact candidate 执行 verified Fresh Install。不要覆盖不可信的
+current target，也不要把它分类为 repair input。
 
 ## 缺少 skill
 
-针对目标 Agent Surface 重新运行 installer。如果你使用多个 surfaces，通过 wizard 或高级命令显式安装两者。
+针对目标 Agent Surface 重新运行 `bearing install`。如果使用多个 surfaces，显式选择每个预期的
+known surface。
+
+## 裸命令不可发现
+
+Canonical absolute locator 仍是 `$HOME/.bearing/bin/bearing`。若要在 current session 使用裸
+`bearing`，运行：
+
+```bash
+export PATH="$HOME/.bearing/bin:$PATH"
+```
+
+若要让未来 terminals 也生效，把同一行加入相应 shell startup profile。Bearing 不会写入、追加或
+source profiles。
 
 ## 缺少 work-management adapter
 
@@ -55,17 +68,8 @@ schema 的 Bearing 版本。旧 runtime 永远不会 downgrade、重写或删除
 release-specific state upgrade，rollback 必须使用该 release 的 verified backup；仅 downgrade
 package 不等于 state rollback。
 
-## 显式 downgrade
-
-只有在阅读目标 release 的 compatibility 与 rollback 说明后，才使用精确版本和确认 flag：
-
-```bash
-npx @lagrangee/bearing@<version> install --surface agent-skills --confirm-downgrade
-```
-
-命令会扫描每个 Catalog repository，且仅当所有 repository schema 都可读时才切换完整 bundle。
-SemVer 排序包含 prerelease。确认后只允许同一 minor 内 downgrade，或退回紧邻的上一个 minor；
-跨 major 和跨多个 minor downgrade 会被拒绝。不支持自动 state rollback。
+任何比可信 current Kit 更旧的 exact package candidate 都会无写入地被阻止。基础 installer 不提供
+override 或 compatibility scan。
 
 ## Deactivate、移除 repository state 与 uninstall
 
@@ -95,7 +99,7 @@ disposable Project Read Model；不要编辑 SQLite rows。较新的 repository 
 如果 Human 另行选择 repository removal，先检查 exact paths 并取得显式授权。不要用
 `catalog unregister` 代替 repository removal。
 
-Wizard Global Uninstall 只移除 Global Kit bundle、CLI shim 与 Bearing-managed Agent Surface
+显式 `bearing uninstall` 只移除 Global Kit bundle、CLI shim 与 Bearing-managed Agent Surface
 pointers。它保留 Project Catalog 与 repository state。Repository Deactivation 与
 repository-state removal 是不同的 Agent-owned lifecycle operations。
 

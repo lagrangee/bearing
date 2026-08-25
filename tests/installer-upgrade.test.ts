@@ -16,7 +16,7 @@ import { join } from "node:path";
 import packageMetadata from "../package.json";
 import {
   applyInstallPlans,
-  assertSupportedDowngrade,
+  assertCandidateIsNotOlder,
   comparePackageVersions,
   installKit,
 } from "../src/installer";
@@ -121,7 +121,9 @@ describe("Bearing kit installer", () => {
           },
         },
       ),
-    ).rejects.toThrow("installation and complete-bundle recovery both failed");
+    ).rejects.toThrow(
+      /installation and complete-bundle recovery both failed[\s\S]*Blocked resumption point: transaction [\s\S]*\.previous-/u,
+    );
 
     expect(await readlink(concurrentTarget)).toBe(userSkill);
     expect(await readFile(join(concurrentTarget, "SKILL.md"), "utf8")).toBe(
@@ -249,6 +251,32 @@ describe("Bearing kit installer", () => {
     );
   });
 
+  test("validates the final target and restores the previous complete bundle on mismatch", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-home-");
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: [] });
+    const previous = join(homeDir, ".bearing/kit/current/previous-release-marker.txt");
+    await writeFile(previous, "previous complete bundle\n");
+
+    await expect(
+      installKit(
+        { homeDir, packageRoot: process.cwd(), surfaces: [] },
+        {
+          afterCurrentMoved: async () => {
+            const kitRoot = join(homeDir, ".bearing/kit");
+            const staging = (await readdir(kitRoot)).find((entry) => entry.startsWith(".staged-"));
+            if (staging === undefined) throw new Error("missing staged candidate");
+            await writeFile(join(kitRoot, staging, "package.json"), "{tampered\n");
+          },
+        },
+      ),
+    ).rejects.toThrow("previous complete bundle was restored");
+
+    expect(await readFile(previous, "utf8")).toBe("previous complete bundle\n");
+    expect(
+      JSON.parse(await readFile(join(homeDir, ".bearing/kit/current/package.json"), "utf8")),
+    ).toMatchObject({ version: packageMetadata.version });
+  });
+
   test("repairs a missing executable bit instead of treating the bundle as current", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
@@ -265,60 +293,45 @@ describe("Bearing kit installer", () => {
     expect((await stat(cli)).mode & 0o111).not.toBe(0);
   });
 
-  test("repairs a missing installed package manifest from the exact candidate", async () => {
+  test("fails closed when the current package manifest is missing", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
     const installedPackage = join(homeDir, ".bearing/kit/current/package.json");
     await rm(installedPackage);
 
-    const result = await installKit({
-      homeDir,
-      packageRoot: process.cwd(),
-      surfaces: ["agent-skills"],
-    });
-
-    expect(result.outcome).toBe("applied");
-    expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe(
-      packageMetadata.version,
-    );
+    await expect(
+      installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] }),
+    ).rejects.toThrow("Current Kit Unverifiable");
+    await expect(access(installedPackage)).rejects.toThrow();
   });
 
-  test("repairs malformed installed package metadata from the exact candidate", async () => {
+  test("fails closed when the current package manifest is malformed", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
     const installedPackage = join(homeDir, ".bearing/kit/current/package.json");
     await writeFile(installedPackage, "{malformed\n");
 
-    const result = await installKit({
-      homeDir,
-      packageRoot: process.cwd(),
-      surfaces: ["agent-skills"],
-    });
-
-    expect(result.outcome).toBe("applied");
-    expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe(
-      packageMetadata.version,
-    );
+    await expect(
+      installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] }),
+    ).rejects.toThrow("Current Kit Unverifiable");
+    expect(await readFile(installedPackage, "utf8")).toBe("{malformed\n");
   });
 
-  test("uses SemVer ordering and permits only confirmed same or adjacent-minor downgrades", () => {
+  test("uses SemVer ordering and blocks every older candidate", () => {
     expect(comparePackageVersions("0.1.0-rc.2", "0.1.0-rc.10")).toBeLessThan(0);
     expect(
       comparePackageVersions("0.1.0-99999999999999999999", "0.1.0-100000000000000000000"),
     ).toBeLessThan(0);
     expect(comparePackageVersions("0.1.0-rc.10", "0.1.0")).toBeLessThan(0);
     expect(comparePackageVersions("0.1.1", "0.1.0")).toBeGreaterThan(0);
-    expect(() => assertSupportedDowngrade("0.1.0-rc.1", "0.1.0", false)).toThrow(
-      "requires --confirm-downgrade",
+    expect(() => assertCandidateIsNotOlder("0.1.0-rc.1", "0.1.0")).toThrow(
+      "Older Candidate Blocked",
     );
-    expect(() => assertSupportedDowngrade("0.1.0", "0.1.1", true)).not.toThrow();
-    expect(() => assertSupportedDowngrade("0.1.9", "0.2.0", true)).not.toThrow();
-    expect(() => assertSupportedDowngrade("0.1.0", "0.3.0", true)).toThrow(
-      "skips multiple minor versions",
-    );
-    expect(() => assertSupportedDowngrade("0.9.0", "1.0.0", true)).toThrow(
-      "crosses a major-version boundary",
-    );
+    expect(() => assertCandidateIsNotOlder("0.1.0", "0.1.1")).toThrow("Older Candidate Blocked");
+    expect(() => assertCandidateIsNotOlder("0.1.9", "0.2.0")).toThrow("Older Candidate Blocked");
+    expect(() => assertCandidateIsNotOlder("0.1.0", "0.3.0")).toThrow("Older Candidate Blocked");
+    expect(() => assertCandidateIsNotOlder("0.9.0", "1.0.0")).toThrow("Older Candidate Blocked");
+    expect(() => assertCandidateIsNotOlder("0.1.1", "0.1.0")).not.toThrow();
     expect(() => comparePackageVersions("0.1.0-01", "0.1.0")).toThrow(
       "package version is not supported",
     );
@@ -327,7 +340,7 @@ describe("Bearing kit installer", () => {
     );
   });
 
-  test("requires explicit confirmation before a whole-bundle downgrade", async () => {
+  test("blocks a whole-bundle downgrade without an override", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
     const installedPackage = join(homeDir, ".bearing/kit/current/package.json");
@@ -336,17 +349,7 @@ describe("Bearing kit installer", () => {
 
     await expect(
       installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] }),
-    ).rejects.toThrow("requires --confirm-downgrade");
+    ).rejects.toThrow("Older Candidate Blocked");
     expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe("0.2.0");
-
-    await installKit({
-      homeDir,
-      packageRoot: process.cwd(),
-      surfaces: ["agent-skills"],
-      confirmDowngrade: true,
-    });
-    expect(JSON.parse(await readFile(installedPackage, "utf8")).version).toBe(
-      packageMetadata.version,
-    );
   });
 });

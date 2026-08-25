@@ -32,6 +32,15 @@ The published package installs one complete, version-matched canonical bundle un
 the installed `package.json` has `<resolved-version>` and that
 `skills/bearing/SKILL.md` and its referenced files are present.
 
+Successful install prints `export PATH="$HOME/.bearing/bin:$PATH"`. This affects only the current
+session unless the Human separately authorizes an exact startup-profile change; the CLI never
+writes, appends, or sources a profile. Continue to use the canonical absolute CLI locator when bare
+command convenience is not requested.
+
+An older exact candidate is always a no-write result. If install reports `Current Kit
+Unverifiable`, do not overwrite the reported target. Explain that recovery is separately authorized
+`bearing uninstall`, followed by a verified Fresh Install from the intended exact candidate.
+
 This command does not select or imitate a known Agent Surface. It does not configure any
 repository, does not start Portal, and does not create Bearing planning objects. Do not treat the
 current working directory as setup consent.
@@ -49,12 +58,12 @@ Check the destination before writing. Do not replace user-owned content. If your
 use a symbolic link, use a hard copy or another mechanism that it supports, explain that choice to
 the Human, and own its refresh and cleanup:
 
-- After each Bearing install, update, or repair, replace the complete copy from the current bundle.
+- After each Bearing install or update, replace the complete copy from the current bundle.
 - During cleanup, remove only the integration that you created. Package-manager uninstall and
   Bearing Global Uninstall remain separate operations.
 
 A symbolic link follows complete-bundle updates automatically. Recheck that the linked skill opens
-after installation or maintenance, and remove the link when the Human asks you to clean up that
+after installation or update, and remove the link when the Human asks you to clean up that
 integration.
 
 ## 4. Hand off repository setup

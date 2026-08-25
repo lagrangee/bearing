@@ -6,24 +6,37 @@ When something goes wrong, preserve source truth first.
 
 ## Installation target conflict
 
-Run the Global Kit wizard, select Install, Update, or Repair, and read the target preview. Bearing
-refuses conflicting files and symbolic links rather than silently overwriting them.
+Run the intended exact package candidate's `bearing install` command. Bearing refuses conflicting
+files and symbolic links rather than silently overwriting them.
 
 ## Interrupted update or corrupted bundle
 
-Run the same explicit `npx @lagrangee/bearing` lifecycle entrypoint again. Bearing stages and
+Run the same verified exact candidate's `bearing install` entrypoint again. Bearing stages and
 validates the complete CLI and single-skill bundle before switching it. A failed
 switch restores the previous complete bundle; it does not touch repository state. Do not repair one
 CLI or skill file independently, because that would split the version-compatible bundle.
 
-If the installed `kit/current/package.json` is missing or malformed, rerun the exact intended
-candidate. Bearing treats untrusted installed metadata as repair input, stages the candidate first,
-and replaces the complete bundle. A valid installed manifest is still authoritative for downgrade
-ordering and confirmation, and repository schema compatibility always remains fail closed.
+If the installed `kit/current/package.json` is missing, malformed, or unsafe, install returns
+`Current Kit Unverifiable`, reports that exact target, and changes no bytes. If the Human accepts
+recovery, run `bearing uninstall`, then perform a verified Fresh Install from the intended exact
+candidate. Do not overwrite or classify the untrustworthy current target as a repair input.
 
 ## Missing skill
 
-Run the installer again for the intended Agent Surface. If you use multiple surfaces, install both explicitly through the wizard or advanced command path.
+Run `bearing install` again for the intended Agent Surface. If you use multiple surfaces, select
+each intended known surface explicitly.
+
+## Bare command is not discoverable
+
+The canonical absolute locator remains `$HOME/.bearing/bin/bearing`. To expose bare `bearing` in
+the current session, run:
+
+```bash
+export PATH="$HOME/.bearing/bin:$PATH"
+```
+
+For future terminals, add the same line to the appropriate shell startup profile. Bearing does not
+write, append, or source profiles.
 
 ## Missing work-management adapter
 
@@ -56,19 +69,8 @@ documented readable range includes that schema. An older runtime never downgrade
 deletes newer state. If a release-specific state upgrade already occurred, rollback requires that
 release's verified backup; package downgrade alone is not state rollback.
 
-## Explicit downgrade
-
-Use an exact package version and confirmation only after reviewing that release's compatibility and
-rollback notes:
-
-```bash
-npx @lagrangee/bearing@<version> install --surface agent-skills --confirm-downgrade
-```
-
-The command scans every Catalog repository and switches the complete bundle only when all repository
-schemas are readable. SemVer ordering includes prereleases. A confirmed downgrade may move within
-one minor or to the immediately preceding minor only; cross-major and multi-minor downgrades are
-refused. Automatic state rollback is unsupported.
+An exact package candidate older than the trusted current Kit is always blocked without writes.
+There is no override or compatibility scan in the basic installer.
 
 ## Deactivate, remove repository state, and uninstall
 
@@ -100,7 +102,7 @@ remains Unsupported and unchanged. If the Human separately chooses
 repository removal, inspect exact paths and obtain explicit authorization. Do not use
 `catalog unregister` as a substitute for repository removal.
 
-Wizard Global Uninstall removes only the Global Kit bundle, CLI shim, and Bearing-managed Agent
+Explicit `bearing uninstall` removes only the Global Kit bundle, CLI shim, and Bearing-managed Agent
 Surface pointers. It preserves the Project Catalog and repository state. Repository Deactivation
 and repository-state removal are separate Agent-owned lifecycle operations.
 

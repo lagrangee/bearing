@@ -15,13 +15,14 @@ This guide gets you to the first real Bearing governance loop.
 ## Install
 
 ```bash
-npx @lagrangee/bearing
+npx --yes @lagrangee/bearing@<resolved-version> install
 ```
 
-Use the no-argument wizard for Global Kit maintenance. It offers Install, Update, Repair, and
-Global Uninstall. Installation actions preview managed targets and do not configure a repository or
-start Portal. Global Uninstall removes only package-managed Global Kit targets and preserves the
-Project Catalog and repository state.
+Have the Agent verify `<resolved-version>` and its package identity first. The exact candidate's
+`bearing install` primitive installs the complete Global Kit and canonical absolute CLI locator; it
+does not configure a repository or start Portal. Bare `bearing` shows help only. Explicit
+`bearing uninstall` removes only package-managed Global Kit targets and preserves the Project
+Catalog and repository state.
 
 The user-level Bearing skill remains available for an explicit Bearing or Repository Configuration
 request in any repository. A configured repository pointer uses context, not a repeated CLI

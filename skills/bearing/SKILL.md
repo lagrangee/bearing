@@ -24,7 +24,7 @@ cache creation, provider I/O, or mutation.
 All runtime reference paths below are relative to this `SKILL.md`. Load only the direct references
 selected for the current operation.
 
-Treat an applied Global Kit Install, Update, or Repair, or a coherent Development receipt with a
+Treat an applied Global Kit Install or Update, or a coherent Development receipt with a
 different runtime identity or source provenance, as a new runtime contract. Re-read this
 `SKILL.md` completely and every already-selected direct reference before the next functional
 operation. A no-op, failed, or rolled-back transition does not change the loaded contract.

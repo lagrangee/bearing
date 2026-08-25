@@ -145,7 +145,7 @@ describe("Bearing kit installer", () => {
     await expect(access(join(homeDir, ".bearing"))).rejects.toThrow();
   });
 
-  test("reports exact cleanup locations and keeps exact-candidate Repair available", async () => {
+  test("reports exact cleanup locations and permits a later exact-candidate Fresh Install", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-uninstall-cleanup-");
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
 
@@ -160,12 +160,12 @@ describe("Bearing kit installer", () => {
     await expect(access(join(homeDir, ".bearing/bin/bearing"))).rejects.toThrow();
     await expect(access(join(homeDir, ".agents/skills/bearing"))).rejects.toThrow();
 
-    const repaired = await installKit({
+    const freshInstall = await installKit({
       homeDir,
       packageRoot: process.cwd(),
       surfaces: ["agent-skills"],
     });
-    expect(repaired.outcome).toBe("applied");
+    expect(freshInstall.outcome).toBe("applied");
     await access(join(homeDir, ".bearing/kit/current/package.json"));
     await access(join(homeDir, ".bearing/bin/bearing"));
     await access(join(homeDir, ".agents/skills/bearing/SKILL.md"));

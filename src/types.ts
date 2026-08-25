@@ -23,7 +23,6 @@ export type InstallOptions = Readonly<{
   homeDir: string;
   packageRoot: string;
   surfaces: readonly AgentSurface[];
-  confirmDowngrade?: boolean;
 }>;
 
 export type InstallResult = Readonly<{

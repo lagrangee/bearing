@@ -101,23 +101,20 @@ Install Bearing from https://github.com/lagrangee/bearing. Follow the repository
 
 #### Terminal fallback
 
-If your Agent cannot perform the installation, use the interactive maintenance wizard:
+If your Agent cannot perform the installation, select and verify an exact released version, then
+run that candidate's explicit installer:
 
 ```bash
-npx @lagrangee/bearing
+npx @lagrangee/bearing@<resolved-version> install
 ```
 
-The public Preview maintenance path is one no-argument terminal wizard with Install, Update,
-Repair, and Global Uninstall choices. Install, Update, and Repair preview the managed targets and
-reuse one version-compatible bundle transaction. They do not initialize a repository or launch
-Portal. Global Uninstall removes only that bundle, its CLI shim, and Bearing-managed Agent Surface
-pointers; it preserves the Project Catalog and every repository.
-
-Rerun the same command when you choose to update or repair Bearing. Updates stage one complete bundle
-and either switch it as a unit or restore the previous complete bundle. Bearing performs no
-background update check. Repository deactivation, repository-state removal, explicit package
-downgrade, and package-manager uninstall are separate operations; see
-[Troubleshooting](docs/troubleshooting.md).
+Install stages and validates one complete bundle, then either switches it as a unit or restores the
+previous complete bundle. It does not initialize a repository or launch Portal. Bare `bearing`
+shows concise help. Explicit `bearing uninstall` removes only the Global Kit, canonical CLI, and
+known owned Agent Surface links; it preserves the Project Catalog and every repository. An older
+candidate and an unverifiable current Kit are no-write outcomes; see
+[Troubleshooting](docs/troubleshooting.md). Successful install prints classic PATH guidance without
+writing or sourcing a shell profile.
 
 Advanced users and agents can use explicit commands; see [CLI reference](docs/cli.md).
 

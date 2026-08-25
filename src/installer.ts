@@ -16,7 +16,6 @@ import {
 import { dirname, join, relative, resolve } from "node:path";
 import { compare as compareSemver, parse as parseSemver, valid as validSemver } from "semver";
 import writeFileAtomic from "write-file-atomic";
-import { readCatalogState } from "./catalog/store";
 import {
   ensureInstallDirectoryTargets,
   inspectInstallPath,
@@ -302,6 +301,8 @@ type ManagedLinkMutation = Readonly<{
   retiredOriginal?: string;
 }>;
 
+const BEARING_PACKAGE_NAME = "@lagrangee/bearing";
+
 const parsePackageVersion = (bytes: string, target: string): string => {
   let parsed: unknown;
   try {
@@ -312,6 +313,8 @@ const parsePackageVersion = (bytes: string, target: string): string => {
   if (
     typeof parsed !== "object" ||
     parsed === null ||
+    !("name" in parsed) ||
+    parsed.name !== BEARING_PACKAGE_NAME ||
     !("version" in parsed) ||
     typeof parsed.version !== "string" ||
     parsed.version.length === 0
@@ -319,6 +322,11 @@ const parsePackageVersion = (bytes: string, target: string): string => {
     throw new Error(`Bearing package metadata is invalid: ${target}`);
   }
   return parsed.version;
+};
+
+const currentKitUnverifiable = (target: string, reason: string, cause?: unknown): Error => {
+  const message = `Current Kit Unverifiable: ${target} ${reason}. No bytes were changed. Recovery requires separately authorized \`bearing uninstall\`, then a verified Fresh Install from the intended exact package candidate.`;
+  return cause === undefined ? new Error(message) : new Error(message, { cause });
 };
 
 const packageVersionAt = async (root: string): Promise<string> => {
@@ -335,21 +343,23 @@ const parseVersion = (version: string): NonNullable<ReturnType<typeof parseSemve
   return parsed;
 };
 
-const installedPackageVersionAt = async (root: string): Promise<string | undefined> => {
+const installedPackageVersionAt = async (root: string): Promise<string> => {
   const target = join(root, "package.json");
   const state = await inspectInstallPath(target);
-  if (state.kind === "missing") return undefined;
   if (state.kind !== "file" || state.linkCount !== 1) {
-    throw new Error(`Installed Bearing package metadata must be one safe regular file: ${target}`);
+    throw currentKitUnverifiable(target, "is not one safe regular package manifest");
   }
-  let version: string;
   try {
-    version = parsePackageVersion(await readFile(target, "utf8"), target);
+    const version = parsePackageVersion(await readFile(target, "utf8"), target);
     parseVersion(version);
-  } catch {
-    return undefined;
+    return version;
+  } catch (error) {
+    throw currentKitUnverifiable(
+      target,
+      "does not contain a trustworthy Bearing package identity",
+      error,
+    );
   }
-  return version;
 };
 
 export const comparePackageVersions = (left: string, right: string): number => {
@@ -374,81 +384,14 @@ export const comparePackageVersions = (left: string, right: string): number => {
   return 0;
 };
 
-export const assertSupportedDowngrade = (
+export const assertCandidateIsNotOlder = (
   candidateVersion: string,
   installedVersion: string,
-  confirmed: boolean,
 ): void => {
   if (comparePackageVersions(candidateVersion, installedVersion) >= 0) return;
-  const candidate = parseVersion(candidateVersion);
-  const installed = parseVersion(installedVersion);
-  if (candidate.major !== installed.major) {
-    throw new Error(
-      `Downgrade from Bearing ${installedVersion} to ${candidateVersion} crosses a major-version boundary and is unsupported. Use the release-specific migration and verified backup path.`,
-    );
-  }
-  if (installed.minor - candidate.minor > 1) {
-    throw new Error(
-      `Downgrade from Bearing ${installedVersion} to ${candidateVersion} skips multiple minor versions and is unsupported. Downgrade through each documented minor and restore its verified backup when required.`,
-    );
-  }
-  if (!confirmed) {
-    throw new Error(
-      `Downgrade from Bearing ${installedVersion} to ${candidateVersion} requires --confirm-downgrade. A package downgrade is not repository-state rollback.`,
-    );
-  }
-};
-
-const readRepositorySchemaVersion = async (repoRoot: string): Promise<number> => {
-  const target = join(repoRoot, ".bearing/manifest.json");
-  const targetState = await inspectInstallPath(target);
-  if (targetState.kind !== "file" || targetState.linkCount !== 1) {
-    throw new Error(
-      `Bearing update is blocked because a Catalog repository has no safe regular manifest: ${repoRoot}. Repair or deactivate that repository before retrying.`,
-    );
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(await readFile(target, "utf8"));
-  } catch (error) {
-    throw new Error(
-      `Bearing update is blocked because a Catalog repository has no readable manifest: ${repoRoot}. Repair or deactivate that repository before retrying.`,
-      { cause: error },
-    );
-  }
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !("schemaVersion" in parsed) ||
-    typeof parsed.schemaVersion !== "number" ||
-    !Number.isInteger(parsed.schemaVersion)
-  ) {
-    throw new Error(
-      `Bearing update is blocked by an invalid repository manifest: ${repoRoot}. Repair it with a compatible Bearing version before retrying.`,
-    );
-  }
-  return parsed.schemaVersion;
-};
-
-const assertCatalogCompatibility = async (homeDir: string): Promise<void> => {
-  const state = await readCatalogState({ homeDir });
-  if (state.state === "failed") {
-    throw new Error(
-      "Bearing update is blocked because the Project Catalog is unusable. Run confirmed Catalog reset and Repository Configuration before retrying.",
-    );
-  }
-  const incompatible: string[] = [];
-  for (const entry of state.document.entries) {
-    const schemaVersion = await readRepositorySchemaVersion(entry.repoRoot);
-    if (schemaVersion !== 1) incompatible.push(`${entry.repoRoot} (schema ${schemaVersion})`);
-  }
-  if (incompatible.length > 0) {
-    throw new Error(
-      `Bearing update is blocked because this bundle reads repository schema 1 only: ${incompatible.join(
-        ", ",
-      )}. Install a compatible Bearing version or restore the version-specific verified backup; Bearing will not rewrite or discard repository state.`,
-    );
-  }
+  throw new Error(
+    `Older Candidate Blocked: installed Bearing ${installedVersion} is newer than exact candidate ${candidateVersion}. No bytes were changed. Downgrade, compatibility scan, and force options are not supported.`,
+  );
 };
 
 const removeExactTree = async (target: string): Promise<void> => {
@@ -861,10 +804,7 @@ export const installKit = async (
   const candidateVersion = await packageVersionAt(options.packageRoot);
   const installedVersion =
     currentState.kind === "directory" ? await installedPackageVersionAt(current) : undefined;
-  if (installedVersion !== undefined) {
-    assertSupportedDowngrade(candidateVersion, installedVersion, options.confirmDowngrade === true);
-  }
-  if (currentState.kind === "directory") await assertCatalogCompatibility(homeDir);
+  if (installedVersion !== undefined) assertCandidateIsNotOlder(candidateVersion, installedVersion);
 
   const cliTarget = join(homeDir, ".bearing/bin/bearing");
   const cliSource = join(current, "dist/cli.js");
@@ -949,6 +889,9 @@ export const installKit = async (
     }
     await rename(staging, current);
     switched = true;
+    if (!(await bundleMatches(current, staging, bundlePlans))) {
+      throw new Error(`Final Bearing Kit validation failed at exact target: ${current}`);
+    }
     for (const mutation of mutatedLinks) await discardRetiredOriginal(mutation);
     await removeEmptyDirectoryWhenPresent(linkTransaction);
   } catch (error) {
@@ -1005,9 +948,10 @@ export const installKit = async (
       }
     }
     if (recoveryErrors.length > 0) {
-      throw new Error("Bearing kit installation and complete-bundle recovery both failed.", {
-        cause: new AggregateError([error, ...recoveryErrors]),
-      });
+      throw new Error(
+        `Bearing kit installation and complete-bundle recovery both failed. Blocked resumption point: transaction ${transaction} under ${kitRoot}. Inspect only these exact transaction locators before retrying: current=${current}, previous=${backup}, candidate=${staging}, links=${linkTransaction}.`,
+        { cause: new AggregateError([error, ...recoveryErrors]) },
+      );
     }
     throw new Error("Bearing kit installation failed; the previous complete bundle was restored.", {
       cause: error,
@@ -1100,7 +1044,7 @@ export const uninstallGlobalKit = async (
     await removeEmptyDirectoryIfEmpty(kitRoot);
   } catch (error) {
     throw new Error(
-      `Outcome: partial\nBearing Global Kit targets were detached, but cleanup is incomplete. Inspect only these exact recovery locations: ${detachedBundle}, ${linkTransaction}. Reinstall or Repair from the exact package candidate remains supported.`,
+      `Outcome: partial\nBearing Global Kit targets were detached, but cleanup is incomplete. Inspect only these exact recovery locations: ${detachedBundle}, ${linkTransaction}. After cleanup, a separately authorized verified Fresh Install from the intended exact package candidate remains supported.`,
       { cause: error },
     );
   }

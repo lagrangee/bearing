@@ -2,13 +2,14 @@
 
 [English](cli.md)
 
-大多数用户应从这里开始：
+大多数用户应让 Agent 先验证一个 exact published candidate，再运行它自带的 installer：
 
 ```bash
-npx @lagrangee/bearing
+npx --yes @lagrangee/bearing@<resolved-version> install
 ```
 
-Wizard 是公开的 Global Kit maintenance 路径。下面的显式命令面向 agents、smoke tests 和高级恢复。
+Package candidate 与 installed CLI 提供相同的 explicit 基础 primitives。裸 `bearing` 只显示简洁
+help；它不会安装、配置 repository 或启动 Portal。
 
 ## Help
 
@@ -19,36 +20,32 @@ bearing --version
 
 ## 维护用户级 Global Kit
 
-在 interactive terminal 中无参数运行 `bearing`，然后选择 Install、Update、Repair 或 Global
-Uninstall。取消不产生写入。Install、Update 与 Repair 使用下文所述的同一套完整 bundle
-transaction。
-
 ```bash
 bearing install
 bearing install --surface agent-skills
 bearing install --surface agent-skills --surface claude
+bearing uninstall
 ```
 
 不带 `--surface` 时，该命令只安装完整 bundle 与 canonical CLI。这是供自行管理 Skill Directory
 integration 的 Agent 使用的 non-interactive seam。提供一个或多个 `--surface` 时，Bearing 也会管理
 选定的 known Agent Surface links。
 
-Install、update 与 repair 会先 stage 一份完整的 package-owned bundle，再切换
+Install 会先 stage 并验证一份完整的 package-owned bundle，再切换
 `$HOME/.bearing/kit/current`。所选 Agent Surface links 与 canonical CLI 都通过这一份 bundle
-解析。切换失败会恢复上一份完整 bundle，且绝不会修改 repository state。重新运行 exact
-candidate 也会修复缺失或 malformed 的 installed `kit/current/package.json`；有效的 installed
-metadata 仍然约束 downgrade checks。
+解析。切换失败会恢复上一份完整 bundle，且绝不会修改 repository state。任何 older exact
+candidate 都会无写入地被阻止，也不存在 override。若当前 `kit/current/package.json` 缺失、
+malformed 或 unsafe，结果为 `Current Kit Unverifiable`；install 不会覆盖它。恢复需要另行授权
+`bearing uninstall`，然后从预期的 exact candidate 执行 verified Fresh Install。
 
-显式 downgrade 是高级恢复操作：
+每次成功安装后，Bearing 都会直接打印：
 
 ```bash
-npx @lagrangee/bearing@<version> install --surface agent-skills --confirm-downgrade
+export PATH="$HOME/.bearing/bin:$PATH"
 ```
 
-Downgrade 必须带确认 flag，并会只读检查每个 Catalog repository 的兼容性。Patch 与 prerelease
-按 SemVer 排序。只支持同一 minor 内 downgrade，或退回紧邻的上一个 minor；跨 major 和跳过
-多个 minor 会被拒绝。它不等于 repository-state rollback。若 state 已升级，必须先恢复该
-release 对应的 verified backup；否则 downgrade 会 fail closed。
+执行这条 export 只影响 current session。若希望未来 terminal 也能发现裸 `bearing`，可把同一行
+加入相应 shell startup profile。CLI 不会写入或 source 任何 profile。
 
 ## 配置一个仓库
 
@@ -139,7 +136,7 @@ Portal 前台运行并打印 loopback URL。安装版本支持时，可用 `BEAR
 
 ## Global Uninstall 与 package-manager 边界
 
-Wizard Global Uninstall 会移除 `$HOME/.bearing/kit/current`、canonical CLI shim，以及仅由
+显式 `bearing uninstall` 会移除 `$HOME/.bearing/kit/current`、canonical CLI shim，以及仅由
 Bearing 管理的 Agent Surface pointers。它不读取或修改 Project Catalog、repository canonical
 state、Provider Configuration、profiles、artifacts 或 native work。它不是 repository
 Deactivation 或 repository-state removal；Bearing 也不提供 repository-scoped package-uninstall

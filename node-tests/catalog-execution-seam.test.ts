@@ -524,7 +524,7 @@ test("confirmed reset waits for a valid writer and preserves unavailable state o
   }
 });
 
-test("installer Catalog inspection runs through the production Node boundary", async () => {
+test("basic exact-candidate install does not inspect Catalog repositories", async () => {
   const root = await mkdtemp(join(tmpdir(), "bearing-node-installer-"));
   const homeDir = join(root, "home");
   const repoRoot = join(root, "project");
@@ -547,9 +547,15 @@ test("installer Catalog inspection runs through the production Node boundary", a
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
     await upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "newer-project" });
     await writeFile(manifestPath, '{"schemaVersion":2,"packageVersion":"0.2.0"}\n');
-    await assert.rejects(
-      installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] }),
-      /reads repository schema 1 only/u,
+    const result = await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills"],
+    });
+    assert.equal(result.outcome, "no-op");
+    assert.equal(
+      await readFile(manifestPath, "utf8"),
+      '{"schemaVersion":2,"packageVersion":"0.2.0"}\n',
     );
   } finally {
     await rm(root, { recursive: true, force: true });
