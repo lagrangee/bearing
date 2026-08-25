@@ -379,6 +379,15 @@ const installedPackageVersionAt = async (root: string): Promise<string> => {
   }
 };
 
+export const installedGlobalKitVersion = async (homeDirectory: string): Promise<string> => {
+  const current = join(resolve(homeDirectory), ".bearing/kit/current");
+  const state = await inspectInstallPath(current);
+  if (state.kind !== "directory") {
+    throw currentKitUnverifiable(current, "is not one complete installed Kit directory");
+  }
+  return installedPackageVersionAt(current);
+};
+
 export const comparePackageVersions = (left: string, right: string): number => {
   const leftVersion = parseVersion(left);
   const rightVersion = parseVersion(right);
@@ -830,6 +839,19 @@ const isOwnedSurfaceSource = (homeDir: string, target: string, source: string): 
     segments.at(-2) === "skills" &&
     segments.at(-1) === "bearing"
   );
+};
+
+export const installedOwnedSurfaces = async (
+  homeDirectory: string,
+): Promise<readonly InstallSurface[]> => {
+  const homeDir = resolve(homeDirectory);
+  const surfaces: InstallSurface[] = [];
+  for (const { target, selectedBy } of managedSurfaceTargets(homeDir)) {
+    const state = await inspectInstallPath(target);
+    if (state.kind !== "symbolic-link") continue;
+    if (isOwnedSurfaceSource(homeDir, target, await readlink(target))) surfaces.push(selectedBy);
+  }
+  return [...new Set(surfaces)];
 };
 
 type SurfaceDirectoryIdentity = Readonly<{ device: number; inode: number }>;

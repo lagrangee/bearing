@@ -335,6 +335,7 @@ describe("public Bearing Agent surface", () => {
     expect(commandTable.rows.map((row) => row[1]).sort()).toEqual(
       [
         "bearing configure inspect --repo <repo-root>",
+        "bearing update",
         "bearing configure plan <accepted-arguments>",
         "bearing configure apply <accepted-arguments> --plan-token <token>",
         "bearing inspect project --repo <repo-root>",

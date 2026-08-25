@@ -11,6 +11,11 @@ links，而不是静默覆盖。
 
 ## Update 中断或 bundle 损坏
 
+Normal maintenance 使用 `bearing update` 执行一次前台更新检查；只有 newer verified candidate
+获得一次单独确认后才能修改 Kit。Registry failure、missing integrity、repository identity
+mismatch、older npm `latest`、decline 或 cancel 都是 no-write result。Global Kit Update 绝不执行
+Repository Update，也不启动 Portal。
+
 重新运行同一个 verified exact candidate 的 `bearing install` 入口。Bearing 会先 stage 并验证完整的
 CLI 与 single-skill bundle，再执行切换。切换失败会恢复上一份完整 bundle，
 且不会触碰 repository state。不要单独修复某一个 CLI 或 skill 文件，那会拆分版本匹配的 bundle。

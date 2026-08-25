@@ -23,6 +23,12 @@ npx --yes @lagrangee/bearing@<resolved-version> install
 启动 Portal。裸 `bearing` 只显示 help。显式 `bearing uninstall` 只移除 package-managed Global
 Kit targets，并保留 Project Catalog 与 repository state。
 
+以后维护 Global Kit 时运行 `bearing update`。它只执行一次 npm `latest` 更新检查，并在 comparison
+前验证 exact candidate。Newer version 会显示为 `Update available: <current> → <target>`，且在
+mutation 前需要一次单独确认；decline 或 cancel 不会产生任何变化。Global Kit Update 会保留
+existing owned surface links，并与 Agent-guided Repository Update、Repository Configuration 和
+Portal start 保持独立。需要显式选择版本时，使用对应的 exact package candidate 入口。
+
 用户级 Bearing skill 在任何仓库中都保留显式 Bearing 或 Repository Configuration 入口。
 已配置 repository 的 pointer 使用 context，而不是重复 CLI preflight：显式 Bearing concept、可靠
 continuation，或有实质 planning/governance relevance 的工作可以 nominate Bearing。Ordinary code

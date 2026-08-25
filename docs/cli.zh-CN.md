@@ -24,6 +24,7 @@ bearing --version
 bearing install
 bearing install --surface agent-skills
 bearing install --surface agent-skills --surface claude --surface workbuddy
+bearing update
 bearing uninstall
 ```
 
@@ -51,6 +52,19 @@ export PATH="$HOME/.bearing/bin:$PATH"
 
 执行这条 export 只影响 current session。若希望未来 terminal 也能发现裸 `bearing`，可把同一行
 加入相应 shell startup profile。CLI 不会写入或 source 任何 profile。
+
+### 检查 Global Kit 更新
+
+`bearing update` 会在前台执行一次 npm `latest` 更新检查。它会先验证返回的 exact version、npm
+integrity 与 canonical repository identity，再和可信的 current Kit 比较；不会执行 background
+polling。已经是最新版本时返回 no-op；older 或 unverifiable candidate 会无写入地被阻止。
+
+Newer verified candidate 会显示 `Update available: <current> → <target>`。更新检查本身不授权
+mutation：interactive terminal 会在调用该 exact candidate 自带的 `bearing install` 前取得一次单独
+确认。Decline、cancel、registry failure 与 candidate verification failure 都会保持完整 current Kit
+byte-for-byte 不变。Update 只延续 existing package-owned Agent Surface links；不会显示 surface
+checklist、接入 newly detected surface、配置 repository、执行 Agent-guided Repository Update 或启动
+Portal。任意 exact-version selection 仍由 package manager 调用所选 exact candidate 的 installer。
 
 ## 配置一个仓库
 

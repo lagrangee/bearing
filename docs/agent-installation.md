@@ -71,7 +71,28 @@ the complete Kit transaction and reports each one independently, so a conflict d
 the Kit or another successful surface. User-created copies are an unsupported unmanaged
 integration; Bearing does not install, refresh, or silently fall back to copies.
 
-## 4. Hand off repository setup
+## 4. Maintain the installed Global Kit
+
+For a normal latest update check, run the canonical installed CLI:
+
+```bash
+$HOME/.bearing/bin/bearing update
+```
+
+The explicit command authorizes only one foreground npm `latest` update check. It verifies the
+exact published version, npm integrity, and canonical repository identity before comparison. A
+newer candidate displays `Update available: <current> → <target>` and requires one separate Human
+confirmation before the verified exact candidate's installer runs. Decline, cancellation, an
+older candidate, or unverifiable registry evidence changes no bytes. `Current Kit Unverifiable`
+routes to separately authorized `bearing uninstall` and a verified Fresh Install; do not overwrite
+or repair it through update.
+
+Global Kit Update preserves or safely redirects only existing package-owned surface links. It does
+not repeat surface selection, connect newly detected surfaces, configure a repository, perform
+Agent-guided Repository Update, or start Portal. These are independent authorities. Exact-version
+selection remains at the package-manager entry that invokes that exact candidate's installer.
+
+## 5. Hand off repository setup
 
 After installation and Skill Directory integration, inspect without writing:
 

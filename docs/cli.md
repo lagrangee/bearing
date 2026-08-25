@@ -24,6 +24,7 @@ bearing --version
 bearing install
 bearing install --surface agent-skills
 bearing install --surface agent-skills --surface claude --surface workbuddy
+bearing update
 bearing uninstall
 ```
 
@@ -54,6 +55,22 @@ export PATH="$HOME/.bearing/bin:$PATH"
 Running that export affects only the current session. Add the same line to the appropriate shell
 startup profile if future terminals should discover bare `bearing`. The CLI neither writes nor
 sources a profile.
+
+### Check for a Global Kit update
+
+`bearing update` performs one foreground npm `latest` update check. It verifies the returned exact
+version, npm integrity, and canonical repository identity before comparing it with the trusted
+current Kit. The command does not poll in the background. An up-to-date result is a no-op, and an
+older or unverifiable candidate is blocked without writes.
+
+A newer verified candidate prints `Update available: <current> → <target>`. The check itself does
+not authorize mutation: an interactive terminal asks for one separate confirmation before handing
+off to that exact candidate's `bearing install`. Decline, cancellation, registry failure, and
+candidate verification failure preserve the complete current Kit byte-for-byte. Update carries
+forward only existing package-owned Agent Surface links; it does not show the surface checklist,
+connect a newly detected surface, configure a repository, perform Agent-guided Repository Update,
+or start Portal. Arbitrary exact-version selection remains a package-manager operation that invokes
+the selected exact candidate's installer.
 
 ## Configure one repository
 

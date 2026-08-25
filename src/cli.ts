@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { emitKeypressEvents } from "node:readline";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
@@ -18,6 +19,7 @@ import {
   executorNominationAssessmentSchema,
   resolveExecutorNominations,
 } from "./executor-registration";
+import { applyGlobalKitUpdate, checkGlobalKitUpdate } from "./global-kit-update";
 import { knownInstallSurfaces } from "./install-manifest";
 import type { DetectedInstallSurface } from "./installer";
 import { detectInstallSurfaces, installKit, uninstallGlobalKit } from "./installer";
@@ -53,6 +55,7 @@ const HELP = `Bearing ${packageMetadata.version}
 Usage:
   bearing
   bearing install [--surface <agent-skills|claude|workbuddy>]...
+  bearing update
   bearing uninstall
   bearing configure
   bearing configure inspect [--repo <path>]
@@ -74,6 +77,7 @@ Usage:
 Commands:
   <none>   Show this help. It performs no mutation and does not start Portal.
   install  Install the global bundle and CLI, with optional known Agent Surface integration.
+  update  Check npm latest and request separate confirmation before a newer Global Kit is installed.
   uninstall  Remove only the package-owned Global Kit and known owned integration links.
   configure  Inspect, seal, and apply one exact Repository Configuration write set.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
@@ -315,6 +319,54 @@ const runUninstall = async (args: readonly string[]): Promise<void> => {
   process.stdout.write(
     `Outcome: ${result.outcome}\nRemoved targets: ${result.removedTargets.length}\nPreserved: Project Catalog, repository state, Provider Configuration, Execution Profiles, Assets, and native work.\n`,
   );
+};
+
+const runUpdate = async (args: readonly string[]): Promise<void> => {
+  if (args.length > 0) throw new CommandUsageError("Usage: bearing update");
+  const result = await checkGlobalKitUpdate(homeDirectory());
+  if (result.outcome === "up-to-date") {
+    process.stdout.write(`Bearing ${result.currentVersion} is up to date.\n`);
+    return;
+  }
+  if (result.outcome === "older-candidate") {
+    throw new Error(
+      `Older Candidate Blocked: installed Bearing ${result.currentVersion} is newer than npm latest ${result.targetVersion}. No bytes were changed. Downgrade, compatibility scan, and force options are not supported.`,
+    );
+  }
+  process.stdout.write(`Update available: ${result.currentVersion} → ${result.targetVersion}\n`);
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    process.stdout.write(
+      "No bytes were changed. Run bearing update in an interactive terminal to provide separate confirmation.\n",
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  let accepted = false;
+  try {
+    const answer = await prompt.question("Install this verified Global Kit update? [y/N] ");
+    accepted = /^(?:y|yes)$/iu.test(answer.trim());
+  } catch {
+    accepted = false;
+  } finally {
+    prompt.close();
+  }
+  if (!accepted) {
+    process.stdout.write("Update declined. No bytes were changed.\n");
+    return;
+  }
+  const updated = await applyGlobalKitUpdate(
+    homeDirectory(),
+    result.currentVersion,
+    result.targetVersion,
+    result.targetIntegrity,
+  );
+  if (updated.installerStdout.length > 0) process.stdout.write(updated.installerStdout);
+  if (updated.installerStderr.length > 0) process.stderr.write(updated.installerStderr);
+  process.stdout.write(
+    `Global Kit updated: ${updated.currentVersion} → ${updated.targetVersion}\n`,
+  );
+  if (updated.installerExitCode !== 0) process.exitCode = 1;
 };
 
 const runNativeReconciliationCommand = async (args: readonly string[]): Promise<void> => {
@@ -671,6 +723,10 @@ const main = async (): Promise<void> => {
   }
   if (command === "install") {
     await runInstall(args);
+    return;
+  }
+  if (command === "update") {
+    await runUpdate(args);
     return;
   }
   if (command === "uninstall") {

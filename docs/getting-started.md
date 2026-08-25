@@ -24,6 +24,13 @@ does not configure a repository or start Portal. Bare `bearing` shows help only.
 `bearing uninstall` removes only package-managed Global Kit targets and preserves the Project
 Catalog and repository state.
 
+For later Global Kit maintenance, run `bearing update`. It performs one npm `latest` update check
+and verifies the exact candidate before comparison. A newer version is displayed as
+`Update available: <current> → <target>` and requires a separate confirmation before mutation.
+Declining or cancelling changes nothing. Global Kit Update preserves existing owned surface links
+and is independent from Agent-guided Repository Update, Repository Configuration, and Portal start.
+Use an exact package candidate entry when you need to select a version explicitly.
+
 The user-level Bearing skill remains available for an explicit Bearing or Repository Configuration
 request in any repository. A configured repository pointer uses context, not a repeated CLI
 preflight: explicit Bearing concepts, reliable continuation, or materially relevant planning and

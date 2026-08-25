@@ -11,6 +11,11 @@ files and symbolic links rather than silently overwriting them.
 
 ## Interrupted update or corrupted bundle
 
+For normal maintenance, `bearing update` performs one foreground update check and requires a
+separate confirmation before a newer verified candidate can mutate the Kit. Registry failure,
+missing integrity, repository identity mismatch, an older npm `latest`, decline, or cancellation
+is a no-write result. Global Kit Update never runs Repository Update or starts Portal.
+
 Run the same verified exact candidate's `bearing install` entrypoint again. Bearing stages and
 validates the complete CLI and single-skill bundle before switching it. A failed
 switch restores the previous complete bundle; it does not touch repository state. Do not repair one

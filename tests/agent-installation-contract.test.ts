@@ -64,6 +64,7 @@ test("public installation guidance describes the same explicit basic CLI contrac
     expect(document).not.toMatch(/Install[／/,、 ]+Update[／/,、 ]+Repair/iu);
     expect(document).not.toMatch(/hard copy[\s\S]*refresh/iu);
     if (index < 6) expect(document).toContain("bearing install");
+    expect(document).toContain("bearing update");
   }
 
   const [cli, cliZh, gettingStarted, gettingStartedZh, troubleshooting, troubleshootingZh, agent] =
@@ -81,5 +82,12 @@ test("public installation guidance describes the same explicit basic CLI contrac
   expect(agent).toContain("Fresh Install");
   for (const document of [cli, cliZh, troubleshooting, troubleshootingZh, agent]) {
     expect(document).toMatch(/workbuddy/iu);
+  }
+  for (const document of [cli, cliZh, gettingStarted, gettingStartedZh, agent, installedSkill]) {
+    expect(document).toMatch(/update check|更新检查/iu);
+    expect(document).toMatch(/separate(?:\s+Human)?\s+confirmation|单独\s*确认|独立\s*确认/iu);
+  }
+  for (const document of [cli, cliZh, agent, installedSkill]) {
+    expect(document).toMatch(/Global Kit (?:Update|更新)[\s\S]*Repository Update/iu);
   }
 });
