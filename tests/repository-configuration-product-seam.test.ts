@@ -206,6 +206,16 @@ test("Repository Configuration selects Development Runtime without public fallba
       diagnostics: [{ code: "development-runtime-binding-missing" }],
     });
     expect(blocked.effects).toEqual({ created: [], changed: [], removed: [] });
+
+    const configurationBlocked = await product.run(["configure", "inspect", "--repo", root], {
+      observeRoots: [root, product.homeDir],
+    });
+    expect(configurationBlocked.exitClass).toBe("product-outcome");
+    expect(JSON.parse(configurationBlocked.stdout)).toMatchObject({
+      outcome: "unfulfilled",
+      diagnostics: [{ code: "development-runtime-binding-missing" }],
+    });
+    expect(configurationBlocked.effects).toEqual({ created: [], changed: [], removed: [] });
   } finally {
     await rm(product.root, { recursive: true, force: true });
   }
@@ -306,7 +316,14 @@ test("packed Repository Configuration seals one exact Fresh write set and applie
       },
     });
     const manifest = JSON.parse(await readFile(join(root, ".bearing/manifest.json"), "utf8"));
-    expect(manifest).toMatchObject({ status: "active", executorProfiles: [] });
+    expect(manifest).toEqual({
+      schemaVersion: 2,
+      packageVersion: "0.1.2-dev",
+      status: "active",
+      runtime: "stable",
+      surfaces: ["agent-skills"],
+      executorProfiles: [],
+    });
     const exactAgentSurface = await readFile(join(root, "AGENTS.md"), "utf8");
     expect(exactAgentSurface).toContain(BEARING_POINTER);
     await writeFile(
@@ -557,7 +574,7 @@ test("repository rollback and Catalog partial outcomes remain separate and resum
   }
 }, 60_000);
 
-test("Repository Update lists only the exact active 0.1.1 Development source", async () => {
+test("Repository target requires explicit Runtime and preserves Stable and Development separation", async () => {
   const product = await installPackedProduct();
   const root = join(product.root, "unsupported-repository");
   await makeFreshRepository(root);
@@ -575,6 +592,74 @@ test("Repository Update lists only the exact active 0.1.1 Development source", a
     const planned = await product.run(["configure", "plan", ...activateArguments(root)]);
     expect(planned.exitClass).toBe("product-outcome");
     expect(JSON.parse(planned.stdout).blockers[0].message).toMatch(/newer Bearing Kit/iu);
+
+    const stableTarget = {
+      schemaVersion: 2,
+      packageVersion: "0.1.2-dev",
+      status: "active",
+      runtime: "stable",
+      surfaces: ["agent-skills"],
+      executorProfiles: [],
+    } as const;
+    await writeFile(join(root, ".bearing/manifest.json"), `${JSON.stringify(stableTarget)}\n`);
+    const activeStable = await product.run(["configure", "inspect", "--repo", root]);
+    expect(activeStable.exitClass, activeStable.stderr).toBe("success");
+    expect(JSON.parse(activeStable.stdout)).toMatchObject({
+      lifecycle: { state: "active", removalRequired: false },
+      currentSelections: { runtime: "stable" },
+    });
+
+    await writeFile(
+      join(root, ".bearing/manifest.json"),
+      `${JSON.stringify({ ...stableTarget, status: "deactivated" })}\n`,
+    );
+    const deactivatedStable = await product.run(["configure", "inspect", "--repo", root]);
+    expect(deactivatedStable.exitClass, deactivatedStable.stderr).toBe("success");
+    expect(JSON.parse(deactivatedStable.stdout)).toMatchObject({
+      lifecycle: { state: "deactivated", removalRequired: false },
+      currentSelections: { runtime: "stable" },
+    });
+
+    await writeFile(
+      join(root, ".bearing/manifest.json"),
+      `${JSON.stringify({ ...stableTarget, packageVersion: "0.1.3" })}\n`,
+    );
+    const newerPackage = await product.run(["configure", "inspect", "--repo", root]);
+    expect(newerPackage.exitClass, newerPackage.stderr).toBe("success");
+    expect(JSON.parse(newerPackage.stdout)).toMatchObject({
+      lifecycle: { state: "kit-update-required", removalRequired: false },
+    });
+
+    const { runtime: _runtime, ...missingRuntimeTarget } = stableTarget;
+    await writeFile(
+      join(root, ".bearing/manifest.json"),
+      `${JSON.stringify(missingRuntimeTarget)}\n`,
+    );
+    const missingRuntime = await product.run(["configure", "inspect", "--repo", root]);
+    expect(missingRuntime.exitClass, missingRuntime.stderr).toBe("success");
+    const missingRuntimeInspection = JSON.parse(missingRuntime.stdout) as Readonly<{
+      currentSelections: Readonly<Record<string, unknown>>;
+      installedCapabilityEvidence: Readonly<Record<string, unknown>>;
+      lifecycle: Readonly<Record<string, unknown>>;
+      machineFacts: Readonly<Record<string, unknown>>;
+    }>;
+    expect(missingRuntimeInspection).toMatchObject({
+      lifecycle: { state: "unsupported", removalRequired: true },
+      currentSelections: { surfaces: [], executorProfiles: [] },
+    });
+    expect(missingRuntimeInspection.currentSelections["runtime"]).toBeUndefined();
+    expect(
+      missingRuntimeInspection.installedCapabilityEvidence["providerContract"],
+    ).toBeUndefined();
+    expect(missingRuntimeInspection.installedCapabilityEvidence["managedPointers"]).toBeUndefined();
+    expect(missingRuntimeInspection.machineFacts["catalog"]).toBeUndefined();
+    expect(missingRuntime.stdout).not.toContain('"runtime": "stable"');
+    const unresolvedRuntime = await product.run(["runtime", "inspect", "--repo", root]);
+    expect(unresolvedRuntime.exitClass).toBe("product-outcome");
+    expect(JSON.parse(unresolvedRuntime.stdout)).toMatchObject({
+      outcome: "recovery-required",
+      diagnostics: [{ code: "repository-runtime-target-invalid" }],
+    });
 
     const developmentProduct = await createDevelopmentSourceProduct(
       join(product.root, "development-source-product"),
@@ -683,7 +768,7 @@ test("Repository Update lists only the exact active 0.1.1 Development source", a
     await writeFile(
       join(developmentProduct.root, ".bearing/manifest.json"),
       `${JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         packageVersion: "0.1.2-dev",
         status: "active",
         runtime: "development",

@@ -116,7 +116,10 @@ const writeJson = (value: unknown): void => {
   process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
 };
 
-const runConfigure = async (args: readonly string[]): Promise<void> => {
+const runConfigure = async (
+  args: readonly string[],
+  inspectionHomeDir: string | null = selectedHomeDirectory(),
+): Promise<void> => {
   const [subcommand, ...values] = args;
   if (subcommand === undefined) {
     process.stdout.write(
@@ -134,7 +137,7 @@ const runConfigure = async (args: readonly string[]): Promise<void> => {
     const result = await inspectRepositoryConfiguration({
       repoRoot: resolve(parsed.values.repo ?? process.cwd()),
       packageRoot: packageRoot(),
-      homeDir: selectedHomeDirectory(),
+      ...(inspectionHomeDir === null ? {} : { homeDir: inspectionHomeDir }),
     });
     writeJson(result);
     return;
@@ -743,6 +746,29 @@ const main = async (): Promise<void> => {
   }
   if (command === "catalog" && ["--help", "-h"].includes(args[0] ?? "")) {
     await dispatchRepositoryCommand(command, args);
+    return;
+  }
+  if (command === "configure" && args[0] === "inspect") {
+    const runtime = await resolveRepositoryRuntime({
+      repoRoot: repositoryRootArgument(args),
+      packageRoot: packageRoot(),
+      publicHomeDir: homeDirectory(),
+      invokedCliPath: fileURLToPath(import.meta.url),
+    });
+    if (runtime.outcome === "resolved") {
+      await withRuntimeExecutionContext(runtime.context, () =>
+        dispatchRepositoryCommand(command, args),
+      );
+    } else if (
+      runtime.outcome === "recovery-required" &&
+      runtime.diagnostics.length === 1 &&
+      runtime.diagnostics[0]?.code === "repository-runtime-target-invalid"
+    ) {
+      await runConfigure(args, null);
+    } else {
+      writeJson(runtime);
+      process.exitCode = 1;
+    }
     return;
   }
   const runtime = await resolveRepositoryRuntime({

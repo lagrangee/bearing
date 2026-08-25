@@ -13,7 +13,10 @@ import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans, preflightInstallTargets } from "./installer";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
 import type { RuntimeExecutionContext, RuntimeReceipt } from "./runtime-context";
-import { repositoryManifestSchema } from "./schema-definitions";
+import {
+  development011RepositoryManifestSchema,
+  repositoryManifestSchema,
+} from "./schema-definitions";
 
 const sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const absolutePathSchema = z.string().min(1).refine(isAbsolute, "Expected an absolute path.");
@@ -274,13 +277,14 @@ export const resolveRepositoryRuntime = async (options: {
     );
   }
   const parsedManifest = repositoryManifestSchema.safeParse(source.value);
+  const legacyDevelopmentManifest = development011RepositoryManifestSchema.safeParse(source.value);
   const declaresDevelopment =
     typeof source.value === "object" &&
     source.value !== null &&
     "runtime" in source.value &&
     source.value.runtime === "development";
-  if (!parsedManifest.success) {
-    if (!declaresDevelopment) {
+  if (!parsedManifest.success && !legacyDevelopmentManifest.success) {
+    if (!declaresDevelopment && (schemaVersion(source.value) ?? 1) !== 2) {
       return stableResolution(
         repositoryRoot,
         options.publicHomeDir,
@@ -289,13 +293,17 @@ export const resolveRepositoryRuntime = async (options: {
       );
     }
     return failed(
-      (schemaVersion(source.value) ?? 1) > 1 ? "need-update" : "recovery-required",
-      "development-runtime-declaration-invalid",
+      (schemaVersion(source.value) ?? 1) > 2 ? "need-update" : "recovery-required",
+      declaresDevelopment
+        ? "development-runtime-declaration-invalid"
+        : "repository-runtime-target-invalid",
       ".bearing/manifest.json",
-      "The Development Runtime declaration is invalid or newer than this resolver.",
+      declaresDevelopment
+        ? "The Development Runtime declaration is invalid or newer than this resolver."
+        : "The repository Runtime target is missing or invalid.",
     );
   }
-  if (parsedManifest.data.runtime !== "development") {
+  if (parsedManifest.success && parsedManifest.data.runtime !== "development") {
     return stableResolution(
       repositoryRoot,
       options.publicHomeDir,

@@ -91,3 +91,22 @@ test("public installation guidance describes the same explicit basic CLI contrac
     expect(document).toMatch(/Global Kit (?:Update|更新)[\s\S]*Repository Update/iu);
   }
 });
+
+test("installed Skill and public CLI guidance describe explicit schema-2 Runtime targets", async () => {
+  const [configure, update, cli, cliZh] = await Promise.all([
+    read("skills/bearing/references/journeys/configure.md"),
+    read("skills/bearing/references/journeys/update.md"),
+    read("docs/cli.md"),
+    read("docs/cli.zh-CN.md"),
+  ]);
+
+  expect(configure).toMatch(/schema 2[\s\S]*explicit `runtime`/iu);
+  expect(configure).toMatch(/public Stable[\s\S]*`stable`/iu);
+  expect(configure).toMatch(/Development Runtime[\s\S]*`development`/iu);
+  expect(configure).toMatch(/Do not ask the Human[\s\S]*migration mode/iu);
+  expect(update).toMatch(/Target schema:[\s\S]*`schemaVersion` to `2`/iu);
+  expect(update).toMatch(/`runtime` as `development`/iu);
+
+  expect(cli).toMatch(/schema 2[\s\S]*`runtime: stable`/iu);
+  expect(cliZh).toMatch(/schema 2[\s\S]*`runtime: stable`/iu);
+});

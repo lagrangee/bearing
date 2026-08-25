@@ -49,8 +49,9 @@ it does not authorize or provide evidence for Global Kit maintenance.
   `runtime` is `development`, `surfaces` is a non-empty unique list of supported Agent Surfaces,
   `executorProfiles` is a unique list of valid profile IDs, and no other manifest field exists.
   This source is supported only by the exact `0.1.2-dev` Development Kit.
-- **Target schema:** Preserve `schemaVersion`, `status`, `runtime`, `surfaces`, and
-  `executorProfiles`; set `packageVersion` to `0.1.2-dev`; add no other manifest field.
+- **Target schema:** Set `schemaVersion` to `2`, preserve `status`, `surfaces`, and
+  `executorProfiles`, preserve `runtime` as `development`, set `packageVersion` to `0.1.2-dev`, and
+  add no other manifest field.
 - **Semantic invariants:** Canonical Bearing State, Provider Configuration, provider-owned native
   work, Execution Profiles, and managed instruction content stay byte-for-byte unchanged.
 - **Write scope:** `.bearing/manifest.json` and the disposable Development Project Read Model only.

@@ -22,10 +22,10 @@ const writeRepositoryManifest = async (
   await writeFile(
     join(root, ".bearing", "manifest.json"),
     `${JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageVersion: packageMetadata.version,
       status: "active",
-      ...(runtime === undefined ? {} : { runtime }),
+      runtime: runtime ?? "stable",
       surfaces: ["agent-skills"],
       executorProfiles: [],
     })}\n`,

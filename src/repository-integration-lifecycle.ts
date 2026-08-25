@@ -1,10 +1,14 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { compare as compareSemver, valid as validSemver } from "semver";
 import { z } from "zod";
 import packageMetadata from "../package.json";
 import { inspectInstallPath } from "./install-boundary";
 import { isRepositoryPathBoundaryError, readContainedFile } from "./path-boundary";
-import { repositoryManifestSchema } from "./schema-definitions";
+import {
+  development011RepositoryManifestSchema,
+  repositoryManifestSchema,
+} from "./schema-definitions";
 
 const MAXIMUM_REPOSITORY_MANIFEST_BYTES = 64 * 1024;
 
@@ -23,7 +27,7 @@ export type RepositoryIntegrationLifecycle = Readonly<{
     guide: "references/journeys/update.md";
   }>;
   repositorySchemaVersion?: number;
-  runtimeSchemaVersion?: 1;
+  runtimeSchemaVersion?: 2;
 }>;
 
 const invalidLifecycle = (reason: string): RepositoryIntegrationLifecycle => ({
@@ -41,12 +45,6 @@ const preview010ManifestSchema = z.strictObject({
   executorProfiles: z
     .array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u))
     .refine((profiles) => new Set(profiles).size === profiles.length),
-});
-
-const developmentLineStart011ManifestSchema = repositoryManifestSchema.extend({
-  packageVersion: z.literal("0.1.1"),
-  status: z.literal("active"),
-  runtime: z.literal("development"),
 });
 
 export const inspectRepositoryIntegrationLifecycle = async (
@@ -127,13 +125,13 @@ export const inspectRepositoryIntegrationLifecycle = async (
     "schemaVersion" in parsed &&
     typeof parsed.schemaVersion === "number" &&
     Number.isInteger(parsed.schemaVersion) &&
-    parsed.schemaVersion > 1
+    parsed.schemaVersion > 2
   ) {
     return {
       kind: "kit-update-required",
-      reason: `Repository uses newer Bearing schema ${parsed.schemaVersion}; the installed Kit reads schema 1 only.`,
+      reason: `Repository uses newer Bearing schema ${parsed.schemaVersion}; the installed Kit reads schema 2 only.`,
       repositorySchemaVersion: parsed.schemaVersion,
-      runtimeSchemaVersion: 1,
+      runtimeSchemaVersion: 2,
     };
   }
   const preview010Manifest = preview010ManifestSchema.safeParse(parsed);
@@ -149,7 +147,7 @@ export const inspectRepositoryIntegrationLifecycle = async (
       },
     };
   }
-  const developmentLineStart011Manifest = developmentLineStart011ManifestSchema.safeParse(parsed);
+  const developmentLineStart011Manifest = development011RepositoryManifestSchema.safeParse(parsed);
   if (developmentLineStart011Manifest.success && packageMetadata.version === "0.1.2-dev") {
     return {
       kind: "repository-update-required",
@@ -163,6 +161,20 @@ export const inspectRepositoryIntegrationLifecycle = async (
     };
   }
   const lifecycleManifest = repositoryManifestSchema.safeParse(parsed);
+  if (lifecycleManifest.success) {
+    const repositoryVersion = validSemver(lifecycleManifest.data.packageVersion);
+    const runtimeVersion = validSemver(packageMetadata.version);
+    if (
+      repositoryVersion !== null &&
+      runtimeVersion !== null &&
+      compareSemver(repositoryVersion, runtimeVersion) > 0
+    ) {
+      return {
+        kind: "kit-update-required",
+        reason: `Repository uses newer Bearing package ${repositoryVersion}; the installed Kit is ${runtimeVersion}.`,
+      };
+    }
+  }
   if (
     lifecycleManifest.success &&
     lifecycleManifest.data.packageVersion === packageMetadata.version

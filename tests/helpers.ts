@@ -127,9 +127,10 @@ export const createValidBearingRepo = async (): Promise<string> => {
     ".bearing/manifest.json",
     `${JSON.stringify(
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         packageVersion: packageMetadata.version,
         status: "active",
+        runtime: "stable",
         surfaces: ["agent-skills"],
         executorProfiles: [],
       },

@@ -80,6 +80,11 @@ bearing configure apply --intent activate --repo . --surface agent-skills \
   --plan-token <sealedPlanToken>
 ```
 
+Fresh public Repository Configuration 会写入完整的 schema 2 target，并明确包含
+`runtime: stable`。Source repository 使用独立、显式的 `runtime: development` target。Runtime 是
+target identity，不是让 Human 选择的 migration mode；缺失或无效 Runtime 不会在 Stable 与
+Development 之间 default、fallback 或 silent-convert。
+
 Inspect 不写入，也不选择 preference 或 product outcome。Plan 只有在所有 material choice 已解决时
 才返回 exact targets、preconditions、preservation effects 与绑定当前 repository generation 的
 token。Apply 会重新计算 plan，拒绝 stale 或不匹配 token，并且只修改已审阅的 Bearing machine

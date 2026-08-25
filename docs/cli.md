@@ -86,6 +86,11 @@ bearing configure apply --intent activate --repo . --surface agent-skills \
   --plan-token <sealedPlanToken>
 ```
 
+Fresh public Repository Configuration writes the complete schema 2 target with
+`runtime: stable`. The source repository uses its separate explicit `runtime: development`
+target. Runtime is target identity, not a Human-selected migration mode; missing or invalid
+Runtime never defaults, falls back, or silently converts between Stable and Development.
+
 Inspect performs no writes and makes no preference or product decision. Plan needs every material
 choice and returns exact targets, preconditions, preservation effects, and a token for that exact
 repository generation. Apply recomputes the plan, rejects stale or mismatched tokens, and modifies

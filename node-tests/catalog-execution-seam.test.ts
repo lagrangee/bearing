@@ -61,9 +61,10 @@ const makeRepository = async (
   await writeFile(
     join(root, ".bearing", "manifest.json"),
     `${JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageVersion: "0.1.0",
       status: "active",
+      runtime: "stable",
       surfaces,
       executorProfiles: [],
     })}\n`,
@@ -537,9 +538,10 @@ test("basic exact-candidate install does not inspect Catalog repositories", asyn
   await writeFile(
     manifestPath,
     `${JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageVersion: "0.1.0",
       status: "active",
+      runtime: "stable",
       surfaces: ["agent-skills"],
       executorProfiles: [],
     })}\n`,

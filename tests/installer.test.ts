@@ -164,8 +164,9 @@ describe("Bearing kit installer", () => {
     expect(result.outcome).toBe("applied");
     const manifest = JSON.parse(await readFile(join(repoRoot, ".bearing/manifest.json"), "utf8"));
     expect(manifest).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       status: "active",
+      runtime: "stable",
       surfaces: ["agent-skills", "claude"],
       executorProfiles: [],
     });

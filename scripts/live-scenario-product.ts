@@ -244,7 +244,7 @@ const materializeDevelopmentRepositoryUpdateSource = async (input: {
   }
   await writeFile(
     manifestPath,
-    `${JSON.stringify({ ...manifest, packageVersion: "0.1.1" }, null, 2)}\n`,
+    `${JSON.stringify({ ...manifest, schemaVersion: 1, packageVersion: "0.1.1" }, null, 2)}\n`,
   );
   const inspected = JSON.parse(
     await run(
