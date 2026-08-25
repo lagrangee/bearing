@@ -5,7 +5,7 @@ import packageMetadata from "../package.json";
 import { createRepresentativeProject } from "./fixtures/representative-project";
 import { installPackedProduct } from "./product-seams/installed-product";
 
-const markV20Projection = async (path: string): Promise<void> => {
+const markPreV10Projection = async (path: string): Promise<void> => {
   const child = Bun.spawn(
     [
       "node",
@@ -13,7 +13,7 @@ const markV20Projection = async (path: string): Promise<void> => {
       "--eval",
       `import { DatabaseSync } from "node:sqlite";
 const database = new DatabaseSync(process.argv[1]);
-database.prepare("UPDATE read_model_metadata SET projection_version = 8").run();
+database.prepare("UPDATE read_model_metadata SET projection_version = 9").run();
 database.close();`,
       path,
     ],
@@ -103,7 +103,7 @@ Roadmap 001 is active at Gate 001 under the representative delivery commitment.
     });
     expect(verified.exitClass).toBe("success");
 
-    await markV20Projection(join(fixture.root, ".bearing/cache/project-read-model.sqlite"));
+    await markPreV10Projection(join(fixture.root, ".bearing/cache/project-read-model.sqlite"));
 
     const incompatible = await product.run(["inspect", "project", "--repo", "."], {
       cwd: fixture.root,

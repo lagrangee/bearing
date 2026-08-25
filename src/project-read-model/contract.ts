@@ -38,7 +38,7 @@ import {
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 
 export const PROJECT_READ_MODEL_STORAGE_VERSION = 1 as const;
-export const PROJECT_READ_MODEL_PROJECTION_VERSION = 9 as const;
+export const PROJECT_READ_MODEL_PROJECTION_VERSION = 10 as const;
 export const PROJECT_INSPECT_ENVELOPE_VERSION = 1 as const;
 
 export const projectReadModelReceiptSchema = z.strictObject({
@@ -127,6 +127,7 @@ export const projectContextResultSchema = z.strictObject({
         targetGateId: z.string(),
         binding: z.union([
           z.strictObject({ state: z.literal("bound"), nativeScope: z.string() }),
+          z.strictObject({ state: z.literal("not-created") }),
           z.strictObject({ state: z.literal("attention"), reason: z.string() }),
         ]),
       }),

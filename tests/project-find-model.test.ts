@@ -32,7 +32,7 @@ test("builds one current-generation document per identity-bearing subject", () =
   ).toBe("Delivery");
 });
 
-test("excludes native subjects that are not inside an accepted Effort binding", () => {
+test("excludes native subjects while a planned Effort binding is not-created", () => {
   const snapshot = snapshotFixture();
   if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
   const withoutBinding = parseRebuiltPlanningLineageFixture({
@@ -43,8 +43,11 @@ test("excludes native subjects that are not inside an accepted Effort binding", 
         effort.id === "effort:portal"
           ? {
               ...effort,
+              lifecycle: "planned" as const,
+              activatedAt: undefined,
+              conclusion: undefined,
               workBinding: undefined,
-              workBindingState: { state: "invalid" as const, reason: "missing" as const },
+              workBindingState: { state: "not-created" as const },
             }
           : effort,
       ),

@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import { decodeBearingRecordGeneration } from "../src/bearing-record-decoder";
 import { discoverManagedInputs } from "../src/managed-input-discovery";
+import { parseMarkdownEnvelope } from "../src/markdown-document";
 import { captureProjectInputGeneration } from "../src/project-input-generation";
+import { bearingSchema } from "../src/schema-definitions";
 import { createValidBearingRepo, writeFixture } from "./helpers";
 
 const fingerprint = `sha256:${"a".repeat(64)}`;
@@ -199,7 +201,80 @@ Input fingerprint: ${fingerprint}
   );
 });
 
-test("keeps Effort identity while reporting missing, unparseable, and conflicting Work Bindings", async () => {
+test("accepts only planned without a Work Binding and governed lifecycle with one Binding", async () => {
+  const root = await createValidBearingRepo();
+  const effortPath = ".bearing/state/efforts/test.md";
+  const source = await Bun.file(`${root}/${effortPath}`).text();
+  const planned = source
+    .replace("Lifecycle: active", "Lifecycle: planned")
+    .replace("Activated at: null\n", "")
+    .replace(
+      /Work binding:\n {2}Provider: matt-skills\/v1\n {2}Native scope: \.scratch\/work\n/u,
+      "",
+    );
+  const plannedEnvelope = parseMarkdownEnvelope(planned);
+  if (!plannedEnvelope.ok) throw new Error("Expected planned Effort frontmatter.");
+  expect(bearingSchema.safeParse(plannedEnvelope.data).success).toBe(true);
+
+  await writeFixture(root, effortPath, planned);
+  let discovery = await discoverManagedInputs(root);
+  let decoded = decodeBearingRecordGeneration(
+    await captureProjectInputGeneration(root, discovery.inputs),
+  );
+  expect(decoded.records.find((record) => record.type === "effort")).toMatchObject({
+    trust: "available",
+    data: { Type: "effort", ID: "effort:test", Lifecycle: "planned" },
+    diagnostics: [],
+  });
+
+  const plannedBound = source
+    .replace("Lifecycle: active", "Lifecycle: planned")
+    .replace("Activated at: null\n", "");
+  const plannedBoundEnvelope = parseMarkdownEnvelope(plannedBound);
+  if (!plannedBoundEnvelope.ok) throw new Error("Expected bound planned Effort frontmatter.");
+  expect(bearingSchema.safeParse(plannedBoundEnvelope.data).success).toBe(false);
+
+  await writeFixture(root, effortPath, plannedBound);
+  discovery = await discoverManagedInputs(root);
+  decoded = decodeBearingRecordGeneration(
+    await captureProjectInputGeneration(root, discovery.inputs),
+  );
+  expect(decoded.records.find((record) => record.type === "effort")).toMatchObject({
+    trust: "partial",
+    data: {
+      Type: "effort",
+      ID: "effort:test",
+      Lifecycle: "planned",
+      "Work binding": { Provider: "matt-skills/v1", "Native scope": ".scratch/work" },
+    },
+    diagnostics: [
+      {
+        code: "effort-work-binding-lifecycle-conflict",
+        impact: "blocking",
+        target: effortPath,
+      },
+    ],
+  });
+
+  const activeEnvelope = parseMarkdownEnvelope(source);
+  if (!activeEnvelope.ok) throw new Error("Expected active Effort frontmatter.");
+  expect(bearingSchema.safeParse(activeEnvelope.data).success).toBe(true);
+
+  const concluded = {
+    ...activeEnvelope.data,
+    Lifecycle: "concluded",
+    Conclusion: {
+      Disposition: "completed",
+      Rationale: "The exact scope is complete.",
+      "Concluded at": null,
+    },
+  };
+  expect(bearingSchema.safeParse(concluded).success).toBe(true);
+  const concludedWithoutBinding = { ...concluded, "Work binding": undefined };
+  expect(bearingSchema.safeParse(concludedWithoutBinding).success).toBe(false);
+});
+
+test("keeps Effort identity while reporting required, unparseable, and conflicting Work Bindings", async () => {
   const root = await createValidBearingRepo();
   const effortPath = ".bearing/state/efforts/test.md";
   const source = await Bun.file(`${root}/${effortPath}`).text();

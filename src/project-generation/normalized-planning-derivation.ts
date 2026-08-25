@@ -39,7 +39,7 @@ export type DerivedCollection<T> =
     }>
   | Readonly<{ validity: "invalid"; issues?: readonly unknown[] }>;
 
-type DerivedEffort = Readonly<{
+export type DerivedEffort = Readonly<{
   id: string;
   source: string;
   roadmapId: string;
@@ -47,7 +47,11 @@ type DerivedEffort = Readonly<{
   workBinding?: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }> | undefined;
   workBindingState: Readonly<
     | { state: "bound" }
-    | { state: "invalid"; reason: "missing" | "unparseable" | "unresolved" | "conflicting" }
+    | { state: "not-created" }
+    | {
+        state: "invalid";
+        reason: "lifecycle-conflict" | "missing" | "unparseable" | "unresolved" | "conflicting";
+      }
   >;
   lifecycle: "planned" | "active" | "concluded";
   conclusion?:
@@ -131,11 +135,14 @@ export const normalizedGateReadiness = (
     if (
       effort === undefined ||
       effort.targetGateId !== gate.id ||
-      effort.roadmapId !== gate.roadmapId ||
-      !hasTrustworthyBindingEvidence(effort, captures, selections)
+      effort.roadmapId !== gate.roadmapId
     ) {
       return "unknown" as const;
     }
+    if (effort.lifecycle === "planned" && effort.workBindingState.state === "not-created") {
+      return "pending" as const;
+    }
+    if (!hasTrustworthyBindingEvidence(effort, captures, selections)) return "unknown" as const;
     if (effort.lifecycle === "planned" || effort.lifecycle === "active") {
       return "pending" as const;
     }

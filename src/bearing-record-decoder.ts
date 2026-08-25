@@ -15,7 +15,7 @@ import type { SourceBinding, SourceRecord } from "./project-generation/contract"
 import { createSourceRecord } from "./project-generation/source-records";
 import type { ProjectInputGeneration } from "./project-input-generation";
 import { mattNativeScopeKey } from "./providers/matt-skills-v1/native-subject";
-import { bearingSchema } from "./schema-definitions";
+import { bearingDecodingSchema, type bearingSchema } from "./schema-definitions";
 import { deriveTopologyDiagnostics } from "./topology-diagnostics";
 import type { StructuralDiagnostic } from "./types";
 
@@ -315,21 +315,24 @@ const bodyDiagnostic = (locator: string, message: string): StructuralDiagnostic 
 });
 
 const EFFORT_WORK_BINDING_DIAGNOSTIC_CODES = new Set([
+  "effort-work-binding-lifecycle-conflict",
   "effort-work-binding-missing",
   "effort-work-binding-unparseable",
 ]);
 
 const effortWorkBindingDiagnostic = (
   locator: string,
-  reason: "missing" | "unparseable",
+  reason: "lifecycle-conflict" | "missing" | "unparseable",
 ): StructuralDiagnostic => ({
   code: `effort-work-binding-${reason}`,
   impact: "blocking",
   target: locator,
   message:
-    reason === "missing"
-      ? "Canonical Effort requires exactly one Work Binding."
-      : "Canonical Effort Work Binding does not match the supported provider contract.",
+    reason === "lifecycle-conflict"
+      ? "A planned Effort cannot declare a Work Binding before native work starts."
+      : reason === "missing"
+        ? "Canonical Effort requires exactly one Work Binding."
+        : "Canonical Effort Work Binding does not match the supported provider contract.",
 });
 
 const exactSections = (
@@ -530,13 +533,13 @@ const decodeRecord = (
       });
     }
   } else {
-    const parsed = bearingSchema.safeParse(frontmatter.data);
+    const parsed = bearingDecodingSchema.safeParse(frontmatter.data);
     if (!parsed.success) {
       const withoutWorkBinding = { ...frontmatter.data };
       delete withoutWorkBinding["Work binding"];
       const effortFallback =
         expectedType === "effort" && frontmatter.data["Type"] === "effort"
-          ? bearingSchema.safeParse(withoutWorkBinding)
+          ? bearingDecodingSchema.safeParse(withoutWorkBinding)
           : undefined;
       if (effortFallback?.success === true && effortFallback.data.Type === "effort") {
         data = normalizeBearingArtifact(effortFallback.data);
@@ -558,8 +561,13 @@ const decodeRecord = (
       });
     } else {
       data = normalizeBearingArtifact(parsed.data);
-      if (data.Type === "effort" && data["Work binding"] === undefined) {
-        schemaDiagnostics.push(effortWorkBindingDiagnostic(record.locator, "missing"));
+      if (data.Type === "effort") {
+        if (data.Lifecycle === "planned" && data["Work binding"] !== undefined) {
+          schemaDiagnostics.push(effortWorkBindingDiagnostic(record.locator, "lifecycle-conflict"));
+        }
+        if (data.Lifecycle !== "planned" && data["Work binding"] === undefined) {
+          schemaDiagnostics.push(effortWorkBindingDiagnostic(record.locator, "missing"));
+        }
       }
     }
   }

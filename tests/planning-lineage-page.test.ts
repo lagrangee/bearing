@@ -1189,6 +1189,79 @@ test("renders invalid Effort binding as cause, impact, and recovery rather than 
   expect(html).not.toContain("No Work Binding is declared");
 });
 
+test("routes a planned-and-bound lifecycle conflict to canonical repair", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
+  const lifecycleConflict = withLineage({
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === "effort:model"
+          ? {
+              ...effort,
+              lifecycle: "planned" as const,
+              activatedAt: undefined,
+              conclusion: undefined,
+              workBindingState: {
+                state: "invalid" as const,
+                reason: "lifecycle-conflict" as const,
+              },
+            }
+          : effort,
+      ),
+    },
+  });
+  const html = render(
+    { validity: "valid", value: { kind: "effort", id: "effort:model" } },
+    { snapshot: lifecycleConflict },
+  );
+
+  expect(html).toContain("Managed work needs attention");
+  expect(html).toContain(
+    "Cause: this planned Effort declares a Work Binding before native work starts.",
+  );
+  expect(html).toContain(
+    "Recovery: repair the canonical Effort lifecycle and Work Binding together: remove the premature Binding to keep it planned, or record activation if native work has started; then reload this view.",
+  );
+  expect(html).not.toContain("load this exact declared provider source");
+  expect(html).not.toContain("Targeted Native Reconciliation");
+});
+
+test("renders planned not-created Effort work as neutral native work absence", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
+  const planned = withLineage({
+    ...snapshot,
+    efforts: {
+      ...snapshot.efforts,
+      items: snapshot.efforts.items.map((effort) =>
+        effort.id === "effort:model"
+          ? {
+              ...effort,
+              lifecycle: "planned" as const,
+              activatedAt: undefined,
+              conclusion: undefined,
+              workBinding: undefined,
+              workBindingState: { state: "not-created" as const },
+            }
+          : effort,
+      ),
+    },
+  });
+  const html = render(
+    { validity: "valid", value: { kind: "effort", id: "effort:model" } },
+    { snapshot: planned },
+  );
+
+  expect(html).toContain("Native work not started");
+  expect(html).not.toContain("Managed work needs attention");
+  expect(html).not.toContain("Binding needs attention");
+  expect(html).not.toContain("Cause:");
+  expect(html).not.toContain("Impact:");
+  expect(html).not.toContain("Recovery:");
+});
+
 test("renders a stable filtered relation view as owner-derived list state, not a subject", () => {
   const snapshot = createProjectOverviewFixture();
   if (

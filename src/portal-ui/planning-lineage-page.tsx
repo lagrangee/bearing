@@ -761,7 +761,9 @@ function EffortGovernanceLens({
               ? ` (${workRegionCountLabel(currentWork.counts.total)})`
               : ""}
           </h2>
-          {currentWork.state === "unavailable" ? (
+          {currentWork.state === "not-created" ? (
+            <p>Native work not started</p>
+          ) : currentWork.state === "unavailable" ? (
             <p className="effort-current-work-unavailable">
               Managed work needs attention. Cause: {currentWork.cause} Impact: {currentWork.impact}{" "}
               Recovery: {currentWork.recovery}

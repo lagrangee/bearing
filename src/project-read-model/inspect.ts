@@ -393,16 +393,18 @@ const projectResult = (database: DatabaseSync, metadata: ProjectReadModelMetadat
       title: effort.title,
       lifecycle: effort.lifecycle,
       targetGateId: effort.targetGateId,
-      binding:
-        effort.workBindingState.state === "bound" && effort.workBinding !== undefined
-          ? { state: "bound" as const, nativeScope: effort.workBinding.nativeScope }
-          : {
-              state: "attention" as const,
-              reason:
-                effort.workBindingState.state === "invalid"
-                  ? effort.workBindingState.reason
-                  : "missing",
-            },
+      binding: (() => {
+        if (effort.workBindingState.state === "not-created") {
+          return { state: "not-created" as const };
+        }
+        if (effort.workBindingState.state === "invalid") {
+          return { state: "attention" as const, reason: effort.workBindingState.reason };
+        }
+        if (effort.workBinding === undefined) {
+          throw new TypeError("Bound Effort requires its Work Binding.");
+        }
+        return { state: "bound" as const, nativeScope: effort.workBinding.nativeScope };
+      })(),
     })),
     attentionCount,
     diagnosticCounts: {
