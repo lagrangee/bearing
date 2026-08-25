@@ -72,6 +72,56 @@ const requireSuccess = (result, operation) => {
   throw new Error(`${operation} failed: ${detail}`);
 };
 
+const developmentRuntimeReceipt = ({ nodeExecutable, repositoryRoot }) => {
+  const result = requireSuccess(
+    spawnSync(
+      nodeExecutable,
+      [
+        join(repositoryRoot, "dist", "cli.js"),
+        "runtime",
+        "inspect",
+        "--repo",
+        repositoryRoot,
+      ],
+      { encoding: "utf8" },
+    ),
+    "Development Runtime inspect",
+  );
+  let body;
+  try {
+    body = JSON.parse(result.stdout);
+  } catch {
+    throw new Error("Development Runtime inspect returned invalid JSON.");
+  }
+  const receipt = body?.outcome === "resolved" ? body.context?.receipt : undefined;
+  if (
+    receipt?.schemaVersion !== 1 ||
+    receipt.channel !== "development" ||
+    typeof receipt.runtimeIdentity !== "string" ||
+    typeof receipt.stateRootIdentity !== "string" ||
+    typeof receipt.portalBuildId !== "string"
+  ) {
+    throw new Error("Development Runtime inspect did not return a coherent receipt.");
+  }
+  return receipt;
+};
+
+const expectedDevelopmentPortalHealth = (receipt) => ({
+  schemaVersion: receipt.schemaVersion,
+  channel: receipt.channel,
+  runtimeIdentity: receipt.runtimeIdentity,
+  stateRootIdentity: receipt.stateRootIdentity,
+  portalBuildIdentity: receipt.portalBuildId,
+});
+
+export const isExpectedDevelopmentPortalHealth = (health, expected) =>
+  health?.state === "ready" &&
+  health.development?.schemaVersion === expected.schemaVersion &&
+  health.development.channel === expected.channel &&
+  health.development.runtimeIdentity === expected.runtimeIdentity &&
+  health.development.stateRootIdentity === expected.stateRootIdentity &&
+  health.development.portalBuildIdentity === expected.portalBuildIdentity;
+
 const assertSupportedHost = () => {
   if (platform() !== "darwin") {
     throw new Error("The Development Portal LaunchAgent is supported only on macOS.");
@@ -98,6 +148,9 @@ const installInputs = async () => {
     ...userInputs,
     nodeExecutable,
     repositoryRoot,
+    expectedHealth: expectedDevelopmentPortalHealth(
+      developmentRuntimeReceipt({ nodeExecutable, repositoryRoot }),
+    ),
   };
 };
 
@@ -148,7 +201,7 @@ const writeLaunchAgent = async (definition, plistPath) => {
   }
 };
 
-const waitForDevelopmentPortal = async () => {
+const waitForDevelopmentPortal = async (expectedHealth) => {
   const deadline = Date.now() + 20_000;
   let lastError;
   while (Date.now() < deadline) {
@@ -157,8 +210,12 @@ const waitForDevelopmentPortal = async () => {
         signal: AbortSignal.timeout(1_000),
       });
       const body = await response.json();
-      if (response.ok && body?.development?.channel === "development") return body;
-      lastError = new Error(`Unexpected health response: ${response.status}`);
+      if (response.ok && isExpectedDevelopmentPortalHealth(body, expectedHealth)) return body;
+      lastError = new Error(
+        response.ok
+          ? "Development Portal health does not match the current Runtime receipt."
+          : `Unexpected health response: ${response.status}`,
+      );
     } catch (error) {
       lastError = error;
     }
@@ -192,7 +249,7 @@ const install = async () => {
     launchctl(["kickstart", "-k", serviceTarget(inputs.uid)]),
     "Development Portal LaunchAgent kickstart",
   );
-  const health = await waitForDevelopmentPortal();
+  const health = await waitForDevelopmentPortal(inputs.expectedHealth);
   process.stdout.write(
     `${JSON.stringify(
       {
@@ -223,7 +280,8 @@ const status = async () => {
   }
   let health = null;
   try {
-    health = await waitForDevelopmentPortal();
+    const runtimeInputs = await installInputs();
+    health = await waitForDevelopmentPortal(runtimeInputs.expectedHealth);
   } catch {
     // launchctl state remains useful when the child has not reached health.
   }

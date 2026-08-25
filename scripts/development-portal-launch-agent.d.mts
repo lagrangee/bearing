@@ -22,3 +22,14 @@ export function developmentPortalLaunchAgentDefinition(input: Readonly<{
   StandardOutPath: string;
   StandardErrorPath: string;
 }>;
+
+export function isExpectedDevelopmentPortalHealth(
+  health: unknown,
+  expected: Readonly<{
+    schemaVersion: 1;
+    channel: "development";
+    runtimeIdentity: string;
+    stateRootIdentity: string;
+    portalBuildIdentity: string;
+  }>,
+): boolean;

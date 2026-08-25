@@ -3,6 +3,7 @@ import {
   DEVELOPMENT_PORTAL_LAUNCH_AGENT_LABEL,
   developmentPortalLaunchAgentDefinition,
   developmentPortalLaunchAgentPaths,
+  isExpectedDevelopmentPortalHealth,
 } from "../scripts/development-portal-launch-agent.mjs";
 
 test("the Development Portal LaunchAgent is source-only", () => {
@@ -40,4 +41,56 @@ test("the Development Portal LaunchAgent uses user-owned paths", () => {
     logDirectory: "/Users/example/Library/Logs/Bearing",
     plistPath: "/Users/example/Library/LaunchAgents/com.lagrangee.bearing.development-portal.plist",
   });
+});
+
+test("the Development Portal LaunchAgent rejects health from another runtime", () => {
+  const expected = {
+    schemaVersion: 1,
+    channel: "development",
+    runtimeIdentity: `sha256:${"1".repeat(64)}`,
+    stateRootIdentity: `sha256:${"2".repeat(64)}`,
+    portalBuildIdentity: "3".repeat(64),
+  } as const;
+  const health = {
+    state: "ready",
+    development: expected,
+  };
+
+  expect(isExpectedDevelopmentPortalHealth(health, expected)).toBe(true);
+  expect(
+    isExpectedDevelopmentPortalHealth(
+      {
+        ...health,
+        development: {
+          ...expected,
+          runtimeIdentity: `sha256:${"4".repeat(64)}`,
+        },
+      },
+      expected,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedDevelopmentPortalHealth(
+      {
+        ...health,
+        development: {
+          ...expected,
+          stateRootIdentity: `sha256:${"5".repeat(64)}`,
+        },
+      },
+      expected,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedDevelopmentPortalHealth(
+      {
+        ...health,
+        development: {
+          ...expected,
+          portalBuildIdentity: "6".repeat(64),
+        },
+      },
+      expected,
+    ),
+  ).toBe(false);
 });
