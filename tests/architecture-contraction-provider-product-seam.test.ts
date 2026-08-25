@@ -319,3 +319,70 @@ test("native inspect exposes capture-required after a failed targeted reconcilia
     await product.dispose();
   }
 }, 60_000);
+
+test("first-Binding capture unavailability preserves accepted lifecycle and exact scope", async () => {
+  const product = await installPackedProduct();
+  const fixture = await createRepresentativeProject("representative", product.root);
+  const contractPath = `${fixture.root}/docs/agents/issue-tracker.md`;
+  const effortPath = `${fixture.root}/.bearing/state/efforts/e001.md`;
+  const contract = await readFile(contractPath);
+  const acceptedEffort = await readFile(effortPath);
+  let contractRemoved = false;
+  try {
+    expect(
+      (
+        await product.run(["cache", "rebuild", "--repo", "."], {
+          cwd: fixture.root,
+          observeRoots: [fixture.root],
+        })
+      ).exitClass,
+    ).toBe("success");
+
+    await rm(contractPath);
+    contractRemoved = true;
+    const unavailable = await product.run(
+      ["provider", "capture", "--scope", ".scratch/scope-001", "--repo", "."],
+      { cwd: fixture.root, observeRoots: [fixture.root] },
+    );
+    expect(unavailable.exitClass).toBe("product-outcome");
+    expect(unavailable.stderr).toBe("");
+    expect(unavailable.effects).toEqual({
+      created: [],
+      changed: ["root-0/.bearing/cache/project-read-model.sqlite"],
+      removed: [],
+    });
+    expect(JSON.parse(unavailable.stdout)).toMatchObject({
+      command: "provider-capture",
+      outcome: "unfulfilled",
+      result: {
+        acquisitionCount: 0,
+        scopes: [{ scope: ".scratch/scope-001", disposition: "unavailable" }],
+      },
+    });
+    expect(await readFile(effortPath)).toEqual(acceptedEffort);
+
+    await writeFile(contractPath, contract);
+    contractRemoved = false;
+    const inspected = await product.run(["inspect", "effort:e001", "--repo", "."], {
+      cwd: fixture.root,
+      observeRoots: [fixture.root],
+    });
+    expect(inspected.exitClass).toBe("success");
+    expect(JSON.parse(inspected.stdout)).toMatchObject({
+      result: {
+        target: {
+          value: {
+            lifecycle: "active",
+            workBinding: {
+              provider: "matt-skills/v1",
+              nativeScope: ".scratch/scope-001",
+            },
+          },
+        },
+      },
+    });
+  } finally {
+    if (contractRemoved) await writeFile(contractPath, contract);
+    await product.dispose();
+  }
+}, 60_000);

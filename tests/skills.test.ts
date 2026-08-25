@@ -162,20 +162,62 @@ describe("public Bearing Agent surface", () => {
     }
   });
 
-  test("routes Direct Execution through execution, native, and conditional basis contracts", async () => {
+  test("routes Direct Execution through execution, exact start, and conditional basis contracts", async () => {
     const { document } = await readSkillAt(skillRoot);
     const routing = tableWithColumns(document, ["Operation", "Load directly"]);
     const directExecution = routing.rows.find(([operation]) => operation === "Direct Execution");
     if (directExecution === undefined) throw new Error("Direct Execution route is absent.");
     const expectedReferences: (typeof runtimeReferences)[number][] = [
+      "references/contracts/canonical-mutation.md",
       "references/journeys/execution.md",
       "references/journeys/native-work.md",
       "references/journeys/project-read-model.md",
+      "references/owners/effort.md",
     ];
 
     expect(
       runtimeReferences.filter((reference) => directExecution[1]?.includes(reference)).sort(),
     ).toEqual(expectedReferences.sort());
+  });
+
+  test("routes exact Effort start directly to its four Bearing owners", async () => {
+    const { document } = await readSkillAt(skillRoot);
+    const routing = tableWithColumns(document, ["Operation", "Load directly"]);
+    const effortStart = routing.rows.find(
+      ([operation]) => operation === "Start or enroll an Effort through Matt work",
+    );
+    if (effortStart === undefined) throw new Error("Exact Effort start route is absent.");
+    const expectedReferences: (typeof runtimeReferences)[number][] = [
+      "references/contracts/canonical-mutation.md",
+      "references/owners/effort.md",
+      "references/journeys/native-work.md",
+      "references/journeys/project-read-model.md",
+    ];
+
+    expect(
+      runtimeReferences.filter((reference) => effortStart[1]?.includes(reference)).sort(),
+    ).toEqual(expectedReferences.sort());
+  });
+
+  test("selects exact Effort start owners directly for an Intake continuation", async () => {
+    const { document } = await readSkillAt(skillRoot);
+    const routing = tableWithColumns(document, ["Operation", "Load directly"]);
+    const expectedStartReferences: (typeof runtimeReferences)[number][] = [
+      "references/contracts/canonical-mutation.md",
+      "references/owners/effort.md",
+      "references/journeys/native-work.md",
+      "references/journeys/project-read-model.md",
+    ];
+    const intakeReference = "references/journeys/feature-intake.md" as const;
+    const intake = routing.rows.find(
+      ([operation]) =>
+        operation === "Feature Intake with a material accepted commitment or planning opportunity",
+    );
+    if (intake === undefined) throw new Error("Feature Intake route is absent.");
+
+    expect(runtimeReferences.filter((reference) => intake[1]?.includes(reference)).sort()).toEqual(
+      [intakeReference, ...expectedStartReferences].sort(),
+    );
   });
 
   test("hands Native Work the canonical Inspect reference without same-transaction recovery", async () => {

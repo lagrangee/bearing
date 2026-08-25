@@ -78,9 +78,10 @@ does not prove readiness, acceptance, lifecycle transition, or mutation authorit
 | Project Read Model rebuild, provider capture, or provider verification | `references/journeys/project-read-model.md` |
 | Project Orientation | `references/journeys/project-orientation.md`; also `references/journeys/scope-review.md` when existing-work evidence is included |
 | Whole-project Scope Review | `references/journeys/scope-review.md` |
-| Feature Intake with a material accepted commitment or planning opportunity | `references/journeys/feature-intake.md` |
+| Feature Intake with a material accepted commitment or planning opportunity | `references/journeys/feature-intake.md`; when its continuation explicitly starts a named planned Effort, also `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, `references/journeys/native-work.md`, and `references/journeys/project-read-model.md` |
 | Native Work | `references/journeys/native-work.md`; also `references/journeys/project-read-model.md` when Native Inspect reports `capture-required` |
-| Direct Execution | `references/journeys/execution.md` and `references/journeys/native-work.md`; also `references/journeys/project-read-model.md` when Native Inspect reports `capture-required` |
+| Start or enroll an Effort through Matt work | `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, `references/journeys/native-work.md`, and `references/journeys/project-read-model.md` |
+| Direct Execution | `references/journeys/execution.md` and `references/journeys/native-work.md`; for a planned Effort with no Binding, also `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, and `references/journeys/project-read-model.md`; otherwise add `references/journeys/project-read-model.md` only when Native Inspect reports `capture-required` |
 | Explicit Next Work guidance | `references/journeys/next-work.md` |
 | Project Summary | `references/owners/project-summary.md` |
 | Project Brief | `references/owners/project-brief.md` |

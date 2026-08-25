@@ -27,6 +27,10 @@ mutate native work, or change canonical planning and lifecycle.
 
 - **Required:** A new or changed Work Binding receives its exact-scope baseline after the canonical
   change; current provider coverage starts only after capture succeeds.
+- **Required:** Expected source, permission, network, format, or support unavailability after an
+  accepted Binding and Activation preserves that canonical transaction and reports its exact
+  recovery point. It does not roll back, retry, repair automatically, or create a temporary
+  standalone fallback.
 - **Required:** When Native Inspect reports `capture-required`, exact-scope capture must complete
   before Matt native mutation. A failed post-transaction reconciliation remains failed; a later
   recovery capture restores current full-scope evidence but neither retries nor retroactively

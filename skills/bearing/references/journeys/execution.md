@@ -13,13 +13,15 @@ exact reconciliation of successful managed native effects.
 ## Operation
 
 1. Continue the original executor command in the same visible operation; never ask the user to
-   invoke it again. Resolve one exact Ticket, its acceptance criteria and blockers, and run local
-   Binding lookup for its native scope.
-2. For bound work, inspect the affected Effort. An explicit request to execute an unambiguous Ticket
-   under a planned Effort directly entails its activation: state the effect, change the Effort
-   through the canonical mutation contract, inspect the Effort, then continue execution without
-   duplicate confirmation. An active Effort continues directly.
-3. If the user refuses the entailed activation, perform no Effort, executor, or native mutation. A
+   invoke it again. Resolve one exact Ticket, its acceptance criteria and blockers, and inspect any
+   existing native scope and Binding. Preserve a direct executor invocation that instead names one
+   exact planned Effort whose native identity does not exist yet.
+2. For a planned Effort with no Work Binding, state the combined effect and join the exact start
+   owners selected at the root. Do not assume a Binding, fabricate a native identity, or copy their
+   sequence. Those owners preserve the user-invoked workflow, obtain its exact native scope, create
+   the Binding and Activation atomically, and capture the first provider baseline before execution
+   continues. Active bound work continues directly.
+3. If the user refuses the stated start effect, perform no Effort, executor, or native mutation. A
    concluded Effort never reopens implicitly; stop for an accepted new, superseding, or Binding
    disposition decision.
 4. Run the executor with relevant planning context and preserve its outcome. If native writeback
