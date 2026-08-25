@@ -1,16 +1,41 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { compare as compareSemver, valid as validSemver } from "semver";
-import { z } from "zod";
+import type { z } from "zod";
 import packageMetadata from "../package.json";
 import { inspectInstallPath } from "./install-boundary";
 import { isRepositoryPathBoundaryError, readContainedFile } from "./path-boundary";
 import {
-  development011RepositoryManifestSchema,
+  olderActiveRepositoryManifestSchema,
   repositoryManifestSchema,
 } from "./schema-definitions";
 
 const MAXIMUM_REPOSITORY_MANIFEST_BYTES = 64 * 1024;
+
+export type RepositoryUpdateContract = Readonly<{
+  source: Readonly<{
+    schemaVersion: 1;
+    packageVersion: string;
+  }>;
+  target: Readonly<{
+    requiredManifestFields: readonly string[];
+    manifest: Readonly<{
+      schemaVersion: 2;
+      packageVersion: string;
+      status: "active";
+      runtime: "stable" | "development";
+      surfaces: readonly ("agent-skills" | "claude")[];
+      executorProfiles: readonly string[];
+    }>;
+    semanticInvariants: readonly string[];
+    writeDomains: Readonly<{
+      canonical: readonly [".bearing/manifest.json"];
+      disposable: readonly string[];
+    }>;
+    validation: readonly string[];
+  }>;
+  guide: "references/journeys/update.md";
+}>;
 
 export type RepositoryIntegrationLifecycle = Readonly<{
   kind:
@@ -21,11 +46,7 @@ export type RepositoryIntegrationLifecycle = Readonly<{
     | "kit-update-required"
     | "invalid-or-unsupported";
   reason: string;
-  update?: Readonly<{
-    fromPackageVersion: string;
-    toPackageVersion: string;
-    guide: "references/journeys/update.md";
-  }>;
+  update?: RepositoryUpdateContract;
   repositorySchemaVersion?: number;
   runtimeSchemaVersion?: 2;
 }>;
@@ -35,17 +56,65 @@ const invalidLifecycle = (reason: string): RepositoryIntegrationLifecycle => ({
   reason,
 });
 
-const preview010ManifestSchema = z.strictObject({
-  schemaVersion: z.literal(1),
-  packageVersion: z.literal("0.1.0"),
-  surfaces: z
-    .array(z.enum(["agent-skills", "claude"]))
-    .min(1)
-    .refine((surfaces) => new Set(surfaces).size === surfaces.length),
-  executorProfiles: z
-    .array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u))
-    .refine((profiles) => new Set(profiles).size === profiles.length),
-});
+const repositoryUpdate = (
+  source: z.infer<typeof olderActiveRepositoryManifestSchema>,
+): RepositoryUpdateContract => {
+  const runtime = source.runtime ?? "stable";
+  return {
+    source: {
+      schemaVersion: source.schemaVersion,
+      packageVersion: source.packageVersion,
+    },
+    target: {
+      requiredManifestFields: [
+        "schemaVersion",
+        "packageVersion",
+        "status",
+        "runtime",
+        "surfaces",
+        "executorProfiles",
+      ],
+      manifest: {
+        schemaVersion: 2,
+        packageVersion: packageMetadata.version,
+        status: source.status,
+        runtime,
+        surfaces: source.surfaces,
+        executorProfiles: source.executorProfiles,
+      },
+      semanticInvariants: [
+        "preserve-status",
+        "preserve-surfaces",
+        "preserve-executor-profiles",
+        "preserve-bearing-state-bytes",
+        "preserve-provider-configuration-bytes",
+        "preserve-execution-profile-bytes",
+        "preserve-managed-instruction-bytes",
+        "zero-native-work-writes",
+        "reuse-only-validated-typed-provider-evidence",
+        "preserve-provider-evidence-freshness-and-failure",
+        "zero-provider-acquisition",
+      ],
+      writeDomains: {
+        canonical: [".bearing/manifest.json"],
+        disposable: [
+          runtime === "development"
+            ? ".bearing/cache/development/project-read-model.sqlite"
+            : ".bearing/cache/project-read-model.sqlite",
+        ],
+      },
+      validation: [
+        "target-manifest",
+        "semantic-invariants",
+        "project-read-model-rebuild",
+        "repository-lifecycle",
+        "repository-diagnostics",
+        "original-operation-retry",
+      ],
+    },
+    guide: "references/journeys/update.md",
+  };
+};
 
 export const inspectRepositoryIntegrationLifecycle = async (
   root: string,
@@ -134,30 +203,18 @@ export const inspectRepositoryIntegrationLifecycle = async (
       runtimeSchemaVersion: 2,
     };
   }
-  const preview010Manifest = preview010ManifestSchema.safeParse(parsed);
-  if (preview010Manifest.success && packageMetadata.version === "0.1.1") {
+  const mappableOlderActiveManifest = olderActiveRepositoryManifestSchema.safeParse(parsed);
+  const targetPackageVersion = validSemver(packageMetadata.version);
+  if (
+    mappableOlderActiveManifest.success &&
+    targetPackageVersion !== null &&
+    compareSemver(mappableOlderActiveManifest.data.packageVersion, targetPackageVersion) < 0
+  ) {
     return {
       kind: "repository-update-required",
       reason:
-        "The repository uses the supported 0.1.0 Preview shape and requires the Agent-guided 0.1.1 repository update.",
-      update: {
-        fromPackageVersion: "0.1.0",
-        toPackageVersion: "0.1.1",
-        guide: "references/journeys/update.md",
-      },
-    };
-  }
-  const developmentLineStart011Manifest = development011RepositoryManifestSchema.safeParse(parsed);
-  if (developmentLineStart011Manifest.success && packageMetadata.version === "0.1.2-dev") {
-    return {
-      kind: "repository-update-required",
-      reason:
-        "The source repository uses the listed active 0.1.1 Development Configuration and requires the Agent-guided 0.1.2-dev Development Line Start update.",
-      update: {
-        fromPackageVersion: "0.1.1",
-        toPackageVersion: "0.1.2-dev",
-        guide: "references/journeys/update.md",
-      },
+        "The repository has safely readable older Active semantics that can be evaluated against this Kit's target contract.",
+      update: repositoryUpdate(mappableOlderActiveManifest.data),
     };
   }
   const lifecycleManifest = repositoryManifestSchema.safeParse(parsed);

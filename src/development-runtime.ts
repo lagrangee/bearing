@@ -14,7 +14,7 @@ import { applyInstallPlans, preflightInstallTargets } from "./installer";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
 import type { RuntimeExecutionContext, RuntimeReceipt } from "./runtime-context";
 import {
-  development011RepositoryManifestSchema,
+  olderActiveRepositoryManifestSchema,
   repositoryManifestSchema,
 } from "./schema-definitions";
 
@@ -277,13 +277,16 @@ export const resolveRepositoryRuntime = async (options: {
     );
   }
   const parsedManifest = repositoryManifestSchema.safeParse(source.value);
-  const legacyDevelopmentManifest = development011RepositoryManifestSchema.safeParse(source.value);
+  const legacyDevelopmentManifest = olderActiveRepositoryManifestSchema.safeParse(source.value);
   const declaresDevelopment =
     typeof source.value === "object" &&
     source.value !== null &&
     "runtime" in source.value &&
     source.value.runtime === "development";
-  if (!parsedManifest.success && !legacyDevelopmentManifest.success) {
+  if (
+    !parsedManifest.success &&
+    (!legacyDevelopmentManifest.success || legacyDevelopmentManifest.data.runtime !== "development")
+  ) {
     if (!declaresDevelopment && (schemaVersion(source.value) ?? 1) !== 2) {
       return stableResolution(
         repositoryRoot,

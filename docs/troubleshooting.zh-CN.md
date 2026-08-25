@@ -99,12 +99,13 @@ Deactivation 保留 canonical state、Provider Configuration、profiles、artifa
 Unsafe `.bearing` namespace 或 manifest 会在任何写入前 fail closed。
 
 Bearing 不提供通用 built-in repository migration、compatibility fallback、Purge、cutover、
-recovery export 或 quarantine path。列明支持的旧 Preview source 可以返回
-`repository-update-required`；Agent follow package-owned guide，展示完整 semantic effect，并等待
-Human 确认。Agent 验证 canonical state，只应用 guide 中已接受的 write scope，然后重建
-disposable Project Read Model；不要编辑 SQLite rows。较新的 repository 返回
-`kit-update-required` 并保持 repository bytes 不变。未知或损坏 state 保持 Unsupported 且不变。
-如果 Human 另行选择 repository removal，先检查 exact paths 并取得显式授权。不要用
+recovery export 或 quarantine path。语义可安全读取的 older repository 可以返回
+`repository-update-required` 与 installed Kit 的完整 target contract；source version 只作为
+provenance，不是 migration dispatch key。Agent follow package-owned guide，展示一个简洁、完整的
+candidate，并等待 Human 确认。Agent 保留 canonical state，只写 target manifest，然后在不执行
+provider acquisition 的情况下重建 disposable Project Read Model；不要编辑 SQLite rows。较新的
+repository 返回 `kit-update-required` 并保持 repository bytes 不变。未知或损坏 state 保持
+Unsupported 且不变。如果 Human 另行选择 repository removal，先检查 exact paths 并取得显式授权。不要用
 `catalog unregister` 代替 repository removal。
 
 显式 `bearing uninstall` 只移除 Global Kit bundle、CLI shim 与 Bearing-managed Agent Surface

@@ -114,13 +114,14 @@ bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanTok
 
 Deactivation removes the managed pointer and disposable cache. It preserves canonical state,
 Provider Configuration, profiles, artifacts, and native work. Catalog unregister is a later,
-independently reported stage. One listed older Preview source can return Repository Update Required
-with a package-owned, Human-confirmed semantic update guide. The Agent validates canonical state
-and updates it only when that guide requires a semantic change; the disposable Project Read Model
-is rebuilt, not migrated. Newer state returns Kit Update Required. Unknown or corrupt state remains
-Unsupported and unchanged. Bearing has no generic built-in migration, compatibility
-fallback, cutover, silent repair, or repository Purge. Repository removal is a separate, explicitly
-authorized, Agent-reviewed platform operation.
+independently reported stage. A safely readable older repository can return Repository Update
+Required with the installed Kit's complete target contract and a Human-confirmed semantic update
+guide. Source version remains provenance rather than a migration dispatch key. The Agent preserves
+canonical state and writes only the target manifest; the disposable Project Read Model is rebuilt,
+not migrated, without provider acquisition. Newer state returns Kit Update Required. Unknown or
+corrupt state remains Unsupported and unchanged. Bearing has no generic built-in migration,
+compatibility fallback, cutover, silent repair, or repository Purge. Repository removal is a
+separate, explicitly authorized, Agent-reviewed platform operation.
 
 The managed pointer gives contextual nomination guidance. Explicit Bearing requests, reliable
 direct continuations, and reasonable material planning or governance relevance can nominate

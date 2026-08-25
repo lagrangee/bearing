@@ -17,7 +17,10 @@ import { validateMattSkillsV1Contract } from "./providers/matt-skills-v1";
 import type { ReconcileRepositoryResult } from "./reconcile-repository";
 import { reconcileRepository } from "./reconcile-repository";
 import { deactivateRepository, type RepositoryDeactivationResult } from "./repository-deactivation";
-import { inspectRepositoryIntegrationLifecycle } from "./repository-integration-lifecycle";
+import {
+  inspectRepositoryIntegrationLifecycle,
+  type RepositoryUpdateContract,
+} from "./repository-integration-lifecycle";
 import {
   captureRepositoryTargetPreconditions,
   planRepositoryIntegration,
@@ -74,11 +77,7 @@ export type RepositoryConfigurationInspection = Readonly<{
       | "unsupported";
     reason: string;
     removalRequired: boolean;
-    update?: Readonly<{
-      fromPackageVersion: string;
-      toPackageVersion: string;
-      guide: "references/journeys/update.md";
-    }>;
+    update?: RepositoryUpdateContract;
     repositorySchemaVersion?: number;
     runtimeSchemaVersion?: 2;
   }>;

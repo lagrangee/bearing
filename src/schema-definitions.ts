@@ -416,14 +416,11 @@ export const repositoryManifestSchema = manifestSchema.extend({
   status: z.enum(["active", "deactivated"]),
 });
 
-export const development011RepositoryManifestSchema = z.strictObject({
+export const olderActiveRepositoryManifestSchema = z.strictObject({
   schemaVersion: z.literal(1),
-  packageVersion: z.literal("0.1.1"),
+  packageVersion: manifestSchema.shape.packageVersion,
   status: z.literal("active"),
-  runtime: z.literal("development"),
-  surfaces: uniqueArray(z.enum(["agent-skills", "claude"])).refine(
-    (surfaces) => surfaces.length > 0,
-    { message: "Select at least one Agent Surface." },
-  ),
-  executorProfiles: uniqueArray(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)),
+  runtime: manifestSchema.shape.runtime.optional(),
+  surfaces: manifestSchema.shape.surfaces,
+  executorProfiles: manifestSchema.shape.executorProfiles,
 });

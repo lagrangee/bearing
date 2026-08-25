@@ -739,8 +739,21 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
         state: "repository-update-required",
         removalRequired: false,
         update: {
-          fromPackageVersion: "0.1.1",
-          toPackageVersion: "0.1.2-dev",
+          source: { schemaVersion: 1, packageVersion: "0.1.1" },
+          target: {
+            manifest: {
+              schemaVersion: 2,
+              packageVersion: "0.1.2-dev",
+              status: "active",
+              runtime: "development",
+              surfaces: ["agent-skills"],
+              executorProfiles: [profileKey],
+            },
+            writeDomains: {
+              canonical: [".bearing/manifest.json"],
+              disposable: [".bearing/cache/development/project-read-model.sqlite"],
+            },
+          },
           guide: "references/journeys/update.md",
         },
       },
@@ -843,7 +856,14 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
     const stableOldConfiguration = await product.run(["configure", "inspect", "--repo", root]);
     expect(stableOldConfiguration.exitClass).toBe("success");
     expect(JSON.parse(stableOldConfiguration.stdout)).toMatchObject({
-      lifecycle: { state: "unsupported", removalRequired: true },
+      lifecycle: {
+        state: "repository-update-required",
+        removalRequired: false,
+        update: {
+          source: { packageVersion: "0.1.1" },
+          target: { manifest: { packageVersion: "0.1.2-dev", runtime: "stable" } },
+        },
+      },
     });
 
     await writeFile(
@@ -874,7 +894,14 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
     const mixedPreview = await product.run(["configure", "inspect", "--repo", root]);
     expect(mixedPreview.exitClass).toBe("success");
     expect(JSON.parse(mixedPreview.stdout)).toMatchObject({
-      lifecycle: { state: "unsupported", removalRequired: true },
+      lifecycle: {
+        state: "repository-update-required",
+        removalRequired: false,
+        update: {
+          source: { packageVersion: "0.1.0" },
+          target: { manifest: { packageVersion: "0.1.2-dev", runtime: "stable" } },
+        },
+      },
     });
 
     for (const duplicateManifest of [
@@ -920,6 +947,177 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
     const help = await product.run(["--help"]);
     expect(help.stdout).toContain("bearing configure inspect");
     expect(help.stdout).not.toMatch(/bearing (?:setup|activation|deactivate|purge)\b/u);
+  } finally {
+    await product.dispose();
+  }
+}, 60_000);
+
+test("active Repository Update follows the installed target contract and retries the original operation", async () => {
+  const product = await installPackedProduct();
+  const root = join(product.root, "active-repository-update");
+  const nativeReference = ".scratch/work/issues/01-finish.md";
+  await writeStandardMattLocalRepository(root);
+  const args = activateArguments(root);
+  try {
+    const reviewed = await plan(product, args);
+    const token = reviewed["sealedPlanToken"];
+    if (typeof token !== "string") throw new Error("Configure plan returned no seal.");
+    const applied = await apply(product, args, token);
+    expect(applied.exitClass, applied.stderr).toBe("success");
+
+    await writeValidBearingState(root);
+    const profileKey = "agent-skills-fixture";
+    await mkdir(join(root, ".bearing/executor-profiles"), { recursive: true });
+    await writeFile(
+      join(root, `.bearing/executor-profiles/${profileKey}.md`),
+      renderExecutionProfile({
+        profileKey,
+        displayName: "/fixture",
+        surface: "agent-skills",
+        capabilityLocator: "agent-skills:fixture",
+        nativeArtifacts: ["Verified implementation output."],
+        writebackBehavior: "Record the verified execution outcome.",
+      }),
+    );
+    await writeFile(
+      join(root, ".bearing/manifest.json"),
+      `${JSON.stringify({
+        schemaVersion: 2,
+        packageVersion: "0.1.2-dev",
+        status: "active",
+        runtime: "stable",
+        surfaces: ["agent-skills"],
+        executorProfiles: [profileKey],
+      })}\n`,
+    );
+    const prepared = await product.run(["cache", "rebuild", "--repo", root]);
+    expect(prepared.exitClass, prepared.stderr).toBe("success");
+    const captured = await product.run([
+      "provider",
+      "capture",
+      "--scope",
+      ".scratch/work",
+      "--repo",
+      root,
+    ]);
+    expect(captured.exitClass, captured.stderr).toBe("success");
+    const baseline = await product.run(["inspect", "--native", nativeReference, "--repo", root]);
+    expect(baseline.exitClass, baseline.stderr).toBe("success");
+    const baselineBinding = JSON.parse(baseline.stdout).result.binding;
+    expect(baselineBinding).toMatchObject({ effectiveFreshness: "current" });
+
+    const preservedBefore = await snapshotOwnerBytes(root);
+    await writeFile(
+      join(root, ".bearing/manifest.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.1",
+        status: "active",
+        surfaces: ["agent-skills"],
+        executorProfiles: [profileKey],
+      })}\n`,
+    );
+
+    const originalAttempt = await product.run(
+      ["inspect", "--native", nativeReference, "--repo", root],
+      { observeRoots: [root] },
+    );
+    expect(originalAttempt.exitClass).toBe("product-outcome");
+    expect(originalAttempt.stderr).toMatch(/repository-update-required/iu);
+    expect(originalAttempt.effects).toEqual({ created: [], changed: [], removed: [] });
+
+    const inspected = await product.run(["configure", "inspect", "--repo", root], {
+      observeRoots: [root],
+    });
+    expect(inspected.exitClass, inspected.stderr).toBe("success");
+    expect(inspected.effects).toEqual({ created: [], changed: [], removed: [] });
+    const inspection = JSON.parse(inspected.stdout);
+    expect(inspection).toMatchObject({
+      lifecycle: {
+        state: "repository-update-required",
+        update: {
+          source: { schemaVersion: 1, packageVersion: "0.1.1" },
+          target: {
+            requiredManifestFields: [
+              "schemaVersion",
+              "packageVersion",
+              "status",
+              "runtime",
+              "surfaces",
+              "executorProfiles",
+            ],
+            manifest: {
+              schemaVersion: 2,
+              packageVersion: "0.1.2-dev",
+              status: "active",
+              runtime: "stable",
+              surfaces: ["agent-skills"],
+              executorProfiles: [profileKey],
+            },
+            semanticInvariants: expect.arrayContaining([
+              "preserve-bearing-state-bytes",
+              "preserve-provider-configuration-bytes",
+              "preserve-execution-profile-bytes",
+              "preserve-managed-instruction-bytes",
+              "zero-native-work-writes",
+              "preserve-provider-evidence-freshness-and-failure",
+              "zero-provider-acquisition",
+            ]),
+            writeDomains: {
+              canonical: [".bearing/manifest.json"],
+              disposable: [".bearing/cache/project-read-model.sqlite"],
+            },
+            validation: expect.arrayContaining([
+              "target-manifest",
+              "project-read-model-rebuild",
+              "repository-lifecycle",
+              "repository-diagnostics",
+              "original-operation-retry",
+            ]),
+          },
+          guide: "references/journeys/update.md",
+        },
+      },
+    });
+
+    await writeFile(
+      join(root, ".bearing/manifest.json"),
+      `${JSON.stringify(inspection.lifecycle.update.target.manifest)}\n`,
+    );
+    const rebuilt = await product.run(["cache", "rebuild", "--repo", root]);
+    expect(rebuilt.exitClass, rebuilt.stderr).toBe("success");
+    expect(JSON.parse(rebuilt.stdout)).toMatchObject({
+      outcome: "complete",
+      result: { acquisitionCount: 0, missingEvidenceScopes: [] },
+      diagnostics: [],
+    });
+    expect(await snapshotOwnerBytes(root)).toEqual(preservedBefore);
+
+    const diagnostics = await product.run(["inspect", "diagnostics", "--repo", root]);
+    expect(diagnostics.exitClass, diagnostics.stderr).toBe("success");
+    expect(JSON.parse(diagnostics.stdout)).toMatchObject({ outcome: "complete", diagnostics: [] });
+    const lifecycle = await product.run(["configure", "inspect", "--repo", root]);
+    expect(lifecycle.exitClass, lifecycle.stderr).toBe("success");
+    expect(JSON.parse(lifecycle.stdout)).toMatchObject({
+      lifecycle: { state: "active", removalRequired: false },
+      currentSelections: {
+        runtime: "stable",
+        surfaces: ["agent-skills"],
+        executorProfiles: [profileKey],
+      },
+    });
+
+    const retried = await product.run(["inspect", "--native", nativeReference, "--repo", root]);
+    expect(retried.exitClass, retried.stderr).toBe("success");
+    expect(JSON.parse(retried.stdout)).toMatchObject({
+      outcome: "complete",
+      result: {
+        binding: {
+          observationId: baselineBinding.observationId,
+          effectiveFreshness: "current",
+        },
+      },
+    });
   } finally {
     await product.dispose();
   }

@@ -107,10 +107,11 @@ bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanTok
 
 Deactivation 移除 managed pointer 与 disposable cache。它保留 canonical state、Provider
 Configuration、profiles、artifacts 与 native work。Catalog unregister 是后续独立报告的 stage。
-一个列明的旧 Preview source 可以返回 Repository Update Required，并提供 package-owned、
-Human-confirmed semantic update guide。Agent 验证 canonical state，只在 guide 要求语义变化时
-更新它，并重建而非迁移 disposable Project Read Model。较新的 state 返回 Kit Update Required；
-未知或损坏的 state 保持 Unsupported 且不变。Bearing
+语义可安全读取的 older repository 可以返回 Repository Update Required，同时提供 installed Kit
+的完整 target contract 与需要 Human 确认的 semantic update guide。Source version 只作为
+provenance，不是 migration dispatch key。Agent 保留 canonical state，只写 target manifest，
+并在不进行 provider acquisition 的情况下重建而非迁移 disposable Project Read Model。较新的
+state 返回 Kit Update Required；未知或损坏的 state 保持 Unsupported 且不变。Bearing
 不提供通用 built-in migration、compatibility fallback、cutover、silent repair 或 repository
 Purge。Repository removal 是独立、显式授权、由 Agent 审阅的 platform operation。
 

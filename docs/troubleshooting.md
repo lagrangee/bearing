@@ -101,12 +101,13 @@ reports a failure separately. An unsafe `.bearing` namespace or manifest fails c
 write.
 
 Bearing has no generic built-in repository migration, compatibility fallback, Purge, cutover,
-recovery export, or quarantine path. A listed supported older Preview source can return
-`repository-update-required`; follow the package-owned guide, show the complete semantic effect,
-and wait for Human confirmation. Validate canonical state, apply only the guide's accepted write
-scope, then rebuild the disposable Project Read Model. Do not edit SQLite rows. A newer repository
-returns `kit-update-required` and keeps repository bytes unchanged. Unknown or corrupt state
-remains Unsupported and unchanged. If the Human separately chooses
+recovery export, or quarantine path. Safely readable older repository meaning can return
+`repository-update-required` with the installed Kit's complete target contract; source version is
+provenance, not a migration dispatch key. Follow the package-owned guide, show one concise complete
+candidate, and wait for Human confirmation. Preserve canonical state, write only the target
+manifest, then rebuild the disposable Project Read Model without provider acquisition. Do not edit
+SQLite rows. A newer repository returns `kit-update-required` and keeps repository bytes unchanged.
+Unknown or corrupt state remains Unsupported and unchanged. If the Human separately chooses
 repository removal, inspect exact paths and obtain explicit authorization. Do not use
 `catalog unregister` as a substitute for repository removal.
 

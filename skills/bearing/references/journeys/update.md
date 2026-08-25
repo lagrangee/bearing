@@ -2,68 +2,77 @@
 
 ## Applicability
 
-Use only when the requested functional operation returns `repository-update-required` with a
-supported source identity, target package version, and this guide from the installed Skill bundle.
-The installed Kit defines the target schema. This guide lists every source identity it supports;
-unlisted, corrupt, or semantically uncertain state is Unsupported.
+Use only when the requested functional operation returns `repository-update-required` together
+with this installed Kit's complete target contract and this guide. Source package version is
+provenance and a newer-state safety boundary; it is never a migration dispatch key. The Agent must
+establish that the actual older repository meaning maps to the target without loss, ambiguity, or
+expanded authority. Otherwise stop unchanged as Invalid or Unsupported.
 
 ## Authority
 
-The Human authorizes one complete visible repository update candidate. The Agent owns semantic
-updates to canonical Bearing State and chooses the proportionate edit and safety method.
-Deterministic Modules own lifecycle identity, schema validation, contained readback, and rebuilding
-the disposable Project Read Model.
+The Human authorizes one complete visible Repository Update candidate. The Agent owns semantic
+interpretation and the single target-manifest write. Deterministic Modules own lifecycle identity,
+target validation, contained readback, and the disposable Project Read Model rebuild.
 
 Repository Update and Global Kit maintenance have separate owners and write scopes. A
-`repository-update-required` result proves that the installed Kit supports this repository update;
-it does not authorize or provide evidence for Global Kit maintenance.
+`repository-update-required` result supplies current target facts; it does not authorize or provide
+evidence for Global Kit maintenance. Repository Update has no authority to mutate provider-owned
+native work.
+
+## Target contract
+
+- **Required target fields:** `schemaVersion`, `packageVersion`, `status`, `runtime`, `surfaces`, and
+  `executorProfiles`. Use the exact target manifest values returned by current lifecycle inspection.
+- **Semantic invariants:** Preserve lifecycle status, selected surfaces, and executor profiles.
+  Preserve canonical Bearing State, Provider Configuration, Execution Profiles, and managed
+  instruction content byte-for-byte. Provider-owned native work receives zero writes.
+- **Bounded write domains:** The only canonical repository write is `.bearing/manifest.json`. The
+  only other allowed write is the runtime-selected disposable Project Read Model named by the
+  target contract.
+- **Validation:** Validate the complete target manifest and every preserved invariant, rebuild the
+  disposable Project Read Model with zero provider acquisition, then validate lifecycle and
+  diagnostics before retrying the original functional operation.
+
+The contract contains no old-version-to-new-version routes. A safely decoded older Active schema-1
+manifest is eligible only when its canonical SemVer is older than the installed target and all of
+its actual semantics can be preserved. Missing Stable runtime meaning maps to explicit `stable`;
+explicit `development` remains `development`. Do not silently convert runtime meaning.
 
 ## Operation
 
-1. Match the typed source identity to one supported source below. Read its target schema, semantic
-   invariants, write scope, and validation. Preserve all repository bytes when the identity is not
-   exact. Completion: one supported source contract is selected or the operation stops unchanged.
-2. Inspect every candidate write and every invariant before mutation. Show one complete candidate
-   with the semantic changes, manifest effect, preserved meaning, disposable cache rebuild, and
-   validation. Ask for Human confirmation before any write. A later acceptance is valid only after
-   this complete candidate is visible. Completion: one bounded candidate is accepted or the
-   repository remains unchanged.
-3. Apply the accepted semantic update. The Agent chooses the edit order and proportionate safety
-   method; no standard backup format, migration journal, or command sequence is required. Repair
-   only its accepted write scope and continue autonomously while the same authority remains valid.
-   Completion: current bytes prove the complete old state or the complete target state; otherwise
-   stop with one actionable blocked boundary.
-4. Validate the complete target schema and every semantic invariant. Rebuild the disposable Project
-   Read Model from the validated target state instead of editing or migrating SQLite rows. Internal
-   partial facts are not a Human workflow: diagnose and continue within the accepted boundary.
-   Completion: the target state and current Project Read Model validate, or one external,
-   ambiguous, or new-authority blocker is visible.
-5. Retry the original functional operation from current typed facts. Completion: the original
-   request completes against the target repository state or stops at the actionable blocker.
-
-## Supported source identities
-
-### Source repository 0.1.1 Active Development Configuration to target Kit 0.1.2-dev
-
-- **Source identity:** `schemaVersion` is `1`, `packageVersion` is `0.1.1`, `status` is `active`,
-  `runtime` is `development`, `surfaces` is a non-empty unique list of supported Agent Surfaces,
-  `executorProfiles` is a unique list of valid profile IDs, and no other manifest field exists.
-  This source is supported only by the exact `0.1.2-dev` Development Kit.
-- **Target schema:** Set `schemaVersion` to `2`, preserve `status`, `surfaces`, and
-  `executorProfiles`, preserve `runtime` as `development`, set `packageVersion` to `0.1.2-dev`, and
-  add no other manifest field.
-- **Semantic invariants:** Canonical Bearing State, Provider Configuration, provider-owned native
-  work, Execution Profiles, and managed instruction content stay byte-for-byte unchanged.
-- **Write scope:** `.bearing/manifest.json` and the disposable Development Project Read Model only.
-- **Validation:** Read back the target manifest and every preserved invariant, run the selected
-  disposable Project Read Model rebuild, then re-run lifecycle and diagnostics. The old SQLite file
-  is not update input, and rebuild performs no provider acquisition.
+1. Read the lifecycle target contract and the actual repository meaning. Separate established
+   facts from ambiguity. Verify every required field, semantic invariant, bounded write domain, and
+   validation step. Do not select behavior from the source version. Completion: the mapping is
+   complete and lossless, or the repository remains unchanged.
+2. Show one concise candidate in the Human's language. State the target effect, what repository
+   meaning stays preserved, and that the next action is to rebuild the local Project Read Model and
+   continue the original request. Do not show checksum dumps, the full manifest, internal
+   checklists, or a recovery tree. Obtain one Human confirmation before any write. Completion: the
+   complete bounded candidate is accepted or the repository remains unchanged.
+3. Immediately before writing, re-read every exact source byte and path precondition used by the
+   candidate. A material source change invalidates the acceptance: perform no write until the Agent
+   re-evaluates the current facts, presents the changed candidate, and obtains confirmation again.
+   Write only the exact target manifest. Completion: readback proves that one canonical write and
+   every byte-preservation invariant, or stop at one actionable blocker.
+4. Validate the target manifest. For an Active target, run `bearing cache rebuild --repo
+   <repo-root>` once. Reuse only validated typed provider evidence and preserve its freshness and
+   failure meaning. Never acquire provider data or copy, edit, or migrate raw SQLite rows. Then run
+   lifecycle inspection and `bearing inspect diagnostics --repo <repo-root>`. Completion: target,
+   disposable view, lifecycle, and diagnostics validate, or one exact resumption point is visible.
+5. Retry the original functional operation from current typed facts and return that operation's
+   outcome. Do not replace it with the Repository Update receipt.
 
 ## After this operation
 
-- **Required:** `kit-update-required` keeps repository bytes unchanged and routes to a separately
-  authorized Global Kit update. It is not a Repository Update source identity.
-- **Required:** Unknown bytes, an unlisted source, a missing guide, or semantic uncertainty remains
-  Unsupported and unchanged.
-- **Do not infer:** Package version alone proves canonical meaning, provider observation, event
-  time, or successful update.
+- **Required:** A newer repository remains unchanged and routes to separately authorized Global Kit
+  Update.
+- **Required:** Corrupt, unreadable, unsafe, semantically ambiguous, or authority-expanding state
+  remains unchanged as Invalid or Unsupported.
+- **Do not infer:** Package version, successful rebuild, diagnostics, or the retried operation alone
+  proves planning acceptance, Effort conclusion, Gate passage, or Roadmap completion.
+
+## Completion criterion
+
+One accepted target-driven candidate produced only the bounded target writes, validation completed
+without provider acquisition, and the original functional operation returned its own truthful
+outcome.

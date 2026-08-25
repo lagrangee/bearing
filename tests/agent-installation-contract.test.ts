@@ -92,21 +92,34 @@ test("public installation guidance describes the same explicit basic CLI contrac
   }
 });
 
-test("installed Skill and public CLI guidance describe explicit schema-2 Runtime targets", async () => {
-  const [configure, update, cli, cliZh] = await Promise.all([
+test("installed Skill and public guidance describe target-driven repository updates", async () => {
+  const [configure, update, cli, cliZh, troubleshooting, troubleshootingZh] = await Promise.all([
     read("skills/bearing/references/journeys/configure.md"),
     read("skills/bearing/references/journeys/update.md"),
     read("docs/cli.md"),
     read("docs/cli.zh-CN.md"),
+    read("docs/troubleshooting.md"),
+    read("docs/troubleshooting.zh-CN.md"),
   ]);
 
   expect(configure).toMatch(/schema 2[\s\S]*explicit `runtime`/iu);
   expect(configure).toMatch(/public Stable[\s\S]*`stable`/iu);
   expect(configure).toMatch(/Development Runtime[\s\S]*`development`/iu);
   expect(configure).toMatch(/Do not ask the Human[\s\S]*migration mode/iu);
-  expect(update).toMatch(/Target schema:[\s\S]*`schemaVersion` to `2`/iu);
-  expect(update).toMatch(/`runtime` as `development`/iu);
+  expect(update).toMatch(/Required target fields:[\s\S]*`schemaVersion`[\s\S]*`runtime`/iu);
+  expect(update).toMatch(/Semantic invariants:[\s\S]*byte-for-byte/iu);
+  expect(update).toMatch(/Bounded write domains:[\s\S]*\.bearing\/manifest\.json/iu);
+  expect(update).toMatch(/one Human confirmation before any write/iu);
+  expect(update).toMatch(/material source change invalidates the acceptance/iu);
+  expect(update).toMatch(/zero provider acquisition[\s\S]*original functional operation/iu);
+  expect(update).not.toMatch(/Supported source identities|Source repository 0\.1\.1/iu);
 
   expect(cli).toMatch(/schema 2[\s\S]*`runtime: stable`/iu);
+  expect(cli).toMatch(/target contract[\s\S]*provenance[\s\S]*migration dispatch key/iu);
   expect(cliZh).toMatch(/schema 2[\s\S]*`runtime: stable`/iu);
+  expect(cliZh).toMatch(/target contract[\s\S]*provenance[\s\S]*migration dispatch key/iu);
+  for (const document of [troubleshooting, troubleshootingZh]) {
+    expect(document).toMatch(/target contract[\s\S]*provenance[\s\S]*migration dispatch key/iu);
+    expect(document).not.toMatch(/listed supported older Preview|列明支持的旧 Preview/iu);
+  }
 });
