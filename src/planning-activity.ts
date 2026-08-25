@@ -39,6 +39,14 @@ export const planningActivityInterval = (
   date: string,
   timeZone: string,
 ): PlanningActivityInterval => {
+  const canonicalTimeZone = new Intl.DateTimeFormat("en-US", { timeZone }).resolvedOptions()
+    .timeZone;
+  if (
+    canonicalTimeZone !== "UTC" &&
+    !Intl.supportedValuesOf("timeZone").includes(canonicalTimeZone)
+  ) {
+    throw new RangeError("Expected an IANA time zone.");
+  }
   const localDate = Temporal.PlainDate.from(date);
   const start = localDate.toZonedDateTime(timeZone).toInstant();
   const end = localDate.add({ days: 1 }).toZonedDateTime(timeZone).toInstant();
@@ -129,8 +137,10 @@ const availableNativeTimeInside = (
   interval: PlanningActivityInterval,
 ): time is AvailableNativeTime =>
   time?.availability === "available" &&
-  Temporal.Instant.compare(time.value, interval.startInclusive) >= 0 &&
-  Temporal.Instant.compare(time.value, interval.endExclusive) < 0;
+  (time.precision === "date"
+    ? time.value === interval.date
+    : Temporal.Instant.compare(time.value, interval.startInclusive) >= 0 &&
+      Temporal.Instant.compare(time.value, interval.endExclusive) < 0);
 
 const trackerClosureTime = (object: MattProjectedObject): ProjectedNativeTime | undefined => {
   if (object.kind === "map" || object.kind === "spec") return undefined;
@@ -312,7 +322,10 @@ export const queryPlanningActivity = (
     const hasGovernanceEvent = efforts.some((candidate) => candidate.reference === effort.id);
     if (effort.lifecycle !== "active" && !hasGovernanceEvent && nativeEvents.length === 0)
       return [];
-    if (effort.lifecycle !== "planned" && effort.workBindingState.state !== "bound") {
+    if (
+      effort.workBindingState.state === "invalid" ||
+      (effort.lifecycle !== "planned" && effort.workBindingState.state !== "bound")
+    ) {
       activityDiagnostics.push(
         activityDiagnostic(
           `activity-binding-${effort.workBindingState.state === "invalid" ? effort.workBindingState.reason : "unavailable"}`,

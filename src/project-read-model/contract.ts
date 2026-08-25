@@ -36,6 +36,7 @@ import {
   sameMattNativeBindingDefinition,
 } from "../providers/matt-skills-v1/native-subject";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
+import { sourceEventTimePrecision, sourceOwnedEventTimeValueSchema } from "../source-event-time";
 
 export const PROJECT_READ_MODEL_STORAGE_VERSION = 1 as const;
 export const PROJECT_READ_MODEL_PROJECTION_VERSION = 10 as const;
@@ -503,11 +504,20 @@ const nativeActivityItemSchema = z.strictObject({
   currentTitle: z.string().min(1),
   subjectKind: z.enum(["wayfinder-ticket", "delivery-ticket", "incoming-issue"]),
   event: z.enum(["native-created", "tracker-closed"]),
-  occurredAt: z.strictObject({
-    availability: z.literal("available"),
-    value: z.string().datetime({ offset: true }),
-    precision: z.enum(["second", "fractional-second"]),
-  }),
+  occurredAt: z
+    .strictObject({
+      availability: z.literal("available"),
+      value: sourceOwnedEventTimeValueSchema,
+      precision: z.enum(["date", "second", "fractional-second"]),
+    })
+    .superRefine((time, context) => {
+      if (time.precision === sourceEventTimePrecision(time.value)) return;
+      context.addIssue({
+        code: "custom",
+        path: ["precision"],
+        message: "Native activity time precision must describe the exact source value.",
+      });
+    }),
   timeBasis: z.enum(["source-event", "inferred-source-metadata"]),
 });
 

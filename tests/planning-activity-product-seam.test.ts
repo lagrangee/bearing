@@ -84,7 +84,11 @@ const promoteOneCapturedTicketToSourceEventEvidence = (root: string): void => {
           owner: "example",
           repository: "activity",
         },
-        createdAt: sourceTime(ticket.native.createdAt),
+        createdAt: {
+          ...sourceTime(ticket.native.createdAt),
+          value: ticket.native.createdAt.value.slice(0, 10),
+          precision: "date",
+        },
         lastUpdated: sourceTime(ticket.native.lastUpdated),
         trackerClosure: sourceClosure,
         sourceAnchors: ticket.native.sourceAnchors,
@@ -295,7 +299,14 @@ test("packed product inspects committed governance activity without effects", as
       ],
       { cwd: fixture.root, observeRoots: [fixture.root] },
     );
-    expect(JSON.parse(targetDayConditional.stdout).result.efforts).toHaveLength(9);
+    const targetDayConditionalEnvelope = JSON.parse(targetDayConditional.stdout);
+    expect(targetDayConditionalEnvelope.result.efforts).toHaveLength(9);
+    expect(targetDayConditionalEnvelope.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "activity-binding-lifecycle-conflict",
+        target: "effort:e008",
+      }),
+    );
     const emptyNextDay = await product.run(
       [
         "inspect",
@@ -367,7 +378,11 @@ test("packed product inspects committed governance activity without effects", as
           },
         },
         items: expect.arrayContaining([
-          expect.objectContaining({ event: "native-created", timeBasis: "source-event" }),
+          expect.objectContaining({
+            event: "native-created",
+            occurredAt: expect.objectContaining({ precision: "date", value: nativeDate }),
+            timeBasis: "source-event",
+          }),
           expect.objectContaining({ event: "tracker-closed", timeBasis: "source-event" }),
         ]),
         omittedItemCount: 0,

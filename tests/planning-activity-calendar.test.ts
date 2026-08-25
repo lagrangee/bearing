@@ -25,4 +25,5 @@ test("converts one local calendar date to an exact UTC half-open interval", () =
 test("rejects invalid dates and IANA time zones", () => {
   expect(() => planningActivityInterval("2026-02-30", "UTC")).toThrow();
   expect(() => planningActivityInterval("2026-03-08", "Not/A_Zone")).toThrow();
+  expect(() => planningActivityInterval("2026-03-08", "+08:00")).toThrow();
 });
