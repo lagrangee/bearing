@@ -39,14 +39,10 @@ export const planningActivityInterval = (
   date: string,
   timeZone: string,
 ): PlanningActivityInterval => {
-  const canonicalTimeZone = new Intl.DateTimeFormat("en-US", { timeZone }).resolvedOptions()
-    .timeZone;
-  if (
-    canonicalTimeZone !== "UTC" &&
-    !Intl.supportedValuesOf("timeZone").includes(canonicalTimeZone)
-  ) {
+  if (timeZone.startsWith("+") || timeZone.startsWith("-")) {
     throw new RangeError("Expected an IANA time zone.");
   }
+  new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date(0));
   const localDate = Temporal.PlainDate.from(date);
   const start = localDate.toZonedDateTime(timeZone).toInstant();
   const end = localDate.add({ days: 1 }).toZonedDateTime(timeZone).toInstant();
@@ -299,13 +295,16 @@ export const queryPlanningActivity = (
   const evidence = boundProviderEvidence(database);
   let remainingItemBudget = 20;
   const effortActivity = effortRecords.flatMap((effort) => {
+    const workBinding = effort.workBinding;
+    const canLocateDeclaredEvidence =
+      effort.workBindingState.state === "bound" ||
+      (effort.workBindingState.state === "invalid" &&
+        effort.workBindingState.reason === "lifecycle-conflict");
     const selected =
-      effort.workBinding === undefined || effort.workBindingState.state !== "bound"
+      workBinding === undefined || !canLocateDeclaredEvidence
         ? undefined
-        : evidence.find(
-            (candidate) =>
-              effort.workBinding !== undefined &&
-              sameMattNativeBindingDefinition(candidate.selection, effort.workBinding),
+        : evidence.find((candidate) =>
+            sameMattNativeBindingDefinition(candidate.selection, workBinding),
           );
     const observation = selected?.observation;
     const context =
@@ -318,9 +317,11 @@ export const queryPlanningActivity = (
           )
         : undefined;
     const attributable = context?.state === "bound";
-    const nativeEvents = attributable ? nativeEventsFor(observation, interval) : [];
+    const observedNativeEvents =
+      observation === undefined ? [] : nativeEventsFor(observation, interval);
+    const nativeEvents = attributable ? observedNativeEvents : [];
     const hasGovernanceEvent = efforts.some((candidate) => candidate.reference === effort.id);
-    if (effort.lifecycle !== "active" && !hasGovernanceEvent && nativeEvents.length === 0)
+    if (effort.lifecycle !== "active" && !hasGovernanceEvent && observedNativeEvents.length === 0)
       return [];
     if (
       effort.workBindingState.state === "invalid" ||

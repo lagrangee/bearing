@@ -14,14 +14,14 @@ const addGovernanceTimes = async (root: string): Promise<void> => {
     roadmapPath,
     (await readFile(roadmapPath, "utf8")).replace(
       "Status: active\n",
-      "Status: active\nStarted at: 2026-08-09T00:00:00Z\n",
+      "Status: active\nStarted at: 2026-08-08T16:00:00Z\n",
     ),
   );
   await writeFile(
     gatePath,
     (await readFile(gatePath, "utf8")).replace(
       "Status: active\n",
-      "Status: active\nPlanned at: 2026-08-09T01:00:00Z\nActivated at: 2026-08-09T02:00:00Z\n",
+      "Status: active\nPlanned at: 2026-08-09T16:00:00Z\nActivated at: 2026-08-09T02:00:00Z\n",
     ),
   );
   await writeFile(
@@ -232,18 +232,15 @@ test("packed product inspects committed governance activity without effects", as
                 event: "roadmap-started",
                 occurredAt: {
                   availability: "available",
-                  value: "2026-08-09T00:00:00Z",
+                  value: "2026-08-08T16:00:00Z",
                   precision: "second",
                 },
               },
             ],
           },
           gates: {
-            total: 2,
-            items: [
-              expect.objectContaining({ reference: "gate:g001", event: "gate-planned" }),
-              expect.objectContaining({ reference: "gate:g001", event: "gate-activated" }),
-            ],
+            total: 1,
+            items: [expect.objectContaining({ reference: "gate:g001", event: "gate-activated" })],
           },
           efforts: {
             total: 2,

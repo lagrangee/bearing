@@ -20,6 +20,12 @@ test("converts one local calendar date to an exact UTC half-open interval", () =
     startInclusive: "2026-11-01T04:00:00Z",
     endExclusive: "2026-11-02T05:00:00Z",
   });
+  expect(planningActivityInterval("2026-03-08", "US/Eastern")).toEqual({
+    date: "2026-03-08",
+    timeZone: "US/Eastern",
+    startInclusive: "2026-03-08T05:00:00Z",
+    endExclusive: "2026-03-09T04:00:00Z",
+  });
 });
 
 test("rejects invalid dates and IANA time zones", () => {

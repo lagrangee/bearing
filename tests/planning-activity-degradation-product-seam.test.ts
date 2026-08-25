@@ -246,6 +246,12 @@ test("packed activity inspection preserves useful facts through degraded evidenc
           ...secondEffortValue,
           workBinding: firstEffortValue.workBinding,
           workBindingState: { state: "bound" },
+          lifecycle: "concluded",
+          conclusion: {
+            disposition: "completed",
+            rationale: "Fixture concluded Effort.",
+            concludedAt: { availability: "unavailable" },
+          },
         }),
       );
     database
