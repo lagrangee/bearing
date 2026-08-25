@@ -111,6 +111,12 @@ const expectNoUnknownReferencePath = (document: MarkdownDocument): void => {
   expect(remainder).not.toContain("references/");
 };
 
+const semanticTokens = (cell: string | undefined): string[] =>
+  cell
+    ?.split(";")
+    .map((token) => token.trim())
+    .sort() ?? [];
+
 describe("public Bearing Agent surface", () => {
   test("ships the exact one-root, one-hop runtime graph", async () => {
     expect(await walk(skillRoot)).toEqual(["SKILL.md", ...runtimeReferences].sort());
@@ -197,6 +203,97 @@ describe("public Bearing Agent surface", () => {
     expect(
       runtimeReferences.filter((reference) => effortStart[1]?.includes(reference)).sort(),
     ).toEqual(expectedReferences.sort());
+  });
+
+  test("keeps bare Matt work standalone before one evidence-backed enrollment choice", async () => {
+    const document = parseMarkdownDocument(await readRuntime("references/journeys/native-work.md"));
+    const boundary = tableWithColumns(document, [
+      "Evidence",
+      "Native disposition",
+      "Bearing continuation",
+    ]);
+    const rows = new Map(
+      boundary.rows.map(([evidence, native, bearing]) => [
+        evidence,
+        { native, bearing: semanticTokens(bearing) },
+      ]),
+    );
+
+    expect(rows.get("no-direct-high-confidence-relationship")).toEqual({
+      native: "standalone",
+      bearing: ["no-suggestion-or-enrollment"],
+    });
+    for (const evidence of [
+      "direct-high-confidence-existing-planned-effort",
+      "direct-high-confidence-useful-new-effort",
+    ]) {
+      expect(rows.get(evidence)).toEqual({
+        native: "standalone",
+        bearing: ["at-most-one-advisory-suggestion", "no-enrollment-without-acceptance"],
+      });
+    }
+    for (const evidence of [
+      "semantic-similarity-only",
+      "artifact-existence-only",
+      "provider-lifecycle-only",
+      "provider-completion-only",
+      "tests-only",
+      "capture-only",
+      "reconciliation-only",
+      "portal-observation-only",
+    ]) {
+      expect(rows.get(evidence)).toEqual({
+        native: "standalone",
+        bearing: ["no-enrollment-or-activation"],
+      });
+    }
+  });
+
+  test("contracts consent outcomes without a persisted enrollment workflow", async () => {
+    const document = parseMarkdownDocument(await readRuntime("references/owners/effort.md"));
+    const outcomes = tableWithColumns(document, [
+      "Decision",
+      "Target condition",
+      "Canonical outcome",
+      "Provider follow-up",
+    ]);
+
+    const rows = new Map(
+      outcomes.rows.map(([decision, target, canonical, provider]) => [
+        decision,
+        {
+          target: semanticTokens(target),
+          canonical: semanticTokens(canonical),
+          provider: semanticTokens(provider),
+        },
+      ]),
+    );
+
+    expect(rows.get("refuse")).toEqual({
+      target: ["existing-planned-effort", "standalone-scope"],
+      canonical: [
+        "no-binding",
+        "no-hidden-recommendation-state",
+        "no-lifecycle-event",
+        "planned-not-created",
+      ],
+      provider: ["none"],
+    });
+    expect(rows.get("accept-existing")).toEqual({
+      target: ["no-binding", "planned", "standalone-scope"],
+      canonical: ["activation-event-time", "active", "binding"],
+      provider: ["exact-scope-capture"],
+    });
+    expect(rows.get("accept-new")).toEqual({
+      target: ["standalone-scope", "useful-new-effort"],
+      canonical: ["activation-event-time", "active", "binding", "complete-commitment"],
+      provider: ["exact-scope-capture"],
+    });
+    expect(rows.get("accept-existing-bound")).toEqual({
+      target: ["binding-exists"],
+      canonical: ["no-duplicate-effort", "no-rebind", "no-winning-scope", "reject"],
+      provider: ["none"],
+    });
   });
 
   test("selects exact Effort start owners directly for an Intake continuation", async () => {

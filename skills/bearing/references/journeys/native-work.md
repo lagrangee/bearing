@@ -47,9 +47,25 @@ managed effects. Provider reads never mutate native work.
    attempt: failure is terminal, not authority for a corrected second command. Completion: one
    post-transaction result covers the complete deduplicated subject set and only provider-proven
    relations.
-5. If work is unbound, complete Work Management normally. Offer at most one material planning
-   recommendation when evidence supports it; enrollment is not a prerequisite. Completion: the
-   recommendation is accepted later by an owner or the work remains standalone.
+5. If work is unbound, complete Work Management as Standalone Native Work before Bearing considers
+   enrollment, then apply the Enrollment Boundary below. Native work never waits for enrollment.
+   Completion: the terminal native disposition and bounded Bearing continuation match the table.
+
+## Enrollment Boundary
+
+| Evidence | Native disposition | Bearing continuation |
+| --- | --- | --- |
+| `no-direct-high-confidence-relationship` | `standalone` | `no-suggestion-or-enrollment` |
+| `direct-high-confidence-existing-planned-effort` | `standalone` | `at-most-one-advisory-suggestion; no-enrollment-without-acceptance` |
+| `direct-high-confidence-useful-new-effort` | `standalone` | `at-most-one-advisory-suggestion; no-enrollment-without-acceptance` |
+| `semantic-similarity-only` | `standalone` | `no-enrollment-or-activation` |
+| `artifact-existence-only` | `standalone` | `no-enrollment-or-activation` |
+| `provider-lifecycle-only` | `standalone` | `no-enrollment-or-activation` |
+| `provider-completion-only` | `standalone` | `no-enrollment-or-activation` |
+| `tests-only` | `standalone` | `no-enrollment-or-activation` |
+| `capture-only` | `standalone` | `no-enrollment-or-activation` |
+| `reconciliation-only` | `standalone` | `no-enrollment-or-activation` |
+| `portal-observation-only` | `standalone` | `no-enrollment-or-activation` |
 
 ## After this operation
 
@@ -58,6 +74,5 @@ managed effects. Provider reads never mutate native work.
   transaction. Any later exact-scope capture is a separate recovery operation and cannot
   retroactively prove the failed transaction succeeded.
 - **Consider:** A lifecycle-mismatch diagnostic may support a later Effort decision.
-- **Do not infer:** Native completion, reconciliation success, provider completion, and tests do
-  not activate or conclude an Effort, pass a Gate, complete a Roadmap, create a Binding, or supply
-  event time.
+- **Do not infer:** Evidence-only rows in the Enrollment Boundary do not create a Binding, activate
+  or conclude an Effort, pass a Gate, complete a Roadmap, or supply event time.

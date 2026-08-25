@@ -17,10 +17,11 @@ choose the relation. Native lifecycle remains with Work Management.
    Authorities, current native facts, and diagnostics. Establish one complete scope and lifecycle
    baseline.
 2. Author one exact candidate for planned creation, activation, conclusion, or Binding change.
-   Provider completion, native lifecycle, Gate readiness, and Passage remain evidence rather than
-   transition authority. Concluded Efforts never reopen implicitly. For operations other than an
-   explicit named Matt start, continue through the canonical contract without the start-only steps
-   below.
+   Defer a bare-Matt enrollment candidate until Native Work has completed standalone and direct
+   relationship evidence exists. Provider completion, native lifecycle, Gate readiness, and
+   Passage remain evidence rather than transition authority. Concluded Efforts never reopen
+   implicitly. For non-Matt operations, continue through the canonical contract without the Matt
+   steps below.
 3. For an explicit named Matt invocation that starts one exact planned Effort, confirm the planned
    Effort, selected Provider Configuration, intended native workflow, and direct authorization
    before native work starts. State the later combined Binding and Activation effect visibly. The
@@ -38,10 +39,25 @@ choose the relation. Native lifecycle remains with Work Management.
    Time. Publish no intermediate planned-and-bound state. A valid unchanged candidate that cannot
    apply is a Bearing contract or implementation defect, not authority for retry, repair, or
    fallback.
-6. After the canonical transaction succeeds, perform one exact Provider Scope Capture from the
-   accepted Work Binding's opaque scope. Expected provider unavailability preserves Binding and
-   Activation and reports the exact recovery point; it does not roll back or retry the accepted
-   transaction.
+6. For a bare Matt invocation, do not enter the named-start path or condition native handling on
+   Bearing enrollment. Native Work first completes the full owner operation as Standalone Native
+   Work. Only then may its bounded advisory result enter the Consent Outcomes below. The Enrollment
+   Suggestion is transient Agent guidance: add no persisted enrollment workflow, dispatcher,
+   session mode, or Matt-owned contract state.
+7. For explicit acceptance, re-read every current canonical input and author one complete candidate
+   for the exact standalone scope. Apply the matching Consent Outcome in one canonical Planning
+   Transaction. After an accepted transaction succeeds, perform one exact Provider Scope Capture
+   from the accepted Work Binding's opaque scope. Expected provider unavailability preserves the
+   canonical outcome and exact recovery point; it does not roll back or retry the transaction.
+
+## Consent Outcomes
+
+| Decision | Target condition | Canonical outcome | Provider follow-up |
+| --- | --- | --- | --- |
+| `refuse` | `standalone-scope; existing-planned-effort` | `no-binding; planned-not-created; no-lifecycle-event; no-hidden-recommendation-state` | `none` |
+| `accept-existing` | `standalone-scope; planned; no-binding` | `binding; active; activation-event-time` | `exact-scope-capture` |
+| `accept-new` | `standalone-scope; useful-new-effort` | `complete-commitment; binding; active; activation-event-time` | `exact-scope-capture` |
+| `accept-existing-bound` | `binding-exists` | `reject; no-winning-scope; no-rebind; no-duplicate-effort` | `none` |
 
 ## After this operation
 
