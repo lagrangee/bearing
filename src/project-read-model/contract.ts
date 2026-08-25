@@ -65,6 +65,7 @@ export type ProjectInspectRequest =
   | Readonly<{ kind: "project" }>
   | Readonly<{ kind: "planning-reference"; reference: string }>
   | Readonly<{ kind: "native-reference"; reference: string }>
+  | Readonly<{ kind: "activity"; date: string; timeZone: string }>
   | Readonly<{ kind: "diagnostics" }>;
 
 export type ProjectInspectOutcome =
@@ -437,12 +438,61 @@ export const nativeInspectResultSchema = z.strictObject({
   generationFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
 });
 
+export const planningActivityIntervalSchema = z.strictObject({
+  date: z.iso.date(),
+  timeZone: z.string().min(1),
+  startInclusive: z.string().datetime({ offset: true }),
+  endExclusive: z.string().datetime({ offset: true }),
+});
+
+const availablePlanningActivityTimeSchema = z.strictObject({
+  availability: z.literal("available"),
+  value: z.string().datetime({ offset: true }),
+  precision: z.enum(["second", "fractional-second"]),
+});
+
+const governanceActivityItemSchema = z.strictObject({
+  reference: planningReferenceSchema,
+  currentTitle: z.string().min(1),
+  event: z.enum([
+    "roadmap-started",
+    "roadmap-completed",
+    "roadmap-superseded",
+    "gate-planned",
+    "gate-activated",
+    "gate-passed",
+    "gate-superseded",
+    "effort-planned",
+    "effort-activated",
+    "effort-concluded",
+  ]),
+  occurredAt: availablePlanningActivityTimeSchema,
+});
+
+const governanceActivityGroupSchema = z.strictObject({
+  total: z.number().int().nonnegative(),
+  items: z.array(governanceActivityItemSchema),
+});
+
+export const activityInspectResultSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  interval: planningActivityIntervalSchema,
+  historicalCompleteness: z.literal("not-established"),
+  governance: z.strictObject({
+    roadmaps: governanceActivityGroupSchema,
+    gates: governanceActivityGroupSchema,
+    efforts: governanceActivityGroupSchema,
+  }),
+});
+
 export type ProjectContextResult = Readonly<z.infer<typeof projectContextResultSchema>>;
 export type PlanningInspectResult = Readonly<z.infer<typeof planningInspectResultSchema>>;
 export type NativeInspectResult = Readonly<z.infer<typeof nativeInspectResultSchema>>;
+export type ActivityInspectResult = Readonly<z.infer<typeof activityInspectResultSchema>>;
 export type ProjectInspectResult =
   | ProjectContextResult
   | PlanningInspectResult
   | NativeInspectResult
+  | ActivityInspectResult
   | readonly z.infer<typeof structuralDiagnosticSchema>[]
   | Readonly<{ reason: string }>;

@@ -8,6 +8,7 @@ import { type FingerprintObservation, fingerprintInputRecords } from "../fingerp
 import { probeContainedInput, readContainedInput } from "../input-boundary";
 import { discoverManagedInputs } from "../managed-input-discovery";
 import { resolveRepositoryRoot } from "../path-boundary";
+import { queryPlanningActivity } from "../planning-activity";
 import { compileProjectGeneration, type ProjectCompilationOptions } from "../project-compilation";
 import type { ProjectGeneration } from "../project-generation/contract";
 import { buildProjectGeneration } from "../project-generation/projection";
@@ -586,6 +587,14 @@ const queryCommittedProjectReadModel = (
         outcome: "complete" as const,
         diagnostics: [],
         result,
+      };
+    }
+    if (request.kind === "activity") {
+      return {
+        ...base,
+        outcome: "complete" as const,
+        diagnostics: [],
+        result: queryPlanningActivity(database, request),
       };
     }
     const reference = planningReferenceSchema.parse(request.reference);
