@@ -295,6 +295,12 @@ export type PlanningLineageEffortLens = Readonly<{
       }>
     | undefined;
   intent: string;
+  intentPresentation?:
+    | Readonly<{
+        html: string;
+        presentation: "rendered" | "fallback";
+      }>
+    | undefined;
   outcome?:
     | Readonly<{
         disposition: NonNullable<Effort["conclusion"]>["disposition"];
@@ -2435,12 +2441,30 @@ const effortLensFor = (
   const planningBasis = effortPlanningBasisForWorkRegion(workRegion, entryId);
   const outputs = effortOutputsFor(snapshot, effort, entryId);
   const governance = effortGovernanceFor(snapshot, effort, entryId);
+  const intentSourceLocator = snapshot.sources.find(
+    (source) => source.reference === effort.source,
+  )?.displayLocator;
+  const renderedIntent =
+    snapshot.renderedMarkdown?.find(
+      (entry) => entry.markdown === effort.intent && entry.sourceLocator === intentSourceLocator,
+    ) ??
+    snapshot.renderedMarkdown?.find(
+      (entry) => entry.markdown === effort.intent && entry.sourceLocator === undefined,
+    );
   return {
     lifecycle: effort.lifecycle,
     targetGate,
     managedWorkHealth,
     ...(managedWorkObservation === undefined ? {} : { managedWorkObservation }),
     intent: effort.intent,
+    ...(renderedIntent === undefined
+      ? {}
+      : {
+          intentPresentation: {
+            html: renderedIntent.html,
+            presentation: renderedIntent.presentation,
+          },
+        }),
     ...(conclusion === undefined
       ? {}
       : {

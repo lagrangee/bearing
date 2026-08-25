@@ -379,6 +379,37 @@ test("supports representative Chinese and English field recall without repositor
   expect(index.search("Project Summary has one malformed section")).toHaveLength(0);
 });
 
+test("indexes Effort Intent Markdown as derived semantic plain text", () => {
+  const base = snapshotFixture();
+  if (base.efforts.validity !== "available") throw new Error("Expected Effort fixture.");
+  const snapshot = {
+    ...base,
+    efforts: {
+      ...base.efforts,
+      items: base.efforts.items.map((effort) =>
+        effort.id === "effort:portal"
+          ? {
+              ...effort,
+              intent:
+                "Preserve `matt.local.relation.blocked-by-format`.\n\n- Keep **authored meaning** readable.",
+            }
+          : effort,
+      ),
+    },
+  } as ProjectGeneration;
+  const rebuilt = {
+    ...snapshot,
+    lineage: withRebuiltPlanningLineage(snapshot).lineage,
+  } as ProjectGeneration;
+
+  const result = buildProjectFindIndex(rebuilt, "bearing").search("blocked-by-format")[0];
+
+  expect(result?.subject).toEqual({ kind: "effort", id: "effort:portal" });
+  expect(result?.excerpt).toContain("matt.local.relation.blocked-by-format");
+  expect(result?.excerpt).not.toContain("`");
+  expect(result?.excerpt).not.toContain("**");
+});
+
 test("fails closed for unavailable semantic fields and silently falls back from missing anchors", () => {
   const base = snapshotFixture();
   const baseLineage = base.lineage.subjects.find(

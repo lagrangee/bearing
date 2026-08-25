@@ -12,7 +12,10 @@ import {
   createLinkedContentPreviewService,
   type LinkedContentPreviewService,
 } from "./linked-content-preview";
-import { renderProviderMarkdownDocuments } from "./markdown-engine";
+import {
+  renderAuthoredMarkdownDocuments,
+  renderProviderMarkdownDocuments,
+} from "./markdown-engine";
 import { resolveProjectEntry } from "./project-entry";
 
 export const createPortalProjectQueryService = (options: {
@@ -52,6 +55,38 @@ export const createPortalProjectQueryService = (options: {
                     );
               })()
             : undefined;
+        const providerMarkdown = await renderProviderMarkdownDocuments(
+          entryId,
+          rows.objects
+            .flatMap((object) =>
+              object.kind === "portal-native-evidence" && object.value.observation !== undefined
+                ? [object.value.observation]
+                : [],
+            )
+            .flatMap(mattProviderSemanticDocuments),
+          linkedContentPreview,
+        );
+        const effortIntentMarkdown =
+          section === "lineage" && target?.kind === "effort"
+            ? await renderAuthoredMarkdownDocuments(
+                entryId,
+                rows.objects.flatMap((object) => {
+                  if (object.kind !== "effort" || object.value.id !== target.id) return [];
+                  const sourceLocator = rows.sources.find(
+                    (source) => source.reference === object.value.source,
+                  )?.displayLocator;
+                  return [
+                    {
+                      ...(sourceLocator === undefined ? {} : { sourceLocator }),
+                      sections: [
+                        { sourceIdentity: "effort.intent", markdown: object.value.intent },
+                      ],
+                    },
+                  ];
+                }),
+                linkedContentPreview,
+              )
+            : [];
         return {
           kind: "ready" as const,
           project: {
@@ -62,17 +97,7 @@ export const createPortalProjectQueryService = (options: {
           rows: {
             ...rows,
             ...(assetSourceProbe === undefined ? {} : { assetSourceProbe }),
-            renderedMarkdown: await renderProviderMarkdownDocuments(
-              entryId,
-              rows.objects
-                .flatMap((object) =>
-                  object.kind === "portal-native-evidence" && object.value.observation !== undefined
-                    ? [object.value.observation]
-                    : [],
-                )
-                .flatMap(mattProviderSemanticDocuments),
-              linkedContentPreview,
-            ),
+            renderedMarkdown: [...providerMarkdown, ...effortIntentMarkdown],
           },
         };
       } catch (error) {

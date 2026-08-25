@@ -39,6 +39,22 @@ test("normalizes only the lifecycle-appropriate confirmed Work Binding states", 
   ).toBe(false);
 });
 
+test("accepts authored Markdown only in Effort Intent", () => {
+  const snapshot = createProjectOverviewFixture();
+  if (snapshot.efforts.validity === "invalid") throw new Error("Expected Efforts.");
+  const template = snapshot.efforts.items[0];
+  if (template === undefined) throw new Error("Expected an Effort.");
+
+  expect(
+    effortSchema.safeParse({
+      ...template,
+      intent: "Preserve `provider grammar`.\n\n- Keep **authored meaning** readable.",
+    }).success,
+  ).toBe(true);
+  expect(effortSchema.safeParse({ ...template, intent: "   " }).success).toBe(false);
+  expect(effortSchema.safeParse({ ...template, title: "**Formatted title**" }).success).toBe(false);
+});
+
 test("keeps planned not-created work pending unless independent contributor trust is lost", () => {
   const gate = {
     id: "gate:test",

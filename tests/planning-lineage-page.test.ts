@@ -8,7 +8,10 @@ import type {
   RequestedPlanningLineageFilteredView,
   RequestedPlanningLineageSubject,
 } from "../src/planning-lineage-route";
-import { renderProviderMarkdownSections } from "../src/portal/markdown-engine";
+import {
+  renderProviderMarkdownSections,
+  sharedMarkdownEngine,
+} from "../src/portal/markdown-engine";
 import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
 import {
   type ProviderObservationApplication,
@@ -72,9 +75,18 @@ const render = (
           ...snapshot,
           renderedMarkdown: options.omitRenderedMarkdown
             ? []
-            : renderProviderMarkdownSections(
-                snapshot.providerObservations.flatMap(mattProviderSemanticSections),
-              ),
+            : [
+                ...renderProviderMarkdownSections(
+                  snapshot.providerObservations.flatMap(mattProviderSemanticSections),
+                ),
+                ...(snapshot.efforts.validity === "available" ||
+                snapshot.efforts.validity === "partial"
+                  ? snapshot.efforts.items.map((effort) => ({
+                      markdown: effort.intent,
+                      ...sharedMarkdownEngine.renderFragment(effort.intent),
+                    }))
+                  : []),
+              ],
         };
       })(),
       onInspect: () => {},
@@ -613,6 +625,35 @@ test("renders Effort status, canonical Intent, concluded-only Outcome, and gover
   expect(concluded).toContain("<h2>Work (1)</h2>");
   expect(concluded).toContain("All managed Work is resolved; no current Work remains.");
   expect(concluded).not.toContain("Resolve the planning model");
+});
+
+test("renders authored Effort Intent Markdown through the Host-safe presentation", () => {
+  const base = createProjectOverviewFixture();
+  if (base.efforts.validity !== "available") throw new Error("Expected Effort fixture.");
+  const snapshot = {
+    ...base,
+    efforts: {
+      ...base.efforts,
+      items: base.efforts.items.map((effort) =>
+        effort.id === "effort:portal"
+          ? {
+              ...effort,
+              intent:
+                "Preserve `matt.local.relation.blocked-by-format`.\n\n- Keep **authored meaning** readable.",
+            }
+          : effort,
+      ),
+    },
+  } as ProjectGeneration;
+
+  const html = render(
+    { validity: "valid", value: { kind: "effort", id: "effort:portal" } },
+    { snapshot },
+  );
+
+  expect(html).toContain("<code>matt.local.relation.blocked-by-format</code>");
+  expect(html).toContain("<li>Keep <strong>authored meaning</strong> readable.</li>");
+  expect(html).not.toContain("`matt.local.relation.blocked-by-format`");
 });
 
 test("renders an explicit empty Work state with exact zero links for an active Effort", () => {

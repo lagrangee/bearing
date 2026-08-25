@@ -40,6 +40,33 @@ test("decodes every owned Bearing Record once behind one generation interface", 
   expect(JSON.stringify(decoded)).not.toContain("# Project Summary: Test Project");
 });
 
+test("preserves authored Markdown in Effort Intent without excluding the Record", async () => {
+  const root = await createValidBearingRepo();
+  const locator = ".bearing/state/efforts/test.md";
+  const source = (await Bun.file(`${root}/${locator}`).text()).replace(
+    "Exercise the Project Read Model contract.",
+    "Preserve `matt.local.relation.blocked-by-format`.\n\n- Keep **authored meaning** readable.",
+  );
+  await writeFixture(root, locator, source);
+  const discovery = await discoverManagedInputs(root);
+  const decoded = decodeBearingRecordGeneration(
+    await captureProjectInputGeneration(root, discovery.inputs),
+  );
+  const effort = decoded.records.find((record) => record.type === "effort");
+
+  expect(effort).toMatchObject({
+    trust: "available",
+    diagnostics: [],
+    content: {
+      kind: "sections",
+      values: {
+        Intent:
+          "Preserve `matt.local.relation.blocked-by-format`.\n\n- Keep **authored meaning** readable.",
+      },
+    },
+  });
+});
+
 test("represents invalid source as data for every Bearing Record type", async () => {
   const root = await createValidBearingRepo();
   await addRemainingRecordTypes(root);

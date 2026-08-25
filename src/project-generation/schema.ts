@@ -176,7 +176,7 @@ export const effortSchema = z
   .strictObject({
     id: effortIdSchema,
     ...citedNodeShape,
-    intent: semanticPlainTextSchema,
+    intent: z.string().refine((value) => value.trim().length > 0),
     roadmapId: roadmapIdSchema,
     targetGateId: gateIdSchema,
     authorityIds: uniqueIdentityArraySchema(authorityIdSchema, (authorityId) => authorityId),

@@ -403,6 +403,29 @@ const decodePlainSections = (
   return { content: { kind: "sections", values }, diagnostics: exact.diagnostics };
 };
 
+const decodeEffortSections = (
+  locator: string,
+  body: string,
+): Readonly<{
+  content: DecodedBearingRecordContent;
+  diagnostics: readonly StructuralDiagnostic[];
+}> => {
+  const exact = exactSections(locator, body, ["Intent", "Work"]);
+  if (exact.sections === undefined)
+    return { content: { kind: "none" }, diagnostics: exact.diagnostics };
+  const intent = exact.sections["Intent"] ?? "";
+  if (intent.trim().length === 0) {
+    return {
+      content: { kind: "none" },
+      diagnostics: [bodyDiagnostic(locator, "Bearing Record Effort Intent must not be empty.")],
+    };
+  }
+  return {
+    content: { kind: "sections", values: { Intent: intent } },
+    diagnostics: exact.diagnostics,
+  };
+};
+
 const decodeContent = (
   locator: string,
   type: BearingRecordType,
@@ -432,7 +455,7 @@ const decodeContent = (
     case "milestone-gate":
       return decodePlainSections(locator, body, ["Intent"], ["Exit Criteria"]);
     case "effort":
-      return decodePlainSections(locator, body, ["Intent"], [], ["Work"]);
+      return decodeEffortSections(locator, body);
     case "authority":
       return decodePlainSections(locator, body, ["Scope", "Current Baseline"]);
     case "asset-registry": {

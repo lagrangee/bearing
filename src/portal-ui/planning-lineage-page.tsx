@@ -710,7 +710,20 @@ function EffortGovernanceLens({
     <div className="effort-governance-lens">
       <section id="effort.intent">
         <h2>Intent</h2>
-        <p>{lens.intent}</p>
+        {lens.intentPresentation === undefined ? (
+          <ReadDisclosure label="Intent">
+            <div className="markdown-formatting-fallback">
+              <p>Formatting is unavailable for this section.</p>
+              <pre>{lens.intent}</pre>
+            </div>
+          </ReadDisclosure>
+        ) : (
+          <SanitizedMarkdownContent
+            html={lens.intentPresentation.html}
+            label="Intent"
+            presentation={lens.intentPresentation.presentation}
+          />
+        )}
       </section>
       {lens.outcome === undefined ? null : (
         <section id="effort.outcome">

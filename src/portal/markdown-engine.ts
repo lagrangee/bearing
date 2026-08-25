@@ -279,12 +279,39 @@ export const renderProviderMarkdownDocuments = async (
     html: string;
     presentation: "rendered" | "fallback";
   }>[]
+> =>
+  renderAuthoredMarkdownDocuments(
+    entryId,
+    documents.map((document) => ({
+      ...(document.sourceLocator === undefined ? {} : { sourceLocator: document.sourceLocator }),
+      sections: document.sections.flatMap((section) =>
+        section.availability === "available"
+          ? [{ sourceIdentity: section.sourceIdentity, markdown: section.markdown }]
+          : [],
+      ),
+    })),
+    linkedContent,
+  );
+
+export const renderAuthoredMarkdownDocuments = async (
+  entryId: string,
+  documents: readonly Readonly<{
+    sourceLocator?: string | undefined;
+    sections: readonly Readonly<{ sourceIdentity: string; markdown: string }>[];
+  }>[],
+  linkedContent: LinkedContentPreviewService,
+): Promise<
+  readonly Readonly<{
+    sourceLocator?: string | undefined;
+    markdown: string;
+    html: string;
+    presentation: "rendered" | "fallback";
+  }>[]
 > => {
   const rendered = [];
   const seen = new Set<string>();
   for (const document of documents) {
     for (const section of document.sections) {
-      if (section.availability !== "available") continue;
       const key = `${document.sourceLocator ?? ""}\0${section.sourceIdentity}\0${section.markdown}`;
       if (seen.has(key)) continue;
       seen.add(key);
