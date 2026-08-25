@@ -739,7 +739,13 @@ export const inspectProjectReadModel = async (repoRoot: string): Promise<Project
     }
     validatePayloads(database);
     return { state: "ready", metadata };
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof ProjectReadModelBusyError ||
+      (error instanceof Error && /busy|locked/iu.test(error.message))
+    ) {
+      throw new ProjectReadModelBusyError({ cause: error });
+    }
     return { state: "recovery-required", reason: "Project Read Model is corrupt or unreadable." };
   } finally {
     database?.close();

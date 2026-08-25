@@ -2,13 +2,19 @@ import type { DatabaseSync } from "node:sqlite";
 import { Temporal } from "@js-temporal/polyfill";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
-import { effortSchema, gateSchema, roadmapSchema } from "./project-generation/schema";
+import {
+  effortSchema,
+  gateSchema,
+  roadmapSchema,
+  structuralDiagnosticSchema,
+} from "./project-generation/schema";
 import {
   type ActivityInspectResult,
   activityInspectResultSchema,
   planningActivityIntervalSchema,
 } from "./project-read-model/contract";
 import { providerObservationSelectionSchema } from "./provider-evidence-contract";
+import { sameMattNativeBindingDefinition } from "./providers/matt-skills-v1/native-subject";
 import type { MattProjectedObject } from "./providers/matt-skills-v1/projection";
 import { mattObjects } from "./providers/matt-skills-v1/projection";
 import { mattNativeWorkReadingContextForEffort } from "./providers/matt-skills-v1/reading-state";
@@ -21,6 +27,12 @@ export type PlanningActivityInterval = Readonly<{
   timeZone: string;
   startInclusive: string;
   endExclusive: string;
+}>;
+
+export type PlanningActivityQuery = Readonly<{
+  outcome: "complete" | "partial";
+  result: ActivityInspectResult;
+  diagnostics: readonly ReturnType<typeof structuralDiagnosticSchema.parse>[];
 }>;
 
 export const planningActivityInterval = (
@@ -207,11 +219,40 @@ const frontierCount = (
     : { mode: "exact" as const, value };
 };
 
+const activityDiagnostic = (code: string, target: string, message: string) =>
+  structuralDiagnosticSchema.parse({
+    reference: `diagnostic:${bytesToHex(
+      sha256(utf8ToBytes(`bearing-planning-activity-diagnostic-v1\n${code}\n${target}`)),
+    )}`,
+    code,
+    impact: "blocking",
+    target,
+    message,
+  });
+
+const unavailableNativeEventTime = (object: MattProjectedObject): boolean => {
+  if (object.kind === "map" || object.kind === "spec") return false;
+  if (object.native.createdAt.availability !== "available") return true;
+  const closure = trackerClosureTime(object);
+  return closure !== undefined && closure.availability !== "available";
+};
+
 export const queryPlanningActivity = (
   database: DatabaseSync,
   request: Readonly<{ date: string; timeZone: string }>,
-): ActivityInspectResult => {
+  now: () => string = () => new Date().toISOString(),
+): PlanningActivityQuery => {
   const interval = planningActivityInterval(request.date, request.timeZone);
+  const activityDiagnostics: ReturnType<typeof structuralDiagnosticSchema.parse>[] = [];
+  if (Temporal.Instant.compare(now(), interval.endExclusive) < 0) {
+    activityDiagnostics.push(
+      activityDiagnostic(
+        "activity-day-unfinished",
+        `activity:${request.date}:${request.timeZone}`,
+        "The requested local day has not reached its endExclusive boundary.",
+      ),
+    );
+  }
   const roadmaps = committedObjects(database, "roadmap").flatMap((payload) => {
     const roadmap = roadmapSchema.parse(payload);
     return [
@@ -249,30 +290,132 @@ export const queryPlanningActivity = (
   let remainingItemBudget = 20;
   const effortActivity = effortRecords.flatMap((effort) => {
     const selected =
-      effort.workBinding === undefined
+      effort.workBinding === undefined || effort.workBindingState.state !== "bound"
         ? undefined
         : evidence.find(
             (candidate) =>
-              candidate.selection.provider === effort.workBinding?.provider &&
-              candidate.selection.nativeScope === effort.workBinding.nativeScope,
+              effort.workBinding !== undefined &&
+              sameMattNativeBindingDefinition(candidate.selection, effort.workBinding),
           );
     const observation = selected?.observation;
-    const context = mattNativeWorkReadingContextForEffort(
-      effortRecords,
-      effort,
-      observation,
-      selected === undefined ? [] : [selected.selection],
-    );
-    const nativeEvents = nativeEventsFor(observation, interval);
+    const context =
+      effort.workBindingState.state === "bound"
+        ? mattNativeWorkReadingContextForEffort(
+            effortRecords,
+            effort,
+            observation,
+            selected === undefined ? [] : [selected.selection],
+          )
+        : undefined;
+    const attributable = context?.state === "bound";
+    const nativeEvents = attributable ? nativeEventsFor(observation, interval) : [];
     const hasGovernanceEvent = efforts.some((candidate) => candidate.reference === effort.id);
     if (effort.lifecycle !== "active" && !hasGovernanceEvent && nativeEvents.length === 0)
       return [];
+    if (effort.lifecycle !== "planned" && effort.workBindingState.state !== "bound") {
+      activityDiagnostics.push(
+        activityDiagnostic(
+          `activity-binding-${effort.workBindingState.state === "invalid" ? effort.workBindingState.reason : "unavailable"}`,
+          effort.id,
+          "The Effort does not have one trustworthy bound native scope for activity attribution.",
+        ),
+      );
+    } else if (context?.state === "attention") {
+      activityDiagnostics.push(
+        activityDiagnostic(
+          context.reason === "binding-conflict"
+            ? "activity-binding-conflict"
+            : `activity-binding-${context.reason}`,
+          effort.id,
+          "The declared Work Binding needs attention; native facts are not attributed to this Effort.",
+        ),
+      );
+    } else if (effort.workBindingState.state === "bound") {
+      if (selected === undefined || observation === undefined) {
+        activityDiagnostics.push(
+          activityDiagnostic(
+            "activity-provider-evidence-unavailable",
+            effort.id,
+            "No selected provider observation is available for the bound Effort.",
+          ),
+        );
+      } else {
+        if (observation.state === "invalid" || observation.state === "absent") {
+          activityDiagnostics.push(
+            activityDiagnostic(
+              `activity-provider-evidence-${observation.state}`,
+              effort.id,
+              "The selected provider observation has no useful projected scope facts.",
+            ),
+          );
+        }
+        if (selected.selection.effectiveFreshness !== "current") {
+          activityDiagnostics.push(
+            activityDiagnostic(
+              "activity-provider-evidence-stale",
+              effort.id,
+              "The selected provider observation is not current.",
+            ),
+          );
+        }
+        if (selected.selection.latestAttempt?.outcome === "failed") {
+          activityDiagnostics.push(
+            activityDiagnostic(
+              "activity-provider-latest-attempt-failed",
+              effort.id,
+              "The last useful provider facts were retained after a failed latest attempt.",
+            ),
+          );
+        }
+        if (
+          observation.state !== "available" ||
+          observation.coverage.assessment !== "complete" ||
+          observation.completion !== "complete"
+        ) {
+          activityDiagnostics.push(
+            activityDiagnostic(
+              "activity-provider-evidence-incomplete",
+              effort.id,
+              "The selected provider observation does not establish complete scope coverage.",
+            ),
+          );
+        }
+        if (Temporal.Instant.compare(observation.observedAt, interval.endExclusive) < 0) {
+          activityDiagnostics.push(
+            activityDiagnostic(
+              "activity-provider-coverage-gap",
+              effort.id,
+              "The provider observation does not cover the requested interval through endExclusive.",
+            ),
+          );
+        }
+        if (mattObjects(observation).some(unavailableNativeEventTime)) {
+          activityDiagnostics.push(
+            activityDiagnostic(
+              "activity-native-event-time-unavailable",
+              effort.id,
+              "At least one relevant native event role lacks an accepted available time basis.",
+            ),
+          );
+        }
+      }
+    }
     const expanded = nativeEvents.slice(0, remainingItemBudget);
     remainingItemBudget -= expanded.length;
     const region =
       observation !== undefined && selected !== undefined && context?.state === "bound"
         ? buildMattNativeWorkRegion(observation, [selected.selection], context)
         : undefined;
+    const withheldReason =
+      context?.state === "attention"
+        ? ("binding-attention" as const)
+        : observation?.state === "invalid" || observation?.state === "absent"
+          ? ("invalid-evidence" as const)
+          : selected?.selection.latestAttempt?.outcome === "failed"
+            ? ("latest-attempt-failed" as const)
+            : selected !== undefined && selected.selection.effectiveFreshness !== "current"
+              ? ("stale-evidence" as const)
+              : undefined;
     return [
       {
         reference: effort.id,
@@ -285,23 +428,33 @@ export const queryPlanningActivity = (
                 state: "available" as const,
                 observationId: observation.id,
                 observedAt: observation.observedAt,
+                projectionState: observation.state,
                 freshness: selected.selection.effectiveFreshness,
                 coverage: observation.coverage.assessment,
                 completion: observation.completion,
+                latestAttempt:
+                  selected.selection.latestAttempt === null
+                    ? null
+                    : {
+                        attemptedAt: selected.selection.latestAttempt.attemptedAt,
+                        outcome: selected.selection.latestAttempt.outcome,
+                      },
               },
         currentFrontier:
-          region === undefined || observation === undefined
-            ? { state: "unavailable" as const }
-            : {
-                state: "available" as const,
-                asOf: observation.observedAt,
-                counts: {
-                  claimed: frontierCount(region, "claimed"),
-                  ready: frontierCount(region, "ready"),
-                  blocked: frontierCount(region, "blocked"),
-                  resolved: frontierCount(region, "resolved"),
+          withheldReason !== undefined
+            ? { state: "withheld" as const, reason: withheldReason }
+            : region === undefined || observation === undefined
+              ? { state: "unavailable" as const }
+              : {
+                  state: "available" as const,
+                  asOf: observation.observedAt,
+                  counts: {
+                    claimed: frontierCount(region, "claimed"),
+                    ready: frontierCount(region, "ready"),
+                    blocked: frontierCount(region, "blocked"),
+                    resolved: frontierCount(region, "resolved"),
+                  },
                 },
-              },
         activity: {
           totals: {
             nativeCreated: nativeEvents.filter((item) => item.event === "native-created").length,
@@ -326,7 +479,7 @@ export const queryPlanningActivity = (
       total + effort.activity.totals.nativeCreated + effort.activity.totals.trackerClosed,
     0,
   );
-  return activityInspectResultSchema.parse({
+  const result = activityInspectResultSchema.parse({
     schemaVersion: 1,
     interval,
     historicalCompleteness: "not-established",
@@ -342,4 +495,11 @@ export const queryPlanningActivity = (
       omittedItemCount: totalNativeEventCount - expandedItemCount,
     },
   });
+  const diagnostics = activityDiagnostics.filter(
+    (diagnostic, index, values) =>
+      values.findIndex(
+        (candidate) => candidate.code === diagnostic.code && candidate.target === diagnostic.target,
+      ) === index,
+  );
+  return { outcome: diagnostics.length === 0 ? "complete" : "partial", result, diagnostics };
 };

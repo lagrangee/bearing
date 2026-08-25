@@ -485,9 +485,16 @@ const nativeActivityEvidenceSchema = z.union([
     state: z.literal("available"),
     observationId: z.string().min(1),
     observedAt: z.string().datetime({ offset: true }),
+    projectionState: z.enum(["available", "partial", "absent", "invalid"]),
     freshness: z.enum(["current", "stale", "undetermined"]),
     coverage: z.enum(["complete", "incomplete"]),
     completion: z.enum(["complete", "incomplete", "undetermined"]),
+    latestAttempt: z
+      .strictObject({
+        attemptedAt: z.string().min(1),
+        outcome: z.enum(["succeeded", "failed"]),
+      })
+      .nullable(),
   }),
 ]);
 
@@ -511,6 +518,15 @@ const effortActivitySchema = z.strictObject({
   evidence: nativeActivityEvidenceSchema,
   currentFrontier: z.union([
     z.strictObject({ state: z.literal("unavailable") }),
+    z.strictObject({
+      state: z.literal("withheld"),
+      reason: z.enum([
+        "stale-evidence",
+        "latest-attempt-failed",
+        "binding-attention",
+        "invalid-evidence",
+      ]),
+    }),
     z.strictObject({
       state: z.literal("available"),
       asOf: z.string().datetime({ offset: true }),

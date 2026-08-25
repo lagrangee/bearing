@@ -199,14 +199,16 @@ test("packed product inspects committed governance activity without effects", as
     expect(envelope).toMatchObject({
       schemaVersion: 1,
       command: "inspect",
-      outcome: "complete",
+      outcome: "partial",
       request: {
         kind: "activity",
         date: "2026-08-09",
         timeZone: "Asia/Shanghai",
       },
       generation: { publicationCount: expect.any(Number) },
-      diagnostics: [],
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: "activity-binding-unresolved" }),
+      ]),
       result: {
         schemaVersion: 1,
         interval: {

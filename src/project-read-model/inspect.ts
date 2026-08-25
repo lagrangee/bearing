@@ -590,11 +590,12 @@ const queryCommittedProjectReadModel = (
       };
     }
     if (request.kind === "activity") {
+      const activity = queryPlanningActivity(database, request);
       return {
         ...base,
-        outcome: "complete" as const,
-        diagnostics: [],
-        result: queryPlanningActivity(database, request),
+        outcome: activity.outcome,
+        diagnostics: activity.diagnostics,
+        result: activity.result,
       };
     }
     const reference = planningReferenceSchema.parse(request.reference);
@@ -643,9 +644,34 @@ export const queryCommittedProject = async (
   await assertActiveRepositoryIntegration(root, "inspect");
   const canonicalRequest = await canonicalInspectRequest(root, request);
   try {
+    const state = await inspectProjectReadModel(root);
+    const base = {
+      schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,
+      command: "inspect" as const,
+      request: canonicalRequest,
+      diagnostics: [],
+    };
+    if (state.state === "missing") {
+      return {
+        ...base,
+        outcome: "unfulfilled",
+        result: { reason: "project-read-model-missing" },
+      };
+    }
+    if (state.state === "need-update") return { ...base, outcome: "need-update" };
+    if (state.state === "recovery-required") {
+      return {
+        ...base,
+        outcome: "recovery-required",
+        result: { reason: state.reason },
+      };
+    }
     return await queryCommittedProjectReadModel(root, canonicalRequest);
   } catch (error) {
-    if (error instanceof ProjectReadModelBusyError) {
+    if (
+      error instanceof ProjectReadModelBusyError ||
+      (error instanceof Error && /busy|locked/iu.test(error.message))
+    ) {
       return busyProjectInspectEnvelope(canonicalRequest);
     }
     throw error;
