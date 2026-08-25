@@ -34,4 +34,8 @@ Forks may accurately describe their origin, but must not imply endorsement by Be
 
 Use the current package scripts and release instructions. At minimum, run the checks relevant to your change and say what you ran in the pull request.
 
+Maintainers who use the source-checkout Development Portal on macOS can install its user-level
+LaunchAgent by following [Development Portal residency](docs/development-portal.md). This service is
+only for the Development Portal on port `4188`; it does not change the public Portal on port `4178`.
+
 Every Codex E2E matrix, automated Codex journey, live gated E2E, and Codex release smoke run in this repository must follow the repository-wide [Codex E2E Policy](docs/agents/codex-e2e.md).
