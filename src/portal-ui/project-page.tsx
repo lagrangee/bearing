@@ -98,9 +98,12 @@ export function ProjectPage({
   const providerStructuralAttention =
     activation.providerApplication.state === "settled" &&
     activation.providerApplication.result.state === "attention" &&
-    ["storage-recovery-required", "need-update", "removal-required"].includes(
-      activation.providerApplication.result.condition,
-    );
+    [
+      "storage-recovery-required",
+      "need-update",
+      "removal-required",
+      "repository-recovery-required",
+    ].includes(activation.providerApplication.result.condition);
   const readStructuralAttention =
     activation.readFailure !== undefined &&
     ["project-data-needs-rebuild", "project-data-needs-update"].includes(

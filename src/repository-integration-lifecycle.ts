@@ -5,10 +5,7 @@ import type { z } from "zod";
 import packageMetadata from "../package.json";
 import { inspectInstallPath } from "./install-boundary";
 import { isRepositoryPathBoundaryError, readContainedFile } from "./path-boundary";
-import {
-  olderActiveRepositoryManifestSchema,
-  repositoryManifestSchema,
-} from "./schema-definitions";
+import { olderRepositoryManifestSchema, repositoryManifestSchema } from "./schema-definitions";
 
 const MAXIMUM_REPOSITORY_MANIFEST_BYTES = 64 * 1024;
 
@@ -16,13 +13,14 @@ export type RepositoryUpdateContract = Readonly<{
   source: Readonly<{
     schemaVersion: 1;
     packageVersion: string;
+    status: "active" | "deactivated";
   }>;
   target: Readonly<{
     requiredManifestFields: readonly string[];
     manifest: Readonly<{
       schemaVersion: 2;
       packageVersion: string;
-      status: "active";
+      status: "active" | "deactivated";
       runtime: "stable" | "development";
       surfaces: readonly ("agent-skills" | "claude")[];
       executorProfiles: readonly string[];
@@ -49,21 +47,72 @@ export type RepositoryIntegrationLifecycle = Readonly<{
   update?: RepositoryUpdateContract;
   repositorySchemaVersion?: number;
   runtimeSchemaVersion?: 2;
+  noWrite?: true;
+  nextAction?: string;
 }>;
 
-const invalidLifecycle = (reason: string): RepositoryIntegrationLifecycle => ({
+const invalidLifecycle = (
+  reason: string,
+  nextAction = "Ask the repository semantic owner to identify a compatible Kit or separately authorize repository recovery, then run Configure Inspect again.",
+): RepositoryIntegrationLifecycle => ({
   kind: "invalid-or-unsupported",
   reason,
+  noWrite: true,
+  nextAction,
 });
 
+const kitUpdateRequired = (
+  reason: string,
+  versions: Pick<
+    RepositoryIntegrationLifecycle,
+    "repositorySchemaVersion" | "runtimeSchemaVersion"
+  > = {},
+): RepositoryIntegrationLifecycle => ({
+  kind: "kit-update-required",
+  reason,
+  ...versions,
+  noWrite: true,
+  nextAction:
+    "Run a separately authorized Global Kit Update, then retry the original repository operation.",
+});
+
+const olderRepositoryAmbiguity = (parsed: unknown, error: z.ZodError): string | undefined => {
+  if (typeof parsed !== "object" || parsed === null || !("schemaVersion" in parsed))
+    return undefined;
+  if (parsed.schemaVersion !== 1) return undefined;
+  const unrecognized = error.issues.find((issue) => issue.code === "unrecognized_keys");
+  const extraKeys =
+    unrecognized !== undefined && "keys" in unrecognized && Array.isArray(unrecognized.keys)
+      ? unrecognized.keys.filter((key): key is string => typeof key === "string").sort()
+      : [];
+  if (extraKeys.length > 0) {
+    return `Older repository fields fall outside the target contract and cannot be preserved without separate authority: ${extraKeys.join(", ")}.`;
+  }
+  const fields = new Set(error.issues.map((issue) => issue.path[0]));
+  if (fields.has("status")) {
+    return "Older repository lifecycle status is missing or ambiguous; Active versus Deactivated meaning cannot be established.";
+  }
+  if (fields.has("runtime")) {
+    return "Older repository Runtime meaning is invalid or ambiguous and cannot be converted safely.";
+  }
+  if (fields.has("surfaces")) {
+    return "Older repository Agent Surface selections are invalid or ambiguous.";
+  }
+  if (fields.has("executorProfiles")) {
+    return "Older repository Execution Profile selections are invalid or ambiguous.";
+  }
+  return undefined;
+};
+
 const repositoryUpdate = (
-  source: z.infer<typeof olderActiveRepositoryManifestSchema>,
+  source: z.infer<typeof olderRepositoryManifestSchema>,
 ): RepositoryUpdateContract => {
   const runtime = source.runtime ?? "stable";
   return {
     source: {
       schemaVersion: source.schemaVersion,
       packageVersion: source.packageVersion,
+      status: source.status,
     },
     target: {
       requiredManifestFields: [
@@ -94,22 +143,32 @@ const repositoryUpdate = (
         "reuse-only-validated-typed-provider-evidence",
         "preserve-provider-evidence-freshness-and-failure",
         "zero-provider-acquisition",
+        ...(source.status === "deactivated"
+          ? [
+              "no-active-project-read-model-creation",
+              "reactivation-requires-separate-repository-configuration",
+            ]
+          : []),
       ],
       writeDomains: {
         canonical: [".bearing/manifest.json"],
-        disposable: [
-          runtime === "development"
-            ? ".bearing/cache/development/project-read-model.sqlite"
-            : ".bearing/cache/project-read-model.sqlite",
-        ],
+        disposable:
+          source.status === "deactivated"
+            ? []
+            : [
+                runtime === "development"
+                  ? ".bearing/cache/development/project-read-model.sqlite"
+                  : ".bearing/cache/project-read-model.sqlite",
+              ],
       },
       validation: [
         "target-manifest",
         "semantic-invariants",
-        "project-read-model-rebuild",
+        ...(source.status === "active" ? ["project-read-model-rebuild"] : []),
         "repository-lifecycle",
-        "repository-diagnostics",
-        "original-operation-retry",
+        ...(source.status === "active"
+          ? ["repository-diagnostics", "original-operation-retry"]
+          : []),
       ],
     },
     guide: "references/journeys/update.md",
@@ -128,7 +187,10 @@ export const inspectRepositoryIntegrationLifecycle = async (
     };
   }
   if (namespace.kind !== "directory") {
-    return invalidLifecycle("The Bearing namespace is not a safe repository directory.");
+    return invalidLifecycle(
+      "The Bearing namespace is not a safe repository directory.",
+      "Ask the repository filesystem owner to restore a safe Bearing namespace, then run Configure Inspect again.",
+    );
   }
 
   const manifestPath = join(namespacePath, "manifest.json");
@@ -164,7 +226,10 @@ export const inspectRepositoryIntegrationLifecycle = async (
     };
   }
   if (manifest.kind !== "file" || manifest.linkCount !== 1) {
-    return invalidLifecycle("The repository manifest must be one safe single-link regular file.");
+    return invalidLifecycle(
+      "The repository manifest must be one safe single-link regular file.",
+      "Ask the repository filesystem owner to restore a safe repository manifest, then run Configure Inspect again.",
+    );
   }
 
   let source: string;
@@ -178,15 +243,22 @@ export const inspectRepositoryIntegrationLifecycle = async (
     if (isRepositoryPathBoundaryError(error)) {
       return invalidLifecycle(
         "The repository manifest could not be read safely within its bounded inspection.",
+        "Ask the repository filesystem owner to restore safe access, then run Configure Inspect again.",
       );
     }
-    throw error;
+    return invalidLifecycle(
+      "The repository manifest could not be read because repository access is unavailable.",
+      "Ask the repository filesystem owner to restore readable access, then run Configure Inspect again.",
+    );
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(source);
   } catch {
-    return invalidLifecycle("The repository manifest is not valid JSON.");
+    return invalidLifecycle(
+      "The repository manifest is not valid JSON.",
+      "Restore a verified repository backup or obtain separate authority for repository recovery, then run Configure Inspect again.",
+    );
   }
   if (
     typeof parsed === "object" &&
@@ -196,25 +268,32 @@ export const inspectRepositoryIntegrationLifecycle = async (
     Number.isInteger(parsed.schemaVersion) &&
     parsed.schemaVersion > 2
   ) {
-    return {
-      kind: "kit-update-required",
-      reason: `Repository uses newer Bearing schema ${parsed.schemaVersion}; the installed Kit reads schema 2 only.`,
-      repositorySchemaVersion: parsed.schemaVersion,
-      runtimeSchemaVersion: 2,
-    };
+    return kitUpdateRequired(
+      `Repository uses newer Bearing schema ${parsed.schemaVersion}; the installed Kit reads schema 2 only.`,
+      { repositorySchemaVersion: parsed.schemaVersion, runtimeSchemaVersion: 2 },
+    );
   }
-  const mappableOlderActiveManifest = olderActiveRepositoryManifestSchema.safeParse(parsed);
+  const mappableOlderManifest = olderRepositoryManifestSchema.safeParse(parsed);
   const targetPackageVersion = validSemver(packageMetadata.version);
   if (
-    mappableOlderActiveManifest.success &&
+    mappableOlderManifest.success &&
     targetPackageVersion !== null &&
-    compareSemver(mappableOlderActiveManifest.data.packageVersion, targetPackageVersion) < 0
+    compareSemver(mappableOlderManifest.data.packageVersion, targetPackageVersion) !== 0
   ) {
+    const sourceComparison = compareSemver(
+      mappableOlderManifest.data.packageVersion,
+      targetPackageVersion,
+    );
+    if (sourceComparison > 0) {
+      return kitUpdateRequired(
+        `Repository uses newer Bearing package ${mappableOlderManifest.data.packageVersion}; the installed Kit is ${targetPackageVersion}.`,
+      );
+    }
     return {
       kind: "repository-update-required",
       reason:
-        "The repository has safely readable older Active semantics that can be evaluated against this Kit's target contract.",
-      update: repositoryUpdate(mappableOlderActiveManifest.data),
+        "The repository has safely readable older semantics that can be evaluated against this Kit's target contract.",
+      update: repositoryUpdate(mappableOlderManifest.data),
     };
   }
   const lifecycleManifest = repositoryManifestSchema.safeParse(parsed);
@@ -226,10 +305,9 @@ export const inspectRepositoryIntegrationLifecycle = async (
       runtimeVersion !== null &&
       compareSemver(repositoryVersion, runtimeVersion) > 0
     ) {
-      return {
-        kind: "kit-update-required",
-        reason: `Repository uses newer Bearing package ${repositoryVersion}; the installed Kit is ${runtimeVersion}.`,
-      };
+      return kitUpdateRequired(
+        `Repository uses newer Bearing package ${repositoryVersion}; the installed Kit is ${runtimeVersion}.`,
+      );
     }
   }
   if (
@@ -244,7 +322,15 @@ export const inspectRepositoryIntegrationLifecycle = async (
           : "The repository has an explicit deactivated integration lifecycle.",
     };
   }
-  return invalidLifecycle("The repository manifest schema is invalid or unsupported.");
+  const ambiguity = mappableOlderManifest.success
+    ? undefined
+    : olderRepositoryAmbiguity(parsed, mappableOlderManifest.error);
+  return invalidLifecycle(
+    ambiguity ?? "The repository manifest schema is invalid or unsupported.",
+    ambiguity === undefined
+      ? undefined
+      : "Ask the repository semantic owner to clarify this meaning or grant separate recovery authority, then run Configure Inspect again.",
+  );
 };
 
 export const assertActiveRepositoryIntegration = async (

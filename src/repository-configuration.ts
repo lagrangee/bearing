@@ -80,6 +80,8 @@ export type RepositoryConfigurationInspection = Readonly<{
     update?: RepositoryUpdateContract;
     repositorySchemaVersion?: number;
     runtimeSchemaVersion?: 2;
+    noWrite?: true;
+    nextAction?: string;
   }>;
   currentSelections: CurrentSelections;
   installedCapabilityEvidence: Readonly<{
@@ -186,7 +188,7 @@ const lifecycle = (
 ): RepositoryConfigurationInspection["lifecycle"] => ({
   state: inspected.kind === "invalid-or-unsupported" ? "unsupported" : inspected.kind,
   reason: inspected.reason,
-  removalRequired: inspected.kind === "invalid-or-unsupported",
+  removalRequired: false,
   ...(inspected.update === undefined ? {} : { update: inspected.update }),
   ...(inspected.repositorySchemaVersion === undefined
     ? {}
@@ -194,6 +196,8 @@ const lifecycle = (
   ...(inspected.runtimeSchemaVersion === undefined
     ? {}
     : { runtimeSchemaVersion: inspected.runtimeSchemaVersion }),
+  ...(inspected.noWrite === undefined ? {} : { noWrite: inspected.noWrite }),
+  ...(inspected.nextAction === undefined ? {} : { nextAction: inspected.nextAction }),
 });
 
 const safeRead = async (root: string, target: string): Promise<string | undefined> => {
@@ -482,7 +486,7 @@ export const planRepositoryConfiguration = async (
         code: "unsafe-repository-target",
         target: ".bearing",
         message:
-          "Unsupported Preview state is removal-required. Use an explicit Agent-reviewed platform removal, then run Fresh Repository Configuration.",
+          "Unsupported repository state is a no-write result. Follow its owner-specific next action; any repair or removal requires separate Human authority.",
       },
     ];
     canApply = false;

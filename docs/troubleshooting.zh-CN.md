@@ -76,6 +76,12 @@ schema 的 Bearing 版本。旧 runtime 永远不会 downgrade、重写或删除
 release-specific state upgrade，rollback 必须使用该 release 的 verified backup；仅 downgrade
 package 不等于 state rollback。
 
+Unsupported 是 no-write 安全结果：response 会给出准确原因，明确说明 repository bytes 未被写入，
+并提供一个针对当前 case 的下一步。Corrupt state 应从 verified backup 恢复，或通过单独授权的
+repository recovery 处理；unsafe 或 unreadable path 回到 filesystem owner；ambiguous meaning 回到
+semantic owner。这些 authority 彼此独立。不要临时编辑 repository 内部内容或 disposable storage
+来冒充 repair。
+
 任何比可信 current Kit 更旧的 exact package candidate 都会无写入地被阻止。基础 installer 不提供
 override 或 compatibility scan。
 
@@ -103,10 +109,12 @@ recovery export 或 quarantine path。语义可安全读取的 older repository 
 `repository-update-required` 与 installed Kit 的完整 target contract；source version 只作为
 provenance，不是 migration dispatch key。Agent follow package-owned guide，展示一个简洁、完整的
 candidate，并等待 Human 确认。Agent 保留 canonical state，只写 target manifest，然后在不执行
-provider acquisition 的情况下重建 disposable Project Read Model；不要编辑 SQLite rows。较新的
-repository 返回 `kit-update-required` 并保持 repository bytes 不变。未知或损坏 state 保持
-Unsupported 且不变。如果 Human 另行选择 repository removal，先检查 exact paths 并取得显式授权。不要用
-`catalog unregister` 代替 repository removal。
+provider acquisition 的情况下为 Active target 重建 disposable Project Read Model。Deactivated
+target 保持 Deactivated，并且不创建 active Project Read Model；Reactivation 是独立的 Repository
+Configuration decision。较新的 repository 返回 `kit-update-required`，保持 repository bytes
+不变，并指向需要单独授权的 Global Kit Update。未知或损坏 state 保持 Unsupported 且不变。如果
+Human 另行选择 repository removal，先检查 exact paths 并取得显式授权。不要用 `catalog
+unregister` 代替 repository removal。
 
 显式 `bearing uninstall` 只移除 Global Kit bundle、CLI shim 与 Bearing-managed Agent Surface
 pointers。它保留 Project Catalog 与 repository state。Repository Deactivation 与

@@ -160,6 +160,36 @@ test("stable repositories resolve without Development Runtime material", async (
   expect(result.context.homeDir).toBe(publicHomeDir);
 });
 
+test("invalid repository manifests do not select the public Stable Runtime", async () => {
+  const root = await makeTemporaryDirectory("bearing-invalid-runtime-target-");
+  const publicHomeDir = join(root, "home");
+  await mkdir(join(root, ".bearing"), { recursive: true });
+  await mkdir(publicHomeDir);
+  for (const source of [
+    "{invalid\n",
+    `${JSON.stringify({
+      schemaVersion: 1,
+      packageVersion: "0.1.1",
+      status: "ambiguous",
+      surfaces: ["agent-skills"],
+      executorProfiles: [],
+    })}\n`,
+  ]) {
+    await writeFile(join(root, ".bearing/manifest.json"), source);
+    await expect(
+      resolveRepositoryRuntime({
+        repoRoot: root,
+        packageRoot: process.cwd(),
+        publicHomeDir,
+        invokedCliPath: join(process.cwd(), "dist", "cli.js"),
+      }),
+    ).resolves.toMatchObject({
+      outcome: "recovery-required",
+      diagnostics: [{ code: "repository-runtime-target-invalid" }],
+    });
+  }
+});
+
 test("compatible Development Runtime identities reuse one isolated Project Read Model", async () => {
   const value = await fixture();
   const result = await resolveRepositoryRuntime({

@@ -416,10 +416,10 @@ export const repositoryManifestSchema = manifestSchema.extend({
   status: z.enum(["active", "deactivated"]),
 });
 
-export const olderActiveRepositoryManifestSchema = z.strictObject({
+export const olderRepositoryManifestSchema = z.strictObject({
   schemaVersion: z.literal(1),
   packageVersion: manifestSchema.shape.packageVersion,
-  status: z.literal("active"),
+  status: z.enum(["active", "deactivated"]),
   runtime: manifestSchema.shape.runtime.optional(),
   surfaces: manifestSchema.shape.surfaces,
   executorProfiles: manifestSchema.shape.executorProfiles,

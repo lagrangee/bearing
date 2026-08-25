@@ -748,7 +748,21 @@ const main = async (): Promise<void> => {
     await dispatchRepositoryCommand(command, args);
     return;
   }
-  if (command === "configure" && args[0] === "inspect") {
+  if (
+    ![
+      "configure",
+      "catalog",
+      "reconcile-native",
+      "provider",
+      "cache",
+      "inspect",
+      "portal",
+      "development",
+    ].includes(command)
+  ) {
+    throw new Error("Unknown command. Run bearing --help.");
+  }
+  if (command === "configure" && (args[0] === "inspect" || args[0] === "plan")) {
     const runtime = await resolveRepositoryRuntime({
       repoRoot: repositoryRootArgument(args),
       packageRoot: packageRoot(),
@@ -760,9 +774,10 @@ const main = async (): Promise<void> => {
         dispatchRepositoryCommand(command, args),
       );
     } else if (
-      runtime.outcome === "recovery-required" &&
       runtime.diagnostics.length === 1 &&
-      runtime.diagnostics[0]?.code === "repository-runtime-target-invalid"
+      ["repository-runtime-target-invalid", "development-runtime-declaration-invalid"].includes(
+        runtime.diagnostics[0]?.code ?? "",
+      )
     ) {
       await runConfigure(args, null);
     } else {

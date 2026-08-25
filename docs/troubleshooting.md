@@ -77,6 +77,13 @@ documented readable range includes that schema. An older runtime never downgrade
 deletes newer state. If a release-specific state upgrade already occurred, rollback requires that
 release's verified backup; package downgrade alone is not state rollback.
 
+Unsupported is a no-write safety outcome: the response gives the exact reason, states that no
+repository bytes were written, and names one case-specific next step. Corrupt state should be
+restored from a verified backup or handled through separately authorized repository recovery;
+unsafe or unreadable paths return to their filesystem owner; ambiguous meaning returns to its
+semantic owner. These are distinct authorities. Do not edit repository internals or disposable
+storage as an improvised repair.
+
 An exact package candidate older than the trusted current Kit is always blocked without writes.
 There is no override or compatibility scan in the basic installer.
 
@@ -105,11 +112,13 @@ recovery export, or quarantine path. Safely readable older repository meaning ca
 `repository-update-required` with the installed Kit's complete target contract; source version is
 provenance, not a migration dispatch key. Follow the package-owned guide, show one concise complete
 candidate, and wait for Human confirmation. Preserve canonical state, write only the target
-manifest, then rebuild the disposable Project Read Model without provider acquisition. Do not edit
-SQLite rows. A newer repository returns `kit-update-required` and keeps repository bytes unchanged.
-Unknown or corrupt state remains Unsupported and unchanged. If the Human separately chooses
-repository removal, inspect exact paths and obtain explicit authorization. Do not use
-`catalog unregister` as a substitute for repository removal.
+manifest, then rebuild the disposable Project Read Model without provider acquisition for an Active
+target. A Deactivated target remains Deactivated and creates no active Project Read Model;
+Reactivation is a separate Repository Configuration decision. A newer repository returns
+`kit-update-required`, keeps repository bytes unchanged, and points to a separately authorized
+Global Kit Update. Unknown or corrupt state remains Unsupported and unchanged. If the Human
+separately chooses repository removal, inspect exact paths and obtain explicit authorization. Do
+not use `catalog unregister` as a substitute for repository removal.
 
 Explicit `bearing uninstall` removes only the Global Kit bundle, CLI shim, and Bearing-managed Agent
 Surface pointers. It preserves the Project Catalog and repository state. Repository Deactivation

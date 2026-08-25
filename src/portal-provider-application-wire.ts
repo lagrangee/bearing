@@ -38,6 +38,7 @@ export const portalProviderConditionSchema = z.enum([
   "storage-recovery-required",
   "need-update",
   "removal-required",
+  "repository-recovery-required",
 ]);
 
 const observationSchema = z.strictObject({

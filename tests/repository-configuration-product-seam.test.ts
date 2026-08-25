@@ -1,8 +1,23 @@
 import { expect, test } from "bun:test";
-import { access, cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  cp,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { BEARING_DEVELOPMENT_POINTER, BEARING_POINTER } from "../src/agent-surface-entry";
 import { renderExecutionProfile } from "../src/executor-registration";
+import {
+  assertRepositoryTargetPreconditionsCurrent,
+  captureRepositoryTargetPreconditions,
+} from "../src/repository-integration-plan";
 import { writeStandardMattLocalRepository, writeValidBearingState } from "./helpers";
 import { type InstalledProduct, installPackedProduct } from "./product-seams/installed-product";
 
@@ -644,7 +659,7 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
       machineFacts: Readonly<Record<string, unknown>>;
     }>;
     expect(missingRuntimeInspection).toMatchObject({
-      lifecycle: { state: "unsupported", removalRequired: true },
+      lifecycle: { state: "unsupported", removalRequired: false },
       currentSelections: { surfaces: [], executorProfiles: [] },
     });
     expect(missingRuntimeInspection.currentSelections["runtime"]).toBeUndefined();
@@ -878,7 +893,7 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
     const oldPreview = await product.run(["configure", "inspect", "--repo", root]);
     expect(oldPreview.exitClass).toBe("success");
     expect(JSON.parse(oldPreview.stdout)).toMatchObject({
-      lifecycle: { state: "unsupported", removalRequired: true },
+      lifecycle: { state: "unsupported", removalRequired: false },
     });
 
     await writeFile(
@@ -925,7 +940,7 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
       const duplicate = await product.run(["configure", "inspect", "--repo", root]);
       expect(duplicate.exitClass).toBe("success");
       expect(JSON.parse(duplicate.stdout)).toMatchObject({
-        lifecycle: { state: "unsupported", removalRequired: true },
+        lifecycle: { state: "unsupported", removalRequired: false },
       });
     }
 
@@ -936,7 +951,7 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
     const unsupported = await product.run(["configure", "inspect", "--repo", root]);
     expect(unsupported.exitClass).toBe("success");
     expect(JSON.parse(unsupported.stdout)).toMatchObject({
-      lifecycle: { state: "unsupported", removalRequired: true },
+      lifecycle: { state: "unsupported", removalRequired: false },
     });
 
     for (const command of ["setup", "activation", "deactivate", "purge"]) {
@@ -1118,6 +1133,336 @@ test("active Repository Update follows the installed target contract and retries
         },
       },
     });
+  } finally {
+    await product.dispose();
+  }
+}, 60_000);
+
+test("deactivated Repository Update preserves lifecycle and leaves the active read model absent", async () => {
+  const product = await installPackedProduct();
+  const root = join(product.root, "deactivated-repository-update");
+  await makeFreshRepository(root);
+  await mkdir(join(root, ".bearing/state"), { recursive: true });
+  await writeFile(join(root, ".bearing/state/preserved.md"), "preserved\n");
+  await writeFile(
+    join(root, ".bearing/manifest.json"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      packageVersion: "0.1.1",
+      status: "deactivated",
+      surfaces: ["agent-skills"],
+      executorProfiles: [],
+    })}\n`,
+  );
+  try {
+    const inspected = await product.run(["configure", "inspect", "--repo", root], {
+      observeRoots: [root],
+    });
+    expect(inspected.exitClass, inspected.stderr).toBe("success");
+    expect(inspected.effects).toEqual({ created: [], changed: [], removed: [] });
+    const inspection = JSON.parse(inspected.stdout);
+    expect(inspection).toMatchObject({
+      lifecycle: {
+        state: "repository-update-required",
+        update: {
+          source: { packageVersion: "0.1.1", status: "deactivated" },
+          target: {
+            manifest: {
+              schemaVersion: 2,
+              packageVersion: "0.1.2-dev",
+              status: "deactivated",
+              runtime: "stable",
+              surfaces: ["agent-skills"],
+              executorProfiles: [],
+            },
+            semanticInvariants: expect.arrayContaining([
+              "preserve-status",
+              "no-active-project-read-model-creation",
+              "reactivation-requires-separate-repository-configuration",
+            ]),
+            writeDomains: { canonical: [".bearing/manifest.json"], disposable: [] },
+            validation: expect.not.arrayContaining([
+              "project-read-model-rebuild",
+              "repository-diagnostics",
+              "original-operation-retry",
+            ]),
+          },
+        },
+      },
+    });
+
+    await writeFile(
+      join(root, ".bearing/manifest.json"),
+      `${JSON.stringify(inspection.lifecycle.update.target.manifest)}\n`,
+    );
+    const target = await product.run(["configure", "inspect", "--repo", root]);
+    expect(target.exitClass, target.stderr).toBe("success");
+    expect(JSON.parse(target.stdout)).toMatchObject({
+      lifecycle: { state: "deactivated", removalRequired: false },
+    });
+    await expect(access(join(root, ".bearing/cache/project-read-model.sqlite"))).rejects.toThrow();
+    expect(await readFile(join(root, ".bearing/state/preserved.md"), "utf8")).toBe("preserved\n");
+
+    const rebuild = await product.run(["cache", "rebuild", "--repo", root], {
+      observeRoots: [root],
+    });
+    expect(rebuild.exitClass).toBe("product-outcome");
+    expect(rebuild.stderr).toMatch(/requires an Active Repository Configuration/iu);
+    expect(rebuild.effects).toEqual({ created: [], changed: [], removed: [] });
+
+    const reactivation = await product.run(["configure", "plan", ...activateArguments(root)]);
+    expect(reactivation.exitClass, reactivation.stderr).toBe("success");
+    expect(JSON.parse(reactivation.stdout)).toMatchObject({
+      lifecycle: { state: "deactivated" },
+      canApply: true,
+    });
+    const stillDeactivated = await product.run(["configure", "inspect", "--repo", root]);
+    expect(JSON.parse(stillDeactivated.stdout)).toMatchObject({
+      lifecycle: { state: "deactivated" },
+    });
+  } finally {
+    await product.dispose();
+  }
+}, 60_000);
+
+test("unsafe Repository Update sources return actionable no-write outcomes", async () => {
+  const product = await installPackedProduct();
+  const scenarios = [
+    {
+      name: "corrupt",
+      source: "{not-json\n",
+      expectedState: "unsupported",
+      reason: /not valid JSON/iu,
+      nextAction: /verified backup|repository recovery/iu,
+    },
+    {
+      name: "unreadable",
+      source: `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.1",
+        status: "active",
+        surfaces: ["agent-skills"],
+        executorProfiles: [],
+      })}\n`,
+      unreadable: true,
+      expectedState: "unsupported",
+      reason: /access is unavailable/iu,
+      nextAction: /filesystem owner|readable access/iu,
+    },
+    {
+      name: "ambiguous",
+      source: `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.1",
+        status: "active",
+        surfaces: ["agent-skills", "agent-skills"],
+        executorProfiles: [],
+      })}\n`,
+      expectedState: "unsupported",
+      reason: /surface selections are invalid or ambiguous/iu,
+      nextAction: /semantic owner/iu,
+    },
+    {
+      name: "invalid-development",
+      source: `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.1",
+        status: "ambiguous",
+        runtime: "development",
+        surfaces: ["agent-skills"],
+        executorProfiles: [],
+      })}\n`,
+      expectedState: "unsupported",
+      reason: /lifecycle status is missing or ambiguous/iu,
+      nextAction: /semantic owner/iu,
+      plan: true,
+    },
+    {
+      name: "expanded-authority",
+      source: `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.1",
+        status: "active",
+        surfaces: ["agent-skills"],
+        executorProfiles: [],
+        inheritedAuthority: "write-native-work",
+      })}\n`,
+      expectedState: "unsupported",
+      reason: /outside the target contract[\s\S]*inheritedAuthority/iu,
+      nextAction: /separate authority|semantic owner/iu,
+    },
+    {
+      name: "newer",
+      source: `${JSON.stringify({ schemaVersion: 99, status: "active" })}\n`,
+      expectedState: "kit-update-required",
+      reason: /newer Bearing schema 99/iu,
+      nextAction: /separately authorized Global Kit Update/iu,
+    },
+    {
+      name: "newer-schema-one",
+      source: `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.3",
+        status: "active",
+        surfaces: ["agent-skills"],
+        executorProfiles: [],
+      })}\n`,
+      expectedState: "kit-update-required",
+      reason: /newer Bearing package 0\.1\.3/iu,
+      nextAction: /separately authorized Global Kit Update/iu,
+    },
+  ] as const;
+  try {
+    for (const scenario of scenarios) {
+      const root = join(product.root, `unsafe-${scenario.name}`);
+      await makeFreshRepository(root);
+      await mkdir(join(root, ".bearing"));
+      const manifestPath = join(root, ".bearing/manifest.json");
+      await writeFile(manifestPath, scenario.source);
+      if ("unreadable" in scenario && scenario.unreadable) await chmod(manifestPath, 0o000);
+      const inspected = await product.run(["configure", "inspect", "--repo", root], {
+        ...("unreadable" in scenario && scenario.unreadable ? {} : { observeRoots: [root] }),
+      });
+      expect(inspected.exitClass, `${scenario.name}: ${inspected.stderr}`).toBe("success");
+      if (!("unreadable" in scenario && scenario.unreadable)) {
+        expect(inspected.effects).toEqual({ created: [], changed: [], removed: [] });
+      }
+      const lifecycle = JSON.parse(inspected.stdout).lifecycle;
+      expect(lifecycle).toMatchObject({ state: scenario.expectedState, noWrite: true });
+      expect(lifecycle.reason).toMatch(scenario.reason);
+      expect(lifecycle.nextAction).toMatch(scenario.nextAction);
+      if ("plan" in scenario && scenario.plan) {
+        const planned = await product.run(["configure", "plan", ...activateArguments(root)], {
+          observeRoots: [root],
+        });
+        expect(planned.exitClass, planned.stderr).toBe("product-outcome");
+        expect(planned.effects).toEqual({ created: [], changed: [], removed: [] });
+        expect(JSON.parse(planned.stdout)).toMatchObject({
+          canApply: false,
+          blockers: [
+            {
+              code: "unsafe-repository-target",
+              message: expect.stringMatching(/no-write result[\s\S]*separate Human authority/iu),
+            },
+          ],
+        });
+      }
+      if ("unreadable" in scenario && scenario.unreadable) {
+        await chmod(manifestPath, 0o600);
+        expect(await readFile(manifestPath, "utf8")).toBe(scenario.source);
+      }
+    }
+
+    const root = join(product.root, "unsafe-symbolic-link");
+    await makeFreshRepository(root);
+    await mkdir(join(root, ".bearing"));
+    const outside = join(product.root, "outside-manifest.json");
+    await writeFile(outside, "{}\n");
+    await symlink(outside, join(root, ".bearing/manifest.json"));
+    const unsafe = await product.run(["configure", "inspect", "--repo", root], {
+      observeRoots: [root],
+    });
+    expect(unsafe.exitClass, unsafe.stderr).toBe("success");
+    expect(unsafe.effects).toEqual({ created: [], changed: [], removed: [] });
+    const unsafeLifecycle = JSON.parse(unsafe.stdout).lifecycle;
+    expect(unsafeLifecycle).toMatchObject({ state: "unsupported", noWrite: true });
+    expect(unsafeLifecycle.reason).toMatch(/safe single-link regular file/iu);
+    expect(unsafeLifecycle.nextAction).toMatch(/filesystem owner|safe repository manifest/iu);
+  } finally {
+    await product.dispose();
+  }
+}, 60_000);
+
+test("declined and stale accepted Repository Update candidates preserve current repository bytes", async () => {
+  const product = await installPackedProduct();
+  const root = join(product.root, "declined-and-changed-repository-update");
+  await makeFreshRepository(root);
+  await mkdir(join(root, ".bearing/state"), { recursive: true });
+  await mkdir(join(root, ".bearing/executor-profiles"), { recursive: true });
+  await writeFile(join(root, ".bearing/state/preserved.md"), "state\n");
+  await writeFile(join(root, ".bearing/provider.json"), "provider\n");
+  await writeFile(join(root, ".bearing/executor-profiles/preserved.md"), "profile\n");
+  const manifestPath = join(root, ".bearing/manifest.json");
+  const firstSource = {
+    schemaVersion: 1,
+    packageVersion: "0.1.1",
+    status: "active",
+    surfaces: ["agent-skills"],
+    executorProfiles: [],
+  } as const;
+  await writeFile(manifestPath, `${JSON.stringify(firstSource)}\n`);
+  try {
+    const inspected = await product.run(["configure", "inspect", "--repo", root], {
+      observeRoots: [root],
+    });
+    expect(inspected.exitClass, inspected.stderr).toBe("success");
+    expect(inspected.effects).toEqual({ created: [], changed: [], removed: [] });
+    const firstCandidate = JSON.parse(inspected.stdout).lifecycle.update.target.manifest;
+    expect(JSON.parse(await readFile(manifestPath, "utf8"))).toEqual(firstSource);
+    const acceptedPreconditions = await captureRepositoryTargetPreconditions(await realpath(root), [
+      ".bearing/manifest.json",
+    ]);
+
+    const changedSource = { ...firstSource, status: "deactivated" as const };
+    await writeFile(manifestPath, `${JSON.stringify(changedSource)}\n`);
+    await expect(
+      assertRepositoryTargetPreconditionsCurrent(await realpath(root), acceptedPreconditions),
+    ).rejects.toThrow(/Repository target changed after repository integration planning/iu);
+    expect(JSON.parse(await readFile(manifestPath, "utf8"))).toEqual(changedSource);
+
+    const reevaluated = await product.run(["configure", "inspect", "--repo", root], {
+      observeRoots: [root],
+    });
+    expect(reevaluated.exitClass, reevaluated.stderr).toBe("success");
+    expect(reevaluated.effects).toEqual({ created: [], changed: [], removed: [] });
+    const secondCandidate = JSON.parse(reevaluated.stdout).lifecycle.update.target.manifest;
+    expect(secondCandidate).not.toEqual(firstCandidate);
+    expect(secondCandidate).toMatchObject({ status: "deactivated" });
+    expect(JSON.parse(await readFile(manifestPath, "utf8"))).toEqual(changedSource);
+    expect(await readFile(join(root, ".bearing/state/preserved.md"), "utf8")).toBe("state\n");
+    expect(await readFile(join(root, ".bearing/provider.json"), "utf8")).toBe("provider\n");
+    expect(await readFile(join(root, ".bearing/executor-profiles/preserved.md"), "utf8")).toBe(
+      "profile\n",
+    );
+  } finally {
+    await product.dispose();
+  }
+}, 60_000);
+
+test("a blocked post-target rebuild preserves the target and reports one resumption point", async () => {
+  const product = await installPackedProduct();
+  const root = join(product.root, "post-target-rebuild-blocker");
+  await makeFreshRepository(root);
+  const targetManifest = {
+    schemaVersion: 2,
+    packageVersion: "0.1.2-dev",
+    status: "active",
+    runtime: "stable",
+    surfaces: ["agent-skills"],
+    executorProfiles: [],
+  } as const;
+  await mkdir(join(root, ".bearing/cache/project-read-model.sqlite"), { recursive: true });
+  await writeFile(join(root, ".bearing/manifest.json"), `${JSON.stringify(targetManifest)}\n`);
+  try {
+    const rebuilt = await product.run(["cache", "rebuild", "--repo", root], {
+      observeRoots: [root],
+    });
+    expect(rebuilt.exitClass).toBe("product-outcome");
+    expect(rebuilt.effects).toEqual({ created: [], changed: [], removed: [] });
+    const rebuildReceipt = JSON.parse(rebuilt.stdout);
+    expect(rebuildReceipt).toMatchObject({
+      outcome: "recovery-required",
+      result: {
+        acquisitionCount: 0,
+        resumptionPoint: "project-read-model-rebuild",
+      },
+    });
+    expect(rebuildReceipt.result.reason).toMatch(/unsafe/iu);
+    expect(JSON.parse(await readFile(join(root, ".bearing/manifest.json"), "utf8"))).toEqual(
+      targetManifest,
+    );
+    const lifecycle = await product.run(["configure", "inspect", "--repo", root]);
+    expect(JSON.parse(lifecycle.stdout)).toMatchObject({ lifecycle: { state: "active" } });
   } finally {
     await product.dispose();
   }
