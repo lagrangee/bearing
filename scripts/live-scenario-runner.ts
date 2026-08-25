@@ -1,5 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { cp, lstat, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  cp,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
@@ -17,9 +28,10 @@ import {
   provisionIsolatedGitHubAccountSelection,
   readFixedGitHubValidationRepository,
 } from "./github-live-journey";
-import { liveScenarioPackageSchema } from "./live-scenario-evidence";
+import { liveScenarioArtifactSchema, liveScenarioPackageSchema } from "./live-scenario-evidence";
 import {
   installLiveScenarioProduct,
+  materializeCompleteGlobalKitFromPackage,
   materializeGitHubLiveScenarioPlanningState,
   materializeLiveScenarioProductState,
 } from "./live-scenario-product";
@@ -40,6 +52,7 @@ const sha256 = (value: Uint8Array | string): string =>
   createHash("sha256").update(value).digest("hex");
 const installationEntryToken = ["$", "{INSTALL_ENTRY}"].join("");
 export const LIVE_SCENARIO_COORDINATOR_IDENTITY = "codex-coordinator" as const;
+const G1_INSTALLATION_SHELL = "/bin/zsh" as const;
 
 const liveScenarioRuntimePrefix = "bearing-live-scenario-";
 
@@ -136,6 +149,59 @@ const assertLiveScenarioArtifactPackageIdentity = async (input: unknown): Promis
   }
 };
 
+const inspectG1InstallationRuntime = async () => {
+  if (process.platform !== "darwin") {
+    fail("G1 installation rehearsal requires macOS.");
+  }
+  const shellProgram = await realpath(G1_INSTALLATION_SHELL);
+  const shell = Bun.spawnSync([shellProgram, "--version"], { stdout: "pipe", stderr: "pipe" });
+  const version = shell.stdout.toString().trim();
+  if (shell.exitCode !== 0 || !/^zsh\s/u.test(version)) {
+    fail("G1 installation rehearsal requires a verified zsh executable.");
+  }
+  return Object.freeze({
+    operatingSystem: "darwin" as const,
+    shell: { program: shellProgram, version },
+  });
+};
+
+const installBoundedLocalNpmCapability = async (input: {
+  sourceRoot: string;
+  runtimeRoot: string;
+  agentHome: string;
+  targetArtifact: string;
+  targetFile: string;
+  targetSha256: string;
+  targetVersion: string;
+}): Promise<void> => {
+  const realNpm = Bun.which("npm") ?? fail("Bounded update rehearsal requires npm.");
+  const controlRoot = join(input.runtimeRoot, "bounded-update-capability");
+  const capability = join(controlRoot, "npm.mjs");
+  const configuration = join(controlRoot, "config.json");
+  const targetBytes = await readFile(input.targetArtifact);
+  await mkdir(controlRoot);
+  await cp(join(input.sourceRoot, "scripts/g1-local-npm-capability.mjs"), capability);
+  await writeFile(
+    configuration,
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        targetArtifact: input.targetArtifact,
+        targetFile: input.targetFile,
+        targetSha256: input.targetSha256,
+        targetIntegrity: `sha512-${createHash("sha512").update(targetBytes).digest("base64")}`,
+        targetVersion: input.targetVersion,
+        realNpm: await realpath(realNpm),
+      },
+      null,
+      2,
+    )}\n`,
+    { flag: "wx", mode: 0o400 },
+  );
+  await chmod(capability, 0o555);
+  await symlink(capability, join(input.agentHome, ".bearing/bin/npm"));
+};
+
 const manifestSchema = z.object({
   schemaVersion: z.literal(1),
   generationId: z.string().uuid(),
@@ -150,6 +216,28 @@ const manifestSchema = z.object({
     .string()
     .regex(/^[0-9a-f]{64}$/u)
     .nullable(),
+  fixtureIdentity: z.object({
+    runtime: z
+      .object({
+        operatingSystem: z.literal("darwin"),
+        shell: z.object({ program: z.string().min(1), version: z.string().min(1) }).strict(),
+      })
+      .strict()
+      .optional(),
+    olderGlobalKit: z
+      .object({
+        packageName: z.literal("@lagrangee/bearing"),
+        packageVersion: z.literal("0.1.1"),
+        source: z
+          .object({ kind: z.literal("npm"), spec: z.literal("@lagrangee/bearing@0.1.1") })
+          .strict(),
+        artifact: liveScenarioArtifactSchema,
+        installedKitSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+        targetSkillSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+      })
+      .strict()
+      .optional(),
+  }),
   paths: z.object({
     sourceRoot: z.string(),
     registry: z.string(),
@@ -172,7 +260,11 @@ const manifestSchema = z.object({
     baselineInventory: z.string().optional(),
   }),
   launch: z.object({
-    environment: z.object({ HOME: z.string(), CODEX_HOME: z.string() }),
+    environment: z.object({
+      HOME: z.string(),
+      CODEX_HOME: z.string(),
+      SHELL: z.string().optional(),
+    }),
     initial: z.object({
       program: z.string(),
       workingDirectory: z.string(),
@@ -484,6 +576,10 @@ export const prepareLiveScenarioGeneration = async (input: {
   const scenario =
     registry.scenarios.find(({ id }) => id === input.scenarioId) ??
     fail(`Unknown Live Scenario: ${input.scenarioId}.`);
+  const fixtureRuntime =
+    scenario.fixture.materializer === "fresh-installation-repository"
+      ? await inspectG1InstallationRuntime()
+      : undefined;
   const generationId = z
     .string()
     .uuid()
@@ -532,6 +628,33 @@ export const prepareLiveScenarioGeneration = async (input: {
     fail("Live Scenario package artifact digest mismatch.");
   }
   await assertLiveScenarioArtifactPackageIdentity(matrixPackage);
+  const olderGlobalKit =
+    scenario.fixture.materializer === "older-kit-active-stable-repository"
+      ? matrixPackage.evidenceClass === "local-rehearsal"
+        ? (matrixPackage.fixtures?.olderGlobalKit ??
+          fail("G1 update rehearsal requires the fixed 0.1.1 package artifact."))
+        : fail("G1 update rehearsal currently requires a local rehearsal package basis.")
+      : undefined;
+  if (olderGlobalKit !== undefined) {
+    if ((await sha256File(olderGlobalKit.artifact.path)) !== olderGlobalKit.artifact.sha256) {
+      fail("G1 older Global Kit artifact digest mismatch.");
+    }
+    const metadata = z
+      .object({ name: z.string(), version: z.string() })
+      .parse(
+        JSON.parse(
+          (await packageFile(olderGlobalKit.artifact.path, "package/package.json")).toString(
+            "utf8",
+          ),
+        ),
+      );
+    if (
+      metadata.name !== olderGlobalKit.packageName ||
+      metadata.version !== olderGlobalKit.packageVersion
+    ) {
+      fail("G1 older Global Kit artifact identity mismatch.");
+    }
+  }
 
   let workspaceCreated = false;
   let runtimeCreated = false;
@@ -566,6 +689,9 @@ export const prepareLiveScenarioGeneration = async (input: {
       operatorCodexHome: resolve(input.operatorCodexHome),
       isolatedHome: agentHome,
     });
+    if (scenario.fixture.materializer === "fresh-installation-repository") {
+      await mkdir(join(agentHome, ".agents/skills"), { recursive: true });
+    }
     const operatorContext = await inspectCodexE2EOperatorContext(agentCodexHome);
     await Promise.all([
       writeFile(installationArtifact, await readFile(matrixPackage.artifact.path), {
@@ -614,6 +740,8 @@ export const prepareLiveScenarioGeneration = async (input: {
       }
     }
     let installedSkillSha256: string | null = null;
+    let installedOlderKitSha256: string | undefined;
+    let targetSkillSha256: string | undefined;
     let github:
       | Readonly<{
           program: string;
@@ -632,7 +760,13 @@ export const prepareLiveScenarioGeneration = async (input: {
         tarball: matrixPackage.artifact.path,
         installRoot: join(runtimeRoot, "product-install"),
         agentHome,
+        installGlobalKit: scenario.fixture.materializer !== "older-kit-active-stable-repository",
       });
+      if (scenario.fixture.materializer === "older-kit-active-stable-repository") {
+        targetSkillSha256 = await digestLiveScenarioFixture(
+          join(runtimeRoot, "product-install/node_modules/@lagrangee/bearing/skills/bearing"),
+        );
+      }
       if (scenario.fixture.materializer === "active-github-repository") {
         await materializeGitHubLiveScenarioPlanningState({
           sourceRoot,
@@ -710,6 +844,45 @@ export const prepareLiveScenarioGeneration = async (input: {
           productProgram,
           agentHome,
         });
+        if (scenario.fixture.materializer === "older-kit-active-stable-repository") {
+          const fixturePackage =
+            olderGlobalKit ?? fail("G1 update rehearsal older Global Kit package is unavailable.");
+          await materializeCompleteGlobalKitFromPackage({
+            tarball: fixturePackage.artifact.path,
+            installRoot: join(runtimeRoot, "older-product-install"),
+            agentHome,
+            repositoryRoot: repository,
+          });
+          const installedMetadata = z
+            .object({
+              name: z.literal("@lagrangee/bearing"),
+              version: z.literal("0.1.1"),
+            })
+            .passthrough()
+            .parse(
+              JSON.parse(
+                await readFile(join(agentHome, ".bearing/kit/current/package.json"), "utf8"),
+              ),
+            );
+          if (
+            installedMetadata.name !== fixturePackage.packageName ||
+            installedMetadata.version !== fixturePackage.packageVersion
+          ) {
+            fail("G1 update rehearsal did not establish the fixed older Global Kit.");
+          }
+          installedOlderKitSha256 = await digestLiveScenarioFixture(
+            join(agentHome, ".bearing/kit/current"),
+          );
+          await installBoundedLocalNpmCapability({
+            sourceRoot,
+            runtimeRoot,
+            agentHome,
+            targetArtifact: installationArtifact,
+            targetFile: matrixPackage.artifact.file,
+            targetSha256: matrixPackage.artifact.sha256,
+            targetVersion: matrixPackage.packageVersion,
+          });
+        }
       }
       installedSkillSha256 = await digestLiveScenarioFixture(
         join(agentHome, "skill-directory/bearing"),
@@ -735,6 +908,10 @@ export const prepareLiveScenarioGeneration = async (input: {
       scenarioContainer,
       existingRuntimeRoots,
     });
+    const writeAllowedPaths =
+      scenario.fixture.materializer === "fresh-installation-repository"
+        ? [join(agentHome, ".agents/skills")]
+        : [];
     const runtimeDenyRoots = readDeniedPaths.slice(3);
     const launch = codexE2ELaunchContract({
       repositoryRoot: repository,
@@ -742,7 +919,9 @@ export const prepareLiveScenarioGeneration = async (input: {
       codexHome: agentCodexHome,
       disabledOperatorSkillPaths: operatorContext.disabledSkills.map(({ locator }) => locator),
       readDeniedPaths,
+      writeAllowedPaths,
       skipGitRepositoryCheck: scenario.fixture.materializer === "non-project-directory",
+      ...(fixtureRuntime === undefined ? {} : { shellProgram: fixtureRuntime.shell.program }),
       ...(input.codexProgram === undefined ? {} : { program: input.codexProgram }),
     });
     const manifest = Object.freeze({
@@ -756,6 +935,22 @@ export const prepareLiveScenarioGeneration = async (input: {
       operatorContextFingerprint: operatorContext.fingerprint,
       startingStateSha256: await digestLiveScenarioFixture(repository),
       installedSkillSha256,
+      fixtureIdentity: Object.freeze({
+        ...(fixtureRuntime === undefined ? {} : { runtime: fixtureRuntime }),
+        ...(olderGlobalKit === undefined
+          ? {}
+          : {
+              olderGlobalKit: Object.freeze({
+                ...olderGlobalKit,
+                installedKitSha256:
+                  installedOlderKitSha256 ??
+                  fail("G1 update rehearsal older Global Kit digest is unavailable."),
+                targetSkillSha256:
+                  targetSkillSha256 ??
+                  fail("G1 update rehearsal target Skill digest is unavailable."),
+              }),
+            }),
+      }),
       paths: Object.freeze({
         sourceRoot,
         registry: registryPath,
@@ -794,6 +989,7 @@ export const prepareLiveScenarioGeneration = async (input: {
       scenarioWorkspace: workspaceRoot,
       installationEntryPath,
       readDeniedPaths,
+      writeAllowedPaths,
     });
     return manifest;
   } catch (error) {
@@ -860,6 +1056,45 @@ export const verifyLiveScenarioGeneration = async (path: string) => {
   if (JSON.stringify(scenario) !== JSON.stringify(parsed.scenario)) {
     fail("Live Scenario definition changed after preparation.");
   }
+  const expectsInstallationRuntime =
+    scenario.fixture.materializer === "fresh-installation-repository";
+  const expectsOlderGlobalKit =
+    scenario.fixture.materializer === "older-kit-active-stable-repository";
+  if (
+    (parsed.fixtureIdentity.runtime !== undefined) !== expectsInstallationRuntime ||
+    (parsed.fixtureIdentity.olderGlobalKit !== undefined) !== expectsOlderGlobalKit
+  ) {
+    fail("Live Scenario Fixture identity does not match its materializer.");
+  }
+  if (parsed.fixtureIdentity.runtime !== undefined) {
+    const currentRuntime = await inspectG1InstallationRuntime();
+    if (JSON.stringify(currentRuntime) !== JSON.stringify(parsed.fixtureIdentity.runtime)) {
+      fail("G1 installation runtime identity changed after preparation.");
+    }
+  }
+  if (parsed.fixtureIdentity.olderGlobalKit !== undefined) {
+    const fixturePackage = parsed.fixtureIdentity.olderGlobalKit;
+    if (
+      (await sha256File(fixturePackage.artifact.path)) !== fixturePackage.artifact.sha256 ||
+      JSON.stringify(
+        z
+          .object({ name: z.string(), version: z.string() })
+          .parse(
+            JSON.parse(
+              (await packageFile(fixturePackage.artifact.path, "package/package.json")).toString(
+                "utf8",
+              ),
+            ),
+          ),
+      ) !==
+        JSON.stringify({
+          name: fixturePackage.packageName,
+          version: fixturePackage.packageVersion,
+        })
+    ) {
+      fail("G1 older Global Kit artifact changed after preparation.");
+    }
+  }
   if (
     (await liveScenarioDefinitionDigest({
       sourceRoot: parsed.paths.sourceRoot,
@@ -898,13 +1133,25 @@ export const verifyLiveScenarioGeneration = async (path: string) => {
     if (currentFixtureSha256 !== parsed.startingStateSha256) {
       fail("Live Scenario fixture changed before Agent behavior.");
     }
+    if (
+      parsed.fixtureIdentity.olderGlobalKit !== undefined &&
+      (await digestLiveScenarioFixture(join(parsed.paths.agentHome, ".bearing/kit/current"))) !==
+        parsed.fixtureIdentity.olderGlobalKit.installedKitSha256
+    ) {
+      fail("G1 older Global Kit changed before Agent behavior.");
+    }
   }
-  if (
-    parsed.installedSkillSha256 !== null &&
-    (await digestLiveScenarioFixture(join(parsed.paths.agentHome, "skill-directory/bearing"))) !==
-      parsed.installedSkillSha256
-  ) {
-    fail("Preinstalled Bearing Skill changed after Scenario preparation.");
+  if (parsed.installedSkillSha256 !== null) {
+    const currentSkillSha256 = await digestLiveScenarioFixture(
+      join(parsed.paths.agentHome, "skill-directory/bearing"),
+    );
+    const acceptedSkillDigests =
+      observationNames.length > 0 && parsed.fixtureIdentity.olderGlobalKit !== undefined
+        ? [parsed.installedSkillSha256, parsed.fixtureIdentity.olderGlobalKit.targetSkillSha256]
+        : [parsed.installedSkillSha256];
+    if (!acceptedSkillDigests.includes(currentSkillSha256)) {
+      fail("Preinstalled Bearing Skill changed outside the recorded Scenario transition.");
+    }
   }
   await assertIsolatedCodexHomeControlLinks(parsed.paths.agentHome);
   const expectedPrompts = scenario.prompts.map((prompt) =>
@@ -926,8 +1173,15 @@ export const verifyLiveScenarioGeneration = async (path: string) => {
       scenarioContainer,
       ...parsed.paths.runtimeDenyRoots,
     ],
+    writeAllowedPaths:
+      scenario.fixture.materializer === "fresh-installation-repository"
+        ? [join(parsed.paths.agentHome, ".agents/skills")]
+        : [],
     program: parsed.launch.initial.program,
     skipGitRepositoryCheck: scenario.fixture.materializer === "non-project-directory",
+    ...(parsed.fixtureIdentity.runtime === undefined
+      ? {}
+      : { shellProgram: parsed.fixtureIdentity.runtime.shell.program }),
   });
   if (JSON.stringify(storedLaunch) !== JSON.stringify(parsed.launch)) {
     fail("Live Scenario Codex launch changed before Agent behavior.");
@@ -946,8 +1200,15 @@ export const verifyLiveScenarioGeneration = async (path: string) => {
       scenarioContainer,
       ...currentRuntimeDenyRoots,
     ],
+    writeAllowedPaths:
+      scenario.fixture.materializer === "fresh-installation-repository"
+        ? [join(parsed.paths.agentHome, ".agents/skills")]
+        : [],
     program: parsed.launch.initial.program,
     skipGitRepositoryCheck: scenario.fixture.materializer === "non-project-directory",
+    ...(parsed.fixtureIdentity.runtime === undefined
+      ? {}
+      : { shellProgram: parsed.fixtureIdentity.runtime.shell.program }),
   });
   if (parsed.github !== undefined) {
     const expectedScopeKey = deriveLiveScenarioGitHubScopeKey({

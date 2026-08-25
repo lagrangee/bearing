@@ -15,7 +15,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import {
   assertJourneyAgentPrompt,
   createCodexJourneyEnvironment,
@@ -114,6 +114,63 @@ const recordingCodexPermissionProbe = async (root: string): Promise<string> => {
   );
   await chmod(program, 0o755);
   return program;
+};
+
+const packOlderGlobalKitFixture = async (root: string): Promise<string> => {
+  const packageRoot = join(root, "older-kit-package");
+  const packRoot = join(root, "older-kit-pack");
+  await Promise.all([
+    mkdir(join(packageRoot, "dist"), { recursive: true }),
+    mkdir(join(packageRoot, "skills/bearing"), { recursive: true }),
+    mkdir(packRoot),
+  ]);
+  await Promise.all([
+    writeFile(
+      join(packageRoot, "package.json"),
+      `${JSON.stringify({
+        name: "@lagrangee/bearing",
+        version: "0.1.1",
+        type: "module",
+        bin: { bearing: "dist/cli.js" },
+        files: ["dist", "skills"],
+      })}\n`,
+    ),
+    writeFile(join(packageRoot, "skills/bearing/SKILL.md"), "# Older Bearing Skill\n"),
+    writeFile(
+      join(packageRoot, "dist/cli.js"),
+      `#!/usr/bin/env node
+import { cpSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+const home = process.env.HOME;
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+if (process.argv.includes("--version")) { console.log("0.1.1"); process.exit(0); }
+mkdirSync(join(home, ".bearing/kit"), { recursive: true });
+rmSync(join(home, ".bearing/kit/current"), { recursive: true, force: true });
+cpSync(root, join(home, ".bearing/kit/current"), { recursive: true });
+mkdirSync(join(home, ".bearing/bin"), { recursive: true });
+rmSync(join(home, ".bearing/bin/bearing"), { force: true });
+symlinkSync("../kit/current/dist/cli.js", join(home, ".bearing/bin/bearing"));
+mkdirSync(join(home, ".agents/skills"), { recursive: true });
+rmSync(join(home, ".agents/skills/bearing"), { recursive: true, force: true });
+symlinkSync(relative(join(home, ".agents/skills"), join(home, ".bearing/kit/current/skills/bearing")), join(home, ".agents/skills/bearing"));
+console.log("Outcome: installed");
+`,
+      { mode: 0o755 },
+    ),
+  ]);
+  const packed = Bun.spawnSync(
+    ["npm", "pack", "--json", "--ignore-scripts", "--pack-destination", packRoot],
+    {
+      cwd: packageRoot,
+      env: { ...process.env, npm_config_cache: join(root, "older-kit-npm-cache") },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  if (packed.exitCode !== 0) throw new Error(packed.stderr.toString());
+  const [artifact] = JSON.parse(packed.stdout.toString()) as [{ filename: string }];
+  return join(packRoot, artifact.filename);
 };
 
 const materializeLocalScenarioProductState = async (input: {
@@ -618,6 +675,9 @@ describe("independent Agent Live scenarios", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString()).toContain("prepare-scenario");
+    expect(result.stdout.toString()).toMatch(
+      /prepare-local-rehearsal[\s\S]*--registry <checkout-relative-path>/u,
+    );
     expect(result.stdout.toString()).toContain("--journey-attempt");
     expect(result.stdout.toString()).toContain("model|network|credential|harness");
     expect(result.stdout.toString()).toContain("run-scenario-turn");
@@ -738,6 +798,238 @@ describe("independent Agent Live scenarios", () => {
       /Repository Update Required[\s\S]*Global Kit maintenance[\s\S]*consent/iu,
     );
   });
+
+  test("keeps the bounded G1 installation and update proof separate from the full Matrix", async () => {
+    const registry = await loadLiveScenarioRegistry(
+      "validation/g1-installation-update/registry.json",
+    );
+
+    expect(registry.scenarios.map(({ id }) => id)).toEqual(["INSTALL-01", "UPDATE-01"]);
+    expect(registry.scenarios.map(({ fixture }) => fixture.materializer)).toEqual([
+      "fresh-installation-repository",
+      "older-kit-active-stable-repository",
+    ]);
+    expect(registry.scenarios.every(({ prompts }) => prompts.length >= 3)).toBe(true);
+    expect(JSON.stringify(registry)).toMatch(/Global Kit[\s\S]*Repository Update/iu);
+    expect(JSON.stringify(registry)).not.toMatch(/Candidate Freeze|Gate Passage/iu);
+  });
+
+  test("can launch installation proof without making the canonical CLI discoverable", () => {
+    const environment = createCodexJourneyEnvironment(
+      { PATH: "/usr/bin:/bin", SHELL: "/bin/zsh" },
+      { HOME: "/isolated/home", CODEX_HOME: "/isolated/home/.codex" },
+      { includeCanonicalBearingBin: false },
+    );
+
+    expect(environment["PATH"]).toBe("/usr/bin:/bin");
+    expect(environment["ZDOTDIR"]).toBe("/isolated/home/.shell");
+  });
+
+  test("prepares the bounded installation rehearsal with one pre-existing Agent Skills directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bearing-g1-installation-rehearsal-"));
+    const packageRoot = join(root, "package-root");
+    const tarball = join(root, "bearing.tgz");
+    const operatorCodexHome = join(root, "operator-codex-home");
+    const workspaceRoot = join(root, "workspace");
+    await mkdir(join(packageRoot, "package/docs"), { recursive: true });
+    await Promise.all([
+      writeFile(join(packageRoot, "package/docs/agent-installation.md"), "# Install\n"),
+      writeFile(
+        join(packageRoot, "package/package.json"),
+        '{"name":"@lagrangee/bearing","version":"0.1.2-dev"}\n',
+      ),
+      mkdir(operatorCodexHome),
+    ]);
+    const packed = Bun.spawnSync(["tar", "-czf", tarball, "package"], {
+      cwd: packageRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (packed.exitCode !== 0) throw new Error(packed.stderr.toString());
+    await writeFile(join(operatorCodexHome, "auth.json"), "{}\n");
+    const matrixDefinitionSha256 = await liveScenarioDefinitionDigest({
+      sourceRoot: process.cwd(),
+      registryPath: "validation/g1-installation-update/registry.json",
+    });
+    const manifest = await prepareLiveScenarioGeneration({
+      sourceRoot: process.cwd(),
+      workspaceRoot,
+      operatorCodexHome,
+      registryPath: "validation/g1-installation-update/registry.json",
+      scenarioId: "INSTALL-01",
+      codexProgram: await recordingCodexPermissionProbe(root),
+      package: {
+        evidenceClass: "local-rehearsal",
+        packageName: "@lagrangee/bearing",
+        packageVersion: "0.1.2-dev",
+        sourceHead: "fixture-head",
+        worktreeSha256: await localRehearsalWorktreeDigest(process.cwd()),
+        artifact: {
+          path: tarball,
+          file: "bearing.tgz",
+          sha256: await sha256File(tarball),
+        },
+        matrixDefinitionSha256,
+      },
+    });
+
+    try {
+      expect((await lstat(join(manifest.paths.agentHome, ".agents/skills"))).isDirectory()).toBe(
+        true,
+      );
+      expect(manifest.fixtureIdentity.runtime).toMatchObject({
+        operatingSystem: "darwin",
+        shell: { program: "/bin/zsh" },
+      });
+      expect(manifest.launch.environment.SHELL).toBe("/bin/zsh");
+      expect(
+        manifest.launch.initial.arguments.some((argument) =>
+          argument.includes(`${manifest.paths.agentHome}/.agents/skills"="write"`),
+        ),
+      ).toBe(true);
+      await expect(
+        access(join(manifest.paths.agentHome, ".bearing/kit/current/package.json")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await Promise.all([
+        rm(workspaceRoot, { recursive: true }),
+        rm(manifest.paths.runtimeRoot, { recursive: true }),
+      ]);
+    }
+  });
+
+  test("prepares the bounded update rehearsal from an older complete Kit and Active Stable repository", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bearing-g1-update-rehearsal-"));
+    const packRoot = join(root, "pack");
+    const operatorCodexHome = join(root, "operator-codex-home");
+    const workspaceRoot = join(root, "workspace");
+    await Promise.all([mkdir(packRoot), mkdir(operatorCodexHome)]);
+    await writeFile(join(operatorCodexHome, "auth.json"), "{}\n");
+    const packed = Bun.spawnSync(
+      ["npm", "pack", "--json", "--ignore-scripts", "--pack-destination", packRoot],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, npm_config_cache: join(root, "npm-cache") },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    if (packed.exitCode !== 0) throw new Error(packed.stderr.toString());
+    const [artifact] = JSON.parse(packed.stdout.toString()) as [{ filename: string }];
+    const tarball = join(packRoot, artifact.filename);
+    const olderKitTarball = await packOlderGlobalKitFixture(root);
+    const matrixDefinitionSha256 = await liveScenarioDefinitionDigest({
+      sourceRoot: process.cwd(),
+      registryPath: "validation/g1-installation-update/registry.json",
+    });
+    const manifest = await prepareLiveScenarioGeneration({
+      sourceRoot: process.cwd(),
+      workspaceRoot,
+      operatorCodexHome,
+      registryPath: "validation/g1-installation-update/registry.json",
+      scenarioId: "UPDATE-01",
+      codexProgram: await recordingCodexPermissionProbe(root),
+      package: {
+        evidenceClass: "local-rehearsal",
+        packageName: "@lagrangee/bearing",
+        packageVersion: "0.1.2-dev",
+        sourceHead: "fixture-head",
+        worktreeSha256: await localRehearsalWorktreeDigest(process.cwd()),
+        artifact: {
+          path: tarball,
+          file: artifact.filename,
+          sha256: await sha256File(tarball),
+        },
+        fixtures: {
+          olderGlobalKit: {
+            packageName: "@lagrangee/bearing",
+            packageVersion: "0.1.1",
+            source: { kind: "npm", spec: "@lagrangee/bearing@0.1.1" },
+            artifact: {
+              path: olderKitTarball,
+              file: basename(olderKitTarball),
+              sha256: await sha256File(olderKitTarball),
+            },
+          },
+        },
+        matrixDefinitionSha256,
+      },
+    });
+
+    try {
+      expect(
+        JSON.parse(
+          await readFile(
+            join(manifest.paths.agentHome, ".bearing/kit/current/package.json"),
+            "utf8",
+          ),
+        ),
+      ).toMatchObject({ name: "@lagrangee/bearing", version: "0.1.1" });
+      expect(manifest.fixtureIdentity.olderGlobalKit).toMatchObject({
+        packageName: "@lagrangee/bearing",
+        packageVersion: "0.1.1",
+        source: { kind: "npm", spec: "@lagrangee/bearing@0.1.1" },
+        artifact: { sha256: await sha256File(olderKitTarball) },
+        targetSkillSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      });
+      await expect(
+        access(join(manifest.paths.agentHome, ".bearing/kit/versions/0.1.2-dev")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      expect(
+        JSON.parse(
+          await readFile(join(manifest.paths.repository, ".bearing/manifest.json"), "utf8"),
+        ),
+      ).toEqual({
+        schemaVersion: 1,
+        packageVersion: "0.1.1",
+        status: "active",
+        surfaces: ["agent-skills"],
+        executorProfiles: [],
+      });
+      expect(
+        (await lstat(join(manifest.paths.agentHome, ".agents/skills/bearing"))).isSymbolicLink(),
+      ).toBe(true);
+      const updateCheck = Bun.spawnSync(
+        [
+          join(manifest.paths.agentHome, ".bearing/bin/npm"),
+          "view",
+          "@lagrangee/bearing@latest",
+          "version",
+          "dist.integrity",
+          "repository.url",
+          "--json",
+        ],
+        { cwd: manifest.paths.repository, stdout: "pipe", stderr: "pipe" },
+      );
+      expect(updateCheck.exitCode, updateCheck.stderr.toString()).toBe(0);
+      expect(JSON.parse(updateCheck.stdout.toString())).toMatchObject({
+        version: "0.1.2-dev",
+        "repository.url": "git+https://github.com/lagrangee/bearing.git",
+      });
+      const targetInstall = Bun.spawnSync(
+        [
+          join(manifest.paths.runtimeRoot, "product-install/node_modules/.bin/bearing"),
+          "install",
+          "--surface",
+          "agent-skills",
+        ],
+        {
+          cwd: manifest.paths.repository,
+          env: { ...process.env, HOME: manifest.paths.agentHome },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      expect(targetInstall.exitCode, targetInstall.stderr.toString()).toBe(0);
+      await writeFile(join(manifest.paths.observations, "turn-02.json"), "{}\n");
+      await expect(verifyLiveScenarioGeneration(manifest.paths.manifest)).resolves.toBeDefined();
+    } finally {
+      await Promise.all([
+        rm(workspaceRoot, { recursive: true }),
+        rm(manifest.paths.runtimeRoot, { recursive: true }),
+      ]);
+    }
+  }, 60_000);
 
   test("preflights every Fixture while reserving semantic review for the Coordinator", () => {
     const result = Bun.spawnSync(

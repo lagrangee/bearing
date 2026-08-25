@@ -56,7 +56,8 @@ import { sha256File, verifyReleaseCandidate } from "./release-candidate-lib";
 
 const usage = `Usage:
   bun scripts/run-live-journey.ts prepare-local-rehearsal \\
-    --source-root <absolute-path> --package-output <absolute-new-path>
+    --source-root <absolute-path> --package-output <absolute-new-path> \\
+    [--registry <checkout-relative-path>]
 
   bun scripts/run-live-journey.ts prepare-candidate-package \\
     --candidate-receipt <absolute-path> --tarball <absolute-path> \\
@@ -330,6 +331,23 @@ const localRehearsalPackageSchema = z
       file: z.string().min(1),
       sha256: z.string().regex(/^[0-9a-f]{64}$/u),
     }),
+    fixtures: z
+      .object({
+        olderGlobalKit: z.object({
+          packageName: z.literal("@lagrangee/bearing"),
+          packageVersion: z.literal("0.1.1"),
+          source: z.object({
+            kind: z.literal("npm"),
+            spec: z.literal("@lagrangee/bearing@0.1.1"),
+          }),
+          artifact: z.object({
+            path: z.string().min(1),
+            file: z.string().min(1),
+            sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+          }),
+        }),
+      })
+      .optional(),
     matrixDefinitionSha256: z.string().regex(/^[0-9a-f]{64}$/u),
   })
   .strict();
@@ -377,10 +395,67 @@ const prepareLocalRehearsal = async (): Promise<void> => {
   }
   assertCanonicalPackageBoundary(packed.files.map(({ path }) => path));
   const artifactPath = await realpath(join(packageOutput, packed.filename));
+  const registryPath = parsed.values.registry ?? "validation/live-journey/registry.json";
+  const registry = await loadLiveScenarioRegistry(resolve(sourceRoot, registryPath));
   const matrixDefinitionSha256 = await liveScenarioDefinitionDigest({
     sourceRoot,
-    registryPath: "validation/live-journey/registry.json",
+    registryPath,
   });
+  let olderGlobalKit:
+    | Readonly<{
+        packageName: "@lagrangee/bearing";
+        packageVersion: "0.1.1";
+        source: Readonly<{ kind: "npm"; spec: "@lagrangee/bearing@0.1.1" }>;
+        artifact: Readonly<{ path: string; file: string; sha256: string }>;
+      }>
+    | undefined;
+  if (
+    registry.scenarios.some(
+      ({ fixture }) => fixture.materializer === "older-kit-active-stable-repository",
+    )
+  ) {
+    const fixtureSpec = "@lagrangee/bearing@0.1.1" as const;
+    const fixtureResults = z
+      .array(localPackResultSchema)
+      .length(1)
+      .parse(
+        JSON.parse(
+          runLocalCommand(
+            "npm",
+            [
+              "pack",
+              fixtureSpec,
+              "--json",
+              "--ignore-scripts",
+              "--pack-destination",
+              packageOutput,
+            ],
+            sourceRoot,
+            {
+              ...process.env,
+              npm_config_cache: join(packageOutput, ".npm-cache"),
+              npm_config_loglevel: "error",
+              npm_config_update_notifier: "false",
+            },
+          ),
+        ),
+      );
+    const fixture = fixtureResults[0] ?? fail("G1 older Global Kit pack produced no artifact.");
+    if (fixture.name !== "@lagrangee/bearing" || fixture.version !== "0.1.1") {
+      fail("G1 older Global Kit package identity does not match the fixed npm package.");
+    }
+    const fixtureArtifact = await realpath(join(packageOutput, fixture.filename));
+    olderGlobalKit = Object.freeze({
+      packageName: "@lagrangee/bearing" as const,
+      packageVersion: "0.1.1" as const,
+      source: Object.freeze({ kind: "npm" as const, spec: fixtureSpec }),
+      artifact: Object.freeze({
+        path: fixtureArtifact,
+        file: basename(fixtureArtifact),
+        sha256: await sha256File(fixtureArtifact),
+      }),
+    });
+  }
   const localPackage = localRehearsalPackageSchema.parse({
     schemaVersion: 1,
     evidenceClass: "local-rehearsal",
@@ -393,6 +468,7 @@ const prepareLocalRehearsal = async (): Promise<void> => {
       file: basename(artifactPath),
       sha256: await sha256File(artifactPath),
     },
+    ...(olderGlobalKit === undefined ? {} : { fixtures: { olderGlobalKit } }),
     matrixDefinitionSha256,
   });
   const localPackagePath = join(packageOutput, "local-rehearsal-package.json");
@@ -512,6 +588,7 @@ const snapshotScenarioAgentHome = (agentHome: string): Promise<string> =>
 
 type CodexTurnManifest = Readonly<{
   generationId: string;
+  scenario: Readonly<{ fixture: Readonly<{ materializer: string }> }>;
   paths: Readonly<{
     sourceRoot: string;
     manifest: string;
@@ -528,7 +605,7 @@ type CodexTurnManifest = Readonly<{
     remoteInventories?: string | undefined;
   }>;
   launch: Readonly<{
-    environment: Readonly<{ HOME: string; CODEX_HOME: string }>;
+    environment: Readonly<{ HOME: string; CODEX_HOME: string; SHELL?: string }>;
     initial: Readonly<{
       program: string;
       workingDirectory: string;
@@ -581,7 +658,10 @@ const prepareCodexTurn = async (manifest: CodexTurnManifest, turn: number, attem
     registry.scenarios.map(({ id }) => id),
     [manifest.paths.installationEntry],
   );
-  const environment = createCodexJourneyEnvironment(process.env, manifest.launch.environment);
+  const environment = createCodexJourneyEnvironment(process.env, manifest.launch.environment, {
+    includeCanonicalBearingBin:
+      manifest.scenario.fixture.materializer !== "fresh-installation-repository",
+  });
   const operatorCodexHome = dirname(
     await realpath(join(manifest.launch.environment.CODEX_HOME, "auth.json")),
   );
