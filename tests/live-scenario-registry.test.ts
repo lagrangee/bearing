@@ -169,6 +169,15 @@ describe("independent Agent Live scenarios", () => {
     expect(await readFile(join(repositoryRoot, "AGENTS.md"), "utf8")).toContain(
       BEARING_DEVELOPMENT_POINTER,
     );
+    expect(await readFile(join(repositoryRoot, "CONTEXT.md"), "utf8")).toContain(
+      "# Label Formatter Context",
+    );
+    expect(await readFile(join(repositoryRoot, "docs/agents/issue-tracker.md"), "utf8")).toContain(
+      "Provider contract: `matt-skills/v1`",
+    );
+    expect(
+      await readFile(join(repositoryRoot, ".scratch/label-delivery/map.md"), "utf8"),
+    ).toContain("# Label Formatter Delivery Map");
     expect(
       JSON.parse(
         await readFile(join(repositoryRoot, ".bearing/local/development-runtime.json"), "utf8"),

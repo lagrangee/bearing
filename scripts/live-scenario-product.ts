@@ -1,4 +1,4 @@
-import { access, cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { z } from "zod";
 import type { LiveScenario } from "./live-scenario-registry";
@@ -150,6 +150,7 @@ const activate = async (input: {
 
 const materializeDevelopmentRepositoryUpdateSource = async (input: {
   sourceRoot: string;
+  fixtureRoot: string;
   repositoryRoot: string;
   productProgram: string;
   agentHome: string;
@@ -161,9 +162,6 @@ const materializeDevelopmentRepositoryUpdateSource = async (input: {
   }
   for (const locator of [
     ".gitignore",
-    "AGENTS.md",
-    "CONTEXT.md",
-    "docs/agents",
     "index.html",
     "package-lock.json",
     "package.json",
@@ -176,19 +174,17 @@ const materializeDevelopmentRepositoryUpdateSource = async (input: {
     "tsconfig.json",
     "vite.config.ts",
   ]) {
-    const source = join(input.sourceRoot, locator);
-    try {
-      await access(source);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-      throw error;
-    }
     const target = join(input.repositoryRoot, locator);
     await mkdir(dirname(target), { recursive: true });
-    await cp(source, target, {
+    await cp(join(input.sourceRoot, locator), target, {
       recursive: true,
       force: true,
     });
+  }
+  for (const locator of [".scratch", "AGENTS.md", "CONTEXT.md", "docs/agents"]) {
+    const target = join(input.repositoryRoot, locator);
+    await mkdir(dirname(target), { recursive: true });
+    await cp(join(input.fixtureRoot, locator), target, { recursive: true, force: true });
   }
   await mkdir(join(input.repositoryRoot, ".agents/skills"), { recursive: true });
   await symlink(
@@ -205,6 +201,11 @@ const materializeDevelopmentRepositoryUpdateSource = async (input: {
   const runtimeManifest = developmentRuntimeManifestSchema.parse(
     JSON.parse(await readFile(runtimeManifestPath, "utf8")),
   );
+
+  await activate({ ...input, runtime: "development" });
+  if (git(input.repositoryRoot, ["status", "--porcelain=v1"]).length > 0) {
+    commitBaseline(input.repositoryRoot, "Apply Development configuration baseline");
+  }
   const sourceProvenance = {
     gitHead: git(input.repositoryRoot, ["rev-parse", "HEAD"]),
     dirty: git(input.repositoryRoot, ["status", "--porcelain=v1"]).length > 0,
@@ -220,8 +221,6 @@ const materializeDevelopmentRepositoryUpdateSource = async (input: {
       2,
     )}\n`,
   );
-
-  await activate({ ...input, runtime: "development" });
   const bootstrap = JSON.parse(
     await run(
       [
@@ -376,7 +375,10 @@ export const materializeLiveScenarioProductState = async (input: {
     );
   }
   if (materializer === "repository-update-required-repository") {
-    await materializeDevelopmentRepositoryUpdateSource(input);
+    await materializeDevelopmentRepositoryUpdateSource({
+      ...input,
+      fixtureRoot: join(input.sourceRoot, input.scenario.fixture.source),
+    });
     return;
   }
   await activate(input);
