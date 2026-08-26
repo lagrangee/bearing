@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { z } from "zod";
 import type { LiveScenario } from "./live-scenario-registry";
@@ -176,9 +176,16 @@ const materializeDevelopmentRepositoryUpdateSource = async (input: {
     "tsconfig.json",
     "vite.config.ts",
   ]) {
+    const source = join(input.sourceRoot, locator);
+    try {
+      await access(source);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
     const target = join(input.repositoryRoot, locator);
     await mkdir(dirname(target), { recursive: true });
-    await cp(join(input.sourceRoot, locator), target, {
+    await cp(source, target, {
       recursive: true,
       force: true,
     });
