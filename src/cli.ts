@@ -21,7 +21,6 @@ import {
 import { installKit, uninstallGlobalKit } from "./installer";
 import {
   nativeReferenceSchema,
-  nativeWorkAffectedRelationSchema,
   normalizeNativeReconciliationRequest,
 } from "./native-reconciliation-contract";
 import { resolveRepositoryRoot } from "./path-boundary";
@@ -56,7 +55,7 @@ Usage:
   bearing configure plan --intent <activate|deactivate> [--repo <path>] [--runtime <stable|development>] [--surface <agent-skills|claude>] [--provider-contract <repository-relative-path>] [--executor-mode <skip|configure>] [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>]
   bearing configure apply --intent <activate|deactivate> --plan-token <sha256> [configuration options from the reviewed plan]
   bearing catalog <inspect|rename|unregister|relink|reset> [options]
-  bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]
+  bearing reconcile-native --scope <opaque-native-scope> --ref <native-reference> [--ref <native-reference>] [--repo <path>]
   bearing provider capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] [--repo <path>]
   bearing provider verify --all [--repo <path>]
   bearing cache rebuild [--repo <path>]
@@ -315,14 +314,13 @@ const runNativeReconciliationCommand = async (args: readonly string[]): Promise<
           repo: { type: "string" },
           scope: { type: "string" },
           ref: { type: "string", multiple: true },
-          relation: { type: "string", multiple: true },
         },
         allowPositionals: false,
         strict: true,
       });
     } catch (error) {
       throw new CommandUsageError(
-        "Usage: bearing reconcile-native --scope <opaque-native-scope> [--ref <native-reference>] [--relation <json>] [--repo <path>]",
+        "Usage: bearing reconcile-native --scope <opaque-native-scope> --ref <native-reference> [--ref <native-reference>] [--repo <path>]",
         { cause: error },
       );
     }
@@ -333,24 +331,11 @@ const runNativeReconciliationCommand = async (args: readonly string[]): Promise<
       "Targeted native reconciliation requires --scope <opaque-native-scope>.",
     );
   }
-  const relations = (() => {
-    try {
-      return (parsed.values.relation ?? []).map((encoded) => {
-        const value: unknown = JSON.parse(encoded);
-        return nativeWorkAffectedRelationSchema.parse(value);
-      });
-    } catch (error) {
-      throw new CommandUsageError("Every --relation value must be one JSON relation object.", {
-        cause: error,
-      });
-    }
-  })();
   const request = (() => {
     try {
       return normalizeNativeReconciliationRequest({
         binding: { provider: "matt-skills/v1", nativeScope },
         subjects: parsed.values.ref ?? [],
-        relations,
       });
     } catch (error) {
       throw new CommandUsageError("Targeted native reconciliation input is invalid.", {
@@ -363,10 +348,9 @@ const runNativeReconciliationCommand = async (args: readonly string[]): Promise<
     {
       binding: request.binding,
       subjects: request.subjects,
-      relations: request.relations,
     },
   );
-  writeJson({ ...result, request });
+  writeJson(result);
   if (result.outcome !== "complete") process.exitCode = 1;
 };
 

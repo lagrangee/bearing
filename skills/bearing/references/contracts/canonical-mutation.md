@@ -52,10 +52,3 @@ There is no generic semantic Plan or Apply, automatic confirmation, generic refr
 global follow-up table. A partial write is not success: preserve or restore known-good bytes,
 repair only the Agent's own attempted write set, revalidate, and report the exact resumption point.
 Do not infer acceptance from tests, diagnostics, provider evidence, native lifecycle, or silence.
-
-## Completion criterion
-
-One accepted owner-authored result matches current preconditions, only affected owners changed,
-post-edit affected-target inspection reads one committed generation that agrees with canonical
-sources, diagnostics report zero new structural defect, and any partial-write recovery is truthful
-and scoped.

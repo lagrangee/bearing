@@ -840,13 +840,18 @@ const semanticSectionsFor = (
         section("gate.passage", gate.passage === undefined ? "confirmed-empty" : "available"),
       ];
     }
-    case "effort":
+    case "effort": {
+      const effort = record as EffortRecord;
       return [
         section("effort.event-history"),
         section("effort.intent"),
         section("effort.lifecycle"),
-        section("effort.native-work"),
+        section(
+          "effort.native-work",
+          effort.workBindingState.state === "not-created" ? "confirmed-empty" : "available",
+        ),
       ];
+    }
     case "authority": {
       const authority = record as AuthorityRecord;
       return [
@@ -931,6 +936,13 @@ const relationsForGate = (input: Input, gate: GateRecord): PlanningLineageRelati
 
 const workBindingRelation = (input: Input, effort: EffortRecord): PlanningLineageRelation => {
   const binding = effort.workBinding;
+  if (effort.workBindingState.state === "not-created") {
+    return {
+      ...relationBase("native-work.binding", "Work Binding", "binds to native scope", "one"),
+      state: "confirmed-none",
+      reason: "Native work not started.",
+    };
+  }
   if (effort.workBindingState.state === "invalid") {
     const reason = effort.workBindingState.reason;
     return unavailableRelation(
@@ -938,13 +950,15 @@ const workBindingRelation = (input: Input, effort: EffortRecord): PlanningLineag
       "Work Binding",
       "binds to native scope",
       "one",
-      reason === "missing"
-        ? "The canonical Effort has no declared Work Binding."
-        : reason === "unparseable"
-          ? "The canonical Effort Work Binding does not match the supported contract."
-          : reason === "conflicting"
-            ? "Multiple Efforts declare the same stable provider-native identity."
-            : "The declared Work Binding does not resolve to current source data.",
+      reason === "lifecycle-conflict"
+        ? "The planned Effort declares a Work Binding before native work starts."
+        : reason === "missing"
+          ? "The canonical Effort has no declared Work Binding."
+          : reason === "unparseable"
+            ? "The canonical Effort Work Binding does not match the supported contract."
+            : reason === "conflicting"
+              ? "Multiple Efforts declare the same stable provider-native identity."
+              : "The declared Work Binding does not resolve to current source data.",
     );
   }
   if (binding === undefined) throw new TypeError("Bound Effort requires its Work Binding.");

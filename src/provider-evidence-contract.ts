@@ -34,6 +34,16 @@ export type ProviderObservationSelection = Readonly<{
   effectiveFreshness: ProviderFreshnessAssessment;
   latestAttempt: ProviderObservationAttempt | null;
 }>;
+export const targetedReconciliationBasisSchema = z.discriminatedUnion("state", [
+  z.strictObject({ state: z.literal("ready") }),
+  z.strictObject({
+    state: z.literal("capture-required"),
+    reason: z.enum(["observation-unavailable", "freshness-not-current", "latest-attempt-failed"]),
+  }),
+]);
+export type TargetedReconciliationBasis = Readonly<
+  z.infer<typeof targetedReconciliationBasisSchema>
+>;
 export type ProviderObservationOperation = Readonly<{
   intent: ProviderObservationIntent;
   outcome: "reused" | "acquired" | "unavailable" | "retained-after-failure" | "not-applicable";
@@ -108,6 +118,34 @@ export const providerObservationSelectionFreshnessIsCoherent = (
     | undefined,
 ): boolean =>
   selection.effectiveFreshness !== "current" || observation?.freshness.assessment === "current";
+
+export const targetedReconciliationBasis = (
+  selection: ProviderObservationSelection | undefined,
+  observation:
+    | Readonly<{
+        id: string;
+        freshness: Readonly<{ assessment: ProviderFreshnessAssessment }>;
+      }>
+    | undefined,
+): TargetedReconciliationBasis => {
+  if (
+    selection === undefined ||
+    observation === undefined ||
+    selection.observationId !== observation.id
+  ) {
+    return { state: "capture-required", reason: "observation-unavailable" };
+  }
+  if (
+    selection.effectiveFreshness !== "current" ||
+    observation.freshness.assessment !== "current"
+  ) {
+    return { state: "capture-required", reason: "freshness-not-current" };
+  }
+  if (selection.latestAttempt?.outcome === "failed") {
+    return { state: "capture-required", reason: "latest-attempt-failed" };
+  }
+  return { state: "ready" };
+};
 
 export const assessSelectedProviderObservationEvidence = (
   observation: (ProviderCompletionInvariantInput & Readonly<{ id: string }>) | undefined,

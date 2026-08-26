@@ -13,34 +13,35 @@ exact reconciliation of successful managed native effects.
 ## Operation
 
 1. Continue the original executor command in the same visible operation; never ask the user to
-   invoke it again. Resolve one exact Ticket and run local Binding lookup. Completion: Ticket,
-   acceptance criteria, blockers, native scope, and bound or unbound fact are explicit.
-2. For bound work, inspect the affected Effort. An explicit request to execute an unambiguous Ticket
-   under a planned Effort directly entails its activation: state the effect, change the Effort
-   through the canonical mutation contract, inspect the Effort, then continue execution without
-   duplicate confirmation. An active Effort continues directly. Completion: lifecycle is valid for
-   execution.
-3. If the user refuses the entailed activation, perform no Effort, executor, or native mutation. A
+   invoke it again. Resolve one exact Ticket, its acceptance criteria and blockers, and inspect any
+   existing native scope and Binding. Preserve a direct executor invocation that instead names one
+   exact planned Effort whose native identity does not exist yet.
+2. For a planned Effort with no Work Binding, state the combined effect and join the exact start
+   owners selected at the root. Do not assume a Binding, fabricate a native identity, or copy their
+   sequence. Those owners preserve the user-invoked workflow, obtain its exact native scope, create
+   the Binding and Activation atomically, and capture the first provider baseline before execution
+   continues. Active bound work continues directly.
+3. If the user refuses the stated start effect, perform no Effort, executor, or native mutation. A
    concluded Effort never reopens implicitly; stop for an accepted new, superseding, or Binding
-   disposition decision. Completion: refusal or concluded state has no hidden effect.
-4. Run the executor with relevant planning context and preserve its outcome. Then let Work
-   Management perform any native writeback and use exact reconciliation for successful bound
-   effects. The accepted Ticket outcome authorizes this writeback and exact reconciliation; the
-   product seam change does not require another confirmation. Completion: implementation and
-   native outcomes remain owner-separated.
+   disposition decision.
+4. Run the executor with relevant planning context and preserve its outcome. If native writeback
+   follows, hand the accepted outcome to Native Work and preserve its separate terminal outcome.
+   Execution does not restate or override Native Work transaction closure or readback.
 5. For materially related unbound work, execution still proceeds. Offer a planning recommendation
-   only after the work outcome and never require enrollment. Completion: standalone execution is
-   not blocked by governance.
+   only after the work outcome and never require enrollment.
 
 ## After this operation
 
-- **Required:** Reconcile exact successful bound native writes; preserve every nonterminal stage.
+- **Required:** Preserve truthful executor and native outcomes, including every nonterminal stage
+  and exact resumption point.
 - **Consider:** Evidence-backed Effort, Gate, or Roadmap opportunities may be offered through their
   owners.
-- **Do not infer:** A lifecycle mismatch reports facts only. It never chooses repair, invents event
-  time, activates, reopens, concludes, or changes a Binding.
+- **Do not infer:** Execution failure, native completion, reconciliation success, provider
+  completion, and tests do not conclude an Effort, pass a Gate, or complete a Roadmap. A lifecycle
+  mismatch reports facts only; it never chooses repair, invents event time, activates, reopens, or
+  changes a Binding.
 
 ## Completion criterion
 
 The original executor command ran once in visible context, lifecycle effects were explicit and
-accepted, execution and native owners retained their outcomes, and reconciliation stayed exact.
+accepted, and executor and Native Work owners retained their truthful separate outcomes.

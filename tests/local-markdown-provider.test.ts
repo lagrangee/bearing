@@ -532,8 +532,6 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       clock: () => new Date("2026-07-28T00:00:00Z"),
     });
     const issue = `${nativeScope}/issues/04-task.md`;
-    const issueOne = `${nativeScope}/issues/01-research.md`;
-    const issueThree = `${nativeScope}/issues/03-grilling.md`;
     let prior = await provider.capture(binding);
 
     const reconcile = async (blockedBy: string | undefined) => {
@@ -554,10 +552,6 @@ describe("Local Markdown matt-skills/v1 capture", () => {
         prior,
         affected: {
           subjects: [issue],
-          relations: [
-            { kind: "blocked-by", source: issue, target: issueOne },
-            { kind: "blocked-by", source: issue, target: issueThree },
-          ],
         },
       });
       if (next === undefined) throw new Error("Expected Local targeted reconciliation.");
@@ -588,6 +582,52 @@ describe("Local Markdown matt-skills/v1 capture", () => {
         (relation) => String(relation.blocked) === issue,
       ),
     ).toEqual([]);
+  });
+
+  test("targeted reconciliation derives the current Delivery parent from provider truth", async () => {
+    const root = await writeReferenceRepository();
+    const capturedDocuments = new Map(
+      await Promise.all(
+        [contractLocator, triageLocator].map(async (locator) => {
+          const bytes = await readFile(join(root, locator));
+          return [locator, { locator, source: bytes.toString("utf8"), bytes }] as const;
+        }),
+      ),
+    );
+    const provider = createLocalMarkdownMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      capturedDocuments,
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    });
+    const prior = await provider.capture(binding);
+    const deliveryReference = `${nativeScope}/issues/05-delivery.md`;
+    const result = await provider.reconcile?.({
+      binding,
+      prior,
+      affected: { subjects: [deliveryReference] },
+    });
+
+    if (result === undefined) throw new Error("Expected Local targeted reconciliation.");
+    expect(
+      result.projection?.graph.parentChild.map((relation) => ({
+        parent: String(relation.parent),
+        child: String(relation.child),
+      })),
+    ).toContainEqual({
+      parent: `${nativeScope}/PRD.md`,
+      child: deliveryReference,
+    });
+    expect(
+      result.projection?.graph.parentChild.map((relation) => ({
+        parent: String(relation.parent),
+        child: String(relation.child),
+      })),
+    ).not.toContainEqual({
+      parent: deliveryReference,
+      child: `${nativeScope}/PRD.md`,
+    });
   });
 
   test("captures a Status-absent Wayfinder ticket as open and unclaimed", async () => {

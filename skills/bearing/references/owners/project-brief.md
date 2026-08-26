@@ -14,9 +14,9 @@ or persistence.
 ## Operation
 
 1. Inspect Project Context, current Brief, Summary, and accepted terminal planning transitions that
-   materially affect orientation. Completion: every Brief statement has accepted support.
-2. Apply the shared materiality test from the canonical contract. Completion: refresh need is
-   explicit.
+   materially affect orientation. Give every Brief statement accepted support.
+2. Apply the shared materiality test. Return `no-op` when the current Brief still provides useful
+   orientation.
 3. Author the smallest useful synthesis in the current user's language:
    - `At a Glance` uses one sentence to restore the project outcome. It does not repeat Summary
      design, boundaries, future candidates, or a component inventory.
@@ -28,17 +28,11 @@ or persistence.
      execution ledger.
    Treat thirty to sixty seconds as a language-neutral soft budget judged through structure and
    materiality. Use no character, word, or token limit and no single-language validator.
-   Completion: all three sections are independently useful and contain only material orientation.
-4. Re-read mutable inputs, retain the previous Brief bytes and time, and apply the complete
-   candidate through the canonical contract. Completion: current preconditions still support the
-   accepted candidate and only the Brief owner file changed.
-5. Inspect `project-brief:current` and diagnostics. Completion: `Generated at` identifies only this
-   successful synthesis and the typed values match the canonical source.
+4. Set `Generated at` only for the successful synthesis. A failed refresh retains the previous
+   Brief and its generation time.
 
 ## After this operation
 
-- **Required:** If validation or publication fails, restore the previous Brief bytes and `Generated
-  at`; report the exact failed owner stage separately.
 - **Required:** Route new project meaning through its actual owner and acceptance before using it in
   a later Brief refresh.
 - **Required:** When root selects this owner after an accepted terminal transition, evaluate the
@@ -50,4 +44,4 @@ or persistence.
 ## Completion criterion
 
 The Brief materially compresses only accepted truth, remains distinct from Summary, and retains the
-previous successful version on failure.
+previous successful version and `Generated at` on failure.

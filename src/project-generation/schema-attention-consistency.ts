@@ -25,7 +25,7 @@ export type AttentionConsistencySnapshot = Readonly<{
   efforts: Collection<
     Readonly<{
       workBinding?: Readonly<{ nativeScope: string }> | undefined;
-      workBindingState: Readonly<{ state: "bound" | "invalid" }>;
+      workBindingState: Readonly<{ state: "bound" | "invalid" | "not-created" }>;
     }>
   >;
   assets: Collection<Readonly<{ id: string }>>;

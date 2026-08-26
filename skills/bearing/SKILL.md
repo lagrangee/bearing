@@ -6,188 +6,92 @@ description: Use only for explicit Bearing invocation or when the current reposi
 # Bearing
 
 Coordinate project governance, Repository Configuration, native work, and execution through one
-public Agent surface. The Repository Configuration managed pointer is the single source of truth
-for contextual nomination. Trust that pointer to decide whether it nominated the current request;
-do not reconstruct or broaden its conditions here. Explicit Bearing invocation remains the other
-authorized entry origin and the fallback when contextual nomination did not occur.
+public Agent surface.
 
-Select the CLI from the managed pointer before any operation. In every command form in this Skill
-and its references, replace the leading `bearing` token with that selected CLI. A Stable Runtime
-pointer selects `$HOME/.bearing/bin/bearing`. A Development Runtime pointer selects the same
-repository's `node <repo-root>/dist/cli.js`; first use that exact CLI for `runtime inspect`, require
-a coherent Development Runtime receipt, and then use it for every repository-scoped command. The
-Development Runtime never falls back to the Stable CLI, Skill, or state. All runtime reference
-paths below are relative to this `SKILL.md`.
+## Entry and runtime selection
 
-## Execution spine
+The Repository Configuration managed pointer is the sole authority for contextual nomination. Use
+it only under its stated conditions; repository presence does not nominate Bearing. Explicit
+Bearing invocation remains available when the pointer did not nominate the request.
 
-1. **Establish the request boundary.** Identify the repository, the user request, and whether entry
-   is explicit or came from the current repository's managed pointer. A managed-pointer entry is
-   valid only for the nomination conditions above. Do not invent nomination from repository
-   presence. Completion: one authorized entry origin and one repository are explicit.
-2. **Select the first functional operation.** Repository Configuration begins with
-   `bearing configure inspect --repo <repo-root>`. Active governance normally begins with
-   `bearing inspect project --repo <repo-root>`. Catalog, native work, execution, reconciliation,
-   and maintenance use their direct product seams. Each functional Module independently validates
-   its required Repository Integration Lifecycle before cache creation, provider I/O, or mutation.
-   A stale pointer fails closed at the requested operation; there is no separate entry preflight.
-   Completion: the first operation has one owner and one lifecycle-validating product seam.
-3. **Acquire only decision-relevant context.** Use Project Context and direct deeper-read
-   references. Read repository sources progressively. Provider acquisition is an explicit cost;
-   ordinary inspection performs no hidden provider traversal. A reliable direct continuation may
-   reuse visible orientation, but mutable facts and write preconditions are always re-read.
-   Completion: every material claim has current evidence and every limitation is visible.
-4. **Load the exact one-hop references.** Load only the journeys and owners required by the visible
-   operation. A canonical semantic change loads the canonical-mutation contract, one initiating
-   owner, and every additional owner whose domain the accepted write set will actually change.
-   Inspected objects do not require their owners. Completion: each read, decision, and effect has
-   one named authority.
-5. **Compose in visible context.** Treat the accepted outcome and authority boundary as the unit of
-   authorization, not each deterministic command, tool call, or internal stage. Within that
-   boundary, use current evidence to choose the necessary and proportionate follow-up operations,
-   even when the next operation uses another product seam. Judge authority, scope, cost, risk,
-   reversibility, collateral effects, and ambiguity; continue without repeat confirmation unless
-   the evidence creates a materially new boundary that needs a user decision. Complete and
-   validate each owner boundary in dependency-safe order. After an accepted terminal planning
-   transition, complete one bounded orientation evaluation in the same visible operation: Effort
-   conclusion and Gate Passage select Project Brief; Roadmap completion selects Project Summary
-   and then Project Brief; Roadmap supersession selects Project Brief. Each selected owner applies
-   materiality and can return `no-op`; owner evaluation is required while mutation remains
-   conditional. Sequential composition has no persisted session mode, operation object,
-   transition dispatcher, or global follow-up engine. There is no hidden loop or fallback.
-   Completion: the current stage and its required orientation evaluation are complete, or one exact
-   resumption point is visible.
-6. **Return the original outcome.** Preserve native, executor, provider, and deterministic outcomes
-   without translation. State what changed, what did not change, and which acceptance or authority
-   is still required. User-visible interaction and new human-reviewed planning content use the
-   current user's language; agent-facing contracts remain English. Completion: the original
-   request progressed or stopped at a concrete boundary.
+Select the CLI from the managed pointer. Replace the leading `bearing` token in every command below
+with that CLI. Stable Runtime uses `$HOME/.bearing/bin/bearing`. Development Runtime uses
+`node <repo-root>/dist/cli.js`; first run its `runtime inspect --repo <repo-root>` operation and
+require one coherent Development receipt. Development never falls back to Stable CLI, Skill, or
+state. Each functional operation validates its required Repository Integration Lifecycle before
+cache creation, provider I/O, or mutation.
 
-## Authority boundaries
+All runtime reference paths below are relative to this `SKILL.md`. Load only the direct references
+selected for the current operation.
 
-- The Agent owns semantic meaning, rationale, materiality, acceptance interpretation, canonical
-  content, recommendations, domain-local follow-up judgment, direct canonical edits, and scoped
-  repair of its own attempted write set.
-- Deterministic Bearing Modules own contained reads, identity, schema and reference validation,
-  lifecycle and revision facts, provider acquisition, exact reconciliation, SQLite publication,
-  and typed diagnostics. They fail closed and return their typed outcomes. They do not expand scope,
-  choose semantic recovery, or translate failure into success.
-- Repository Configuration owns ordinary deterministic Inspect, sealed Plan, and Apply because it
-  changes machine-owned configuration and managed pointers. A package-owned Repository Update
-  guide may authorize Agent-owned semantic edits for one supported source identity, plus the
-  manifest fields named by that guide, after the Human accepts the complete update candidate. This
-  narrow exception is not generic configuration mutation.
+Treat an applied Global Kit Install, Update, or Repair, or a coherent Development receipt with a
+different runtime identity or source provenance, as a new runtime contract. Re-read this
+`SKILL.md` completely and every already-selected direct reference before the next functional
+operation. A no-op, failed, or rolled-back transition does not change the loaded contract.
+
+## Universal invariants
+
+- The Agent owns semantic meaning, judgment, acceptance interpretation, canonical content, and
+  scoped repair of its own attempted write set. Deterministic Bearing Modules own contained reads,
+  schema and reference validation, exact reconciliation, projection, and typed diagnostics.
 - Work Management owns native status, claim, blockers, dependencies, checklists, Answer, and
-  resolution. Execution owns implementation, tests, review, commit, and its own outcome.
-- Portal is read-oriented. It does not authorize canonical or native mutation.
-- Direct user acceptance of a complete visible candidate is sufficient. Ask again only for
-  ambiguity, a new material conflict, or an unentailed collateral effect.
+  resolution. Execution owns implementation, tests, review, commit, and its outcome. Portal is
+  read-oriented and authorizes no canonical or native mutation.
+- Acquire only decision-relevant current evidence. Do not infer completeness, authority, scope, or
+  lifecycle from repository scans, title matches, tests, receipts, diagnostics, native completion,
+  provider completion, or Portal observation.
+- Preserve typed failures, partial results, unavailable evidence, and exact resumption points. Do
+  not expand scope, invent recovery, or translate failure into success.
+- A complete visible candidate can be accepted directly. Ask again only for ambiguity, a material
+  conflict, or an unentailed collateral effect. Use the current user's language for user-visible
+  content; keep Agent-facing contracts in English.
 
-## Completeness-sensitive reads
+## Semantic command table
 
-Use the selected package-owned CLI:
+| Meaning | Command form |
+| --- | --- |
+| Repository Configuration state | `bearing configure inspect --repo <repo-root>` |
+| Sealed Repository Configuration candidate | `bearing configure plan <accepted-arguments>` |
+| Accepted sealed Repository Configuration change | `bearing configure apply <accepted-arguments> --plan-token <token>` |
+| Project Context | `bearing inspect project --repo <repo-root>` |
+| One planning target | `bearing inspect <stable-planning-reference> --repo <repo-root>` |
+| One native target and local Binding | `bearing inspect --native <native-reference> --repo <repo-root>` |
+| Current deterministic diagnostics | `bearing inspect diagnostics --repo <repo-root>` |
+| Exact readback of successful managed native effects | `bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope> --ref <native-reference> [--ref <native-reference>]` |
+| Exact Work Binding provider baseline | `bearing provider capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] --repo <repo-root>` |
+| Explicit all-Binding provider verification | `bearing provider verify --all --repo <repo-root>` |
+| Disposable Project Read Model rebuild | `bearing cache rebuild --repo <repo-root>` |
+| Project Catalog operation | `bearing catalog <catalog-operation> <accepted-arguments>` |
+| Foreground Portal Host | `bearing portal [--port <1-65535>]` |
 
-- Project Context: `bearing inspect project --repo <repo-root>`
-- One planning target: `bearing inspect <stable-planning-reference> --repo <repo-root>`
-- One native reference and local Binding fact: `bearing inspect --native <native-reference> --repo <repo-root>`
-- Diagnostics: `bearing inspect diagnostics --repo <repo-root>`
+Commands return typed outcomes. `complete` proves only the coverage declared by that operation; it
+does not prove readiness, acceptance, lifecycle transition, or mutation authority.
 
-`complete` proves coverage only. It never proves readiness, lifecycle, Passage, acceptance, or
-mutation authority. Preserve `partial`, `unfulfilled`, `recovery-required`, and `need-update` as
-typed limits. Use no title match, repository scan, manual graph join, provider fallback, Portal
-startup, or alternate runtime to manufacture completeness.
+## Direct reference routing
 
-## Reference map
+| Operation | Load directly |
+| --- | --- |
+| Accepted canonical semantic mutation | `references/contracts/canonical-mutation.md` plus each affected semantic owner below |
+| Repository Configuration | `references/journeys/configure.md` plus exactly one of `references/journeys/configure-fresh.md`, `references/journeys/configure-active.md`, `references/journeys/configure-reactivate.md`, `references/journeys/configure-deactivate.md`, or `references/journeys/configure-unsupported.md` |
+| Repository Update | `references/journeys/update.md` and `references/journeys/project-read-model.md` |
+| Project Catalog | `references/journeys/catalog.md` |
+| Project Read Model rebuild, provider capture, or provider verification | `references/journeys/project-read-model.md` |
+| Project Orientation | `references/journeys/project-orientation.md`; also `references/journeys/scope-review.md` when existing-work evidence is included |
+| Whole-project Scope Review | `references/journeys/scope-review.md` |
+| Feature Intake with a material accepted commitment or planning opportunity | `references/journeys/feature-intake.md`; when its continuation explicitly starts a named planned Effort, also `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, `references/journeys/native-work.md`, and `references/journeys/project-read-model.md` |
+| Native Work | `references/journeys/native-work.md`; also `references/journeys/project-read-model.md` when Native Inspect reports `capture-required` |
+| Start or enroll an Effort through Matt work | `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, `references/journeys/native-work.md`, and `references/journeys/project-read-model.md` |
+| Direct Execution | `references/journeys/execution.md` and `references/journeys/native-work.md`; for a planned Effort with no Binding, also `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, and `references/journeys/project-read-model.md`; otherwise add `references/journeys/project-read-model.md` only when Native Inspect reports `capture-required` |
+| Explicit Next Work guidance | `references/journeys/next-work.md` |
+| Project Summary | `references/owners/project-summary.md` |
+| Project Brief | `references/owners/project-brief.md` |
+| Roadmap | `references/owners/roadmap.md` |
+| Milestone Gate | `references/owners/milestone-gate.md` |
+| Effort | `references/owners/effort.md`; also `references/journeys/project-read-model.md` for Work Binding creation or change |
+| Asset | `references/owners/asset.md` |
+| Authority | `references/owners/authority.md` |
+| Explicit Planning Audit | `references/owners/planning-audit.md` |
+| Planning Review | `references/owners/planning-review.md` |
 
-All runtime references are selected here. No reference routes onward to another owner or journey.
-
-### Shared contract
-
-- For any accepted canonical semantic mutation, load
-  `references/contracts/canonical-mutation.md`.
-
-### Journeys
-
-- For every Repository Configuration intent, load
-  `references/journeys/configure.md`, plus exactly one
-  lifecycle variant below.
-- For Fresh Configuration, load
-  `references/journeys/configure-fresh.md`.
-- For Active modification, executor addition or removal, or ordinary repair, load
-  `references/journeys/configure-active.md`.
-- For Deactivated reactivation, load
-  `references/journeys/configure-reactivate.md`.
-- For repository deactivation, load
-  `references/journeys/configure-deactivate.md`.
-- For Invalid or Unsupported state, load
-  `references/journeys/configure-unsupported.md`.
-- When a functional operation returns `repository-update-required`, load
-  `references/journeys/update.md`. When it returns `kit-update-required`, keep the repository
-  unchanged, present the separate Global Kit target, obtain any authority not already supplied by
-  an explicit Kit request, install the required newer bundle, and retry the original operation.
-- For Project Catalog inspect, rename, unregister, relink, or reset, load
-  `references/journeys/catalog.md`.
-- For an explicit Active-project Project Orientation or an accepted Fresh offer, load
-  `references/journeys/project-orientation.md`. For a
-  complete Orientation that includes existing-work evidence, co-load
-  `references/journeys/scope-review.md`. Omit Scope Review
-  when the user explicitly excludes existing-work evidence.
-- For an explicit whole-project Scope Review outside Orientation, load
-  `references/journeys/scope-review.md`.
-- For a feature request with an explicit or high-confidence material relationship to accepted
-  Bearing commitments, or a high-confidence material Roadmap, Gate, or Effort opportunity, load
-  `references/journeys/feature-intake.md`.
-- For native Work Management or a known native write, load
-  `references/journeys/native-work.md`.
-- For direct executor invocation, load
-  `references/journeys/execution.md` and continue the original executor command in the same visible
-  operation.
-- For explicit Next Work guidance, load
-  `references/journeys/next-work.md`.
-
-### Semantic owners
-
-- For Project Summary creation or material revision, load
-  `references/owners/project-summary.md`.
-- For Project Brief creation or material refresh, load
-  `references/owners/project-brief.md`.
-- For Roadmap horizon creation, revision, order, completion, or supersession, load
-  `references/owners/roadmap.md`.
-- For Milestone Gate definition, revision, order, lifecycle, or Passage, load
-  `references/owners/milestone-gate.md`.
-- For Effort creation, lifecycle, scope, or Work Binding, load
-  `references/owners/effort.md`.
-- For Asset admission, creation, metadata, ownership, source repair, or lifecycle, load
-  `references/owners/asset.md`.
-- For Authority Scope, current Baseline Assets, or baseline explanation, load
-  `references/owners/authority.md`.
-- For an explicit Planning Audit, load
-  `references/owners/planning-audit.md`.
-- For a pending or accepted project-wide or exact-target decision, load
-  `references/owners/planning-review.md`.
-
-### Observable tool effects
-
-- Fresh Configuration uses `bearing configure inspect`, `bearing configure plan`, and
-  `bearing configure apply` through the Configure journey.
-- A bound native write starts with `bearing inspect --native` and, after successful exact native
-  effects, ends with `bearing reconcile-native` for only those subjects and relations.
-- A semantic mutation reads the current target and preconditions with `bearing inspect project` or
-  `bearing inspect <stable-planning-reference>` before drafting the candidate, then runs planning
-  target inspection for every affected target immediately after accepted direct edits.
-
-## Truthful outcomes
-
-Report each owner and journey stage separately. Preserve failure, partial, unfulfilled, cancelled,
-and unavailable outcomes without translation into success. An already committed owner stage may
-remain valid when a later independent stage fails; name the retained effect and resumption point.
-Tests, receipts, diagnostics, resolved native work, provider completion, and candidate evidence
-never conclude an Effort, pass a Gate, or complete a Roadmap. An empty managed frontier is not a
-global claim that no work exists.
-
-## Completion criterion
-
-The entry origin is authorized, every loaded reference came directly from this map, current facts
-and mutation preconditions were inspected at the required product seam, each semantic or native
-effect stayed with its owner, exact successful native writes were reconciled without scope
-expansion, and the user received a truthful outcome or one exact decision/resumption boundary.
+Selected references own their operation sequence, readback, failure boundary, and owner-local
+follow-up. They do not route onward.

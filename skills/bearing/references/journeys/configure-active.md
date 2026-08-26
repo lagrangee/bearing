@@ -12,20 +12,14 @@ This variant changes only accepted machine configuration. It does not re-run Fre
 ## Operation
 
 1. Compare requested selections with current Active configuration and preserve every unaffected
-   provider, surface, profile, pointer, canonical source, and native source. Completion: the delta
-   and preservation set are exact.
+   provider, surface, profile, pointer, canonical source, and native source.
 2. For executor addition, validate only the user-nominated end-to-end executor. For removal, name
    exact registered profiles. Do not discover, rank, install, prefer, or select a default executor.
-   Completion: the executor delta is accepted and contract-valid.
-3. Use the common sealed review and Apply sequence. Completion: the requested Active change is
-   applied or the current valid configuration remains intact.
-
-## After this operation
-
-- **Required:** Report Catalog and Portal handoff stages independently when they are affected.
-- **Consider:** Resume the original request after repair only when its own facts are re-inspected.
-- **Do not infer:** Active modification does not offer Fresh Orientation or acquire provider scope.
+3. Stop when the requested delta is absent, invalid, ambiguous, unavailable, or not accepted. Keep
+   the current valid configuration intact.
 
 ## Completion criterion
 
-Only the accepted Active configuration delta changed and every unaffected owner remained intact.
+The Active variant identified an exact no-op or one accepted delta, preserved every unaffected
+owner, did not offer Fresh Orientation or acquire provider scope, and any repaired functional
+target is re-inspected before resumption.

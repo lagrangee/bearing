@@ -485,7 +485,7 @@ const canonicalFields = (
         contentField(snapshot, subject, {
           key: "intent",
           label: "Intent",
-          text: effort.intent,
+          text: markdownSemanticPlainText(effort.intent),
           anchor: "effort.intent",
         }),
         contentField(snapshot, subject, {

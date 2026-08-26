@@ -12,13 +12,12 @@ future candidates, and material revisions. It is not a work log, Project Brief, 
 ## Operation
 
 1. Inspect Project Context and the current Summary reference. Read only sources needed to support
-   candidate meaning. Completion: every statement is current fact, accepted meaning, or labelled
+   candidate meaning. Classify every statement as current fact, accepted meaning, or a labelled
    proposal.
-2. Apply the shared materiality test from the canonical contract. Completion: the semantic delta
-   and retained meaning are explicit.
-3. Author a complete candidate with distinct current intent and future candidates. Direct clear
-   acceptance authorizes the candidate. Apply through the canonical contract and inspect
-   `project-summary:current`. Completion: accepted bytes and `Updated at` are current.
+2. Apply the shared materiality test. State the semantic delta and the meaning that remains
+   unchanged. Return `no-op` when the current Summary is not materially misleading.
+3. Author a complete candidate with distinct current intent and future candidates. Set `Updated
+   at` only for the successful Summary revision.
 
 ## After this operation
 
@@ -34,4 +33,4 @@ future candidates, and material revisions. It is not a work log, Project Brief, 
 ## Completion criterion
 
 The Summary contains only current accepted project meaning, the material revision is traceable, and
-typed inspection agrees with the canonical source.
+its revision time remains distinct from Brief generation and native chronology.

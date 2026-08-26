@@ -44,9 +44,3 @@ Catalog and Portal remain independent owners.
 - **Consider:** Offer Project Orientation only when the Fresh variant permits it.
 - **Do not infer:** Configuration success does not create planning, acquire provider scope, select an
   executor default, or prove Portal availability.
-
-## Completion criterion
-
-Typed facts drove one-choice-at-a-time dialogue, executor handling occurred once, one accepted
-owner-separated final review matched the sealed Apply, and repository, Catalog, and Portal handoff
-outcomes remain distinct.

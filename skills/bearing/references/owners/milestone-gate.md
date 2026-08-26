@@ -13,18 +13,16 @@ and accepted Passage record. The user alone accepts Passage.
 ## Operation
 
 1. Inspect the complete Gate reference, owning Roadmap, every contributing Effort, trustworthy
-   native evidence, relevant Authorities, and diagnostics. Completion: every criterion and evidence
-   limitation is explicit.
+   native evidence, relevant Authorities, and diagnostics. Make every criterion and evidence
+   limitation explicit.
 2. For Passage, compare Exit Criteria with evidence and exceptions. `ready-for-review` permits human
    review; readiness never proves Passage. Record each accepted historical evidence item directly
    on Passage as one concise durable locator and relevance note. Do not register Passage proof as
-   an Asset or derive it through an Asset reverse relation. Unknown or incomplete evidence remains visible.
-   Completion: every criterion, exception, and unfinished dependency is accounted for.
-3. Author the exact Gate candidate and obtain acceptance. Citation changes remain with the citing
-   Gate; another domain changes only when its owner was selected by root. Completion: accepted
-   scope is owner-complete.
-4. Apply through the canonical contract and inspect Gate, readiness, Passage, and direct relations.
-   Completion: deterministic facts agree without performing the decision.
+   an Asset or derive it through an Asset reverse relation. Keep every criterion, exception,
+   unfinished dependency, and unknown or incomplete evidence visible.
+3. Author the exact Gate candidate. Passage exists only after Human acceptance and carries that
+   accepted event time. Citation changes remain with the citing Gate; another domain changes only
+   when its owner was selected by root.
 
 ## After this operation
 

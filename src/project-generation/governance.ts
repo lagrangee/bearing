@@ -148,19 +148,22 @@ const effortProjection = (input: Input): BuildResult<Effort>[] =>
             nativeScope: data["Work binding"]["Native scope"],
           };
     const workBindingState =
-      bindingDiagnostic?.code === "effort-work-binding-missing"
-        ? ({ state: "invalid", reason: "missing" } as const)
-        : bindingDiagnostic?.code === "effort-work-binding-unparseable"
-          ? ({ state: "invalid", reason: "unparseable" } as const)
-          : bindingDiagnostic?.code === "effort-work-binding-conflict"
-            ? ({ state: "invalid", reason: "conflicting" } as const)
-            : declaredBinding !== undefined &&
-                input.providerObservations !== undefined &&
-                !input.providerObservations.some((observation) =>
-                  sameMattNativeScope(observation.binding, declaredBinding),
-                )
-              ? ({ state: "invalid", reason: "unresolved" } as const)
-              : ({ state: "bound" } as const);
+      bindingDiagnostic?.code === "effort-work-binding-lifecycle-conflict"
+        ? ({ state: "invalid", reason: "lifecycle-conflict" } as const)
+        : bindingDiagnostic?.code === "effort-work-binding-missing"
+          ? ({ state: "invalid", reason: "missing" } as const)
+          : bindingDiagnostic?.code === "effort-work-binding-unparseable"
+            ? ({ state: "invalid", reason: "unparseable" } as const)
+            : bindingDiagnostic?.code === "effort-work-binding-conflict"
+              ? ({ state: "invalid", reason: "conflicting" } as const)
+              : declaredBinding === undefined
+                ? ({ state: "not-created" } as const)
+                : input.providerObservations !== undefined &&
+                    !input.providerObservations.some((observation) =>
+                      sameMattNativeScope(observation.binding, declaredBinding),
+                    )
+                  ? ({ state: "invalid", reason: "unresolved" } as const)
+                  : ({ state: "bound" } as const);
     return {
       source: record.source,
       item: effortSchema.parse({

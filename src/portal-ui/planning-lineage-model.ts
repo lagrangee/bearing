@@ -283,7 +283,7 @@ export type PlanningLineageEffortLens = Readonly<{
     title: string;
     href?: string | undefined;
   }>;
-  managedWorkHealth: "Healthy" | "Needs attention";
+  managedWorkHealth: "Healthy" | "Native work not started" | "Needs attention";
   managedWorkObservation?:
     | Readonly<{
         state: "partial" | "stale" | "unavailable";
@@ -295,6 +295,12 @@ export type PlanningLineageEffortLens = Readonly<{
       }>
     | undefined;
   intent: string;
+  intentPresentation?:
+    | Readonly<{
+        html: string;
+        presentation: "rendered" | "fallback";
+      }>
+    | undefined;
   outcome?:
     | Readonly<{
         disposition: NonNullable<Effort["conclusion"]>["disposition"];
@@ -339,6 +345,7 @@ export type PlanningLineageEffortLens = Readonly<{
         impact: string;
         recovery: string;
       }>
+    | Readonly<{ state: "not-created" }>
     | undefined;
   planningBasis?:
     | Readonly<{
@@ -2107,7 +2114,10 @@ const invalidBindingCause = (effort: Effort): string => {
   if (effort.workBindingState.state === "bound") {
     return "the declared Work Binding does not resolve to readable current source data.";
   }
+  if (effort.workBindingState.state === "not-created") return "native work has not started.";
   switch (effort.workBindingState.reason) {
+    case "lifecycle-conflict":
+      return "this planned Effort declares a Work Binding before native work starts.";
     case "missing":
       return "this Effort has no declared Work Binding.";
     case "unparseable":
@@ -2239,12 +2249,14 @@ const effortLensFor = (
       ? undefined
       : recordFor(snapshot, { kind: "effort", id: conclusion.replacementEffortId });
   const managedWorkHealth =
-    workRegion?.readingState.why.projectionState === "available" &&
-    workRegion.readingState.why.freshness === "current" &&
-    workRegion.readingState.why.coverage === "complete" &&
-    workRegion.readingState.why.blockingDiagnosticCount === 0
-      ? ("Healthy" as const)
-      : ("Needs attention" as const);
+    effort.workBindingState.state === "not-created"
+      ? ("Native work not started" as const)
+      : workRegion?.readingState.why.projectionState === "available" &&
+          workRegion.readingState.why.freshness === "current" &&
+          workRegion.readingState.why.coverage === "complete" &&
+          workRegion.readingState.why.blockingDiagnosticCount === 0
+        ? ("Healthy" as const)
+        : ("Needs attention" as const);
   const reading = workRegion?.readingState;
   const binding = effort.workBinding;
   const inspectionSelection =
@@ -2281,7 +2293,7 @@ const effortLensFor = (
   const disposableWorkRegion = inspectedWorkRegion ?? workRegion;
   const lastVerifiedReading = inspectedWorkRegion?.readingState ?? reading;
   const managedWorkObservation =
-    managedWorkHealth === "Healthy"
+    managedWorkHealth !== "Needs attention"
       ? undefined
       : {
           state:
@@ -2301,7 +2313,8 @@ const effortLensFor = (
             : {}),
           ...(binding !== undefined &&
           (effort.workBindingState.state === "bound" ||
-            effort.workBindingState.reason === "unresolved")
+            (effort.workBindingState.state === "invalid" &&
+              effort.workBindingState.reason === "unresolved"))
             ? {
                 refreshTarget: {
                   kind: "native-scope" as const,
@@ -2355,68 +2368,103 @@ const effortLensFor = (
         ]
           .filter((value, index, values) => values.indexOf(value) === index)
           .join(" ");
-  const currentWork =
-    disposableWorkRegion === undefined ||
-    binding === undefined ||
-    observationUnavailable ||
-    workCounts === undefined
-      ? {
-          state: "unavailable" as const,
-          cause:
-            observationCause === undefined || observationCause.length === 0
-              ? invalidBindingCause(effort)
-              : observationCause,
-          impact: "native work cannot contribute trusted evidence or Gate readiness.",
-          recovery:
-            binding === undefined
-              ? "declare exactly one supported Work Binding in the canonical Effort record, then reload this view."
-              : "load this exact declared provider source; after any Matt transaction, run exact Targeted Native Reconciliation separately.",
-        }
-      : {
-          state: "available" as const,
-          items: workItems.map((item) => ({
-            reference: item.reference,
-            title: item.title,
-            href: planningLineageSubjectHref(entryId, {
-              kind: "native-subject",
-              id: item.reference,
-            }),
-            status: effortCurrentWorkStatus(item),
-            ...(item.frontier === "blocked"
-              ? { blockerImpact: "Blocked by unresolved prerequisite work." }
-              : {}),
-            ...(item.diagnosticMessages === undefined
-              ? {}
-              : { attention: item.diagnosticMessages.join(" ") }),
-          })),
-          counts: workCounts,
-          currentHref: planningLineageSubjectHref(
-            entryId,
-            { kind: "native-scope", id: binding.nativeScope },
-            "native-work-current",
-          ),
-          resolvedHref: planningLineageSubjectHref(
-            entryId,
-            { kind: "native-scope", id: binding.nativeScope },
-            "native-work-resolved",
-          ),
-          ...(emptyWorkState === undefined ? {} : { emptyState: emptyWorkState }),
-          ...(effort.lifecycle === "concluded" && workItems.length > 0
-            ? {
-                consistencyWarning:
-                  "This Effort is concluded, but nonterminal managed work remains in the bound scope.",
-              }
-            : {}),
-        };
+  const currentWork: PlanningLineageEffortLens["currentWork"] = (() => {
+    if (effort.workBindingState.state === "not-created") return { state: "not-created" };
+    if (
+      effort.workBindingState.state === "invalid" &&
+      effort.workBindingState.reason === "lifecycle-conflict"
+    ) {
+      return {
+        state: "unavailable",
+        cause: invalidBindingCause(effort),
+        impact: "native work cannot contribute trusted evidence or Gate readiness.",
+        recovery:
+          "repair the canonical Effort lifecycle and Work Binding together: remove the premature Binding to keep it planned, or record activation if native work has started; then reload this view.",
+      };
+    }
+    if (
+      disposableWorkRegion === undefined ||
+      binding === undefined ||
+      observationUnavailable ||
+      workCounts === undefined
+    ) {
+      return {
+        state: "unavailable",
+        cause:
+          observationCause === undefined || observationCause.length === 0
+            ? invalidBindingCause(effort)
+            : observationCause,
+        impact: "native work cannot contribute trusted evidence or Gate readiness.",
+        recovery:
+          binding === undefined
+            ? "declare exactly one supported Work Binding in the canonical Effort record, then reload this view."
+            : "load this exact declared provider source; after any Matt transaction, run exact Targeted Native Reconciliation separately.",
+      };
+    }
+    return {
+      state: "available",
+      items: workItems.map((item) => ({
+        reference: item.reference,
+        title: item.title,
+        href: planningLineageSubjectHref(entryId, {
+          kind: "native-subject",
+          id: item.reference,
+        }),
+        status: effortCurrentWorkStatus(item),
+        ...(item.frontier === "blocked"
+          ? { blockerImpact: "Blocked by unresolved prerequisite work." }
+          : {}),
+        ...(item.diagnosticMessages === undefined
+          ? {}
+          : { attention: item.diagnosticMessages.join(" ") }),
+      })),
+      counts: workCounts,
+      currentHref: planningLineageSubjectHref(
+        entryId,
+        { kind: "native-scope", id: binding.nativeScope },
+        "native-work-current",
+      ),
+      resolvedHref: planningLineageSubjectHref(
+        entryId,
+        { kind: "native-scope", id: binding.nativeScope },
+        "native-work-resolved",
+      ),
+      ...(emptyWorkState === undefined ? {} : { emptyState: emptyWorkState }),
+      ...(effort.lifecycle === "concluded" && workItems.length > 0
+        ? {
+            consistencyWarning:
+              "This Effort is concluded, but nonterminal managed work remains in the bound scope.",
+          }
+        : {}),
+    };
+  })();
   const planningBasis = effortPlanningBasisForWorkRegion(workRegion, entryId);
   const outputs = effortOutputsFor(snapshot, effort, entryId);
   const governance = effortGovernanceFor(snapshot, effort, entryId);
+  const intentSourceLocator = snapshot.sources.find(
+    (source) => source.reference === effort.source,
+  )?.displayLocator;
+  const renderedIntent =
+    snapshot.renderedMarkdown?.find(
+      (entry) => entry.markdown === effort.intent && entry.sourceLocator === intentSourceLocator,
+    ) ??
+    snapshot.renderedMarkdown?.find(
+      (entry) => entry.markdown === effort.intent && entry.sourceLocator === undefined,
+    );
   return {
     lifecycle: effort.lifecycle,
     targetGate,
     managedWorkHealth,
     ...(managedWorkObservation === undefined ? {} : { managedWorkObservation }),
     intent: effort.intent,
+    ...(renderedIntent === undefined
+      ? {}
+      : {
+          intentPresentation: {
+            html: renderedIntent.html,
+            presentation: renderedIntent.presentation,
+          },
+        }),
     ...(conclusion === undefined
       ? {}
       : {

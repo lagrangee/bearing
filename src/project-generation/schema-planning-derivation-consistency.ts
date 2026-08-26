@@ -4,6 +4,7 @@ import {
   type ContributorCapture,
   type ContributorObservationSelection,
   type DerivedCollection,
+  type DerivedEffort,
   hasUntrustedEffortContributor,
   normalizedGateHorizon,
   normalizedGateReadiness,
@@ -27,30 +28,12 @@ type Gate = Readonly<{
   horizonState: "passed" | "focused" | "planned" | "superseded" | "unknown";
   effortIds: readonly string[];
 }>;
-type Effort = Readonly<{
-  id: string;
-  source: string;
-  roadmapId: string;
-  targetGateId: string;
-  workBinding?: Readonly<{ provider: "matt-skills/v1"; nativeScope: string }> | undefined;
-  workBindingState: Readonly<
-    | { state: "bound" }
-    | { state: "invalid"; reason: "missing" | "unparseable" | "unresolved" | "conflicting" }
-  >;
-  lifecycle: "planned" | "active" | "concluded";
-  conclusion?:
-    | Readonly<{
-        disposition: "completed" | "withdrawn" | "superseded";
-        replacementEffortId?: string | undefined;
-      }>
-    | undefined;
-}>;
 
 export type PlanningDerivationConsistencySnapshot = Readonly<{
   basis: Readonly<{ basisFingerprint: string }>;
   roadmaps: DerivedCollection<Roadmap>;
   gates: DerivedCollection<Gate>;
-  efforts: DerivedCollection<Effort>;
+  efforts: DerivedCollection<DerivedEffort>;
   providerObservations: readonly ContributorCapture[];
   providerObservationSelections: readonly ContributorObservationSelection[];
   diagnostics: readonly Readonly<{

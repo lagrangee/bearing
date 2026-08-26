@@ -176,7 +176,7 @@ export const effortSchema = z
   .strictObject({
     id: effortIdSchema,
     ...citedNodeShape,
-    intent: semanticPlainTextSchema,
+    intent: z.string().refine((value) => value.trim().length > 0),
     roadmapId: roadmapIdSchema,
     targetGateId: gateIdSchema,
     authorityIds: uniqueIdentityArraySchema(authorityIdSchema, (authorityId) => authorityId),
@@ -188,9 +188,16 @@ export const effortSchema = z
       .optional(),
     workBindingState: z.discriminatedUnion("state", [
       z.strictObject({ state: z.literal("bound") }),
+      z.strictObject({ state: z.literal("not-created") }),
       z.strictObject({
         state: z.literal("invalid"),
-        reason: z.enum(["missing", "unparseable", "unresolved", "conflicting"]),
+        reason: z.enum([
+          "lifecycle-conflict",
+          "missing",
+          "unparseable",
+          "unresolved",
+          "conflicting",
+        ]),
       }),
     ]),
     lifecycle: z.enum(["planned", "active", "concluded"]),
@@ -201,8 +208,10 @@ export const effortSchema = z
   .superRefine((effort, context) => {
     const declarationRequired =
       effort.workBindingState.state === "bound" ||
-      effort.workBindingState.reason === "unresolved" ||
-      effort.workBindingState.reason === "conflicting";
+      (effort.workBindingState.state === "invalid" &&
+        (effort.workBindingState.reason === "lifecycle-conflict" ||
+          effort.workBindingState.reason === "unresolved" ||
+          effort.workBindingState.reason === "conflicting"));
     if (declarationRequired !== (effort.workBinding !== undefined)) {
       context.addIssue({
         code: "custom",
@@ -211,6 +220,23 @@ export const effortSchema = z
       });
     }
     if (effort.lifecycle === "planned") {
+      if (effort.workBindingState.state === "bound") {
+        context.addIssue({
+          code: "custom",
+          path: ["workBindingState"],
+          message: "A planned Effort cannot have a bound Work Binding state.",
+        });
+      }
+      if (
+        effort.workBindingState.state === "invalid" &&
+        effort.workBindingState.reason === "missing"
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["workBindingState"],
+          message: "A planned Effort without a declaration is not-created, not missing.",
+        });
+      }
       if (effort.activatedAt !== undefined) {
         context.addIssue({
           code: "custom",
@@ -226,6 +252,23 @@ export const effortSchema = z
         });
       }
       return;
+    }
+    if (effort.workBindingState.state === "not-created") {
+      context.addIssue({
+        code: "custom",
+        path: ["workBindingState"],
+        message: "Only a planned Effort may have not-created Work Binding state.",
+      });
+    }
+    if (
+      effort.workBindingState.state === "invalid" &&
+      effort.workBindingState.reason === "lifecycle-conflict"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["workBindingState"],
+        message: "Only a planned Effort may report a lifecycle-and-Binding conflict.",
+      });
     }
     if (effort.activatedAt === undefined) {
       context.addIssue({

@@ -182,6 +182,84 @@ export const assetSchema = z
     }
   });
 
+const effortRecordShapeSchema = z.looseObject({
+  Type: z.literal("effort"),
+  ID: effortIdSchema,
+  Title: requiredPlainTextSchema,
+  Roadmap: roadmapIdSchema,
+  "Target gate": gateIdSchema,
+  Authorities: uniqueArray(authorityIdSchema),
+  Citations: z.array(citationSchema),
+  Lifecycle: z.enum(["planned", "active", "concluded"]),
+  "Planned at": bearingOwnedEventTimeSchema,
+  "Activated at": bearingOwnedEventTimeSchema.optional(),
+  Conclusion: effortConclusionSchema.optional(),
+  "Work binding": z
+    .strictObject({
+      Provider: z.literal("matt-skills/v1"),
+      "Native scope": mattNativeScopeSchema,
+    })
+    .optional(),
+});
+
+const effortRecordDecodingSchema = effortRecordShapeSchema.superRefine((effort, context) => {
+  if (effort.Lifecycle === "planned") {
+    if (effort["Activated at"] !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["Activated at"],
+        message: "A planned Effort cannot have an activation event.",
+      });
+    }
+    if (effort.Conclusion !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["Conclusion"],
+        message: "A planned Effort cannot have a conclusion.",
+      });
+    }
+    return;
+  }
+  if (effort["Activated at"] === undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["Activated at"],
+      message: "An active or concluded Effort requires its activation event.",
+    });
+  }
+  if (effort.Lifecycle === "active" && effort.Conclusion !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["Conclusion"],
+      message: "An active Effort cannot have a conclusion.",
+    });
+  }
+  if (effort.Lifecycle === "concluded" && effort.Conclusion === undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["Conclusion"],
+      message: "A concluded Effort requires its explicit conclusion.",
+    });
+  }
+});
+
+const effortRecordSchema = effortRecordDecodingSchema.superRefine((effort, context) => {
+  if (effort.Lifecycle === "planned" && effort["Work binding"] !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["Work binding"],
+      message: "A planned Effort cannot have a Work Binding.",
+    });
+  }
+  if (effort.Lifecycle !== "planned" && effort["Work binding"] === undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["Work binding"],
+      message: "An active or concluded Effort requires exactly one Work Binding.",
+    });
+  }
+});
+
 export const bearingSchema = z.discriminatedUnion("Type", [
   z.strictObject({
     Type: z.literal("project-summary"),
@@ -272,66 +350,7 @@ export const bearingSchema = z.discriminatedUnion("Type", [
         });
       }
     }),
-  z
-    .looseObject({
-      Type: z.literal("effort"),
-      ID: effortIdSchema,
-      Title: requiredPlainTextSchema,
-      Roadmap: roadmapIdSchema,
-      "Target gate": gateIdSchema,
-      Authorities: uniqueArray(authorityIdSchema),
-      Citations: z.array(citationSchema),
-      Lifecycle: z.enum(["planned", "active", "concluded"]),
-      "Planned at": bearingOwnedEventTimeSchema,
-      "Activated at": bearingOwnedEventTimeSchema.optional(),
-      Conclusion: effortConclusionSchema.optional(),
-      "Work binding": z
-        .strictObject({
-          Provider: z.literal("matt-skills/v1"),
-          "Native scope": mattNativeScopeSchema,
-        })
-        .optional(),
-    })
-    .superRefine((effort, context) => {
-      if (effort.Lifecycle === "planned") {
-        if (effort["Activated at"] !== undefined) {
-          context.addIssue({
-            code: "custom",
-            path: ["Activated at"],
-            message: "A planned Effort cannot have an activation event.",
-          });
-        }
-        if (effort.Conclusion !== undefined) {
-          context.addIssue({
-            code: "custom",
-            path: ["Conclusion"],
-            message: "A planned Effort cannot have a conclusion.",
-          });
-        }
-        return;
-      }
-      if (effort["Activated at"] === undefined) {
-        context.addIssue({
-          code: "custom",
-          path: ["Activated at"],
-          message: "An active or concluded Effort requires its activation event.",
-        });
-      }
-      if (effort.Lifecycle === "active" && effort.Conclusion !== undefined) {
-        context.addIssue({
-          code: "custom",
-          path: ["Conclusion"],
-          message: "An active Effort cannot have a conclusion.",
-        });
-      }
-      if (effort.Lifecycle === "concluded" && effort.Conclusion === undefined) {
-        context.addIssue({
-          code: "custom",
-          path: ["Conclusion"],
-          message: "A concluded Effort requires its explicit conclusion.",
-        });
-      }
-    }),
+  effortRecordSchema,
   z.looseObject({
     Type: z.literal("authority"),
     ID: authorityIdSchema,
@@ -375,6 +394,8 @@ export const bearingSchema = z.discriminatedUnion("Type", [
     }),
   planningAuditSchema,
 ]);
+
+export const bearingDecodingSchema = z.union([bearingSchema, effortRecordDecodingSchema]);
 
 export const manifestSchema = z.strictObject({
   schemaVersion: z.literal(1),

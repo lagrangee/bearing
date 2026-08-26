@@ -1,5 +1,5 @@
-import { cp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { z } from "zod";
 import type { LiveScenario } from "./live-scenario-registry";
 
@@ -7,7 +7,7 @@ const fail = (message: string): never => {
   throw new Error(message);
 };
 
-const run = async (
+const execute = async (
   command: readonly string[],
   options: Readonly<{ cwd: string; home: string }>,
 ) => {
@@ -30,8 +30,40 @@ const run = async (
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ]);
+  return { exitCode, stdout, stderr };
+};
+
+const developmentRuntimeManifestSchema = z
+  .object({
+    schemaVersion: z.literal(2),
+    runtimeContractVersion: z.literal(2),
+    channel: z.literal("development"),
+    packageVersion: z.string().min(1),
+    builtFrom: z.object({
+      gitHead: z.string().regex(/^[0-9a-f]{40}$/u),
+      dirty: z.boolean(),
+    }),
+    buildIdentity: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+  })
+  .strict();
+
+const run = async (
+  command: readonly string[],
+  options: Readonly<{ cwd: string; home: string }>,
+) => {
+  const { exitCode, stdout, stderr } = await execute(command, options);
   if (exitCode !== 0) fail(stderr.trim() || stdout.trim() || `${command[0]} failed.`);
   return stdout;
+};
+
+const runExpectedProductOutcome = async (
+  command: readonly string[],
+  options: Readonly<{ cwd: string; home: string }>,
+): Promise<unknown> => {
+  const { exitCode, stdout, stderr } = await execute(command, options);
+  if (exitCode === 0) fail(`${command[0]} unexpectedly succeeded.`);
+  if (stdout.trim().length === 0) fail(stderr.trim() || `${command[0]} returned no receipt.`);
+  return JSON.parse(stdout);
 };
 
 const git = (root: string, args: readonly string[]): string => {
@@ -87,6 +119,7 @@ const activate = async (input: {
   repositoryRoot: string;
   productProgram: string;
   agentHome: string;
+  runtime?: "development";
 }): Promise<void> => {
   const args = [
     "--intent",
@@ -99,6 +132,7 @@ const activate = async (input: {
     "docs/agents/issue-tracker.md",
     "--executor-mode",
     "skip",
+    ...(input.runtime === undefined ? [] : ["--runtime", input.runtime]),
   ];
   const planned = z.object({ canApply: z.literal(true), sealedPlanToken: z.string().min(1) }).parse(
     JSON.parse(
@@ -112,6 +146,124 @@ const activate = async (input: {
     [input.productProgram, "configure", "apply", ...args, "--plan-token", planned.sealedPlanToken],
     { cwd: input.repositoryRoot, home: input.agentHome },
   );
+};
+
+const materializeDevelopmentRepositoryUpdateSource = async (input: {
+  sourceRoot: string;
+  fixtureRoot: string;
+  repositoryRoot: string;
+  productProgram: string;
+  agentHome: string;
+}): Promise<void> => {
+  for (const entry of await readdir(input.repositoryRoot, { withFileTypes: true })) {
+    if (entry.name !== ".git") {
+      await rm(join(input.repositoryRoot, entry.name), { recursive: true, force: true });
+    }
+  }
+  for (const locator of [
+    ".gitignore",
+    "index.html",
+    "package-lock.json",
+    "package.json",
+    "scripts/build.ts",
+    "scripts/bundle-dependency-boundary.ts",
+    "scripts/dependency-license-overrides.ts",
+    "skills/bearing",
+    "skills/bearing-dev",
+    "src",
+    "tsconfig.json",
+    "vite.config.ts",
+  ]) {
+    const target = join(input.repositoryRoot, locator);
+    await mkdir(dirname(target), { recursive: true });
+    await cp(join(input.sourceRoot, locator), target, {
+      recursive: true,
+      force: true,
+    });
+  }
+  for (const locator of [".scratch", "AGENTS.md", "CONTEXT.md", "docs/agents"]) {
+    const target = join(input.repositoryRoot, locator);
+    await mkdir(dirname(target), { recursive: true });
+    await cp(join(input.fixtureRoot, locator), target, { recursive: true, force: true });
+  }
+  await mkdir(join(input.repositoryRoot, ".agents/skills"), { recursive: true });
+  await symlink(
+    "../../skills/bearing-dev",
+    join(input.repositoryRoot, ".agents/skills/bearing-dev"),
+  );
+  commitBaseline(input.repositoryRoot, "Prepare current Development source baseline");
+
+  await cp(join(input.sourceRoot, "dist"), join(input.repositoryRoot, "dist"), {
+    recursive: true,
+    force: true,
+  });
+  const runtimeManifestPath = join(input.repositoryRoot, "dist/development-runtime.json");
+  const runtimeManifest = developmentRuntimeManifestSchema.parse(
+    JSON.parse(await readFile(runtimeManifestPath, "utf8")),
+  );
+
+  await activate({ ...input, runtime: "development" });
+  if (git(input.repositoryRoot, ["status", "--porcelain=v1"]).length > 0) {
+    commitBaseline(input.repositoryRoot, "Apply Development configuration baseline");
+  }
+  const sourceProvenance = {
+    gitHead: git(input.repositoryRoot, ["rev-parse", "HEAD"]),
+    dirty: git(input.repositoryRoot, ["status", "--porcelain=v1"]).length > 0,
+  };
+  await writeFile(
+    runtimeManifestPath,
+    `${JSON.stringify(
+      {
+        ...runtimeManifest,
+        builtFrom: sourceProvenance,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  const bootstrap = JSON.parse(
+    await run(
+      [
+        join(input.repositoryRoot, "dist/cli.js"),
+        "runtime",
+        "bootstrap",
+        "--repo",
+        input.repositoryRoot,
+      ],
+      { cwd: input.repositoryRoot, home: input.agentHome },
+    ),
+  ) as Readonly<{ outcome?: unknown }>;
+  if (bootstrap.outcome !== "applied" && bootstrap.outcome !== "no-op") {
+    fail("CONFIG-04 Development Runtime bootstrap did not complete.");
+  }
+
+  const manifestPath = join(input.repositoryRoot, ".bearing/manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+  if (manifest["packageVersion"] !== "0.1.2-dev" || manifest["runtime"] !== "development") {
+    fail("CONFIG-04 target Development Configuration was not established.");
+  }
+  await writeFile(
+    manifestPath,
+    `${JSON.stringify({ ...manifest, packageVersion: "0.1.1" }, null, 2)}\n`,
+  );
+  const inspected = JSON.parse(
+    await run(
+      [
+        join(input.repositoryRoot, "dist/cli.js"),
+        "runtime",
+        "inspect",
+        "--repo",
+        input.repositoryRoot,
+      ],
+      { cwd: input.repositoryRoot, home: input.agentHome },
+    ),
+  ) as Readonly<{
+    outcome?: unknown;
+    context?: Readonly<{ receipt?: Readonly<{ channel?: unknown }> }>;
+  }>;
+  if (inspected.outcome !== "resolved" || inspected.context?.receipt?.channel !== "development") {
+    fail("CONFIG-04 Development Runtime receipt is not coherent.");
+  }
 };
 
 const installPlanningState = async (input: {
@@ -182,6 +334,7 @@ const retainNativeTickets = async (
     "02-update-output.md",
     "03-run-failing-delivery.md",
     "04-complete-secondary-format.md",
+    "05-decide-secondary-label-casing.md",
   ]) {
     if (!retained.includes(name)) await rm(join(issueRoot, name), { force: true });
   }
@@ -221,12 +374,21 @@ export const materializeLiveScenarioProductState = async (input: {
       { force: true },
     );
   }
+  if (materializer === "repository-update-required-repository") {
+    await materializeDevelopmentRepositoryUpdateSource({
+      ...input,
+      fixtureRoot: join(input.sourceRoot, input.scenario.fixture.source),
+    });
+    return;
+  }
   await activate(input);
   if (
     [
       "active-planning-repository",
       "active-unbound-native-repository",
       "active-bound-local-repository",
+      "active-bound-wayfinder-repository",
+      "active-bound-wayfinder-capture-required-repository",
       "active-github-repository",
       "active-ambiguous-native-repository",
       "active-failing-execution-repository",
@@ -240,6 +402,30 @@ export const materializeLiveScenarioProductState = async (input: {
           "- [Complete secondary label formatting](issues/04-complete-secondary-format.md) — Finish the accepted secondary behavior.",
         ],
       );
+    }
+    if (
+      materializer === "active-bound-wayfinder-repository" ||
+      materializer === "active-bound-wayfinder-capture-required-repository"
+    ) {
+      await writeFile(
+        join(
+          input.repositoryRoot,
+          ".scratch/label-delivery/issues/05-decide-secondary-label-casing.md",
+        ),
+        `# 05 — Decide secondary label casing
+
+Type: task
+
+Status: claimed
+
+Blocked by: None — can start immediately
+
+## Question
+
+How should secondary labels normalize surrounding whitespace and letter casing?
+`,
+      );
+      await retainNativeTickets(input.repositoryRoot, ["05-decide-secondary-label-casing.md"], []);
     }
     if (materializer === "active-ambiguous-native-repository") {
       await retainNativeTickets(
@@ -264,27 +450,72 @@ export const materializeLiveScenarioProductState = async (input: {
       ...input,
       includeEffort: materializer !== "active-unbound-native-repository",
     });
+    if (materializer === "active-bound-wayfinder-capture-required-repository") {
+      const contractPath = join(input.repositoryRoot, "docs/agents/issue-tracker.md");
+      const contract = await readFile(contractPath, "utf8");
+      await rm(contractPath);
+      try {
+        const failed = await runExpectedProductOutcome(
+          [
+            input.productProgram,
+            "reconcile-native",
+            "--scope",
+            ".scratch/label-delivery",
+            "--ref",
+            ".scratch/label-delivery/issues/05-decide-secondary-label-casing.md",
+            "--repo",
+            input.repositoryRoot,
+          ],
+          { cwd: input.repositoryRoot, home: input.agentHome },
+        );
+        if (
+          !z
+            .object({ outcome: z.literal("unfulfilled") })
+            .passthrough()
+            .safeParse(failed).success
+        ) {
+          fail("NATIVE-03 did not establish a failed provider attempt.");
+        }
+      } finally {
+        await writeFile(contractPath, contract);
+      }
+      const inspected = z
+        .object({
+          result: z.object({
+            binding: z.object({
+              targetedReconciliationBasis: z.object({
+                state: z.literal("capture-required"),
+                reason: z.literal("latest-attempt-failed"),
+              }),
+            }),
+          }),
+        })
+        .passthrough()
+        .parse(
+          JSON.parse(
+            await run(
+              [
+                input.productProgram,
+                "inspect",
+                "--native",
+                ".scratch/label-delivery/issues/05-decide-secondary-label-casing.md",
+                "--repo",
+                input.repositoryRoot,
+              ],
+              { cwd: input.repositoryRoot, home: input.agentHome },
+            ),
+          ),
+        );
+      if (inspected.result.binding.targetedReconciliationBasis.state !== "capture-required") {
+        fail("NATIVE-03 Targeted Reconciliation Basis is not capture-required.");
+      }
+    }
   }
   if (materializer === "active-repository-with-drift") {
     const path = join(input.repositoryRoot, "AGENTS.md");
     const current = await readFile(path, "utf8");
     if (!current.includes("For a new request")) fail("Managed Agent Surface cannot be drifted.");
     await writeFile(path, current.replace("For a new request", "For a changed request"));
-  }
-  if (materializer === "repository-update-required-repository") {
-    await writeFile(
-      join(input.repositoryRoot, ".bearing/manifest.json"),
-      `${JSON.stringify(
-        {
-          schemaVersion: 1,
-          packageVersion: "0.1.0",
-          surfaces: ["agent-skills"],
-          executorProfiles: [],
-        },
-        null,
-        2,
-      )}\n`,
-    );
   }
   if (materializer === "kit-update-required-repository") {
     await writeFile(
