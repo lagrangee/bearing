@@ -668,10 +668,7 @@ export const queryCommittedProject = async (
     }
     return await queryCommittedProjectReadModel(root, canonicalRequest);
   } catch (error) {
-    if (
-      error instanceof ProjectReadModelBusyError ||
-      (error instanceof Error && /busy|locked/iu.test(error.message))
-    ) {
+    if (error instanceof ProjectReadModelBusyError) {
       return busyProjectInspectEnvelope(canonicalRequest);
     }
     throw error;

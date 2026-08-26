@@ -110,6 +110,16 @@ export class ProjectReadModelBusyError extends Error {
   }
 }
 
+const isSqliteLockContentionError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false;
+  const sqliteError = error as Error & { code?: unknown; errcode?: unknown };
+  if (sqliteError.code !== "ERR_SQLITE_ERROR" || typeof sqliteError.errcode !== "number") {
+    return false;
+  }
+  const primaryCode = sqliteError.errcode & 0xff;
+  return primaryCode === 5 || primaryCode === 6;
+};
+
 export const projectReadModelPath = (repoRoot: string): string =>
   activeRuntimeExecutionContext(repoRoot)?.projectReadModelPath ??
   join(repoRoot, ".bearing", "cache", "project-read-model.sqlite");
@@ -740,10 +750,7 @@ export const inspectProjectReadModel = async (repoRoot: string): Promise<Project
     validatePayloads(database);
     return { state: "ready", metadata };
   } catch (error) {
-    if (
-      error instanceof ProjectReadModelBusyError ||
-      (error instanceof Error && /busy|locked/iu.test(error.message))
-    ) {
+    if (error instanceof ProjectReadModelBusyError || isSqliteLockContentionError(error)) {
       throw new ProjectReadModelBusyError({ cause: error });
     }
     return { state: "recovery-required", reason: "Project Read Model is corrupt or unreadable." };

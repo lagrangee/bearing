@@ -123,6 +123,64 @@ test("packed activity inspection preserves useful facts through degraded evidenc
     const observation = JSON.parse(original.observation_json);
     const selection = JSON.parse(original.selection_json);
 
+    const undatedEffortRow = database
+      .query("SELECT payload_json FROM project_objects WHERE reference = 'effort:e001'")
+      .get() as { payload_json: string };
+    const undatedEffort = JSON.parse(undatedEffortRow.payload_json);
+    const [undatedTicket, ...remainingTickets] = observation.projection.wayfinderTickets;
+    if (undatedTicket === undefined) throw new Error("Expected one Wayfinder ticket.");
+    const { id: _undatedId, ...undatedObservationContent } = observation;
+    const observationWithUndatedNativeEvent = {
+      ...undatedObservationContent,
+      projection: {
+        ...observation.projection,
+        wayfinderTickets: [
+          {
+            ...undatedTicket,
+            native: { ...undatedTicket.native, createdAt: { availability: "unavailable" } },
+          },
+          ...remainingTickets,
+        ],
+      },
+    };
+    const undatedObservationId = providerObservationIdentityFor(observationWithUndatedNativeEvent);
+    writeEvidence(
+      database,
+      original,
+      { id: undatedObservationId, ...observationWithUndatedNativeEvent },
+      { ...selection, observationId: undatedObservationId },
+    );
+    database
+      .query("UPDATE project_objects SET payload_json = ? WHERE reference = 'effort:e001'")
+      .run(
+        JSON.stringify({
+          ...undatedEffort,
+          lifecycle: "concluded",
+          conclusion: {
+            disposition: "completed",
+            rationale: "Fixture concluded Effort.",
+            concludedAt: { availability: "unavailable" },
+          },
+        }),
+      );
+    const undatedNativeEvent = await product.run(activityArgs(previousUtcDate(nativeDate)), {
+      cwd: fixture.root,
+      observeRoots: [fixture.root],
+    });
+    expect(JSON.parse(undatedNativeEvent.stdout)).toMatchObject({
+      outcome: "partial",
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: "activity-native-event-time-unavailable",
+          target: "effort:e001",
+        }),
+      ]),
+    });
+    restoreEvidence(database, original);
+    database
+      .query("UPDATE project_objects SET payload_json = ? WHERE reference = 'effort:e001'")
+      .run(undatedEffortRow.payload_json);
+
     writeEvidence(database, original, observation, { ...selection, effectiveFreshness: "stale" });
     const stale = await product.run(activityArgs(nativeDate), {
       cwd: fixture.root,
@@ -332,6 +390,27 @@ test("packed activity inspection preserves useful facts through degraded evidenc
     });
     expect(recoveryBuild.exitClass).toBe("success");
     const recoveryPath = join(recoveryFixture.root, ".bearing/cache/project-read-model.sqlite");
+    const malformedDatabase = new Database(recoveryPath);
+    const receiptRow = malformedDatabase
+      .query("SELECT receipt_json FROM read_model_metadata WHERE singleton = 1")
+      .get() as { receipt_json: string };
+    malformedDatabase
+      .query("UPDATE read_model_metadata SET receipt_json = ? WHERE singleton = 1")
+      .run(JSON.stringify({ ...JSON.parse(receiptRow.receipt_json), locked: true }));
+    malformedDatabase.close();
+    const malformed = await product.run(activityArgs(nativeDate), {
+      cwd: recoveryFixture.root,
+      observeRoots: [recoveryFixture.root],
+    });
+    expect(JSON.parse(malformed.stdout)).toMatchObject({
+      outcome: "recovery-required",
+      result: { reason: "Project Read Model is corrupt or unreadable." },
+    });
+    const restoredDatabase = new Database(recoveryPath);
+    restoredDatabase
+      .query("UPDATE read_model_metadata SET receipt_json = ? WHERE singleton = 1")
+      .run(receiptRow.receipt_json);
+    restoredDatabase.close();
     const busyDatabase = new Database(recoveryPath);
     busyDatabase.exec("PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE;");
     const busy = await product.run(activityArgs(nativeDate), {

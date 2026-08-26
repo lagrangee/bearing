@@ -320,8 +320,15 @@ export const queryPlanningActivity = (
     const observedNativeEvents =
       observation === undefined ? [] : nativeEventsFor(observation, interval);
     const nativeEvents = attributable ? observedNativeEvents : [];
+    const hasUnavailableNativeEventTime =
+      observation !== undefined && mattObjects(observation).some(unavailableNativeEventTime);
     const hasGovernanceEvent = efforts.some((candidate) => candidate.reference === effort.id);
-    if (effort.lifecycle !== "active" && !hasGovernanceEvent && observedNativeEvents.length === 0)
+    if (
+      effort.lifecycle !== "active" &&
+      !hasGovernanceEvent &&
+      observedNativeEvents.length === 0 &&
+      !hasUnavailableNativeEventTime
+    )
       return [];
     if (
       effort.workBindingState.state === "invalid" ||
@@ -403,7 +410,7 @@ export const queryPlanningActivity = (
             ),
           );
         }
-        if (mattObjects(observation).some(unavailableNativeEventTime)) {
+        if (hasUnavailableNativeEventTime) {
           activityDiagnostics.push(
             activityDiagnostic(
               "activity-native-event-time-unavailable",
