@@ -7,6 +7,7 @@ The distributed CLI and Portal bundle code from the following packages. The buil
 ## Bundled dependency inventory
 
 - @hono/node-server@2.0.8 — MIT
+- @js-temporal/polyfill@0.5.1 — ISC
 - @noble/hashes@2.2.0 — MIT
 - ccount@2.0.1 — MIT
 - character-entities@2.0.2 — MIT
@@ -31,6 +32,7 @@ The distributed CLI and Portal bundle code from the following packages. The buil
 - hono@4.12.30 — MIT
 - htmlparser2@12.0.0 — MIT
 - is-plain-object@5.0.0 — MIT
+- jsbi@4.3.2 — Apache-2.0
 - launder@1.7.1 — MIT
 - linkify-it@5.0.2 — MIT
 - lucide-react@1.24.0 — ISC

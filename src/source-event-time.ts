@@ -21,21 +21,23 @@ export const sourceEventTimePrecision = (
   return /\.\d+(?:Z|[+-]\d{2}:\d{2})$/u.test(value) ? "fractional-second" : "second";
 };
 
+export const sourceOwnedAvailableEventTimeSchema = z
+  .strictObject({
+    availability: z.literal("available"),
+    value: sourceOwnedEventTimeValueSchema,
+    precision: z.enum(["date", "second", "fractional-second"]),
+  })
+  .superRefine((time, context) => {
+    if (time.precision === sourceEventTimePrecision(time.value)) return;
+    context.addIssue({
+      code: "custom",
+      path: ["precision"],
+      message: "Source Event Time precision must describe the exact source value.",
+    });
+  });
+
 export const sourceEventTimeSchema = z.discriminatedUnion("availability", [
-  z
-    .strictObject({
-      availability: z.literal("available"),
-      value: sourceOwnedEventTimeValueSchema,
-      precision: z.enum(["date", "second", "fractional-second"]),
-    })
-    .superRefine((time, context) => {
-      if (time.precision === sourceEventTimePrecision(time.value)) return;
-      context.addIssue({
-        code: "custom",
-        path: ["precision"],
-        message: "Source Event Time precision must describe the exact source value.",
-      });
-    }),
+  sourceOwnedAvailableEventTimeSchema,
   z.strictObject({ availability: z.literal("unavailable") }),
 ]);
 

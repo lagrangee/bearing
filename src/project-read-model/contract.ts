@@ -36,6 +36,7 @@ import {
   sameMattNativeBindingDefinition,
 } from "../providers/matt-skills-v1/native-subject";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
+import { sourceOwnedAvailableEventTimeSchema } from "../source-event-time";
 
 export const PROJECT_READ_MODEL_STORAGE_VERSION = 1 as const;
 export const PROJECT_READ_MODEL_PROJECTION_VERSION = 10 as const;
@@ -65,6 +66,7 @@ export type ProjectInspectRequest =
   | Readonly<{ kind: "project" }>
   | Readonly<{ kind: "planning-reference"; reference: string }>
   | Readonly<{ kind: "native-reference"; reference: string }>
+  | Readonly<{ kind: "activity"; date: string; timeZone: string }>
   | Readonly<{ kind: "diagnostics" }>;
 
 export type ProjectInspectOutcome =
@@ -437,12 +439,142 @@ export const nativeInspectResultSchema = z.strictObject({
   generationFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
 });
 
+export const planningActivityIntervalSchema = z.strictObject({
+  date: z.iso.date(),
+  timeZone: z.string().min(1),
+  startInclusive: z.string().datetime({ offset: true }),
+  endExclusive: z.string().datetime({ offset: true }),
+});
+
+const availablePlanningActivityTimeSchema = z.strictObject({
+  availability: z.literal("available"),
+  value: z.string().datetime({ offset: true }),
+  precision: z.enum(["second", "fractional-second"]),
+});
+
+const governanceActivityItemSchema = z.strictObject({
+  reference: planningReferenceSchema,
+  currentTitle: z.string().min(1),
+  event: z.enum([
+    "roadmap-started",
+    "roadmap-completed",
+    "roadmap-superseded",
+    "gate-planned",
+    "gate-activated",
+    "gate-passed",
+    "gate-superseded",
+    "effort-planned",
+    "effort-activated",
+    "effort-concluded",
+  ]),
+  occurredAt: availablePlanningActivityTimeSchema,
+});
+
+const governanceActivityGroupSchema = z.strictObject({
+  total: z.number().int().nonnegative(),
+  items: z.array(governanceActivityItemSchema),
+});
+
+const nativeActivityCountSchema = z.union([
+  z.strictObject({ mode: z.enum(["exact", "at-least"]), value: z.number().int().nonnegative() }),
+  z.strictObject({ mode: z.literal("unavailable") }),
+]);
+
+const nativeActivityEvidenceSchema = z.union([
+  z.strictObject({ state: z.literal("unavailable") }),
+  z.strictObject({
+    state: z.literal("available"),
+    observationId: z.string().min(1),
+    observedAt: z.string().datetime({ offset: true }),
+    projectionState: z.enum(["available", "partial", "absent", "invalid"]),
+    freshness: z.enum(["current", "stale", "undetermined"]),
+    coverage: z.enum(["complete", "incomplete"]),
+    completion: z.enum(["complete", "incomplete", "undetermined"]),
+    latestAttempt: z
+      .strictObject({
+        attemptedAt: z.string().min(1),
+        outcome: z.enum(["succeeded", "failed"]),
+      })
+      .nullable(),
+  }),
+]);
+
+const nativeActivityItemSchema = z.strictObject({
+  nativeReference: z.string().regex(/^native-subject:sha256:[0-9a-f]{64}$/u),
+  currentTitle: z.string().min(1),
+  subjectKind: z.enum(["wayfinder-ticket", "delivery-ticket", "incoming-issue"]),
+  event: z.enum(["native-created", "tracker-closed"]),
+  occurredAt: sourceOwnedAvailableEventTimeSchema,
+  timeBasis: z.enum(["source-event", "inferred-source-metadata"]),
+});
+
+const effortActivitySchema = z.strictObject({
+  reference: planningReferenceSchema,
+  currentTitle: z.string().min(1),
+  lifecycle: z.enum(["planned", "active", "concluded"]),
+  evidence: nativeActivityEvidenceSchema,
+  currentFrontier: z.union([
+    z.strictObject({ state: z.literal("unavailable") }),
+    z.strictObject({
+      state: z.literal("withheld"),
+      reason: z.enum([
+        "stale-evidence",
+        "latest-attempt-failed",
+        "binding-attention",
+        "invalid-evidence",
+      ]),
+    }),
+    z.strictObject({
+      state: z.literal("available"),
+      asOf: z.string().datetime({ offset: true }),
+      counts: z.strictObject({
+        claimed: nativeActivityCountSchema,
+        ready: nativeActivityCountSchema,
+        blocked: nativeActivityCountSchema,
+        resolved: nativeActivityCountSchema,
+      }),
+    }),
+  ]),
+  activity: z.strictObject({
+    totals: z.strictObject({
+      nativeCreated: z.number().int().nonnegative(),
+      trackerClosed: z.number().int().nonnegative(),
+      uniqueSubjects: z.number().int().nonnegative(),
+      byTimeBasis: z.strictObject({
+        sourceEvent: z.number().int().nonnegative(),
+        inferredSourceMetadata: z.number().int().nonnegative(),
+      }),
+    }),
+    items: z.array(nativeActivityItemSchema).max(20),
+    omittedItemCount: z.number().int().nonnegative(),
+  }),
+});
+
+export const activityInspectResultSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  interval: planningActivityIntervalSchema,
+  historicalCompleteness: z.literal("not-established"),
+  governance: z.strictObject({
+    roadmaps: governanceActivityGroupSchema,
+    gates: governanceActivityGroupSchema,
+    efforts: governanceActivityGroupSchema,
+  }),
+  efforts: z.array(effortActivitySchema),
+  detailBudget: z.strictObject({
+    limit: z.literal(20),
+    expandedItemCount: z.number().int().min(0).max(20),
+    omittedItemCount: z.number().int().nonnegative(),
+  }),
+});
+
 export type ProjectContextResult = Readonly<z.infer<typeof projectContextResultSchema>>;
 export type PlanningInspectResult = Readonly<z.infer<typeof planningInspectResultSchema>>;
 export type NativeInspectResult = Readonly<z.infer<typeof nativeInspectResultSchema>>;
+export type ActivityInspectResult = Readonly<z.infer<typeof activityInspectResultSchema>>;
 export type ProjectInspectResult =
   | ProjectContextResult
   | PlanningInspectResult
   | NativeInspectResult
+  | ActivityInspectResult
   | readonly z.infer<typeof structuralDiagnosticSchema>[]
   | Readonly<{ reason: string }>;

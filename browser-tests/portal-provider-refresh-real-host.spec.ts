@@ -289,6 +289,18 @@ test("real Host keeps Project Activation GET-only across browser lifecycle retur
     runtimeIdentity: `sha256:${"c".repeat(64)}`,
     portalBuildId: secondBuildIdentity,
   };
+  const nextDevelopmentIdentity = {
+    schemaVersion: 1,
+    channel: "development",
+    runtimeIdentity: nextRuntimeReceipt.runtimeIdentity,
+    stateRootIdentity: nextRuntimeReceipt.stateRootIdentity,
+    portalBuildIdentity: secondBuildIdentity,
+  };
+  const nextCurrent = waitForHarnessLine(
+    host.child,
+    `Bearing Development Portal current: ${JSON.stringify(nextDevelopmentIdentity)}`,
+    { label: "Development Portal supervisor replacement", timeoutMs: 15_000 },
+  );
   await writeFile(
     join(controlRoot, "runtime.json"),
     `${JSON.stringify({
@@ -300,6 +312,7 @@ test("real Host keeps Project Activation GET-only across browser lifecycle retur
     })}\n`,
   );
   await writeFile(join(controlRoot, "publication"), "coherent-build\n");
+  await nextCurrent;
   await expect
     .poll(async () => {
       try {

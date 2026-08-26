@@ -24,10 +24,11 @@ import {
   normalizeNativeReconciliationRequest,
 } from "./native-reconciliation-contract";
 import { resolveRepositoryRoot } from "./path-boundary";
+import { planningActivityInterval } from "./planning-activity";
 import { parsePortalPort } from "./portal/port";
 import { startPortalServer } from "./portal/server";
 import { planningReferenceSchema } from "./project-read-model/contract";
-import { inspectProject } from "./project-read-model/inspect";
+import { inspectProject, queryCommittedProject } from "./project-read-model/inspect";
 import {
   captureProjectProviderScopes,
   rebuildProjectReadModel,
@@ -43,7 +44,7 @@ import { activeRuntimeContext, withRuntimeExecutionContext } from "./runtime-con
 import type { AgentSurface } from "./types";
 
 const INSPECT_USAGE =
-  "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]\n       bearing inspect --native <native-reference> [--repo <path>]";
+  "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]\n       bearing inspect --native <native-reference> [--repo <path>]\n       bearing inspect activity --repo <path> --date <YYYY-MM-DD> --time-zone <IANA-zone>";
 
 const HELP = `Bearing ${packageMetadata.version}
 
@@ -61,6 +62,7 @@ Usage:
   bearing cache rebuild [--repo <path>]
   bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]
   bearing inspect --native <native-reference> [--repo <path>]
+  bearing inspect activity --repo <path> --date <YYYY-MM-DD> --time-zone <IANA-zone>
   bearing portal [--port <1-65535>]
   bearing runtime <inspect|bootstrap> [--repo <path>]
   bearing --help
@@ -432,6 +434,8 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
         options: {
           repo: { type: "string" },
           native: { type: "string" },
+          date: { type: "string" },
+          "time-zone": { type: "string" },
         },
         allowPositionals: true,
         strict: true,
@@ -441,7 +445,40 @@ const runInspectCommand = async (args: readonly string[]): Promise<void> => {
     }
   })();
   const [request, ...requestExtra] = parsed.positionals;
-  if ((request === undefined) === (parsed.values.native === undefined) || requestExtra.length > 0) {
+  if (requestExtra.length > 0) {
+    throw new CommandUsageError(INSPECT_USAGE);
+  }
+  if (request === "activity" && parsed.values.native === undefined) {
+    const { date, repo } = parsed.values;
+    const timeZone = parsed.values["time-zone"];
+    if (date === undefined || repo === undefined || timeZone === undefined) {
+      throw new CommandUsageError(INSPECT_USAGE);
+    }
+    try {
+      planningActivityInterval(date, timeZone);
+    } catch (error) {
+      throw new CommandUsageError(INSPECT_USAGE, { cause: error });
+    }
+    const result = await queryCommittedProject(await resolveRepositoryRoot(resolve(repo)), {
+      kind: "activity",
+      date,
+      timeZone,
+    });
+    writeJson(result);
+    if (
+      result.outcome === "unfulfilled" ||
+      result.outcome === "recovery-required" ||
+      result.outcome === "need-update"
+    ) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+  if (
+    (request === undefined) === (parsed.values.native === undefined) ||
+    parsed.values.date !== undefined ||
+    parsed.values["time-zone"] !== undefined
+  ) {
     throw new CommandUsageError(INSPECT_USAGE);
   }
   {
