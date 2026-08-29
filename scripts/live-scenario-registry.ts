@@ -33,30 +33,107 @@ export const liveScenarioEvidencePointerSchema = z
     "Scenario evidence pointers must stay bounded and relative.",
   );
 
+export const liveScenarioFixtureProfileSchema = z.enum([
+  "fresh-repository",
+  "fresh-installation-repository",
+  "installed-unconfigured-repository",
+  "non-project-directory",
+  "active-repository",
+  "active-repository-with-drift",
+  "deactivated-repository",
+  "repository-update-required-repository",
+  "older-kit-active-stable-repository",
+  "kit-update-required-repository",
+  "unsupported-repository",
+  "active-planning-repository",
+  "active-unbound-native-repository",
+  "active-bound-local-repository",
+  "active-bound-wayfinder-repository",
+  "active-bound-wayfinder-capture-required-repository",
+  "active-github-repository",
+  "active-ambiguous-native-repository",
+  "active-failing-execution-repository",
+]);
+
+export const liveScenarioSkillNameSchema = z.enum([
+  "bearing",
+  "wayfinder",
+  "grilling",
+  "domain-modeling",
+  "implement",
+  "tdd",
+  "code-review",
+]);
+
+export const liveScenarioSkillRoleSchema = z.enum([
+  "prerequisite",
+  "installation-under-test",
+  "intentionally-absent",
+]);
+
+export const liveScenarioAgentSurfaceProfileSchema = z.enum(["codex"]);
+export const liveScenarioCapabilityProfileSchema = z.enum([
+  "none",
+  "bounded-local-npm-update",
+  "github-bounded-delivery",
+]);
+export const liveScenarioResourceKeySchema = z.enum(["github-validation-repository"]);
+export const liveScenarioTimeProfileSchema = z.enum(["standard"]);
+
+const liveScenarioCompositionSchema = z
+  .object({
+    fixtureProfile: liveScenarioFixtureProfileSchema,
+    skills: z
+      .array(
+        z
+          .object({
+            skill: liveScenarioSkillNameSchema,
+            role: liveScenarioSkillRoleSchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(liveScenarioSkillNameSchema.options.length),
+    agentSurfaceProfile: liveScenarioAgentSurfaceProfileSchema,
+    capabilityProfile: liveScenarioCapabilityProfileSchema,
+    resourceKeys: z.array(liveScenarioResourceKeySchema).max(8),
+    model: z.literal("gpt-5.6-luna"),
+    reasoningEffort: z.literal("high"),
+    timeProfile: liveScenarioTimeProfileSchema,
+  })
+  .strict()
+  .superRefine((composition, context) => {
+    const skillNames = composition.skills.map(({ skill }) => skill);
+    if (new Set(skillNames).size !== skillNames.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["skills"],
+        message: "Each Matrix Skill must declare exactly one role.",
+      });
+    }
+    if (new Set(composition.resourceKeys).size !== composition.resourceKeys.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["resourceKeys"],
+        message: "Matrix Resource Keys must be unique.",
+      });
+    }
+    const expectedResourceKeys =
+      composition.capabilityProfile === "github-bounded-delivery"
+        ? ["github-validation-repository"]
+        : [];
+    if (JSON.stringify(composition.resourceKeys) !== JSON.stringify(expectedResourceKeys)) {
+      context.addIssue({
+        code: "custom",
+        path: ["resourceKeys"],
+        message: "Matrix Resource Keys must exactly match the selected Capability Profile.",
+      });
+    }
+  });
+
 const fixtureSchema = z
   .object({
     source: z.string().min(1),
-    materializer: z.enum([
-      "fresh-repository",
-      "fresh-installation-repository",
-      "installed-unconfigured-repository",
-      "non-project-directory",
-      "active-repository",
-      "active-repository-with-drift",
-      "deactivated-repository",
-      "repository-update-required-repository",
-      "older-kit-active-stable-repository",
-      "kit-update-required-repository",
-      "unsupported-repository",
-      "active-planning-repository",
-      "active-unbound-native-repository",
-      "active-bound-local-repository",
-      "active-bound-wayfinder-repository",
-      "active-bound-wayfinder-capture-required-repository",
-      "active-github-repository",
-      "active-ambiguous-native-repository",
-      "active-failing-execution-repository",
-    ]),
     assertions: z
       .array(
         z
@@ -76,6 +153,7 @@ const liveScenarioSchema = z
     id: scenarioIdSchema,
     name: z.string().trim().min(1),
     fixture: fixtureSchema,
+    composition: liveScenarioCompositionSchema,
     prompts: z.array(z.string().trim().min(1)).min(1),
     requiredOutcomes: z.array(boundedTextSchema).min(1),
     forbiddenOutcomes: z.array(boundedTextSchema).min(1),
@@ -92,6 +170,39 @@ const liveScenarioRegistrySchema = z
     const ids = registry.scenarios.map(({ id }) => id);
     if (new Set(ids).size !== ids.length) {
       context.addIssue({ code: "custom", message: "Live Scenario IDs must be unique." });
+    }
+    for (const [index, scenario] of registry.scenarios.entries()) {
+      const bearingRole = scenario.composition.skills.find(
+        ({ skill }) => skill === "bearing",
+      )?.role;
+      const installationUnderTest = scenario.composition.skills.filter(
+        ({ role }) => role === "installation-under-test",
+      );
+      if (
+        scenario.composition.fixtureProfile === "fresh-installation-repository"
+          ? bearingRole !== "installation-under-test" || installationUnderTest.length !== 1
+          : bearingRole !== "prerequisite" || installationUnderTest.length !== 0
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["scenarios", index, "composition", "skills"],
+          message:
+            "The Fixture Profile requires one coherent Bearing prerequisite or installation-under-test role.",
+        });
+      }
+      const expectedCapability =
+        scenario.composition.fixtureProfile === "active-github-repository"
+          ? "github-bounded-delivery"
+          : scenario.composition.fixtureProfile === "older-kit-active-stable-repository"
+            ? "bounded-local-npm-update"
+            : "none";
+      if (scenario.composition.capabilityProfile !== expectedCapability) {
+        context.addIssue({
+          code: "custom",
+          path: ["scenarios", index, "composition", "capabilityProfile"],
+          message: "The Capability Profile contradicts the selected Fixture Profile.",
+        });
+      }
     }
   });
 
@@ -217,7 +328,7 @@ export const materializeLiveScenarioFixture = async (input: {
   await cp(fixtureSource, outputRoot, { recursive: true, errorOnExist: true, force: false });
   return Object.freeze({
     scenarioId,
-    materializer: scenario.fixture.materializer,
+    fixtureProfile: scenario.composition.fixtureProfile,
     fixtureRoot: outputRoot,
     startingStateSha256: await digestLiveScenarioFixture(outputRoot),
   });

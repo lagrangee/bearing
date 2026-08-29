@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {
+      "id": "TEST-03",
+      "name": "Missing GitHub capability fixture",
+      "fixture": { "source": "validation/live-journey/fixtures/local-loop" },
+      "composition": {
+        "fixtureProfile": "active-github-repository",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }],
+        "agentSurfaceProfile": "codex",
+        "capabilityProfile": "github-bounded-delivery",
+        "resourceKeys": ["github-validation-repository"],
+        "model": "gpt-5.6-luna",
+        "reasoningEffort": "high",
+        "timeProfile": "standard"
+      },
+      "prompts": ["Prepare the bounded delivery."],
+      "requiredOutcomes": ["The request stays bounded."],
+      "forbiddenOutcomes": ["No unrelated work is performed."]
+    }
+  ]
+}

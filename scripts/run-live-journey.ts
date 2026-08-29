@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
@@ -27,6 +27,10 @@ import {
   verifyLiveJourneyObservation,
   writeCodexSessionState,
 } from "./live-journey-matrix";
+import {
+  discardLiveScenarioGenerationAdmission,
+  prepareLiveScenarioGenerationAdmission,
+} from "./live-scenario-admission";
 import { inspectLiveScenarioMatrixStatus } from "./live-scenario-convergence";
 import {
   liveScenarioPackageSchema,
@@ -251,60 +255,120 @@ const prepareScenario = async (): Promise<void> => {
     parsed.values["generation-root"] === undefined
       ? undefined
       : resolve(parsed.values["generation-root"]);
-  const harnessIdentitySha256 =
+  const workspaceRoot = resolve(required("workspace"));
+  const operatorCodexHome = resolve(required("codex-home"));
+  const scenarioId = required("scenario");
+  let admission: Awaited<ReturnType<typeof prepareLiveScenarioGenerationAdmission>> | undefined;
+  const prepared =
     generationEvidenceRoot === undefined
-      ? undefined
-      : await liveScenarioHarnessIdentitySha256({ sourceRoot });
-  const prepared = await prepareLiveScenarioGeneration({
-    sourceRoot,
-    workspaceRoot: resolve(required("workspace")),
-    operatorCodexHome: resolve(required("codex-home")),
-    registryPath: required("registry"),
-    scenarioId: required("scenario"),
-    package: matrixPackage,
-    ...(parsed.values["generation-id"] === undefined
-      ? {}
-      : { generationId: parsed.values["generation-id"] }),
-    ...(parsed.values["codex-program"] === undefined
-      ? {}
-      : { codexProgram: parsed.values["codex-program"] }),
-    ...(parsed.values["github-checkout"] === undefined
-      ? {}
-      : { githubCheckout: parsed.values["github-checkout"] }),
-    ...(parsed.values["github-program"] === undefined
-      ? {}
-      : { githubProgram: parsed.values["github-program"] }),
-    ...(parsed.values["journey-attempt"] === undefined
-      ? {}
-      : {
-          journeyAttempt: positiveInteger(parsed.values["journey-attempt"], "--journey-attempt"),
-        }),
-    ...(generationEvidenceRoot === undefined ? {} : { generationEvidenceRoot }),
-  });
+      ? await prepareLiveScenarioGeneration({
+          sourceRoot,
+          workspaceRoot,
+          operatorCodexHome,
+          registryPath: required("registry"),
+          scenarioId,
+          package: matrixPackage,
+          ...(parsed.values["generation-id"] === undefined
+            ? {}
+            : { generationId: parsed.values["generation-id"] }),
+          ...(parsed.values["codex-program"] === undefined
+            ? {}
+            : { codexProgram: parsed.values["codex-program"] }),
+          ...(parsed.values["github-checkout"] === undefined
+            ? {}
+            : { githubCheckout: parsed.values["github-checkout"] }),
+          ...(parsed.values["github-program"] === undefined
+            ? {}
+            : { githubProgram: parsed.values["github-program"] }),
+          ...(parsed.values["journey-attempt"] === undefined
+            ? {}
+            : {
+                journeyAttempt: positiveInteger(
+                  parsed.values["journey-attempt"],
+                  "--journey-attempt",
+                ),
+              }),
+        })
+      : await (async () => {
+          if (parsed.values["journey-attempt"] !== undefined) {
+            fail("Admitted Generation preparation does not accept a per-Scenario journey attempt.");
+          }
+          const generationId = parsed.values["generation-id"] ?? randomUUID();
+          admission = await prepareLiveScenarioGenerationAdmission({
+            sourceRoot,
+            workspaceRoot,
+            operatorCodexHome,
+            registryPath: required("registry"),
+            generationId,
+            package: matrixPackage,
+            generationEvidenceRoot,
+            ...(parsed.values["codex-program"] === undefined
+              ? {}
+              : { codexProgram: parsed.values["codex-program"] }),
+            ...(parsed.values["github-checkout"] === undefined
+              ? {}
+              : { githubCheckout: parsed.values["github-checkout"] }),
+            ...(parsed.values["github-program"] === undefined
+              ? {}
+              : { githubProgram: parsed.values["github-program"] }),
+          });
+          if (admission.outcome !== "admitted") {
+            process.stdout.write(`${JSON.stringify(admission)}\n`);
+            return undefined;
+          }
+          const selected = admission.preparedScenarios.find(
+            ({ scenario }) => scenario.id === scenarioId,
+          );
+          if (selected === undefined) {
+            await discardLiveScenarioGenerationAdmission({
+              workspaceRoot: admission.workspaceRoot,
+              preparedScenarios: admission.preparedScenarios,
+            });
+            fail(`Unknown Live Scenario: ${scenarioId}.`);
+          }
+          return selected;
+        })();
+  if (prepared === undefined) return;
   if (prepared.paths.generationEvidenceRoot !== undefined) {
-    const sealedHarnessIdentitySha256 =
-      harnessIdentitySha256 ?? fail("Live Scenario Harness identity was not captured.");
-    if (sealedHarnessIdentitySha256 !== (await liveScenarioHarnessIdentitySha256({ sourceRoot }))) {
-      fail("Live Scenario Harness identity changed during Generation preparation.");
+    const admitted =
+      admission?.outcome === "admitted"
+        ? admission
+        : fail("Generation record creation requires sealed Admission.");
+    const sealedHarnessIdentitySha256 = admitted.basis.identities.harnessIdentitySha256;
+    try {
+      if (
+        sealedHarnessIdentitySha256 !== (await liveScenarioHarnessIdentitySha256({ sourceRoot }))
+      ) {
+        fail("Live Scenario Harness identity changed during Generation preparation.");
+      }
+      await createLiveScenarioGenerationRecord({
+        generationRoot: prepared.paths.generationEvidenceRoot,
+        generationId: prepared.generationId,
+        package: matrixPackage,
+        matrixDefinitionSha256: prepared.matrixDefinitionSha256,
+        harnessIdentitySha256: sealedHarnessIdentitySha256,
+        admissionIdentitySha256: admitted.admissionIdentitySha256,
+        admissionBasisIdentitySha256: admitted.basis.identitySha256,
+        admittedScenarioCount: admitted.compositionReadbacks.length,
+        scenarioId: prepared.scenario.id,
+      });
+      await createLiveScenarioExecutionRecord({
+        generationRoot: prepared.paths.generationEvidenceRoot,
+        generationId: prepared.generationId,
+        scenarioId: prepared.scenario.id,
+        scenarioDefinitionSha256: createHash("sha256")
+          .update(`${JSON.stringify(prepared.scenario)}\n`)
+          .digest("hex"),
+        fixtureIdentitySha256: prepared.startingStateSha256,
+        declaredTurnCount: prepared.paths.prompts.length,
+      });
+    } catch (error) {
+      await discardLiveScenarioGenerationAdmission({
+        workspaceRoot: admitted.workspaceRoot,
+        preparedScenarios: admitted.preparedScenarios,
+      });
+      throw error;
     }
-    await createLiveScenarioGenerationRecord({
-      generationRoot: prepared.paths.generationEvidenceRoot,
-      generationId: prepared.generationId,
-      package: matrixPackage,
-      matrixDefinitionSha256: prepared.matrixDefinitionSha256,
-      harnessIdentitySha256: sealedHarnessIdentitySha256,
-      scenarioId: prepared.scenario.id,
-    });
-    await createLiveScenarioExecutionRecord({
-      generationRoot: prepared.paths.generationEvidenceRoot,
-      generationId: prepared.generationId,
-      scenarioId: prepared.scenario.id,
-      scenarioDefinitionSha256: createHash("sha256")
-        .update(`${JSON.stringify(prepared.scenario)}\n`)
-        .digest("hex"),
-      fixtureIdentitySha256: prepared.startingStateSha256,
-      declaredTurnCount: prepared.paths.prompts.length,
-    });
   }
   process.stdout.write(
     `${JSON.stringify({
@@ -316,6 +380,12 @@ const prepareScenario = async (): Promise<void> => {
       ...(prepared.paths.generationEvidenceRoot === undefined
         ? {}
         : { generationEvidenceRoot: prepared.paths.generationEvidenceRoot }),
+      ...(admission?.outcome !== "admitted"
+        ? {}
+        : {
+            admissionIdentitySha256: admission.admissionIdentitySha256,
+            admittedScenarioCount: admission.compositionReadbacks.length,
+          }),
     })}\n`,
   );
 };
@@ -462,7 +532,7 @@ const prepareLocalRehearsal = async (): Promise<void> => {
     | undefined;
   if (
     registry.scenarios.some(
-      ({ fixture }) => fixture.materializer === "older-kit-active-stable-repository",
+      ({ composition }) => composition.fixtureProfile === "older-kit-active-stable-repository",
     )
   ) {
     const fixtureSpec = "@lagrangee/bearing@0.1.1" as const;
@@ -639,7 +709,7 @@ const snapshotScenarioAgentHome = (agentHome: string): Promise<string> =>
 
 type CodexTurnManifest = Readonly<{
   generationId: string;
-  scenario: Readonly<{ fixture: Readonly<{ materializer: string }> }>;
+  scenario: Readonly<{ composition: Readonly<{ fixtureProfile: string }> }>;
   paths: Readonly<{
     sourceRoot: string;
     manifest: string;
@@ -712,7 +782,7 @@ const prepareCodexTurn = async (manifest: CodexTurnManifest, turn: number, attem
   );
   const environment = createCodexJourneyEnvironment(process.env, manifest.launch.environment, {
     includeCanonicalBearingBin:
-      manifest.scenario.fixture.materializer !== "fresh-installation-repository",
+      manifest.scenario.composition.fixtureProfile !== "fresh-installation-repository",
   });
   const operatorCodexHome = dirname(
     await realpath(join(manifest.launch.environment.CODEX_HOME, "auth.json")),

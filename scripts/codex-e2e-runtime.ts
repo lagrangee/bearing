@@ -12,11 +12,77 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { z } from "zod";
 
 export const CODEX_E2E_RUNTIME = Object.freeze({
   model: "gpt-5.6-luna",
   reasoningEffort: "high",
 } as const);
+
+const codexModelCatalogIdentifierSchema = z
+  .string()
+  .min(1)
+  .refine((value) => value.trim() === value);
+
+const codexModelCatalogSchema = z
+  .object({
+    models: z.array(
+      z
+        .object({
+          slug: codexModelCatalogIdentifierSchema,
+          supported_reasoning_levels: z.array(
+            z
+              .object({
+                effort: codexModelCatalogIdentifierSchema,
+              })
+              .passthrough(),
+          ),
+        })
+        .passthrough(),
+    ),
+  })
+  .strict();
+
+export const readCodexE2EModelAvailability = async (input: {
+  program: string;
+  isolatedHome: string;
+  codexHome: string;
+}) => {
+  const probe = Bun.spawn([input.program, "debug", "models"], {
+    env: { ...process.env, HOME: input.isolatedHome, CODEX_HOME: input.codexHome },
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const [exitCode, stdout] = await Promise.all([probe.exited, new Response(probe.stdout).text()]);
+  if (exitCode !== 0) {
+    throw new Error(`Codex model availability probe failed with exit ${exitCode}.`);
+  }
+
+  let catalog: z.infer<typeof codexModelCatalogSchema>;
+  try {
+    catalog = codexModelCatalogSchema.parse(JSON.parse(stdout));
+  } catch {
+    throw new Error("Codex model availability probe returned an untrusted model catalog.");
+  }
+  const matches = catalog.models.filter((model) => model.slug === CODEX_E2E_RUNTIME.model);
+  if (matches.length !== 1) {
+    throw new Error(`Required Codex E2E model is unavailable: ${CODEX_E2E_RUNTIME.model}.`);
+  }
+  const supportedEfforts = matches[0]?.supported_reasoning_levels.map(({ effort }) => effort) ?? [];
+  if (
+    supportedEfforts.filter((effort) => effort === CODEX_E2E_RUNTIME.reasoningEffort).length !== 1
+  ) {
+    throw new Error(
+      `Required Codex E2E reasoning effort is unavailable: ${CODEX_E2E_RUNTIME.reasoningEffort}.`,
+    );
+  }
+  return Object.freeze({
+    catalogIdentitySha256: createHash("sha256").update(stdout).digest("hex"),
+    model: CODEX_E2E_RUNTIME.model,
+    reasoningEffort: CODEX_E2E_RUNTIME.reasoningEffort,
+  });
+};
 
 export const CODEX_E2E_DISABLED_FEATURES = Object.freeze([
   "apps",
@@ -154,6 +220,7 @@ export const probeCodexE2EPermissionProfile = async (input: {
   manifestPath: string;
   registryPath: string;
   sourceRoot: string;
+  operatorCodexHome: string;
   scenarioWorkspace: string;
   installationEntryPath: string;
   readDeniedPaths: readonly string[];
@@ -203,7 +270,8 @@ export const probeCodexE2EPermissionProfile = async (input: {
           'if cat "$4" >/dev/null 2>&1; then exit 84; fi',
           'if /usr/bin/git -C "$5" show HEAD:validation/live-journey/registry.json >/dev/null 2>&1; then exit 85; fi',
           'if cat "$6" >/dev/null 2>&1; then exit 86; fi',
-          "shift 6",
+          'if cat "$7/auth.json" >/dev/null 2>&1; then exit 89; fi',
+          "shift 7",
           'for path in "$@"; do',
           '  probe="$path/.bearing-live-journey-write-probe"',
           '  ln -s "$control" "$probe" || exit 87',
@@ -217,6 +285,7 @@ export const probeCodexE2EPermissionProfile = async (input: {
         input.registryPath,
         input.sourceRoot,
         siblingProbePath,
+        input.operatorCodexHome,
         ...input.writeAllowedPaths,
       ],
       {

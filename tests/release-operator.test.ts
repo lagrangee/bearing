@@ -161,7 +161,7 @@ const writeMatrixResult = async (root: string, receipt: CandidateReceipt) => {
             evidencePointers: [`observations/${scenario.id}.json`],
           })),
         }),
-        ...(scenario.fixture.materializer === "active-github-repository"
+        ...(scenario.composition.fixtureProfile === "active-github-repository"
           ? {
               remoteIntegrity: {
                 repositoryIdentitySha256: "d".repeat(64),

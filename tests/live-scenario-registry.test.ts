@@ -463,7 +463,16 @@ describe("independent Agent Live scenarios", () => {
           name: "Candidate definition fixture",
           fixture: {
             source: "validation/live-journey/fixtures/base",
-            materializer: "fresh-repository",
+          },
+          composition: {
+            fixtureProfile: "fresh-repository",
+            skills: [{ skill: "bearing", role: "prerequisite" }],
+            agentSurfaceProfile: "codex",
+            capabilityProfile: "none",
+            resourceKeys: [],
+            model: "gpt-5.6-luna",
+            reasoningEffort: "high",
+            timeProfile: "standard",
           },
           prompts: ["Complete the fixture request."],
           requiredOutcomes: ["The request is complete."],
@@ -760,7 +769,7 @@ describe("independent Agent Live scenarios", () => {
 
     const nativeTransaction = registry.scenarios.find(({ id }) => id === "NATIVE-02");
     if (nativeTransaction === undefined) throw new Error("NATIVE-02 is unavailable.");
-    expect(nativeTransaction.fixture.materializer).toBe("active-bound-wayfinder-repository");
+    expect(nativeTransaction.composition.fixtureProfile).toBe("active-bound-wayfinder-repository");
     expect(nativeTransaction.prompts).toHaveLength(1);
     const [nativePrompt] = nativeTransaction.prompts;
     if (nativePrompt === undefined) throw new Error("NATIVE-02 prompt is unavailable.");
@@ -770,7 +779,7 @@ describe("independent Agent Live scenarios", () => {
 
     const providerRecovery = registry.scenarios.find(({ id }) => id === "NATIVE-03");
     if (providerRecovery === undefined) throw new Error("NATIVE-03 is unavailable.");
-    expect(providerRecovery.fixture.materializer).toBe(
+    expect(providerRecovery.composition.fixtureProfile).toBe(
       "active-bound-wayfinder-capture-required-repository",
     );
     expect(providerRecovery.prompts).toHaveLength(1);
@@ -790,7 +799,7 @@ describe("independent Agent Live scenarios", () => {
     expect(githubProviderContract).not.toMatch(/supplied Candidate scope key/iu);
 
     const kitUpdate = registry.scenarios.find(({ id }) => id === "CONFIG-06");
-    expect(kitUpdate?.fixture.materializer).toBe("kit-update-required-repository");
+    expect(kitUpdate?.composition.fixtureProfile).toBe("kit-update-required-repository");
     expect(kitUpdate?.requiredOutcomes.join("\n")).toMatch(
       /Kit Update Required[\s\S]*repository[\s\S]*unchanged/iu,
     );
@@ -805,7 +814,7 @@ describe("independent Agent Live scenarios", () => {
     );
 
     expect(registry.scenarios.map(({ id }) => id)).toEqual(["INSTALL-01", "UPDATE-01"]);
-    expect(registry.scenarios.map(({ fixture }) => fixture.materializer)).toEqual([
+    expect(registry.scenarios.map(({ composition }) => composition.fixtureProfile)).toEqual([
       "fresh-installation-repository",
       "older-kit-active-stable-repository",
     ]);

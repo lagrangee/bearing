@@ -239,7 +239,8 @@ export const parseLiveScenarioMatrixResult = (input: unknown) => {
   }
   for (const scenario of trackedRegistry.scenarios) {
     const observed = result.scenarios.find(({ scenarioId }) => scenarioId === scenario.id);
-    const requiresRemoteIntegrity = scenario.fixture.materializer === "active-github-repository";
+    const requiresRemoteIntegrity =
+      scenario.composition.fixtureProfile === "active-github-repository";
     if ((observed?.remoteIntegrity !== undefined) !== requiresRemoteIntegrity) {
       fail(`Matrix remote integrity evidence contradicts its Scenario: ${scenario.id}.`);
     }
@@ -300,7 +301,8 @@ export const createLiveScenarioMatrixResult = (input: {
     const result = references.find(
       (reference) => reference.result.scenarioId === scenario.id,
     )?.result;
-    const requiresRemoteIntegrity = scenario.fixture.materializer === "active-github-repository";
+    const requiresRemoteIntegrity =
+      scenario.composition.fixtureProfile === "active-github-repository";
     if ((result?.remoteIntegrity !== undefined) !== requiresRemoteIntegrity) {
       fail(`Live Scenario remote integrity evidence contradicts its fixture: ${scenario.id}.`);
     }

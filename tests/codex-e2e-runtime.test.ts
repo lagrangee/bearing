@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, readFile, readlink, realpath, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  realpath,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,7 +19,39 @@ import {
   codexE2ERuntimeArguments,
   createCodexE2EEvidenceRecord,
   prepareIsolatedCodexHome,
+  readCodexE2EModelAvailability,
 } from "../scripts/codex-e2e-runtime";
+
+const fakeModelProgram = async (input: {
+  root: string;
+  stdout: string;
+  stderr?: string;
+  exitCode?: number;
+}) => {
+  const program = join(input.root, "fake-codex");
+  const capture = join(input.root, "probe.json");
+  const stdoutPath = `${program}.stdout`;
+  const stderrPath = `${program}.stderr`;
+  await writeFile(stdoutPath, input.stdout);
+  if (input.stderr !== undefined) await writeFile(stderrPath, input.stderr);
+  await writeFile(
+    program,
+    [
+      "#!/bin/sh",
+      'stdin_bytes=$(wc -c | tr -d " \\n")',
+      `printf '%s\\n' "$(printf '%s\\n' "$@")" > ${JSON.stringify(`${capture}.args`)}`,
+      `printf '%s\\n' "$HOME" > ${JSON.stringify(`${capture}.home`)}`,
+      `printf '%s\\n' "$CODEX_HOME" > ${JSON.stringify(`${capture}.codex-home`)}`,
+      `printf '%s\\n' "$stdin_bytes" > ${JSON.stringify(`${capture}.stdin`)}`,
+      `/bin/cat ${JSON.stringify(stdoutPath)}`,
+      ...(input.stderr === undefined ? [] : [`/bin/cat ${JSON.stringify(stderrPath)} >&2`]),
+      `exit ${input.exitCode ?? 0}`,
+      "",
+    ].join("\n"),
+  );
+  await chmod(program, 0o755);
+  return { program, capture };
+};
 
 describe("repository Codex E2E policy", () => {
   test("keeps one fixed runtime owner and rejects caller overrides", () => {
@@ -59,6 +100,105 @@ describe("repository Codex E2E policy", () => {
       skipGitRepositoryCheck: true,
     });
     expect(nonProjectLaunch.initial.arguments).toContain("--skip-git-repo-check");
+  });
+
+  test("reads exact model availability without starting Agent behavior", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bearing-codex-model-probe-"));
+    const isolatedHome = join(root, "isolated-home");
+    const codexHome = join(isolatedHome, ".codex");
+    const stdout = `${JSON.stringify({
+      models: [
+        {
+          slug: CODEX_E2E_RUNTIME.model,
+          supported_reasoning_levels: [
+            { effort: "medium", description: "Medium" },
+            { effort: CODEX_E2E_RUNTIME.reasoningEffort, description: "High" },
+          ],
+          display_name: "Fixture model",
+        },
+      ],
+    })}\n`;
+    const fake = await fakeModelProgram({ root, stdout });
+
+    const receipt = await readCodexE2EModelAvailability({
+      program: fake.program,
+      isolatedHome,
+      codexHome,
+    });
+
+    expect(receipt).toEqual({
+      catalogIdentitySha256: new Bun.CryptoHasher("sha256").update(stdout).digest("hex"),
+      model: CODEX_E2E_RUNTIME.model,
+      reasoningEffort: CODEX_E2E_RUNTIME.reasoningEffort,
+    });
+    expect(await readFile(`${fake.capture}.args`, "utf8")).toBe("debug\nmodels\n");
+    expect(await readFile(`${fake.capture}.home`, "utf8")).toBe(`${isolatedHome}\n`);
+    expect(await readFile(`${fake.capture}.codex-home`, "utf8")).toBe(`${codexHome}\n`);
+    expect(await readFile(`${fake.capture}.stdin`, "utf8")).toBe("0\n");
+  });
+
+  test("fails closed when the model or exact reasoning effort is unavailable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bearing-codex-model-unavailable-"));
+    const unavailableModel = await fakeModelProgram({
+      root,
+      stdout: JSON.stringify({
+        models: [{ slug: "another-model", supported_reasoning_levels: [{ effort: "high" }] }],
+      }),
+    });
+    await expect(
+      readCodexE2EModelAvailability({
+        program: unavailableModel.program,
+        isolatedHome: root,
+        codexHome: join(root, ".codex"),
+      }),
+    ).rejects.toThrow(`model is unavailable: ${CODEX_E2E_RUNTIME.model}`);
+
+    const effortRoot = await mkdtemp(join(tmpdir(), "bearing-codex-effort-unavailable-"));
+    const unavailableEffort = await fakeModelProgram({
+      root: effortRoot,
+      stdout: JSON.stringify({
+        models: [
+          {
+            slug: CODEX_E2E_RUNTIME.model,
+            supported_reasoning_levels: [{ effort: "medium" }],
+          },
+        ],
+      }),
+    });
+    await expect(
+      readCodexE2EModelAvailability({
+        program: unavailableEffort.program,
+        isolatedHome: effortRoot,
+        codexHome: join(effortRoot, ".codex"),
+      }),
+    ).rejects.toThrow(`reasoning effort is unavailable: ${CODEX_E2E_RUNTIME.reasoningEffort}`);
+  });
+
+  test("fails closed for malformed model catalogs and failed commands", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bearing-codex-model-invalid-"));
+    const malformed = await fakeModelProgram({ root, stdout: "not-json\n" });
+    await expect(
+      readCodexE2EModelAvailability({
+        program: malformed.program,
+        isolatedHome: root,
+        codexHome: join(root, ".codex"),
+      }),
+    ).rejects.toThrow("untrusted model catalog");
+
+    const commandRoot = await mkdtemp(join(tmpdir(), "bearing-codex-model-command-"));
+    const failed = await fakeModelProgram({
+      root: commandRoot,
+      stdout: JSON.stringify({ models: [] }),
+      stderr: "catalog lookup failed\n",
+      exitCode: 17,
+    });
+    await expect(
+      readCodexE2EModelAvailability({
+        program: failed.program,
+        isolatedHome: commandRoot,
+        codexHome: join(commandRoot, ".codex"),
+      }),
+    ).rejects.toThrow("failed with exit 17");
   });
 
   test("uses only isolated runtime state plus one read-only authentication link", async () => {

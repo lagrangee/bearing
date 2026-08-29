@@ -32,6 +32,9 @@ const generationRecordSchema = z
     packageIdentitySha256: digestSchema,
     matrixDefinitionSha256: digestSchema,
     harnessIdentitySha256: digestSchema,
+    admissionIdentitySha256: digestSchema,
+    admissionBasisIdentitySha256: digestSchema,
+    admittedScenarioCount: z.number().int().positive().safe(),
     scenarioId: scenarioIdSchema,
   })
   .strict();
@@ -255,6 +258,9 @@ export const createLiveScenarioGenerationRecord = async (input: {
   package: unknown;
   matrixDefinitionSha256: string;
   harnessIdentitySha256: string;
+  admissionIdentitySha256: string;
+  admissionBasisIdentitySha256: string;
+  admittedScenarioCount: number;
   scenarioId: string;
 }): Promise<GenerationRecord> => {
   const generationRoot = resolve(input.generationRoot);
@@ -279,6 +285,9 @@ export const createLiveScenarioGenerationRecord = async (input: {
     packageIdentitySha256: sha256(`${JSON.stringify(boundedPackage)}\n`),
     matrixDefinitionSha256: input.matrixDefinitionSha256,
     harnessIdentitySha256: input.harnessIdentitySha256,
+    admissionIdentitySha256: input.admissionIdentitySha256,
+    admissionBasisIdentitySha256: input.admissionBasisIdentitySha256,
+    admittedScenarioCount: input.admittedScenarioCount,
     scenarioId: input.scenarioId,
   });
   return publishRecord(generationPath(generationRoot), generationRecordSchema, record);

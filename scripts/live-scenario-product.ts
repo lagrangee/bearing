@@ -391,7 +391,7 @@ export const materializeLiveScenarioProductState = async (input: {
   productProgram: string;
   agentHome: string;
 }): Promise<void> => {
-  const materializer = input.scenario.fixture.materializer;
+  const materializer = input.scenario.composition.fixtureProfile;
   if (
     [
       "fresh-repository",

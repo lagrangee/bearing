@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, chmod, cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeLiveScenarioPackageBasis } from "../scripts/live-scenario-evidence";
@@ -63,6 +63,9 @@ describe("immutable Live Matrix Generation records", () => {
         },
         matrixDefinitionSha256,
         harnessIdentitySha256: "4".repeat(64),
+        admissionIdentitySha256: "5".repeat(64),
+        admissionBasisIdentitySha256: "6".repeat(64),
+        admittedScenarioCount: 1,
         scenarioId: "ENTRY-01",
       });
 
@@ -108,6 +111,9 @@ describe("immutable Live Matrix Generation records", () => {
       },
       matrixDefinitionSha256,
       harnessIdentitySha256: "4".repeat(64),
+      admissionIdentitySha256: "5".repeat(64),
+      admissionBasisIdentitySha256: "6".repeat(64),
+      admittedScenarioCount: 1,
       scenarioId: scenario.id,
     });
     const scenarioRecord = await createLiveScenarioExecutionRecord({
@@ -220,6 +226,9 @@ describe("immutable Live Matrix Generation records", () => {
         },
         matrixDefinitionSha256,
         harnessIdentitySha256: "4".repeat(64),
+        admissionIdentitySha256: "5".repeat(64),
+        admissionBasisIdentitySha256: "6".repeat(64),
+        admittedScenarioCount: 1,
         scenarioId: scenario.id,
       }),
     ).rejects.toThrow("root must be empty");
@@ -234,15 +243,17 @@ describe("immutable Live Matrix Generation records", () => {
     const workspace = join(root, "scenario-workspace");
     const generationRoot = join(root, "generation");
     const fakeCodex = join(root, "codex-fixture");
+    const fakeCodexInvoked = join(root, "codex-invoked");
     const fakeGitleaks = join(root, "gitleaks-bin", "gitleaks");
     const output = join(root, "scenario-result.json");
     const verdicts = join(root, "verdicts.json");
     const generationId = "22222222-2222-4222-8222-222222222222";
-    const registry = await loadLiveScenarioRegistry("validation/live-journey/registry.json");
+    const admissionRegistry = "tests/fixtures/live-scenario-admission-registry.json";
+    const registry = await loadLiveScenarioRegistry(admissionRegistry);
     const scenario =
-      registry.scenarios.find(({ id }) => id === "INSTALL-01") ??
+      registry.scenarios.find(({ id }) => id === "TEST-01") ??
       (() => {
-        throw new Error("INSTALL-01 is unavailable.");
+        throw new Error("TEST-01 is unavailable.");
       })();
 
     await Promise.all([
@@ -260,8 +271,13 @@ describe("immutable Live Matrix Generation records", () => {
       writeFile(
         fakeCodex,
         `#!/bin/sh
+touch ${JSON.stringify(fakeCodexInvoked)}
 if [ "$1" = "--version" ]; then
   echo "codex-fixture"
+  exit 0
+fi
+if [ "$1" = "debug" ] && [ "$2" = "models" ]; then
+  printf '%s\n' '{"models":[{"slug":"gpt-5.6-luna","supported_reasoning_levels":[{"effort":"high"}]}]}'
   exit 0
 fi
 if [ "$1" = "sandbox" ]; then
@@ -286,7 +302,7 @@ printf '%s\n' '{"type":"turn.completed"}'
     expect(packed.exitCode, packed.stderr.toString()).toBe(0);
     const matrixDefinitionSha256 = await liveScenarioDefinitionDigest({
       sourceRoot: process.cwd(),
-      registryPath: "validation/live-journey/registry.json",
+      registryPath: admissionRegistry,
     });
     await writeLiveScenarioPackageBasis(packageManifest, {
       schemaVersion: 1,
@@ -303,6 +319,82 @@ printf '%s\n' '{"type":"turn.completed"}'
       matrixDefinitionSha256,
     });
 
+    const missingHarnessSource = join(root, "missing-harness-source");
+    const missingHarnessWorkspace = join(root, "missing-harness-workspace");
+    const missingHarnessGenerationRoot = join(root, "missing-harness-generation");
+    await mkdir(join(missingHarnessSource, "tests/fixtures"), { recursive: true });
+    await cp(join(process.cwd(), admissionRegistry), join(missingHarnessSource, admissionRegistry));
+    const missingHarness = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "prepare-scenario",
+        "--source-root",
+        missingHarnessSource,
+        "--registry",
+        admissionRegistry,
+        "--scenario",
+        scenario.id,
+        "--package-manifest",
+        packageManifest,
+        "--workspace",
+        missingHarnessWorkspace,
+        "--codex-home",
+        operatorCodexHome,
+        "--generation-id",
+        "66666666-6666-4666-8666-666666666666",
+        "--generation-root",
+        missingHarnessGenerationRoot,
+        "--codex-program",
+        fakeCodex,
+      ],
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(missingHarness.exitCode, missingHarness.stderr.toString()).toBe(0);
+    expect(JSON.parse(missingHarness.stdout.toString())).toMatchObject({
+      outcome: "preflight blocked",
+      diagnostics: [{ code: "missing-identity" }],
+      agentBehaviorStarted: false,
+      activeGenerationCreated: false,
+      externalEffectsObserved: false,
+    });
+    await expect(access(fakeCodexInvoked)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(missingHarnessWorkspace)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(missingHarnessGenerationRoot)).rejects.toMatchObject({ code: "ENOENT" });
+
+    const unknownWorkspace = join(root, "unknown-scenario-workspace");
+    const unknownGenerationRoot = join(root, "unknown-generation");
+    const unknown = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "prepare-scenario",
+        "--source-root",
+        process.cwd(),
+        "--registry",
+        admissionRegistry,
+        "--scenario",
+        "UNKNOWN-99",
+        "--package-manifest",
+        packageManifest,
+        "--workspace",
+        unknownWorkspace,
+        "--codex-home",
+        operatorCodexHome,
+        "--generation-id",
+        "55555555-5555-4555-8555-555555555555",
+        "--generation-root",
+        unknownGenerationRoot,
+        "--codex-program",
+        fakeCodex,
+      ],
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(unknown.exitCode).toBe(1);
+    expect(unknown.stderr.toString()).toContain("Unknown Live Scenario: UNKNOWN-99");
+    await expect(access(unknownWorkspace)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(unknownGenerationRoot)).rejects.toMatchObject({ code: "ENOENT" });
+
     const prepared = Bun.spawnSync(
       [
         process.execPath,
@@ -311,7 +403,7 @@ printf '%s\n' '{"type":"turn.completed"}'
         "--source-root",
         process.cwd(),
         "--registry",
-        "validation/live-journey/registry.json",
+        admissionRegistry,
         "--scenario",
         scenario.id,
         "--package-manifest",
@@ -428,5 +520,5 @@ printf '%s\n' '{"type":"turn.completed"}'
         terminal: { disposition: "completed", semanticPassClaim: false },
       },
     });
-  });
+  }, 20_000);
 });
