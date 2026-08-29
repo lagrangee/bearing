@@ -5,8 +5,9 @@ description: Use only in the Bearing source repository when its managed pointer 
 
 # Bearing Development Runtime
 
-Read `../bearing/SKILL.md` completely and use that public root for operation and reference selection.
-Pin all repository-scoped Bearing commands to `node <repo-root>/dist/cli.js` from this checkout.
+Read `<repo-root>/skills/bearing/SKILL.md` completely and use that public root for operation and
+reference selection. Pin all repository-scoped Bearing commands to
+`node <repo-root>/dist/cli.js` from this checkout.
 
 First run `node <repo-root>/dist/cli.js runtime inspect --repo <repo-root>`. Continue only when its
 receipt proves that the selected CLI, public Skill, and state root share one coherent Development

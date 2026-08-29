@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readdir, readFile, readlink, realpath } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import {
   type MarkdownDocument,
   type MarkdownTable,
@@ -150,6 +150,26 @@ describe("public Bearing Agent surface", () => {
     const discoveryEntry = join(process.cwd(), ".agents/skills/bearing-dev");
     expect(await readlink(discoveryEntry)).toBe("../../skills/bearing-dev");
     expect(await realpath(discoveryEntry)).toBe(await realpath(developmentSkillRoot));
+  });
+
+  test("resolves the public root from canonical and managed Development entry locators", async () => {
+    const entryLocators = [developmentSkillRoot, join(process.cwd(), ".agents/skills/bearing-dev")];
+    const expectedPublicRoot = await realpath(join(skillRoot, "SKILL.md"));
+
+    for (const entryLocator of entryLocators) {
+      const { document } = await readSkillAt(entryLocator);
+      const references = queryMarkdownInlineCodes(document).filter((value) =>
+        value.endsWith("bearing/SKILL.md"),
+      );
+      expect(references).toHaveLength(1);
+      const reference = references[0] as string;
+      const repositoryPrefix = "<repo-root>/";
+      const publicRootLocator = reference.startsWith(repositoryPrefix)
+        ? join(process.cwd(), reference.slice(repositoryPrefix.length))
+        : resolve(entryLocator, reference);
+
+      expect(await realpath(publicRootLocator)).toBe(expectedPublicRoot);
+    }
   });
 
   test("routes every runtime reference directly from the public root", async () => {
@@ -357,7 +377,7 @@ describe("public Bearing Agent surface", () => {
     const { document } = await readSkillAt(developmentSkillRoot);
     const operationalTokens = queryMarkdownInlineCodes(document);
 
-    expect(operationalTokens).toContain("../bearing/SKILL.md");
+    expect(operationalTokens).toContain("<repo-root>/skills/bearing/SKILL.md");
     expect(operationalTokens).toContain("node <repo-root>/dist/cli.js");
     expect(operationalTokens).toContain(
       "node <repo-root>/dist/cli.js runtime inspect --repo <repo-root>",
