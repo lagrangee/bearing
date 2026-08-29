@@ -120,6 +120,7 @@ describe("immutable Live Matrix Generation records", () => {
       generationRoot,
       generationId,
       scenarioId: scenario.id,
+      compositionReadbackIdentitySha256: "4".repeat(64),
       scenarioDefinitionSha256: "5".repeat(64),
       fixtureIdentitySha256: "6".repeat(64),
       declaredTurnCount: scenario.prompts.length,
@@ -428,6 +429,83 @@ printf '%s\n' '{"type":"turn.completed"}'
       generationEvidenceRoot: string;
     }>;
     expect(preparation.generationEvidenceRoot).toBe(generationRoot);
+
+    const sealedManifestBytes = await readFile(preparation.manifest, "utf8");
+    const sealedManifestDigestBytes = await readFile(`${preparation.manifest}.sha256`, "utf8");
+    const mismatchedManifest = JSON.parse(sealedManifestBytes) as {
+      admission: Record<string, unknown> & { identitySha256: string };
+    };
+    const { identitySha256: _identitySha256, ...bindingValue } = mismatchedManifest.admission;
+    bindingValue["compositionReadbackIdentitySha256"] = "f".repeat(64);
+    mismatchedManifest.admission = {
+      ...bindingValue,
+      identitySha256: new Bun.CryptoHasher("sha256")
+        .update(`live-scenario-admission-binding-v1\0${JSON.stringify(bindingValue)}\n`)
+        .digest("hex"),
+    };
+    const mismatchedManifestBytes = `${JSON.stringify(mismatchedManifest, null, 2)}\n`;
+    await Promise.all([
+      writeFile(preparation.manifest, mismatchedManifestBytes),
+      writeFile(
+        `${preparation.manifest}.sha256`,
+        `${new Bun.CryptoHasher("sha256").update(mismatchedManifestBytes).digest("hex")}\n`,
+      ),
+    ]);
+    const mismatchedTurn = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "run-scenario-turn",
+        "--manifest",
+        preparation.manifest,
+        "--turn",
+        "1",
+        "--prompt-file",
+        preparation.prompts[0] as string,
+      ],
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(mismatchedTurn.exitCode).toBe(1);
+    expect(mismatchedTurn.stderr.toString()).toContain(
+      "immutable Scenario Execution Record does not match",
+    );
+    await Promise.all([
+      writeFile(preparation.manifest, sealedManifestBytes),
+      writeFile(`${preparation.manifest}.sha256`, sealedManifestDigestBytes),
+    ]);
+
+    const scenarioRecordPath = join(generationRoot, "scenarios", scenario.id, "scenario.json");
+    const sealedScenarioRecordBytes = await readFile(scenarioRecordPath, "utf8");
+    for (const field of ["fixtureIdentitySha256", "scenarioDefinitionSha256"] as const) {
+      const mismatchedRecord = JSON.parse(sealedScenarioRecordBytes) as Record<string, unknown> & {
+        recordId: string;
+      };
+      mismatchedRecord[field] = "e".repeat(64);
+      const { recordId: _recordId, ...recordValue } = mismatchedRecord;
+      mismatchedRecord.recordId = `sha256:${new Bun.CryptoHasher("sha256")
+        .update(`scenario\0${JSON.stringify(recordValue)}\n`)
+        .digest("hex")}`;
+      await writeFile(scenarioRecordPath, `${JSON.stringify(mismatchedRecord, null, 2)}\n`);
+      const mismatchedRecordTurn = Bun.spawnSync(
+        [
+          process.execPath,
+          "scripts/run-live-journey.ts",
+          "run-scenario-turn",
+          "--manifest",
+          preparation.manifest,
+          "--turn",
+          "1",
+          "--prompt-file",
+          preparation.prompts[0] as string,
+        ],
+        { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+      );
+      expect(mismatchedRecordTurn.exitCode).toBe(1);
+      expect(mismatchedRecordTurn.stderr.toString()).toContain(
+        "immutable Scenario Execution Record does not match",
+      );
+      await writeFile(scenarioRecordPath, sealedScenarioRecordBytes);
+    }
 
     const turn = Bun.spawnSync(
       [

@@ -336,10 +336,15 @@ const prepareScenario = async (): Promise<void> => {
         : fail("Generation record creation requires sealed Admission.");
     const sealedHarnessIdentitySha256 = admitted.basis.identities.harnessIdentitySha256;
     try {
+      const sealedPrepared = await verifyLiveScenarioGeneration(prepared.paths.manifest);
+      const sealedAdmission =
+        sealedPrepared.admission ?? fail("Generation record creation requires sealed Admission.");
       if (
-        sealedHarnessIdentitySha256 !== (await liveScenarioHarnessIdentitySha256({ sourceRoot }))
+        sealedHarnessIdentitySha256 !== (await liveScenarioHarnessIdentitySha256({ sourceRoot })) ||
+        sealedAdmission.admissionIdentitySha256 !== admitted.admissionIdentitySha256 ||
+        sealedAdmission.basisIdentitySha256 !== admitted.basis.identitySha256
       ) {
-        fail("Live Scenario Harness identity changed during Generation preparation.");
+        fail("Live Scenario sealed Admission changed during Generation preparation.");
       }
       await createLiveScenarioGenerationRecord({
         generationRoot: prepared.paths.generationEvidenceRoot,
@@ -356,6 +361,7 @@ const prepareScenario = async (): Promise<void> => {
         generationRoot: prepared.paths.generationEvidenceRoot,
         generationId: prepared.generationId,
         scenarioId: prepared.scenario.id,
+        compositionReadbackIdentitySha256: sealedAdmission.compositionReadbackIdentitySha256,
         scenarioDefinitionSha256: createHash("sha256")
           .update(`${JSON.stringify(prepared.scenario)}\n`)
           .digest("hex"),
@@ -712,6 +718,7 @@ type CodexTurnManifest = Readonly<{
   scenario: Readonly<{ composition: Readonly<{ fixtureProfile: string }> }>;
   paths: Readonly<{
     sourceRoot: string;
+    operatorCodexHome: string;
     manifest: string;
     manifestDigest: string;
     registry: string;
@@ -784,9 +791,7 @@ const prepareCodexTurn = async (manifest: CodexTurnManifest, turn: number, attem
     includeCanonicalBearingBin:
       manifest.scenario.composition.fixtureProfile !== "fresh-installation-repository",
   });
-  const operatorCodexHome = dirname(
-    await realpath(join(manifest.launch.environment.CODEX_HOME, "auth.json")),
-  );
+  const operatorCodexHome = manifest.paths.operatorCodexHome;
   const version = await runProcess(step.program, ["--version"], environment, step.workingDirectory);
   if (version.exitCode !== 0 || version.stdout.trim().length === 0) {
     fail(version.stderr.trim() || "Codex CLI version lookup failed before tested behavior.");
@@ -960,6 +965,36 @@ const runScenarioTurn = async (): Promise<void> => {
     );
     if (!inspected.resumable) {
       fail("Terminal Generation cannot append behavior or resume.");
+    }
+    const sealedAdmission =
+      manifest.admission ??
+      fail(
+        "Live Scenario continuity failed; trust disposition: generation-invalid; immutable Generation has no sealed Admission.",
+      );
+    if (
+      inspected.records.generation.admissionIdentitySha256 !==
+        sealedAdmission.admissionIdentitySha256 ||
+      inspected.records.generation.admissionBasisIdentitySha256 !==
+        sealedAdmission.basisIdentitySha256
+    ) {
+      fail(
+        "Live Scenario continuity failed; trust disposition: generation-invalid; immutable Generation does not match sealed Admission.",
+      );
+    }
+    const executionRecord = inspected.records.scenario;
+    const currentScenarioDefinitionSha256 = createHash("sha256")
+      .update(`${JSON.stringify(manifest.scenario)}\n`)
+      .digest("hex");
+    if (
+      executionRecord === undefined ||
+      executionRecord.compositionReadbackIdentitySha256 !==
+        sealedAdmission.compositionReadbackIdentitySha256 ||
+      executionRecord.fixtureIdentitySha256 !== manifest.startingStateSha256 ||
+      executionRecord.scenarioDefinitionSha256 !== currentScenarioDefinitionSha256
+    ) {
+      fail(
+        "Live Scenario continuity failed; trust disposition: generation-invalid; immutable Scenario Execution Record does not match sealed Admission, Fixture, or Scenario definition.",
+      );
     }
     if (
       inspected.records.generation.harnessIdentitySha256 !==
@@ -1136,6 +1171,7 @@ const runScenarioTurn = async (): Promise<void> => {
     remoteAfterBytes = `${JSON.stringify(remoteAfter, null, 2)}\n`;
     await writeFile(afterPath, remoteAfterBytes, { flag: "wx" });
   }
+  await verifyLiveScenarioGeneration(manifest.paths.manifest, { behaviorCompleted: true });
   const after = {
     repository: await snapshotDirectory(manifest.paths.repository),
     agentHome: await snapshotScenarioAgentHome(manifest.paths.agentHome),

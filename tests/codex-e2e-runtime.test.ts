@@ -79,7 +79,7 @@ describe("repository Codex E2E policy", () => {
     for (const step of [launch.initial, launch.resume]) {
       expect(step.arguments).toContain('default_permissions="bearing_live_journey"');
       expect(step.arguments).toContain(
-        'permissions.bearing_live_journey={workspace_roots={"/tmp/repository"=true,"/tmp/agent-home"=true},filesystem={":root"="read",":workspace_roots"="write","/tmp/repository/.git"="write","/tmp/source"="deny","/tmp/source/validation/live-journey/registry.json"="deny"},network={enabled=false}}',
+        'permissions.bearing_live_journey={workspace_roots={"/tmp/repository"=true,"/tmp/agent-home"=true},filesystem={":root"="read",":workspace_roots"="write","/tmp/repository/.git"="write","/tmp/source"="deny","/tmp/source/validation/live-journey/registry.json"="deny","/tmp/agent-home/.codex/auth.json"="deny"},network={enabled=false}}',
       );
       expect(step.arguments).not.toContain("--sandbox");
       expect(step.arguments).not.toContain('sandbox_mode="workspace-write"');
@@ -100,6 +100,16 @@ describe("repository Codex E2E policy", () => {
       skipGitRepositoryCheck: true,
     });
     expect(nonProjectLaunch.initial.arguments).toContain("--skip-git-repo-check");
+    expect(() =>
+      codexE2ELaunchContract({
+        repositoryRoot: "/tmp/repository",
+        isolatedHome: "/tmp/agent-home",
+        codexHome: "relative-codex-home",
+        disabledOperatorSkillPaths: [],
+        readDeniedPaths: ["/tmp/source"],
+        writeAllowedPaths: [],
+      }),
+    ).toThrow("permission paths must be non-empty absolute paths");
   });
 
   test("reads exact model availability without starting Agent behavior", async () => {
@@ -201,7 +211,7 @@ describe("repository Codex E2E policy", () => {
     ).rejects.toThrow("failed with exit 17");
   });
 
-  test("uses only isolated runtime state plus one read-only authentication link", async () => {
+  test("copies authentication into launcher-owned runtime state without exposing the operator locator", async () => {
     const root = await mkdtemp(join(tmpdir(), "bearing-isolated-codex-home-"));
     const operatorCodexHome = join(root, "operator-codex-home");
     const isolatedHome = join(root, "agent-home");
@@ -215,9 +225,11 @@ describe("repository Codex E2E policy", () => {
     });
 
     expect(agentCodexHome).toBe(await realpath(join(isolatedHome, ".codex")));
-    expect((await lstat(join(agentCodexHome, "auth.json"))).isSymbolicLink()).toBe(true);
-    expect(await readlink(join(agentCodexHome, "auth.json"))).toBe("../.runtime-auth/auth.json");
-    expect(await realpath(join(agentCodexHome, "auth.json"))).toBe(await realpath(authSource));
+    expect((await lstat(join(agentCodexHome, "auth.json"))).isFile()).toBe(true);
+    expect((await lstat(join(agentCodexHome, "auth.json"))).mode & 0o777).toBe(0o400);
+    expect(await realpath(join(agentCodexHome, "auth.json"))).not.toBe(await realpath(authSource));
+    await expect(readlink(join(agentCodexHome, "auth.json"))).rejects.toThrow();
+    expect(await readFile(join(agentCodexHome, "auth.json"), "utf8")).toBe("{}\n");
     expect((await lstat(join(agentCodexHome, "skills"))).isSymbolicLink()).toBe(true);
     expect(await realpath(join(agentCodexHome, "skills"))).toBe(
       await realpath(join(isolatedHome, "skill-directory")),

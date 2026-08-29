@@ -29,12 +29,14 @@ Scenario result.
 ## Runtime isolation
 
 The support runner creates one fresh Codex runtime home inside each isolated Scenario Agent home.
-It can link only the operator `auth.json` needed for the real invocation. It does not expose the
-operator configuration, instructions, skills, session history, or other runtime state as product
-context. Agent-mediated installation integrates Skills only inside the isolated home.
+It copies only the operator `auth.json` needed for the real invocation into one runtime-owned
+regular file and denies that file to Agent tools through the verified permission profile. It does
+not expose the operator locator, configuration, instructions, skills, session history, or other
+runtime state as product context. Agent-mediated installation integrates Skills only inside the
+isolated home.
 
 The Scenario Agent receives only its natural user requests, exact package, isolated Agent home, and
-visible repository or provider state. It must not follow the authentication link, infer or inspect
+visible repository or provider state. It must not inspect the authentication file, infer or inspect
 the operator home, or inspect the Coordinator-only source checkout. Any such read invalidates the
 Scenario observation.
 

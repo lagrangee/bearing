@@ -7,6 +7,7 @@ import {
   readdir,
   readFile,
   realpath,
+  rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,7 +21,11 @@ import {
   loadLiveScenarioRegistry,
   parseLiveScenarioRegistry,
 } from "../scripts/live-scenario-registry";
-import { liveScenarioDefinitionDigest } from "../scripts/live-scenario-runner";
+import {
+  liveScenarioDefinitionDigest,
+  prepareLiveScenarioGeneration,
+  verifyLiveScenarioGeneration,
+} from "../scripts/live-scenario-runner";
 import { localRehearsalWorktreeDigest } from "../scripts/local-rehearsal-identity";
 import { sha256File } from "../scripts/release-digest";
 
@@ -311,6 +316,14 @@ describe("Live Matrix declarative Generation Admission", () => {
     expect(permissionProfiles).toHaveLength(result.preparedScenarios.length);
     const operatorDeny = `${JSON.stringify(await realpath(fixture.operatorCodexHome))}="deny"`;
     expect(permissionProfiles.every((profile) => profile.includes(operatorDeny))).toBe(true);
+    for (const prepared of result.preparedScenarios) {
+      const profile = permissionProfiles.find((candidate) =>
+        candidate.includes(JSON.stringify(prepared.paths.agentHome)),
+      );
+      expect(profile).toContain(
+        `${JSON.stringify(join(prepared.paths.agentHome, ".codex/auth.json"))}="deny"`,
+      );
+    }
     await expect(access(join(fixture.workspaceRoot, "model-readback-home"))).rejects.toMatchObject({
       code: "ENOENT",
     });
@@ -318,14 +331,74 @@ describe("Live Matrix declarative Generation Admission", () => {
     await expect(access(fixture.generationRoot)).rejects.toMatchObject({ code: "ENOENT" });
     await Promise.all(
       result.preparedScenarios.map(async ({ paths }) => {
-        expect(await readFile(paths.manifest, "utf8")).toContain(generationId);
-        expect(await readFile(paths.manifest, "utf8")).not.toContain("admission-drift");
+        const manifestBytes = await readFile(paths.manifest, "utf8");
+        expect(manifestBytes).toContain(generationId);
+        expect(manifestBytes).not.toContain("admission-drift");
+        expect(JSON.parse(manifestBytes)).toMatchObject({
+          admission: {
+            admissionIdentitySha256: result.admissionIdentitySha256,
+            basisIdentitySha256: result.basis.identitySha256,
+            model: "gpt-5.6-luna",
+            reasoningEffort: "high",
+            authBoundary: "runtime-owned-denied-file-v1",
+          },
+        });
+        await expect(verifyLiveScenarioGeneration(paths.manifest)).resolves.toBeDefined();
       }),
     );
     await discardLiveScenarioGenerationAdmission({
       workspaceRoot: result.workspaceRoot,
       preparedScenarios: result.preparedScenarios,
     });
+  });
+
+  test("blocks formal behavior when the admitted Skill or Agent Surface identity drifts", async () => {
+    const { result } = await prepare();
+    if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+    const prepared = result.preparedScenarios[0];
+    if (prepared === undefined) throw new Error("Expected one prepared Scenario.");
+    const unexpectedSkill = join(prepared.paths.agentHome, "skill-directory/bearing");
+    await mkdir(unexpectedSkill);
+    await writeFile(join(unexpectedSkill, "SKILL.md"), "# Unexpected early install\n");
+    await expect(verifyLiveScenarioGeneration(prepared.paths.manifest)).rejects.toThrow(
+      "trust disposition: generation-invalid",
+    );
+    await rm(unexpectedSkill, { recursive: true });
+    await rm(join(prepared.paths.agentHome, ".codex/auth.json"));
+    await writeFile(join(prepared.paths.agentHome, ".codex/auth.json"), "not-a-control-link\n");
+    await expect(
+      verifyLiveScenarioGeneration(prepared.paths.manifest, { behaviorCompleted: true }),
+    ).rejects.toThrow("trust disposition: generation-invalid");
+    await discardLiveScenarioGenerationAdmission({
+      workspaceRoot: result.workspaceRoot,
+      preparedScenarios: result.preparedScenarios,
+    });
+  });
+
+  test("refuses an unsealed formal Scenario while preserving standalone preparation", async () => {
+    const fixture = await createFixture();
+    const workspaceRoot = join(fixture.root, "unsealed-formal-workspace");
+    const prepared = await prepareLiveScenarioGeneration({
+      sourceRoot: process.cwd(),
+      workspaceRoot,
+      operatorCodexHome: fixture.operatorCodexHome,
+      registryPath,
+      scenarioId: "TEST-01",
+      generationId: "77777777-7777-4777-8777-777777777777",
+      package: fixture.package,
+      generationEvidenceRoot: fixture.generationRoot,
+      codexProgram: fixture.fakeCodex,
+    });
+    await expect(verifyLiveScenarioGeneration(prepared.paths.manifest)).rejects.toThrow(
+      "formal Generation behavior requires one sealed Admission binding",
+    );
+    await expect(
+      verifyLiveScenarioGeneration(prepared.paths.manifest, { allowUnsealedAdmission: true }),
+    ).resolves.toBeDefined();
+    await Promise.all([
+      rm(workspaceRoot, { recursive: true }),
+      rm(prepared.paths.runtimeRoot, { recursive: true }),
+    ]);
   });
 
   test("reuses only an exact static Basis while rebuilding every Scenario runtime", async () => {

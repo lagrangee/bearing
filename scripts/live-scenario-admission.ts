@@ -27,6 +27,7 @@ import {
 import {
   liveScenarioDefinitionDigest,
   prepareLiveScenarioGeneration,
+  sealLiveScenarioAdmissionBinding,
   verifyLiveScenarioGeneration,
 } from "./live-scenario-runner";
 import { sha256File } from "./release-digest";
@@ -767,7 +768,9 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
 
     const verificationOutcomes = await Promise.allSettled(
       preparedScenarios.map(async (prepared) => {
-        const verified = await verifyLiveScenarioGeneration(prepared.paths.manifest);
+        const verified = await verifyLiveScenarioGeneration(prepared.paths.manifest, {
+          allowUnsealedAdmission: true,
+        });
         const siblingRuntimeRoots = preparedScenarios
           .map(({ paths }) => paths.runtimeRoot)
           .filter((runtimeRoot) => runtimeRoot !== prepared.paths.runtimeRoot);
@@ -798,7 +801,9 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
               ? [join(verified.paths.agentHome, ".agents/skills")]
               : [],
         });
-        return verifyLiveScenarioGeneration(prepared.paths.manifest);
+        return verifyLiveScenarioGeneration(prepared.paths.manifest, {
+          allowUnsealedAdmission: true,
+        });
       }),
     );
     const failedVerification = verificationOutcomes.find(
@@ -918,7 +923,8 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
               generationId,
               scenarioId: scenario.id,
               path: await realpath(prepared.paths.agentHome),
-              topologySha256: await digestLiveScenarioFixture(prepared.paths.agentHome),
+              skillTopology: skillReadbacks[index]?.observations ?? [],
+              authBoundary: "runtime-owned-denied-file-v1",
               operatorContextFingerprint: prepared.operatorContextFingerprint,
             }),
           },
@@ -970,6 +976,36 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
       await discardPreparedScenarios(workspaceRoot, preparedScenarios);
       return admission;
     }
+    await Promise.all(
+      preparedScenarios.map(async (prepared, index) => {
+        const readback = readbacks[index];
+        const readbackIdentity = admission.compositionReadbacks[index];
+        if (
+          readback === undefined ||
+          readbackIdentity === undefined ||
+          readback.scenarioId !== prepared.scenario.id ||
+          readbackIdentity.scenarioId !== prepared.scenario.id
+        ) {
+          throw new Error("Sealed Admission lost its Scenario readback binding.");
+        }
+        await sealLiveScenarioAdmissionBinding({
+          manifestPath: prepared.paths.manifest,
+          admissionIdentitySha256: admission.admissionIdentitySha256,
+          basisIdentitySha256: admission.basis.identitySha256,
+          compositionReadbackIdentitySha256: readbackIdentity.identitySha256,
+          packageIdentitySha256: admission.basis.identities.packageIdentitySha256,
+          harnessIdentitySha256: admission.basis.identities.harnessIdentitySha256,
+          fixtureDefinitionsSha256: admission.basis.identities.fixtureDefinitionsSha256,
+          matrixSkillSetSha256: admission.basis.identities.matrixSkillSetSha256,
+          agentSurfaceAdaptersSha256: admission.basis.identities.agentSurfaceAdaptersSha256,
+          agentSurfaceIdentitySha256: readback.agentSurface.agentHomeIdentitySha256,
+          executionConfigurationSha256: admission.basis.identities.executionConfigurationSha256,
+          model: readback.execution.model,
+          reasoningEffort: readback.execution.reasoningEffort,
+          skills: readback.skillTopology.observed,
+        });
+      }),
+    );
     return Object.freeze({
       ...admission,
       workspaceRoot,

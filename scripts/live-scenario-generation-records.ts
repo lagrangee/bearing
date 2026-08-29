@@ -47,6 +47,7 @@ const scenarioRecordSchema = z
     generationId: generationIdSchema,
     generationRecordId: recordIdSchema,
     scenarioId: scenarioIdSchema,
+    compositionReadbackIdentitySha256: digestSchema,
     scenarioDefinitionSha256: digestSchema,
     fixtureIdentitySha256: digestSchema,
     declaredTurnCount: z.number().int().positive().safe(),
@@ -297,6 +298,7 @@ export const createLiveScenarioExecutionRecord = async (input: {
   generationRoot: string;
   generationId: string;
   scenarioId: string;
+  compositionReadbackIdentitySha256: string;
   scenarioDefinitionSha256: string;
   fixtureIdentitySha256: string;
   declaredTurnCount: number;
@@ -312,6 +314,7 @@ export const createLiveScenarioExecutionRecord = async (input: {
     generationId: input.generationId,
     generationRecordId: inspected.records.generation.recordId,
     scenarioId: input.scenarioId,
+    compositionReadbackIdentitySha256: input.compositionReadbackIdentitySha256,
     scenarioDefinitionSha256: input.scenarioDefinitionSha256,
     fixtureIdentitySha256: input.fixtureIdentitySha256,
     declaredTurnCount: input.declaredTurnCount,

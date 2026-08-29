@@ -1,7 +1,9 @@
+import { COPYFILE_EXCL } from "node:constants";
 import { createHash } from "node:crypto";
 import type { Stats } from "node:fs";
 import {
   chmod,
+  copyFile,
   lstat,
   mkdir,
   readdir,
@@ -128,16 +130,14 @@ export const prepareIsolatedCodexHome = async (input: {
   const agentCodexHome = join(isolatedHome, ".codex");
   const skillDirectory = join(isolatedHome, "skill-directory");
   const shellDirectory = join(isolatedHome, ".shell");
-  const runtimeAuthDirectory = join(isolatedHome, ".runtime-auth");
-  const runtimeAuth = join(runtimeAuthDirectory, "auth.json");
+  const runtimeAuth = join(agentCodexHome, "auth.json");
   await Promise.all([
     mkdir(agentCodexHome, { recursive: false }),
     mkdir(skillDirectory, { recursive: false }),
     mkdir(shellDirectory, { recursive: false }),
-    mkdir(runtimeAuthDirectory, { recursive: false }),
   ]);
-  await symlink(authSource, runtimeAuth);
-  await symlink(relative(agentCodexHome, runtimeAuth), join(agentCodexHome, "auth.json"));
+  await copyFile(authSource, runtimeAuth, COPYFILE_EXCL);
+  await chmod(runtimeAuth, 0o400);
   await symlink(skillDirectory, join(agentCodexHome, "skills"));
   return agentCodexHome;
 };
@@ -145,19 +145,16 @@ export const prepareIsolatedCodexHome = async (input: {
 export const assertIsolatedCodexHomeControlLinks = async (isolatedHome: string): Promise<void> => {
   const agentCodexHome = join(isolatedHome, ".codex");
   const agentAuth = join(agentCodexHome, "auth.json");
-  const runtimeAuth = join(isolatedHome, ".runtime-auth/auth.json");
   const agentSkills = join(agentCodexHome, "skills");
   const skillDirectory = join(isolatedHome, "skill-directory");
-  const [agentAuthState, runtimeAuthState, agentSkillsState] = await Promise.all([
+  const [agentAuthState, agentSkillsState] = await Promise.all([
     lstat(agentAuth),
-    lstat(runtimeAuth),
     lstat(agentSkills),
   ]);
   if (
-    !agentAuthState.isSymbolicLink() ||
-    !runtimeAuthState.isSymbolicLink() ||
+    !agentAuthState.isFile() ||
+    (agentAuthState.mode & 0o777) !== 0o400 ||
     !agentSkillsState.isSymbolicLink() ||
-    (await realpath(agentAuth)) !== (await realpath(runtimeAuth)) ||
     (await realpath(agentSkills)) !== (await realpath(skillDirectory))
   ) {
     throw new Error("Codex E2E isolated control links changed after preparation.");
@@ -181,14 +178,19 @@ const CODEX_E2E_PERMISSION_PROFILE = "bearing_live_journey";
 const codexE2EPermissionProfileConfiguration = (input: {
   repositoryRoot: string;
   isolatedHome: string;
+  codexHome: string;
   readDeniedPaths: readonly string[];
   writeAllowedPaths: readonly string[];
 }) => {
+  const readDeniedPaths = [
+    ...new Set([...input.readDeniedPaths, join(input.codexHome, "auth.json")]),
+  ];
   if (
     input.readDeniedPaths.length === 0 ||
     [
       input.repositoryRoot,
       input.isolatedHome,
+      input.codexHome,
       ...input.readDeniedPaths,
       ...input.writeAllowedPaths,
     ].some((path) => !isAbsolute(path)) ||
@@ -202,9 +204,7 @@ const codexE2EPermissionProfileConfiguration = (input: {
   const workspaceRoots = [input.repositoryRoot, input.isolatedHome]
     .map((path) => `${JSON.stringify(path)}=true`)
     .join(",");
-  const deniedPaths = input.readDeniedPaths
-    .map((path) => `${JSON.stringify(path)}="deny"`)
-    .join(",");
+  const deniedPaths = readDeniedPaths.map((path) => `${JSON.stringify(path)}="deny"`).join(",");
   const allowedPaths = input.writeAllowedPaths
     .map((path) => `${JSON.stringify(path)}="write"`)
     .join(",");
@@ -230,6 +230,7 @@ export const probeCodexE2EPermissionProfile = async (input: {
   const permissionProfile = codexE2EPermissionProfileConfiguration({
     repositoryRoot: input.repositoryRoot,
     isolatedHome: input.isolatedHome,
+    codexHome: input.codexHome,
     readDeniedPaths: input.readDeniedPaths,
     writeAllowedPaths: input.writeAllowedPaths,
   });
@@ -271,7 +272,9 @@ export const probeCodexE2EPermissionProfile = async (input: {
           'if /usr/bin/git -C "$5" show HEAD:validation/live-journey/registry.json >/dev/null 2>&1; then exit 85; fi',
           'if cat "$6" >/dev/null 2>&1; then exit 86; fi',
           'if cat "$7/auth.json" >/dev/null 2>&1; then exit 89; fi',
-          "shift 7",
+          'if cat "$8" >/dev/null 2>&1; then exit 90; fi',
+          'if readlink "$8" >/dev/null 2>&1; then exit 91; fi',
+          "shift 8",
           'for path in "$@"; do',
           '  probe="$path/.bearing-live-journey-write-probe"',
           '  ln -s "$control" "$probe" || exit 87',
@@ -286,6 +289,7 @@ export const probeCodexE2EPermissionProfile = async (input: {
         input.sourceRoot,
         siblingProbePath,
         input.operatorCodexHome,
+        join(input.codexHome, "auth.json"),
         ...input.writeAllowedPaths,
       ],
       {

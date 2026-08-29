@@ -1030,6 +1030,9 @@ describe("independent Agent Live scenarios", () => {
         },
       );
       expect(targetInstall.exitCode, targetInstall.stderr.toString()).toBe(0);
+      await expect(
+        verifyLiveScenarioGeneration(manifest.paths.manifest, { behaviorCompleted: true }),
+      ).resolves.toBeDefined();
       await writeFile(join(manifest.paths.observations, "turn-02.json"), "{}\n");
       await expect(verifyLiveScenarioGeneration(manifest.paths.manifest)).resolves.toBeDefined();
     } finally {
