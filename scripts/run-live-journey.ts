@@ -40,6 +40,16 @@ import {
   parseLiveScenarioAttemptDisposition,
 } from "./live-scenario-generation";
 import {
+  createLiveScenarioExecutionRecord,
+  createLiveScenarioGenerationRecord,
+  inspectLiveScenarioGenerationRecords,
+  liveScenarioHarnessIdentitySha256,
+  publishLiveScenarioAttemptReceipt,
+  publishLiveScenarioResultRecord,
+  publishLiveScenarioTurnReceipt,
+  terminateLiveScenarioGeneration,
+} from "./live-scenario-generation-records";
+import {
   createLiveScenarioEvaluation,
   loadLiveScenarioRegistry,
   preflightLiveScenarioRegistry,
@@ -78,6 +88,7 @@ const usage = `Usage:
     --scenario <scenario-id> --package-manifest <absolute-path> \\
     --workspace <absolute-new-path> --codex-home <absolute-path> \\
     [--generation-id <uuid>] [--codex-program <path>] \\
+    [--generation-root <absolute-new-path>] \\
     [--github-checkout <absolute-path>] [--github-program <path>] \\
     [--journey-attempt <positive-integer>]
 
@@ -92,6 +103,9 @@ const usage = `Usage:
   bun scripts/run-live-journey.ts complete-matrix \\
     --source-root <absolute-path> --registry <absolute-path> --results <absolute-directory> \\
     --output <absolute-new-path>
+
+  bun scripts/run-live-journey.ts inspect-generation \\
+    --generation-root <absolute-path>
 `;
 
 const fail = (message: string): never => {
@@ -233,6 +247,14 @@ const prepareScenario = async (): Promise<void> => {
       fail("Candidate package basis does not match its verified Receipt.");
     }
   }
+  const generationEvidenceRoot =
+    parsed.values["generation-root"] === undefined
+      ? undefined
+      : resolve(parsed.values["generation-root"]);
+  const harnessIdentitySha256 =
+    generationEvidenceRoot === undefined
+      ? undefined
+      : await liveScenarioHarnessIdentitySha256({ sourceRoot });
   const prepared = await prepareLiveScenarioGeneration({
     sourceRoot,
     workspaceRoot: resolve(required("workspace")),
@@ -257,7 +279,33 @@ const prepareScenario = async (): Promise<void> => {
       : {
           journeyAttempt: positiveInteger(parsed.values["journey-attempt"], "--journey-attempt"),
         }),
+    ...(generationEvidenceRoot === undefined ? {} : { generationEvidenceRoot }),
   });
+  if (prepared.paths.generationEvidenceRoot !== undefined) {
+    const sealedHarnessIdentitySha256 =
+      harnessIdentitySha256 ?? fail("Live Scenario Harness identity was not captured.");
+    if (sealedHarnessIdentitySha256 !== (await liveScenarioHarnessIdentitySha256({ sourceRoot }))) {
+      fail("Live Scenario Harness identity changed during Generation preparation.");
+    }
+    await createLiveScenarioGenerationRecord({
+      generationRoot: prepared.paths.generationEvidenceRoot,
+      generationId: prepared.generationId,
+      package: matrixPackage,
+      matrixDefinitionSha256: prepared.matrixDefinitionSha256,
+      harnessIdentitySha256: sealedHarnessIdentitySha256,
+      scenarioId: prepared.scenario.id,
+    });
+    await createLiveScenarioExecutionRecord({
+      generationRoot: prepared.paths.generationEvidenceRoot,
+      generationId: prepared.generationId,
+      scenarioId: prepared.scenario.id,
+      scenarioDefinitionSha256: createHash("sha256")
+        .update(`${JSON.stringify(prepared.scenario)}\n`)
+        .digest("hex"),
+      fixtureIdentitySha256: prepared.startingStateSha256,
+      declaredTurnCount: prepared.paths.prompts.length,
+    });
+  }
   process.stdout.write(
     `${JSON.stringify({
       generationId: prepared.generationId,
@@ -265,6 +313,9 @@ const prepareScenario = async (): Promise<void> => {
       manifest: prepared.paths.manifest,
       repository: prepared.paths.repository,
       prompts: prepared.paths.prompts,
+      ...(prepared.paths.generationEvidenceRoot === undefined
+        ? {}
+        : { generationEvidenceRoot: prepared.paths.generationEvidenceRoot }),
     })}\n`,
   );
 };
@@ -602,6 +653,7 @@ type CodexTurnManifest = Readonly<{
     attempts: string;
     transcripts: string;
     observations: string;
+    generationEvidenceRoot?: string | undefined;
     remoteInventories?: string | undefined;
   }>;
   launch: Readonly<{
@@ -713,6 +765,9 @@ const runPreparedCodexTurn = async (prepared: Awaited<ReturnType<typeof prepareC
         prepared.manifest.paths.attempts,
         prepared.manifest.paths.transcripts,
         prepared.manifest.paths.sessionState,
+        ...(prepared.manifest.paths.generationEvidenceRoot === undefined
+          ? []
+          : [prepared.manifest.paths.generationEvidenceRoot]),
         ...(prepared.manifest.paths.remoteInventories === undefined
           ? []
           : [prepared.manifest.paths.remoteInventories]),
@@ -829,6 +884,26 @@ const allScenarioObservationPointers = async (
 const runScenarioTurn = async (): Promise<void> => {
   const turn = positiveInteger(required("turn"), "--turn");
   const manifest = await verifyLiveScenarioGeneration(resolve(required("manifest")));
+  if (manifest.paths.generationEvidenceRoot !== undefined) {
+    const inspected = await inspectLiveScenarioGenerationRecords(
+      manifest.paths.generationEvidenceRoot,
+    );
+    if (!inspected.resumable) {
+      fail("Terminal Generation cannot append behavior or resume.");
+    }
+    if (
+      inspected.records.generation.harnessIdentitySha256 !==
+      (await liveScenarioHarnessIdentitySha256({ sourceRoot: manifest.paths.sourceRoot }))
+    ) {
+      fail("Immutable Generation Harness identity changed before Agent behavior.");
+    }
+    if (parsed.values["retry-reason"] !== undefined) {
+      fail("Immutable Generation tracer does not admit retry behavior.");
+    }
+    if (inspected.nextOperation !== "publish-attempt") {
+      fail(`Immutable Generation tracer is not ready to run a Turn: ${inspected.nextOperation}.`);
+    }
+  }
   const expectedPrompt = manifest.paths.prompts[turn - 1];
   if (expectedPrompt === undefined || resolve(required("prompt-file")) !== expectedPrompt) {
     fail("Live Scenario turn requires its generated natural-language prompt.");
@@ -1020,10 +1095,49 @@ const runScenarioTurn = async (): Promise<void> => {
             remoteAfterBytes ?? fail("GitHub remote-after evidence is unavailable."),
         });
   await completeCodexTurn(prepared, result, observation);
+  if (manifest.paths.generationEvidenceRoot !== undefined) {
+    const promptSha256 = createHash("sha256").update(prepared.prompt).digest("hex");
+    const attemptRecord = await publishLiveScenarioAttemptReceipt({
+      generationRoot: manifest.paths.generationEvidenceRoot,
+      generationId: manifest.generationId,
+      scenarioId: manifest.scenario.id,
+      turn,
+      attempt,
+      promptSha256,
+      invocationStarted: observation.invocationStarted,
+      terminalBoundary: observation.terminalBoundary,
+      observationSha256: await sha256File(prepared.observationPath),
+    });
+    if (["turn.completed", "turn.failed"].includes(observation.terminalBoundary)) {
+      await publishLiveScenarioTurnReceipt({
+        generationRoot: manifest.paths.generationEvidenceRoot,
+        generationId: manifest.generationId,
+        scenarioId: manifest.scenario.id,
+        turn,
+        promptSha256,
+        terminalAttemptRecordId: attemptRecord.recordId,
+        terminalBoundary: observation.terminalBoundary,
+      });
+    }
+  }
 };
 
 const evaluateScenario = async (): Promise<void> => {
   const manifest = await verifyLiveScenarioGeneration(resolve(required("manifest")));
+  if (manifest.paths.generationEvidenceRoot !== undefined) {
+    const inspected = await inspectLiveScenarioGenerationRecords(
+      manifest.paths.generationEvidenceRoot,
+    );
+    if (!inspected.resumable || inspected.nextOperation !== "publish-scenario-result") {
+      fail(`Immutable Generation tracer cannot evaluate now: ${inspected.nextOperation}.`);
+    }
+    if (
+      inspected.records.generation.harnessIdentitySha256 !==
+      (await liveScenarioHarnessIdentitySha256({ sourceRoot: manifest.paths.sourceRoot }))
+    ) {
+      fail("Immutable Generation Harness identity changed before evaluation.");
+    }
+  }
   const output = resolve(required("output"));
   await ensureMissing(output);
   const pointers = await expectedScenarioObservationPointers(
@@ -1232,8 +1346,36 @@ const evaluateScenario = async (): Promise<void> => {
     rm(manifest.paths.runtimeRoot, { recursive: true }),
     rm(manifest.paths.sessionState, { force: true }),
   ]);
+  let generationTerminal: string | undefined;
+  if (manifest.paths.generationEvidenceRoot !== undefined) {
+    const inspected = await inspectLiveScenarioGenerationRecords(
+      manifest.paths.generationEvidenceRoot,
+    );
+    const scenarioResult = await publishLiveScenarioResultRecord({
+      generationRoot: manifest.paths.generationEvidenceRoot,
+      generationId: manifest.generationId,
+      scenarioId: result.scenarioId,
+      outcome: result.evaluation.outcome,
+      evaluationSha256: createHash("sha256")
+        .update(`${JSON.stringify(result.evaluation)}\n`)
+        .digest("hex"),
+      turnRecordIds: inspected.records.turns.map(({ recordId }) => recordId),
+    });
+    const terminal = await terminateLiveScenarioGeneration({
+      generationRoot: manifest.paths.generationEvidenceRoot,
+      generationId: manifest.generationId,
+      disposition: "completed",
+      scenarioResultRecordId: scenarioResult.recordId,
+    });
+    generationTerminal = terminal.recordId;
+  }
   process.stdout.write(
-    `${JSON.stringify({ output: durableOutput, scenarioId: result.scenarioId, outcome: result.evaluation.outcome })}\n`,
+    `${JSON.stringify({
+      output: durableOutput,
+      scenarioId: result.scenarioId,
+      outcome: result.evaluation.outcome,
+      ...(generationTerminal === undefined ? {} : { generationTerminal }),
+    })}\n`,
   );
 };
 
@@ -1321,6 +1463,13 @@ const completeMatrix = async (): Promise<void> => {
   );
 };
 
+const inspectGeneration = async (): Promise<void> => {
+  const inspected = await inspectLiveScenarioGenerationRecords(
+    resolve(required("generation-root")),
+  );
+  process.stdout.write(`${JSON.stringify(inspected)}\n`);
+};
+
 if (command === "prepare-scenario") await prepareScenario();
 else if (command === "run-scenario-turn") await runScenarioTurn();
 else if (command === "evaluate-scenario") await evaluateScenario();
@@ -1330,4 +1479,5 @@ else if (command === "prepare-local-rehearsal") await prepareLocalRehearsal();
 else if (command === "prepare-candidate-package") await prepareCandidatePackage();
 else if (command === "configure-github-repository") await configureGitHubRepository();
 else if (command === "complete-matrix") await completeMatrix();
+else if (command === "inspect-generation") await inspectGeneration();
 else fail(`Unknown command: ${command}.\n${usage}`);

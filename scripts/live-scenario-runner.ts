@@ -75,10 +75,12 @@ const liveScenarioReadDeniedPaths = (input: {
   registryPath: string;
   scenarioContainer: string;
   existingRuntimeRoots: readonly string[];
+  generationEvidenceRoot?: string;
 }) => [
   input.sourceRoot,
   input.registryPath,
   input.scenarioContainer,
+  ...(input.generationEvidenceRoot === undefined ? [] : [input.generationEvidenceRoot]),
   ...new Set(input.existingRuntimeRoots),
 ];
 
@@ -242,6 +244,7 @@ const manifestSchema = z.object({
     sourceRoot: z.string(),
     registry: z.string(),
     workspaceRoot: z.string(),
+    generationEvidenceRoot: z.string().optional(),
     runtimeRoot: z.string(),
     runtimeDenyRoots: z.array(z.string()),
     manifest: z.string(),
@@ -567,6 +570,7 @@ export const prepareLiveScenarioGeneration = async (input: {
   githubCheckout?: string;
   githubProgram?: string;
   journeyAttempt?: number;
+  generationEvidenceRoot?: string;
 }) => {
   const sourceRoot = resolve(input.sourceRoot);
   const workspaceRoot = resolve(input.workspaceRoot);
@@ -907,12 +911,15 @@ export const prepareLiveScenarioGeneration = async (input: {
       registryPath,
       scenarioContainer,
       existingRuntimeRoots,
+      ...(input.generationEvidenceRoot === undefined
+        ? {}
+        : { generationEvidenceRoot: resolve(input.generationEvidenceRoot) }),
     });
     const writeAllowedPaths =
       scenario.fixture.materializer === "fresh-installation-repository"
         ? [join(agentHome, ".agents/skills")]
         : [];
-    const runtimeDenyRoots = readDeniedPaths.slice(3);
+    const runtimeDenyRoots = [...new Set(existingRuntimeRoots)];
     const launch = codexE2ELaunchContract({
       repositoryRoot: repository,
       isolatedHome: agentHome,
@@ -955,6 +962,9 @@ export const prepareLiveScenarioGeneration = async (input: {
         sourceRoot,
         registry: registryPath,
         workspaceRoot,
+        ...(input.generationEvidenceRoot === undefined
+          ? {}
+          : { generationEvidenceRoot: resolve(input.generationEvidenceRoot) }),
         runtimeRoot,
         runtimeDenyRoots,
         manifest: manifestPath,
@@ -1171,6 +1181,9 @@ export const verifyLiveScenarioGeneration = async (path: string) => {
       parsed.paths.sourceRoot,
       parsed.paths.registry,
       scenarioContainer,
+      ...(parsed.paths.generationEvidenceRoot === undefined
+        ? []
+        : [parsed.paths.generationEvidenceRoot]),
       ...parsed.paths.runtimeDenyRoots,
     ],
     writeAllowedPaths:
@@ -1198,6 +1211,9 @@ export const verifyLiveScenarioGeneration = async (path: string) => {
       parsed.paths.sourceRoot,
       parsed.paths.registry,
       scenarioContainer,
+      ...(parsed.paths.generationEvidenceRoot === undefined
+        ? []
+        : [parsed.paths.generationEvidenceRoot]),
       ...currentRuntimeDenyRoots,
     ],
     writeAllowedPaths:

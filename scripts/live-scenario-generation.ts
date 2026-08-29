@@ -20,7 +20,7 @@ const fail = (message: string): never => {
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/u);
 const scenarioIdSchema = z.string().regex(/^[A-Z]+-\d{2}$/u);
 const boundedArtifactSchema = z.object({ file: z.string().min(1), sha256: digestSchema }).strict();
-const boundedPackageSchema = z.discriminatedUnion("evidenceClass", [
+export const liveScenarioBoundedPackageSchema = z.discriminatedUnion("evidenceClass", [
   z
     .object({
       evidenceClass: z.literal("local-rehearsal"),
@@ -93,7 +93,7 @@ const liveScenarioResultSchema = z
     evidenceClass: z.enum(["local-rehearsal", "release-candidate"]),
     generationId: z.string().uuid(),
     scenarioId: scenarioIdSchema,
-    package: boundedPackageSchema,
+    package: liveScenarioBoundedPackageSchema,
     matrixDefinitionSha256: digestSchema,
     codex: codexSchema,
     coordinatorIdentity: z.string().trim().min(1).max(200),
@@ -206,7 +206,7 @@ const liveScenarioMatrixResultSchema = z
     schemaVersion: z.literal(1),
     evidenceClass: z.enum(["local-rehearsal", "release-candidate"]),
     generationId: z.string().uuid(),
-    package: boundedPackageSchema,
+    package: liveScenarioBoundedPackageSchema,
     matrixDefinitionSha256: digestSchema,
     codex: codexSchema,
     coordinatorIdentity: z.string().trim().min(1).max(200),
