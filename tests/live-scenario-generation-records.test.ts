@@ -1,7 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import { access, chmod, cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+  access,
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import {
+  createLiveMatrixAttemptRecord,
+  liveMatrixPrivateControlRoot,
+  liveMatrixRecordCandidateRoot,
+} from "../scripts/live-matrix-evidence-bundle";
 import { writeLiveScenarioPackageBasis } from "../scripts/live-scenario-evidence";
 import {
   createLiveScenarioExecutionRecord,
@@ -377,7 +393,7 @@ printf '%s\n' '{"type":"turn.completed"}'
         "--scenario",
         "UNKNOWN-99",
         "--package-manifest",
-        packageManifest,
+        join(root, "missing-package.json"),
         "--workspace",
         unknownWorkspace,
         "--codex-home",
@@ -395,6 +411,47 @@ printf '%s\n' '{"type":"turn.completed"}'
     expect(unknown.stderr.toString()).toContain("Unknown Live Scenario: UNKNOWN-99");
     await expect(access(unknownWorkspace)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(access(unknownGenerationRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(fakeCodexInvoked)).rejects.toMatchObject({ code: "ENOENT" });
+
+    const invalidRegistryWorkspace = join(root, "invalid-registry-workspace");
+    const invalidRegistryGenerationRoot = join(root, "invalid-registry-generation");
+    const invalidRegistry = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "prepare-scenario",
+        "--source-root",
+        process.cwd(),
+        "--registry",
+        "tests/fixtures/live-scenario-admission-invalid-registry.json",
+        "--scenario",
+        scenario.id,
+        "--package-manifest",
+        packageManifest,
+        "--workspace",
+        invalidRegistryWorkspace,
+        "--codex-home",
+        operatorCodexHome,
+        "--generation-id",
+        "44444444-4444-4444-8444-444444444444",
+        "--evidence-bundle-root",
+        invalidRegistryGenerationRoot,
+        "--codex-program",
+        fakeCodex,
+      ],
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(invalidRegistry.exitCode, invalidRegistry.stderr.toString()).toBe(0);
+    expect(JSON.parse(invalidRegistry.stdout.toString())).toMatchObject({
+      outcome: "preflight blocked",
+      diagnostics: [{ code: "invalid-registry" }],
+      agentBehaviorStarted: false,
+      activeGenerationCreated: false,
+      externalEffectsObserved: false,
+    });
+    await expect(access(invalidRegistryWorkspace)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(invalidRegistryGenerationRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(fakeCodexInvoked)).rejects.toMatchObject({ code: "ENOENT" });
 
     const prepared = Bun.spawnSync(
       [
@@ -434,7 +491,14 @@ printf '%s\n' '{"type":"turn.completed"}'
     const sealedManifestDigestBytes = await readFile(`${preparation.manifest}.sha256`, "utf8");
     const mismatchedManifest = JSON.parse(sealedManifestBytes) as {
       admission: Record<string, unknown> & { identitySha256: string };
+      launch: { initial: { arguments: string[] }; resume: { arguments: string[] } };
     };
+    const privateCandidateRoot = liveMatrixRecordCandidateRoot(generationRoot);
+    const privateControlRoot = liveMatrixPrivateControlRoot(generationRoot);
+    expect(mismatchedManifest.launch.initial.arguments.join("\n")).toContain(privateCandidateRoot);
+    expect(mismatchedManifest.launch.resume.arguments.join("\n")).toContain(privateCandidateRoot);
+    expect(mismatchedManifest.launch.initial.arguments.join("\n")).toContain(privateControlRoot);
+    expect(mismatchedManifest.launch.resume.arguments.join("\n")).toContain(privateControlRoot);
     const { identitySha256: _identitySha256, ...bindingValue } = mismatchedManifest.admission;
     bindingValue["compositionReadbackIdentitySha256"] = "f".repeat(64);
     mismatchedManifest.admission = {
@@ -598,5 +662,276 @@ printf '%s\n' '{"type":"turn.completed"}'
         terminal: { disposition: "completed", semanticPassClaim: false },
       },
     });
+
+    const formalWorkspace = join(root, "formal-workspace");
+    const formalBundle = join(root, "formal-evidence-bundle");
+    const formalGenerationId = "77777777-7777-4777-8777-777777777777";
+    const formalPrepared = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "prepare-scenario",
+        "--source-root",
+        process.cwd(),
+        "--registry",
+        admissionRegistry,
+        "--scenario",
+        scenario.id,
+        "--package-manifest",
+        packageManifest,
+        "--workspace",
+        formalWorkspace,
+        "--codex-home",
+        operatorCodexHome,
+        "--generation-id",
+        formalGenerationId,
+        "--evidence-bundle-root",
+        formalBundle,
+        "--codex-program",
+        fakeCodex,
+      ],
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(formalPrepared.exitCode, formalPrepared.stderr.toString()).toBe(0);
+    const formalPreparation = JSON.parse(formalPrepared.stdout.toString()) as Readonly<{
+      manifest: string;
+      prompts: readonly string[];
+      evidenceBundleRoot: string;
+      scenarioManifests: readonly Readonly<{
+        scenarioId: string;
+        manifest: string;
+        prompts: readonly string[];
+      }>[];
+    }>;
+    expect(formalPreparation.evidenceBundleRoot).toBe(formalBundle);
+    expect(formalPreparation.scenarioManifests.map(({ scenarioId }) => scenarioId)).toEqual([
+      "TEST-01",
+      "TEST-02",
+    ]);
+    const interruptedScenario = formalPreparation.scenarioManifests.find(
+      ({ scenarioId }) => scenarioId === "TEST-02",
+    );
+    if (interruptedScenario === undefined) throw new Error("TEST-02 manifest is unavailable.");
+    await rm(fakeCodexInvoked, { force: true });
+    await createLiveMatrixAttemptRecord({
+      evidenceRoot: formalBundle,
+      generationId: formalGenerationId,
+      scenarioId: "TEST-02",
+      turn: 1,
+      attempt: 1,
+      promptSha256: createHash("sha256")
+        .update((await readFile(interruptedScenario.prompts[0] as string, "utf8")).trimEnd())
+        .digest("hex"),
+      runtimeIdentitySha256: "f".repeat(64),
+    });
+    const interruptedRun = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "run-scenario-turn",
+        "--manifest",
+        interruptedScenario.manifest,
+        "--turn",
+        "1",
+        "--prompt-file",
+        interruptedScenario.prompts[0] as string,
+      ],
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(interruptedRun.exitCode).toBe(1);
+    expect(interruptedRun.stderr.toString()).toContain("Agent behavior will not rerun");
+    await expect(access(fakeCodexInvoked)).rejects.toMatchObject({ code: "ENOENT" });
+    const formalTurn = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "run-scenario-turn",
+        "--manifest",
+        formalPreparation.manifest,
+        "--turn",
+        "1",
+        "--prompt-file",
+        formalPreparation.prompts[0] as string,
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          NODE_ENV: "test",
+          BEARING_LIVE_MATRIX_TEST_CRASH_BEFORE_TURN_RECORD: "1",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(formalTurn.exitCode).toBe(1);
+    expect(formalTurn.stderr.toString()).toContain(
+      "Injected crash before formal Turn record publication",
+    );
+    await expect(access(fakeCodexInvoked)).resolves.toBeNull();
+    await expect(
+      access(join(formalBundle, "scenarios/TEST-01/turns/01.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await rm(fakeCodexInvoked, { force: true });
+    const recoveredFormalTurn = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "run-scenario-turn",
+        "--manifest",
+        formalPreparation.manifest,
+        "--turn",
+        "1",
+        "--prompt-file",
+        formalPreparation.prompts[0] as string,
+      ],
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(recoveredFormalTurn.exitCode, recoveredFormalTurn.stderr.toString()).toBe(0);
+    expect(JSON.parse(recoveredFormalTurn.stdout.toString())).toMatchObject({
+      agentBehaviorStarted: false,
+      recoveredTurnRecordId: expect.stringMatching(/^sha256:/u),
+    });
+    await expect(access(fakeCodexInvoked)).rejects.toMatchObject({ code: "ENOENT" });
+    const formalOutput = join(formalBundle, "payloads/scenario-results/TEST-01.json");
+    await rm(fakeCodexInvoked, { force: true });
+    const gitleaksPath = `${join(root, "gitleaks-bin")}:${process.env["PATH"] ?? "/usr/bin:/bin"}`;
+    const stagedFormalEvaluation = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "evaluate-scenario",
+        "--manifest",
+        formalPreparation.manifest,
+        "--verdicts",
+        verdicts,
+        "--output",
+        formalOutput,
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          NODE_ENV: "test",
+          PATH: gitleaksPath,
+          BEARING_LIVE_MATRIX_TEST_CRASH_AFTER_STAGE: "1",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(stagedFormalEvaluation.exitCode).toBe(1);
+    expect(stagedFormalEvaluation.stderr.toString()).toContain(
+      "Injected crash after atomic evidence staging",
+    );
+    await expect(access(fakeCodexInvoked)).rejects.toMatchObject({ code: "ENOENT" });
+    const formalManifest = JSON.parse(
+      await readFile(formalPreparation.manifest, "utf8"),
+    ) as Readonly<{ paths: Readonly<{ workspaceRoot: string }> }>;
+    const controlRoot = join(
+      dirname(formalManifest.paths.workspaceRoot),
+      ".live-matrix-private-control",
+      formalGenerationId,
+      "TEST-01",
+      createHash("sha256")
+        .update(join(await realpath(dirname(formalOutput)), basename(formalOutput)))
+        .digest("hex")
+        .slice(0, 24),
+    );
+    const envelopePath = join(controlRoot, "publications/test-01-result/envelope.json");
+    const stagedEnvelopeBytes = await readFile(envelopePath);
+    const stagedEnvelope = JSON.parse(stagedEnvelopeBytes.toString("utf8")) as Readonly<{
+      stagedSha256: string;
+    }>;
+    await rm(dirname(formalOutput), { recursive: true });
+    const originalVerdicts = await readFile(verdicts, "utf8");
+    const changedVerdicts = JSON.parse(originalVerdicts) as Record<string, unknown>;
+    changedVerdicts["rationale"] = "A changed semantic judgment must not replace staged bytes.";
+    await writeFile(verdicts, `${JSON.stringify(changedVerdicts)}\n`);
+    const changedFormalEvaluation = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "evaluate-scenario",
+        "--manifest",
+        formalPreparation.manifest,
+        "--verdicts",
+        verdicts,
+        "--output",
+        formalOutput,
+      ],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, PATH: gitleaksPath },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(changedFormalEvaluation.exitCode).toBe(1);
+    expect(changedFormalEvaluation.stderr.toString()).toContain("unexpected writer overlap");
+    expect(await readFile(envelopePath)).toEqual(stagedEnvelopeBytes);
+    expect(
+      (JSON.parse(await readFile(envelopePath, "utf8")) as Readonly<{ stagedSha256: string }>)
+        .stagedSha256,
+    ).toBe(stagedEnvelope.stagedSha256);
+    await expect(access(fakeCodexInvoked)).rejects.toMatchObject({ code: "ENOENT" });
+    await writeFile(verdicts, originalVerdicts);
+    const recoveredFormalEvaluation = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "recover-evidence-publication",
+        "--control-root",
+        controlRoot,
+        "--evidence-root",
+        formalBundle,
+        "--publication-id",
+        "test-01-result",
+      ],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, PATH: gitleaksPath },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(recoveredFormalEvaluation.exitCode, recoveredFormalEvaluation.stderr.toString()).toBe(0);
+    expect(JSON.parse(recoveredFormalEvaluation.stdout.toString())).toMatchObject({
+      state: "published",
+      scenarioResultRecordId: expect.stringMatching(/^sha256:/u),
+    });
+    await expect(access(fakeCodexInvoked)).rejects.toMatchObject({ code: "ENOENT" });
+    const formalInspected = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/run-live-journey.ts",
+        "inspect-evidence-bundle",
+        "--evidence-bundle-root",
+        formalBundle,
+      ],
+      { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(formalInspected.exitCode, formalInspected.stderr.toString()).toBe(0);
+    expect(JSON.parse(formalInspected.stdout.toString())).toMatchObject({
+      generationId: formalGenerationId,
+      lifecycle: "active",
+      nextMissingRecord: "turn:TEST-02:1",
+      records: {
+        generation: { writer: "coordinator" },
+        scenarios: [
+          { scenarioId: "TEST-01", writer: "scenario-runner:TEST-01" },
+          { scenarioId: "TEST-02", writer: "scenario-runner:TEST-02" },
+        ],
+        attempts: [
+          { scenarioId: "TEST-01", turn: 1, attempt: 1 },
+          { scenarioId: "TEST-02", turn: 1, attempt: 1 },
+        ],
+        turns: [{ scenarioId: "TEST-01", turn: 1 }],
+        scenarioResults: [{ scenarioId: "TEST-01", outcome: "fail" }],
+      },
+    });
+    await expect(
+      access(join(formalBundle, "coordinator/generation-terminal.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   }, 20_000);
 });

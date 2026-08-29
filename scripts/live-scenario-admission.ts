@@ -9,8 +9,15 @@ import {
   readCodexE2EModelAvailability,
 } from "./codex-e2e-runtime";
 import { readFixedGitHubValidationRepository } from "./github-live-journey";
+import {
+  liveMatrixPrivateControlRoot,
+  liveMatrixRecordCandidateRoot,
+} from "./live-matrix-evidence-bundle";
 import { liveScenarioPackageSchema } from "./live-scenario-evidence";
-import { liveScenarioPackageEvidenceIdentity } from "./live-scenario-generation";
+import {
+  liveScenarioMatrixPackageIdentitySha256,
+  liveScenarioPackageEvidenceIdentity,
+} from "./live-scenario-generation";
 import { liveScenarioHarnessIdentitySha256 } from "./live-scenario-generation-records";
 import {
   digestLiveScenarioFixture,
@@ -635,6 +642,7 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
   generationId: string;
   package: unknown;
   generationEvidenceRoot: string;
+  evidenceBundleRoot?: string;
   codexProgram?: string;
   githubCheckout?: string;
   githubProgram?: string;
@@ -752,6 +760,9 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
           package: matrixPackage,
           generationId,
           generationEvidenceRoot: resolve(input.generationEvidenceRoot),
+          ...(input.evidenceBundleRoot === undefined
+            ? {}
+            : { evidenceBundleRoot: resolve(input.evidenceBundleRoot) }),
           deferPermissionProbe: true,
           ...(input.codexProgram === undefined ? {} : { codexProgram: input.codexProgram }),
           ...(scenario.composition.fixtureProfile !== "active-github-repository"
@@ -781,6 +792,8 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
           registryPath,
           scenarioContainer,
           resolve(input.generationEvidenceRoot),
+          liveMatrixPrivateControlRoot(resolve(input.generationEvidenceRoot)),
+          liveMatrixRecordCandidateRoot(resolve(input.generationEvidenceRoot)),
           operatorCodexHome,
           ...siblingRuntimeRoots,
         ];
@@ -869,8 +882,7 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
       })),
     });
     const identities = admissionIdentitiesSchema.parse({
-      packageIdentitySha256: canonicalDigest(
-        "matrix-package-v1",
+      packageIdentitySha256: liveScenarioMatrixPackageIdentitySha256(
         liveScenarioPackageEvidenceIdentity(matrixPackage),
       ),
       matrixDefinitionSha256,

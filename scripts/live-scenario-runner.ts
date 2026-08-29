@@ -29,6 +29,10 @@ import {
   provisionIsolatedGitHubAccountSelection,
   readFixedGitHubValidationRepository,
 } from "./github-live-journey";
+import {
+  liveMatrixPrivateControlRoot,
+  liveMatrixRecordCandidateRoot,
+} from "./live-matrix-evidence-bundle";
 import { liveScenarioArtifactSchema, liveScenarioPackageSchema } from "./live-scenario-evidence";
 import { liveScenarioPackageEvidenceIdentity } from "./live-scenario-generation";
 import { liveScenarioHarnessIdentitySha256 } from "./live-scenario-generation-records";
@@ -110,7 +114,13 @@ const liveScenarioReadDeniedPaths = (input: {
   input.registryPath,
   input.operatorCodexHome,
   input.scenarioContainer,
-  ...(input.generationEvidenceRoot === undefined ? [] : [input.generationEvidenceRoot]),
+  ...(input.generationEvidenceRoot === undefined
+    ? []
+    : [
+        input.generationEvidenceRoot,
+        liveMatrixPrivateControlRoot(input.generationEvidenceRoot),
+        liveMatrixRecordCandidateRoot(input.generationEvidenceRoot),
+      ]),
   ...new Set(input.existingRuntimeRoots),
 ];
 
@@ -332,6 +342,7 @@ const manifestSchema = z.object({
     operatorCodexHome: z.string(),
     workspaceRoot: z.string(),
     generationEvidenceRoot: z.string().optional(),
+    evidenceBundleRoot: z.string().optional(),
     runtimeRoot: z.string(),
     runtimeDenyRoots: z.array(z.string()),
     manifest: z.string(),
@@ -659,11 +670,18 @@ export const prepareLiveScenarioGeneration = async (input: {
   githubProgram?: string;
   journeyAttempt?: number;
   generationEvidenceRoot?: string;
+  evidenceBundleRoot?: string;
   deferPermissionProbe?: boolean;
 }) => {
   const sourceRoot = resolve(input.sourceRoot);
   const workspaceRoot = resolve(input.workspaceRoot);
   const operatorCodexHome = await realpath(resolve(input.operatorCodexHome));
+  if (
+    input.evidenceBundleRoot !== undefined &&
+    resolve(input.evidenceBundleRoot) !== resolve(input.generationEvidenceRoot ?? "")
+  ) {
+    fail("Formal Evidence Bundle root must be the denied Generation evidence root.");
+  }
   await ensureIndependentNewWorkspace(sourceRoot, workspaceRoot);
   const registryPath = await realpath(resolve(sourceRoot, input.registryPath));
   const registry = await loadLiveScenarioRegistry(registryPath);
@@ -1061,6 +1079,9 @@ export const prepareLiveScenarioGeneration = async (input: {
         ...(input.generationEvidenceRoot === undefined
           ? {}
           : { generationEvidenceRoot: resolve(input.generationEvidenceRoot) }),
+        ...(input.evidenceBundleRoot === undefined
+          ? {}
+          : { evidenceBundleRoot: resolve(input.evidenceBundleRoot) }),
         runtimeRoot,
         runtimeDenyRoots,
         manifest: manifestPath,
@@ -1200,6 +1221,12 @@ export const verifyLiveScenarioGeneration = async (
     parsed.paths.workspaceRoot !== dirname(manifestPath)
   ) {
     fail("Live Scenario manifest locator mismatch.");
+  }
+  if (
+    parsed.paths.evidenceBundleRoot !== undefined &&
+    parsed.paths.evidenceBundleRoot !== parsed.paths.generationEvidenceRoot
+  ) {
+    fail("Formal Evidence Bundle root lost its denied Generation binding.");
   }
   const registry = await loadLiveScenarioRegistry(parsed.paths.registry);
   const scenario =
@@ -1444,7 +1471,11 @@ export const verifyLiveScenarioGeneration = async (
       scenarioContainer,
       ...(parsed.paths.generationEvidenceRoot === undefined
         ? []
-        : [parsed.paths.generationEvidenceRoot]),
+        : [
+            parsed.paths.generationEvidenceRoot,
+            liveMatrixPrivateControlRoot(parsed.paths.generationEvidenceRoot),
+            liveMatrixRecordCandidateRoot(parsed.paths.generationEvidenceRoot),
+          ]),
       ...parsed.paths.runtimeDenyRoots,
     ],
     writeAllowedPaths:
@@ -1475,7 +1506,11 @@ export const verifyLiveScenarioGeneration = async (
       scenarioContainer,
       ...(parsed.paths.generationEvidenceRoot === undefined
         ? []
-        : [parsed.paths.generationEvidenceRoot]),
+        : [
+            parsed.paths.generationEvidenceRoot,
+            liveMatrixPrivateControlRoot(parsed.paths.generationEvidenceRoot),
+            liveMatrixRecordCandidateRoot(parsed.paths.generationEvidenceRoot),
+          ]),
       ...currentRuntimeDenyRoots,
     ],
     writeAllowedPaths:

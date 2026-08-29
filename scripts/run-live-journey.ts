@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
@@ -28,6 +28,16 @@ import {
   writeCodexSessionState,
 } from "./live-journey-matrix";
 import {
+  createLiveMatrixAttemptRecord,
+  createLiveMatrixGenerationRecord,
+  createLiveMatrixScenarioRecord,
+  createLiveMatrixTurnRecord,
+  inspectLiveMatrixEvidenceRecords,
+  liveMatrixPrivateControlRoot,
+  recoverLiveMatrixEvidencePublication,
+  stageLiveMatrixDurableEvidence,
+} from "./live-matrix-evidence-bundle";
+import {
   discardLiveScenarioGenerationAdmission,
   prepareLiveScenarioGenerationAdmission,
 } from "./live-scenario-admission";
@@ -35,7 +45,6 @@ import { inspectLiveScenarioMatrixStatus } from "./live-scenario-convergence";
 import {
   liveScenarioPackageSchema,
   readLiveScenarioPackageBasis,
-  scanLiveScenarioDurableEvidence,
   writeLiveScenarioPackageBasis,
 } from "./live-scenario-evidence";
 import {
@@ -92,7 +101,7 @@ const usage = `Usage:
     --scenario <scenario-id> --package-manifest <absolute-path> \\
     --workspace <absolute-new-path> --codex-home <absolute-path> \\
     [--generation-id <uuid>] [--codex-program <path>] \\
-    [--generation-root <absolute-new-path>] \\
+    [--generation-root <absolute-new-path> | --evidence-bundle-root <absolute-new-path>] \\
     [--github-checkout <absolute-path>] [--github-program <path>] \\
     [--journey-attempt <positive-integer>]
 
@@ -104,12 +113,19 @@ const usage = `Usage:
     --manifest <absolute-path> --verdicts <absolute-path> \\
     --output <absolute-new-path>
 
+  bun scripts/run-live-journey.ts recover-evidence-publication \\
+    --control-root <absolute-path> --evidence-root <absolute-path> \\
+    --publication-id <bounded-id>
+
   bun scripts/run-live-journey.ts complete-matrix \\
     --source-root <absolute-path> --registry <absolute-path> --results <absolute-directory> \\
-    --output <absolute-new-path>
+    --output <absolute-new-path> [--evidence-bundle-root <absolute-path>]
 
   bun scripts/run-live-journey.ts inspect-generation \\
     --generation-root <absolute-path>
+
+  bun scripts/run-live-journey.ts inspect-evidence-bundle \\
+    --evidence-bundle-root <absolute-path>
 `;
 
 const fail = (message: string): never => {
@@ -136,6 +152,7 @@ const parsed = parseArgs({
     scenario: { type: "string" },
     "package-manifest": { type: "string" },
     "generation-root": { type: "string" },
+    "evidence-bundle-root": { type: "string" },
     "generation-id": { type: "string" },
     results: { type: "string" },
     "codex-home": { type: "string" },
@@ -150,6 +167,9 @@ const parsed = parseArgs({
     "retry-reason": { type: "string" },
     verdicts: { type: "string" },
     output: { type: "string" },
+    "control-root": { type: "string" },
+    "evidence-root": { type: "string" },
+    "publication-id": { type: "string" },
   },
 });
 
@@ -215,6 +235,52 @@ const withLiveScenarioCoordinatorManifestHidden = async <Result>(
 
 const prepareScenario = async (): Promise<void> => {
   const sourceRoot = await realpath(resolve(required("source-root")));
+  const registryPath = required("registry");
+  const scenarioId = required("scenario");
+  const generationEvidenceRoot =
+    parsed.values["generation-root"] === undefined
+      ? undefined
+      : resolve(parsed.values["generation-root"]);
+  const evidenceBundleRoot =
+    parsed.values["evidence-bundle-root"] === undefined
+      ? undefined
+      : resolve(parsed.values["evidence-bundle-root"]);
+  if (generationEvidenceRoot !== undefined && evidenceBundleRoot !== undefined) {
+    fail("Legacy Generation tracer and formal Evidence Bundle roots are mutually exclusive.");
+  }
+  const recordRoot = evidenceBundleRoot ?? generationEvidenceRoot;
+  const workspaceRoot = resolve(required("workspace"));
+  const operatorCodexHome = resolve(required("codex-home"));
+  let registry: Awaited<ReturnType<typeof loadLiveScenarioRegistry>>;
+  try {
+    registry = await loadLiveScenarioRegistry(resolve(sourceRoot, registryPath));
+  } catch (error) {
+    if (recordRoot === undefined) throw error;
+    const invalidRegistryAdmission = await prepareLiveScenarioGenerationAdmission({
+      sourceRoot,
+      workspaceRoot,
+      operatorCodexHome,
+      registryPath,
+      generationId: parsed.values["generation-id"] ?? randomUUID(),
+      package: {},
+      generationEvidenceRoot: recordRoot,
+      ...(evidenceBundleRoot === undefined ? {} : { evidenceBundleRoot }),
+      ...(parsed.values["codex-program"] === undefined
+        ? {}
+        : { codexProgram: parsed.values["codex-program"] }),
+      ...(parsed.values["github-checkout"] === undefined
+        ? {}
+        : { githubCheckout: parsed.values["github-checkout"] }),
+      ...(parsed.values["github-program"] === undefined
+        ? {}
+        : { githubProgram: parsed.values["github-program"] }),
+    });
+    process.stdout.write(`${JSON.stringify(invalidRegistryAdmission)}\n`);
+    return;
+  }
+  if (!registry.scenarios.some(({ id }) => id === scenarioId)) {
+    fail(`Unknown Live Scenario: ${scenarioId}.`);
+  }
   const packageBasis = await readLiveScenarioPackageBasis(resolve(required("package-manifest")));
   const matrixPackage = liveScenarioPackageSchema.parse(
     packageBasis.evidenceClass === "release-candidate"
@@ -251,21 +317,14 @@ const prepareScenario = async (): Promise<void> => {
       fail("Candidate package basis does not match its verified Receipt.");
     }
   }
-  const generationEvidenceRoot =
-    parsed.values["generation-root"] === undefined
-      ? undefined
-      : resolve(parsed.values["generation-root"]);
-  const workspaceRoot = resolve(required("workspace"));
-  const operatorCodexHome = resolve(required("codex-home"));
-  const scenarioId = required("scenario");
   let admission: Awaited<ReturnType<typeof prepareLiveScenarioGenerationAdmission>> | undefined;
   const prepared =
-    generationEvidenceRoot === undefined
+    recordRoot === undefined
       ? await prepareLiveScenarioGeneration({
           sourceRoot,
           workspaceRoot,
           operatorCodexHome,
-          registryPath: required("registry"),
+          registryPath,
           scenarioId,
           package: matrixPackage,
           ...(parsed.values["generation-id"] === undefined
@@ -298,10 +357,11 @@ const prepareScenario = async (): Promise<void> => {
             sourceRoot,
             workspaceRoot,
             operatorCodexHome,
-            registryPath: required("registry"),
+            registryPath,
             generationId,
             package: matrixPackage,
-            generationEvidenceRoot,
+            generationEvidenceRoot: recordRoot,
+            ...(evidenceBundleRoot === undefined ? {} : { evidenceBundleRoot }),
             ...(parsed.values["codex-program"] === undefined
               ? {}
               : { codexProgram: parsed.values["codex-program"] }),
@@ -329,7 +389,43 @@ const prepareScenario = async (): Promise<void> => {
           return selected;
         })();
   if (prepared === undefined) return;
-  if (prepared.paths.generationEvidenceRoot !== undefined) {
+  if (prepared.paths.evidenceBundleRoot !== undefined) {
+    const formalEvidenceRoot = prepared.paths.evidenceBundleRoot;
+    const admitted =
+      admission?.outcome === "admitted"
+        ? admission
+        : fail("Formal Evidence Bundle creation requires sealed Admission.");
+    const generation = await createLiveMatrixGenerationRecord({
+      evidenceRoot: formalEvidenceRoot,
+      generationId: prepared.generationId,
+      scenarioIds: admitted.compositionReadbacks.map(({ scenarioId }) => scenarioId),
+      packageIdentitySha256: admitted.basis.identities.packageIdentitySha256,
+      matrixDefinitionSha256: admitted.basis.identities.matrixDefinitionSha256,
+      harnessIdentitySha256: admitted.basis.identities.harnessIdentitySha256,
+      admissionIdentitySha256: admitted.admissionIdentitySha256,
+    });
+    await Promise.all(
+      admitted.preparedScenarios.map(async (formalPrepared) => {
+        const sealed = await verifyLiveScenarioGeneration(formalPrepared.paths.manifest);
+        if (
+          sealed.paths.evidenceBundleRoot !== formalEvidenceRoot ||
+          sealed.generationId !== generation.generationId
+        ) {
+          fail("Formal Scenario manifest contradicts its Evidence Bundle Generation.");
+        }
+        return createLiveMatrixScenarioRecord({
+          evidenceRoot: formalEvidenceRoot,
+          generationId: generation.generationId,
+          scenarioId: sealed.scenario.id,
+          definitionSha256: createHash("sha256")
+            .update(`${JSON.stringify(sealed.scenario)}\n`)
+            .digest("hex"),
+          fixtureSha256: sealed.startingStateSha256,
+          declaredTurnCount: sealed.paths.prompts.length,
+        });
+      }),
+    );
+  } else if (prepared.paths.generationEvidenceRoot !== undefined) {
     const admitted =
       admission?.outcome === "admitted"
         ? admission
@@ -386,6 +482,18 @@ const prepareScenario = async (): Promise<void> => {
       ...(prepared.paths.generationEvidenceRoot === undefined
         ? {}
         : { generationEvidenceRoot: prepared.paths.generationEvidenceRoot }),
+      ...(prepared.paths.evidenceBundleRoot === undefined
+        ? {}
+        : { evidenceBundleRoot: prepared.paths.evidenceBundleRoot }),
+      ...(prepared.paths.evidenceBundleRoot === undefined || admission?.outcome !== "admitted"
+        ? {}
+        : {
+            scenarioManifests: admission.preparedScenarios.map(({ scenario, paths }) => ({
+              scenarioId: scenario.id,
+              manifest: paths.manifest,
+              prompts: paths.prompts,
+            })),
+          }),
       ...(admission?.outcome !== "admitted"
         ? {}
         : {
@@ -959,7 +1067,90 @@ const allScenarioObservationPointers = async (
 const runScenarioTurn = async (): Promise<void> => {
   const turn = positiveInteger(required("turn"), "--turn");
   const manifest = await verifyLiveScenarioGeneration(resolve(required("manifest")));
-  if (manifest.paths.generationEvidenceRoot !== undefined) {
+  if (manifest.paths.evidenceBundleRoot !== undefined) {
+    const inspected = await inspectLiveMatrixEvidenceRecords(manifest.paths.evidenceBundleRoot);
+    const scenario = inspected.records.scenarios.find(
+      ({ scenarioId }) => scenarioId === manifest.scenario.id,
+    );
+    const openAttempt = inspected.records.attempts
+      .filter(
+        (record) =>
+          record.scenarioId === manifest.scenario.id &&
+          !inspected.records.turns.some(
+            (turnRecord) =>
+              turnRecord.scenarioId === record.scenarioId && turnRecord.turn === record.turn,
+          ),
+      )
+      .at(-1);
+    if (openAttempt !== undefined) {
+      const pointer = `observations/turn-${String(openAttempt.turn).padStart(2, "0")}-attempt-${String(openAttempt.attempt).padStart(2, "0")}.json`;
+      const bytes = await (async () => {
+        try {
+          return (await readGeneratedEvidenceFile(manifest.paths.workspaceRoot, pointer)).bytes;
+        } catch {
+          return fail(
+            "Formal Attempt already started without a terminal observation; Agent behavior will not rerun.",
+          );
+        }
+      })();
+      const raw = JSON.parse(bytes.toString("utf8")) as Readonly<{
+        codex?: Readonly<{ cliVersion?: unknown }>;
+      }>;
+      const expectedCodexCliVersion =
+        typeof raw.codex?.cliVersion === "string"
+          ? raw.codex.cliVersion
+          : fail("Formal Attempt terminal observation has no Codex CLI identity.");
+      const verified =
+        manifest.github === undefined
+          ? await verifyLiveJourneyObservation({
+              workspaceRoot: manifest.paths.workspaceRoot,
+              pointer,
+              expectedCodexCliVersion,
+            })
+          : (
+              await verifyGitHubJourneyObservation({
+                workspaceRoot: manifest.paths.workspaceRoot,
+                pointer,
+                expectedCodexCliVersion,
+              })
+            ).base;
+      if (!["turn.completed", "turn.failed"].includes(verified.terminalBoundary)) {
+        fail("Formal Attempt has no recoverable terminal boundary; Agent behavior will not rerun.");
+      }
+      const turnRecord = await createLiveMatrixTurnRecord({
+        evidenceRoot: manifest.paths.evidenceBundleRoot,
+        generationId: manifest.generationId,
+        scenarioId: manifest.scenario.id,
+        turn: openAttempt.turn,
+        attemptRecordIds: inspected.records.attempts
+          .filter(
+            (record) =>
+              record.scenarioId === manifest.scenario.id && record.turn === openAttempt.turn,
+          )
+          .map(({ recordId }) => recordId),
+        terminalAttemptRecordId: openAttempt.recordId,
+        observationSha256: createHash("sha256").update(bytes).digest("hex"),
+        terminalBoundary: verified.terminalBoundary,
+      });
+      process.stdout.write(
+        `${JSON.stringify({
+          recoveredTurnRecordId: turnRecord.recordId,
+          agentBehaviorStarted: false,
+        })}\n`,
+      );
+      return;
+    }
+    if (
+      inspected.lifecycle !== "active" ||
+      scenario?.fixtureSha256 !== manifest.startingStateSha256 ||
+      scenario.definitionSha256 !==
+        createHash("sha256")
+          .update(`${JSON.stringify(manifest.scenario)}\n`)
+          .digest("hex")
+    ) {
+      fail("Formal Evidence Bundle does not match the Scenario behavior basis.");
+    }
+  } else if (manifest.paths.generationEvidenceRoot !== undefined) {
     const inspected = await inspectLiveScenarioGenerationRecords(
       manifest.paths.generationEvidenceRoot,
     );
@@ -1121,6 +1312,27 @@ const runScenarioTurn = async (): Promise<void> => {
       fail("Live Scenario state changed outside the recorded turn chain.");
     }
   }
+  const formalAttemptRecord =
+    manifest.paths.evidenceBundleRoot === undefined
+      ? undefined
+      : await createLiveMatrixAttemptRecord({
+          evidenceRoot: manifest.paths.evidenceBundleRoot,
+          generationId: manifest.generationId,
+          scenarioId: manifest.scenario.id,
+          turn,
+          attempt,
+          promptSha256: createHash("sha256").update(prepared.prompt).digest("hex"),
+          runtimeIdentitySha256: createHash("sha256")
+            .update(
+              `${JSON.stringify({
+                program: prepared.manifest.launch.initial.program,
+                args: prepared.args,
+                workingDirectory: prepared.manifest.launch.initial.workingDirectory,
+                codexCliVersion: prepared.codexCliVersion,
+              })}\n`,
+            )
+            .digest("hex"),
+        });
   let result: Awaited<ReturnType<typeof runPreparedCodexTurn>>;
   let remoteBeforeBytes: string | undefined;
   let remoteAfterBytes: string | undefined;
@@ -1201,7 +1413,32 @@ const runScenarioTurn = async (): Promise<void> => {
             remoteAfterBytes ?? fail("GitHub remote-after evidence is unavailable."),
         });
   await completeCodexTurn(prepared, result, observation);
-  if (manifest.paths.generationEvidenceRoot !== undefined) {
+  if (
+    manifest.paths.evidenceBundleRoot !== undefined &&
+    process.env["NODE_ENV"] === "test" &&
+    process.env["BEARING_LIVE_MATRIX_TEST_CRASH_BEFORE_TURN_RECORD"] === "1"
+  ) {
+    fail("Injected crash before formal Turn record publication.");
+  }
+  if (manifest.paths.evidenceBundleRoot !== undefined) {
+    const attemptRecord =
+      formalAttemptRecord ?? fail("Formal Attempt-start record is unavailable.");
+    if (["turn.completed", "turn.failed"].includes(observation.terminalBoundary)) {
+      const inspected = await inspectLiveMatrixEvidenceRecords(manifest.paths.evidenceBundleRoot);
+      await createLiveMatrixTurnRecord({
+        evidenceRoot: manifest.paths.evidenceBundleRoot,
+        generationId: manifest.generationId,
+        scenarioId: manifest.scenario.id,
+        turn,
+        attemptRecordIds: inspected.records.attempts
+          .filter((record) => record.scenarioId === manifest.scenario.id && record.turn === turn)
+          .map(({ recordId }) => recordId),
+        terminalAttemptRecordId: attemptRecord.recordId,
+        observationSha256: await sha256File(prepared.observationPath),
+        terminalBoundary: observation.terminalBoundary,
+      });
+    }
+  } else if (manifest.paths.generationEvidenceRoot !== undefined) {
     const promptSha256 = createHash("sha256").update(prepared.prompt).digest("hex");
     const attemptRecord = await publishLiveScenarioAttemptReceipt({
       generationRoot: manifest.paths.generationEvidenceRoot,
@@ -1230,7 +1467,27 @@ const runScenarioTurn = async (): Promise<void> => {
 
 const evaluateScenario = async (): Promise<void> => {
   const manifest = await verifyLiveScenarioGeneration(resolve(required("manifest")));
-  if (manifest.paths.generationEvidenceRoot !== undefined) {
+  let formalScenarioTurnRecordIds: string[] | undefined;
+  if (manifest.paths.evidenceBundleRoot !== undefined) {
+    const inspected = await inspectLiveMatrixEvidenceRecords(manifest.paths.evidenceBundleRoot);
+    const scenario = inspected.records.scenarios.find(
+      ({ scenarioId }) => scenarioId === manifest.scenario.id,
+    );
+    const turns = inspected.records.turns.filter(
+      ({ scenarioId }) => scenarioId === manifest.scenario.id,
+    );
+    if (
+      inspected.lifecycle !== "active" ||
+      scenario === undefined ||
+      turns.length !== scenario.declaredTurnCount ||
+      inspected.records.scenarioResults.some(
+        ({ scenarioId }) => scenarioId === manifest.scenario.id,
+      )
+    ) {
+      fail("Formal Evidence Bundle cannot publish this Scenario Result now.");
+    }
+    formalScenarioTurnRecordIds = turns.map(({ recordId }) => recordId);
+  } else if (manifest.paths.generationEvidenceRoot !== undefined) {
     const inspected = await inspectLiveScenarioGenerationRecords(
       manifest.paths.generationEvidenceRoot,
     );
@@ -1424,6 +1681,9 @@ const evaluateScenario = async (): Promise<void> => {
     remoteIntegrity,
     attempts,
   });
+  if (manifest.paths.evidenceBundleRoot !== undefined) {
+    await mkdir(dirname(output), { recursive: true });
+  }
   const [outputParent, cleanupDirectories, cleanupSessionState] = await Promise.all([
     realpath(dirname(output)),
     Promise.all(
@@ -1442,18 +1702,68 @@ const evaluateScenario = async (): Promise<void> => {
   if (outputInCleanupDirectory || durableOutput === cleanupSessionState) {
     fail("Bounded Scenario result cannot be written inside cleanup-owned storage.");
   }
-  const durableResult = scanLiveScenarioDurableEvidence({
+  const publicationRoot =
+    manifest.paths.evidenceBundleRoot === undefined
+      ? outputParent
+      : await realpath(manifest.paths.evidenceBundleRoot);
+  const durablePointer = relative(publicationRoot, durableOutput).replaceAll("\\", "/");
+  const publicationId = `${result.scenarioId.toLowerCase()}-result`;
+  const controlRoot = join(
+    dirname(manifest.paths.workspaceRoot),
+    ".live-matrix-private-control",
+    manifest.generationId,
+    result.scenarioId,
+    createHash("sha256").update(durableOutput).digest("hex").slice(0, 24),
+  );
+  await stageLiveMatrixDurableEvidence({
+    controlRoot,
+    evidenceRoot: publicationRoot,
+    publicationId,
+    pointer: durablePointer,
     value: result,
+    cleanupScopes: [
+      {
+        root: manifest.paths.workspaceRoot,
+        pointers: [manifest.paths.transcripts, manifest.paths.sessionState].map((path) =>
+          relative(manifest.paths.workspaceRoot, path).replaceAll("\\", "/"),
+        ),
+      },
+      {
+        root: dirname(manifest.paths.runtimeRoot),
+        pointers: [basename(manifest.paths.runtimeRoot)],
+      },
+    ],
+    ...(formalScenarioTurnRecordIds === undefined
+      ? {}
+      : {
+          completion: {
+            kind: "scenario-result" as const,
+            generationId: manifest.generationId,
+            scenarioId: result.scenarioId,
+            outcome: result.evaluation.outcome,
+            turnRecordIds: formalScenarioTurnRecordIds,
+          },
+        }),
+  });
+  if (
+    manifest.paths.evidenceBundleRoot !== undefined &&
+    process.env["NODE_ENV"] === "test" &&
+    process.env["BEARING_LIVE_MATRIX_TEST_CRASH_AFTER_STAGE"] === "1"
+  ) {
+    fail("Injected crash after atomic evidence staging.");
+  }
+  const recoveredPublication = await recoverLiveMatrixEvidencePublication({
+    controlRoot,
+    evidenceRoot: publicationRoot,
+    publicationId,
     configPath: resolve(".gitleaks.toml"),
   });
-  await writeFile(durableOutput, durableResult, { flag: "wx" });
-  await Promise.all([
-    rm(manifest.paths.transcripts, { recursive: true }),
-    rm(manifest.paths.runtimeRoot, { recursive: true }),
-    rm(manifest.paths.sessionState, { force: true }),
-  ]);
   let generationTerminal: string | undefined;
-  if (manifest.paths.generationEvidenceRoot !== undefined) {
+  if (manifest.paths.evidenceBundleRoot !== undefined) {
+    if (recoveredPublication.scenarioResultRecordId === undefined) {
+      fail("Formal Scenario Result recovery did not close its published payload.");
+    }
+  } else if (manifest.paths.generationEvidenceRoot !== undefined) {
     const inspected = await inspectLiveScenarioGenerationRecords(
       manifest.paths.generationEvidenceRoot,
     );
@@ -1519,15 +1829,16 @@ const matrixStatus = async (): Promise<void> => {
 };
 
 const completeMatrix = async (): Promise<void> => {
-  const output = resolve(required("output"));
-  await ensureMissing(output);
+  const requestedOutput = resolve(required("output"));
+  await ensureMissing(requestedOutput);
+  const output = join(await realpath(dirname(requestedOutput)), basename(requestedOutput));
   const sourceRoot = await realpath(resolve(required("source-root")));
   const trackedRegistryPath = join(sourceRoot, "validation/live-journey/registry.json");
   if ((await realpath(resolve(required("registry")))) !== (await realpath(trackedRegistryPath))) {
     fail("Matrix completion requires the tracked source registry.");
   }
   const registry = await loadLiveScenarioRegistry(trackedRegistryPath);
-  const resultsRoot = resolve(required("results"));
+  const resultsRoot = await realpath(resolve(required("results")));
   const expectedNames = registry.scenarios.map(({ id }) => `${id}.json`);
   const observedNames = (await readdir(resultsRoot))
     .filter((name) => name.endsWith(".json"))
@@ -1559,13 +1870,79 @@ const completeMatrix = async (): Promise<void> => {
   ) {
     fail("Matrix completion source definition does not match the Scenario result identity.");
   }
-  await writeFile(
-    output,
-    scanLiveScenarioDurableEvidence({ value: result, configPath: resolve(".gitleaks.toml") }),
-    { flag: "wx" },
-  );
+  const evidenceBundleRoot =
+    parsed.values["evidence-bundle-root"] === undefined
+      ? undefined
+      : resolve(parsed.values["evidence-bundle-root"]);
+  const formalScenarioResultRecordIds =
+    evidenceBundleRoot === undefined
+      ? undefined
+      : (await inspectLiveMatrixEvidenceRecords(evidenceBundleRoot)).records.scenarioResults.map(
+          ({ recordId }) => recordId,
+        );
+  if (evidenceBundleRoot !== undefined) {
+    const inspected = await inspectLiveMatrixEvidenceRecords(evidenceBundleRoot);
+    if (
+      inspected.lifecycle !== "active" ||
+      inspected.records.scenarioResults.length !== registry.scenarios.length
+    ) {
+      fail("Formal Evidence Bundle requires every registered Scenario Result before aggregation.");
+    }
+  }
+  const publicationId = "matrix-result";
+  const publicationRoot =
+    evidenceBundleRoot === undefined ? outputRoot : await realpath(evidenceBundleRoot);
+  const durablePointer = relative(publicationRoot, output).replaceAll("\\", "/");
+  const controlRoot =
+    evidenceBundleRoot === undefined
+      ? join(
+          dirname(outputRoot),
+          ".live-matrix-private-control",
+          result.generationId,
+          "matrix-result",
+          createHash("sha256").update(output).digest("hex").slice(0, 24),
+        )
+      : join(
+          liveMatrixPrivateControlRoot(evidenceBundleRoot),
+          result.generationId,
+          "matrix-result",
+        );
+  await stageLiveMatrixDurableEvidence({
+    controlRoot,
+    evidenceRoot: publicationRoot,
+    publicationId,
+    pointer: durablePointer,
+    value: result,
+    cleanupScopes: [],
+    ...(formalScenarioResultRecordIds === undefined
+      ? {}
+      : {
+          completion: {
+            kind: "matrix-result-terminal" as const,
+            generationId: result.generationId,
+            scenarioResultRecordIds: formalScenarioResultRecordIds,
+          },
+        }),
+  });
+  const recoveredPublication = await recoverLiveMatrixEvidencePublication({
+    controlRoot,
+    evidenceRoot: publicationRoot,
+    publicationId,
+    configPath: resolve(".gitleaks.toml"),
+  });
+  let generationTerminal: string | undefined;
+  if (evidenceBundleRoot !== undefined) {
+    generationTerminal =
+      recoveredPublication.terminalRecordId ??
+      fail("Formal Matrix Result recovery did not close its Generation Terminal.");
+  }
   process.stdout.write(
-    `${JSON.stringify({ output, outcome: result.terminalOutcome, scenarios: result.scenarios.length })}\n`,
+    `${JSON.stringify({
+      output,
+      outcome: result.terminalOutcome,
+      scenarios: result.scenarios.length,
+      ...(generationTerminal === undefined ? {} : { generationTerminal }),
+    })}\n`,
   );
 };
 
@@ -1576,9 +1953,27 @@ const inspectGeneration = async (): Promise<void> => {
   process.stdout.write(`${JSON.stringify(inspected)}\n`);
 };
 
+const inspectEvidenceBundle = async (): Promise<void> => {
+  const inspected = await inspectLiveMatrixEvidenceRecords(
+    resolve(required("evidence-bundle-root")),
+  );
+  process.stdout.write(`${JSON.stringify(inspected)}\n`);
+};
+
+const recoverEvidencePublication = async (): Promise<void> => {
+  const recovered = await recoverLiveMatrixEvidencePublication({
+    controlRoot: resolve(required("control-root")),
+    evidenceRoot: resolve(required("evidence-root")),
+    publicationId: required("publication-id"),
+    configPath: resolve(".gitleaks.toml"),
+  });
+  process.stdout.write(`${JSON.stringify(recovered)}\n`);
+};
+
 if (command === "prepare-scenario") await prepareScenario();
 else if (command === "run-scenario-turn") await runScenarioTurn();
 else if (command === "evaluate-scenario") await evaluateScenario();
+else if (command === "recover-evidence-publication") await recoverEvidencePublication();
 else if (command === "preflight-matrix") await preflightMatrix();
 else if (command === "matrix-status") await matrixStatus();
 else if (command === "prepare-local-rehearsal") await prepareLocalRehearsal();
@@ -1586,4 +1981,5 @@ else if (command === "prepare-candidate-package") await prepareCandidatePackage(
 else if (command === "configure-github-repository") await configureGitHubRepository();
 else if (command === "complete-matrix") await completeMatrix();
 else if (command === "inspect-generation") await inspectGeneration();
+else if (command === "inspect-evidence-bundle") await inspectEvidenceBundle();
 else fail(`Unknown command: ${command}.\n${usage}`);

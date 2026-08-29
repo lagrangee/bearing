@@ -126,9 +126,33 @@ export const liveScenarioPackageEvidenceIdentity = (input: LiveScenarioPackage) 
         matrixDefinitionSha256: input.matrixDefinitionSha256,
       };
 
+export const liveScenarioMatrixPackageIdentitySha256 = (input: unknown): string =>
+  createHash("sha256")
+    .update(`matrix-package-v1\0${JSON.stringify(liveScenarioBoundedPackageSchema.parse(input))}\n`)
+    .digest("hex");
+
 export type LiveScenarioResult = Omit<z.infer<typeof liveScenarioResultSchema>, "evaluation"> & {
   readonly evaluation: LiveScenarioEvaluation;
 };
+
+type LiveScenarioMatrixSharedIdentitySource = Readonly<{
+  evidenceClass: "local-rehearsal" | "release-candidate";
+  generationId: string;
+  package: z.infer<typeof liveScenarioBoundedPackageSchema>;
+  matrixDefinitionSha256: string;
+  codex: z.infer<typeof codexSchema>;
+  coordinatorIdentity: string;
+}>;
+
+export const liveScenarioMatrixSharedIdentity = (input: LiveScenarioMatrixSharedIdentitySource) =>
+  Object.freeze({
+    evidenceClass: input.evidenceClass,
+    generationId: input.generationId,
+    package: input.package,
+    matrixDefinitionSha256: input.matrixDefinitionSha256,
+    codex: input.codex,
+    coordinatorIdentity: input.coordinatorIdentity,
+  });
 
 export const parseLiveScenarioResult = (input: unknown): LiveScenarioResult => {
   const parsed = liveScenarioResultSchema.parse(input);
@@ -220,7 +244,10 @@ const liveScenarioMatrixResultSchema = z
 
 const trackedRegistry = parseLiveScenarioRegistry(trackedRegistryDefinition);
 
-export const parseLiveScenarioMatrixResult = (input: unknown) => {
+export const parseLiveScenarioMatrixResultForScenarioIds = (
+  input: unknown,
+  scenarioIds: readonly string[],
+) => {
   const result = liveScenarioMatrixResultSchema.parse(input);
   if (
     result.evidenceClass !== result.package.evidenceClass ||
@@ -228,22 +255,20 @@ export const parseLiveScenarioMatrixResult = (input: unknown) => {
   ) {
     fail("Matrix result identity contradicts its bounded package.");
   }
-  const requiredIds = trackedRegistry.scenarios.map(({ id }) => id);
+  const requiredIds = z
+    .array(scenarioIdSchema)
+    .min(1)
+    .parse([...scenarioIds]);
+  if (new Set(requiredIds).size !== requiredIds.length) {
+    fail("Matrix required Scenario identities must be unique.");
+  }
   const observedIds = result.scenarios.map(({ scenarioId }) => scenarioId);
   if (
     observedIds.length !== requiredIds.length ||
     new Set(observedIds).size !== requiredIds.length ||
     requiredIds.some((scenarioId) => !observedIds.includes(scenarioId))
   ) {
-    fail("Matrix result requires each tracked Live Scenario exactly once.");
-  }
-  for (const scenario of trackedRegistry.scenarios) {
-    const observed = result.scenarios.find(({ scenarioId }) => scenarioId === scenario.id);
-    const requiresRemoteIntegrity =
-      scenario.composition.fixtureProfile === "active-github-repository";
-    if ((observed?.remoteIntegrity !== undefined) !== requiresRemoteIntegrity) {
-      fail(`Matrix remote integrity evidence contradicts its Scenario: ${scenario.id}.`);
-    }
+    fail("Matrix result requires each Generation Scenario exactly once.");
   }
   const allPass = result.scenarios.every(({ outcome }) => outcome === "pass");
   if (
@@ -256,6 +281,29 @@ export const parseLiveScenarioMatrixResult = (input: unknown) => {
     fail("Matrix terminal evidence contradicts its Scenario results.");
   }
   return Object.freeze(result);
+};
+
+const assertLiveScenarioMatrixRemoteIntegrity = (
+  result: ReturnType<typeof parseLiveScenarioMatrixResultForScenarioIds>,
+  registry: LiveScenarioRegistry,
+): void => {
+  for (const scenario of registry.scenarios) {
+    const observed = result.scenarios.find(({ scenarioId }) => scenarioId === scenario.id);
+    const requiresRemoteIntegrity =
+      scenario.composition.fixtureProfile === "active-github-repository";
+    if ((observed?.remoteIntegrity !== undefined) !== requiresRemoteIntegrity) {
+      fail(`Matrix remote integrity evidence contradicts its Scenario: ${scenario.id}.`);
+    }
+  }
+};
+
+export const parseLiveScenarioMatrixResult = (input: unknown) => {
+  const result = parseLiveScenarioMatrixResultForScenarioIds(
+    input,
+    trackedRegistry.scenarios.map(({ id }) => id),
+  );
+  assertLiveScenarioMatrixRemoteIntegrity(result, trackedRegistry);
+  return result;
 };
 
 export const createLiveScenarioMatrixResult = (input: {
@@ -276,23 +324,9 @@ export const createLiveScenarioMatrixResult = (input: {
     fail("Matrix result requires each registered Live Scenario exactly once.");
   }
   const first = references[0]?.result ?? fail("Matrix has no Scenario results.");
-  const identity = JSON.stringify({
-    evidenceClass: first.evidenceClass,
-    generationId: first.generationId,
-    package: first.package,
-    matrixDefinitionSha256: first.matrixDefinitionSha256,
-    codex: first.codex,
-    coordinatorIdentity: first.coordinatorIdentity,
-  });
+  const identity = JSON.stringify(liveScenarioMatrixSharedIdentity(first));
   for (const { result } of references) {
-    const observedIdentity = JSON.stringify({
-      evidenceClass: result.evidenceClass,
-      generationId: result.generationId,
-      package: result.package,
-      matrixDefinitionSha256: result.matrixDefinitionSha256,
-      codex: result.codex,
-      coordinatorIdentity: result.coordinatorIdentity,
-    });
+    const observedIdentity = JSON.stringify(liveScenarioMatrixSharedIdentity(result));
     if (observedIdentity !== identity) {
       fail("Matrix Scenario results do not share one exact identity.");
     }
@@ -327,21 +361,26 @@ export const createLiveScenarioMatrixResult = (input: {
   });
   const allPass = ordered.every(({ outcome }) => outcome === "pass");
   const terminalOutcome = allPass ? ("pass" as const) : ("not-pass" as const);
-  return parseLiveScenarioMatrixResult({
-    schemaVersion: 1 as const,
-    evidenceClass: first.evidenceClass,
-    generationId: first.generationId,
-    package: first.package,
-    matrixDefinitionSha256: first.matrixDefinitionSha256,
-    codex: first.codex,
-    coordinatorIdentity: first.coordinatorIdentity,
-    semanticEvaluationAuthority: "coordinating-agent" as const,
-    durationMs: ordered.reduce((total, scenario) => total + scenario.durationMs, 0),
-    terminalOutcome,
-    releasePrerequisiteSatisfied:
-      first.evidenceClass === "release-candidate" && terminalOutcome === "pass",
-    scenarios: Object.freeze(ordered),
-  });
+  const result = parseLiveScenarioMatrixResultForScenarioIds(
+    {
+      schemaVersion: 1 as const,
+      evidenceClass: first.evidenceClass,
+      generationId: first.generationId,
+      package: first.package,
+      matrixDefinitionSha256: first.matrixDefinitionSha256,
+      codex: first.codex,
+      coordinatorIdentity: first.coordinatorIdentity,
+      semanticEvaluationAuthority: "coordinating-agent" as const,
+      durationMs: ordered.reduce((total, scenario) => total + scenario.durationMs, 0),
+      terminalOutcome,
+      releasePrerequisiteSatisfied:
+        first.evidenceClass === "release-candidate" && terminalOutcome === "pass",
+      scenarios: Object.freeze(ordered),
+    },
+    requiredIds,
+  );
+  assertLiveScenarioMatrixRemoteIntegrity(result, input.registry);
+  return result;
 };
 
 export const verifyLiveScenarioMatrixResult = async (path: string) => {
