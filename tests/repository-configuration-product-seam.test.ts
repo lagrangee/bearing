@@ -796,6 +796,35 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
     await writeFile(
       join(developmentProduct.root, ".bearing/manifest.json"),
       `${JSON.stringify({
+        schemaVersion: 1,
+        packageVersion: "0.1.2-dev",
+        status: "active",
+        runtime: "development",
+        surfaces: ["agent-skills"],
+        executorProfiles: [profileKey],
+      })}\n`,
+    );
+    const samePackageOlderSchema = await developmentProduct.run([
+      "configure",
+      "inspect",
+      "--repo",
+      developmentProduct.root,
+    ]);
+    expect(samePackageOlderSchema.exitCode, samePackageOlderSchema.stderr).toBe(0);
+    expect(JSON.parse(samePackageOlderSchema.stdout)).toMatchObject({
+      lifecycle: {
+        state: "repository-update-required",
+        removalRequired: false,
+        update: {
+          source: { schemaVersion: 1, packageVersion: "0.1.2-dev" },
+          target: { manifest: { schemaVersion: 2, packageVersion: "0.1.2-dev" } },
+        },
+      },
+    });
+
+    await writeFile(
+      join(developmentProduct.root, ".bearing/manifest.json"),
+      `${JSON.stringify({
         schemaVersion: 2,
         packageVersion: "0.1.2-dev",
         status: "active",

@@ -253,26 +253,45 @@ describe("Bearing kit installer", () => {
       mkdir(join(homeDir, ".workbuddy/skills"), { recursive: true }),
     ]);
 
-    const result = await installKit(
-      {
-        homeDir,
-        packageRoot: process.cwd(),
-        surfaces: ["agent-skills", "workbuddy"],
-      },
-      {
-        afterSurfacePreconditionCheck: async (surface) => {
-          if (surface !== "agent-skills") return;
-          await rename(agentSkills, parkedAgentSkills);
-          await symlink(outside, agentSkills, "dir");
+    let stopMonitoring = false;
+    let outsideBearingObserved = false;
+    const monitor = (async () => {
+      while (!stopMonitoring) {
+        try {
+          await lstat(join(outside, "bearing"));
+          outsideBearingObserved = true;
+        } catch {}
+        await Bun.sleep(0);
+      }
+    })();
+    let result: Awaited<ReturnType<typeof installKit>>;
+    try {
+      result = await installKit(
+        {
+          homeDir,
+          packageRoot: process.cwd(),
+          surfaces: ["agent-skills", "workbuddy"],
         },
-      },
-    );
+        {
+          afterSurfacePreconditionCheck: async (surface) => {
+            if (surface !== "agent-skills") return;
+            await rename(agentSkills, parkedAgentSkills);
+            await symlink(outside, agentSkills, "dir");
+          },
+        },
+      );
+      await Bun.sleep(20);
+    } finally {
+      stopMonitoring = true;
+      await monitor;
+    }
 
     expect(result.outcome).toBe("partial");
     expect(result.surfaceResults).toMatchObject([
       { surface: "agent-skills", outcome: "conflict" },
       { surface: "workbuddy", outcome: "applied" },
     ]);
+    expect(outsideBearingObserved).toBe(false);
     await expect(access(join(outside, "bearing"))).rejects.toThrow();
     await expect(access(join(parkedAgentSkills, "bearing"))).rejects.toThrow();
     await access(join(workbuddySkill, "SKILL.md"));

@@ -34,6 +34,10 @@ import {
   installSurfaceDirectory,
   knownInstallSurfaces,
 } from "./install-manifest";
+import {
+  createAnchoredSurfaceLinkTransaction,
+  type SurfaceLinkSnapshot,
+} from "./surface-link-transaction";
 import type {
   GlobalUninstallResult,
   InstallOptions,
@@ -878,7 +882,8 @@ const integrateInstallSurface = async (
   const target = join(path, "bearing");
   const source = join(homeDir, ".bearing/kit/current/skills/bearing");
   let transactionRoot: string | undefined;
-  let mutation: ManagedLinkMutation | undefined;
+  let transaction: Awaited<ReturnType<typeof createAnchoredSurfaceLinkTransaction>> | undefined;
+  let mutationApplied = false;
   try {
     if ((await inspectInstallPath(path)).kind !== "directory") {
       return {
@@ -925,23 +930,43 @@ const integrateInstallSurface = async (
     if (!sameSurfaceDirectory(directoryIdentity, await surfaceDirectoryIdentity(path))) {
       throw new Error(`Skill Directory changed before Agent Surface write: ${path}`);
     }
+    const surfaceSnapshot: SurfaceLinkSnapshot =
+      snapshot.kind === "missing"
+        ? { kind: "missing" }
+        : { kind: "symlink", source: snapshot.source };
+    transaction = await createAnchoredSurfaceLinkTransaction(
+      path,
+      surfaceSnapshot,
+      source,
+      join(transactionRoot, "original"),
+      join(transactionRoot, "rollback"),
+    );
+    if (!sameSurfaceDirectory(directoryIdentity, transaction.identity)) {
+      throw new Error(`Skill Directory changed before Agent Surface write: ${path}`);
+    }
     await hooks.afterSurfacePreconditionCheck?.(surface, path);
-    mutation = await replaceWithManagedLink(snapshot, source, join(transactionRoot, "original"));
+    await transaction.replace();
+    mutationApplied = true;
     if (!sameSurfaceDirectory(directoryIdentity, await surfaceDirectoryIdentity(path))) {
       throw new Error(`Skill Directory changed during Agent Surface write: ${path}`);
     }
-    await discardRetiredOriginal(mutation);
-    mutation = undefined;
+    await transaction.commit();
+    mutationApplied = false;
     await removeEmptyDirectoryWhenPresent(transactionRoot);
     return { surface, path, outcome: "applied" };
   } catch (error) {
     let message = error instanceof Error ? error.message : String(error);
-    if (mutation !== undefined && transactionRoot !== undefined) {
+    if (mutationApplied && transaction !== undefined && transactionRoot !== undefined) {
       try {
-        await restoreManagedLinkMutation(mutation, join(transactionRoot, "rollback"));
+        await transaction.rollback();
+        mutationApplied = false;
       } catch (recoveryError) {
         message = `Agent Surface integration and recovery both failed. Blocked resumption point: ${transactionRoot}. Cause: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`;
       }
+    }
+    if (transaction !== undefined) {
+      await transaction.close();
+      transaction = undefined;
     }
     if (transactionRoot !== undefined) {
       try {
@@ -956,6 +981,8 @@ const integrateInstallSurface = async (
       outcome: "conflict",
       message,
     };
+  } finally {
+    await transaction?.close();
   }
 };
 

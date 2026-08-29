@@ -275,11 +275,7 @@ export const inspectRepositoryIntegrationLifecycle = async (
   }
   const mappableOlderManifest = olderRepositoryManifestSchema.safeParse(parsed);
   const targetPackageVersion = validSemver(packageMetadata.version);
-  if (
-    mappableOlderManifest.success &&
-    targetPackageVersion !== null &&
-    compareSemver(mappableOlderManifest.data.packageVersion, targetPackageVersion) !== 0
-  ) {
+  if (mappableOlderManifest.success && targetPackageVersion !== null) {
     const sourceComparison = compareSemver(
       mappableOlderManifest.data.packageVersion,
       targetPackageVersion,
