@@ -1,3 +1,4 @@
+import { valid as validSemver } from "semver";
 import { z } from "zod";
 import { isPlanningAuditCoverageConsistent } from "./audit-coverage";
 import { languageTagSchema } from "./language-tag";
@@ -398,10 +399,12 @@ export const bearingSchema = z.discriminatedUnion("Type", [
 export const bearingDecodingSchema = z.union([bearingSchema, effortRecordDecodingSchema]);
 
 export const manifestSchema = z.strictObject({
-  schemaVersion: z.literal(1),
-  packageVersion: z.string().min(1),
+  schemaVersion: z.literal(2),
+  packageVersion: z.string().refine((version) => validSemver(version) === version, {
+    message: "Package version must be one strict canonical SemVer.",
+  }),
   status: z.enum(["active", "deactivated"]).optional(),
-  runtime: z.enum(["stable", "development"]).optional(),
+  runtime: z.enum(["stable", "development"]),
   surfaces: uniqueArray(z.enum(["agent-skills", "claude"])).refine(
     (surfaces) => surfaces.length > 0,
     { message: "Select at least one Agent Surface." },
@@ -411,4 +414,13 @@ export const manifestSchema = z.strictObject({
 
 export const repositoryManifestSchema = manifestSchema.extend({
   status: z.enum(["active", "deactivated"]),
+});
+
+export const olderRepositoryManifestSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  packageVersion: manifestSchema.shape.packageVersion,
+  status: z.enum(["active", "deactivated"]),
+  runtime: manifestSchema.shape.runtime.optional(),
+  surfaces: manifestSchema.shape.surfaces,
+  executorProfiles: manifestSchema.shape.executorProfiles,
 });

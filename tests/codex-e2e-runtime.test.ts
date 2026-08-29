@@ -33,6 +33,7 @@ describe("repository Codex E2E policy", () => {
       codexHome: "/tmp/agent-home/.codex",
       disabledOperatorSkillPaths: [],
       readDeniedPaths: ["/tmp/source", "/tmp/source/validation/live-journey/registry.json"],
+      writeAllowedPaths: [],
     });
     for (const step of [launch.initial, launch.resume]) {
       expect(step.arguments).toContain('default_permissions="bearing_live_journey"');
@@ -54,6 +55,7 @@ describe("repository Codex E2E policy", () => {
       codexHome: "/tmp/agent-home/.codex",
       disabledOperatorSkillPaths: [],
       readDeniedPaths: ["/tmp/source", "/tmp/source/validation/live-journey/registry.json"],
+      writeAllowedPaths: [],
       skipGitRepositoryCheck: true,
     });
     expect(nonProjectLaunch.initial.arguments).toContain("--skip-git-repo-check");

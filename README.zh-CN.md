@@ -98,22 +98,19 @@ Issues 与 Discussions 都是公开 GitHub 数据。请勿提交 tokens、secret
 
 #### Terminal fallback
 
-如果你的 Agent 不能执行安装，请使用 interactive maintenance wizard：
+如果 Agent 无法执行安装，请选择并验证一个 exact released version，再运行该 candidate 的显式
+installer：
 
 ```bash
-npx @lagrangee/bearing
+npx @lagrangee/bearing@<resolved-version> install
 ```
 
-Public Preview 的 maintenance 入口是一个无参数 terminal wizard，其中有 Install、Update、
-Repair 和 Global Uninstall 四个选择。Install、Update 与 Repair 会预览 managed targets，并复用
-同一套版本匹配的 bundle transaction；它们不会初始化仓库或启动 Portal。Global Uninstall
-只移除该 bundle、CLI shim 与 Bearing-managed Agent Surface pointers；它保留 Project Catalog
-和所有 repository。
-
-当你主动选择 update 或 repair Bearing 时，重新运行同一个命令。Update 会 stage 一份完整
-bundle，并把它作为整体切换，或恢复上一份完整 bundle。Bearing 不会在后台检查更新。
-Repository deactivation、repository-state removal、显式 package downgrade 与 package-manager
-uninstall 是彼此独立的操作；见 [故障排查](docs/troubleshooting.zh-CN.md)。
+Install 会 stage 并验证一份完整 bundle，然后把它作为整体切换，或恢复上一份完整 bundle。它不会
+初始化 repository 或启动 Portal。裸 `bearing` 只显示简洁 help。显式 `bearing uninstall` 只移除
+Global Kit、canonical CLI 与当前已知的 owned Agent Surface links；它保留 Project Catalog 和
+所有 repository。Older candidate 与 Current Kit Unverifiable 都是 no-write outcomes；见
+[故障排查](docs/troubleshooting.zh-CN.md)。Successful install 会直接打印经典 PATH guidance，且
+不会写入或 source shell profile。
 
 高级用户和 agents 可以使用显式命令；见 [CLI reference](docs/cli.zh-CN.md)。
 

@@ -17,7 +17,10 @@ import { validateMattSkillsV1Contract } from "./providers/matt-skills-v1";
 import type { ReconcileRepositoryResult } from "./reconcile-repository";
 import { reconcileRepository } from "./reconcile-repository";
 import { deactivateRepository, type RepositoryDeactivationResult } from "./repository-deactivation";
-import { inspectRepositoryIntegrationLifecycle } from "./repository-integration-lifecycle";
+import {
+  inspectRepositoryIntegrationLifecycle,
+  type RepositoryUpdateContract,
+} from "./repository-integration-lifecycle";
 import {
   captureRepositoryTargetPreconditions,
   planRepositoryIntegration,
@@ -48,7 +51,7 @@ export type RepositoryConfigurationRequest = Readonly<{
 }>;
 
 type CurrentSelections = Readonly<{
-  runtime: RuntimeChannel;
+  runtime?: RuntimeChannel;
   surfaces: readonly AgentSurface[];
   provider?: Readonly<{ key: "matt-skills/v1"; contractLocator: string }>;
   executorProfiles: readonly string[];
@@ -74,20 +77,18 @@ export type RepositoryConfigurationInspection = Readonly<{
       | "unsupported";
     reason: string;
     removalRequired: boolean;
-    update?: Readonly<{
-      fromPackageVersion: string;
-      toPackageVersion: string;
-      guide: "references/journeys/update.md";
-    }>;
+    update?: RepositoryUpdateContract;
     repositorySchemaVersion?: number;
-    runtimeSchemaVersion?: 1;
+    runtimeSchemaVersion?: 2;
+    noWrite?: true;
+    nextAction?: string;
   }>;
   currentSelections: CurrentSelections;
   installedCapabilityEvidence: Readonly<{
     packageVersion: string;
     packageRoot: string;
-    providerContract: "not-configured" | "supported" | "unsupported";
-    managedPointers: Readonly<Record<AgentSurface, "present" | "absent" | "drifted" | "unsafe">>;
+    providerContract?: "not-configured" | "supported" | "unsupported";
+    managedPointers?: Readonly<Record<AgentSurface, "present" | "absent" | "drifted" | "unsafe">>;
   }>;
   pathSafety: Readonly<{
     safe: boolean;
@@ -102,7 +103,7 @@ export type RepositoryConfigurationInspection = Readonly<{
       | "kit-update-required"
       | "unsupported";
     cache: "missing" | "directory" | "unsafe";
-    catalog: "ready" | "unavailable";
+    catalog?: "ready" | "unavailable";
   }>;
 }>;
 
@@ -187,7 +188,7 @@ const lifecycle = (
 ): RepositoryConfigurationInspection["lifecycle"] => ({
   state: inspected.kind === "invalid-or-unsupported" ? "unsupported" : inspected.kind,
   reason: inspected.reason,
-  removalRequired: inspected.kind === "invalid-or-unsupported",
+  removalRequired: false,
   ...(inspected.update === undefined ? {} : { update: inspected.update }),
   ...(inspected.repositorySchemaVersion === undefined
     ? {}
@@ -195,6 +196,8 @@ const lifecycle = (
   ...(inspected.runtimeSchemaVersion === undefined
     ? {}
     : { runtimeSchemaVersion: inspected.runtimeSchemaVersion }),
+  ...(inspected.noWrite === undefined ? {} : { noWrite: inspected.noWrite }),
+  ...(inspected.nextAction === undefined ? {} : { nextAction: inspected.nextAction }),
 });
 
 const safeRead = async (root: string, target: string): Promise<string | undefined> => {
@@ -209,8 +212,11 @@ const currentSelections = async (
   root: string,
   state: RepositoryConfigurationInspection["lifecycle"]["state"],
 ): Promise<CurrentSelections> => {
-  if (state !== "active" && state !== "deactivated") {
+  if (state === "fresh") {
     return { runtime: "stable", surfaces: [], executorProfiles: [] };
+  }
+  if (state !== "active" && state !== "deactivated") {
+    return { surfaces: [], executorProfiles: [] };
   }
   const manifestSource = await safeRead(root, ".bearing/manifest.json");
   const providerSource = await safeRead(root, ".bearing/provider.json");
@@ -218,10 +224,10 @@ const currentSelections = async (
   try {
     manifestValue = manifestSource === undefined ? undefined : JSON.parse(manifestSource);
   } catch {
-    return { runtime: "stable", surfaces: [], executorProfiles: [] };
+    return { surfaces: [], executorProfiles: [] };
   }
   const manifest = repositoryManifestSchema.safeParse(manifestValue);
-  if (!manifest.success) return { runtime: "stable", surfaces: [], executorProfiles: [] };
+  if (!manifest.success) return { surfaces: [], executorProfiles: [] };
   let provider: CurrentSelections["provider"];
   try {
     const decoded =
@@ -233,7 +239,7 @@ const currentSelections = async (
     provider = undefined;
   }
   return {
-    runtime: manifest.data.runtime ?? "stable",
+    runtime: manifest.data.runtime,
     surfaces: manifest.data.surfaces,
     ...(provider === undefined ? {} : { provider }),
     executorProfiles: manifest.data.executorProfiles,
@@ -299,7 +305,7 @@ const providerEvidence = async (
 export const inspectRepositoryConfiguration = async (options: {
   repoRoot: string;
   packageRoot: string;
-  homeDir: string;
+  homeDir?: string;
 }): Promise<RepositoryConfigurationInspection> => {
   const root = await resolveRepositoryRoot(options.repoRoot);
   const inspectedLifecycle = lifecycle(await inspectRepositoryIntegrationLifecycle(root));
@@ -311,7 +317,10 @@ export const inspectRepositoryConfiguration = async (options: {
     pathFact(root, ".bearing/cache"),
     ...AGENT_SURFACES.map((surface) => pathFact(root, agentSurfaceEntryFile(surface))),
   ]);
-  const catalog = await readCatalogState({ homeDir: options.homeDir });
+  const catalog =
+    options.homeDir === undefined
+      ? undefined
+      : await readCatalogState({ homeDir: options.homeDir });
   const cache = targets.find((item) => item.target === ".bearing/cache");
   return {
     schemaVersion: 1,
@@ -322,11 +331,15 @@ export const inspectRepositoryConfiguration = async (options: {
     installedCapabilityEvidence: {
       packageVersion: packageMetadata.version,
       packageRoot: resolve(options.packageRoot),
-      providerContract: await providerEvidence(root, selections),
-      managedPointers: {
-        "agent-skills": await pointerEvidence(root, "agent-skills", selections.runtime),
-        claude: await pointerEvidence(root, "claude", selections.runtime),
-      },
+      ...(options.homeDir === undefined || selections.runtime === undefined
+        ? {}
+        : {
+            providerContract: await providerEvidence(root, selections),
+            managedPointers: {
+              "agent-skills": await pointerEvidence(root, "agent-skills", selections.runtime),
+              claude: await pointerEvidence(root, "claude", selections.runtime),
+            },
+          }),
     },
     pathSafety: { safe: targets.every((item) => item.safe), targets },
     machineFacts: {
@@ -337,7 +350,9 @@ export const inspectRepositoryConfiguration = async (options: {
           : cache?.kind === "directory"
             ? "directory"
             : "unsafe",
-      catalog: catalog.state === "ready" ? "ready" : "unavailable",
+      ...(catalog === undefined
+        ? {}
+        : { catalog: catalog.state === "ready" ? "ready" : "unavailable" }),
     },
   };
 };
@@ -375,7 +390,7 @@ export const planRepositoryConfiguration = async (
   );
   const retainProfiles = normalizedProfiles(request.retainProfiles);
   const removeProfiles = normalizedProfiles(request.removeProfiles);
-  const runtime = request.runtime ?? inspection.currentSelections.runtime;
+  const runtime = request.runtime ?? inspection.currentSelections.runtime ?? "stable";
   const acceptedDesiredConfiguration = {
     runtime,
     surfaces,
@@ -471,7 +486,7 @@ export const planRepositoryConfiguration = async (
         code: "unsafe-repository-target",
         target: ".bearing",
         message:
-          "Unsupported Preview state is removal-required. Use an explicit Agent-reviewed platform removal, then run Fresh Repository Configuration.",
+          "Unsupported repository state is a no-write result. Follow its owner-specific next action; any repair or removal requires separate Human authority.",
       },
     ];
     canApply = false;

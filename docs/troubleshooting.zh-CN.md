@@ -6,23 +6,44 @@
 
 ## 安装目标冲突
 
-运行 Global Kit wizard，选择 Install、Update 或 Repair，并阅读 target preview。Bearing 会拒绝
-冲突文件和 symbolic links，而不是静默覆盖。
+运行预期 exact package candidate 自带的 `bearing install`。Bearing 会拒绝冲突文件和 symbolic
+links，而不是静默覆盖。
 
 ## Update 中断或 bundle 损坏
 
-重新运行同一个显式 `npx @lagrangee/bearing` lifecycle 入口。Bearing 会先 stage 并验证完整的
+Normal maintenance 使用 `bearing update` 执行一次前台更新检查；只有 newer verified candidate
+获得一次单独确认后才能修改 Kit。Registry failure、missing integrity、repository identity
+mismatch、older npm `latest`、decline 或 cancel 都是 no-write result。Global Kit Update 绝不执行
+Repository Update，也不启动 Portal。
+
+重新运行同一个 verified exact candidate 的 `bearing install` 入口。Bearing 会先 stage 并验证完整的
 CLI 与 single-skill bundle，再执行切换。切换失败会恢复上一份完整 bundle，
 且不会触碰 repository state。不要单独修复某一个 CLI 或 skill 文件，那会拆分版本匹配的 bundle。
 
-如果 installed `kit/current/package.json` 缺失或 malformed，请重新运行预期的 exact candidate。
-Bearing 会把不可信 installed metadata 当作 repair input，先 stage candidate，再替换完整 bundle。
-有效的 installed manifest 仍然约束 downgrade ordering 与 confirmation，repository schema
-compatibility 也始终保持 fail closed。
+如果 installed `kit/current/package.json` 缺失、malformed 或 unsafe，install 会返回 `Current Kit
+Unverifiable`、报告这个 exact target，并且不改变任何 bytes。若 Human 接受恢复，运行
+`bearing uninstall`，再从预期 exact candidate 执行 verified Fresh Install。不要覆盖不可信的
+current target，也不要把它分类为 repair input。
 
 ## 缺少 skill
 
-针对目标 Agent Surface 重新运行 installer。如果你使用多个 surfaces，通过 wizard 或高级命令显式安装两者。
+先确认目标 complete Skill Directory 已存在于 `~/.agents/skills`、`~/.claude/skills` 或
+`~/.workbuddy/skills`，再运行 `bearing install` 并在 keyboard checklist 中选择它。
+Non-interactive caller 可以传入对应的 resolved `--surface` 值。Bearing 不创建缺失的 surface
+directory。User-created copy 属于 unsupported unmanaged integration，不提供 install 或 refresh
+fallback。
+
+## 裸命令不可发现
+
+Canonical absolute locator 仍是 `$HOME/.bearing/bin/bearing`。若要在 current session 使用裸
+`bearing`，运行：
+
+```bash
+export PATH="$HOME/.bearing/bin:$PATH"
+```
+
+若要让未来 terminals 也生效，把同一行加入相应 shell startup profile。Bearing 不会写入、追加或
+source profiles。
 
 ## 缺少 work-management adapter
 
@@ -55,17 +76,14 @@ schema 的 Bearing 版本。旧 runtime 永远不会 downgrade、重写或删除
 release-specific state upgrade，rollback 必须使用该 release 的 verified backup；仅 downgrade
 package 不等于 state rollback。
 
-## 显式 downgrade
+Unsupported 是 no-write 安全结果：response 会给出准确原因，明确说明 repository bytes 未被写入，
+并提供一个针对当前 case 的下一步。Corrupt state 应从 verified backup 恢复，或通过单独授权的
+repository recovery 处理；unsafe 或 unreadable path 回到 filesystem owner；ambiguous meaning 回到
+semantic owner。这些 authority 彼此独立。不要临时编辑 repository 内部内容或 disposable storage
+来冒充 repair。
 
-只有在阅读目标 release 的 compatibility 与 rollback 说明后，才使用精确版本和确认 flag：
-
-```bash
-npx @lagrangee/bearing@<version> install --surface agent-skills --confirm-downgrade
-```
-
-命令会扫描每个 Catalog repository，且仅当所有 repository schema 都可读时才切换完整 bundle。
-SemVer 排序包含 prerelease。确认后只允许同一 minor 内 downgrade，或退回紧邻的上一个 minor；
-跨 major 和跨多个 minor downgrade 会被拒绝。不支持自动 state rollback。
+任何比可信 current Kit 更旧的 exact package candidate 都会无写入地被阻止。基础 installer 不提供
+override 或 compatibility scan。
 
 ## Deactivate、移除 repository state 与 uninstall
 
@@ -87,15 +105,18 @@ Deactivation 保留 canonical state、Provider Configuration、profiles、artifa
 Unsafe `.bearing` namespace 或 manifest 会在任何写入前 fail closed。
 
 Bearing 不提供通用 built-in repository migration、compatibility fallback、Purge、cutover、
-recovery export 或 quarantine path。列明支持的旧 Preview source 可以返回
-`repository-update-required`；Agent follow package-owned guide，展示完整 semantic effect，并等待
-Human 确认。Agent 验证 canonical state，只应用 guide 中已接受的 write scope，然后重建
-disposable Project Read Model；不要编辑 SQLite rows。较新的 repository 返回
-`kit-update-required` 并保持 repository bytes 不变。未知或损坏 state 保持 Unsupported 且不变。
-如果 Human 另行选择 repository removal，先检查 exact paths 并取得显式授权。不要用
-`catalog unregister` 代替 repository removal。
+recovery export 或 quarantine path。语义可安全读取的 older repository 可以返回
+`repository-update-required` 与 installed Kit 的完整 target contract；source version 只作为
+provenance，不是 migration dispatch key。Agent follow package-owned guide，展示一个简洁、完整的
+candidate，并等待 Human 确认。Agent 保留 canonical state，只写 target manifest，然后在不执行
+provider acquisition 的情况下为 Active target 重建 disposable Project Read Model。Deactivated
+target 保持 Deactivated，并且不创建 active Project Read Model；Reactivation 是独立的 Repository
+Configuration decision。较新的 repository 返回 `kit-update-required`，保持 repository bytes
+不变，并指向需要单独授权的 Global Kit Update。未知或损坏 state 保持 Unsupported 且不变。如果
+Human 另行选择 repository removal，先检查 exact paths 并取得显式授权。不要用 `catalog
+unregister` 代替 repository removal。
 
-Wizard Global Uninstall 只移除 Global Kit bundle、CLI shim 与 Bearing-managed Agent Surface
+显式 `bearing uninstall` 只移除 Global Kit bundle、CLI shim 与 Bearing-managed Agent Surface
 pointers。它保留 Project Catalog 与 repository state。Repository Deactivation 与
 repository-state removal 是不同的 Agent-owned lifecycle operations。
 

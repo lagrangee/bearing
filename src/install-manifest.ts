@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentSurface, InstallOptions } from "./types";
+import type { InstallOptions, InstallSurface } from "./types";
 
 export type FileTargetPlan = Readonly<{
   kind?: "file";
@@ -25,8 +25,13 @@ export type TargetPlan = FileTargetPlan | SymlinkTargetPlan | DeleteTargetPlan;
 
 const skillNames = ["bearing"];
 
-const surfaceRoot = (homeDir: string, surface: AgentSurface): string =>
-  surface === "agent-skills" ? join(homeDir, ".agents/skills") : join(homeDir, ".claude/skills");
+export const knownInstallSurfaces = ["agent-skills", "claude", "workbuddy"] as const;
+
+export const installSurfaceDirectory = (homeDir: string, surface: InstallSurface): string => {
+  if (surface === "agent-skills") return join(homeDir, ".agents/skills");
+  if (surface === "claude") return join(homeDir, ".claude/skills");
+  return join(homeDir, ".workbuddy/skills");
+};
 
 const listFiles = async (root: string, directory: string): Promise<string[]> => {
   const absolute = join(root, directory);
@@ -82,7 +87,7 @@ export const buildInstallPlans = async (
   });
 
   for (const surface of [...new Set(options.surfaces)].sort()) {
-    const root = surfaceRoot(options.homeDir, surface);
+    const root = installSurfaceDirectory(options.homeDir, surface);
     for (const skillName of skillNames) {
       plans.push({
         kind: "symlink",

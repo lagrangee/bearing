@@ -24,7 +24,7 @@ cache creation, provider I/O, or mutation.
 All runtime reference paths below are relative to this `SKILL.md`. Load only the direct references
 selected for the current operation.
 
-Treat an applied Global Kit Install, Update, or Repair, or a coherent Development receipt with a
+Treat an applied Global Kit Install or Update, or a coherent Development receipt with a
 different runtime identity or source provenance, as a new runtime contract. Re-read this
 `SKILL.md` completely and every already-selected direct reference before the next functional
 operation. A no-op, failed, or rolled-back transition does not change the loaded contract.
@@ -51,6 +51,7 @@ operation. A no-op, failed, or rolled-back transition does not change the loaded
 | Meaning | Command form |
 | --- | --- |
 | Repository Configuration state | `bearing configure inspect --repo <repo-root>` |
+| Global Kit Update check | `bearing update` |
 | Sealed Repository Configuration candidate | `bearing configure plan <accepted-arguments>` |
 | Accepted sealed Repository Configuration change | `bearing configure apply <accepted-arguments> --plan-token <token>` |
 | Project Context | `bearing inspect project --repo <repo-root>` |
@@ -66,6 +67,14 @@ operation. A no-op, failed, or rolled-back transition does not change the loaded
 
 Commands return typed outcomes. `complete` proves only the coverage declared by that operation; it
 does not prove readiness, acceptance, lifecycle transition, or mutation authority.
+
+Global Kit Update is a user-level transaction independent from Repository Update. Explicit
+`bearing update` authorizes one foreground npm `latest` update check only. A newer verified exact
+candidate requires separate Human confirmation before mutation; decline, cancellation, older or
+unverifiable evidence, and `Current Kit Unverifiable` are no-write results. Update preserves only
+existing package-owned Agent Surface links and does not select a newly detected surface, configure
+a repository, run Agent-guided Repository Update, or start Portal. Exact-version selection stays
+with the package entry that invokes that exact candidate's installer.
 
 ## Direct reference routing
 

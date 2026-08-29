@@ -2,13 +2,14 @@
 
 [English](cli.md)
 
-大多数用户应从这里开始：
+大多数用户应让 Agent 先验证一个 exact published candidate，再运行它自带的 installer：
 
 ```bash
-npx @lagrangee/bearing
+npx --yes @lagrangee/bearing@<resolved-version> install
 ```
 
-Wizard 是公开的 Global Kit maintenance 路径。下面的显式命令面向 agents、smoke tests 和高级恢复。
+Package candidate 与 installed CLI 提供相同的 explicit 基础 primitives。裸 `bearing` 只显示简洁
+help；它不会安装、配置 repository 或启动 Portal。
 
 ## Help
 
@@ -19,36 +20,51 @@ bearing --version
 
 ## 维护用户级 Global Kit
 
-在 interactive terminal 中无参数运行 `bearing`，然后选择 Install、Update、Repair 或 Global
-Uninstall。取消不产生写入。Install、Update 与 Repair 使用下文所述的同一套完整 bundle
-transaction。
-
 ```bash
 bearing install
 bearing install --surface agent-skills
-bearing install --surface agent-skills --surface claude
+bearing install --surface agent-skills --surface claude --surface workbuddy
+bearing update
+bearing uninstall
 ```
 
-不带 `--surface` 时，该命令只安装完整 bundle 与 canonical CLI。这是供自行管理 Skill Directory
-integration 的 Agent 使用的 non-interactive seam。提供一个或多个 `--surface` 时，Bearing 也会管理
-选定的 known Agent Surface links。
+Interactive terminal 不带 `--surface` 时，Bearing 只检测已经完整存在的 `~/.agents/skills`、
+`~/.claude/skills` 与 `~/.workbuddy/skills`，并显示一个使用 up/down、Space 与 Enter 的 checklist；
+选择 zero surfaces 也是有效结果。Non-interactive caller 传入已经解析的 supported `--surface`
+值，不模拟 keyboard input，也不推断 current surface。Bearing 不创建缺失的 surface directory、
+不扫描 arbitrary location，也不接受 arbitrary target。
 
-Install、update 与 repair 会先 stage 一份完整的 package-owned bundle，再切换
+Install 会先 stage 并验证一份完整的 package-owned bundle，再切换
 `$HOME/.bearing/kit/current`。所选 Agent Surface links 与 canonical CLI 都通过这一份 bundle
-解析。切换失败会恢复上一份完整 bundle，且绝不会修改 repository state。重新运行 exact
-candidate 也会修复缺失或 malformed 的 installed `kit/current/package.json`；有效的 installed
-metadata 仍然约束 downgrade checks。
+解析。随后每个 selected surface 会作为 package-owned symbolic link 独立处理，并分别报告
+`applied`、`no-op` 或 `conflict`；一个 conflict 不会回滚 Kit 或另一个 surface。Regular file、
+directory、non-owned link 与 user-created copy 会被保留为 unsupported unmanaged integration。
+Kit 切换失败会恢复上一份完整 bundle，且绝不会修改 repository state。任何 older exact
+candidate 都会无写入地被阻止，也不存在 override。若当前 `kit/current/package.json` 缺失、
+malformed 或 unsafe，结果为 `Current Kit Unverifiable`；install 不会覆盖它。恢复需要另行授权
+`bearing uninstall`，然后从预期的 exact candidate 执行 verified Fresh Install。
 
-显式 downgrade 是高级恢复操作：
+每次成功安装后，Bearing 都会直接打印：
 
 ```bash
-npx @lagrangee/bearing@<version> install --surface agent-skills --confirm-downgrade
+export PATH="$HOME/.bearing/bin:$PATH"
 ```
 
-Downgrade 必须带确认 flag，并会只读检查每个 Catalog repository 的兼容性。Patch 与 prerelease
-按 SemVer 排序。只支持同一 minor 内 downgrade，或退回紧邻的上一个 minor；跨 major 和跳过
-多个 minor 会被拒绝。它不等于 repository-state rollback。若 state 已升级，必须先恢复该
-release 对应的 verified backup；否则 downgrade 会 fail closed。
+执行这条 export 只影响 current session。若希望未来 terminal 也能发现裸 `bearing`，可把同一行
+加入相应 shell startup profile。CLI 不会写入或 source 任何 profile。
+
+### 检查 Global Kit 更新
+
+`bearing update` 会在前台执行一次 npm `latest` 更新检查。它会先验证返回的 exact version、npm
+integrity 与 canonical repository identity，再和可信的 current Kit 比较；不会执行 background
+polling。已经是最新版本时返回 no-op；older 或 unverifiable candidate 会无写入地被阻止。
+
+Newer verified candidate 会显示 `Update available: <current> → <target>`。更新检查本身不授权
+mutation：interactive terminal 会在调用该 exact candidate 自带的 `bearing install` 前取得一次单独
+确认。Decline、cancel、registry failure 与 candidate verification failure 都会保持完整 current Kit
+byte-for-byte 不变。Update 只延续 existing package-owned Agent Surface links；不会显示 surface
+checklist、接入 newly detected surface、配置 repository、执行 Agent-guided Repository Update 或启动
+Portal。任意 exact-version selection 仍由 package manager 调用所选 exact candidate 的 installer。
 
 ## 配置一个仓库
 
@@ -63,6 +79,11 @@ bearing configure apply --intent activate --repo . --surface agent-skills \
   --provider-contract docs/agents/issue-tracker.md --executor-mode skip \
   --plan-token <sealedPlanToken>
 ```
+
+Fresh public Repository Configuration 会写入完整的 schema 2 target，并明确包含
+`runtime: stable`。Source repository 使用独立、显式的 `runtime: development` target。Runtime 是
+target identity，不是让 Human 选择的 migration mode；缺失或无效 Runtime 不会在 Stable 与
+Development 之间 default、fallback 或 silent-convert。
 
 Inspect 不写入，也不选择 preference 或 product outcome。Plan 只有在所有 material choice 已解决时
 才返回 exact targets、preconditions、preservation effects 与绑定当前 repository generation 的
@@ -86,10 +107,11 @@ bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanTok
 
 Deactivation 移除 managed pointer 与 disposable cache。它保留 canonical state、Provider
 Configuration、profiles、artifacts 与 native work。Catalog unregister 是后续独立报告的 stage。
-一个列明的旧 Preview source 可以返回 Repository Update Required，并提供 package-owned、
-Human-confirmed semantic update guide。Agent 验证 canonical state，只在 guide 要求语义变化时
-更新它，并重建而非迁移 disposable Project Read Model。较新的 state 返回 Kit Update Required；
-未知或损坏的 state 保持 Unsupported 且不变。Bearing
+语义可安全读取的 older repository 可以返回 Repository Update Required，同时提供 installed Kit
+的完整 target contract 与需要 Human 确认的 semantic update guide。Source version 只作为
+provenance，不是 migration dispatch key。Agent 保留 canonical state，只写 target manifest，
+并在不进行 provider acquisition 的情况下重建而非迁移 disposable Project Read Model。较新的
+state 返回 Kit Update Required；未知或损坏的 state 保持 Unsupported 且不变。Bearing
 不提供通用 built-in migration、compatibility fallback、cutover、silent repair 或 repository
 Purge。Repository removal 是独立、显式授权、由 Agent 审阅的 platform operation。
 
@@ -139,7 +161,7 @@ Portal 前台运行并打印 loopback URL。安装版本支持时，可用 `BEAR
 
 ## Global Uninstall 与 package-manager 边界
 
-Wizard Global Uninstall 会移除 `$HOME/.bearing/kit/current`、canonical CLI shim，以及仅由
+显式 `bearing uninstall` 会移除 `$HOME/.bearing/kit/current`、canonical CLI shim，以及仅由
 Bearing 管理的 Agent Surface pointers。它不读取或修改 Project Catalog、repository canonical
 state、Provider Configuration、profiles、artifacts 或 native work。它不是 repository
 Deactivation 或 repository-state removal；Bearing 也不提供 repository-scoped package-uninstall

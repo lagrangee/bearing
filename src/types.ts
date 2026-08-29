@@ -17,19 +17,28 @@ export type AdvisoryId = "planning-audit:current";
 export type AdvisoryFreshness = Readonly<Partial<Record<AdvisoryId, SemanticFreshness>>>;
 
 export type AgentSurface = "agent-skills" | "claude";
+export type InstallSurface = AgentSurface | "workbuddy";
 export type RuntimeChannel = "stable" | "development";
 
 export type InstallOptions = Readonly<{
   homeDir: string;
   packageRoot: string;
-  surfaces: readonly AgentSurface[];
-  confirmDowngrade?: boolean;
+  surfaces: readonly InstallSurface[];
+}>;
+
+export type SurfaceIntegrationResult = Readonly<{
+  surface: InstallSurface;
+  path: string;
+  outcome: "applied" | "no-op" | "conflict";
+  message?: string;
 }>;
 
 export type InstallResult = Readonly<{
-  outcome: "applied" | "no-op";
+  outcome: "applied" | "no-op" | "partial";
+  kitOutcome: "applied" | "no-op";
   cliPath: string;
   changedTargets: readonly string[];
+  surfaceResults: readonly SurfaceIntegrationResult[];
 }>;
 
 export type GlobalUninstallResult = Readonly<{

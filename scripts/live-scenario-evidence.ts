@@ -8,7 +8,7 @@ const fail = (message: string): never => {
 };
 
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/u);
-const artifactSchema = z
+export const liveScenarioArtifactSchema = z
   .object({
     path: z.string().min(1),
     file: z.string().min(1),
@@ -37,7 +37,7 @@ const releaseCandidatePackageSchema = z
         runAttempt: z.number().int().positive(),
       })
       .strict(),
-    artifact: artifactSchema,
+    artifact: liveScenarioArtifactSchema,
     matrixDefinitionSha256: sha256Schema,
   })
   .strict();
@@ -49,7 +49,23 @@ const localRehearsalPackageSchema = z
     packageVersion: z.string().min(1),
     sourceHead: z.string().min(1),
     worktreeSha256: sha256Schema,
-    artifact: artifactSchema,
+    artifact: liveScenarioArtifactSchema,
+    fixtures: z
+      .object({
+        olderGlobalKit: z
+          .object({
+            packageName: z.literal("@lagrangee/bearing"),
+            packageVersion: z.literal("0.1.1"),
+            source: z.object({
+              kind: z.literal("npm"),
+              spec: z.literal("@lagrangee/bearing@0.1.1"),
+            }),
+            artifact: liveScenarioArtifactSchema,
+          })
+          .strict(),
+      })
+      .strict()
+      .optional(),
     matrixDefinitionSha256: sha256Schema,
   })
   .strict();

@@ -91,6 +91,7 @@ export const installLiveScenarioProduct = async (input: {
   tarball: string;
   installRoot: string;
   agentHome: string;
+  installGlobalKit?: boolean;
 }): Promise<string> => {
   await mkdir(input.installRoot, { recursive: true });
   await run(
@@ -108,11 +109,45 @@ export const installLiveScenarioProduct = async (input: {
     { cwd: input.installRoot, home: input.agentHome },
   );
   const program = join(input.installRoot, "node_modules/.bin/bearing");
+  if (input.installGlobalKit === false) return program;
   await run([program, "install"], { cwd: input.installRoot, home: input.agentHome });
   const skillTarget = join(input.agentHome, ".bearing/kit/current/skills/bearing");
   const skillEntry = join(input.agentHome, "skill-directory/bearing");
   await symlink(relative(join(input.agentHome, "skill-directory"), skillTarget), skillEntry);
   return program;
+};
+
+export const materializeCompleteGlobalKitFromPackage = async (input: {
+  tarball: string;
+  installRoot: string;
+  agentHome: string;
+  repositoryRoot: string;
+}): Promise<string> => {
+  await mkdir(join(input.agentHome, ".agents/skills"), { recursive: true });
+  await mkdir(input.installRoot, { recursive: true });
+  await run(
+    [
+      "npm",
+      "install",
+      "--offline",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      "--prefix",
+      input.installRoot,
+      input.tarball,
+    ],
+    { cwd: input.installRoot, home: input.agentHome },
+  );
+  const productProgram = join(input.installRoot, "node_modules/.bin/bearing");
+  await run([productProgram, "install", "--surface", "agent-skills"], {
+    cwd: input.repositoryRoot,
+    home: input.agentHome,
+  });
+  const skillTarget = join(input.agentHome, ".bearing/kit/current/skills/bearing");
+  const skillEntry = join(input.agentHome, "skill-directory/bearing");
+  await symlink(relative(join(input.agentHome, "skill-directory"), skillTarget), skillEntry);
+  return productProgram;
 };
 
 const activate = async (input: {
@@ -244,7 +279,7 @@ const materializeDevelopmentRepositoryUpdateSource = async (input: {
   }
   await writeFile(
     manifestPath,
-    `${JSON.stringify({ ...manifest, packageVersion: "0.1.1" }, null, 2)}\n`,
+    `${JSON.stringify({ ...manifest, schemaVersion: 1, packageVersion: "0.1.1" }, null, 2)}\n`,
   );
   const inspected = JSON.parse(
     await run(
@@ -358,9 +393,12 @@ export const materializeLiveScenarioProductState = async (input: {
 }): Promise<void> => {
   const materializer = input.scenario.fixture.materializer;
   if (
-    ["fresh-repository", "installed-unconfigured-repository", "non-project-directory"].includes(
-      materializer,
-    )
+    [
+      "fresh-repository",
+      "fresh-installation-repository",
+      "installed-unconfigured-repository",
+      "non-project-directory",
+    ].includes(materializer)
   ) {
     return;
   }
@@ -382,6 +420,31 @@ export const materializeLiveScenarioProductState = async (input: {
     return;
   }
   await activate(input);
+  if (materializer === "older-kit-active-stable-repository") {
+    const manifestPath = join(input.repositoryRoot, ".bearing/manifest.json");
+    const target = z
+      .object({
+        status: z.literal("active"),
+        surfaces: z.array(z.string()),
+        executorProfiles: z.array(z.string()),
+      })
+      .passthrough()
+      .parse(JSON.parse(await readFile(manifestPath, "utf8")));
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          packageVersion: "0.1.1",
+          status: target.status,
+          surfaces: target.surfaces,
+          executorProfiles: target.executorProfiles,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
   if (
     [
       "active-planning-repository",

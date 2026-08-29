@@ -6,24 +6,45 @@ When something goes wrong, preserve source truth first.
 
 ## Installation target conflict
 
-Run the Global Kit wizard, select Install, Update, or Repair, and read the target preview. Bearing
-refuses conflicting files and symbolic links rather than silently overwriting them.
+Run the intended exact package candidate's `bearing install` command. Bearing refuses conflicting
+files and symbolic links rather than silently overwriting them.
 
 ## Interrupted update or corrupted bundle
 
-Run the same explicit `npx @lagrangee/bearing` lifecycle entrypoint again. Bearing stages and
+For normal maintenance, `bearing update` performs one foreground update check and requires a
+separate confirmation before a newer verified candidate can mutate the Kit. Registry failure,
+missing integrity, repository identity mismatch, an older npm `latest`, decline, or cancellation
+is a no-write result. Global Kit Update never runs Repository Update or starts Portal.
+
+Run the same verified exact candidate's `bearing install` entrypoint again. Bearing stages and
 validates the complete CLI and single-skill bundle before switching it. A failed
 switch restores the previous complete bundle; it does not touch repository state. Do not repair one
 CLI or skill file independently, because that would split the version-compatible bundle.
 
-If the installed `kit/current/package.json` is missing or malformed, rerun the exact intended
-candidate. Bearing treats untrusted installed metadata as repair input, stages the candidate first,
-and replaces the complete bundle. A valid installed manifest is still authoritative for downgrade
-ordering and confirmation, and repository schema compatibility always remains fail closed.
+If the installed `kit/current/package.json` is missing, malformed, or unsafe, install returns
+`Current Kit Unverifiable`, reports that exact target, and changes no bytes. If the Human accepts
+recovery, run `bearing uninstall`, then perform a verified Fresh Install from the intended exact
+candidate. Do not overwrite or classify the untrustworthy current target as a repair input.
 
 ## Missing skill
 
-Run the installer again for the intended Agent Surface. If you use multiple surfaces, install both explicitly through the wizard or advanced command path.
+Confirm that the intended complete Skill Directory already exists at `~/.agents/skills`,
+`~/.claude/skills`, or `~/.workbuddy/skills`, then run `bearing install` again and select it in the
+keyboard checklist. Non-interactive callers may pass the corresponding resolved `--surface` value.
+Bearing does not create missing surface directories. User-created copies are unsupported unmanaged
+integrations and receive no install or refresh fallback.
+
+## Bare command is not discoverable
+
+The canonical absolute locator remains `$HOME/.bearing/bin/bearing`. To expose bare `bearing` in
+the current session, run:
+
+```bash
+export PATH="$HOME/.bearing/bin:$PATH"
+```
+
+For future terminals, add the same line to the appropriate shell startup profile. Bearing does not
+write, append, or source profiles.
 
 ## Missing work-management adapter
 
@@ -56,19 +77,15 @@ documented readable range includes that schema. An older runtime never downgrade
 deletes newer state. If a release-specific state upgrade already occurred, rollback requires that
 release's verified backup; package downgrade alone is not state rollback.
 
-## Explicit downgrade
+Unsupported is a no-write safety outcome: the response gives the exact reason, states that no
+repository bytes were written, and names one case-specific next step. Corrupt state should be
+restored from a verified backup or handled through separately authorized repository recovery;
+unsafe or unreadable paths return to their filesystem owner; ambiguous meaning returns to its
+semantic owner. These are distinct authorities. Do not edit repository internals or disposable
+storage as an improvised repair.
 
-Use an exact package version and confirmation only after reviewing that release's compatibility and
-rollback notes:
-
-```bash
-npx @lagrangee/bearing@<version> install --surface agent-skills --confirm-downgrade
-```
-
-The command scans every Catalog repository and switches the complete bundle only when all repository
-schemas are readable. SemVer ordering includes prereleases. A confirmed downgrade may move within
-one minor or to the immediately preceding minor only; cross-major and multi-minor downgrades are
-refused. Automatic state rollback is unsupported.
+An exact package candidate older than the trusted current Kit is always blocked without writes.
+There is no override or compatibility scan in the basic installer.
 
 ## Deactivate, remove repository state, and uninstall
 
@@ -91,16 +108,19 @@ reports a failure separately. An unsafe `.bearing` namespace or manifest fails c
 write.
 
 Bearing has no generic built-in repository migration, compatibility fallback, Purge, cutover,
-recovery export, or quarantine path. A listed supported older Preview source can return
-`repository-update-required`; follow the package-owned guide, show the complete semantic effect,
-and wait for Human confirmation. Validate canonical state, apply only the guide's accepted write
-scope, then rebuild the disposable Project Read Model. Do not edit SQLite rows. A newer repository
-returns `kit-update-required` and keeps repository bytes unchanged. Unknown or corrupt state
-remains Unsupported and unchanged. If the Human separately chooses
-repository removal, inspect exact paths and obtain explicit authorization. Do not use
-`catalog unregister` as a substitute for repository removal.
+recovery export, or quarantine path. Safely readable older repository meaning can return
+`repository-update-required` with the installed Kit's complete target contract; source version is
+provenance, not a migration dispatch key. Follow the package-owned guide, show one concise complete
+candidate, and wait for Human confirmation. Preserve canonical state, write only the target
+manifest, then rebuild the disposable Project Read Model without provider acquisition for an Active
+target. A Deactivated target remains Deactivated and creates no active Project Read Model;
+Reactivation is a separate Repository Configuration decision. A newer repository returns
+`kit-update-required`, keeps repository bytes unchanged, and points to a separately authorized
+Global Kit Update. Unknown or corrupt state remains Unsupported and unchanged. If the Human
+separately chooses repository removal, inspect exact paths and obtain explicit authorization. Do
+not use `catalog unregister` as a substitute for repository removal.
 
-Wizard Global Uninstall removes only the Global Kit bundle, CLI shim, and Bearing-managed Agent
+Explicit `bearing uninstall` removes only the Global Kit bundle, CLI shim, and Bearing-managed Agent
 Surface pointers. It preserves the Project Catalog and repository state. Repository Deactivation
 and repository-state removal are separate Agent-owned lifecycle operations.
 

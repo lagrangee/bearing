@@ -1,7 +1,8 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "packageVersion": "0.0.0-g2",
   "status": "active",
+  "runtime": "stable",
   "surfaces": [
     "agent-skills"
   ],

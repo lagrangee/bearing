@@ -62,6 +62,11 @@ const conditionPresentation: Readonly<
     nextAction:
       "Open Bearing in the Agent Surface for reviewed platform removal before Fresh Configuration.",
   },
+  "repository-recovery-required": {
+    explanation: "The repository integration is invalid or unsupported.",
+    nextAction:
+      "Open Bearing in the Agent Surface for the exact reason and owner-specific recovery step; repair or removal requires separate authority.",
+  },
 };
 
 const providerFailureCondition = (
@@ -214,13 +219,13 @@ export const createPortalProviderApplicationService = (options: {
     if (resolved.kind !== "available") {
       const condition =
         resolved.kind === "unavailable" && resolved.project.availability === "invalid-manifest"
-          ? "removal-required"
+          ? "repository-recovery-required"
           : resolved.kind === "catalog-failed"
             ? "provider-unavailable"
             : "baseline-missing";
       const code =
-        condition === "removal-required"
-          ? "repository-integration-removal-required"
+        condition === "repository-recovery-required"
+          ? "repository-integration-recovery-required"
           : resolved.kind === "catalog-failed"
             ? resolved.diagnostic.code
             : "provider-baseline-unavailable";
@@ -236,7 +241,9 @@ export const createPortalProviderApplicationService = (options: {
     const lifecycle = await inspectRepositoryIntegrationLifecycle(repoRoot);
     if (lifecycle.kind !== "active") {
       const condition =
-        lifecycle.kind === "invalid-or-unsupported" ? "removal-required" : "baseline-missing";
+        lifecycle.kind === "invalid-or-unsupported"
+          ? "repository-recovery-required"
+          : "baseline-missing";
       return attention(
         request.action,
         condition,
@@ -244,8 +251,8 @@ export const createPortalProviderApplicationService = (options: {
         [],
         [
           applicationDiagnostic(
-            condition === "removal-required"
-              ? "repository-integration-removal-required"
+            condition === "repository-recovery-required"
+              ? "repository-integration-recovery-required"
               : "provider-baseline-unavailable",
             entryId,
             lifecycle.reason,

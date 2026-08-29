@@ -95,18 +95,18 @@ const readLifecycleManifest = async (
       "Repository Bearing manifest has no supported schema identity. Use the compatible Bearing version or restore a verified backup before lifecycle changes.",
     );
   }
-  if (parsed.schemaVersion > 1) {
+  if (parsed.schemaVersion > 2) {
     throw new Error(
-      `Repository uses newer Bearing schema ${parsed.schemaVersion}; this runtime reads schema 1 only. Install a compatible newer Bearing version. Lifecycle changes fail closed and preserve repository state.`,
+      `Repository uses newer Bearing schema ${parsed.schemaVersion}; this runtime reads schema 2 only. Install a compatible newer Bearing version. Lifecycle changes fail closed and preserve repository state.`,
     );
   }
-  if (parsed.schemaVersion !== 1) {
+  if (parsed.schemaVersion !== 2) {
     throw new Error(`Repository Bearing schema ${parsed.schemaVersion} is unsupported.`);
   }
   const manifest = lifecycleManifestSchema.safeParse(parsed);
   if (!manifest.success) {
     throw new Error(
-      "Repository Bearing manifest is not a valid 0.1.1 lifecycle manifest. Use recovery or the compatible Bearing version before lifecycle changes.",
+      "Repository Bearing manifest is not a valid 0.1.2 lifecycle manifest. Use recovery or the compatible Bearing version before lifecycle changes.",
     );
   }
   return manifest.data;

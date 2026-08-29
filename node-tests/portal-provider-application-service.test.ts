@@ -178,7 +178,7 @@ test("failed provider acquisition retains the last valid observed time and a typ
   }
 });
 
-test("Provider Application keeps baseline, provider, storage, update, and removal conditions distinct", async () => {
+test("Provider Application keeps baseline, provider, storage, update, and repository recovery conditions distinct", async () => {
   const fixture = await createRepresentativeProject("representative");
   try {
     const root = await realpath(fixture.root);
@@ -301,19 +301,21 @@ test("Provider Application keeps baseline, provider, storage, update, and remova
     );
 
     await writeFile(`${root}/.bearing/manifest.json`, "{invalid\n");
-    const removal = await createPortalProviderApplicationService({
+    const repositoryRecovery = await createPortalProviderApplicationService({
       readCatalog: catalogFor(root),
     }).apply("fixture", {
       version: 1,
       action: "source-load",
       binding: { provider: "matt-skills/v1", nativeScope: ".scratch/scope-001" },
     });
-    assert.equal(removal.state, "attention");
-    if (removal.state !== "attention") throw new Error("Expected removal attention.");
-    assert.equal(removal.condition, "removal-required");
+    assert.equal(repositoryRecovery.state, "attention");
+    if (repositoryRecovery.state !== "attention") {
+      throw new Error("Expected repository recovery attention.");
+    }
+    assert.equal(repositoryRecovery.condition, "repository-recovery-required");
     assert.deepEqual(
-      removal.diagnostics.map(({ reference }) => reference),
-      ["repository-integration-removal-required"],
+      repositoryRecovery.diagnostics.map(({ reference }) => reference),
+      ["repository-integration-recovery-required"],
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });

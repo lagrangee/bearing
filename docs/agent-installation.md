@@ -21,10 +21,13 @@ repository, and npm supplies package integrity. Record the returned version as
 
 ## 2. Install the complete canonical bundle
 
-Run the bundle-only, non-interactive installation seam:
+Run the non-interactive installation seam. If your own complete Skill Directory is one of the
+three supported locations below, add its resolved `--surface` value; otherwise install only the
+bundle:
 
 ```bash
 npx --yes @lagrangee/bearing@<resolved-version> install
+npx --yes @lagrangee/bearing@<resolved-version> install --surface <agent-skills|claude|workbuddy>
 ```
 
 The published package installs one complete, version-matched canonical bundle under
@@ -32,32 +35,64 @@ The published package installs one complete, version-matched canonical bundle un
 the installed `package.json` has `<resolved-version>` and that
 `skills/bearing/SKILL.md` and its referenced files are present.
 
-This command does not select or imitate a known Agent Surface. It does not configure any
-repository, does not start Portal, and does not create Bearing planning objects. Do not treat the
-current working directory as setup consent.
+Successful install prints `export PATH="$HOME/.bearing/bin:$PATH"`. This affects only the current
+session unless the Human separately authorizes an exact startup-profile change; the CLI never
+writes, appends, or sources a profile. Continue to use the canonical absolute CLI locator when bare
+command convenience is not requested.
+
+An older exact candidate is always a no-write result. If install reports `Current Kit
+Unverifiable`, do not overwrite the reported target. Explain that recovery is separately authorized
+`bearing uninstall`, followed by a verified Fresh Install from the intended exact candidate.
+
+The machine-readable seam accepts only resolved supported surface selections; it does not infer the
+current Agent Surface or emulate terminal key input. Installation does not configure any
+repository, start Portal, or create Bearing planning objects. Do not treat the current working
+directory as setup consent.
 
 ## 3. Integrate the Bearing skill
 
-Identify your own Skill Directory and its supported integration mechanisms. Prefer a symbolic link
-from its `bearing` entry to:
+Bearing recognizes only these complete, already-existing Skill Directories:
+
+- Agent Skills: `~/.agents/skills`
+- Claude: `~/.claude/skills`
+- WorkBuddy: `~/.workbuddy/skills`
+
+Do not create a missing directory structure, scan another location, or pass an arbitrary target.
+For each selected supported surface, Bearing manages one package-owned symbolic link from the
+directory's `bearing` entry to:
 
 ```text
 $HOME/.bearing/kit/current/skills/bearing
 ```
 
-Check the destination before writing. Do not replace user-owned content. If your environment cannot
-use a symbolic link, use a hard copy or another mechanism that it supports, explain that choice to
-the Human, and own its refresh and cleanup:
+Bearing preserves current owned links, repairs broken or older package-owned links, and reports an
+exact conflict for regular files, directories, or non-owned links. It processes surfaces only after
+the complete Kit transaction and reports each one independently, so a conflict does not roll back
+the Kit or another successful surface. User-created copies are an unsupported unmanaged
+integration; Bearing does not install, refresh, or silently fall back to copies.
 
-- After each Bearing install, update, or repair, replace the complete copy from the current bundle.
-- During cleanup, remove only the integration that you created. Package-manager uninstall and
-  Bearing Global Uninstall remain separate operations.
+## 4. Maintain the installed Global Kit
 
-A symbolic link follows complete-bundle updates automatically. Recheck that the linked skill opens
-after installation or maintenance, and remove the link when the Human asks you to clean up that
-integration.
+For a normal latest update check, run the canonical installed CLI:
 
-## 4. Hand off repository setup
+```bash
+$HOME/.bearing/bin/bearing update
+```
+
+The explicit command authorizes only one foreground npm `latest` update check. It verifies the
+exact published version, npm integrity, and canonical repository identity before comparison. A
+newer candidate displays `Update available: <current> → <target>` and requires one separate Human
+confirmation before the verified exact candidate's installer runs. Decline, cancellation, an
+older candidate, or unverifiable registry evidence changes no bytes. `Current Kit Unverifiable`
+routes to separately authorized `bearing uninstall` and a verified Fresh Install; do not overwrite
+or repair it through update.
+
+Global Kit Update preserves or safely redirects only existing package-owned surface links. It does
+not repeat surface selection, connect newly detected surfaces, configure a repository, perform
+Agent-guided Repository Update, or start Portal. These are independent authorities. Exact-version
+selection remains at the package-manager entry that invokes that exact candidate's installer.
+
+## 5. Hand off repository setup
 
 After installation and Skill Directory integration, inspect without writing:
 

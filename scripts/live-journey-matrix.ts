@@ -71,7 +71,8 @@ const inheritedJourneyEnvironmentKeys = [
 
 export const createCodexJourneyEnvironment = (
   operatorEnvironment: Readonly<Record<string, string | undefined>>,
-  launchEnvironment: Readonly<{ HOME: string; CODEX_HOME: string }>,
+  launchEnvironment: Readonly<{ HOME: string; CODEX_HOME: string; SHELL?: string }>,
+  options: Readonly<{ includeCanonicalBearingBin?: boolean }> = {},
 ): Readonly<Record<string, string>> => {
   const environment: Record<string, string> = {};
   for (const key of inheritedJourneyEnvironmentKeys) {
@@ -86,8 +87,10 @@ export const createCodexJourneyEnvironment = (
   if (environment["PATH"].length === 0) {
     fail("Codex Journey launch requires one PATH entry outside operator Codex configuration.");
   }
-  environment["PATH"] =
-    `${join(launchEnvironment.HOME, ".bearing", "bin")}${delimiter}${environment["PATH"]}`;
+  if (options.includeCanonicalBearingBin !== false) {
+    environment["PATH"] =
+      `${join(launchEnvironment.HOME, ".bearing", "bin")}${delimiter}${environment["PATH"]}`;
+  }
   environment["ZDOTDIR"] = join(launchEnvironment.HOME, ".shell");
   return Object.freeze({ ...environment, ...launchEnvironment });
 };

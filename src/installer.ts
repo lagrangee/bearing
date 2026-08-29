@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   chmod,
   link,
+  lstat,
   mkdir,
   open,
   readdir,
@@ -13,10 +14,9 @@ import {
   symlink,
   unlink,
 } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { compare as compareSemver, parse as parseSemver, valid as validSemver } from "semver";
 import writeFileAtomic from "write-file-atomic";
-import { readCatalogState } from "./catalog/store";
 import {
   ensureInstallDirectoryTargets,
   inspectInstallPath,
@@ -29,8 +29,22 @@ import type {
   SymlinkTargetPlan,
   TargetPlan,
 } from "./install-manifest";
-import { buildBundlePlans } from "./install-manifest";
-import type { AgentSurface, GlobalUninstallResult, InstallOptions, InstallResult } from "./types";
+import {
+  buildBundlePlans,
+  installSurfaceDirectory,
+  knownInstallSurfaces,
+} from "./install-manifest";
+import {
+  createAnchoredSurfaceLinkTransaction,
+  type SurfaceLinkSnapshot,
+} from "./surface-link-transaction";
+import type {
+  GlobalUninstallResult,
+  InstallOptions,
+  InstallResult,
+  InstallSurface,
+  SurfaceIntegrationResult,
+} from "./types";
 
 type FileSnapshot = Readonly<{
   kind: "file";
@@ -194,6 +208,12 @@ const restoreSnapshots = async (snapshots: readonly Snapshot[]): Promise<void> =
 
 export type InstallTargetWriter = (plan: TargetPlan, ordinal: number) => Promise<void>;
 
+type InstallPlanResult = Readonly<{
+  outcome: "applied" | "no-op";
+  cliPath: string;
+  changedTargets: readonly string[];
+}>;
+
 export { preflightInstallTargets };
 
 export const applyInstallPlans = async (
@@ -203,7 +223,7 @@ export const applyInstallPlans = async (
   beforeSnapshot: () => Promise<void> = async () => {},
   afterWrite: () => Promise<readonly TargetPlan[] | undefined> = async () => undefined,
   afterAllWrites: () => Promise<void> = async () => {},
-): Promise<InstallResult> => {
+): Promise<InstallPlanResult> => {
   await ensureInstallDirectoryTargets(
     homeDir,
     plans.map((plan) => plan.target),
@@ -302,6 +322,8 @@ type ManagedLinkMutation = Readonly<{
   retiredOriginal?: string;
 }>;
 
+const BEARING_PACKAGE_NAME = "@lagrangee/bearing";
+
 const parsePackageVersion = (bytes: string, target: string): string => {
   let parsed: unknown;
   try {
@@ -312,6 +334,8 @@ const parsePackageVersion = (bytes: string, target: string): string => {
   if (
     typeof parsed !== "object" ||
     parsed === null ||
+    !("name" in parsed) ||
+    parsed.name !== BEARING_PACKAGE_NAME ||
     !("version" in parsed) ||
     typeof parsed.version !== "string" ||
     parsed.version.length === 0
@@ -319,6 +343,11 @@ const parsePackageVersion = (bytes: string, target: string): string => {
     throw new Error(`Bearing package metadata is invalid: ${target}`);
   }
   return parsed.version;
+};
+
+const currentKitUnverifiable = (target: string, reason: string, cause?: unknown): Error => {
+  const message = `Current Kit Unverifiable: ${target} ${reason}. No bytes were changed. Recovery requires separately authorized \`bearing uninstall\`, then a verified Fresh Install from the intended exact package candidate.`;
+  return cause === undefined ? new Error(message) : new Error(message, { cause });
 };
 
 const packageVersionAt = async (root: string): Promise<string> => {
@@ -335,21 +364,32 @@ const parseVersion = (version: string): NonNullable<ReturnType<typeof parseSemve
   return parsed;
 };
 
-const installedPackageVersionAt = async (root: string): Promise<string | undefined> => {
+const installedPackageVersionAt = async (root: string): Promise<string> => {
   const target = join(root, "package.json");
   const state = await inspectInstallPath(target);
-  if (state.kind === "missing") return undefined;
   if (state.kind !== "file" || state.linkCount !== 1) {
-    throw new Error(`Installed Bearing package metadata must be one safe regular file: ${target}`);
+    throw currentKitUnverifiable(target, "is not one safe regular package manifest");
   }
-  let version: string;
   try {
-    version = parsePackageVersion(await readFile(target, "utf8"), target);
+    const version = parsePackageVersion(await readFile(target, "utf8"), target);
     parseVersion(version);
-  } catch {
-    return undefined;
+    return version;
+  } catch (error) {
+    throw currentKitUnverifiable(
+      target,
+      "does not contain a trustworthy Bearing package identity",
+      error,
+    );
   }
-  return version;
+};
+
+export const installedGlobalKitVersion = async (homeDirectory: string): Promise<string> => {
+  const current = join(resolve(homeDirectory), ".bearing/kit/current");
+  const state = await inspectInstallPath(current);
+  if (state.kind !== "directory") {
+    throw currentKitUnverifiable(current, "is not one complete installed Kit directory");
+  }
+  return installedPackageVersionAt(current);
 };
 
 export const comparePackageVersions = (left: string, right: string): number => {
@@ -374,81 +414,14 @@ export const comparePackageVersions = (left: string, right: string): number => {
   return 0;
 };
 
-export const assertSupportedDowngrade = (
+export const assertCandidateIsNotOlder = (
   candidateVersion: string,
   installedVersion: string,
-  confirmed: boolean,
 ): void => {
   if (comparePackageVersions(candidateVersion, installedVersion) >= 0) return;
-  const candidate = parseVersion(candidateVersion);
-  const installed = parseVersion(installedVersion);
-  if (candidate.major !== installed.major) {
-    throw new Error(
-      `Downgrade from Bearing ${installedVersion} to ${candidateVersion} crosses a major-version boundary and is unsupported. Use the release-specific migration and verified backup path.`,
-    );
-  }
-  if (installed.minor - candidate.minor > 1) {
-    throw new Error(
-      `Downgrade from Bearing ${installedVersion} to ${candidateVersion} skips multiple minor versions and is unsupported. Downgrade through each documented minor and restore its verified backup when required.`,
-    );
-  }
-  if (!confirmed) {
-    throw new Error(
-      `Downgrade from Bearing ${installedVersion} to ${candidateVersion} requires --confirm-downgrade. A package downgrade is not repository-state rollback.`,
-    );
-  }
-};
-
-const readRepositorySchemaVersion = async (repoRoot: string): Promise<number> => {
-  const target = join(repoRoot, ".bearing/manifest.json");
-  const targetState = await inspectInstallPath(target);
-  if (targetState.kind !== "file" || targetState.linkCount !== 1) {
-    throw new Error(
-      `Bearing update is blocked because a Catalog repository has no safe regular manifest: ${repoRoot}. Repair or deactivate that repository before retrying.`,
-    );
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(await readFile(target, "utf8"));
-  } catch (error) {
-    throw new Error(
-      `Bearing update is blocked because a Catalog repository has no readable manifest: ${repoRoot}. Repair or deactivate that repository before retrying.`,
-      { cause: error },
-    );
-  }
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !("schemaVersion" in parsed) ||
-    typeof parsed.schemaVersion !== "number" ||
-    !Number.isInteger(parsed.schemaVersion)
-  ) {
-    throw new Error(
-      `Bearing update is blocked by an invalid repository manifest: ${repoRoot}. Repair it with a compatible Bearing version before retrying.`,
-    );
-  }
-  return parsed.schemaVersion;
-};
-
-const assertCatalogCompatibility = async (homeDir: string): Promise<void> => {
-  const state = await readCatalogState({ homeDir });
-  if (state.state === "failed") {
-    throw new Error(
-      "Bearing update is blocked because the Project Catalog is unusable. Run confirmed Catalog reset and Repository Configuration before retrying.",
-    );
-  }
-  const incompatible: string[] = [];
-  for (const entry of state.document.entries) {
-    const schemaVersion = await readRepositorySchemaVersion(entry.repoRoot);
-    if (schemaVersion !== 1) incompatible.push(`${entry.repoRoot} (schema ${schemaVersion})`);
-  }
-  if (incompatible.length > 0) {
-    throw new Error(
-      `Bearing update is blocked because this bundle reads repository schema 1 only: ${incompatible.join(
-        ", ",
-      )}. Install a compatible Bearing version or restore the version-specific verified backup; Bearing will not rewrite or discard repository state.`,
-    );
-  }
+  throw new Error(
+    `Older Candidate Blocked: installed Bearing ${installedVersion} is newer than exact candidate ${candidateVersion}. No bytes were changed. Downgrade, compatibility scan, and force options are not supported.`,
+  );
 };
 
 const removeExactTree = async (target: string): Promise<void> => {
@@ -742,11 +715,9 @@ const replaceWithManagedLink = async (
 ): Promise<ManagedLinkMutation> => {
   let retiredOriginal: string | undefined;
   if (snapshot.kind === "symlink") {
-    throw new Error(
-      `Managed-link replacement received an already managed link: ${snapshot.target}`,
-    );
-  }
-  if (snapshot.kind === "legacy-cli") {
+    await quarantineExpectedSymlink(snapshot.target, snapshot.source, quarantine);
+    retiredOriginal = quarantine;
+  } else if (snapshot.kind === "legacy-cli") {
     await rename(snapshot.target, quarantine);
     const state = await inspectInstallPath(quarantine);
     if (
@@ -820,37 +791,215 @@ const bundleMatches = async (
 
 const skillNamesForInstall = ["bearing"] as const;
 
+export type DetectedInstallSurface = Readonly<{
+  surface: InstallSurface;
+  path: string;
+}>;
+
+export const detectInstallSurfaces = async (
+  homeDirectory: string,
+): Promise<readonly DetectedInstallSurface[]> => {
+  const homeDir = resolve(homeDirectory);
+  const detected: DetectedInstallSurface[] = [];
+  for (const surface of knownInstallSurfaces) {
+    const path = installSurfaceDirectory(homeDir, surface);
+    try {
+      if ((await inspectInstallPath(path)).kind !== "directory") continue;
+      await ensureInstallDirectoryTargets(homeDir, [join(path, "bearing")]);
+    } catch {
+      continue;
+    }
+    detected.push({ surface, path });
+  }
+  return detected;
+};
+
 const managedSurfaceTargets = (
   homeDir: string,
 ): readonly {
   target: string;
   source: string;
-  selectedBy: AgentSurface;
+  selectedBy: InstallSurface;
 }[] =>
-  (["agent-skills", "claude"] as const).flatMap((surface) =>
+  knownInstallSurfaces.flatMap((surface) =>
     skillNamesForInstall.map((skillName) => ({
-      target: join(
-        homeDir,
-        surface === "agent-skills" ? ".agents/skills" : ".claude/skills",
-        skillName,
-      ),
+      target: join(installSurfaceDirectory(homeDir, surface), skillName),
       source: join(homeDir, ".bearing/kit/current/skills", skillName),
       selectedBy: surface,
     })),
   );
 
+const isOwnedSurfaceSource = (homeDir: string, target: string, source: string): boolean => {
+  const kitRoot = join(homeDir, ".bearing/kit");
+  const normalized = normalizedLinkTarget(target, source);
+  const fromKit = relative(kitRoot, normalized);
+  const segments = fromKit.split(sep);
+  return (
+    fromKit !== "" &&
+    fromKit !== ".." &&
+    !fromKit.startsWith(`..${sep}`) &&
+    !isAbsolute(fromKit) &&
+    segments.length >= 3 &&
+    segments.at(-2) === "skills" &&
+    segments.at(-1) === "bearing"
+  );
+};
+
+export const installedOwnedSurfaces = async (
+  homeDirectory: string,
+): Promise<readonly InstallSurface[]> => {
+  const homeDir = resolve(homeDirectory);
+  const surfaces: InstallSurface[] = [];
+  for (const { target, selectedBy } of managedSurfaceTargets(homeDir)) {
+    const state = await inspectInstallPath(target);
+    if (state.kind !== "symbolic-link") continue;
+    if (isOwnedSurfaceSource(homeDir, target, await readlink(target))) surfaces.push(selectedBy);
+  }
+  return [...new Set(surfaces)];
+};
+
+type SurfaceDirectoryIdentity = Readonly<{ device: number; inode: number }>;
+
+const surfaceDirectoryIdentity = async (path: string): Promise<SurfaceDirectoryIdentity> => {
+  const metadata = await lstat(path);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+    throw new Error(`Skill Directory is not an existing directory: ${path}`);
+  }
+  return { device: metadata.dev, inode: metadata.ino };
+};
+
+const sameSurfaceDirectory = (
+  expected: SurfaceDirectoryIdentity,
+  actual: SurfaceDirectoryIdentity,
+): boolean => expected.device === actual.device && expected.inode === actual.inode;
+
+const integrateInstallSurface = async (
+  homeDir: string,
+  surface: InstallSurface,
+  hooks: InstallTransactionHooks,
+): Promise<SurfaceIntegrationResult> => {
+  const path = installSurfaceDirectory(homeDir, surface);
+  const target = join(path, "bearing");
+  const source = join(homeDir, ".bearing/kit/current/skills/bearing");
+  let transactionRoot: string | undefined;
+  let transaction: Awaited<ReturnType<typeof createAnchoredSurfaceLinkTransaction>> | undefined;
+  let mutationApplied = false;
+  try {
+    if ((await inspectInstallPath(path)).kind !== "directory") {
+      return {
+        surface,
+        path,
+        outcome: "conflict",
+        message: `Skill Directory is not an existing directory: ${path}`,
+      };
+    }
+    await ensureInstallDirectoryTargets(homeDir, [target]);
+    const directoryIdentity = await surfaceDirectoryIdentity(path);
+
+    const state = await inspectInstallPath(target);
+    let snapshot: ManagedLinkSnapshot;
+    if (state.kind === "missing") {
+      snapshot = { kind: "missing", target };
+    } else if (state.kind === "symbolic-link") {
+      const existingSource = await readlink(target);
+      if (normalizedLinkTarget(target, existingSource) === source) {
+        return { surface, path, outcome: "no-op" };
+      }
+      if (!isOwnedSurfaceSource(homeDir, target, existingSource)) {
+        return {
+          surface,
+          path,
+          outcome: "conflict",
+          message: `Non-owned symbolic link is preserved: ${target}`,
+        };
+      }
+      snapshot = { kind: "symlink", target, source: existingSource };
+    } else {
+      return {
+        surface,
+        path,
+        outcome: "conflict",
+        message: `${state.kind === "file" ? "Regular file" : "Directory"} is preserved: ${target}`,
+      };
+    }
+
+    transactionRoot = join(homeDir, ".bearing/kit", `.surface-link-${randomUUID()}`);
+    await mkdir(transactionRoot, { mode: 0o700 });
+    await hooks.beforeSurfaceWrite?.(surface, path);
+    await ensureInstallDirectoryTargets(homeDir, [target]);
+    if (!sameSurfaceDirectory(directoryIdentity, await surfaceDirectoryIdentity(path))) {
+      throw new Error(`Skill Directory changed before Agent Surface write: ${path}`);
+    }
+    const surfaceSnapshot: SurfaceLinkSnapshot =
+      snapshot.kind === "missing"
+        ? { kind: "missing" }
+        : { kind: "symlink", source: snapshot.source };
+    transaction = await createAnchoredSurfaceLinkTransaction(
+      path,
+      surfaceSnapshot,
+      source,
+      join(transactionRoot, "original"),
+      join(transactionRoot, "rollback"),
+    );
+    if (!sameSurfaceDirectory(directoryIdentity, transaction.identity)) {
+      throw new Error(`Skill Directory changed before Agent Surface write: ${path}`);
+    }
+    await hooks.afterSurfacePreconditionCheck?.(surface, path);
+    await transaction.replace();
+    mutationApplied = true;
+    if (!sameSurfaceDirectory(directoryIdentity, await surfaceDirectoryIdentity(path))) {
+      throw new Error(`Skill Directory changed during Agent Surface write: ${path}`);
+    }
+    await transaction.commit();
+    mutationApplied = false;
+    await removeEmptyDirectoryWhenPresent(transactionRoot);
+    return { surface, path, outcome: "applied" };
+  } catch (error) {
+    let message = error instanceof Error ? error.message : String(error);
+    if (mutationApplied && transaction !== undefined && transactionRoot !== undefined) {
+      try {
+        await transaction.rollback();
+        mutationApplied = false;
+      } catch (recoveryError) {
+        message = `Agent Surface integration and recovery both failed. Blocked resumption point: ${transactionRoot}. Cause: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`;
+      }
+    }
+    if (transaction !== undefined) {
+      await transaction.close();
+      transaction = undefined;
+    }
+    if (transactionRoot !== undefined) {
+      try {
+        await removeEmptyDirectoryIfEmpty(transactionRoot);
+      } catch (cleanupError) {
+        message = `${message} Cleanup remains at: ${transactionRoot}. Cause: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`;
+      }
+    }
+    return {
+      surface,
+      path,
+      outcome: "conflict",
+      message,
+    };
+  } finally {
+    await transaction?.close();
+  }
+};
+
 export type InstallTransactionHooks = Readonly<{
   afterCurrentMoved?: () => Promise<void> | void;
+  beforeSurfaceWrite?: (surface: InstallSurface, path: string) => Promise<void> | void;
+  afterSurfacePreconditionCheck?: (surface: InstallSurface, path: string) => Promise<void> | void;
 }>;
 
 export type GlobalUninstallTransactionHooks = Readonly<{
   removeDetachedBundle?: (target: string) => Promise<void>;
 }>;
 
-export const installKit = async (
+const installGlobalKit = async (
   options: InstallOptions,
   hooks: InstallTransactionHooks = {},
-): Promise<InstallResult> => {
+): Promise<InstallPlanResult> => {
   const homeDir = resolve(options.homeDir);
   const kitRoot = join(homeDir, ".bearing/kit");
   const current = join(kitRoot, "current");
@@ -861,38 +1010,16 @@ export const installKit = async (
   const candidateVersion = await packageVersionAt(options.packageRoot);
   const installedVersion =
     currentState.kind === "directory" ? await installedPackageVersionAt(current) : undefined;
-  if (installedVersion !== undefined) {
-    assertSupportedDowngrade(candidateVersion, installedVersion, options.confirmDowngrade === true);
-  }
-  if (currentState.kind === "directory") await assertCatalogCompatibility(homeDir);
+  if (installedVersion !== undefined) assertCandidateIsNotOlder(candidateVersion, installedVersion);
 
   const cliTarget = join(homeDir, ".bearing/bin/bearing");
   const cliSource = join(current, "dist/cli.js");
-  const selected = new Set(options.surfaces);
-  const surfaceTargets = selected.size === 0 ? [] : managedSurfaceTargets(homeDir);
-  await ensureInstallDirectoryTargets(homeDir, [
-    cliTarget,
-    ...surfaceTargets.map((item) => item.target),
-  ]);
+  await ensureInstallDirectoryTargets(homeDir, [cliTarget]);
   const cliSnapshot = await inspectManagedLink(
     cliTarget,
     cliSource,
     currentState.kind === "directory" ? join(current, "dist/cli.js") : undefined,
   );
-  const surfaceSnapshots = new Map<string, ManagedLinkSnapshot>();
-  for (const item of surfaceTargets) {
-    const state = await inspectInstallPath(item.target);
-    if (selected.has(item.selectedBy)) {
-      surfaceSnapshots.set(item.target, await inspectManagedLink(item.target, item.source));
-      continue;
-    }
-    if (state.kind === "symbolic-link") {
-      const source = await readlink(item.target);
-      if (source === item.source || normalizedLinkTarget(item.target, source) === item.source) {
-        surfaceSnapshots.set(item.target, { kind: "symlink", target: item.target, source });
-      }
-    }
-  }
   const transaction = randomUUID();
   const staging = join(kitRoot, `.staged-${transaction}`);
   const backup = join(kitRoot, `.previous-${transaction}`);
@@ -910,15 +1037,7 @@ export const installKit = async (
     if ((await packageVersionAt(staging)) !== candidateVersion) {
       throw new Error("Staged Bearing bundle package version does not match the candidate.");
     }
-    const linksAlreadyCurrent =
-      cliSnapshot.kind === "symlink" &&
-      surfaceTargets.every((item) => {
-        const snapshot = surfaceSnapshots.get(item.target);
-        return selected.has(item.selectedBy)
-          ? snapshot?.kind === "symlink"
-          : snapshot === undefined;
-      });
-    if ((await bundleMatches(current, staging, bundlePlans)) && linksAlreadyCurrent) {
+    if ((await bundleMatches(current, staging, bundlePlans)) && cliSnapshot.kind === "symlink") {
       await removeExactTree(staging);
       return { outcome: "no-op", cliPath: cliTarget, changedTargets: [] };
     }
@@ -928,20 +1047,6 @@ export const installKit = async (
         await replaceWithManagedLink(cliSnapshot, cliSource, nextLinkRetirement("original")),
       );
     }
-    for (const item of surfaceTargets) {
-      const snapshot = surfaceSnapshots.get(item.target);
-      if (selected.has(item.selectedBy)) {
-        if (snapshot?.kind === "symlink") continue;
-        if (snapshot === undefined) throw new Error(`Missing preflight state: ${item.target}`);
-        mutatedLinks.push(
-          await replaceWithManagedLink(snapshot, item.source, nextLinkRetirement("original")),
-        );
-        continue;
-      }
-      if (snapshot?.kind === "symlink") {
-        mutatedLinks.push(await removeManagedLink(snapshot, nextLinkRetirement("original")));
-      }
-    }
     if (currentState.kind === "directory") {
       await rename(current, backup);
       oldMoved = true;
@@ -949,6 +1054,9 @@ export const installKit = async (
     }
     await rename(staging, current);
     switched = true;
+    if (!(await bundleMatches(current, staging, bundlePlans))) {
+      throw new Error(`Final Bearing Kit validation failed at exact target: ${current}`);
+    }
     for (const mutation of mutatedLinks) await discardRetiredOriginal(mutation);
     await removeEmptyDirectoryWhenPresent(linkTransaction);
   } catch (error) {
@@ -1005,9 +1113,10 @@ export const installKit = async (
       }
     }
     if (recoveryErrors.length > 0) {
-      throw new Error("Bearing kit installation and complete-bundle recovery both failed.", {
-        cause: new AggregateError([error, ...recoveryErrors]),
-      });
+      throw new Error(
+        `Bearing kit installation and complete-bundle recovery both failed. Blocked resumption point: transaction ${transaction} under ${kitRoot}. Inspect only these exact transaction locators before retrying: current=${current}, previous=${backup}, candidate=${staging}, links=${linkTransaction}.`,
+        { cause: new AggregateError([error, ...recoveryErrors]) },
+      );
     }
     throw new Error("Bearing kit installation failed; the previous complete bundle was restored.", {
       cause: error,
@@ -1018,14 +1127,40 @@ export const installKit = async (
   const changedTargets = [
     ".bearing/kit/current/",
     ...(cliSnapshot.kind === "symlink" ? [] : [relative(homeDir, cliTarget)]),
-    ...mutatedLinks
-      .filter((mutation) => mutation.original.target !== cliTarget)
-      .map((mutation) => relative(homeDir, mutation.original.target)),
   ].sort();
   return {
     outcome: "applied",
     cliPath: cliTarget,
     changedTargets,
+  };
+};
+
+export const installKit = async (
+  options: InstallOptions,
+  hooks: InstallTransactionHooks = {},
+): Promise<InstallResult> => {
+  const homeDir = resolve(options.homeDir);
+  const kit = await installGlobalKit({ ...options, homeDir }, hooks);
+  const selectedSurfaces = [...new Set(options.surfaces)];
+  const surfaceResults: SurfaceIntegrationResult[] = [];
+  for (const surface of selectedSurfaces) {
+    surfaceResults.push(await integrateInstallSurface(homeDir, surface, hooks));
+  }
+  const changedSurfaceTargets = surfaceResults
+    .filter((result) => result.outcome === "applied")
+    .map((result) => relative(homeDir, join(result.path, "bearing")));
+  const hasConflict = surfaceResults.some((result) => result.outcome === "conflict");
+  const hasAppliedSurface = changedSurfaceTargets.length > 0;
+  return {
+    outcome: hasConflict
+      ? "partial"
+      : kit.outcome === "applied" || hasAppliedSurface
+        ? "applied"
+        : "no-op",
+    kitOutcome: kit.outcome,
+    cliPath: kit.cliPath,
+    changedTargets: [...kit.changedTargets, ...changedSurfaceTargets].sort(),
+    surfaceResults,
   };
 };
 
@@ -1100,7 +1235,7 @@ export const uninstallGlobalKit = async (
     await removeEmptyDirectoryIfEmpty(kitRoot);
   } catch (error) {
     throw new Error(
-      `Outcome: partial\nBearing Global Kit targets were detached, but cleanup is incomplete. Inspect only these exact recovery locations: ${detachedBundle}, ${linkTransaction}. Reinstall or Repair from the exact package candidate remains supported.`,
+      `Outcome: partial\nBearing Global Kit targets were detached, but cleanup is incomplete. Inspect only these exact recovery locations: ${detachedBundle}, ${linkTransaction}. After cleanup, a separately authorized verified Fresh Install from the intended exact package candidate remains supported.`,
       { cause: error },
     );
   }

@@ -164,10 +164,10 @@ const buildFreshRepositoryPlans = async (
       bytes: Buffer.from(
         `${JSON.stringify(
           {
-            schemaVersion: 1,
+            schemaVersion: 2,
             packageVersion: await packageVersion(options.packageRoot),
             status: "active",
-            ...(options.runtime === "development" ? { runtime: "development" as const } : {}),
+            runtime: options.runtime ?? "stable",
             surfaces,
             executorProfiles: profiles,
           },

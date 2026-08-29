@@ -116,12 +116,20 @@ const codexE2EPermissionProfileConfiguration = (input: {
   repositoryRoot: string;
   isolatedHome: string;
   readDeniedPaths: readonly string[];
+  writeAllowedPaths: readonly string[];
 }) => {
   if (
     input.readDeniedPaths.length === 0 ||
-    [input.repositoryRoot, input.isolatedHome, ...input.readDeniedPaths].some(
-      (path) => !isAbsolute(path),
-    )
+    [
+      input.repositoryRoot,
+      input.isolatedHome,
+      ...input.readDeniedPaths,
+      ...input.writeAllowedPaths,
+    ].some((path) => !isAbsolute(path)) ||
+    input.writeAllowedPaths.some((path) => {
+      const relation = relative(input.isolatedHome, path);
+      return relation === "" || relation.startsWith("..") || isAbsolute(relation);
+    })
   ) {
     throw new Error("Codex E2E permission paths must be non-empty absolute paths.");
   }
@@ -131,8 +139,11 @@ const codexE2EPermissionProfileConfiguration = (input: {
   const deniedPaths = input.readDeniedPaths
     .map((path) => `${JSON.stringify(path)}="deny"`)
     .join(",");
+  const allowedPaths = input.writeAllowedPaths
+    .map((path) => `${JSON.stringify(path)}="write"`)
+    .join(",");
   const gitMetadata = `${JSON.stringify(join(input.repositoryRoot, ".git"))}="write"`;
-  return `permissions.${CODEX_E2E_PERMISSION_PROFILE}={workspace_roots={${workspaceRoots}},filesystem={":root"="read",":workspace_roots"="write",${gitMetadata},${deniedPaths}},network={enabled=false}}`;
+  return `permissions.${CODEX_E2E_PERMISSION_PROFILE}={workspace_roots={${workspaceRoots}},filesystem={":root"="read",":workspace_roots"="write",${gitMetadata}${allowedPaths.length === 0 ? "" : `,${allowedPaths}`},${deniedPaths}},network={enabled=false}}`;
 };
 
 export const probeCodexE2EPermissionProfile = async (input: {
@@ -146,12 +157,14 @@ export const probeCodexE2EPermissionProfile = async (input: {
   scenarioWorkspace: string;
   installationEntryPath: string;
   readDeniedPaths: readonly string[];
+  writeAllowedPaths: readonly string[];
 }): Promise<void> => {
   const scenarioContainer = dirname(input.scenarioWorkspace);
   const permissionProfile = codexE2EPermissionProfileConfiguration({
     repositoryRoot: input.repositoryRoot,
     isolatedHome: input.isolatedHome,
     readDeniedPaths: input.readDeniedPaths,
+    writeAllowedPaths: input.writeAllowedPaths,
   });
   const controlPath = join(input.repositoryRoot, ".bearing-live-journey-permission-probe");
   const siblingProbePath = join(
@@ -183,12 +196,19 @@ export const probeCodexE2EPermissionProfile = async (input: {
         "/bin/sh",
         "-c",
         [
+          'control="$1"',
           'cat "$1" >/dev/null || exit 81',
           'cat "$2" >/dev/null || exit 82',
           'if cat "$3" >/dev/null 2>&1; then exit 83; fi',
           'if cat "$4" >/dev/null 2>&1; then exit 84; fi',
           'if /usr/bin/git -C "$5" show HEAD:validation/live-journey/registry.json >/dev/null 2>&1; then exit 85; fi',
           'if cat "$6" >/dev/null 2>&1; then exit 86; fi',
+          "shift 6",
+          'for path in "$@"; do',
+          '  probe="$path/.bearing-live-journey-write-probe"',
+          '  ln -s "$control" "$probe" || exit 87',
+          '  rm "$probe" || exit 88',
+          "done",
         ].join("\n"),
         "bearing-live-journey-permission-probe",
         controlPath,
@@ -197,6 +217,7 @@ export const probeCodexE2EPermissionProfile = async (input: {
         input.registryPath,
         input.sourceRoot,
         siblingProbePath,
+        ...input.writeAllowedPaths,
       ],
       {
         cwd: input.repositoryRoot,
@@ -227,8 +248,10 @@ export const codexE2ELaunchContract = (input: {
   codexHome: string;
   disabledOperatorSkillPaths: readonly string[];
   readDeniedPaths: readonly string[];
+  writeAllowedPaths: readonly string[];
   program?: string;
   skipGitRepositoryCheck?: boolean;
+  shellProgram?: string;
 }) => {
   const permissionProfile = codexE2EPermissionProfileConfiguration(input);
   const hardening: string[] = [];
@@ -260,7 +283,11 @@ export const codexE2ELaunchContract = (input: {
     permissionProfile,
   ] as const;
   return Object.freeze({
-    environment: Object.freeze({ HOME: input.isolatedHome, CODEX_HOME: input.codexHome }),
+    environment: Object.freeze({
+      HOME: input.isolatedHome,
+      CODEX_HOME: input.codexHome,
+      ...(input.shellProgram === undefined ? {} : { SHELL: input.shellProgram }),
+    }),
     initial: Object.freeze({
       program,
       workingDirectory: input.repositoryRoot,

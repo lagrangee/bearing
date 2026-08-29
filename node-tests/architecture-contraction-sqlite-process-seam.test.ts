@@ -32,9 +32,10 @@ const makeRepository = async (root: string): Promise<void> => {
   await writeFile(
     join(root, ".bearing/manifest.json"),
     `${JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageVersion: packageMetadata.version,
       status: "active",
+      runtime: "stable",
       surfaces: ["agent-skills"],
       executorProfiles: [],
     })}\n`,

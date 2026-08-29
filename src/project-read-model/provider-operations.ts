@@ -690,6 +690,8 @@ export const rebuildProjectReadModel = async (
     acquisitionCount: number;
     generationFingerprint?: string;
     missingEvidenceScopes: readonly string[];
+    reason?: string;
+    resumptionPoint?: "project-read-model-rebuild";
   }>
 > => {
   const root = await resolveRepositoryRoot(repoRoot);
@@ -709,7 +711,12 @@ export const rebuildProjectReadModel = async (
       schemaVersion: 1,
       command: "cache-rebuild",
       outcome: "recovery-required",
-      result: { acquisitionCount: 0, missingEvidenceScopes: [] },
+      result: {
+        acquisitionCount: 0,
+        missingEvidenceScopes: [],
+        reason: state.reason,
+        resumptionPoint: "project-read-model-rebuild",
+      },
       diagnostics: [],
     };
   }

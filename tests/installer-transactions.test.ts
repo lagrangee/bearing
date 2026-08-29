@@ -21,16 +21,27 @@ describe("Bearing kit installer", () => {
       throw new Error("Installer tests could not build the package CLI fixture.");
   });
 
-  test("does not leave a partial surface install when preflight fails", async () => {
+  test("keeps successful surfaces and the Kit when another surface conflicts", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-");
     const packageRoot = process.cwd();
+    await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
     await mkdir(join(homeDir, ".claude"), { recursive: true });
     await writeFile(join(homeDir, ".claude/skills"), "occupied\n");
 
-    await expect(
-      installKit({ homeDir, packageRoot, surfaces: ["agent-skills", "claude"] }),
-    ).rejects.toThrow("Installation target is not a directory");
-    await expect(access(join(homeDir, ".agents/skills/bearing/SKILL.md"))).rejects.toThrow();
+    const result = await installKit({
+      homeDir,
+      packageRoot,
+      surfaces: ["agent-skills", "claude"],
+    });
+
+    expect(result.outcome).toBe("partial");
+    expect(result.surfaceResults).toMatchObject([
+      { surface: "agent-skills", outcome: "applied" },
+      { surface: "claude", outcome: "conflict" },
+    ]);
+    await access(join(homeDir, ".bearing/kit/current/package.json"));
+    await access(join(homeDir, ".agents/skills/bearing/SKILL.md"));
+    expect(await readFile(join(homeDir, ".claude/skills"), "utf8")).toBe("occupied\n");
   });
 
   test("restores targets when a later write fails", async () => {
@@ -145,7 +156,7 @@ describe("Bearing kit installer", () => {
     await expect(access(join(homeDir, ".bearing"))).rejects.toThrow();
   });
 
-  test("reports exact cleanup locations and keeps exact-candidate Repair available", async () => {
+  test("reports exact cleanup locations and permits a later exact-candidate Fresh Install", async () => {
     const homeDir = await makeTemporaryDirectory("bearing-home-uninstall-cleanup-");
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
 
@@ -160,12 +171,13 @@ describe("Bearing kit installer", () => {
     await expect(access(join(homeDir, ".bearing/bin/bearing"))).rejects.toThrow();
     await expect(access(join(homeDir, ".agents/skills/bearing"))).rejects.toThrow();
 
-    const repaired = await installKit({
+    await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
+    const freshInstall = await installKit({
       homeDir,
       packageRoot: process.cwd(),
       surfaces: ["agent-skills"],
     });
-    expect(repaired.outcome).toBe("applied");
+    expect(freshInstall.outcome).toBe("applied");
     await access(join(homeDir, ".bearing/kit/current/package.json"));
     await access(join(homeDir, ".bearing/bin/bearing"));
     await access(join(homeDir, ".agents/skills/bearing/SKILL.md"));

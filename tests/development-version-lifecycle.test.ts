@@ -58,9 +58,11 @@ test("the explicit lifecycle keeps source finalization, Candidate Freeze, and Pu
   expect(runbook).toMatch(
     /failed unpublished Candidate[\s\S]*same stable Package Version[\s\S]*new\s+source[\s\S]*artifact[\s\S]*approval[\s\S]*Matrix\s+identit/iu,
   );
-  expect(updateGuide).toMatch(
-    /0\.1\.1 Active Development Configuration[\s\S]*exact `0\.1\.2-dev` Development Kit[\s\S]*Canonical Bearing State[\s\S]*byte-for-byte unchanged[\s\S]*no\s+provider acquisition/iu,
-  );
+  expect(updateGuide).toMatch(/complete target contract[\s\S]*Required target fields/iu);
+  expect(updateGuide).toMatch(/Canonical Bearing State[\s\S]*byte-for-byte/iu);
+  expect(updateGuide).toMatch(/zero provider acquisition/iu);
+  expect(updateGuide).toMatch(/explicit `development` remains `development`/iu);
+  expect(updateGuide).not.toMatch(/supported source identit|exact `0\.1\.2-dev`/iu);
 });
 
 test("an unpublished failed Candidate reuses the version but not immutable proof identity", () => {

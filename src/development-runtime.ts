@@ -13,7 +13,7 @@ import type { TargetPlan } from "./install-manifest";
 import { applyInstallPlans, preflightInstallTargets } from "./installer";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
 import type { RuntimeExecutionContext, RuntimeReceipt } from "./runtime-context";
-import { repositoryManifestSchema } from "./schema-definitions";
+import { olderRepositoryManifestSchema, repositoryManifestSchema } from "./schema-definitions";
 
 const sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const absolutePathSchema = z.string().min(1).refine(isAbsolute, "Expected an absolute path.");
@@ -135,14 +135,20 @@ const failed = (
 
 const readJson = async (
   path: string,
-): Promise<Readonly<{ state: "available"; value: unknown }> | Readonly<{ state: "missing" }>> => {
+  containmentRoot: string,
+): Promise<
+  | Readonly<{ state: "available"; value: unknown }>
+  | Readonly<{ state: "invalid" }>
+  | Readonly<{ state: "missing" }>
+> => {
   try {
-    return { state: "available", value: JSON.parse(await readFile(path, "utf8")) as unknown };
+    const source = await readContainedFile(containmentRoot, path, { maximumBytes: 64 * 1024 });
+    return { state: "available", value: JSON.parse(source.toString("utf8")) as unknown };
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return { state: "missing" };
     }
-    throw error;
+    return { state: "invalid" };
   }
 };
 
@@ -264,7 +270,7 @@ export const resolveRepositoryRuntime = async (options: {
   const repositoryRoot = await resolveRepositoryRoot(options.repoRoot);
   const packageRoot = await canonicalDirectory(options.packageRoot);
   const manifestPath = join(repositoryRoot, ".bearing", "manifest.json");
-  const source = await readJson(manifestPath);
+  const source = await readJson(manifestPath, repositoryRoot);
   if (source.state === "missing") {
     return stableResolution(
       repositoryRoot,
@@ -273,14 +279,29 @@ export const resolveRepositoryRuntime = async (options: {
       join(packageRoot, "skills", "bearing"),
     );
   }
+  if (source.state === "invalid") {
+    return failed(
+      "recovery-required",
+      "repository-runtime-target-invalid",
+      ".bearing/manifest.json",
+      "The repository Runtime target cannot be read safely from the repository manifest.",
+    );
+  }
   const parsedManifest = repositoryManifestSchema.safeParse(source.value);
+  const legacyDevelopmentManifest = olderRepositoryManifestSchema.safeParse(source.value);
   const declaresDevelopment =
     typeof source.value === "object" &&
     source.value !== null &&
     "runtime" in source.value &&
     source.value.runtime === "development";
-  if (!parsedManifest.success) {
-    if (!declaresDevelopment) {
+  if (
+    !parsedManifest.success &&
+    (!legacyDevelopmentManifest.success || legacyDevelopmentManifest.data.runtime !== "development")
+  ) {
+    if (
+      legacyDevelopmentManifest.success &&
+      legacyDevelopmentManifest.data.runtime !== "development"
+    ) {
       return stableResolution(
         repositoryRoot,
         options.publicHomeDir,
@@ -289,13 +310,17 @@ export const resolveRepositoryRuntime = async (options: {
       );
     }
     return failed(
-      (schemaVersion(source.value) ?? 1) > 1 ? "need-update" : "recovery-required",
-      "development-runtime-declaration-invalid",
+      (schemaVersion(source.value) ?? 1) > 2 ? "need-update" : "recovery-required",
+      declaresDevelopment
+        ? "development-runtime-declaration-invalid"
+        : "repository-runtime-target-invalid",
       ".bearing/manifest.json",
-      "The Development Runtime declaration is invalid or newer than this resolver.",
+      declaresDevelopment
+        ? "The Development Runtime declaration is invalid or newer than this resolver."
+        : "The repository Runtime target is missing or invalid.",
     );
   }
-  if (parsedManifest.data.runtime !== "development") {
+  if (parsedManifest.success && parsedManifest.data.runtime !== "development") {
     return stableResolution(
       repositoryRoot,
       options.publicHomeDir,
@@ -499,7 +524,10 @@ export const bootstrapDevelopmentRuntime = async (options: {
       "Development Runtime bootstrap must run from the selected source repository.",
     );
   }
-  const declaration = await readJson(join(repositoryRoot, ".bearing", "manifest.json"));
+  const declaration = await readJson(
+    join(repositoryRoot, ".bearing", "manifest.json"),
+    repositoryRoot,
+  );
   const parsedDeclaration =
     declaration.state === "available"
       ? repositoryManifestSchema.safeParse(declaration.value)

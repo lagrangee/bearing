@@ -61,9 +61,10 @@ const makeRepository = async (
   await writeFile(
     join(root, ".bearing", "manifest.json"),
     `${JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageVersion: "0.1.0",
       status: "active",
+      runtime: "stable",
       surfaces,
       executorProfiles: [],
     })}\n`,
@@ -524,21 +525,23 @@ test("confirmed reset waits for a valid writer and preserves unavailable state o
   }
 });
 
-test("installer Catalog inspection runs through the production Node boundary", async () => {
+test("basic exact-candidate install does not inspect Catalog repositories", async () => {
   const root = await mkdtemp(join(tmpdir(), "bearing-node-installer-"));
   const homeDir = join(root, "home");
   const repoRoot = join(root, "project");
   await Promise.all([
     mkdir(homeDir, { recursive: true }),
+    mkdir(join(homeDir, ".agents/skills"), { recursive: true }),
     mkdir(join(repoRoot, ".bearing"), { recursive: true }),
   ]);
   const manifestPath = join(repoRoot, ".bearing", "manifest.json");
   await writeFile(
     manifestPath,
     `${JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageVersion: "0.1.0",
       status: "active",
+      runtime: "stable",
       surfaces: ["agent-skills"],
       executorProfiles: [],
     })}\n`,
@@ -547,9 +550,15 @@ test("installer Catalog inspection runs through the production Node boundary", a
     await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
     await upsertCatalogEntry({ homeDir, repoRoot, createEntryId: () => "newer-project" });
     await writeFile(manifestPath, '{"schemaVersion":2,"packageVersion":"0.2.0"}\n');
-    await assert.rejects(
-      installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] }),
-      /reads repository schema 1 only/u,
+    const result = await installKit({
+      homeDir,
+      packageRoot: process.cwd(),
+      surfaces: ["agent-skills"],
+    });
+    assert.equal(result.outcome, "no-op");
+    assert.equal(
+      await readFile(manifestPath, "utf8"),
+      '{"schemaVersion":2,"packageVersion":"0.2.0"}\n',
     );
   } finally {
     await rm(root, { recursive: true, force: true });

@@ -39,6 +39,7 @@ test("a freshly reconciled repository is selectable through the packed installed
   let portal: ChildProcessWithoutNullStreams | undefined;
   await mkdir(packDirectory);
   await mkdir(homeDirectory);
+  await mkdir(join(homeDirectory, ".agents/skills"), { recursive: true });
   const environment = {
     ...process.env,
     HOME: homeDirectory,
@@ -120,6 +121,7 @@ test("a freshly reconciled repository is selectable through the packed installed
     const port = await reservePort();
     const runningPortal = spawnHarnessProcess(installedCli, ["portal", "--port", String(port)], {
       environment,
+      cwd: root,
     });
     runningPortal.stdin.end();
     portal = runningPortal;

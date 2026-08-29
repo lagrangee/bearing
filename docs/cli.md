@@ -2,14 +2,14 @@
 
 [简体中文](cli.zh-CN.md)
 
-Most users should start with:
+Most users should ask an Agent to verify one exact published candidate, then run its installer:
 
 ```bash
-npx @lagrangee/bearing
+npx --yes @lagrangee/bearing@<resolved-version> install
 ```
 
-The wizard is the public Global Kit maintenance path. The explicit commands below are for agents,
-smoke tests, and advanced recovery.
+The package candidate and installed CLI expose the same explicit basic primitives. Bare `bearing`
+shows concise help; it does not install, configure a repository, or start Portal.
 
 ## Help
 
@@ -20,37 +20,57 @@ bearing --version
 
 ## Maintain the user-level Global Kit
 
-Run `bearing` with no arguments in an interactive terminal. Select Install, Update, Repair, or
-Global Uninstall. Cancellation writes nothing. Install, Update, and Repair use the same complete
-bundle transaction described below.
-
 ```bash
 bearing install
 bearing install --surface agent-skills
-bearing install --surface agent-skills --surface claude
+bearing install --surface agent-skills --surface claude --surface workbuddy
+bearing update
+bearing uninstall
 ```
 
-With no `--surface`, the command installs only the complete bundle and canonical CLI. This is the
-non-interactive seam for an Agent that owns its own Skill Directory integration. With one or more
-`--surface` values, Bearing also manages the selected known Agent Surface links.
+In an interactive terminal with no `--surface`, Bearing detects only complete, already-existing
+`~/.agents/skills`, `~/.claude/skills`, and `~/.workbuddy/skills` directories and presents one
+up/down, Space, and Enter checklist. Zero selections are valid. A non-interactive caller passes
+resolved supported `--surface` values; it does not emulate key input or infer its current surface.
+Bearing never creates a missing surface directory, scans arbitrary locations, or accepts an
+arbitrary target.
 
-Install, update, and repair stage a complete package-owned bundle before switching
+Install stages and validates a complete package-owned bundle before switching
 `$HOME/.bearing/kit/current`. Selected Agent Surface links and the canonical CLI resolve through
-that one bundle. A failed switch restores the previous complete bundle and never changes repository
-state. Rerunning the exact candidate also repairs a missing or malformed installed
-`kit/current/package.json`; valid installed metadata still governs downgrade checks.
+that one bundle. Each selected surface is then applied independently as a package-owned symbolic
+link and reports `applied`, `no-op`, or `conflict`; one conflict does not roll back the Kit or another
+surface. Regular files, directories, non-owned links, and user-created copies are preserved as
+unsupported unmanaged integrations. A failed Kit switch restores the previous complete bundle and
+never changes repository state. An older exact candidate is always blocked without writes or an override. If the current
+`kit/current/package.json` is missing, malformed, or unsafe, the result is `Current Kit
+Unverifiable`: install does not overwrite it. Recovery requires a separately authorized
+`bearing uninstall`, then a verified Fresh Install from the intended exact candidate.
 
-An explicit downgrade is an advanced recovery action:
+After every successful install, Bearing prints:
 
 ```bash
-npx @lagrangee/bearing@<version> install --surface agent-skills --confirm-downgrade
+export PATH="$HOME/.bearing/bin:$PATH"
 ```
 
-Downgrade requires the flag and a read-only compatibility scan of every Catalog repository. SemVer
-ordering applies to patches and prereleases. Only a same-minor downgrade or one step to the
-immediately preceding minor is supported; cross-major and multi-minor skips are refused. Downgrade
-is not repository-state rollback. If state was upgraded, restore the release-specific verified
-backup first; otherwise the downgrade fails closed.
+Running that export affects only the current session. Add the same line to the appropriate shell
+startup profile if future terminals should discover bare `bearing`. The CLI neither writes nor
+sources a profile.
+
+### Check for a Global Kit update
+
+`bearing update` performs one foreground npm `latest` update check. It verifies the returned exact
+version, npm integrity, and canonical repository identity before comparing it with the trusted
+current Kit. The command does not poll in the background. An up-to-date result is a no-op, and an
+older or unverifiable candidate is blocked without writes.
+
+A newer verified candidate prints `Update available: <current> → <target>`. The check itself does
+not authorize mutation: an interactive terminal asks for one separate confirmation before handing
+off to that exact candidate's `bearing install`. Decline, cancellation, registry failure, and
+candidate verification failure preserve the complete current Kit byte-for-byte. Update carries
+forward only existing package-owned Agent Surface links; it does not show the surface checklist,
+connect a newly detected surface, configure a repository, perform Agent-guided Repository Update,
+or start Portal. Arbitrary exact-version selection remains a package-manager operation that invokes
+the selected exact candidate's installer.
 
 ## Configure one repository
 
@@ -65,6 +85,11 @@ bearing configure apply --intent activate --repo . --surface agent-skills \
   --provider-contract docs/agents/issue-tracker.md --executor-mode skip \
   --plan-token <sealedPlanToken>
 ```
+
+Fresh public Repository Configuration writes the complete schema 2 target with
+`runtime: stable`. The source repository uses its separate explicit `runtime: development`
+target. Runtime is target identity, not a Human-selected migration mode; missing or invalid
+Runtime never defaults, falls back, or silently converts between Stable and Development.
 
 Inspect performs no writes and makes no preference or product decision. Plan needs every material
 choice and returns exact targets, preconditions, preservation effects, and a token for that exact
@@ -89,13 +114,14 @@ bearing configure apply --intent deactivate --repo . --plan-token <sealedPlanTok
 
 Deactivation removes the managed pointer and disposable cache. It preserves canonical state,
 Provider Configuration, profiles, artifacts, and native work. Catalog unregister is a later,
-independently reported stage. One listed older Preview source can return Repository Update Required
-with a package-owned, Human-confirmed semantic update guide. The Agent validates canonical state
-and updates it only when that guide requires a semantic change; the disposable Project Read Model
-is rebuilt, not migrated. Newer state returns Kit Update Required. Unknown or corrupt state remains
-Unsupported and unchanged. Bearing has no generic built-in migration, compatibility
-fallback, cutover, silent repair, or repository Purge. Repository removal is a separate, explicitly
-authorized, Agent-reviewed platform operation.
+independently reported stage. A safely readable older repository can return Repository Update
+Required with the installed Kit's complete target contract and a Human-confirmed semantic update
+guide. Source version remains provenance rather than a migration dispatch key. The Agent preserves
+canonical state and writes only the target manifest; the disposable Project Read Model is rebuilt,
+not migrated, without provider acquisition. Newer state returns Kit Update Required. Unknown or
+corrupt state remains Unsupported and unchanged. Bearing has no generic built-in migration,
+compatibility fallback, cutover, silent repair, or repository Purge. Repository removal is a
+separate, explicitly authorized, Agent-reviewed platform operation.
 
 The managed pointer gives contextual nomination guidance. Explicit Bearing requests, reliable
 direct continuations, and reasonable material planning or governance relevance can nominate
@@ -143,7 +169,7 @@ Use `bearing catalog --help` for the complete Catalog CLI: inspect, rename, unre
 
 ## Global Uninstall and package-manager boundary
 
-Wizard Global Uninstall removes `$HOME/.bearing/kit/current`, the canonical CLI shim, and only
+Explicit `bearing uninstall` removes `$HOME/.bearing/kit/current`, the canonical CLI shim, and only
 Bearing-managed Agent Surface pointers. It does not read or change the Project Catalog,
 repository canonical state, Provider Configuration, profiles, artifacts, or native work. It is not
 repository Deactivation or repository-state removal, and Bearing has no repository-scoped package

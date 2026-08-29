@@ -5,6 +5,11 @@
 Use with exactly one root-selected lifecycle variant for Fresh activation, Active change or repair,
 reactivation, deactivation, or Invalid or Unsupported diagnosis.
 
+Repository schema 2 requires an explicit `runtime` identity. Normal public Stable Repository
+Configuration writes `runtime` as `stable`; the coherent source-repository Development Runtime
+writes `runtime` as `development`. Do not ask the Human to choose an internal migration mode, and
+never default, fall back, or silently convert between these targets.
+
 ## Authority
 
 The Agent owns the dialogue, product choices, executor assessment, and user-facing review.

@@ -3,6 +3,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { emitKeypressEvents } from "node:readline";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -18,7 +19,10 @@ import {
   executorNominationAssessmentSchema,
   resolveExecutorNominations,
 } from "./executor-registration";
-import { installKit, uninstallGlobalKit } from "./installer";
+import { applyGlobalKitUpdate, checkGlobalKitUpdate } from "./global-kit-update";
+import { knownInstallSurfaces } from "./install-manifest";
+import type { DetectedInstallSurface } from "./installer";
+import { detectInstallSurfaces, installKit, uninstallGlobalKit } from "./installer";
 import {
   nativeReferenceSchema,
   normalizeNativeReconciliationRequest,
@@ -41,7 +45,7 @@ import {
   planRepositoryConfiguration,
 } from "./repository-configuration";
 import { activeRuntimeContext, withRuntimeExecutionContext } from "./runtime-context";
-import type { AgentSurface } from "./types";
+import type { InstallSurface } from "./types";
 
 const INSPECT_USAGE =
   "Usage: bearing inspect <project|diagnostics|stable-planning-reference> [--repo <path>]\n       bearing inspect --native <native-reference> [--repo <path>]\n       bearing inspect activity --repo <path> --date <YYYY-MM-DD> --time-zone <IANA-zone>";
@@ -50,7 +54,9 @@ const HELP = `Bearing ${packageMetadata.version}
 
 Usage:
   bearing
-  bearing install [--surface <agent-skills|claude>] [--surface <agent-skills|claude>] [--confirm-downgrade]
+  bearing install [--surface <agent-skills|claude|workbuddy>]...
+  bearing update
+  bearing uninstall
   bearing configure
   bearing configure inspect [--repo <path>]
   bearing configure plan --intent <activate|deactivate> [--repo <path>] [--runtime <stable|development>] [--surface <agent-skills|claude>] [--provider-contract <repository-relative-path>] [--executor-mode <skip|configure>] [--executor <surface:skill> --executor-assessment <json>] [--retain-executor <profile>] [--remove-executor <profile>]
@@ -69,8 +75,10 @@ Usage:
   bearing --version
 
 Commands:
-  <none>   Run Global Kit Install, Update, Repair, or Uninstall in one terminal wizard.
+  <none>   Show this help. It performs no mutation and does not start Portal.
   install  Install the global bundle and CLI, with optional known Agent Surface integration.
+  update  Check npm latest and request separate confirmation before a newer Global Kit is installed.
+  uninstall  Remove only the package-owned Global Kit and known owned integration links.
   configure  Inspect, seal, and apply one exact Repository Configuration write set.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
   reconcile-native  Re-observe only the native subjects and relations affected by one completed Matt transaction.
@@ -86,6 +94,7 @@ Environment:
 `;
 
 const surfaceSchema = z.array(z.enum(["agent-skills", "claude"]));
+const installSurfaceSchema = z.array(z.enum(knownInstallSurfaces));
 const configurationIntentSchema = z.enum(["activate", "deactivate"]);
 const executorModeSchema = z.enum(["skip", "configure"]);
 const runtimeChannelSchema = z.enum(["stable", "development"]);
@@ -107,82 +116,10 @@ const writeJson = (value: unknown): void => {
   process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
 };
 
-const detectedSurfaces = (homeDir: string): readonly AgentSurface[] => {
-  const surfaces: AgentSurface[] = [];
-  if (existsSync(join(homeDir, ".agents"))) surfaces.push("agent-skills");
-  if (existsSync(join(homeDir, ".claude"))) surfaces.push("claude");
-  return surfaces.length === 0 ? ["agent-skills"] : surfaces;
-};
-
-const describeSurfaces = (surfaces: readonly AgentSurface[]): string =>
-  surfaces
-    .map((surface) => (surface === "agent-skills" ? "Codex/Agent Skills" : "Claude Code"))
-    .join(", ");
-
-type GlobalKitAction = "Install" | "Update" | "Repair" | "Global Uninstall";
-
-const selectGlobalKitAction = async (): Promise<GlobalKitAction | undefined> => {
-  process.stdout.write("1) Install\n2) Update\n3) Repair\n4) Global Uninstall\nq) Cancel\n");
-  if (!process.stdin.isTTY) {
-    process.stdout.write(
-      "Interactive terminal required. Automation can use `bearing install --surface <surface>`.\n",
-    );
-    return undefined;
-  }
-  const input = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    while (true) {
-      const answer = (await input.question("Select an action [1-4, q]: ")).trim().toLowerCase();
-      if (answer === "1") return "Install";
-      if (answer === "2") return "Update";
-      if (answer === "3") return "Repair";
-      if (answer === "4") return "Global Uninstall";
-      if (answer === "" || answer === "q") return undefined;
-      process.stdout.write("Select 1, 2, 3, 4, or q.\n");
-    }
-  } finally {
-    input.close();
-  }
-};
-
-const runInstallWizard = async (): Promise<void> => {
-  const homeDir = homeDirectory();
-  const surfaces = detectedSurfaces(homeDir);
-  process.stdout.write(`Bearing Global Kit maintenance\n`);
-  process.stdout.write(`Home: ${homeDir}\n`);
-  process.stdout.write(`Agent Surfaces: ${describeSurfaces(surfaces)}\n`);
-  process.stdout.write(`Managed bundle: ${join(homeDir, ".bearing/kit/current")}\n`);
-  process.stdout.write(`CLI: ${join(homeDir, ".bearing/bin/bearing")}\n`);
-  process.stdout.write(
-    "Agent Surface skills are owned symlinks to the version-consistent Bearing bundle.\n",
-  );
-  process.stdout.write(
-    "Network: npm may download this package before the wizard starts; Bearing itself performs no telemetry, analytics, crash upload, repository upload, or update polling.\n",
-  );
-  const action = await selectGlobalKitAction();
-  if (action === undefined) {
-    process.stdout.write("Outcome: cancelled\n");
-    return;
-  }
-  process.stdout.write(`Action: ${action}\n`);
-  if (action === "Global Uninstall") {
-    const result = await uninstallGlobalKit(homeDir);
-    process.stdout.write(
-      `Outcome: ${result.outcome}\nRemoved targets: ${result.removedTargets.length}\nPreserved: Project Catalog, repository state, provider configuration, profiles, artifacts, and native work.\n`,
-    );
-    return;
-  }
-  const result = await installKit({
-    homeDir,
-    packageRoot: packageRoot(),
-    surfaces,
-  });
-  process.stdout.write(
-    `Outcome: ${result.outcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n`,
-  );
-};
-
-const runConfigure = async (args: readonly string[]): Promise<void> => {
+const runConfigure = async (
+  args: readonly string[],
+  inspectionHomeDir: string | null = selectedHomeDirectory(),
+): Promise<void> => {
   const [subcommand, ...values] = args;
   if (subcommand === undefined) {
     process.stdout.write(
@@ -200,7 +137,7 @@ const runConfigure = async (args: readonly string[]): Promise<void> => {
     const result = await inspectRepositoryConfiguration({
       repoRoot: resolve(parsed.values.repo ?? process.cwd()),
       packageRoot: packageRoot(),
-      homeDir: selectedHomeDirectory(),
+      ...(inspectionHomeDir === null ? {} : { homeDir: inspectionHomeDir }),
     });
     writeJson(result);
     return;
@@ -285,26 +222,154 @@ const runConfigure = async (args: readonly string[]): Promise<void> => {
   }
 };
 
+const selectInstallSurfaces = async (
+  detected: readonly DetectedInstallSurface[],
+): Promise<readonly InstallSurface[]> => {
+  if (detected.length === 0) return [];
+  process.stdout.write(
+    "Detected Agent Surface Skill Directories:\nUse up/down to navigate, Space to toggle, and Enter to confirm.\n",
+  );
+  const selected = new Set<InstallSurface>();
+  let active = 0;
+  let rendered = false;
+  const render = (): void => {
+    if (rendered) process.stdout.write(`\u001b[${detected.length}A`);
+    for (const [index, item] of detected.entries()) {
+      process.stdout.write(
+        `\r\u001b[2K${index === active ? ">" : " "} [${selected.has(item.surface) ? "x" : " "}] ${item.surface} — ${item.path}\n`,
+      );
+    }
+    rendered = true;
+  };
+  render();
+  emitKeypressEvents(process.stdin);
+  const wasRaw = process.stdin.isRaw;
+  return new Promise((resolveSelection, rejectSelection) => {
+    const cleanup = (): void => {
+      process.stdin.off("keypress", onKeypress);
+      process.stdin.setRawMode(wasRaw);
+      process.stdin.pause();
+    };
+    const onKeypress = (value: string, key: Readonly<{ name?: string; ctrl?: boolean }>): void => {
+      if (key.ctrl === true && key.name === "c") {
+        cleanup();
+        rejectSelection(
+          new Error("Agent Surface selection cancelled; Global Kit was not changed."),
+        );
+        return;
+      }
+      if (key.name === "up") active = (active - 1 + detected.length) % detected.length;
+      else if (key.name === "down") active = (active + 1) % detected.length;
+      else if (key.name === "space" || value === " ") {
+        const surface = detected[active]?.surface;
+        if (surface !== undefined) {
+          if (selected.has(surface)) selected.delete(surface);
+          else selected.add(surface);
+        }
+      } else if (key.name === "return" || key.name === "enter") {
+        cleanup();
+        resolveSelection(
+          detected.flatMap((item) => (selected.has(item.surface) ? [item.surface] : [])),
+        );
+        return;
+      } else return;
+      render();
+    };
+    process.stdin.on("keypress", onKeypress);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+  });
+};
+
 const runInstall = async (args: readonly string[]): Promise<void> => {
   const parsed = parseArgs({
     args: [...args],
     options: {
       surface: { type: "string", multiple: true },
-      "confirm-downgrade": { type: "boolean" },
     },
     allowPositionals: false,
     strict: true,
   });
-  const surfaces = surfaceSchema.parse(parsed.values.surface ?? []);
+  const surfaces =
+    parsed.values.surface === undefined
+      ? process.stdin.isTTY && process.stdout.isTTY
+        ? await selectInstallSurfaces(await detectInstallSurfaces(homeDirectory()))
+        : []
+      : installSurfaceSchema.parse(parsed.values.surface);
   const result = await installKit({
     homeDir: homeDirectory(),
     packageRoot: packageRoot(),
     surfaces,
-    confirmDowngrade: parsed.values["confirm-downgrade"] === true,
   });
   process.stdout.write(
-    `Outcome: ${result.outcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n`,
+    `Outcome: ${result.outcome}\nGlobal Kit: ${result.kitOutcome}\nCLI: ${result.cliPath}\nChanged targets: ${result.changedTargets.length}\n${
+      result.surfaceResults.length === 0
+        ? "Agent Surface Integration: none selected\n"
+        : `Agent Surface Integration:\n${result.surfaceResults
+            .map(
+              (surface) =>
+                `  ${surface.surface}: ${surface.outcome} — ${surface.path}${surface.message === undefined ? "" : ` — ${surface.message}`}`,
+            )
+            .join("\n")}\n`
+    }\nTo use bearing in the current session:\n  export PATH="$HOME/.bearing/bin:$PATH"\nTo persist this for future terminals, add the same export to your shell startup profile. Bearing did not write or source any profile.\n`,
   );
+  if (result.outcome === "partial") process.exitCode = 1;
+};
+
+const runUninstall = async (args: readonly string[]): Promise<void> => {
+  if (args.length > 0) throw new CommandUsageError("Usage: bearing uninstall");
+  const result = await uninstallGlobalKit(homeDirectory());
+  process.stdout.write(
+    `Outcome: ${result.outcome}\nRemoved targets: ${result.removedTargets.length}\nPreserved: Project Catalog, repository state, Provider Configuration, Execution Profiles, Assets, and native work.\n`,
+  );
+};
+
+const runUpdate = async (args: readonly string[]): Promise<void> => {
+  if (args.length > 0) throw new CommandUsageError("Usage: bearing update");
+  const result = await checkGlobalKitUpdate(homeDirectory());
+  if (result.outcome === "up-to-date") {
+    process.stdout.write(`Bearing ${result.currentVersion} is up to date.\n`);
+    return;
+  }
+  if (result.outcome === "older-candidate") {
+    throw new Error(
+      `Older Candidate Blocked: installed Bearing ${result.currentVersion} is newer than npm latest ${result.targetVersion}. No bytes were changed. Downgrade, compatibility scan, and force options are not supported.`,
+    );
+  }
+  process.stdout.write(`Update available: ${result.currentVersion} → ${result.targetVersion}\n`);
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    process.stdout.write(
+      "No bytes were changed. Run bearing update in an interactive terminal to provide separate confirmation.\n",
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  let accepted = false;
+  try {
+    const answer = await prompt.question("Install this verified Global Kit update? [y/N] ");
+    accepted = /^(?:y|yes)$/iu.test(answer.trim());
+  } catch {
+    accepted = false;
+  } finally {
+    prompt.close();
+  }
+  if (!accepted) {
+    process.stdout.write("Update declined. No bytes were changed.\n");
+    return;
+  }
+  const updated = await applyGlobalKitUpdate(
+    homeDirectory(),
+    result.currentVersion,
+    result.targetVersion,
+    result.targetIntegrity,
+  );
+  if (updated.installerStdout.length > 0) process.stdout.write(updated.installerStdout);
+  if (updated.installerStderr.length > 0) process.stderr.write(updated.installerStderr);
+  process.stdout.write(
+    `Global Kit updated: ${updated.currentVersion} → ${updated.targetVersion}\n`,
+  );
+  if (updated.installerExitCode !== 0) process.exitCode = 1;
 };
 
 const runNativeReconciliationCommand = async (args: readonly string[]): Promise<void> => {
@@ -648,7 +713,7 @@ const dispatchRepositoryCommand = async (
 const main = async (): Promise<void> => {
   const [command, ...args] = process.argv.slice(2);
   if (command === undefined) {
-    await runInstallWizard();
+    process.stdout.write(HELP);
     return;
   }
   if (command === "--help" || command === "-h") {
@@ -663,6 +728,14 @@ const main = async (): Promise<void> => {
     await runInstall(args);
     return;
   }
+  if (command === "update") {
+    await runUpdate(args);
+    return;
+  }
+  if (command === "uninstall") {
+    await runUninstall(args);
+    return;
+  }
   if (command === "runtime") {
     await runRuntimeCommand(args);
     return;
@@ -673,6 +746,44 @@ const main = async (): Promise<void> => {
   }
   if (command === "catalog" && ["--help", "-h"].includes(args[0] ?? "")) {
     await dispatchRepositoryCommand(command, args);
+    return;
+  }
+  if (
+    ![
+      "configure",
+      "catalog",
+      "reconcile-native",
+      "provider",
+      "cache",
+      "inspect",
+      "portal",
+      "development",
+    ].includes(command)
+  ) {
+    throw new Error("Unknown command. Run bearing --help.");
+  }
+  if (command === "configure" && (args[0] === "inspect" || args[0] === "plan")) {
+    const runtime = await resolveRepositoryRuntime({
+      repoRoot: repositoryRootArgument(args),
+      packageRoot: packageRoot(),
+      publicHomeDir: homeDirectory(),
+      invokedCliPath: fileURLToPath(import.meta.url),
+    });
+    if (runtime.outcome === "resolved") {
+      await withRuntimeExecutionContext(runtime.context, () =>
+        dispatchRepositoryCommand(command, args),
+      );
+    } else if (
+      runtime.diagnostics.length === 1 &&
+      ["repository-runtime-target-invalid", "development-runtime-declaration-invalid"].includes(
+        runtime.diagnostics[0]?.code ?? "",
+      )
+    ) {
+      await runConfigure(args, null);
+    } else {
+      writeJson(runtime);
+      process.exitCode = 1;
+    }
     return;
   }
   const runtime = await resolveRepositoryRuntime({
