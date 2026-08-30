@@ -1,0 +1,99 @@
+import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  createLiveJourneyObservation,
+  verifyLiveJourneyObservation,
+} from "../scripts/live-journey-matrix";
+
+const stdout = [
+  JSON.stringify({ type: "thread.started", thread_id: "private-session" }),
+  JSON.stringify({ type: "turn.completed" }),
+].join("\n");
+
+const createObservation = (
+  timing: Readonly<{ startedAt: string; endedAt: string; durationMs: number }> = {
+    startedAt: "2026-08-30T00:00:00.000Z",
+    endedAt: "2026-08-30T00:00:00.100Z",
+    durationMs: 100,
+  },
+) =>
+  createLiveJourneyObservation({
+    turn: 1,
+    codexCliVersion: "codex-cli 0.147.0",
+    exitCode: 0,
+    stdout,
+    stderr: "",
+    before: { repository: "a".repeat(64), agentHome: "b".repeat(64) },
+    after: { repository: "c".repeat(64), agentHome: "d".repeat(64) },
+    transcriptPointer: "transcripts/turn-01.jsonl",
+    stderrPointer: "transcripts/turn-01.stderr.log",
+    ...timing,
+  });
+
+describe("Live Journey observation timing", () => {
+  test("records an exact ISO observation window and permits a zero-duration turn", () => {
+    expect(createObservation()).toMatchObject({
+      startedAt: "2026-08-30T00:00:00.000Z",
+      endedAt: "2026-08-30T00:00:00.100Z",
+      durationMs: 100,
+    });
+    expect(
+      createObservation({
+        startedAt: "2026-08-30T00:00:00.000Z",
+        endedAt: "2026-08-30T00:00:00.000Z",
+        durationMs: 0,
+      }).durationMs,
+    ).toBe(0);
+  });
+
+  test("rejects invalid, reversed, or contradictory timing", () => {
+    expect(() =>
+      createObservation({
+        startedAt: "not-a-timestamp",
+        endedAt: "2026-08-30T00:00:00.100Z",
+        durationMs: 100,
+      }),
+    ).toThrow();
+    expect(() =>
+      createObservation({
+        startedAt: "2026-08-30T00:00:00.100Z",
+        endedAt: "2026-08-30T00:00:00.000Z",
+        durationMs: 0,
+      }),
+    ).toThrow("must not precede");
+    expect(() =>
+      createObservation({
+        startedAt: "2026-08-30T00:00:00.000Z",
+        endedAt: "2026-08-30T00:00:00.100Z",
+        durationMs: 99,
+      }),
+    ).toThrow("must equal endedAt minus startedAt");
+  });
+
+  test("revalidates the timing window when reading durable evidence", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "bearing-live-observation-"));
+    await Promise.all([
+      mkdir(join(workspace, "observations"), { recursive: true }),
+      mkdir(join(workspace, "transcripts"), { recursive: true }),
+    ]);
+    const observation = createObservation();
+    await Promise.all([
+      writeFile(join(workspace, "transcripts/turn-01.jsonl"), stdout),
+      writeFile(join(workspace, "transcripts/turn-01.stderr.log"), ""),
+      writeFile(
+        join(workspace, "observations/turn-01.json"),
+        JSON.stringify({ ...observation, durationMs: 99 }),
+      ),
+    ]);
+
+    await expect(
+      verifyLiveJourneyObservation({
+        workspaceRoot: workspace,
+        pointer: "observations/turn-01.json",
+        expectedCodexCliVersion: "codex-cli 0.147.0",
+      }),
+    ).rejects.toThrow("must equal endedAt minus startedAt");
+  });
+});

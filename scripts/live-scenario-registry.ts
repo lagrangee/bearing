@@ -298,6 +298,61 @@ export const digestLiveScenarioFixture = async (root: string): Promise<string> =
   return sha256(frames.join(""));
 };
 
+export const liveScenarioReferencedFixtureSources = (
+  registryInput: LiveScenarioRegistry,
+  scenarioIds?: readonly string[],
+): readonly string[] => {
+  const registry = liveScenarioRegistrySchema.parse(registryInput);
+  const selectedIds =
+    scenarioIds === undefined
+      ? undefined
+      : z
+          .array(scenarioIdSchema)
+          .min(1)
+          .parse([...scenarioIds]);
+  if (selectedIds !== undefined && new Set(selectedIds).size !== selectedIds.length) {
+    fail("Selected Live Scenario IDs must be unique.");
+  }
+  const selected = selectedIds === undefined ? undefined : new Set(selectedIds);
+  if (
+    selected !== undefined &&
+    registry.scenarios.filter(({ id }) => selected.has(id)).length !== selected.size
+  ) {
+    fail("Selected Live Scenario IDs must exist in the registry.");
+  }
+  return Object.freeze(
+    [
+      ...new Set(
+        registry.scenarios
+          .filter(({ id }) => selected === undefined || selected.has(id))
+          .map(({ fixture }) => fixture.source),
+      ),
+    ].sort((left, right) => left.localeCompare(right, "en")),
+  );
+};
+
+export const digestLiveScenarioFixtureSet = async (input: {
+  sourceRoot: string;
+  registry: LiveScenarioRegistry;
+  scenarioIds?: readonly string[];
+}): Promise<string> => {
+  const sourceRoot = resolve(input.sourceRoot);
+  const frames: string[] = [];
+  for (const source of liveScenarioReferencedFixtureSources(input.registry, input.scenarioIds)) {
+    const fixtureRoot = resolve(sourceRoot, source);
+    const fixtureRelative = relative(sourceRoot, fixtureRoot);
+    if (fixtureRelative.startsWith("..") || isAbsolute(fixtureRelative)) {
+      fail(`Live Scenario fixture escapes the source checkout: ${source}.`);
+    }
+    const state = await lstat(fixtureRoot);
+    if (!state.isDirectory()) {
+      fail(`Live Scenario fixture must be a directory: ${source}.`);
+    }
+    frames.push(`fixture\0${fixtureRelative}\0${await digestLiveScenarioFixture(fixtureRoot)}\n`);
+  }
+  return sha256(frames.join(""));
+};
+
 export const materializeLiveScenarioFixture = async (input: {
   registry: LiveScenarioRegistry;
   scenarioId: string;

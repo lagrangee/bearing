@@ -18,36 +18,56 @@ const evidencePointerSchema = z
     message: "Evidence pointers must stay relative to the generated workspace.",
   });
 
-const observationSchema = z.object({
-  schemaVersion: z.literal(1),
-  turn: z.number().int().positive(),
-  invocationStarted: z.boolean(),
-  durationMs: z.number().int().positive().safe(),
-  exitCode: z.number().int(),
-  terminalBoundary: z.string().min(1),
-  codex: z.object({
-    cliVersion: z.string().min(1),
-    requestedModel: z.literal(CODEX_E2E_RUNTIME.model),
-    requestedReasoningEffort: z.literal(CODEX_E2E_RUNTIME.reasoningEffort),
-  }),
-  eventCounts: z.record(z.string(), z.number().int().nonnegative()),
-  state: z.object({
-    before: z.object({ repository: z.string(), agentHome: z.string() }),
-    after: z.object({ repository: z.string(), agentHome: z.string() }),
-  }),
-  privateEvidence: z.object({
-    transcript: z.object({
-      pointer: evidencePointerSchema,
-      sha256: z.string().regex(/^[0-9a-f]{64}$/u),
-      bytes: z.number().int().nonnegative(),
+const observationSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    turn: z.number().int().positive(),
+    invocationStarted: z.boolean(),
+    startedAt: z.string().datetime({ offset: true }),
+    endedAt: z.string().datetime({ offset: true }),
+    durationMs: z.number().int().nonnegative().safe(),
+    exitCode: z.number().int(),
+    terminalBoundary: z.string().min(1),
+    codex: z.object({
+      cliVersion: z.string().min(1),
+      requestedModel: z.literal(CODEX_E2E_RUNTIME.model),
+      requestedReasoningEffort: z.literal(CODEX_E2E_RUNTIME.reasoningEffort),
     }),
-    stderr: z.object({
-      pointer: evidencePointerSchema,
-      sha256: z.string().regex(/^[0-9a-f]{64}$/u),
-      bytes: z.number().int().nonnegative(),
+    eventCounts: z.record(z.string(), z.number().int().nonnegative()),
+    state: z.object({
+      before: z.object({ repository: z.string(), agentHome: z.string() }),
+      after: z.object({ repository: z.string(), agentHome: z.string() }),
     }),
-  }),
-});
+    privateEvidence: z.object({
+      transcript: z.object({
+        pointer: evidencePointerSchema,
+        sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+        bytes: z.number().int().nonnegative(),
+      }),
+      stderr: z.object({
+        pointer: evidencePointerSchema,
+        sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+        bytes: z.number().int().nonnegative(),
+      }),
+    }),
+  })
+  .superRefine((observation, context) => {
+    const observedDurationMs = Date.parse(observation.endedAt) - Date.parse(observation.startedAt);
+    if (observedDurationMs < 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["endedAt"],
+        message: "Observation endedAt must not precede startedAt.",
+      });
+    }
+    if (observation.durationMs !== observedDurationMs) {
+      context.addIssue({
+        code: "custom",
+        path: ["durationMs"],
+        message: "Observation duration must equal endedAt minus startedAt.",
+      });
+    }
+  });
 
 const sessionStateSchema = z.object({
   schemaVersion: z.literal(1),
@@ -139,12 +159,11 @@ export const createLiveJourneyObservation = (input: {
   after: Readonly<{ repository: string; agentHome: string }>;
   transcriptPointer: string;
   stderrPointer: string;
+  startedAt: string;
+  endedAt: string;
   durationMs: number;
 }) => {
   if (!Number.isSafeInteger(input.turn) || input.turn <= 0) fail("Observation turn is invalid.");
-  if (!Number.isSafeInteger(input.durationMs) || input.durationMs <= 0) {
-    fail("Observation duration is invalid.");
-  }
   const eventCounts: Record<string, number> = {};
   let terminalBoundary = `process-exit-${input.exitCode}`;
   for (const line of input.stdout.split(/\r?\n/u).filter((entry) => entry.length > 0)) {
@@ -157,11 +176,13 @@ export const createLiveJourneyObservation = (input: {
       eventCounts["invalid-jsonl"] = (eventCounts["invalid-jsonl"] ?? 0) + 1;
     }
   }
-  return Object.freeze({
+  const observation = {
     schemaVersion: 1 as const,
     turn: input.turn,
     invocationStarted:
       (eventCounts["thread.started"] ?? 0) > 0 || (eventCounts["turn.started"] ?? 0) > 0,
+    startedAt: input.startedAt,
+    endedAt: input.endedAt,
     durationMs: input.durationMs,
     exitCode: input.exitCode,
     terminalBoundary,
@@ -183,7 +204,9 @@ export const createLiveJourneyObservation = (input: {
       transcript: Object.freeze(privateEvidence(input.transcriptPointer, input.stdout)),
       stderr: Object.freeze(privateEvidence(input.stderrPointer, input.stderr)),
     }),
-  });
+  };
+  observationSchema.parse(observation);
+  return Object.freeze(observation);
 };
 
 export const extractCodexThreadId = (stdout: string): string | undefined => {

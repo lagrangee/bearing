@@ -76,6 +76,65 @@ export const liveScenarioPackageSchema = z.discriminatedUnion("evidenceClass", [
 ]);
 export type LiveScenarioPackage = z.infer<typeof liveScenarioPackageSchema>;
 
+const boundedArtifactSchema = z.object({ file: z.string().min(1), sha256: sha256Schema }).strict();
+
+export const liveScenarioBoundedPackageSchema = z.discriminatedUnion("evidenceClass", [
+  z
+    .object({
+      evidenceClass: z.literal("release-candidate"),
+      packageName: z.literal("@lagrangee/bearing"),
+      packageVersion: z.string().min(1),
+      sourceCommit: z.string().min(1),
+      workflow: z
+        .object({
+          name: z.string().min(1),
+          runId: z.string().min(1),
+          runAttempt: z.number().int().positive(),
+        })
+        .strict(),
+      artifact: boundedArtifactSchema,
+      matrixDefinitionSha256: sha256Schema,
+    })
+    .strict(),
+  z
+    .object({
+      evidenceClass: z.literal("local-rehearsal"),
+      packageName: z.literal("@lagrangee/bearing"),
+      packageVersion: z.string().min(1),
+      sourceHead: z.string().min(1),
+      worktreeSha256: sha256Schema,
+      artifact: boundedArtifactSchema,
+      matrixDefinitionSha256: sha256Schema,
+    })
+    .strict(),
+]);
+
+export const liveScenarioPackageEvidenceIdentity = (input: LiveScenarioPackage) =>
+  liveScenarioBoundedPackageSchema.parse(
+    input.evidenceClass === "release-candidate"
+      ? {
+          evidenceClass: input.evidenceClass,
+          packageName: input.packageName,
+          packageVersion: input.packageVersion,
+          sourceCommit: input.sourceCommit,
+          workflow: input.workflow,
+          artifact: { file: input.artifact.file, sha256: input.artifact.sha256 },
+          matrixDefinitionSha256: input.matrixDefinitionSha256,
+        }
+      : {
+          evidenceClass: input.evidenceClass,
+          packageName: input.packageName,
+          packageVersion: input.packageVersion,
+          sourceHead: input.sourceHead,
+          worktreeSha256: input.worktreeSha256,
+          artifact: { file: input.artifact.file, sha256: input.artifact.sha256 },
+          matrixDefinitionSha256: input.matrixDefinitionSha256,
+        },
+  );
+
+export const liveScenarioMatrixPackageIdentitySha256 = (input: unknown): string =>
+  sha256(`matrix-package-v1\0${JSON.stringify(liveScenarioBoundedPackageSchema.parse(input))}\n`);
+
 const candidateReceiptBindingSchema = z
   .object({
     path: z.string().min(1),

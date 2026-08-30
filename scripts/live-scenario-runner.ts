@@ -16,7 +16,6 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { z } from "zod";
 import {
   assertIsolatedCodexHomeControlLinks,
-  CODEX_E2E_RUNTIME,
   codexE2ELaunchContract,
   inspectCodexE2EOperatorContext,
   prepareIsolatedCodexHome,
@@ -30,17 +29,17 @@ import {
   readFixedGitHubValidationRepository,
 } from "./github-live-journey";
 import { liveScenarioArtifactSchema, liveScenarioPackageSchema } from "./live-scenario-evidence";
-import { liveScenarioPackageEvidenceIdentity } from "./live-scenario-generation";
 import {
   installLiveScenarioProduct,
   materializeCompleteGlobalKitFromPackage,
+  materializeDeclaredPrerequisiteSkills,
   materializeGitHubLiveScenarioPlanningState,
   materializeLiveScenarioProductState,
 } from "./live-scenario-product";
 import {
   digestLiveScenarioFixture,
-  liveScenarioSkillNameSchema,
-  liveScenarioSkillRoleSchema,
+  digestLiveScenarioFixtureSet,
+  liveScenarioReferencedFixtureSources,
   loadLiveScenarioRegistry,
   materializeLiveScenarioFixture,
 } from "./live-scenario-registry";
@@ -51,22 +50,9 @@ import { sha256File } from "./release-digest";
 const fail = (message: string): never => {
   throw new Error(message);
 };
-const failContinuity = (message: string): never =>
-  fail(`Live Scenario continuity failed; trust disposition: generation-invalid; ${message}`);
-const pathExists = async (path: string): Promise<boolean> => {
-  try {
-    await lstat(path);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-    throw error;
-  }
-};
 
 const sha256 = (value: Uint8Array | string): string =>
   createHash("sha256").update(value).digest("hex");
-const canonicalDigest = (label: string, value: unknown): string =>
-  sha256(`${label}\0${JSON.stringify(value)}\n`);
 const liveScenarioHarnessFiles = Object.freeze([
   ".gitleaks.toml",
   "docs/agents/codex-e2e.md",
@@ -85,16 +71,6 @@ export const liveScenarioHarnessIdentitySha256 = async (input: {
   );
   const scriptsSha256 = await digestLiveScenarioFixture(join(sourceRoot, "scripts"));
   return sha256(`live-scenario-harness-v1\0scripts\0${scriptsSha256}\n${fileFrames.join("")}`);
-};
-const filesystemIdentity = async (path: string) => {
-  const canonical = await realpath(path);
-  const state = await lstat(canonical);
-  if (!state.isDirectory()) fail(`Live Scenario runtime identity is not a directory: ${path}`);
-  return filesystemIdentitySchema.parse({
-    realpath: canonical,
-    device: String(state.dev),
-    inode: String(state.ino),
-  });
 };
 const installationEntryToken = ["$", "{INSTALL_ENTRY}"].join("");
 export const LIVE_SCENARIO_COORDINATOR_IDENTITY = "codex-coordinator" as const;
@@ -250,62 +226,6 @@ const installBoundedLocalNpmCapability = async (input: {
   await symlink(capability, join(input.agentHome, ".bearing/bin/npm"));
 };
 
-const identitySha256Schema = z.string().regex(/^[0-9a-f]{64}$/u);
-const filesystemIdentitySchema = z
-  .object({
-    realpath: z.string().min(1),
-    device: z.string().regex(/^\d+$/u),
-    inode: z.string().regex(/^\d+$/u),
-  })
-  .strict();
-const admittedSkillSchema = z.discriminatedUnion("state", [
-  z
-    .object({
-      skill: liveScenarioSkillNameSchema,
-      role: liveScenarioSkillRoleSchema,
-      state: z.literal("available"),
-      contentIdentitySha256: identitySha256Schema,
-      entrypointIdentitySha256: identitySha256Schema,
-    })
-    .strict(),
-  z
-    .object({
-      skill: liveScenarioSkillNameSchema,
-      role: liveScenarioSkillRoleSchema,
-      state: z.literal("absent"),
-    })
-    .strict(),
-]);
-const liveScenarioAdmissionBindingValueSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    admissionIdentitySha256: identitySha256Schema,
-    basisIdentitySha256: identitySha256Schema,
-    compositionReadbackIdentitySha256: identitySha256Schema,
-    packageIdentitySha256: identitySha256Schema,
-    harnessIdentitySha256: identitySha256Schema,
-    fixtureDefinitionsSha256: identitySha256Schema,
-    matrixSkillSetSha256: identitySha256Schema,
-    agentSurfaceAdaptersSha256: identitySha256Schema,
-    agentSurfaceIdentitySha256: identitySha256Schema,
-    executionConfigurationSha256: identitySha256Schema,
-    model: z.literal("gpt-5.6-luna"),
-    reasoningEffort: z.literal("high"),
-    authBoundary: z.literal("runtime-owned-denied-file-v1"),
-    skills: z.array(admittedSkillSchema),
-    filesystem: z
-      .object({
-        runtimeRoot: filesystemIdentitySchema,
-        repository: filesystemIdentitySchema,
-        agentHome: filesystemIdentitySchema,
-      })
-      .strict(),
-  })
-  .strict();
-const liveScenarioAdmissionBindingSchema = liveScenarioAdmissionBindingValueSchema
-  .extend({ identitySha256: identitySha256Schema })
-  .strict();
-
 const manifestSchema = z.object({
   schemaVersion: z.literal(1),
   generationId: z.string().uuid(),
@@ -357,7 +277,6 @@ const manifestSchema = z.object({
     agentHome: z.string(),
     repository: z.string(),
     observations: z.string(),
-    attempts: z.string(),
     transcripts: z.string(),
     sessionState: z.string(),
     prompts: z.array(z.string()).min(1),
@@ -383,7 +302,6 @@ const manifestSchema = z.object({
       appendPromptAsFinalArgument: z.literal(true),
     }),
   }),
-  admission: liveScenarioAdmissionBindingSchema.optional(),
   github: z
     .object({
       program: z.string().min(1),
@@ -430,14 +348,11 @@ export const liveScenarioDefinitionDigest = async (input: {
 }): Promise<string> => {
   const sourceRoot = await realpath(resolve(input.sourceRoot));
   const registryPath = await realpath(resolve(sourceRoot, input.registryPath));
-  await loadLiveScenarioRegistry(registryPath);
+  const registry = await loadLiveScenarioRegistry(registryPath);
   const frames = [
     `registry\0${relative(sourceRoot, registryPath)}\0${sha256(await readFile(registryPath))}\n`,
   ];
-  const fixtureRoot = resolve(sourceRoot, "validation/live-journey/fixtures");
-  frames.push(
-    `fixtures\0${relative(sourceRoot, fixtureRoot)}\0${await digestLiveScenarioFixture(fixtureRoot)}\n`,
-  );
+  frames.push(`fixtures\0${await digestLiveScenarioFixtureSet({ sourceRoot, registry })}\n`);
   return sha256(frames.join(""));
 };
 
@@ -568,23 +483,23 @@ export const liveScenarioCandidateDefinitionDigest = async (input: {
   if (head.exitCode !== 0 || head.stdout.toString("utf8").trim() !== sourceCommit) {
     fail("Live Scenario definitions require the exact Candidate source commit checkout.");
   }
-  const registryRelative = relative(sourceRoot, resolve(sourceRoot, input.registryPath));
-  const fixturesRelative = relative(
-    sourceRoot,
-    resolve(sourceRoot, "validation/live-journey/fixtures"),
+  const registryPath = resolve(sourceRoot, input.registryPath);
+  const registryRelative = relative(sourceRoot, registryPath);
+  const registry = await loadLiveScenarioRegistry(registryPath);
+  const fixtureRelatives = liveScenarioReferencedFixtureSources(registry).map((fixtureSource) =>
+    relative(sourceRoot, resolve(sourceRoot, fixtureSource)),
   );
   if (
-    registryRelative.startsWith("..") ||
-    isAbsolute(registryRelative) ||
-    fixturesRelative.startsWith("..") ||
-    isAbsolute(fixturesRelative)
+    [registryRelative, ...fixtureRelatives].some(
+      (locator) => locator.startsWith("..") || isAbsolute(locator),
+    )
   ) {
     fail("Live Scenario Candidate definitions must stay inside the source checkout.");
   }
   const definition = {
     sourceRoot,
     sourceCommit,
-    pathspecs: [registryRelative, fixturesRelative],
+    pathspecs: [registryRelative, ...fixtureRelatives],
   } as const;
   assertExactCandidateDefinitionBytes(definition);
   const digest = await liveScenarioDefinitionDigest({
@@ -671,6 +586,7 @@ export const prepareLiveScenarioGeneration = async (input: {
   codexProgram?: string;
   githubCheckout?: string;
   githubProgram?: string;
+  prerequisiteSkillRoot?: string;
   deferPermissionProbe?: boolean;
 }) => {
   const sourceRoot = resolve(input.sourceRoot);
@@ -760,7 +676,6 @@ export const prepareLiveScenarioGeneration = async (input: {
     const agentHome = join(runtimeRoot, "agent-home");
     const repository = join(runtimeRoot, "repository");
     const observations = join(workspaceRoot, "observations");
-    const attempts = join(workspaceRoot, "attempts");
     const transcripts = join(workspaceRoot, "transcripts");
     const remoteInventories = join(workspaceRoot, "github/remote-inventories");
     const promptDirectory = join(workspaceRoot, "prompts");
@@ -774,7 +689,6 @@ export const prepareLiveScenarioGeneration = async (input: {
     await Promise.all([
       mkdir(agentHome, { recursive: true }),
       mkdir(observations, { recursive: true }),
-      mkdir(attempts, { recursive: true }),
       mkdir(transcripts, { recursive: true }),
       mkdir(promptDirectory, { recursive: true }),
     ]);
@@ -984,6 +898,18 @@ export const prepareLiveScenarioGeneration = async (input: {
         join(agentHome, "skill-directory/bearing"),
       );
     }
+    const declaredPrerequisites = scenario.composition.skills.filter(
+      ({ skill, role }) => skill !== "bearing" && role === "prerequisite",
+    );
+    if (declaredPrerequisites.length > 0) {
+      await materializeDeclaredPrerequisiteSkills({
+        scenario,
+        trustedSkillRoot:
+          input.prerequisiteSkillRoot ??
+          fail(`Live Scenario ${scenario.id} requires an explicit prerequisite Skill root.`),
+        targetSkillRoot: join(agentHome, "skill-directory"),
+      });
+    }
     const prompts = scenario.prompts.map((prompt) =>
       prompt.replaceAll(installationEntryToken, installationEntryPath),
     );
@@ -1063,7 +989,6 @@ export const prepareLiveScenarioGeneration = async (input: {
         agentHome,
         repository,
         observations,
-        attempts,
         transcripts,
         sessionState,
         prompts: promptPaths,
@@ -1102,83 +1027,9 @@ export const prepareLiveScenarioGeneration = async (input: {
   }
 };
 
-export const sealLiveScenarioAdmissionBinding = async (input: {
-  manifestPath: string;
-  admissionIdentitySha256: string;
-  basisIdentitySha256: string;
-  compositionReadbackIdentitySha256: string;
-  packageIdentitySha256: string;
-  harnessIdentitySha256: string;
-  fixtureDefinitionsSha256: string;
-  matrixSkillSetSha256: string;
-  agentSurfaceAdaptersSha256: string;
-  agentSurfaceIdentitySha256: string;
-  executionConfigurationSha256: string;
-  model: string;
-  reasoningEffort: string;
-  skills: unknown;
-}) => {
-  const manifestPath = resolve(input.manifestPath);
-  const verified = await verifyLiveScenarioGeneration(manifestPath, {
-    allowUnsealedAdmission: true,
-  });
-  const storedBytes = await readFile(manifestPath, "utf8");
-  const stored = manifestSchema.parse(JSON.parse(storedBytes));
-  if (stored.admission !== undefined) {
-    fail("Live Scenario Admission binding is already sealed.");
-  }
-  const expectedPackageIdentitySha256 = canonicalDigest(
-    "matrix-package-v1",
-    liveScenarioPackageEvidenceIdentity(stored.package),
-  );
-  if (
-    input.packageIdentitySha256 !== expectedPackageIdentitySha256 ||
-    input.harnessIdentitySha256 !==
-      (await liveScenarioHarnessIdentitySha256({ sourceRoot: stored.paths.sourceRoot })) ||
-    input.fixtureDefinitionsSha256 !==
-      (await digestLiveScenarioFixture(
-        join(stored.paths.sourceRoot, "validation/live-journey/fixtures"),
-      )) ||
-    input.model !== verified.scenario.composition.model ||
-    input.reasoningEffort !== verified.scenario.composition.reasoningEffort
-  ) {
-    fail("Live Scenario Admission binding contradicts the prepared Scenario.");
-  }
-  const value = liveScenarioAdmissionBindingValueSchema.parse({
-    schemaVersion: 1,
-    admissionIdentitySha256: input.admissionIdentitySha256,
-    basisIdentitySha256: input.basisIdentitySha256,
-    compositionReadbackIdentitySha256: input.compositionReadbackIdentitySha256,
-    packageIdentitySha256: input.packageIdentitySha256,
-    harnessIdentitySha256: input.harnessIdentitySha256,
-    fixtureDefinitionsSha256: input.fixtureDefinitionsSha256,
-    matrixSkillSetSha256: input.matrixSkillSetSha256,
-    agentSurfaceAdaptersSha256: input.agentSurfaceAdaptersSha256,
-    agentSurfaceIdentitySha256: input.agentSurfaceIdentitySha256,
-    executionConfigurationSha256: input.executionConfigurationSha256,
-    model: input.model,
-    reasoningEffort: input.reasoningEffort,
-    authBoundary: "runtime-owned-denied-file-v1",
-    skills: input.skills,
-    filesystem: {
-      runtimeRoot: await filesystemIdentity(stored.paths.runtimeRoot),
-      repository: await filesystemIdentity(stored.paths.repository),
-      agentHome: await filesystemIdentity(stored.paths.agentHome),
-    },
-  });
-  const admission = liveScenarioAdmissionBindingSchema.parse({
-    ...value,
-    identitySha256: canonicalDigest("live-scenario-admission-binding-v1", value),
-  });
-  const bytes = `${JSON.stringify({ ...stored, admission }, null, 2)}\n`;
-  await writeFile(manifestPath, bytes, { mode: 0o600 });
-  await writeFile(stored.paths.manifestDigest, `${sha256(bytes)}\n`, { mode: 0o600 });
-  return admission;
-};
-
 export const verifyLiveScenarioGeneration = async (
   path: string,
-  options: Readonly<{ allowUnsealedAdmission?: boolean; behaviorCompleted?: boolean }> = {},
+  options: Readonly<{ behaviorCompleted?: boolean }> = {},
 ) => {
   const manifestPath = resolve(path);
   const bytes = await readFile(manifestPath, "utf8");
@@ -1197,75 +1048,6 @@ export const verifyLiveScenarioGeneration = async (
   const scenario =
     registry.scenarios.find(({ id }) => id === parsed.scenario.id) ??
     fail(`Live Scenario is no longer registered: ${parsed.scenario.id}.`);
-  if (parsed.admission === undefined && options.allowUnsealedAdmission !== true) {
-    failContinuity("formal Generation behavior requires one sealed Admission binding.");
-  }
-  if (parsed.admission !== undefined) {
-    const { identitySha256, ...bindingValue } = parsed.admission;
-    const currentFilesystem = {
-      runtimeRoot: await filesystemIdentity(parsed.paths.runtimeRoot),
-      repository: await filesystemIdentity(parsed.paths.repository),
-      agentHome: await filesystemIdentity(parsed.paths.agentHome),
-    };
-    const currentPackageIdentitySha256 = canonicalDigest(
-      "matrix-package-v1",
-      liveScenarioPackageEvidenceIdentity(parsed.package),
-    );
-    if (
-      identitySha256 !== canonicalDigest("live-scenario-admission-binding-v1", bindingValue) ||
-      parsed.admission.packageIdentitySha256 !== currentPackageIdentitySha256 ||
-      parsed.admission.harnessIdentitySha256 !==
-        (await liveScenarioHarnessIdentitySha256({ sourceRoot: parsed.paths.sourceRoot })) ||
-      parsed.admission.fixtureDefinitionsSha256 !==
-        (await digestLiveScenarioFixture(
-          join(parsed.paths.sourceRoot, "validation/live-journey/fixtures"),
-        )) ||
-      parsed.admission.model !== scenario.composition.model ||
-      parsed.admission.reasoningEffort !== scenario.composition.reasoningEffort ||
-      parsed.admission.model !== CODEX_E2E_RUNTIME.model ||
-      parsed.admission.reasoningEffort !== CODEX_E2E_RUNTIME.reasoningEffort ||
-      JSON.stringify(parsed.admission.filesystem) !== JSON.stringify(currentFilesystem)
-    ) {
-      failContinuity(
-        "sealed package, Harness, Fixture, Agent Surface, or execution identity drifted.",
-      );
-    }
-    const observedBehavior =
-      options.behaviorCompleted === true || (await readdir(parsed.paths.observations)).length > 0;
-    const skillRoot = join(parsed.paths.agentHome, "skill-directory");
-    const actualSkillNames = (await readdir(skillRoot)).filter((name) => name !== ".system");
-    const declaredSkillNames = new Set<string>(parsed.admission.skills.map(({ skill }) => skill));
-    if (actualSkillNames.some((name) => !declaredSkillNames.has(name))) {
-      failContinuity("Agent Surface exposed one undeclared Skill.");
-    }
-    for (const admittedSkill of parsed.admission.skills) {
-      const skillPath = join(skillRoot, admittedSkill.skill);
-      const available = await pathExists(skillPath);
-      if (admittedSkill.state === "absent") {
-        const allowedInstallation =
-          admittedSkill.role === "installation-under-test" && observedBehavior;
-        if (available && !allowedInstallation) {
-          failContinuity(`Skill topology drifted before behavior: ${admittedSkill.skill}.`);
-        }
-        continue;
-      }
-      if (!available) {
-        failContinuity(`Required prerequisite Skill disappeared: ${admittedSkill.skill}.`);
-      }
-      const currentSkillIdentitySha256 = await digestLiveScenarioFixture(skillPath);
-      const acceptedSkillIdentities = [admittedSkill.contentIdentitySha256];
-      if (
-        observedBehavior &&
-        admittedSkill.skill === "bearing" &&
-        parsed.fixtureIdentity.olderGlobalKit !== undefined
-      ) {
-        acceptedSkillIdentities.push(parsed.fixtureIdentity.olderGlobalKit.targetSkillSha256);
-      }
-      if (!acceptedSkillIdentities.includes(currentSkillIdentitySha256)) {
-        failContinuity(`Prerequisite Skill identity drifted: ${admittedSkill.skill}.`);
-      }
-    }
-  }
   const temporaryRoot = await realpath(dirname(parsed.paths.runtimeRoot));
   const expectedRuntimeRoot = liveScenarioRuntimeRoot(
     temporaryRoot,
@@ -1400,16 +1182,7 @@ export const verifyLiveScenarioGeneration = async (
       fail("Preinstalled Bearing Skill changed outside the recorded Scenario transition.");
     }
   }
-  try {
-    await assertIsolatedCodexHomeControlLinks(parsed.paths.agentHome);
-  } catch (error) {
-    if (parsed.admission !== undefined) {
-      failContinuity(
-        error instanceof Error ? error.message : "Agent Surface control links drifted.",
-      );
-    }
-    throw error;
-  }
+  await assertIsolatedCodexHomeControlLinks(parsed.paths.agentHome);
   const expectedPrompts = scenario.prompts.map((prompt) =>
     prompt.replaceAll(installationEntryToken, parsed.paths.installationEntry),
   );

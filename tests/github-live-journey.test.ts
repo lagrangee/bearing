@@ -146,7 +146,7 @@ describe("GitHub and Active Reconciliation live Journey", () => {
     expect(result.stdout.toString()).not.toContain("prepare-github");
     expect(result.stdout.toString()).not.toContain("run-github-turn");
     expect(result.stdout.toString()).not.toContain("evaluate-github");
-    expect(result.stdout.toString()).toContain("prepare-scenario");
+    expect(result.stdout.toString()).toContain("prepare-generation");
     expect(await readFile("scripts/run-live-journey.ts", "utf8")).not.toContain(
       "githubJourneyBrokerDirectory",
     );
@@ -1054,6 +1054,8 @@ describe("GitHub and Active Reconciliation live Journey", () => {
       after: { repository: "c".repeat(64), agentHome: "d".repeat(64) },
       transcriptPointer: "github/transcripts/turn-01.jsonl",
       stderrPointer: "github/transcripts/turn-01.stderr.log",
+      startedAt: "2026-08-30T00:00:00.000Z",
+      endedAt: "2026-08-30T00:00:00.100Z",
       durationMs: 100,
       remoteBeforePointer: "github/remote-inventories/turn-01-before.json",
       remoteBeforeBytes,
@@ -1077,7 +1079,15 @@ describe("GitHub and Active Reconciliation live Journey", () => {
         pointer: "github/observations/turn-01.json",
         expectedCodexCliVersion: "codex-cli 0.147.0",
       }),
-    ).resolves.toMatchObject({ turn: 1, base: { terminalBoundary: "turn.completed" } });
+    ).resolves.toMatchObject({
+      turn: 1,
+      base: {
+        terminalBoundary: "turn.completed",
+        startedAt: "2026-08-30T00:00:00.000Z",
+        endedAt: "2026-08-30T00:00:00.100Z",
+        durationMs: 100,
+      },
+    });
     await writeFile(join(workspace, "github/remote-inventories/turn-01-after.json"), "{}\n");
     await expect(
       verifyGitHubJourneyObservation({

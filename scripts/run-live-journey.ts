@@ -27,20 +27,21 @@ import {
   verifyLiveJourneyObservation,
   writeCodexSessionState,
 } from "./live-journey-matrix";
+import { parseLiveMatrixGenerationBasis } from "./live-matrix-generation";
 import {
-  discardLiveScenarioGenerationAdmission,
-  prepareLiveScenarioGenerationAdmission,
-} from "./live-scenario-admission";
+  createLiveMatrixResult,
+  createLiveMatrixScenarioTerminalResult,
+} from "./live-matrix-results";
+import { runLiveMatrixSchedule } from "./live-matrix-scheduler";
+import { prepareLiveScenarioGenerationAdmission } from "./live-scenario-admission";
 import {
+  liveScenarioMatrixPackageIdentitySha256,
+  liveScenarioPackageEvidenceIdentity,
   liveScenarioPackageSchema,
   readLiveScenarioPackageBasis,
   scanLiveScenarioDurableEvidence,
   writeLiveScenarioPackageBasis,
 } from "./live-scenario-evidence";
-import {
-  createLiveScenarioMatrixResult,
-  createLiveScenarioResult,
-} from "./live-scenario-generation";
 import {
   createLiveScenarioEvaluation,
   loadLiveScenarioRegistry,
@@ -50,6 +51,7 @@ import {
   assertLiveScenarioSourceCurrent,
   liveScenarioCandidateDefinitionDigest,
   liveScenarioDefinitionDigest,
+  liveScenarioHarnessIdentitySha256,
   verifyLiveScenarioGeneration,
 } from "./live-scenario-runner";
 import { assertCanonicalPackageBoundary } from "./release-boundary";
@@ -70,23 +72,24 @@ const usage = `Usage:
   bun scripts/run-live-journey.ts preflight-matrix \\
     --source-root <absolute-path> --registry <checkout-relative-path>
 
-  bun scripts/run-live-journey.ts prepare-scenario \\
+  bun scripts/run-live-journey.ts prepare-generation \\
     --source-root <absolute-path> --registry <checkout-relative-path> \\
-    --scenario <scenario-id> --package-manifest <absolute-path> \\
+    --package-manifest <absolute-path> \\
     --workspace <absolute-new-path> --codex-home <absolute-path> \\
+    --prerequisite-skill-root <absolute-path> \\
     [--generation-id <uuid>] [--codex-program <path>] \\
     [--github-checkout <absolute-path>] [--github-program <path>]
 
-  bun scripts/run-live-journey.ts run-scenario-turn \\
-    --manifest <absolute-path> --turn <positive-integer> --prompt-file <path|->
+  bun scripts/run-live-journey.ts run-generation \\
+    --generation <absolute-path>
 
   bun scripts/run-live-journey.ts evaluate-scenario \\
-    --manifest <absolute-path> --verdicts <absolute-path> \\
+    --generation <absolute-path> --manifest <absolute-path> --verdicts <absolute-path> \\
     --output <absolute-new-path>
 
   bun scripts/run-live-journey.ts complete-matrix \\
     --source-root <absolute-path> --registry <absolute-path> --results <absolute-directory> \\
-    --output <absolute-new-path>
+    --generation <absolute-path> --output <absolute-new-path>
 `;
 
 const fail = (message: string): never => {
@@ -110,18 +113,17 @@ const parsed = parseArgs({
     workspace: { type: "string" },
     "package-output": { type: "string" },
     registry: { type: "string" },
-    scenario: { type: "string" },
     "package-manifest": { type: "string" },
     "generation-id": { type: "string" },
+    generation: { type: "string" },
     results: { type: "string" },
     "codex-home": { type: "string" },
     "codex-program": { type: "string" },
+    "prerequisite-skill-root": { type: "string" },
     "github-repository": { type: "string" },
     "github-checkout": { type: "string" },
     "github-program": { type: "string" },
     manifest: { type: "string" },
-    turn: { type: "string" },
-    "prompt-file": { type: "string" },
     verdicts: { type: "string" },
     output: { type: "string" },
   },
@@ -129,13 +131,6 @@ const parsed = parseArgs({
 
 const required = (name: keyof typeof parsed.values): string =>
   parsed.values[name] ?? fail(`Missing --${name}.`);
-
-const positiveInteger = (value: string, label: string): number => {
-  if (!/^[1-9][0-9]*$/u.test(value)) fail(`${label} must be a positive integer.`);
-  const parsedValue = Number(value);
-  if (!Number.isSafeInteger(parsedValue)) fail(`${label} must be a safe positive integer.`);
-  return parsedValue;
-};
 
 const ensureMissing = async (path: string): Promise<void> => {
   try {
@@ -187,7 +182,7 @@ const withLiveScenarioCoordinatorManifestHidden = async <Result>(
   }
 };
 
-const prepareScenario = async (): Promise<void> => {
+const prepareGeneration = async (): Promise<void> => {
   const sourceRoot = await realpath(resolve(required("source-root")));
   const packageBasis = await readLiveScenarioPackageBasis(resolve(required("package-manifest")));
   const matrixPackage = liveScenarioPackageSchema.parse(
@@ -225,14 +220,15 @@ const prepareScenario = async (): Promise<void> => {
       fail("Candidate package basis does not match its verified Receipt.");
     }
   }
-  const scenarioId = required("scenario");
+  const workspaceRoot = resolve(required("workspace"));
   const admission = await prepareLiveScenarioGenerationAdmission({
     sourceRoot,
-    workspaceRoot: resolve(required("workspace")),
+    workspaceRoot,
     operatorCodexHome: resolve(required("codex-home")),
     registryPath: required("registry"),
     generationId: parsed.values["generation-id"] ?? randomUUID(),
     package: matrixPackage,
+    prerequisiteSkillRoot: resolve(required("prerequisite-skill-root")),
     ...(parsed.values["codex-program"] === undefined
       ? {}
       : { codexProgram: parsed.values["codex-program"] }),
@@ -248,27 +244,23 @@ const prepareScenario = async (): Promise<void> => {
     process.exitCode = 1;
     return;
   }
-  const prepared = admission.preparedScenarios.find(({ scenario }) => scenario.id === scenarioId);
-  if (prepared === undefined) {
-    await discardLiveScenarioGenerationAdmission({
-      workspaceRoot: admission.workspaceRoot,
-      preparedScenarios: admission.preparedScenarios,
-    });
-    throw new Error(`Unknown Live Scenario: ${scenarioId}.`);
-  }
+  const generationPath = join(workspaceRoot, "generation.json");
+  await writeFile(
+    generationPath,
+    scanLiveScenarioDurableEvidence({
+      value: admission.generationBasis,
+      configPath: resolve(".gitleaks.toml"),
+    }),
+    { flag: "wx" },
+  );
   process.stdout.write(
     `${JSON.stringify({
-      generationId: prepared.generationId,
-      scenarioId: prepared.scenario.id,
-      manifest: prepared.paths.manifest,
-      repository: prepared.paths.repository,
-      prompts: prepared.paths.prompts,
-      scenarioManifests: admission.preparedScenarios.map(({ scenario, paths }) => ({
+      generationId: admission.generationId,
+      generation: generationPath,
+      manifests: admission.preparedScenarios.map(({ scenario, paths }) => ({
         scenarioId: scenario.id,
         manifest: paths.manifest,
-        prompts: paths.prompts,
       })),
-      admissionIdentitySha256: admission.admissionIdentitySha256,
     })}\n`,
   );
 };
@@ -570,7 +562,10 @@ const snapshotScenarioAgentHome = (agentHome: string): Promise<string> =>
 
 type CodexTurnManifest = Readonly<{
   generationId: string;
-  scenario: Readonly<{ composition: Readonly<{ fixtureProfile: string }> }>;
+  scenario: Readonly<{
+    id: string;
+    composition: Readonly<{ fixtureProfile: string; resourceKeys: readonly string[] }>;
+  }>;
   paths: Readonly<{
     sourceRoot: string;
     manifest: string;
@@ -581,7 +576,6 @@ type CodexTurnManifest = Readonly<{
     repository: string;
     prompts: readonly string[];
     sessionState: string;
-    attempts: string;
     transcripts: string;
     observations: string;
     remoteInventories?: string | undefined;
@@ -601,7 +595,7 @@ type CodexTurnManifest = Readonly<{
   }>;
 }>;
 
-const prepareCodexTurn = async (manifest: CodexTurnManifest, turn: number) => {
+const prepareCodexTurn = async (manifest: CodexTurnManifest, turn: number, promptFile: string) => {
   const sessionState = await readCodexSessionState(manifest.paths.sessionState);
   if (sessionState === undefined && turn !== 1)
     fail("The first Codex Journey turn must be turn 1.");
@@ -635,7 +629,7 @@ const prepareCodexTurn = async (manifest: CodexTurnManifest, turn: number) => {
   );
   const registry = await loadLiveScenarioRegistry(manifest.paths.registry);
   const prompt = await promptBytes(
-    required("prompt-file"),
+    promptFile,
     registry.scenarios.map(({ id }) => id),
     [manifest.paths.installationEntry],
   );
@@ -677,7 +671,7 @@ const prepareCodexTurn = async (manifest: CodexTurnManifest, turn: number) => {
 };
 
 const runPreparedCodexTurn = async (prepared: Awaited<ReturnType<typeof prepareCodexTurn>>) => {
-  const startedAt = performance.now();
+  const startedAt = Date.now();
   const promptDirectory =
     prepared.manifest.paths.prompts[0] === undefined
       ? fail("Live Scenario prompt directory is unavailable.")
@@ -689,7 +683,6 @@ const runPreparedCodexTurn = async (prepared: Awaited<ReturnType<typeof prepareC
         prepared.manifest.paths.manifestDigest,
         promptDirectory,
         prepared.manifest.paths.observations,
-        prepared.manifest.paths.attempts,
         prepared.manifest.paths.transcripts,
         prepared.manifest.paths.sessionState,
         ...(prepared.manifest.paths.remoteInventories === undefined
@@ -707,7 +700,8 @@ const runPreparedCodexTurn = async (prepared: Awaited<ReturnType<typeof prepareC
         prepared.step.workingDirectory,
       ),
   );
-  const durationMs = Math.max(1, Math.round(performance.now() - startedAt));
+  const endedAt = Date.now();
+  const durationMs = endedAt - startedAt;
   const runtimeGitHubToken = prepared.environment["GH_TOKEN"];
   if (
     runtimeGitHubToken !== undefined &&
@@ -724,7 +718,12 @@ const runPreparedCodexTurn = async (prepared: Awaited<ReturnType<typeof prepareC
     writeFile(prepared.transcriptPath, result.stdout, { flag: "wx" }),
     writeFile(prepared.stderrPath, result.stderr, { flag: "wx" }),
   ]);
-  return { ...result, durationMs };
+  return {
+    ...result,
+    startedAt: new Date(startedAt).toISOString(),
+    endedAt: new Date(endedAt).toISOString(),
+    durationMs,
+  };
 };
 
 const completeCodexTurn = async (
@@ -744,20 +743,17 @@ const completeCodexTurn = async (
       lastTurn: prepared.turn,
     });
   }
-  process.stdout.write(
-    `${JSON.stringify({
-      observation: prepared.observationPath,
-      exitCode: result.exitCode,
-      terminalBoundary: observation.terminalBoundary,
-    })}\n`,
-  );
-  if (
+  const completed = !(
     result.exitCode !== 0 ||
     observedSessionId === undefined ||
-    !["turn.completed", "turn.failed"].includes(observation.terminalBoundary)
-  ) {
-    process.exitCode = 1;
-  }
+    observation.terminalBoundary !== "turn.completed"
+  );
+  return Object.freeze({
+    observation: prepared.observationPath,
+    exitCode: result.exitCode,
+    terminalBoundary: observation.terminalBoundary,
+    completed,
+  });
 };
 
 const expectedScenarioObservationPointers = async (
@@ -779,15 +775,133 @@ const expectedScenarioObservationPointers = async (
   return expected.map((name) => `observations/${name}`);
 };
 
-const runScenarioTurn = async (): Promise<void> => {
-  const turn = positiveInteger(required("turn"), "--turn");
-  const manifest = await verifyLiveScenarioGeneration(resolve(required("manifest")));
+const executionSummarySchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    generationId: z.string().uuid(),
+    peakConcurrency: z.number().int().min(1).max(4),
+    scenarios: z.array(
+      z
+        .object({
+          scenarioId: z.string().regex(/^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d{2}$/u),
+          state: z.enum(["completed", "invalid"]),
+          diagnostic: z.string().trim().min(1).max(800).optional(),
+        })
+        .strict()
+        .superRefine((scenario, context) => {
+          if ((scenario.state === "invalid") !== (scenario.diagnostic !== undefined)) {
+            context.addIssue({
+              code: "custom",
+              message: "Only an invalid Scenario execution requires one diagnostic.",
+            });
+          }
+        }),
+    ),
+  })
+  .strict();
+
+const readGenerationBasis = async (path: string) => {
+  const generationPath = await realpath(resolve(path));
+  if (basename(generationPath) !== "generation.json") {
+    fail("Live Matrix Generation basis must use the canonical generation.json name.");
+  }
+  const basis = parseLiveMatrixGenerationBasis(JSON.parse(await readFile(generationPath, "utf8")));
+  return Object.freeze({ generationPath, workspaceRoot: dirname(generationPath), basis });
+};
+
+const readPreparedGenerationManifests = async (
+  generation: Awaited<ReturnType<typeof readGenerationBasis>>,
+) => {
+  const readbacks = new Map(
+    generation.basis.preparedScenarios.map((readback) => [readback.scenarioId, readback]),
+  );
+  const manifests = await Promise.all(
+    generation.basis.selectedScenarioIds.map(async (scenarioId) => {
+      const manifestPath = join(
+        generation.workspaceRoot,
+        "scenarios",
+        scenarioId,
+        "scenario-manifest.json",
+      );
+      const manifest = await verifyLiveScenarioGeneration(manifestPath);
+      const readback =
+        readbacks.get(scenarioId) ?? fail(`Generation readback is missing: ${scenarioId}.`);
+      if (
+        manifest.generationId !== generation.basis.generationId ||
+        manifest.scenario.id !== scenarioId ||
+        manifest.startingStateSha256 !== readback.fixtureSha256 ||
+        manifest.matrixDefinitionSha256 !== generation.basis.registryDefinitionSha256 ||
+        liveScenarioMatrixPackageIdentitySha256(
+          liveScenarioPackageEvidenceIdentity(manifest.package),
+        ) !== generation.basis.package.identitySha256
+      ) {
+        fail(`Prepared Scenario contradicts its Generation basis: ${scenarioId}.`);
+      }
+      if (manifest.scenario.composition.resourceKeys.length > 1) {
+        fail(`Live Matrix supports at most one Resource Key: ${scenarioId}.`);
+      }
+      return manifest;
+    }),
+  );
+  const sourceRoots = [...new Set(manifests.map(({ paths }) => paths.sourceRoot))];
+  if (
+    sourceRoots.length !== 1 ||
+    (await liveScenarioHarnessIdentitySha256({ sourceRoot: sourceRoots[0] as string })) !==
+      generation.basis.harnessIdentitySha256
+  ) {
+    fail("Live Matrix Harness identity changed after Generation preparation.");
+  }
+  return manifests;
+};
+
+const readGenerationExecution = async (
+  generation: Awaited<ReturnType<typeof readGenerationBasis>>,
+) => {
+  const path = join(generation.workspaceRoot, "execution.json");
+  const summary = executionSummarySchema.parse(JSON.parse(await readFile(path, "utf8")));
+  const scenarioIds = summary.scenarios.map(({ scenarioId }) => scenarioId);
+  if (
+    summary.generationId !== generation.basis.generationId ||
+    JSON.stringify(scenarioIds) !== JSON.stringify(generation.basis.selectedScenarioIds)
+  ) {
+    fail("Live Matrix execution summary contradicts its Generation basis.");
+  }
+  return Object.freeze({ path, summary });
+};
+
+const observedScenarioObservationPointers = async (
+  manifest: Awaited<ReturnType<typeof verifyLiveScenarioGeneration>>,
+) => {
+  const observed = (await readdir(manifest.paths.observations))
+    .filter((name) => /^turn-\d{2}\.json$/u.test(name))
+    .sort((left, right) => left.localeCompare(right, "en"));
+  const expected = Array.from(
+    { length: observed.length },
+    (_, index) => `turn-${String(index + 1).padStart(2, "0")}.json`,
+  );
+  if (
+    observed.length > manifest.paths.prompts.length ||
+    JSON.stringify(observed) !== JSON.stringify(expected)
+  ) {
+    fail("Live Scenario observations must be contiguous and start at Turn 1.");
+  }
+  return observed.map((name) => `observations/${name}`);
+};
+
+const runScenarioTurn = async (input: {
+  manifestPath: string;
+  turn: number;
+  promptFile: string;
+}) => {
+  const turn = input.turn;
+  if (!Number.isSafeInteger(turn) || turn <= 0) fail("Live Scenario turn must be positive.");
+  const manifest = await verifyLiveScenarioGeneration(resolve(input.manifestPath));
   const expectedPrompt = manifest.paths.prompts[turn - 1];
-  if (expectedPrompt === undefined || resolve(required("prompt-file")) !== expectedPrompt) {
+  if (expectedPrompt === undefined || resolve(input.promptFile) !== expectedPrompt) {
     fail("Live Scenario turn requires its generated natural-language prompt.");
   }
   const priorPointers = await expectedScenarioObservationPointers(manifest, turn - 1);
-  const prepared = await prepareCodexTurn(manifest, turn);
+  const prepared = await prepareCodexTurn(manifest, turn, input.promptFile);
   const before = {
     repository: await snapshotDirectory(manifest.paths.repository),
     agentHome: await snapshotScenarioAgentHome(manifest.paths.agentHome),
@@ -873,6 +987,8 @@ const runScenarioTurn = async (): Promise<void> => {
     after,
     transcriptPointer: `transcripts/turn-${prepared.turnLabel}.jsonl`,
     stderrPointer: `transcripts/turn-${prepared.turnLabel}.stderr.log`,
+    startedAt: result.startedAt,
+    endedAt: result.endedAt,
     durationMs: result.durationMs,
   } as const;
   const observation =
@@ -887,32 +1003,122 @@ const runScenarioTurn = async (): Promise<void> => {
           remoteAfterBytes:
             remoteAfterBytes ?? fail("GitHub remote-after evidence is unavailable."),
         });
-  await completeCodexTurn(prepared, result, observation);
+  const terminal = await completeCodexTurn(prepared, result, observation);
+  if (!terminal.completed) {
+    fail(
+      `Live Scenario ${manifest.scenario.id} Turn ${turn} did not reach a recorded terminal boundary.`,
+    );
+  }
+  return terminal;
+};
+
+const runGeneration = async (): Promise<void> => {
+  const generation = await readGenerationBasis(required("generation"));
+  const executionPath = join(generation.workspaceRoot, "execution.json");
+  await ensureMissing(executionPath);
+  const manifests = await readPreparedGenerationManifests(generation);
+  for (const manifest of manifests) {
+    if (
+      (await readdir(manifest.paths.observations)).length !== 0 ||
+      (await readdir(manifest.paths.transcripts)).length !== 0
+    ) {
+      fail("A partially executed Matrix cannot be resumed; prepare a fresh Generation.");
+    }
+    await ensureMissing(manifest.paths.sessionState);
+  }
+  const scheduled = await runLiveMatrixSchedule(
+    manifests.map((manifest) => ({
+      task: manifest,
+      ...(manifest.scenario.composition.resourceKeys[0] === undefined
+        ? {}
+        : { resourceKey: manifest.scenario.composition.resourceKeys[0] }),
+    })),
+    async (manifest) => {
+      for (const [index, promptFile] of manifest.paths.prompts.entries()) {
+        await runScenarioTurn({
+          manifestPath: manifest.paths.manifest,
+          turn: index + 1,
+          promptFile,
+        });
+      }
+      return manifest.scenario.id;
+    },
+  );
+  const summary = executionSummarySchema.parse({
+    schemaVersion: 1,
+    generationId: generation.basis.generationId,
+    peakConcurrency: scheduled.peakConcurrency,
+    scenarios: scheduled.results.map(({ task, result }) =>
+      result.status === "fulfilled"
+        ? { scenarioId: task.scenario.id, state: "completed" as const }
+        : {
+            scenarioId: task.scenario.id,
+            state: "invalid" as const,
+            diagnostic:
+              (result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason)
+              ).slice(0, 800) || "Scenario execution failed without a diagnostic.",
+          },
+    ),
+  });
+  await writeFile(
+    executionPath,
+    scanLiveScenarioDurableEvidence({ value: summary, configPath: resolve(".gitleaks.toml") }),
+    { flag: "wx" },
+  );
+  process.stdout.write(
+    `${JSON.stringify({
+      generationId: summary.generationId,
+      execution: executionPath,
+      peakConcurrency: summary.peakConcurrency,
+      scenarios: summary.scenarios,
+    })}\n`,
+  );
 };
 
 const evaluateScenario = async (): Promise<void> => {
+  const generation = await readGenerationBasis(required("generation"));
+  const execution = await readGenerationExecution(generation);
   const manifest = await verifyLiveScenarioGeneration(resolve(required("manifest")));
   const output = resolve(required("output"));
   await ensureMissing(output);
-  const pointers = await expectedScenarioObservationPointers(
-    manifest,
-    manifest.paths.prompts.length,
+  const readback = generation.basis.preparedScenarios.find(
+    ({ scenarioId }) => scenarioId === manifest.scenario.id,
   );
-  const firstObservation = JSON.parse(
-    (
-      await readGeneratedEvidenceFile(manifest.paths.workspaceRoot, pointers[0] as string)
-    ).bytes.toString("utf8"),
-  ) as Readonly<{ codex?: Readonly<{ cliVersion?: unknown }> }>;
-  const codexCliVersion =
-    typeof firstObservation.codex?.cliVersion === "string"
-      ? firstObservation.codex.cliVersion
-      : fail("Live Scenario observation has no Codex CLI version.");
+  const executionScenario = execution.summary.scenarios.find(
+    ({ scenarioId }) => scenarioId === manifest.scenario.id,
+  );
+  if (
+    manifest.generationId !== generation.basis.generationId ||
+    readback === undefined ||
+    readback.fixtureSha256 !== manifest.startingStateSha256 ||
+    executionScenario === undefined ||
+    (await liveScenarioHarnessIdentitySha256({ sourceRoot: manifest.paths.sourceRoot })) !==
+      generation.basis.harnessIdentitySha256
+  ) {
+    fail("Live Scenario evaluation contradicts its Generation basis.");
+  }
+  const executionState = executionScenario?.state ?? fail("Scenario execution is unavailable.");
+  const pointers = await observedScenarioObservationPointers(manifest);
   const observations = new Map();
   const githubObservations = new Map<
     string,
     Awaited<ReturnType<typeof verifyGitHubJourneyObservation>>
   >();
+  let codexCliVersion: string | undefined;
   for (const pointer of pointers) {
+    if (codexCliVersion === undefined) {
+      const firstObservation = JSON.parse(
+        (await readGeneratedEvidenceFile(manifest.paths.workspaceRoot, pointer)).bytes.toString(
+          "utf8",
+        ),
+      ) as Readonly<{ codex?: Readonly<{ cliVersion?: unknown }> }>;
+      codexCliVersion =
+        typeof firstObservation.codex?.cliVersion === "string"
+          ? firstObservation.codex.cliVersion
+          : fail("Live Scenario observation has no Codex CLI version.");
+    }
     if (manifest.github === undefined) {
       observations.set(
         pointer,
@@ -932,88 +1138,112 @@ const evaluateScenario = async (): Promise<void> => {
       observations.set(pointer, verified.base);
     }
   }
-  const verdict = JSON.parse(await readFile(resolve(required("verdicts")), "utf8")) as Readonly<{
-    outcome?: unknown;
-    rationale?: unknown;
-    requiredOutcomeObservations?: readonly unknown[];
-    forbiddenOutcomeObservations?: readonly unknown[];
-    authorizedRemoteIssueNumbers?: unknown;
-  }>;
-  const evaluation = createLiveScenarioEvaluation({
-    scenario: manifest.scenario,
-    outcome: verdict.outcome as "pass" | "fail" | "blocked" | "not-run",
-    coordinatorIdentity: manifest.coordinatorIdentity,
-    rationale: verdict.rationale as string,
-    requiredOutcomeObservations: verdict.requiredOutcomeObservations ?? [],
-    forbiddenOutcomeObservations: verdict.forbiddenOutcomeObservations ?? [],
-  });
-  const referencedPointers = [
-    ...evaluation.requiredOutcomeObservations,
-    ...evaluation.forbiddenOutcomeObservations,
-  ].flatMap(({ evidencePointers }) => evidencePointers);
+  const verdict = z
+    .object({
+      outcome: z.enum(["pass", "fail", "blocked", "invalid"]),
+      rationale: z.string().trim().min(1).max(800),
+      requiredOutcomeObservations: z.array(z.unknown()).default([]),
+      forbiddenOutcomeObservations: z.array(z.unknown()).default([]),
+      authorizedRemoteIssueNumbers: z.array(z.number().int().positive()).max(24).optional(),
+    })
+    .strict()
+    .parse(JSON.parse(await readFile(resolve(required("verdicts")), "utf8")));
+  const fullTurnSet = pointers.length === manifest.paths.prompts.length;
   if (
-    referencedPointers.some((pointer) => !pointers.includes(pointer) || !observations.has(pointer))
+    (verdict.outcome === "pass" || verdict.outcome === "fail" || verdict.outcome === "blocked") &&
+    (executionState !== "completed" || !fullTurnSet)
   ) {
-    fail("Live Scenario verdict references evidence outside the complete turn set.");
+    fail("Semantic Live Scenario verdict requires every declared Turn to complete.");
+  }
+  if (verdict.outcome === "invalid" && executionState !== "invalid") {
+    fail("Only a rejected Scenario execution may receive an invalid verdict.");
   }
   if (
-    evaluation.outcome === "pass" &&
+    verdict.outcome === "invalid" &&
+    (verdict.requiredOutcomeObservations.length !== 0 ||
+      verdict.forbiddenOutcomeObservations.length !== 0)
+  ) {
+    fail("An invalid execution cannot claim semantic outcome observations.");
+  }
+  if (verdict.outcome !== "invalid") {
+    const evaluation = createLiveScenarioEvaluation({
+      scenario: manifest.scenario,
+      outcome: verdict.outcome,
+      coordinatorIdentity: manifest.coordinatorIdentity,
+      rationale: verdict.rationale,
+      requiredOutcomeObservations: verdict.requiredOutcomeObservations,
+      forbiddenOutcomeObservations: verdict.forbiddenOutcomeObservations,
+    });
+    const referencedPointers = [
+      ...evaluation.requiredOutcomeObservations,
+      ...evaluation.forbiddenOutcomeObservations,
+    ].flatMap(({ evidencePointers }) => evidencePointers);
+    if (
+      referencedPointers.some(
+        (pointer) => !pointers.includes(pointer) || !observations.has(pointer),
+      )
+    ) {
+      fail("Live Scenario verdict references evidence outside the complete turn set.");
+    }
+  }
+  if (
+    verdict.outcome === "pass" &&
     pointers.some((pointer) => !observationSupportsSemanticPass(observations.get(pointer)))
   ) {
     fail("Passing Live Scenario requires every expected Codex turn to complete cleanly.");
   }
-  if ((await readdir(manifest.paths.attempts)).length !== 0) {
-    fail("Live Scenario does not accept retry attempt records.");
-  }
-  let remoteIntegrity: ReturnType<typeof assertGitHubRemoteIntegrity> | undefined;
-  if (manifest.github !== undefined) {
+  if (manifest.github !== undefined && pointers.length > 0) {
     const baselinePath =
       manifest.paths.baselineInventory ?? fail("GitHub baseline inventory is unavailable.");
     const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
     const final =
       githubObservations.get(pointers.at(-1) as string)?.after ??
       fail("GitHub final remote observation is unavailable.");
-    const authorizedIssueNumbers = z
-      .array(z.number().int().positive())
-      .max(24)
-      .superRefine((numbers, context) => {
-        if (new Set(numbers).size !== numbers.length) {
-          context.addIssue({ code: "custom", message: "Authorized remote issues must be unique." });
-        }
-      })
-      .parse(verdict.authorizedRemoteIssueNumbers);
-    if (evaluation.outcome === "pass" && authorizedIssueNumbers.length === 0) {
+    const authorizedIssueNumbers = verdict.authorizedRemoteIssueNumbers ?? [];
+    if (new Set(authorizedIssueNumbers).size !== authorizedIssueNumbers.length) {
+      fail("Authorized remote issues must be unique.");
+    }
+    if (verdict.outcome === "pass" && authorizedIssueNumbers.length === 0) {
       fail("Passing GitHub Scenario requires one fresh candidate-scoped native delivery.");
     }
-    remoteIntegrity = assertGitHubRemoteIntegrity({
+    assertGitHubRemoteIntegrity({
       before: baseline,
       after: final,
       authorizedIssueNumbers,
-      requireCandidateBranch: evaluation.outcome === "pass",
+      requireCandidateBranch: verdict.outcome === "pass",
     });
   }
-  const result = createLiveScenarioResult({
-    evidenceClass: manifest.evidenceClass,
+  const orderedObservations = pointers.map(
+    (pointer) =>
+      observations.get(pointer) ?? fail(`Live Scenario observation is unavailable: ${pointer}.`),
+  );
+  const evaluatedAt = new Date().toISOString();
+  const result = createLiveMatrixScenarioTerminalResult({
     generationId: manifest.generationId,
-    package: manifest.package,
-    matrixDefinitionSha256: manifest.matrixDefinitionSha256,
-    codexCliVersion,
-    coordinatorIdentity: manifest.coordinatorIdentity,
-    startingStateSha256: manifest.startingStateSha256,
-    durationMs: [...observations.values()].reduce(
-      (total, observation) => total + observation.durationMs,
-      0,
+    scenarioId: manifest.scenario.id,
+    outcome: verdict.outcome,
+    rationale: verdict.rationale,
+    evidence: await Promise.all(
+      pointers.map(async (pointer) => ({
+        evidenceClass: "observation" as const,
+        pointer,
+        sha256: await sha256File(join(manifest.paths.workspaceRoot, pointer)),
+      })),
     ),
-    evaluation,
-    remoteIntegrity,
-    attempts: [],
+    turns: orderedObservations.map((observation) => ({
+      turnNumber: observation.turn,
+      startedAt: observation.startedAt,
+      endedAt: observation.endedAt,
+    })),
+    startedAt: orderedObservations[0]?.startedAt ?? evaluatedAt,
+    endedAt: orderedObservations.at(-1)?.endedAt ?? evaluatedAt,
   });
   const [outputParent, cleanupDirectories, cleanupSessionState] = await Promise.all([
     realpath(dirname(output)),
     Promise.all(
       [manifest.paths.transcripts, manifest.paths.runtimeRoot].map((path) => realpath(path)),
     ),
-    realpath(manifest.paths.sessionState),
+    Promise.resolve(resolve(manifest.paths.sessionState)),
   ]);
   const durableOutput = join(outputParent, basename(output));
   const outputInCleanupDirectory = cleanupDirectories.some((directory) => {
@@ -1037,7 +1267,7 @@ const evaluateScenario = async (): Promise<void> => {
     rm(manifest.paths.sessionState, { force: true }),
   ]);
   process.stdout.write(
-    `${JSON.stringify({ output: durableOutput, scenarioId: result.scenarioId, outcome: result.evaluation.outcome })}\n`,
+    `${JSON.stringify({ output: durableOutput, scenarioId: result.scenarioId, outcome: result.outcome })}\n`,
   );
 };
 
@@ -1068,6 +1298,8 @@ const preflightMatrix = async (): Promise<void> => {
 const completeMatrix = async (): Promise<void> => {
   const output = resolve(required("output"));
   await ensureMissing(output);
+  const generation = await readGenerationBasis(required("generation"));
+  const execution = await readGenerationExecution(generation);
   const sourceRoot = await realpath(resolve(required("source-root")));
   const trackedRegistryPath = join(sourceRoot, "validation/live-journey/registry.json");
   if ((await realpath(resolve(required("registry")))) !== (await realpath(trackedRegistryPath))) {
@@ -1091,33 +1323,48 @@ const completeMatrix = async (): Promise<void> => {
       const path = join(resultsRoot, name);
       return {
         result: JSON.parse(await readFile(path, "utf8")),
-        pointer: relative(outputRoot, path).replaceAll("\\", "/"),
-        sha256: await sha256File(path),
+        reference: {
+          pointer: relative(outputRoot, path).replaceAll("\\", "/"),
+          sha256: await sha256File(path),
+        },
       };
     }),
   );
-  const result = createLiveScenarioMatrixResult({ registry, scenarioResults });
-  await assertLiveScenarioSourceCurrent(sourceRoot, result.package);
+  const currentDefinitionSha256 = await liveScenarioDefinitionDigest({
+    sourceRoot,
+    registryPath: "validation/live-journey/registry.json",
+  });
   if (
-    (await liveScenarioDefinitionDigest({
-      sourceRoot,
-      registryPath: "validation/live-journey/registry.json",
-    })) !== result.matrixDefinitionSha256
+    currentDefinitionSha256 !== generation.basis.registryDefinitionSha256 ||
+    (await liveScenarioHarnessIdentitySha256({ sourceRoot })) !==
+      generation.basis.harnessIdentitySha256
   ) {
     fail("Matrix completion source definition does not match the Scenario result identity.");
   }
+  const result = createLiveMatrixResult({
+    generationBasis: generation.basis,
+    generationBasisReference: {
+      pointer: relative(outputRoot, generation.generationPath).replaceAll("\\", "/"),
+      sha256: await sha256File(generation.generationPath),
+    },
+    registeredScenarioIds: registry.scenarios.map(({ id }) => id),
+    scenarioResults,
+    peakConcurrency: execution.summary.peakConcurrency,
+    endedAt: new Date().toISOString(),
+  });
   await writeFile(
     output,
     scanLiveScenarioDurableEvidence({ value: result, configPath: resolve(".gitleaks.toml") }),
     { flag: "wx" },
   );
+  await rm(execution.path);
   process.stdout.write(
     `${JSON.stringify({ output, outcome: result.terminalOutcome, scenarios: result.scenarios.length })}\n`,
   );
 };
 
-if (command === "prepare-scenario") await prepareScenario();
-else if (command === "run-scenario-turn") await runScenarioTurn();
+if (command === "prepare-generation") await prepareGeneration();
+else if (command === "run-generation") await runGeneration();
 else if (command === "evaluate-scenario") await evaluateScenario();
 else if (command === "preflight-matrix") await preflightMatrix();
 else if (command === "prepare-local-rehearsal") await prepareLocalRehearsal();

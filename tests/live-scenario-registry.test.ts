@@ -143,7 +143,7 @@ describe("independent Agent Live scenarios", () => {
     expect(environment).not.toHaveProperty("MATRIX_PASS_CRITERIA");
   });
 
-  test("exposes one no-retry Scenario runner surface", () => {
+  test("exposes one no-retry Generation runner surface", () => {
     const result = Bun.spawnSync([process.execPath, "scripts/run-live-journey.ts", "--help"], {
       cwd: sourceRoot,
       stdout: "pipe",
@@ -153,8 +153,8 @@ describe("independent Agent Live scenarios", () => {
 
     expect(result.exitCode, result.stderr.toString()).toBe(0);
     expect(help).toContain("preflight-matrix");
-    expect(help).toContain("prepare-scenario");
-    expect(help).toContain("run-scenario-turn");
+    expect(help).toContain("prepare-generation");
+    expect(help).toContain("run-generation");
     expect(help).toContain("evaluate-scenario");
     expect(help).toContain("complete-matrix");
     for (const retired of [
@@ -164,6 +164,8 @@ describe("independent Agent Live scenarios", () => {
       "recover-evidence-publication",
       "inspect-evidence-bundle",
       "inspect-generation",
+      "prepare-scenario",
+      "run-scenario-turn",
     ]) {
       expect(help).not.toContain(retired);
     }

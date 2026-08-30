@@ -17,9 +17,11 @@ import {
   materializeLiveScenarioProductState,
 } from "../scripts/live-scenario-product";
 import {
+  digestLiveScenarioFixtureSet,
   loadLiveScenarioRegistry,
   preflightLiveScenarioRegistry,
 } from "../scripts/live-scenario-registry";
+import { liveScenarioDefinitionDigest } from "../scripts/live-scenario-runner";
 
 const expectedScenarioIds = [
   "INSTALL-01",
@@ -90,6 +92,62 @@ describe("KISS Live Scenario inventory", () => {
     });
     expect(preflight.scenarioCount).toBe(18);
     expect(preflight.semanticReviewScenarioIds).toEqual([...expectedScenarioIds]);
+  });
+
+  test("identities include only fixtures referenced by the registry or selected Scenarios", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bearing-live-fixture-identity-"));
+    temporaryRoots.push(root);
+    const registryPath = "validation/live-journey/registry.json";
+    await mkdir(join(root, "validation/live-journey/fixtures"), { recursive: true });
+    await cp(registryPath, join(root, registryPath));
+    for (const source of expectedFixtureSources) {
+      await cp(source, join(root, source), { recursive: true });
+    }
+    const registry = await loadLiveScenarioRegistry(join(root, registryPath));
+    const matrixBefore = await liveScenarioDefinitionDigest({
+      sourceRoot: root,
+      registryPath,
+    });
+    const selectedBefore = await digestLiveScenarioFixtureSet({
+      sourceRoot: root,
+      registry,
+      scenarioIds: ["INSTALL-01"],
+    });
+
+    const unreferenced = join(root, "validation/live-journey/fixtures/legacy-unused");
+    await mkdir(unreferenced);
+    await writeFile(join(unreferenced, "state.txt"), "unreferenced\n");
+    expect(await liveScenarioDefinitionDigest({ sourceRoot: root, registryPath })).toBe(
+      matrixBefore,
+    );
+    expect(
+      await digestLiveScenarioFixtureSet({
+        sourceRoot: root,
+        registry,
+        scenarioIds: ["INSTALL-01"],
+      }),
+    ).toBe(selectedBefore);
+
+    await writeFile(join(root, expectedFixtureSources[1], "identity-probe.txt"), "referenced\n");
+    expect(await liveScenarioDefinitionDigest({ sourceRoot: root, registryPath })).not.toBe(
+      matrixBefore,
+    );
+    expect(
+      await digestLiveScenarioFixtureSet({
+        sourceRoot: root,
+        registry,
+        scenarioIds: ["INSTALL-01"],
+      }),
+    ).toBe(selectedBefore);
+
+    await writeFile(join(root, expectedFixtureSources[0], "identity-probe.txt"), "selected\n");
+    expect(
+      await digestLiveScenarioFixtureSet({
+        sourceRoot: root,
+        registry,
+        scenarioIds: ["INSTALL-01"],
+      }),
+    ).not.toBe(selectedBefore);
   });
 
   test("keeps lifecycle, native, and delivery fixture context bounded", async () => {
