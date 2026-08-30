@@ -5,7 +5,15 @@ contract. It deliberately stays separate from `validation/live-journey/registry.
 results are not the formal Clean Installation Journey, the full Codex Matrix, Candidate evidence,
 publication evidence, Effort Conclusion, Gate Readiness, or Gate Passage.
 
-Both rehearsals must use one package basis prepared from the final tracked G1 source state:
+Preflight the bounded registry before packaging:
+
+```text
+bun scripts/run-live-journey.ts preflight-matrix \
+  --source-root <exact-checkout> \
+  --registry validation/g1-installation-update/registry.json
+```
+
+Both rehearsals must then use one package basis prepared from the final tracked G1 source state:
 
 ```text
 bun scripts/run-live-journey.ts prepare-local-rehearsal \
@@ -21,11 +29,44 @@ version by changing target-package metadata. `INSTALL-01` additionally fails pre
 the Coordinator records a verified macOS `/bin/zsh` runtime identity, which is then fixed in the
 Scenario manifest and launch environment.
 
-Use one Generation UUID. Prepare and run `INSTALL-01` and `UPDATE-01` independently with the
-standard `prepare-scenario`, `run-scenario-turn`, and `evaluate-scenario` operations in
-`validation/live-journey/generation.md`, substituting this registry path. Do not run
-`complete-matrix`; each bounded result stands on its own and can never satisfy a release
-prerequisite.
+Use one Generation UUID and the same Generation-level runner surface as the full Matrix:
+
+```text
+bun scripts/run-live-journey.ts prepare-generation \
+  --source-root <exact-checkout> \
+  --registry validation/g1-installation-update/registry.json \
+  --package-manifest <package-output>/local-rehearsal-package.json \
+  --workspace <new-external-evidence-root>/generation \
+  --codex-home <operator-codex-home> \
+  --prerequisite-skill-root <trusted-installed-skill-root> \
+  --generation-id <uuid>
+
+bun scripts/run-live-journey.ts run-generation \
+  --generation <new-external-evidence-root>/generation/generation.json
+```
+
+The two Scenarios remain isolated and semantically independent, but one `run-generation` schedules
+both from their prepared manifests. It writes an internal `execution.json` containing only peak
+concurrency and `completed` or `invalid` execution state; that file is not another evidence level.
+
+After execution, the Coordinator authors the two verdict inputs and evaluates both registry entries:
+
+```text
+bun scripts/run-live-journey.ts evaluate-scenario \
+  --generation <new-external-evidence-root>/generation/generation.json \
+  --manifest <new-external-evidence-root>/generation/scenarios/INSTALL-01/scenario-manifest.json \
+  --verdicts <private-install-verdict-input> \
+  --output <new-external-evidence-root>/results/INSTALL-01.json
+
+bun scripts/run-live-journey.ts evaluate-scenario \
+  --generation <new-external-evidence-root>/generation/generation.json \
+  --manifest <new-external-evidence-root>/generation/scenarios/UPDATE-01/scenario-manifest.json \
+  --verdicts <private-update-verdict-input> \
+  --output <new-external-evidence-root>/results/UPDATE-01.json
+```
+
+Stop after the two Scenario results. Do not aggregate this bounded registry with
+`complete-matrix`; each result stands on its own and can never satisfy a release prerequisite.
 
 The Coordinator must review the natural requests and semantic outcomes before execution, inspect
 the complete private turn evidence, and author each verdict. The Journey Agent's self-report is not

@@ -1,4 +1,12 @@
-import { verifyLiveScenarioMatrixResult } from "./live-scenario-generation";
+import { dirname, resolve } from "node:path";
+import trackedRegistryDefinition from "../validation/live-journey/registry.json";
+import { verifyLiveMatrixResult } from "./live-matrix-results";
+import {
+  liveScenarioMatrixPackageIdentitySha256,
+  liveScenarioPackageEvidenceIdentity,
+  liveScenarioPackageSchema,
+} from "./live-scenario-evidence";
+import { parseLiveScenarioRegistry } from "./live-scenario-registry";
 import { liveScenarioDefinitionDigest } from "./live-scenario-runner";
 import type { PublicReleaseSmokeOptions } from "./public-release-smoke";
 import { verifyReleaseCandidate } from "./release-candidate-lib";
@@ -10,6 +18,9 @@ export const requiredReleaseComponentEffortIds = Object.freeze([
   "effort:bearing-0-1-1-architecture-contraction",
   "effort:bearing-0-1-1-ci-validation-quality",
 ] as const);
+
+const trackedRegistry = parseLiveScenarioRegistry(trackedRegistryDefinition);
+const trackedScenarioIds = Object.freeze(trackedRegistry.scenarios.map(({ id }) => id));
 
 export type CandidateIdentity = Readonly<{
   packageVersion: string;
@@ -314,7 +325,10 @@ export const runReleaseOperator = async (
       retainedEvidence: { candidateProof, componentReadiness },
     });
   }
-  const matrixResult = await verifyLiveScenarioMatrixResult(input.matrixResultPath).then(
+  const matrixResult = await verifyLiveMatrixResult(
+    input.matrixResultPath,
+    trackedScenarioIds,
+  ).then(
     (value) => ({ value }) as const,
     (error: unknown) => ({ error }) as const,
   );
@@ -327,18 +341,18 @@ export const runReleaseOperator = async (
       retainedEvidence: { candidateProof, componentReadiness, matrix: { state: "invalid" } },
     });
   }
-  const matrix = matrixResult.value;
+  const { generationBasis, matrix } = matrixResult.value;
   const currentMatrixDefinitionSha256 = await liveScenarioDefinitionDigest({
     sourceRoot: process.cwd(),
     registryPath: "validation/live-journey/registry.json",
   });
   if (
     matrix.evidenceClass !== "release-candidate" ||
-    matrix.package.evidenceClass !== "release-candidate" ||
+    generationBasis.package.evidenceClass !== "release-candidate" ||
     matrix.terminalOutcome !== "pass" ||
     matrix.releasePrerequisiteSatisfied !== true ||
     matrix.scenarios.some((scenario) => scenario.outcome !== "pass") ||
-    matrix.matrixDefinitionSha256 !== currentMatrixDefinitionSha256
+    generationBasis.registryDefinitionSha256 !== currentMatrixDefinitionSha256
   ) {
     return blocked({
       stage: "matrix",
@@ -352,13 +366,23 @@ export const runReleaseOperator = async (
       },
     });
   }
-  const matrixIdentity: CandidateIdentity = {
-    packageVersion: matrix.package.packageVersion,
-    sourceCommit: matrix.package.sourceCommit,
-    workflow: matrix.package.workflow,
-    frozenSha256: matrix.package.artifact.sha256,
-  };
-  if (!sameCandidateIdentity(matrixIdentity, identity)) {
+  const candidatePackage = liveScenarioPackageSchema.parse({
+    evidenceClass: "release-candidate",
+    packageName: receipt.packageName,
+    packageVersion: receipt.packageVersion,
+    sourceCommit: receipt.sourceCommit,
+    workflow: receipt.workflow,
+    artifact: {
+      path: resolve(dirname(input.candidateReceiptPath), receipt.artifact.file),
+      file: receipt.artifact.file,
+      sha256: receipt.artifact.sha256,
+    },
+    matrixDefinitionSha256: currentMatrixDefinitionSha256,
+  });
+  const candidatePackageIdentitySha256 = liveScenarioMatrixPackageIdentitySha256(
+    liveScenarioPackageEvidenceIdentity(candidatePackage),
+  );
+  if (generationBasis.package.identitySha256 !== candidatePackageIdentitySha256) {
     return blocked({
       stage: "candidate-identity",
       reason: "Matrix result identity does not match the verified Candidate Receipt.",

@@ -94,9 +94,11 @@ the authority for provider shape and harness mechanics.
 
 Freeze one local package and Matrix definition, complete fresh low-cost preparation for every
 Scenario, then run independent Scenarios with rolling concurrency four. Each Scenario runs once in
-that Generation. A fail, blocked result, environment failure, or crash is recorded truthfully; do
-not automatically retry, resume, reattach, or resample it. Continue the other independent
-Scenarios and collect the complete result set.
+that Generation. Turns declared before launch continue sequentially in that Scenario's one fresh
+conversation. After a failure or partial execution,
+do not automatically retry, resume, reattach, or resample it. A fail, blocked result, environment
+failure, or crash is recorded truthfully.
+Continue the other independent Scenarios and collect the complete result set.
 
 Classify the complete failure set by product or Skill, Scenario or Fixture, runner or harness, and
 external environment. Repair accepted owners outside the Generation, rebuild once when needed, and
@@ -195,9 +197,11 @@ typed Inspect, and relevant Portal or remote readback. The Scenario Agent's self
 deterministic tooling are not semantic pass authorities.
 
 Continue independent Scenarios after a semantic failure while the Candidate Generation remains
-active. Record every failure as its terminal result; do not retry or repair inside the Generation.
-A changed Candidate, tracked definition, Fixture, or Harness abandons the Generation and requires a
-new complete Generation. Never carry a Scenario pass across that identity change.
+active. Turns declared before launch may continue only within the Scenario's original conversation.
+Record every failure as its terminal result; do not retry, resume a failed or partial execution, or
+repair inside the Generation. A changed Candidate, tracked definition, Fixture, or Harness abandons
+the Generation and requires a new complete Generation. Never carry a Scenario pass across that
+identity change.
 
 Completion criterion: the single typed Matrix result records every registered Scenario. Release
 readiness requires every Scenario to be `pass`.

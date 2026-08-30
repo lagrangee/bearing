@@ -312,10 +312,10 @@ describe("repository Codex E2E policy", () => {
     expect(policy).toContain("Current Matrix evidence has only three durable levels:");
     expect(policy).toContain("one Generation basis");
     expect(policy).toContain("one terminal result per Scenario");
-    expect(policy).toContain(
-      "one Matrix result that references every registered Scenario result",
+    expect(policy).toContain("one Matrix result that references every registered Scenario result");
+    expect(policy).toMatch(
+      /Collect the complete failure set before fixing[\s\S]*fresh Generation/u,
     );
-    expect(policy).toMatch(/Collect the complete failure set before fixing[\s\S]*fresh Generation/u);
     expect(policy).toContain("Historical reports remain historical");
   });
 });

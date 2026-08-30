@@ -51,8 +51,10 @@ contain no criteria or answer hints.
 Scenario preparation and Agent execution are separate harness phases. Complete the Generation
 preflight and all selected Scenario preparation before launching an Agent child. Run prepared
 Scenarios with rolling concurrency four: start the next registry entry whenever an active Scenario
-reaches a terminal boundary. Before each turn, the runner rescans the opaque Scenario runtime roots
-and denies every other runtime root to that child.
+reaches a terminal boundary. Turns declared in one Scenario continue sequentially in that
+Scenario's one fresh conversation. That normal continuation is part of its single execution
+opportunity; it does not authorize recovery of a failed or partial execution. Before each turn, the
+runner rescans the opaque Scenario runtime roots and denies every other runtime root to that child.
 
 For the GitHub Scenario, the runner can add only the operator's GitHub account selection to the
 isolated home. It does not copy a token or unrelated GitHub configuration to disk. A short-lived
@@ -73,10 +75,24 @@ loopback, or general capability framework.
 The tracked Matrix is `validation/live-journey/registry.json`. It contains a complete, stable set of
 independent behavior-driven Scenarios. Each Scenario starts from one verified identity-bound
 Fixture and one fresh Agent conversation. Scenarios do not share sessions, transcripts, or
-Agent-produced state. Each Scenario has one execution opportunity. Do not automatically retry,
+Agent-produced state. Each Scenario has one execution opportunity. A failure or partial execution
+ends it. Do not automatically retry,
 resume, reattach, restore a checkpoint, or resample it. Continue independent Scenarios after one
 fails while the Generation identity remains valid. Collect the complete failure set before fixing
 an owner outside the Generation; any accepted identity-changing fix requires a fresh Generation.
+No elapsed-time threshold terminates a Scenario; timing is an optimization observation.
+
+The only Matrix execution surface is:
+
+```text
+prepare-generation -> run-generation -> evaluate-scenario x registry -> complete-matrix
+```
+
+`prepare-generation` writes the durable `generation.json` basis and all private Scenario
+manifests. `run-generation` executes those prepared Scenarios once and writes the internal
+`execution.json` handoff. `evaluate-scenario` writes one terminal result for every registry entry.
+`complete-matrix` writes the one Matrix result after the exact result set exists. Do not expose a
+second per-Scenario preparation or turn-execution command.
 
 Do not convert the Matrix into one long story or a provider-file script. The Scenario Agent does
 not receive the registry, Scenario identifiers, required or forbidden outcomes, expected commands,
@@ -100,13 +116,22 @@ negative, focused-probe, rehearsal, and release launch uses the same policy.
 
 Current Matrix evidence has only three durable levels:
 
-- one Generation basis with the evidence class, exact local-package or Candidate identity, Matrix
-  definition, Codex CLI version, requested model, requested reasoning effort, and execution
-  configuration;
-- one terminal result per Scenario with its Fixture starting-state identity, timestamps, verdict,
-  rationale, bounded observations, and whether the real invocation reached its terminal boundary;
-  and
-- one Matrix result that references every registered Scenario result.
+- one Generation basis, `generation.json`, with the evidence class and exact package identity digest; registry,
+  Fixture-definition, and Harness digests; start time; fixed model, reasoning effort, and
+  concurrency; ordered Scenario IDs; and fresh Fixture, Skill, permission, and optional GitHub
+  preparation readbacks;
+- one terminal result per Scenario with the Generation and Scenario IDs, Coordinator authority,
+  semantic outcome, rationale, bounded observation pointers and digests, and per-turn and
+  whole-Scenario timing; and
+- one Matrix result that references every registered Scenario result and the Generation basis, then
+  records the terminal summary, timing, observed peak concurrency, and slow observations.
+
+`execution.json` carries only the Generation ID, observed peak concurrency, and each Scenario's
+`completed` or `invalid` execution state between the runner, evaluator, and aggregator. It is not a
+semantic result, is not cited by the Matrix result, and is not a fourth durable or release-evidence
+level; `complete-matrix` removes it after writing the final result. The Codex CLI version belongs to verified per-turn runtime observations, not the Generation
+basis. A Scenario result does not repeat the Fixture starting-state identity already bound by the
+Generation preparation readback.
 
 Evidence does not retain credentials, unnecessary full transcripts, session identifiers,
 machine-specific private paths, or unrelated operator configuration. A higher-level release result

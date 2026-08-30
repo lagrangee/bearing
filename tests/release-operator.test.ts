@@ -4,14 +4,17 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { createLiveMatrixGenerationBasis } from "../scripts/live-matrix-generation";
 import {
-  createLiveScenarioMatrixResult,
-  createLiveScenarioResult,
-} from "../scripts/live-scenario-generation";
+  createLiveMatrixResult,
+  createLiveMatrixScenarioTerminalResult,
+} from "../scripts/live-matrix-results";
 import {
-  createLiveScenarioEvaluation,
-  parseLiveScenarioRegistry,
-} from "../scripts/live-scenario-registry";
+  liveScenarioMatrixPackageIdentitySha256,
+  liveScenarioPackageEvidenceIdentity,
+  liveScenarioPackageSchema,
+} from "../scripts/live-scenario-evidence";
+import { parseLiveScenarioRegistry } from "../scripts/live-scenario-registry";
 import { liveScenarioDefinitionDigest } from "../scripts/live-scenario-runner";
 import { requiredPackagePaths } from "../scripts/release-boundary";
 import {
@@ -115,11 +118,12 @@ const makeCandidate = async () => {
 
 const writeMatrixResult = async (root: string, receipt: CandidateReceipt) => {
   const registry = parseLiveScenarioRegistry(liveScenarioRegistry);
+  const generationId = "00000000-0000-4000-8000-000000000016";
   const matrixDefinitionSha256 = await liveScenarioDefinitionDigest({
     sourceRoot: process.cwd(),
     registryPath: "validation/live-journey/registry.json",
   });
-  const candidate = {
+  const candidate = liveScenarioPackageSchema.parse({
     evidenceClass: "release-candidate" as const,
     packageName: receipt.packageName,
     packageVersion: receipt.packageVersion,
@@ -131,53 +135,79 @@ const writeMatrixResult = async (root: string, receipt: CandidateReceipt) => {
       sha256: receipt.artifact.sha256,
     },
     matrixDefinitionSha256,
-  } as const;
+  });
+  const scenarioIds = registry.scenarios.map(({ id }) => id);
+  const generationBasis = createLiveMatrixGenerationBasis({
+    generationId,
+    staticPreflight: "complete",
+    package: {
+      evidenceClass: "release-candidate",
+      identitySha256: liveScenarioMatrixPackageIdentitySha256(
+        liveScenarioPackageEvidenceIdentity(candidate),
+      ),
+    },
+    registryDefinitionSha256: matrixDefinitionSha256,
+    fixtureDefinitionSha256: "b".repeat(64),
+    harnessIdentitySha256: "c".repeat(64),
+    startedAt: "2026-08-30T00:00:00.000Z",
+    selectedScenarioIds: scenarioIds,
+    preparedScenarios: scenarioIds.map((scenarioId, index) => ({
+      generationId,
+      scenarioId,
+      fixtureSha256: String(index % 10).repeat(64),
+      skillsSha256: String((index + 1) % 10).repeat(64),
+      permissionOutcome: "passed" as const,
+    })),
+  });
+  const generationBasisPointer = "generation-basis.json";
+  const generationBasisBytes = serializeCandidateJson(generationBasis);
+  await writeFile(join(root, generationBasisPointer), generationBasisBytes);
   const resultsRoot = join(root, "scenario-results");
   await mkdir(resultsRoot);
   const scenarioResults = await Promise.all(
-    registry.scenarios.map(async (scenario, index) => {
-      const result = createLiveScenarioResult({
-        evidenceClass: "release-candidate",
-        generationId: "00000000-0000-4000-8000-000000000016",
-        package: candidate,
-        matrixDefinitionSha256: candidate.matrixDefinitionSha256,
-        codexCliVersion: "codex-cli 0.147.0",
-        coordinatorIdentity: "Codex coordinating agent",
-        startingStateSha256: String(index % 10).repeat(64),
-        durationMs: 1000,
-        evaluation: createLiveScenarioEvaluation({
-          scenario,
-          outcome: "pass",
-          coordinatorIdentity: "Codex coordinating agent",
-          rationale: `Observed ${scenario.id}.`,
-          requiredOutcomeObservations: scenario.requiredOutcomes.map((requirement) => ({
-            requirement,
-            observed: true,
-            evidencePointers: [`observations/${scenario.id}.json`],
-          })),
-          forbiddenOutcomeObservations: scenario.forbiddenOutcomes.map((requirement) => ({
-            requirement,
-            observed: false,
-            evidencePointers: [`observations/${scenario.id}.json`],
-          })),
-        }),
-        ...(scenario.composition.fixtureProfile === "active-github-repository"
-          ? {
-              remoteIntegrity: {
-                repositoryIdentitySha256: "d".repeat(64),
-                authorizedCandidateIssueCount: 1,
-                integritySha256: "e".repeat(64),
-              },
-            }
-          : {}),
+    registry.scenarios.map(async (scenario) => {
+      const result = createLiveMatrixScenarioTerminalResult({
+        generationId,
+        scenarioId: scenario.id,
+        outcome: "pass",
+        rationale: `Observed ${scenario.id}.`,
+        evidence: [
+          {
+            evidenceClass: "observation",
+            pointer: `observations/${scenario.id.toLowerCase()}.json`,
+            sha256: "d".repeat(64),
+          },
+        ],
+        turns: [
+          {
+            turnNumber: 1,
+            startedAt: "2026-08-30T00:00:01.000Z",
+            endedAt: "2026-08-30T00:00:02.000Z",
+          },
+        ],
+        startedAt: "2026-08-30T00:00:01.000Z",
+        endedAt: "2026-08-30T00:00:02.000Z",
       });
       const pointer = `scenario-results/${scenario.id}.json`;
       const bytes = serializeCandidateJson(result);
       await writeFile(join(root, pointer), bytes);
-      return { result, pointer, sha256: sha256Bytes(Buffer.from(bytes)) };
+      return {
+        result,
+        reference: { pointer, sha256: sha256Bytes(Buffer.from(bytes)) },
+      };
     }),
   );
-  const result = createLiveScenarioMatrixResult({ registry, scenarioResults });
+  const result = createLiveMatrixResult({
+    generationBasis,
+    generationBasisReference: {
+      pointer: generationBasisPointer,
+      sha256: sha256Bytes(Buffer.from(generationBasisBytes)),
+    },
+    registeredScenarioIds: scenarioIds,
+    scenarioResults,
+    peakConcurrency: 4,
+    endedAt: "2026-08-30T00:00:03.000Z",
+  });
   const path = join(root, "matrix-result.json");
   await writeFile(path, serializeCandidateJson(result));
   return path;
@@ -423,12 +453,6 @@ test("rejects Matrix summary tampering before Publication dispatch", async () =>
     string,
     unknown
   >;
-  const originalPackage = originalMatrix["package"] as Readonly<{
-    packageVersion: string;
-    sourceCommit: string;
-    artifact: unknown;
-    matrixDefinitionSha256: string;
-  }>;
   const duplicateScenarios = structuredClone(originalMatrix["scenarios"] as unknown[]);
   duplicateScenarios[duplicateScenarios.length - 1] = duplicateScenarios[0];
   const nonPassingScenarios = structuredClone(
@@ -452,27 +476,7 @@ test("rejects Matrix summary tampering before Publication dispatch", async () =>
       matrix: {
         ...originalMatrix,
         evidenceClass: "local-rehearsal",
-        package: {
-          evidenceClass: "local-rehearsal",
-          packageName: "@lagrangee/bearing",
-          packageVersion: originalPackage.packageVersion,
-          sourceHead: originalPackage.sourceCommit,
-          worktreeSha256: "d".repeat(64),
-          artifact: originalPackage.artifact,
-          matrixDefinitionSha256: originalPackage.matrixDefinitionSha256,
-        },
         releasePrerequisiteSatisfied: false,
-      },
-      stage: "matrix",
-      resumptionPoint: "regenerate-complete-matrix-result",
-    },
-    {
-      matrix: {
-        ...originalMatrix,
-        package: {
-          ...(originalMatrix["package"] as Record<string, unknown>),
-          sourceCommit: "d".repeat(40),
-        },
       },
       stage: "matrix",
       resumptionPoint: "regenerate-complete-matrix-result",
@@ -502,6 +506,67 @@ test("rejects Matrix summary tampering before Publication dispatch", async () =>
     expect(publication.dispatches).toEqual([]);
     expect(publicSmoke.calls).toEqual([]);
   }
+});
+
+test("rejects a valid Matrix Generation bound to another Candidate", async () => {
+  const baseline = await readyInput();
+  const matrix = JSON.parse(await readFile(baseline.matrixResultPath, "utf8")) as {
+    generationBasis: { pointer: string; sha256: string };
+  };
+  const generationPath = join(dirname(baseline.matrixResultPath), matrix.generationBasis.pointer);
+  const generation = JSON.parse(await readFile(generationPath, "utf8")) as {
+    package: { evidenceClass: "release-candidate"; identitySha256: string };
+  };
+  generation.package.identitySha256 = "f".repeat(64);
+  const generationBytes = serializeCandidateJson(generation);
+  matrix.generationBasis.sha256 = sha256Bytes(Buffer.from(generationBytes));
+  await Promise.all([
+    writeFile(generationPath, generationBytes),
+    writeFile(baseline.matrixResultPath, serializeCandidateJson(matrix)),
+  ]);
+  const publication = new FakePublication();
+  const publicSmoke = new FakePublicSmoke();
+
+  const result = await runReleaseOperator(baseline, { publication, publicSmoke });
+
+  expect(result).toMatchObject({
+    outcome: "blocked",
+    blocker: {
+      stage: "candidate-identity",
+      resumptionPoint: "restart-candidate-freeze-and-full-matrix",
+    },
+  });
+  expect(publication.dispatches).toEqual([]);
+  expect(publicSmoke.calls).toEqual([]);
+});
+
+test("rejects a Matrix Generation whose registry definition is not current", async () => {
+  const baseline = await readyInput();
+  const matrix = JSON.parse(await readFile(baseline.matrixResultPath, "utf8")) as {
+    generationBasis: { pointer: string; sha256: string };
+  };
+  const generationPath = join(dirname(baseline.matrixResultPath), matrix.generationBasis.pointer);
+  const generation = JSON.parse(await readFile(generationPath, "utf8")) as {
+    registryDefinitionSha256: string;
+  };
+  generation.registryDefinitionSha256 = "f".repeat(64);
+  const generationBytes = serializeCandidateJson(generation);
+  matrix.generationBasis.sha256 = sha256Bytes(Buffer.from(generationBytes));
+  await Promise.all([
+    writeFile(generationPath, generationBytes),
+    writeFile(baseline.matrixResultPath, serializeCandidateJson(matrix)),
+  ]);
+  const publication = new FakePublication();
+  const publicSmoke = new FakePublicSmoke();
+
+  const result = await runReleaseOperator(baseline, { publication, publicSmoke });
+
+  expect(result).toMatchObject({
+    outcome: "blocked",
+    blocker: { stage: "matrix", resumptionPoint: "complete-one-passing-matrix-generation" },
+  });
+  expect(publication.dispatches).toEqual([]);
+  expect(publicSmoke.calls).toEqual([]);
 });
 
 test("requires both Human compatibility passes for the same Candidate and compatible exceptions", async () => {

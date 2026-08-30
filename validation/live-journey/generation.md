@@ -66,26 +66,61 @@ behavior under test. `DELIVERY-02` may use only the existing bounded GitHub
 capability for the fixed private validation repository. No Scenario receives
 general network access or a product loopback capability.
 
-Use the current single Generation command surface reported by:
+Create one external evidence root and keep the Generation workspace, Scenario
+results, and final Matrix result beneath it so every durable pointer stays
+relative to that root. Prepare the complete selected registry once:
 
 ```text
-bun scripts/run-live-journey.ts --help
+bun scripts/run-live-journey.ts prepare-generation \
+  --source-root <exact-checkout> \
+  --registry validation/live-journey/registry.json \
+  --package-manifest <absolute-package-manifest> \
+  --workspace <evidence-root>/generation \
+  --codex-home <operator-codex-home> \
+  --prerequisite-skill-root <trusted-installed-skill-root> \
+  --github-checkout <fixed-validation-checkout>
 ```
 
-Do not build an alternative Scenario entry point around the runner.
+The command writes `<evidence-root>/generation/generation.json` and one private
+manifest per selected Scenario. `generation.json` is the durable Generation
+basis. It records the evidence class and exact package identity digest; registry,
+Fixture-definition, and Harness digests; start time; model, reasoning effort, and
+concurrency; ordered Scenario IDs; and fresh per-Scenario preparation readbacks.
+Those readbacks contain the Fixture, required-Skill, permission, and optional
+GitHub-baseline digests. The basis does not duplicate per-turn runtime observations.
+
+This is the only preparation entry point for Matrix execution. Do not build a
+second per-Scenario preparation path around the runner.
 
 ## 4. Run once with rolling concurrency
 
-Run independent Scenarios with rolling concurrency four. Start up to four, and
-start the next registry entry whenever one reaches a terminal boundary. A
+Run the prepared Generation once:
+
+```text
+bun scripts/run-live-journey.ts run-generation \
+  --generation <evidence-root>/generation/generation.json
+```
+
+The runner starts independent Scenarios with rolling concurrency four and starts
+the next eligible registry entry whenever one reaches a terminal boundary. A
 Scenario may declare at most one Resource Key; Scenarios with the same key run
-serially.
+serially. Turns already declared for one Scenario continue sequentially in that
+Scenario's one fresh conversation; this is part of its single execution
+opportunity, not a retry.
+
+The command writes `<evidence-root>/generation/execution.json`. This small
+Coordinator-internal handoff contains only the Generation ID, observed peak
+concurrency, and each Scenario's `completed` or `invalid` execution state. It is
+not a semantic verdict, is not cited by the Matrix result, and is not a fourth
+durable or release-evidence level. `complete-matrix` consumes and removes it after
+the final Matrix result is written.
 
 Each Scenario has one execution opportunity in a Generation. Do not automatically
-retry, resume, reattach, restore a checkpoint, rerun a turn, or resample a semantic
-failure. A model, credential, network, runner, broker, sandbox, or Agent crash is a
-truthful terminal observation for that Generation. Continue other independent
-Scenarios when their identities remain valid.
+retry, resume a failed or partial execution, reattach, restore a checkpoint, rerun
+a turn, or resample a semantic failure. A model, credential, network, runner,
+broker, sandbox, or Agent crash is a truthful terminal observation for that
+Generation. Continue other independent Scenarios when their identities remain
+valid. There is no execution timeout; long duration is recorded for later analysis.
 
 Do not repair product, Skill, Fixture, prompt, registry, or Harness behavior inside
 the Generation. Collect the complete failure set first. Classify and repair it
@@ -98,13 +133,26 @@ The Coordinator is the only semantic pass authority. Judge the complete
 conversation, tool activity, typed outcomes, before-and-after state, and provider
 observations. Accept any safe path that satisfies the user-visible contract.
 
+After `run-generation`, author one Coordinator verdict input for every registry
+entry and evaluate each generated manifest exactly once:
+
+```text
+bun scripts/run-live-journey.ts evaluate-scenario \
+  --generation <evidence-root>/generation/generation.json \
+  --manifest <evidence-root>/generation/scenarios/<SCENARIO-ID>/scenario-manifest.json \
+  --verdicts <private-verdict-input> \
+  --output <evidence-root>/results/<SCENARIO-ID>.json
+```
+
 Every registered Scenario gets exactly one terminal result containing:
 
-- `scenarioId`, Generation and starting-state identities;
-- `pass`, `fail`, `blocked`, or `invalid`;
-- a short rationale and required or forbidden outcome observations;
-- bounded evidence pointers; and
-- start and end timestamps.
+- `scenarioId` and `generationId`;
+- `pass`, `fail`, `blocked`, or `invalid`, plus a short Coordinator rationale;
+- bounded observation pointers and digests; and
+- per-turn and whole-Scenario timestamps and durations.
+
+The starting-state identity remains in the Generation preparation readback; the
+Scenario result does not repeat it.
 
 For `DELIVERY-02`, also verify the exact authorized remote delta and clean remote
 commit. Deterministic support may reject an identity mismatch, missing result,
@@ -116,11 +164,28 @@ machine-private paths are not durable evidence.
 ## 6. Complete and learn
 
 Complete the Matrix only after every registered Scenario has one terminal result.
-The only durable topology is:
+Create the final result once:
 
-1. one Generation basis;
-2. one terminal result per Scenario; and
-3. one Matrix result that references those terminal results.
+```text
+bun scripts/run-live-journey.ts complete-matrix \
+  --source-root <exact-checkout> \
+  --registry <absolute-path-to-exact-checkout>/validation/live-journey/registry.json \
+  --results <evidence-root>/results \
+  --generation <evidence-root>/generation/generation.json \
+  --output <evidence-root>/matrix-result.json
+```
+
+The complete Matrix execution surface is therefore:
+
+```text
+prepare-generation -> run-generation -> evaluate-scenario x registry -> complete-matrix
+```
+
+The only durable evidence topology is:
+
+1. `generation/generation.json`;
+2. `results/<SCENARIO-ID>.json` once per registry entry; and
+3. `matrix-result.json`, which references the Generation basis and every Scenario result.
 
 The Matrix passes only when every required Scenario passes. A rehearsal always
 records `releasePrerequisiteSatisfied: false`; only an all-pass exact Candidate
