@@ -292,18 +292,30 @@ describe("repository Codex E2E policy", () => {
     ).toThrow("full lowercase commit");
   });
 
-  test("documents the repository-wide fail-closed Scenario boundary", async () => {
+  test("documents the repository-wide KISS Matrix boundary", async () => {
     const policy = await readFile("docs/agents/codex-e2e.md", "utf8");
     expect(policy).toContain("Every Codex E2E Scenario must run with:");
     expect(policy).toContain("Model: `gpt-5.6-luna`");
     expect(policy).toContain("Reasoning effort: `high`");
     expect(policy).toContain("Do not use another model as a fallback");
-    expect(policy).toContain("denies direct sandbox network access");
-    expect(policy).toMatch(/bounded\s+runner-owned capability/u);
-    expect(policy).toContain("authenticated messages over one fixed");
-    expect(policy).toContain("socket collision is a harness failure");
-    expect(policy).toContain("Unix-domain socket");
-    expect(policy).toContain("resumed, retried, negative, reproduction, and release launch");
+    expect(policy).toContain(
+      "one fresh Codex runtime home inside each isolated Scenario Agent home",
+    );
+    expect(policy).toContain("Scenarios with rolling concurrency four");
+    expect(policy).toContain("Each Scenario has one execution opportunity");
+    expect(policy).toMatch(
+      /Do not automatically retry,\s+resume, reattach, restore a checkpoint, or resample it/u,
+    );
+    expect(policy).toMatch(/existing bounded runner-owned capability/u);
+    expect(policy).toContain("existing bounded broker fails closed");
+    expect(policy).toMatch(/Do not add another broker,[\s\S]*product\s+loopback/u);
+    expect(policy).toContain("Current Matrix evidence has only three durable levels:");
+    expect(policy).toContain("one Generation basis");
+    expect(policy).toContain("one terminal result per Scenario");
+    expect(policy).toContain(
+      "one Matrix result that references every registered Scenario result",
+    );
+    expect(policy).toMatch(/Collect the complete failure set before fixing[\s\S]*fresh Generation/u);
     expect(policy).toContain("Historical reports remain historical");
   });
 });

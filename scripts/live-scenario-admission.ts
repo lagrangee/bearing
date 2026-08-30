@@ -9,16 +9,11 @@ import {
   readCodexE2EModelAvailability,
 } from "./codex-e2e-runtime";
 import { readFixedGitHubValidationRepository } from "./github-live-journey";
-import {
-  liveMatrixPrivateControlRoot,
-  liveMatrixRecordCandidateRoot,
-} from "./live-matrix-evidence-bundle";
 import { liveScenarioPackageSchema } from "./live-scenario-evidence";
 import {
   liveScenarioMatrixPackageIdentitySha256,
   liveScenarioPackageEvidenceIdentity,
 } from "./live-scenario-generation";
-import { liveScenarioHarnessIdentitySha256 } from "./live-scenario-generation-records";
 import {
   digestLiveScenarioFixture,
   liveScenarioAgentSurfaceProfileSchema,
@@ -33,6 +28,7 @@ import {
 } from "./live-scenario-registry";
 import {
   liveScenarioDefinitionDigest,
+  liveScenarioHarnessIdentitySha256,
   prepareLiveScenarioGeneration,
   sealLiveScenarioAdmissionBinding,
   verifyLiveScenarioGeneration,
@@ -641,8 +637,6 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
   registryPath: string;
   generationId: string;
   package: unknown;
-  generationEvidenceRoot: string;
-  evidenceBundleRoot?: string;
   codexProgram?: string;
   githubCheckout?: string;
   githubProgram?: string;
@@ -759,10 +753,6 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
           scenarioId: scenario.id,
           package: matrixPackage,
           generationId,
-          generationEvidenceRoot: resolve(input.generationEvidenceRoot),
-          ...(input.evidenceBundleRoot === undefined
-            ? {}
-            : { evidenceBundleRoot: resolve(input.evidenceBundleRoot) }),
           deferPermissionProbe: true,
           ...(input.codexProgram === undefined ? {} : { codexProgram: input.codexProgram }),
           ...(scenario.composition.fixtureProfile !== "active-github-repository"
@@ -791,9 +781,6 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
           sourceRoot,
           registryPath,
           scenarioContainer,
-          resolve(input.generationEvidenceRoot),
-          liveMatrixPrivateControlRoot(resolve(input.generationEvidenceRoot)),
-          liveMatrixRecordCandidateRoot(resolve(input.generationEvidenceRoot)),
           operatorCodexHome,
           ...siblingRuntimeRoots,
         ];

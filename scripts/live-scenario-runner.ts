@@ -29,13 +29,8 @@ import {
   provisionIsolatedGitHubAccountSelection,
   readFixedGitHubValidationRepository,
 } from "./github-live-journey";
-import {
-  liveMatrixPrivateControlRoot,
-  liveMatrixRecordCandidateRoot,
-} from "./live-matrix-evidence-bundle";
 import { liveScenarioArtifactSchema, liveScenarioPackageSchema } from "./live-scenario-evidence";
 import { liveScenarioPackageEvidenceIdentity } from "./live-scenario-generation";
-import { liveScenarioHarnessIdentitySha256 } from "./live-scenario-generation-records";
 import {
   installLiveScenarioProduct,
   materializeCompleteGlobalKitFromPackage,
@@ -72,6 +67,25 @@ const sha256 = (value: Uint8Array | string): string =>
   createHash("sha256").update(value).digest("hex");
 const canonicalDigest = (label: string, value: unknown): string =>
   sha256(`${label}\0${JSON.stringify(value)}\n`);
+const liveScenarioHarnessFiles = Object.freeze([
+  ".gitleaks.toml",
+  "docs/agents/codex-e2e.md",
+  "package-lock.json",
+  "package.json",
+]);
+export const liveScenarioHarnessIdentitySha256 = async (input: {
+  sourceRoot: string;
+}): Promise<string> => {
+  const sourceRoot = resolve(input.sourceRoot);
+  const fileFrames = await Promise.all(
+    liveScenarioHarnessFiles.map(async (locator) => {
+      const bytes = await readFile(join(sourceRoot, locator));
+      return `${locator}\0${bytes.byteLength}\0${sha256(bytes)}\n`;
+    }),
+  );
+  const scriptsSha256 = await digestLiveScenarioFixture(join(sourceRoot, "scripts"));
+  return sha256(`live-scenario-harness-v1\0scripts\0${scriptsSha256}\n${fileFrames.join("")}`);
+};
 const filesystemIdentity = async (path: string) => {
   const canonical = await realpath(path);
   const state = await lstat(canonical);
@@ -92,14 +106,14 @@ const liveScenarioRuntimeRoot = (
   temporaryRoot: string,
   generationId: string,
   scenarioId: string,
-  journeyAttempt: number,
   workspaceRoot: string,
 ) =>
   join(
     temporaryRoot,
-    `${liveScenarioRuntimePrefix}${sha256(
-      `${generationId}\0${scenarioId}\0${journeyAttempt}\0${workspaceRoot}`,
-    ).slice(0, 32)}`,
+    `${liveScenarioRuntimePrefix}${sha256(`${generationId}\0${scenarioId}\0${workspaceRoot}`).slice(
+      0,
+      32,
+    )}`,
   );
 
 const liveScenarioReadDeniedPaths = (input: {
@@ -108,19 +122,11 @@ const liveScenarioReadDeniedPaths = (input: {
   operatorCodexHome: string;
   scenarioContainer: string;
   existingRuntimeRoots: readonly string[];
-  generationEvidenceRoot?: string;
 }) => [
   input.sourceRoot,
   input.registryPath,
   input.operatorCodexHome,
   input.scenarioContainer,
-  ...(input.generationEvidenceRoot === undefined
-    ? []
-    : [
-        input.generationEvidenceRoot,
-        liveMatrixPrivateControlRoot(input.generationEvidenceRoot),
-        liveMatrixRecordCandidateRoot(input.generationEvidenceRoot),
-      ]),
   ...new Set(input.existingRuntimeRoots),
 ];
 
@@ -341,8 +347,6 @@ const manifestSchema = z.object({
     registry: z.string(),
     operatorCodexHome: z.string(),
     workspaceRoot: z.string(),
-    generationEvidenceRoot: z.string().optional(),
-    evidenceBundleRoot: z.string().optional(),
     runtimeRoot: z.string(),
     runtimeDenyRoots: z.array(z.string()),
     manifest: z.string(),
@@ -386,7 +390,6 @@ const manifestSchema = z.object({
       repositorySlug: z.string().min(1),
       repositoryIdentitySha256: z.string().regex(/^[0-9a-f]{64}$/u),
       viewerPermission: z.string().min(1),
-      journeyAttempt: z.number().int().positive().default(1),
       scopeKey: z.string().min(1),
       baselineInventorySha256: z.string().regex(/^[0-9a-f]{64}$/u),
       preparedGitConfigSha256: z.string().regex(/^[0-9a-f]{64}$/u),
@@ -668,20 +671,11 @@ export const prepareLiveScenarioGeneration = async (input: {
   codexProgram?: string;
   githubCheckout?: string;
   githubProgram?: string;
-  journeyAttempt?: number;
-  generationEvidenceRoot?: string;
-  evidenceBundleRoot?: string;
   deferPermissionProbe?: boolean;
 }) => {
   const sourceRoot = resolve(input.sourceRoot);
   const workspaceRoot = resolve(input.workspaceRoot);
   const operatorCodexHome = await realpath(resolve(input.operatorCodexHome));
-  if (
-    input.evidenceBundleRoot !== undefined &&
-    resolve(input.evidenceBundleRoot) !== resolve(input.generationEvidenceRoot ?? "")
-  ) {
-    fail("Formal Evidence Bundle root must be the denied Generation evidence root.");
-  }
   await ensureIndependentNewWorkspace(sourceRoot, workspaceRoot);
   const registryPath = await realpath(resolve(sourceRoot, input.registryPath));
   const registry = await loadLiveScenarioRegistry(registryPath);
@@ -696,24 +690,12 @@ export const prepareLiveScenarioGeneration = async (input: {
     .string()
     .uuid()
     .parse(input.generationId ?? randomUUID());
-  const journeyAttempt = z
-    .number()
-    .int()
-    .positive()
-    .parse(input.journeyAttempt ?? 1);
-  if (
-    scenario.composition.fixtureProfile !== "active-github-repository" &&
-    input.journeyAttempt !== undefined
-  ) {
-    fail("Journey attempt is only available for the GitHub Live Scenario.");
-  }
   const temporaryRoot = await realpath(tmpdir());
   const scenarioContainer = await realpath(dirname(workspaceRoot));
   const runtimeRoot = liveScenarioRuntimeRoot(
     temporaryRoot,
     generationId,
     scenario.id,
-    journeyAttempt,
     workspaceRoot,
   );
   const existingRuntimeRoots = (await existingLiveScenarioRuntimeRoots(temporaryRoot)).filter(
@@ -860,7 +842,6 @@ export const prepareLiveScenarioGeneration = async (input: {
           repositorySlug: string;
           repositoryIdentitySha256: string;
           viewerPermission: string;
-          journeyAttempt: number;
           scopeKey: string;
           baselineInventorySha256: string;
           preparedGitConfigSha256: string;
@@ -911,7 +892,7 @@ export const prepareLiveScenarioGeneration = async (input: {
           matrixDefinitionSha256,
           generationId:
             input.generationId ?? fail("GitHub Live Scenario requires an explicit Generation ID."),
-          journeyAttempt,
+          journeyAttempt: 1,
         });
         const baseline = await captureGitHubRemoteInventory({
           program: githubProgram,
@@ -932,7 +913,6 @@ export const prepareLiveScenarioGeneration = async (input: {
           repositorySlug: fixed.configuration.repositorySlug,
           repositoryIdentitySha256: baseline.repositoryIdentitySha256,
           viewerPermission: remote.viewerPermission,
-          journeyAttempt,
           scopeKey,
           baselineInventorySha256: sha256(baselineBytes),
           preparedGitConfigSha256: await sha256File(join(repository, ".git/config")),
@@ -1024,9 +1004,6 @@ export const prepareLiveScenarioGeneration = async (input: {
       operatorCodexHome,
       scenarioContainer,
       existingRuntimeRoots,
-      ...(input.generationEvidenceRoot === undefined
-        ? {}
-        : { generationEvidenceRoot: resolve(input.generationEvidenceRoot) }),
     });
     const writeAllowedPaths =
       scenario.composition.fixtureProfile === "fresh-installation-repository"
@@ -1076,12 +1053,6 @@ export const prepareLiveScenarioGeneration = async (input: {
         registry: registryPath,
         operatorCodexHome,
         workspaceRoot,
-        ...(input.generationEvidenceRoot === undefined
-          ? {}
-          : { generationEvidenceRoot: resolve(input.generationEvidenceRoot) }),
-        ...(input.evidenceBundleRoot === undefined
-          ? {}
-          : { evidenceBundleRoot: resolve(input.evidenceBundleRoot) }),
         runtimeRoot,
         runtimeDenyRoots,
         manifest: manifestPath,
@@ -1222,21 +1193,11 @@ export const verifyLiveScenarioGeneration = async (
   ) {
     fail("Live Scenario manifest locator mismatch.");
   }
-  if (
-    parsed.paths.evidenceBundleRoot !== undefined &&
-    parsed.paths.evidenceBundleRoot !== parsed.paths.generationEvidenceRoot
-  ) {
-    fail("Formal Evidence Bundle root lost its denied Generation binding.");
-  }
   const registry = await loadLiveScenarioRegistry(parsed.paths.registry);
   const scenario =
     registry.scenarios.find(({ id }) => id === parsed.scenario.id) ??
     fail(`Live Scenario is no longer registered: ${parsed.scenario.id}.`);
-  if (
-    parsed.paths.generationEvidenceRoot !== undefined &&
-    parsed.admission === undefined &&
-    options.allowUnsealedAdmission !== true
-  ) {
+  if (parsed.admission === undefined && options.allowUnsealedAdmission !== true) {
     failContinuity("formal Generation behavior requires one sealed Admission binding.");
   }
   if (parsed.admission !== undefined) {
@@ -1305,13 +1266,11 @@ export const verifyLiveScenarioGeneration = async (
       }
     }
   }
-  const journeyAttempt = parsed.github?.journeyAttempt ?? 1;
   const temporaryRoot = await realpath(dirname(parsed.paths.runtimeRoot));
   const expectedRuntimeRoot = liveScenarioRuntimeRoot(
     temporaryRoot,
     parsed.generationId,
     scenario.id,
-    journeyAttempt,
     parsed.paths.workspaceRoot,
   );
   const scenarioContainer = await realpath(dirname(parsed.paths.workspaceRoot));
@@ -1469,13 +1428,6 @@ export const verifyLiveScenarioGeneration = async (
       parsed.paths.registry,
       parsed.paths.operatorCodexHome,
       scenarioContainer,
-      ...(parsed.paths.generationEvidenceRoot === undefined
-        ? []
-        : [
-            parsed.paths.generationEvidenceRoot,
-            liveMatrixPrivateControlRoot(parsed.paths.generationEvidenceRoot),
-            liveMatrixRecordCandidateRoot(parsed.paths.generationEvidenceRoot),
-          ]),
       ...parsed.paths.runtimeDenyRoots,
     ],
     writeAllowedPaths:
@@ -1504,13 +1456,6 @@ export const verifyLiveScenarioGeneration = async (
       parsed.paths.registry,
       parsed.paths.operatorCodexHome,
       scenarioContainer,
-      ...(parsed.paths.generationEvidenceRoot === undefined
-        ? []
-        : [
-            parsed.paths.generationEvidenceRoot,
-            liveMatrixPrivateControlRoot(parsed.paths.generationEvidenceRoot),
-            liveMatrixRecordCandidateRoot(parsed.paths.generationEvidenceRoot),
-          ]),
       ...currentRuntimeDenyRoots,
     ],
     writeAllowedPaths:
@@ -1537,7 +1482,7 @@ export const verifyLiveScenarioGeneration = async (
       artifactSha256: parsed.package.artifact.sha256,
       matrixDefinitionSha256: parsed.matrixDefinitionSha256,
       generationId: parsed.generationId,
-      journeyAttempt: parsed.github.journeyAttempt,
+      journeyAttempt: 1,
     });
     const fixed = await readFixedGitHubValidationRepository(parsed.paths.sourceRoot);
     const remote = await inspectGitHubRepository(

@@ -111,7 +111,6 @@ const createFixture = async (
   const tarball = join(root, "bearing.tgz");
   const operatorCodexHome = join(root, "operator-codex-home");
   const workspaceRoot = join(root, "generation-workspace");
-  const generationRoot = join(root, "generation-records");
   const fakeCodex = join(root, "codex-fixture");
   const permissionProfilesCaptureRoot = join(root, "permission-profiles");
   await Promise.all([
@@ -166,7 +165,6 @@ exit 64
   return {
     root,
     workspaceRoot,
-    generationRoot,
     operatorCodexHome,
     permissionProfilesCaptureRoot,
     fakeCodex,
@@ -198,7 +196,6 @@ const prepare = async (
     registryPath: selectedRegistryPath,
     generationId,
     package: fixture.package,
-    generationEvidenceRoot: fixture.generationRoot,
     codexProgram: fixture.fakeCodex,
   });
   return { fixture, result } as const;
@@ -292,7 +289,7 @@ describe("Live Matrix declarative Generation Admission", () => {
     ).toContain("invalid-reusable-basis");
   });
 
-  test("materializes and admits every registered Scenario before creating a Generation record", async () => {
+  test("materializes and admits every registered Scenario with fresh isolated runtimes", async () => {
     const { fixture, result } = await prepare();
     expect(result).toMatchObject({
       outcome: "admitted",
@@ -328,7 +325,6 @@ describe("Live Matrix declarative Generation Admission", () => {
       code: "ENOENT",
     });
     expect(new Set(result.preparedScenarios.map(({ paths }) => paths.runtimeRoot)).size).toBe(2);
-    await expect(access(fixture.generationRoot)).rejects.toMatchObject({ code: "ENOENT" });
     await Promise.all(
       result.preparedScenarios.map(async ({ paths }) => {
         const manifestBytes = await readFile(paths.manifest, "utf8");
@@ -386,7 +382,6 @@ describe("Live Matrix declarative Generation Admission", () => {
       scenarioId: "TEST-01",
       generationId: "77777777-7777-4777-8777-777777777777",
       package: fixture.package,
-      generationEvidenceRoot: fixture.generationRoot,
       codexProgram: fixture.fakeCodex,
     });
     await expect(verifyLiveScenarioGeneration(prepared.paths.manifest)).rejects.toThrow(
@@ -412,7 +407,6 @@ describe("Live Matrix declarative Generation Admission", () => {
       registryPath,
       generationId: "33333333-3333-4333-8333-333333333333",
       package: fixture.package,
-      generationEvidenceRoot: fixture.generationRoot,
       codexProgram: fixture.fakeCodex,
       reusableBasis: first.basis,
     });
@@ -433,7 +427,6 @@ describe("Live Matrix declarative Generation Admission", () => {
       registryPath,
       generationId: "22222222-2222-4222-8222-222222222222",
       package: fixture.package,
-      generationEvidenceRoot: fixture.generationRoot,
       codexProgram: fixture.fakeCodex,
       reusableBasis: first.basis,
     });
@@ -462,7 +455,6 @@ describe("Live Matrix declarative Generation Admission", () => {
       registryPath,
       generationId: "44444444-4444-4444-8444-444444444444",
       package: { ...changedFixture.package, sourceHead: "changed-fixture-head" },
-      generationEvidenceRoot: changedFixture.generationRoot,
       codexProgram: changedFixture.fakeCodex,
       reusableBasis: first.basis,
     });
@@ -484,7 +476,6 @@ describe("Live Matrix declarative Generation Admission", () => {
       diagnostics: [{ code: "model-unavailable" }],
     });
     await expect(access(fixture.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(access(fixture.generationRoot)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test("turns invalid registry or missing package identity into no-write preflight blocks", async () => {
@@ -510,7 +501,6 @@ describe("Live Matrix declarative Generation Admission", () => {
         registryPath: invalid.registryPath,
         generationId,
         package: invalid.package,
-        generationEvidenceRoot: fixture.generationRoot,
         codexProgram: fixture.fakeCodex,
       });
       expect(result).toMatchObject({
@@ -518,7 +508,6 @@ describe("Live Matrix declarative Generation Admission", () => {
         diagnostics: [{ code: invalid.code }],
       });
       await expect(access(invalid.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
-      await expect(access(fixture.generationRoot)).rejects.toMatchObject({ code: "ENOENT" });
     }
   });
 
@@ -533,7 +522,6 @@ describe("Live Matrix declarative Generation Admission", () => {
         mode === "ambient-skill" ? "ambient-skill" : "invalid-readback",
       );
       await expect(access(fixture.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
-      await expect(access(fixture.generationRoot)).rejects.toMatchObject({ code: "ENOENT" });
     }
   }, 30_000);
 
@@ -548,6 +536,5 @@ describe("Live Matrix declarative Generation Admission", () => {
       diagnostics: [{ code: "capability-unavailable", scenarioId: "TEST-03" }],
     });
     await expect(access(fixture.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(access(fixture.generationRoot)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

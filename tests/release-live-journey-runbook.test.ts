@@ -62,18 +62,30 @@ describe("reusable release Live Journey runbook", () => {
       runbook.indexOf("## 1. Qualify the Matrix locally"),
       runbook.indexOf("## 2. Finalize the release source"),
     );
+    const publication = runbook.slice(
+      runbook.indexOf("## 8. Dispatch protected Publication"),
+      runbook.indexOf("## 9. Read back the public release"),
+    );
 
     expect(rehearsal).toMatch(/local package[\s\S]*tracked Scenario registry/iu);
+    expect(rehearsal).toMatch(/fresh low-cost preparation[\s\S]*rolling concurrency four/iu);
     expect(rehearsal).toMatch(
-      /run one turn at a time[\s\S]*classify[\s\S]*Product, Skill[\s\S]*new Generation/iu,
+      /Each Scenario runs once[\s\S]*do\s+not automatically retry, resume, reattach, or resample/iu,
+    );
+    expect(rehearsal).toMatch(/Continue the other independent[\s\S]*complete result set/iu);
+    expect(rehearsal).toMatch(
+      /Classify the complete failure set[\s\S]*runner or harness[\s\S]*external environment/iu,
     );
     expect(rehearsal).toMatch(
-      /Runner, broker, sandbox, or harness[\s\S]*package and Matrix[\s\S]*current turn/iu,
+      /Repair accepted owners outside the Generation[\s\S]*start a fresh Generation/iu,
     );
     expect(rehearsal).toMatch(
       /semantic judgment[\s\S]*does not require[\s\S]*exact command[\s\S]*provider operation order/iu,
     );
-    expect(rehearsal).toMatch(/Transient model, network, or credential[\s\S]*bounded retry/iu);
+    expect(rehearsal).not.toMatch(/bounded retry/iu);
+    expect(publication).toMatch(
+      /A bounded retry can continue only for the same Candidate, scope, target, and workflow semantics/u,
+    );
     expect(rehearsal).toMatch(/cannot prove Candidate readiness/iu);
     expect(rehearsal).toMatch(
       /cannot[\s\S]*Candidate readiness[\s\S]*Human compatibility[\s\S]*Publication readiness/iu,

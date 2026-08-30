@@ -18,9 +18,9 @@ codex exec --model gpt-5.6-luna --config 'model_reasoning_effort="high"'
 
 Scenario-specific sandbox, output, prompt, and working-directory arguments can be added without
 weakening these values. The shared launcher denies direct sandbox network access. A Scenario can
-reach a selected remote provider or a required loopback product surface only through a bounded
-runner-owned capability that preserves the declared scope. No Scenario receives general network
-egress.
+reach a selected remote provider only through an existing bounded runner-owned capability that
+preserves the declared scope. No Scenario receives general network egress or a product loopback
+surface.
 
 Do not inherit the model or reasoning effort from operator configuration, a profile, an environment
 default, or a previous session. Do not use another model as a fallback. Unavailability blocks that
@@ -48,11 +48,11 @@ including Git objects, plus the exact registry when a test fixture places it els
 Coordinator access only after the child exits. Agent-readable prompts and installation files
 contain no criteria or answer hints.
 
-Scenario preparation and Agent execution are separate harness phases. Complete all Scenario
-preparation before launching an Agent child. Do not prepare or reprepare a Scenario while any Agent
-child is active. Up to two already-prepared Agent children can run concurrently. Before a fresh
-reprepare, wait for all active children to end. Before each turn, the runner rescans the opaque
-Scenario runtime roots and denies every other runtime root to that child.
+Scenario preparation and Agent execution are separate harness phases. Complete the Generation
+preflight and all selected Scenario preparation before launching an Agent child. Run prepared
+Scenarios with rolling concurrency four: start the next registry entry whenever an active Scenario
+reaches a terminal boundary. Before each turn, the runner rescans the opaque Scenario runtime roots
+and denies every other runtime root to that child.
 
 For the GitHub Scenario, the runner can add only the operator's GitHub account selection to the
 isolated home. It does not copy a token or unrelated GitHub configuration to disk. A short-lived
@@ -63,22 +63,20 @@ and target Issues must already carry it. The Human does not authorize
 each turn again after authorizing the validation run.
 
 The token must not enter the Agent environment, manifest, transcript, or durable evidence. The
-broker uses authenticated messages over one fixed Unix-domain socket, remains available for the
-complete Codex child lifetime, and removes the socket after the turn. Its Generation-local socket
-path and local capability value stay stable across resumed turns; its process and token remain
-per-turn. The broker fails closed for credential reads, cross-repository targets, destructive API
-methods, file-backed inputs, and Agent-supplied GraphQL. Missing isolated access blocks the Scenario before
-behavior. A socket collision is a harness failure. Do not add a filesystem mailbox, polling
-protocol, or application retry.
+existing bounded broker fails closed for credential reads, cross-repository targets, destructive
+API methods, file-backed inputs, and Agent-supplied GraphQL. Missing isolated access blocks the
+Scenario before behavior. Do not add another broker, filesystem mailbox, polling protocol, product
+loopback, or general capability framework.
 
 ## Matrix and Scenario contract
 
 The tracked Matrix is `validation/live-journey/registry.json`. It contains a complete, stable set of
 independent behavior-driven Scenarios. Each Scenario starts from one verified identity-bound
 Fixture and one fresh Agent conversation. Scenarios do not share sessions, transcripts, or
-Agent-produced state. Continue independent Scenarios after one fails while the Generation remains
-active. An accepted identity-changing fix abandons that Generation instead of spending time on an
-obsolete package or Matrix definition.
+Agent-produced state. Each Scenario has one execution opportunity. Do not automatically retry,
+resume, reattach, restore a checkpoint, or resample it. Continue independent Scenarios after one
+fails while the Generation identity remains valid. Collect the complete failure set before fixing
+an owner outside the Generation; any accepted identity-changing fix requires a fresh Generation.
 
 Do not convert the Matrix into one long story or a provider-file script. The Scenario Agent does
 not receive the registry, Scenario identifiers, required or forbidden outcomes, expected commands,
@@ -95,19 +93,20 @@ workflow and flexible semantic judgment. Deterministic support can reject identi
 missing turns, forbidden state, unauthorized remote changes, or another contradiction. It cannot
 manufacture a semantic pass.
 
-The shared launcher owns the fixed model arguments and rejects caller overrides. Every initial,
-resumed, retried, negative, reproduction, and release launch uses the same policy.
+The shared launcher owns the fixed model arguments and rejects caller overrides. Every Scenario,
+negative, focused-probe, rehearsal, and release launch uses the same policy.
 
 ## Evidence
 
-Current Matrix evidence records:
+Current Matrix evidence has only three durable levels:
 
-- the evidence class and exact local-package or Candidate identity;
-- the Matrix definition and Generation identities;
-- the Scenario and Fixture starting-state identities;
-- the Codex CLI version, requested model, and requested reasoning effort;
-- whether every real Codex invocation started and reached its terminal boundary; and
-- the Coordinating Agent's rationale and required and forbidden outcome observations.
+- one Generation basis with the evidence class, exact local-package or Candidate identity, Matrix
+  definition, Codex CLI version, requested model, requested reasoning effort, and execution
+  configuration;
+- one terminal result per Scenario with its Fixture starting-state identity, timestamps, verdict,
+  rationale, bounded observations, and whether the real invocation reached its terminal boundary;
+  and
+- one Matrix result that references every registered Scenario result.
 
 Evidence does not retain credentials, unnecessary full transcripts, session identifiers,
 machine-specific private paths, or unrelated operator configuration. A higher-level release result
