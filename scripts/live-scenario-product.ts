@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { z } from "zod";
+import { withoutBearingManagedPointer } from "../src/agent-surface-entry";
 import type { LiveScenario } from "./live-scenario-registry";
 
 const fail = (message: string): never => {
@@ -418,6 +419,13 @@ export const materializeGitHubLiveScenarioPlanningState = async (input: {
   productProgram: string;
   agentHome: string;
 }): Promise<void> => {
+  const agentSurfacePath = join(input.repositoryRoot, "AGENTS.md");
+  await writeFile(
+    agentSurfacePath,
+    withoutBearingManagedPointer(await readFile(agentSurfacePath, "utf8")),
+  );
+  await rm(join(input.repositoryRoot, ".bearing"), { recursive: true, force: true });
+  await activate(input);
   await installPlanningState({ ...input, includeEffort: false });
   commitBaseline(input.repositoryRoot, "Prepare GitHub Live Scenario planning baseline");
 };

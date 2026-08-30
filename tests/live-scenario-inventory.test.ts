@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   materializeDeclaredPrerequisiteSkills,
+  materializeGitHubLiveScenarioPlanningState,
   materializeLiveScenarioProductState,
 } from "../scripts/live-scenario-product";
 import {
@@ -22,6 +23,7 @@ import {
   preflightLiveScenarioRegistry,
 } from "../scripts/live-scenario-registry";
 import { liveScenarioDefinitionDigest } from "../scripts/live-scenario-runner";
+import { withBearingManagedPointer } from "../src/agent-surface-entry";
 
 const expectedScenarioIds = [
   "INSTALL-01",
@@ -258,6 +260,103 @@ describe("KISS Live Scenario inventory", () => {
     expect(
       await readFile(join(issueRoot, "05-decide-secondary-label-casing.md"), "utf8"),
     ).toContain("Type: grilling");
+  });
+
+  test("rebuilds the isolated GitHub fixture for the current Kit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bearing-live-github-baseline-"));
+    temporaryRoots.push(root);
+    const repositoryRoot = join(root, "repository");
+    const agentHome = join(root, "agent-home");
+    await Promise.all([
+      cp("validation/live-journey/fixtures/delivery-minimal", repositoryRoot, {
+        recursive: true,
+      }),
+      mkdir(agentHome),
+    ]);
+    await cp(
+      "validation/live-journey/fixtures/planning-state",
+      join(repositoryRoot, ".bearing/state"),
+      {
+        recursive: true,
+      },
+    );
+    await Promise.all([
+      writeFile(join(repositoryRoot, ".gitignore"), ".bearing/cache/\n"),
+      writeFile(
+        join(repositoryRoot, ".bearing/manifest.json"),
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            packageVersion: "0.1.1",
+            status: "active",
+            surfaces: ["agent-skills"],
+            executorProfiles: [],
+          },
+          null,
+          2,
+        )}\n`,
+      ),
+      writeFile(
+        join(repositoryRoot, ".bearing/provider.json"),
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            provider: "matt-skills/v1",
+            contractLocator: "docs/agents/issue-tracker.md",
+          },
+          null,
+          2,
+        )}\n`,
+      ),
+      readFile(join(repositoryRoot, "AGENTS.md"), "utf8").then((source) =>
+        writeFile(join(repositoryRoot, "AGENTS.md"), withBearingManagedPointer(source)),
+      ),
+    ]);
+    for (const args of [
+      ["init", "-q"],
+      ["add", "."],
+      [
+        "-c",
+        "user.name=Bearing Live Matrix",
+        "-c",
+        "user.email=live-matrix@example.invalid",
+        "commit",
+        "-qm",
+        "Prepare stale GitHub fixture",
+      ],
+    ]) {
+      const result = Bun.spawnSync(["git", ...args], {
+        cwd: repositoryRoot,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
+    }
+
+    await materializeGitHubLiveScenarioPlanningState({
+      sourceRoot: process.cwd(),
+      repositoryRoot,
+      productProgram: join(process.cwd(), "dist/cli.js"),
+      agentHome,
+    });
+
+    expect(
+      JSON.parse(await readFile(join(repositoryRoot, ".bearing/manifest.json"), "utf8")),
+    ).toMatchObject({
+      packageVersion: "0.1.2-dev",
+      runtime: "stable",
+      status: "active",
+    });
+    expect(await readFile(join(repositoryRoot, "AGENTS.md"), "utf8")).toContain(
+      "<!-- bearing:managed-start -->",
+    );
+    const status = Bun.spawnSync(["git", "status", "--porcelain=v1"], {
+      cwd: repositoryRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(status.exitCode, status.stderr.toString()).toBe(0);
+    expect(status.stdout.toString().trim()).toBe("");
   });
 
   test("copies only declared non-Bearing prerequisite Skills from the trusted root", async () => {
