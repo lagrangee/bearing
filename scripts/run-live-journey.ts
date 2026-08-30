@@ -572,6 +572,7 @@ type CodexTurnManifest = Readonly<{
     manifest: string;
     manifestDigest: string;
     registry: string;
+    operatorCodexHome: string;
     installationEntry: string;
     agentHome: string;
     repository: string;
@@ -638,9 +639,7 @@ const prepareCodexTurn = async (manifest: CodexTurnManifest, turn: number, promp
     includeCanonicalBearingBin:
       manifest.scenario.composition.fixtureProfile !== "fresh-installation-repository",
   });
-  const operatorCodexHome = dirname(
-    await realpath(join(manifest.launch.environment.CODEX_HOME, "auth.json")),
-  );
+  const operatorCodexHome = await realpath(manifest.paths.operatorCodexHome);
   const version = await runProcess(step.program, ["--version"], environment, step.workingDirectory);
   if (version.exitCode !== 0 || version.stdout.trim().length === 0) {
     fail(version.stderr.trim() || "Codex CLI version lookup failed before tested behavior.");

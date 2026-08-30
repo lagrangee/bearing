@@ -192,6 +192,46 @@ describe("Live Matrix Generation preflight", () => {
     }
   });
 
+  test("allows an isolated CODEX_HOME in Codex output", async () => {
+    const { fixture, result } = await prepare();
+    if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+    const generationPath = join(fixture.workspaceRoot, "generation.json");
+    await writeFile(generationPath, `${JSON.stringify(result.generationBasis, null, 2)}\n`, {
+      flag: "wx",
+    });
+    await writeFile(
+      fixture.fakeCodex,
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\n' 'codex-fixture 1'
+  exit 0
+fi
+printf '%s\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '{"type":"item.completed","item":{"id":"environment","type":"agent_message","text":"CODEX_HOME=%s"}}\n' "$CODEX_HOME"
+printf '%s\n' '{"type":"turn.completed"}'
+exit 0
+`,
+    );
+
+    try {
+      const run = Bun.spawnSync(
+        [
+          process.execPath,
+          "scripts/run-live-journey.ts",
+          "run-generation",
+          "--generation",
+          generationPath,
+        ],
+        { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+      );
+      expect(run.exitCode).toBe(0);
+      await access(join(fixture.workspaceRoot, "execution.json"));
+    } finally {
+      await discardLiveScenarioGenerationAdmission(result);
+    }
+  });
+
   test("rejects a malformed Codex item boundary without writing an execution handoff", async () => {
     const { fixture, result } = await prepare();
     if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");

@@ -242,7 +242,7 @@ describe("repository Codex E2E policy", () => {
   test("rejects the operator configuration path in Journey output", () => {
     expect(() =>
       assertCodexE2EOutputIsolation({
-        stdout: "HOME=/private/tmp/agent-home\n",
+        stdout: "HOME=/private/tmp/agent-home\nCODEX_HOME=/private/tmp/agent-home/.codex\n",
         stderr: "",
         operatorCodexHome: "/Users/operator/.codex",
       }),
