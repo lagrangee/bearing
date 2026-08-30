@@ -736,6 +736,12 @@ describe("GitHub and Active Reconciliation live Journey", () => {
     expect(environment["PATH"]).toStartWith(join(agentHome, ".local/bin"));
     expect(shellEnvironment).toContain(join(agentHome, ".local/bin"));
     expect(environment["ZDOTDIR"]).toBe(join(agentHome, ".config/bearing-live-journey"));
+    expect(environment).toMatchObject({
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_ASKPASS: "/usr/bin/false",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+    });
     const loginShell = Bun.spawn(["/bin/zsh", "-lc", "gh api user --jq .login"], {
       env: environment,
       stdout: "pipe",

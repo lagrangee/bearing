@@ -1188,6 +1188,10 @@ const githubJourneyEnvironment = (input: {
     HOME: input.agentHome,
     PATH: `${wrapperDirectory}:${input.baseEnvironment["PATH"] ?? ""}`,
     ZDOTDIR: shellEnvironmentDirectory,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "/usr/bin/false",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
     BEARING_GITHUB_BROKER_SOCKET: input.brokerSocketPath,
     BEARING_GITHUB_BROKER_AUTH: input.brokerAuth,
   };
