@@ -43,11 +43,13 @@ Generation and use a fresh Generation for the next observation.
 
 The Scenario manifest and tracked registry are Coordinator-only because they contain Scenario
 identity and semantic criteria. They stay outside the Agent repository and home. For the complete
-Codex child lifetime, the runner removes read permission from the manifest and uses the native
-Codex named permission profile to deny every read from the complete Coordinator source checkout,
-including Git objects, plus the exact registry when a test fixture places it elsewhere. The runner restores
-Coordinator access only after the child exits. Agent-readable prompts and installation files
-contain no criteria or answer hints.
+Codex child lifetime, the native Codex named permission profile denies the Coordinator source
+checkout, its Git objects, the registry, and the Scenario evidence workspace. Agent-readable
+prompts and installation files contain no criteria or answer hints. Because Codex's required macOS
+platform defaults grant the fixed scratch roots `/tmp`, `/private/tmp`, `/var/tmp`, and
+`/private/var/tmp`, a Coordinator workspace under one of those roots is rejected before Scenario
+preparation. A fresh directory under the current macOS `TMPDIR` is permitted when it resolves
+outside those fixed roots.
 
 Scenario preparation and Agent execution are separate harness phases. Complete the Generation
 preflight and all selected Scenario preparation before launching an Agent child. Run prepared
@@ -55,9 +57,16 @@ Scenarios with rolling concurrency four: start the next registry entry whenever 
 reaches a terminal boundary. Turns declared in one Scenario continue sequentially in that
 Scenario's one fresh conversation. That normal continuation is part of its single execution
 opportunity; it does not authorize recovery of a failed or partial execution. Before each turn, the
-runner revalidates the prepared launch. All Scenario runtimes live below one private temporary
-container; the final permission profile denies that container and re-allows only the current
-Scenario repository and home. Admission probes that exact final profile before Agent behavior.
+runner revalidates the prepared launch. Beyond Codex's required macOS platform defaults, the final
+permission profile allows only the current Scenario repository, Agent home, private runtime
+TMPDIR, canonical Node installation, selected Apple developer directory, verified Darwin OpenSSL
+configuration file, and an exact bounded local npm control root when that declared Fixture needs
+one. Other historical, concurrent, or sibling runtimes remain unreadable because they are never
+allowed; do not enumerate them or deny a shared parent above the current Scenario. Admission
+probes the exact profile and sanitized base environment before Agent behavior, including Node
+identity, realpath, SQLite, Git, current auth denial, and deliberate sibling and ambient-runtime
+negative controls. Per-turn GitHub broker values are added later and guarded before transcript
+publication.
 
 For the GitHub Scenario, the runner can add only the operator's GitHub account selection to the
 isolated home. It does not copy a token or unrelated GitHub configuration to disk. A short-lived
@@ -71,7 +80,9 @@ The token must not enter the Agent environment, manifest, transcript, or durable
 existing bounded broker fails closed for credential reads, cross-repository targets, destructive
 API methods, file-backed inputs, and Agent-supplied GraphQL. Missing isolated access blocks the
 Scenario before behavior. Do not add another broker, filesystem mailbox, polling protocol, product
-loopback, or general capability framework.
+loopback, or general capability framework. The launcher gives the Agent a Scenario-private TMPDIR,
+a canonical toolchain PATH, and no operator USER or LOGNAME. Broker authentication and socket
+values are ephemeral and must be rejected before Codex output is written as a transcript.
 
 ## Matrix and Scenario contract
 

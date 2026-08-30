@@ -6,6 +6,7 @@ import {
   prepareIsolatedCodexHome,
   probeCodexE2EPermissionProfile,
   readCodexE2EModelAvailability,
+  resolveCodexE2EProgram,
 } from "./codex-e2e-runtime";
 import {
   createLiveMatrixGenerationBasis,
@@ -25,6 +26,7 @@ import {
   preflightLiveScenarioRegistry,
 } from "./live-scenario-registry";
 import {
+  ensureLiveScenarioCoordinatorWorkspace,
   liveScenarioDefinitionDigest,
   liveScenarioHarnessIdentitySha256,
   prepareLiveScenarioGeneration,
@@ -296,6 +298,16 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
   }
 
   const workspaceRoot = resolve(input.workspaceRoot);
+  try {
+    await ensureLiveScenarioCoordinatorWorkspace(sourceRoot, workspaceRoot);
+  } catch (error) {
+    return blocked(generationId, [
+      diagnostic(
+        "workspace-not-fresh",
+        error instanceof Error ? error.message : "Generation workspace is unsafe or not fresh.",
+      ),
+    ]);
+  }
   const preparedScenarios: PreparedScenario[] = [];
   try {
     await mkdir(workspaceRoot);
@@ -323,14 +335,16 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
   };
 
   const modelHome = join(workspaceRoot, "model-readback-home");
+  let codexProgram: string;
   try {
+    codexProgram = await resolveCodexE2EProgram(input.codexProgram ?? "codex");
     await mkdir(modelHome);
     const modelCodexHome = await prepareIsolatedCodexHome({
       operatorCodexHome: resolve(input.operatorCodexHome),
       isolatedHome: modelHome,
     });
     await readCodexE2EModelAvailability({
-      program: input.codexProgram ?? "codex",
+      program: codexProgram,
       isolatedHome: modelHome,
       codexHome: modelCodexHome,
     });
@@ -354,7 +368,7 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
           ...(input.prerequisiteSkillRoot === undefined
             ? {}
             : { prerequisiteSkillRoot: input.prerequisiteSkillRoot }),
-          ...(input.codexProgram === undefined ? {} : { codexProgram: input.codexProgram }),
+          codexProgram,
           ...(scenario.composition.fixtureProfile !== "active-github-repository"
             ? {}
             : {
@@ -374,6 +388,9 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
   for (const prepared of preparedScenarios) {
     try {
       const verified = await verifyLiveScenarioGeneration(prepared.paths.manifest);
+      const siblingRuntimeRoot = preparedScenarios.find(
+        ({ paths }) => paths.runtimeRoot !== verified.paths.runtimeRoot,
+      )?.paths.runtimeRoot;
       await probeCodexE2EPermissionProfile({
         launch: verified.launch,
         manifestPath: verified.paths.manifest,
@@ -382,7 +399,11 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
         operatorCodexHome: verified.paths.operatorCodexHome,
         scenarioWorkspace: verified.paths.workspaceRoot,
         installationEntryPath: verified.paths.installationEntry,
-        runtimeIsolationRoot: resolve(verified.paths.runtimeRoot, ".."),
+        runtimeContainer: resolve(verified.paths.runtimeRoot, ".."),
+        ...(siblingRuntimeRoot === undefined ? {} : { siblingRuntimeRoot }),
+        toolchain: verified.toolchain,
+        isProjectRepository:
+          verified.scenario.composition.fixtureProfile !== "non-project-directory",
         writeAllowedPaths:
           verified.scenario.composition.fixtureProfile === "fresh-installation-repository"
             ? [join(verified.paths.agentHome, ".agents/skills")]

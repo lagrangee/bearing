@@ -12,14 +12,17 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import {
   assertIsolatedCodexHomeControlLinks,
   codexE2ELaunchContract,
   inspectCodexE2EOperatorContext,
+  inspectCodexE2EToolchain,
   prepareIsolatedCodexHome,
   probeCodexE2EPermissionProfile,
+  resolveCodexE2EProgram,
+  verifyCodexE2EToolchain,
 } from "./codex-e2e-runtime";
 import {
   captureGitHubRemoteInventory,
@@ -116,14 +119,7 @@ const liveScenarioReadDeniedPaths = (input: {
   registryPath: string;
   operatorCodexHome: string;
   scenarioContainer: string;
-  runtimeDenyRoots: readonly string[];
-}) => [
-  input.sourceRoot,
-  input.registryPath,
-  input.operatorCodexHome,
-  input.scenarioContainer,
-  ...new Set(input.runtimeDenyRoots),
-];
+}) => [input.sourceRoot, input.registryPath, input.operatorCodexHome, input.scenarioContainer];
 
 export const deriveLiveScenarioGitHubScopeKey = (
   input: Parameters<typeof deriveGitHubJourneyScopeKey>[0],
@@ -210,7 +206,7 @@ const installBoundedLocalNpmCapability = async (input: {
   targetFile: string;
   targetSha256: string;
   targetVersion: string;
-}): Promise<void> => {
+}): Promise<string> => {
   const realNpm = Bun.which("npm") ?? fail("Bounded update rehearsal requires npm.");
   const controlRoot = join(input.runtimeRoot, "bounded-update-capability");
   const capability = join(controlRoot, "npm.mjs");
@@ -237,6 +233,7 @@ const installBoundedLocalNpmCapability = async (input: {
   );
   await chmod(capability, 0o555);
   await symlink(capability, join(input.agentHome, ".bearing/bin/npm"));
+  return realpath(controlRoot);
 };
 
 const manifestSchema = z.object({
@@ -281,7 +278,8 @@ const manifestSchema = z.object({
     operatorCodexHome: z.string(),
     workspaceRoot: z.string(),
     runtimeRoot: z.string(),
-    runtimeDenyRoots: z.array(z.string()),
+    runtimeTempDirectory: z.string(),
+    boundedNpmControlRoot: z.string().optional(),
     manifest: z.string(),
     manifestDigest: z.string(),
     installationArtifact: z.string(),
@@ -296,10 +294,20 @@ const manifestSchema = z.object({
     remoteInventories: z.string().optional(),
     baselineInventory: z.string().optional(),
   }),
+  toolchain: z.object({
+    nodeExecutable: z.string(),
+    nodeBin: z.string(),
+    nodeInstallRoot: z.string(),
+    openSslConfig: z.string(),
+    selectedDeveloperDirectory: z.string(),
+    path: z.string(),
+  }),
   launch: z.object({
     environment: z.object({
       HOME: z.string(),
       CODEX_HOME: z.string(),
+      TMPDIR: z.string(),
+      PATH: z.string(),
       SHELL: z.string().optional(),
     }),
     initial: z.object({
@@ -352,6 +360,45 @@ const ensureIndependentNewWorkspace = async (
     fail(`Scenario workspace already exists: ${workspaceRoot}`);
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  }
+};
+
+const CODEX_DARWIN_PLATFORM_SCRATCH_ROOTS = [
+  "/tmp",
+  "/private/tmp",
+  "/var/tmp",
+  "/private/var/tmp",
+] as const;
+
+const isAtOrBelow = (root: string, candidate: string): boolean => {
+  const relation = relative(root, candidate);
+  return (
+    relation === "" ||
+    (!isAbsolute(relation) && relation !== ".." && !relation.startsWith(`..${sep}`))
+  );
+};
+
+export const ensureLiveScenarioCoordinatorWorkspace = async (
+  sourceRoot: string,
+  workspaceRoot: string,
+): Promise<void> => {
+  await ensureIndependentNewWorkspace(sourceRoot, workspaceRoot);
+  if (process.platform !== "darwin") return;
+
+  const canonicalParent = await realpath(dirname(workspaceRoot));
+  const canonicalWorkspace = join(canonicalParent, basename(workspaceRoot));
+  const scratchRoots = new Set<string>();
+  for (const root of CODEX_DARWIN_PLATFORM_SCRATCH_ROOTS) {
+    try {
+      scratchRoots.add(await realpath(root));
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
+  }
+  if ([...scratchRoots].some((root) => isAtOrBelow(root, canonicalWorkspace))) {
+    fail(
+      "Scenario Coordinator workspace must stay outside Codex macOS platform scratch roots (/tmp, /private/tmp, /var/tmp, /private/var/tmp).",
+    );
   }
 };
 
@@ -604,8 +651,8 @@ export const prepareLiveScenarioGeneration = async (input: {
 }) => {
   const sourceRoot = resolve(input.sourceRoot);
   const workspaceRoot = resolve(input.workspaceRoot);
+  await ensureLiveScenarioCoordinatorWorkspace(sourceRoot, workspaceRoot);
   const operatorCodexHome = await realpath(resolve(input.operatorCodexHome));
-  await ensureIndependentNewWorkspace(sourceRoot, workspaceRoot);
   const registryPath = await realpath(resolve(sourceRoot, input.registryPath));
   const registry = await loadLiveScenarioRegistry(registryPath);
   const scenario =
@@ -621,6 +668,10 @@ export const prepareLiveScenarioGeneration = async (input: {
     .parse(input.generationId ?? randomUUID());
   const temporaryRoot = await realpath(tmpdir());
   const runtimeContainer = await ensureLiveScenarioRuntimeContainer(temporaryRoot);
+  const [toolchain, codexProgram] = await Promise.all([
+    inspectCodexE2EToolchain(),
+    resolveCodexE2EProgram(input.codexProgram ?? "codex"),
+  ]);
   const scenarioContainer = await realpath(dirname(workspaceRoot));
   const runtimeRoot = liveScenarioRuntimeRoot(
     temporaryRoot,
@@ -628,7 +679,6 @@ export const prepareLiveScenarioGeneration = async (input: {
     scenario.id,
     workspaceRoot,
   );
-  const runtimeDenyRoots = [runtimeContainer];
   const runtimeRelation = relative(scenarioContainer, runtimeRoot);
   if (
     runtimeRelation === "" ||
@@ -685,6 +735,7 @@ export const prepareLiveScenarioGeneration = async (input: {
     workspaceCreated = true;
     await mkdir(runtimeRoot);
     runtimeCreated = true;
+    const runtimeTempDirectory = join(runtimeRoot, "tmp");
     const agentHome = join(runtimeRoot, "agent-home");
     const repository = join(runtimeRoot, "repository");
     const observations = join(workspaceRoot, "observations");
@@ -699,6 +750,7 @@ export const prepareLiveScenarioGeneration = async (input: {
     const installationEntryPath = join(installationSource, "README.local.md");
     const sessionState = join(workspaceRoot, "codex-session.json");
     await Promise.all([
+      mkdir(runtimeTempDirectory, { mode: 0o700 }),
       mkdir(agentHome, { recursive: true }),
       mkdir(observations, { recursive: true }),
       mkdir(transcripts, { recursive: true }),
@@ -762,6 +814,7 @@ export const prepareLiveScenarioGeneration = async (input: {
     let installedSkillSha256: string | null = null;
     let installedOlderKitSha256: string | undefined;
     let targetSkillSha256: string | undefined;
+    let boundedNpmControlRoot: string | undefined;
     let github:
       | Readonly<{
           program: string;
@@ -895,7 +948,7 @@ export const prepareLiveScenarioGeneration = async (input: {
           installedOlderKitSha256 = await digestLiveScenarioFixture(
             join(agentHome, ".bearing/kit/current"),
           );
-          await installBoundedLocalNpmCapability({
+          boundedNpmControlRoot = await installBoundedLocalNpmCapability({
             sourceRoot,
             runtimeRoot,
             agentHome,
@@ -941,7 +994,6 @@ export const prepareLiveScenarioGeneration = async (input: {
       registryPath,
       operatorCodexHome,
       scenarioContainer,
-      runtimeDenyRoots,
     });
     const writeAllowedPaths =
       scenario.composition.fixtureProfile === "fresh-installation-repository"
@@ -951,12 +1003,15 @@ export const prepareLiveScenarioGeneration = async (input: {
       repositoryRoot: repository,
       isolatedHome: agentHome,
       codexHome: agentCodexHome,
+      runtimeTempDirectory,
+      toolchain,
       disabledOperatorSkillPaths: operatorContext.disabledSkills.map(({ locator }) => locator),
+      ...(boundedNpmControlRoot === undefined ? {} : { boundedNpmControlRoot }),
       readDeniedPaths,
       writeAllowedPaths,
       skipGitRepositoryCheck: scenario.composition.fixtureProfile === "non-project-directory",
       ...(fixtureRuntime === undefined ? {} : { shellProgram: fixtureRuntime.shell.program }),
-      ...(input.codexProgram === undefined ? {} : { program: input.codexProgram }),
+      program: codexProgram,
     });
     const manifest = Object.freeze({
       schemaVersion: 1 as const,
@@ -991,7 +1046,8 @@ export const prepareLiveScenarioGeneration = async (input: {
         operatorCodexHome,
         workspaceRoot,
         runtimeRoot,
-        runtimeDenyRoots,
+        runtimeTempDirectory,
+        ...(boundedNpmControlRoot === undefined ? {} : { boundedNpmControlRoot }),
         manifest: manifestPath,
         manifestDigest,
         installationArtifact,
@@ -1005,6 +1061,7 @@ export const prepareLiveScenarioGeneration = async (input: {
         prompts: promptPaths,
         ...(github === undefined ? {} : { remoteInventories, baselineInventory }),
       }),
+      toolchain,
       launch,
       ...(github === undefined ? {} : { github }),
     });
@@ -1021,7 +1078,9 @@ export const prepareLiveScenarioGeneration = async (input: {
         operatorCodexHome,
         scenarioWorkspace: workspaceRoot,
         installationEntryPath,
-        runtimeIsolationRoot: runtimeContainer,
+        runtimeContainer,
+        toolchain,
+        isProjectRepository: scenario.composition.fixtureProfile !== "non-project-directory",
         writeAllowedPaths,
       });
     }
@@ -1070,7 +1129,7 @@ export const verifyLiveScenarioGeneration = async (
     parsed.paths.operatorCodexHome !== (await realpath(parsed.paths.operatorCodexHome)) ||
     runtimeContainer !== expectedRuntimeContainer ||
     parsed.paths.runtimeRoot !== expectedRuntimeRoot ||
-    JSON.stringify(parsed.paths.runtimeDenyRoots) !== JSON.stringify([expectedRuntimeContainer]) ||
+    parsed.paths.runtimeTempDirectory !== join(expectedRuntimeRoot, "tmp") ||
     parsed.paths.agentHome !== join(expectedRuntimeRoot, "agent-home") ||
     parsed.paths.repository !== join(expectedRuntimeRoot, "repository") ||
     parsed.paths.installationArtifact !==
@@ -1082,6 +1141,7 @@ export const verifyLiveScenarioGeneration = async (
   ) {
     fail("Live Scenario runtime locator does not match its opaque Generation identity.");
   }
+  await verifyCodexE2EToolchain(parsed.toolchain);
   if (JSON.stringify(scenario) !== JSON.stringify(parsed.scenario)) {
     fail("Live Scenario definition changed after preparation.");
   }
@@ -1091,9 +1151,16 @@ export const verifyLiveScenarioGeneration = async (
     scenario.composition.fixtureProfile === "older-kit-active-stable-repository";
   if (
     (parsed.fixtureIdentity.runtime !== undefined) !== expectsInstallationRuntime ||
-    (parsed.fixtureIdentity.olderGlobalKit !== undefined) !== expectsOlderGlobalKit
+    (parsed.fixtureIdentity.olderGlobalKit !== undefined) !== expectsOlderGlobalKit ||
+    (parsed.paths.boundedNpmControlRoot !== undefined) !== expectsOlderGlobalKit
   ) {
     fail("Live Scenario Fixture identity does not match its declared Fixture Profile.");
+  }
+  if (
+    parsed.paths.boundedNpmControlRoot !== undefined &&
+    parsed.paths.boundedNpmControlRoot !== join(expectedRuntimeRoot, "bounded-update-capability")
+  ) {
+    fail("Live Scenario bounded npm control root does not match its runtime identity.");
   }
   if (parsed.fixtureIdentity.runtime !== undefined) {
     const currentRuntime = await inspectG1InstallationRuntime();
@@ -1196,13 +1263,17 @@ export const verifyLiveScenarioGeneration = async (
     repositoryRoot: parsed.paths.repository,
     isolatedHome: parsed.paths.agentHome,
     codexHome: parsed.launch.environment.CODEX_HOME,
+    runtimeTempDirectory: parsed.paths.runtimeTempDirectory,
+    toolchain: parsed.toolchain,
     disabledOperatorSkillPaths: [],
+    ...(parsed.paths.boundedNpmControlRoot === undefined
+      ? {}
+      : { boundedNpmControlRoot: parsed.paths.boundedNpmControlRoot }),
     readDeniedPaths: [
       parsed.paths.sourceRoot,
       parsed.paths.registry,
       parsed.paths.operatorCodexHome,
       scenarioContainer,
-      ...parsed.paths.runtimeDenyRoots,
     ],
     writeAllowedPaths:
       scenario.composition.fixtureProfile === "fresh-installation-repository"

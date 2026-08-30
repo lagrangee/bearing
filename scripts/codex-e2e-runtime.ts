@@ -1,7 +1,8 @@
-import { COPYFILE_EXCL } from "node:constants";
+import { COPYFILE_EXCL, W_OK } from "node:constants";
 import { createHash } from "node:crypto";
-import type { Stats } from "node:fs";
+import { realpathSync, type Stats } from "node:fs";
 import {
+  access,
   chmod,
   copyFile,
   lstat,
@@ -13,7 +14,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, normalize, relative } from "node:path";
 import { z } from "zod";
 
 export const CODEX_E2E_RUNTIME = Object.freeze({
@@ -103,16 +104,174 @@ export const CODEX_E2E_DISABLED_FEATURES = Object.freeze([
   "workspace_dependencies",
 ] as const);
 
+const CODEX_E2E_DARWIN_OPENSSL_CONFIG = "/System/Library/OpenSSL/openssl.cnf";
+const CODEX_E2E_XCODE_SELECT = "/usr/bin/xcode-select";
+const CODEX_E2E_APPLE_GIT = "/usr/bin/git";
+const CODEX_E2E_SYSTEM_PATH = Object.freeze(["/usr/bin", "/bin", "/usr/sbin", "/sbin"]);
+
+export type CodexE2EToolchain = Readonly<{
+  nodeExecutable: string;
+  nodeBin: string;
+  nodeInstallRoot: string;
+  openSslConfig: string;
+  selectedDeveloperDirectory: string;
+  path: string;
+}>;
+
+const readSystemToolOutput = async (program: string, arguments_: readonly string[]) => {
+  const probe = Bun.spawn([program, ...arguments_], {
+    env: { PATH: CODEX_E2E_SYSTEM_PATH.join(delimiter) },
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const [exitCode, stdout] = await Promise.all([probe.exited, new Response(probe.stdout).text()]);
+  const output = stdout.trim();
+  if (exitCode !== 0 || output.length === 0) {
+    throw new Error(`Codex E2E system tool failed: ${program}.`);
+  }
+  return output;
+};
+
+const assertNotOperatorWritable = async (path: string, description: string): Promise<void> => {
+  try {
+    await access(path, W_OK);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "EACCES" || error.code === "EPERM")
+    ) {
+      return;
+    }
+    throw error;
+  }
+  throw new Error(`Codex E2E ${description} must not be operator-writable.`);
+};
+
+export const verifyCodexE2EToolchain = async (
+  toolchain: CodexE2EToolchain,
+): Promise<CodexE2EToolchain> => {
+  const [nodeExecutable, nodeInstallRoot, openSslConfig, selectedDeveloperDirectory] =
+    await Promise.all([
+      realpath(toolchain.nodeExecutable),
+      realpath(toolchain.nodeInstallRoot),
+      realpath(toolchain.openSslConfig),
+      realpath(toolchain.selectedDeveloperDirectory),
+    ]);
+  const [nodeState, installState, openSslState, developerDirectoryState] = await Promise.all([
+    lstat(toolchain.nodeExecutable),
+    lstat(toolchain.nodeInstallRoot),
+    lstat(toolchain.openSslConfig),
+    lstat(toolchain.selectedDeveloperDirectory),
+  ]);
+  const [selectedDeveloperDirectoryOutput, gitVersion] = await Promise.all([
+    readSystemToolOutput(CODEX_E2E_XCODE_SELECT, ["-p"]),
+    readSystemToolOutput(CODEX_E2E_APPLE_GIT, ["--version"]),
+  ]);
+  const currentSelectedDeveloperDirectory = await realpath(selectedDeveloperDirectoryOutput);
+  const expectedPath = [toolchain.nodeBin, ...CODEX_E2E_SYSTEM_PATH].join(delimiter);
+  if (
+    process.platform !== "darwin" ||
+    nodeExecutable !== toolchain.nodeExecutable ||
+    dirname(nodeExecutable) !== toolchain.nodeBin ||
+    basename(nodeExecutable) !== "node" ||
+    basename(toolchain.nodeBin) !== "bin" ||
+    nodeInstallRoot !== toolchain.nodeInstallRoot ||
+    join(nodeInstallRoot, "bin", "node") !== nodeExecutable ||
+    !nodeState.isFile() ||
+    (nodeState.mode & 0o111) === 0 ||
+    !installState.isDirectory() ||
+    openSslConfig !== CODEX_E2E_DARWIN_OPENSSL_CONFIG ||
+    openSslConfig !== toolchain.openSslConfig ||
+    !openSslState.isFile() ||
+    openSslState.isSymbolicLink() ||
+    selectedDeveloperDirectory !== toolchain.selectedDeveloperDirectory ||
+    currentSelectedDeveloperDirectory !== selectedDeveloperDirectory ||
+    !developerDirectoryState.isDirectory() ||
+    developerDirectoryState.uid !== 0 ||
+    !gitVersion.startsWith("git version ") ||
+    toolchain.path !== expectedPath
+  ) {
+    throw new Error("Codex E2E toolchain identity is not canonical.");
+  }
+  await Promise.all([
+    assertNotOperatorWritable(openSslConfig, "OpenSSL configuration"),
+    assertNotOperatorWritable(selectedDeveloperDirectory, "selected developer directory"),
+  ]);
+  return Object.freeze({ ...toolchain });
+};
+
+export const inspectCodexE2EToolchain = async (
+  operatorEnvironment: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<CodexE2EToolchain> => {
+  if (process.platform !== "darwin") {
+    throw new Error("Codex E2E permission runtime requires macOS.");
+  }
+  const operatorPath = operatorEnvironment["PATH"];
+  if (operatorPath === undefined || operatorPath.length === 0) {
+    throw new Error("Codex E2E toolchain requires PATH.");
+  }
+  const discoveredNode = Bun.which("node", { PATH: operatorPath });
+  if (discoveredNode === null) {
+    throw new Error("Codex E2E toolchain requires Node on PATH.");
+  }
+  const nodeExecutable = await realpath(discoveredNode);
+  const nodeBin = dirname(nodeExecutable);
+  if (basename(nodeExecutable) !== "node" || basename(nodeBin) !== "bin") {
+    throw new Error("Codex E2E Node must be one executable <installation>/bin/node.");
+  }
+  const nodeInstallRoot = await realpath(dirname(nodeBin));
+  if (join(nodeInstallRoot, "bin", "node") !== nodeExecutable) {
+    throw new Error("Codex E2E Node installation root is not canonical.");
+  }
+  const selectedDeveloperDirectory = await realpath(
+    await readSystemToolOutput(CODEX_E2E_XCODE_SELECT, ["-p"]),
+  );
+
+  return verifyCodexE2EToolchain({
+    nodeExecutable,
+    nodeBin,
+    nodeInstallRoot,
+    openSslConfig: CODEX_E2E_DARWIN_OPENSSL_CONFIG,
+    selectedDeveloperDirectory,
+    path: [nodeBin, ...CODEX_E2E_SYSTEM_PATH].join(delimiter),
+  });
+};
+
+export const resolveCodexE2EProgram = async (
+  program: string,
+  operatorEnvironment: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<string> => {
+  const operatorPath = operatorEnvironment["PATH"];
+  const discovered =
+    operatorPath === undefined ? Bun.which(program) : Bun.which(program, { PATH: operatorPath });
+  const resolved = await realpath(discovered ?? program);
+  const state = await lstat(resolved);
+  if (!state.isFile() || (state.mode & 0o111) === 0) {
+    throw new Error("Codex E2E program must be one executable regular file.");
+  }
+  return resolved;
+};
+
 export const assertCodexE2EOutputIsolation = (input: {
   stdout: string;
   stderr: string;
   operatorCodexHome: string;
+  ephemeralCapabilityValues?: readonly string[];
 }): void => {
   if (
     input.stdout.includes(input.operatorCodexHome) ||
     input.stderr.includes(input.operatorCodexHome)
   ) {
     throw new Error("Codex E2E output exposed the operator configuration path.");
+  }
+  if (
+    input.ephemeralCapabilityValues?.some(
+      (value) => value.length > 0 && (input.stdout.includes(value) || input.stderr.includes(value)),
+    )
+  ) {
+    throw new Error("Codex E2E output exposed an ephemeral capability value.");
   }
 };
 
@@ -175,10 +334,22 @@ export const codexE2ERuntimeArguments = (override?: unknown): readonly string[] 
 
 const CODEX_E2E_PERMISSION_PROFILE = "bearing_live_journey";
 
+const isCanonicalAbsolutePath = (path: string): boolean => {
+  if (!isAbsolute(path) || normalize(path) !== path) return false;
+  try {
+    return realpathSync(path) === path;
+  } catch {
+    return false;
+  }
+};
+
 const codexE2EPermissionProfileConfiguration = (input: {
   repositoryRoot: string;
   isolatedHome: string;
   codexHome: string;
+  runtimeTempDirectory: string;
+  toolchain: CodexE2EToolchain;
+  boundedNpmControlRoot?: string;
   readDeniedPaths: readonly string[];
   writeAllowedPaths: readonly string[];
 }) => {
@@ -186,11 +357,23 @@ const codexE2EPermissionProfileConfiguration = (input: {
     ...new Set([...input.readDeniedPaths, join(input.codexHome, "auth.json")]),
   ];
   if (
+    input.boundedNpmControlRoot !== undefined &&
+    (!isCanonicalAbsolutePath(input.boundedNpmControlRoot) ||
+      input.boundedNpmControlRoot !==
+        join(dirname(input.runtimeTempDirectory), "bounded-update-capability"))
+  ) {
+    throw new Error("Codex E2E bounded npm control root must be the canonical runtime directory.");
+  }
+  if (
     input.readDeniedPaths.length === 0 ||
     [
       input.repositoryRoot,
       input.isolatedHome,
       input.codexHome,
+      input.runtimeTempDirectory,
+      input.toolchain.nodeInstallRoot,
+      input.toolchain.openSslConfig,
+      input.toolchain.selectedDeveloperDirectory,
       ...input.readDeniedPaths,
       ...input.writeAllowedPaths,
     ].some((path) => !isAbsolute(path)) ||
@@ -208,13 +391,27 @@ const codexE2EPermissionProfileConfiguration = (input: {
   const allowedPaths = input.writeAllowedPaths
     .map((path) => `${JSON.stringify(path)}="write"`)
     .join(",");
+  const boundedNpmControlRoot =
+    input.boundedNpmControlRoot === undefined
+      ? ""
+      : `,${JSON.stringify(input.boundedNpmControlRoot)}="read"`;
   const gitMetadata = `${JSON.stringify(join(input.repositoryRoot, ".git"))}="write"`;
-  return `permissions.${CODEX_E2E_PERMISSION_PROFILE}={workspace_roots={${workspaceRoots}},filesystem={":root"="read",":workspace_roots"="write",${gitMetadata}${allowedPaths.length === 0 ? "" : `,${allowedPaths}`},${deniedPaths}},network={enabled=false}}`;
+  const runtimeTemp = `${JSON.stringify(input.runtimeTempDirectory)}="write"`;
+  const nodeInstall = `${JSON.stringify(input.toolchain.nodeInstallRoot)}="read"`;
+  const openSslConfig = `${JSON.stringify(input.toolchain.openSslConfig)}="read"`;
+  const selectedDeveloperDirectory = `${JSON.stringify(input.toolchain.selectedDeveloperDirectory)}="read"`;
+  return `permissions.${CODEX_E2E_PERMISSION_PROFILE}={workspace_roots={${workspaceRoots}},filesystem={":minimal"="read",":workspace_roots"="write",${gitMetadata},${runtimeTemp},${nodeInstall},${openSslConfig},${selectedDeveloperDirectory}${boundedNpmControlRoot}${allowedPaths.length === 0 ? "" : `,${allowedPaths}`},${deniedPaths}},network={enabled=false}}`;
 };
 
 export const probeCodexE2EPermissionProfile = async (input: {
   launch: Readonly<{
-    environment: Readonly<{ HOME: string; CODEX_HOME: string; SHELL?: string }>;
+    environment: Readonly<{
+      HOME: string;
+      CODEX_HOME: string;
+      TMPDIR: string;
+      PATH: string;
+      SHELL?: string;
+    }>;
     initial: Readonly<{
       program: string;
       workingDirectory: string;
@@ -228,7 +425,10 @@ export const probeCodexE2EPermissionProfile = async (input: {
   operatorCodexHome: string;
   scenarioWorkspace: string;
   installationEntryPath: string;
-  runtimeIsolationRoot: string;
+  runtimeContainer: string;
+  siblingRuntimeRoot?: string;
+  toolchain: CodexE2EToolchain;
+  isProjectRepository: boolean;
   writeAllowedPaths: readonly string[];
 }): Promise<void> => {
   const scenarioContainer = dirname(input.scenarioWorkspace);
@@ -253,24 +453,38 @@ export const probeCodexE2EPermissionProfile = async (input: {
     scenarioContainer,
     `.bearing-live-journey-sibling-probe-${basename(input.scenarioWorkspace)}`,
   );
-  const runtimeProbePath = join(
-    input.runtimeIsolationRoot,
+  const ambientRuntimeProbePath = join(
+    input.runtimeContainer,
     `.bearing-live-journey-runtime-probe-${basename(dirname(input.launch.environment.HOME))}`,
   );
-  const manifestMode = (await lstat(input.manifestPath)).mode & 0o777;
+  const siblingRuntimeProbePath =
+    input.siblingRuntimeRoot === undefined
+      ? undefined
+      : join(
+          input.siblingRuntimeRoot,
+          `.bearing-live-journey-sibling-runtime-probe-${basename(dirname(input.launch.environment.HOME))}`,
+        );
   let controlCreated = false;
   let siblingCreated = false;
-  let runtimeProbeCreated = false;
-  let manifestHidden = false;
+  let ambientRuntimeProbeCreated = false;
+  let siblingRuntimeProbeCreated = false;
   try {
     await writeFile(controlPath, "repository-control\n", { flag: "wx", mode: 0o600 });
     controlCreated = true;
     await writeFile(siblingProbePath, "sibling-control\n", { flag: "wx", mode: 0o600 });
     siblingCreated = true;
-    await writeFile(runtimeProbePath, "runtime-control\n", { flag: "wx", mode: 0o600 });
-    runtimeProbeCreated = true;
-    await chmod(input.manifestPath, 0o000);
-    manifestHidden = true;
+    await writeFile(ambientRuntimeProbePath, "ambient-runtime-control\n", {
+      flag: "wx",
+      mode: 0o600,
+    });
+    ambientRuntimeProbeCreated = true;
+    if (siblingRuntimeProbePath !== undefined) {
+      await writeFile(siblingRuntimeProbePath, "sibling-runtime-control\n", {
+        flag: "wx",
+        mode: 0o600,
+      });
+      siblingRuntimeProbeCreated = true;
+    }
     const probe = Bun.spawn(
       [
         input.launch.initial.program,
@@ -286,22 +500,35 @@ export const probeCodexE2EPermissionProfile = async (input: {
         "-c",
         [
           'control="$1"',
-          'cat "$1" >/dev/null || exit 81',
+          'cat "$control" >/dev/null || exit 81',
           'cat "$2" >/dev/null || exit 82',
           'if cat "$3" >/dev/null 2>&1; then exit 83; fi',
-          'if cat "$4" >/dev/null 2>&1; then exit 84; fi',
-          'if /usr/bin/git -C "$5" show HEAD:validation/live-journey/registry.json >/dev/null 2>&1; then exit 85; fi',
-          'if cat "$6" >/dev/null 2>&1; then exit 86; fi',
-          'if cat "$7/auth.json" >/dev/null 2>&1; then exit 89; fi',
+          'if readlink "$3" >/dev/null 2>&1; then exit 84; fi',
+          'if cat "$4" >/dev/null 2>&1; then exit 85; fi',
+          'if readlink "$4" >/dev/null 2>&1; then exit 86; fi',
+          'if cat "$5" >/dev/null 2>&1; then exit 87; fi',
+          'if /usr/bin/git -C "$6" show HEAD:validation/live-journey/registry.json >/dev/null 2>&1; then exit 88; fi',
+          'if cat "$7" >/dev/null 2>&1; then exit 89; fi',
           'if cat "$8" >/dev/null 2>&1; then exit 90; fi',
-          'if readlink "$8" >/dev/null 2>&1; then exit 91; fi',
-          'if cat "$9" >/dev/null 2>&1; then exit 92; fi',
-          'if readlink "$9" >/dev/null 2>&1; then exit 93; fi',
+          'if cat "$9" >/dev/null 2>&1; then exit 91; fi',
           "shift 9",
+          'if cat "$1" >/dev/null 2>&1; then exit 92; fi',
+          'if readlink "$1" >/dev/null 2>&1; then exit 93; fi',
+          'if [ -n "$2" ] && cat "$2" >/dev/null 2>&1; then exit 94; fi',
+          'if [ -n "$2" ] && readlink "$2" >/dev/null 2>&1; then exit 95; fi',
+          'node_executable="$3"',
+          'runtime_tmp="$4"',
+          'project_repository="$5"',
+          'node_probe="$runtime_tmp/permission-probe.sqlite"',
+          '/usr/bin/env node -e \'const { realpathSync } = require("node:fs"); const { DatabaseSync } = require("node:sqlite"); if (realpathSync(process.execPath) !== process.argv[1]) process.exit(41); for (const value of [process.cwd(), process.env.HOME, process.env.CODEX_HOME, process.env.TMPDIR]) realpathSync(value); const database = new DatabaseSync(process.argv[2]); database.exec("CREATE TABLE probe(value INTEGER)"); database.close();\' "$node_executable" "$node_probe" || exit 96',
+          'rm "$node_probe" || exit 97',
+          "/usr/bin/git --version >/dev/null || exit 98",
+          'if [ "$project_repository" = "yes" ]; then /usr/bin/git -C "$PWD" rev-parse --is-inside-work-tree >/dev/null || exit 99; fi',
+          "shift 5",
           'for path in "$@"; do',
           '  probe="$path/.bearing-live-journey-write-probe"',
-          '  ln -s "$control" "$probe" || exit 87',
-          '  rm "$probe" || exit 88',
+          '  ln -s "$control" "$probe" || exit 100',
+          '  rm "$probe" || exit 101',
           "done",
         ].join("\n"),
         "bearing-live-journey-permission-probe",
@@ -309,16 +536,21 @@ export const probeCodexE2EPermissionProfile = async (input: {
         input.installationEntryPath,
         input.manifestPath,
         input.registryPath,
+        join(input.sourceRoot, "package.json"),
         input.sourceRoot,
         siblingProbePath,
-        input.operatorCodexHome,
+        join(input.operatorCodexHome, "auth.json"),
         join(input.launch.environment.CODEX_HOME, "auth.json"),
-        runtimeProbePath,
+        ambientRuntimeProbePath,
+        siblingRuntimeProbePath ?? "",
+        input.toolchain.nodeExecutable,
+        input.launch.environment.TMPDIR,
+        input.isProjectRepository ? "yes" : "no",
         ...input.writeAllowedPaths,
       ],
       {
         cwd: repositoryRoot,
-        env: { ...process.env, ...input.launch.environment },
+        env: input.launch.environment,
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
@@ -332,10 +564,12 @@ export const probeCodexE2EPermissionProfile = async (input: {
     }
   } finally {
     await Promise.all([
-      ...(manifestHidden ? [chmod(input.manifestPath, manifestMode)] : []),
       ...(controlCreated ? [rm(controlPath, { force: true })] : []),
       ...(siblingCreated ? [rm(siblingProbePath, { force: true })] : []),
-      ...(runtimeProbeCreated ? [rm(runtimeProbePath, { force: true })] : []),
+      ...(ambientRuntimeProbeCreated ? [rm(ambientRuntimeProbePath, { force: true })] : []),
+      ...(siblingRuntimeProbeCreated && siblingRuntimeProbePath !== undefined
+        ? [rm(siblingRuntimeProbePath, { force: true })]
+        : []),
     ]);
   }
 };
@@ -344,7 +578,10 @@ export const codexE2ELaunchContract = (input: {
   repositoryRoot: string;
   isolatedHome: string;
   codexHome: string;
+  runtimeTempDirectory: string;
+  toolchain: CodexE2EToolchain;
   disabledOperatorSkillPaths: readonly string[];
+  boundedNpmControlRoot?: string;
   readDeniedPaths: readonly string[];
   writeAllowedPaths: readonly string[];
   program?: string;
@@ -384,6 +621,8 @@ export const codexE2ELaunchContract = (input: {
     environment: Object.freeze({
       HOME: input.isolatedHome,
       CODEX_HOME: input.codexHome,
+      TMPDIR: input.runtimeTempDirectory,
+      PATH: input.toolchain.path,
       ...(input.shellProgram === undefined ? {} : { SHELL: input.shellProgram }),
     }),
     initial: Object.freeze({

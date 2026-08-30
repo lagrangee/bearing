@@ -7,6 +7,7 @@ import {
   readFile,
   readlink,
   realpath,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,9 +19,19 @@ import {
   codexE2ELaunchContract,
   codexE2ERuntimeArguments,
   createCodexE2EEvidenceRecord,
+  inspectCodexE2EToolchain,
   prepareIsolatedCodexHome,
   readCodexE2EModelAvailability,
 } from "../scripts/codex-e2e-runtime";
+
+const fixtureToolchain = Object.freeze({
+  nodeExecutable: "/opt/node/bin/node",
+  nodeBin: "/opt/node/bin",
+  nodeInstallRoot: "/opt/node",
+  openSslConfig: "/System/Library/OpenSSL/openssl.cnf",
+  selectedDeveloperDirectory: "/Library/Developer/CommandLineTools",
+  path: "/opt/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+});
 
 const fakeModelProgram = async (input: {
   root: string;
@@ -54,7 +65,7 @@ const fakeModelProgram = async (input: {
 };
 
 describe("repository Codex E2E policy", () => {
-  test("keeps one fixed runtime owner and rejects caller overrides", () => {
+  test("keeps one fixed runtime owner and rejects caller overrides", async () => {
     expect(CODEX_E2E_RUNTIME).toEqual({
       model: "gpt-5.6-luna",
       reasoningEffort: "high",
@@ -68,18 +79,25 @@ describe("repository Codex E2E policy", () => {
     expect(() => codexE2ERuntimeArguments({ model: "fallback" })).toThrow(
       "does not accept runtime overrides",
     );
+    const runtimeRoot = await realpath(await mkdtemp(join(tmpdir(), "bearing-e2e-runtime-")));
+    const runtimeTempDirectory = join(runtimeRoot, "tmp");
+    const boundedNpmControlRoot = join(runtimeRoot, "bounded-update-capability");
+    await Promise.all([mkdir(runtimeTempDirectory), mkdir(boundedNpmControlRoot)]);
     const launch = codexE2ELaunchContract({
       repositoryRoot: "/tmp/repository",
       isolatedHome: "/tmp/agent-home",
       codexHome: "/tmp/agent-home/.codex",
+      runtimeTempDirectory,
+      toolchain: fixtureToolchain,
       disabledOperatorSkillPaths: [],
+      boundedNpmControlRoot,
       readDeniedPaths: ["/tmp/source", "/tmp/source/validation/live-journey/registry.json"],
       writeAllowedPaths: [],
     });
     for (const step of [launch.initial, launch.resume]) {
       expect(step.arguments).toContain('default_permissions="bearing_live_journey"');
       expect(step.arguments).toContain(
-        'permissions.bearing_live_journey={workspace_roots={"/tmp/repository"=true,"/tmp/agent-home"=true},filesystem={":root"="read",":workspace_roots"="write","/tmp/repository/.git"="write","/tmp/source"="deny","/tmp/source/validation/live-journey/registry.json"="deny","/tmp/agent-home/.codex/auth.json"="deny"},network={enabled=false}}',
+        `permissions.bearing_live_journey={workspace_roots={"/tmp/repository"=true,"/tmp/agent-home"=true},filesystem={":minimal"="read",":workspace_roots"="write","/tmp/repository/.git"="write",${JSON.stringify(runtimeTempDirectory)}="write","/opt/node"="read","/System/Library/OpenSSL/openssl.cnf"="read","/Library/Developer/CommandLineTools"="read",${JSON.stringify(boundedNpmControlRoot)}="read","/tmp/source"="deny","/tmp/source/validation/live-journey/registry.json"="deny","/tmp/agent-home/.codex/auth.json"="deny"},network={enabled=false}}`,
       );
       expect(step.arguments).not.toContain("--sandbox");
       expect(step.arguments).not.toContain('sandbox_mode="workspace-write"');
@@ -94,22 +112,83 @@ describe("repository Codex E2E policy", () => {
       repositoryRoot: "/tmp/non-project",
       isolatedHome: "/tmp/agent-home",
       codexHome: "/tmp/agent-home/.codex",
+      runtimeTempDirectory: "/tmp/runtime/tmp",
+      toolchain: fixtureToolchain,
       disabledOperatorSkillPaths: [],
       readDeniedPaths: ["/tmp/source", "/tmp/source/validation/live-journey/registry.json"],
       writeAllowedPaths: [],
       skipGitRepositoryCheck: true,
     });
     expect(nonProjectLaunch.initial.arguments).toContain("--skip-git-repo-check");
+    expect(nonProjectLaunch.initial.arguments.join("\n")).not.toContain(boundedNpmControlRoot);
+    const symlinkRuntimeRoot = await realpath(
+      await mkdtemp(join(tmpdir(), "bearing-read-symlink-")),
+    );
+    const symlinkRuntimeTemp = join(symlinkRuntimeRoot, "tmp");
+    const symlinkControlRoot = join(symlinkRuntimeRoot, "bounded-update-capability");
+    await mkdir(symlinkRuntimeTemp);
+    await symlink(boundedNpmControlRoot, symlinkControlRoot);
     expect(() =>
       codexE2ELaunchContract({
         repositoryRoot: "/tmp/repository",
         isolatedHome: "/tmp/agent-home",
         codexHome: "relative-codex-home",
+        runtimeTempDirectory: "/tmp/runtime/tmp",
+        toolchain: fixtureToolchain,
         disabledOperatorSkillPaths: [],
         readDeniedPaths: ["/tmp/source"],
         writeAllowedPaths: [],
       }),
     ).toThrow("permission paths must be non-empty absolute paths");
+    expect(() =>
+      codexE2ELaunchContract({
+        repositoryRoot: "/tmp/repository",
+        isolatedHome: "/tmp/agent-home",
+        codexHome: "/tmp/agent-home/.codex",
+        runtimeTempDirectory: symlinkRuntimeTemp,
+        toolchain: fixtureToolchain,
+        disabledOperatorSkillPaths: [],
+        boundedNpmControlRoot: symlinkControlRoot,
+        readDeniedPaths: ["/tmp/source"],
+        writeAllowedPaths: [],
+      }),
+    ).toThrow("bounded npm control root must be the canonical runtime directory");
+    expect(() =>
+      codexE2ELaunchContract({
+        repositoryRoot: "/tmp/repository",
+        isolatedHome: "/tmp/agent-home",
+        codexHome: "/tmp/agent-home/.codex",
+        runtimeTempDirectory: symlinkRuntimeTemp,
+        toolchain: fixtureToolchain,
+        disabledOperatorSkillPaths: [],
+        boundedNpmControlRoot,
+        readDeniedPaths: ["/tmp/source"],
+        writeAllowedPaths: [],
+      }),
+    ).toThrow("bounded npm control root must be the canonical runtime directory");
+  });
+
+  test("binds one canonical Node and minimal Darwin runtime dependency", async () => {
+    if (process.platform !== "darwin") return;
+    const toolchain = await inspectCodexE2EToolchain();
+    expect(toolchain.nodeExecutable).toBe(await realpath(Bun.which("node") ?? "node"));
+    expect(toolchain.nodeExecutable).toBe(join(toolchain.nodeInstallRoot, "bin", "node"));
+    expect(toolchain.path.split(":")[0]).toBe(toolchain.nodeBin);
+    expect(toolchain.openSslConfig).toBe("/System/Library/OpenSSL/openssl.cnf");
+    const xcodeSelect = Bun.spawnSync(["/usr/bin/xcode-select", "-p"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(xcodeSelect.exitCode).toBe(0);
+    expect(toolchain.selectedDeveloperDirectory).toBe(
+      await realpath(xcodeSelect.stdout.toString().trim()),
+    );
+    const git = Bun.spawnSync(["/usr/bin/git", "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(git.exitCode).toBe(0);
+    expect(git.stdout.toString()).toStartWith("git version ");
   });
 
   test("reads exact model availability without starting Agent behavior", async () => {
@@ -254,6 +333,14 @@ describe("repository Codex E2E policy", () => {
         operatorCodexHome: "/Users/operator/.codex",
       }),
     ).toThrow("operator configuration path");
+    expect(() =>
+      assertCodexE2EOutputIsolation({
+        stdout: "broker=ephemeral-auth\n",
+        stderr: "",
+        operatorCodexHome: "/Users/operator/.codex",
+        ephemeralCapabilityValues: ["ephemeral-auth"],
+      }),
+    ).toThrow("ephemeral capability value");
   });
 
   test("records only the required exact-candidate and runtime evidence", () => {

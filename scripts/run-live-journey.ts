@@ -583,7 +583,13 @@ type CodexTurnManifest = Readonly<{
     remoteInventories?: string | undefined;
   }>;
   launch: Readonly<{
-    environment: Readonly<{ HOME: string; CODEX_HOME: string; SHELL?: string }>;
+    environment: Readonly<{
+      HOME: string;
+      CODEX_HOME: string;
+      TMPDIR: string;
+      PATH: string;
+      SHELL?: string;
+    }>;
     initial: Readonly<{
       program: string;
       workingDirectory: string;
@@ -713,6 +719,10 @@ const runPreparedCodexTurn = async (prepared: Awaited<ReturnType<typeof prepareC
     stdout: result.stdout,
     stderr: result.stderr,
     operatorCodexHome: prepared.operatorCodexHome,
+    ephemeralCapabilityValues: [
+      prepared.environment["BEARING_GITHUB_BROKER_SOCKET"],
+      prepared.environment["BEARING_GITHUB_BROKER_AUTH"],
+    ].filter((value): value is string => value !== undefined),
   });
   await Promise.all([
     writeFile(prepared.transcriptPath, result.stdout, { flag: "wx" }),

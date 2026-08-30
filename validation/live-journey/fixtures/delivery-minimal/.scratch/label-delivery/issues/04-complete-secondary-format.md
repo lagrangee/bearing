@@ -8,4 +8,4 @@ Status: claimed
 
 - [x] Primary labels are trimmed and uppercased.
 - [ ] The exported secondary formatter is covered by one focused test.
-- [ ] `bun test` passes.
+- [ ] `npm test` passes.

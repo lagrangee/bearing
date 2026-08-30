@@ -128,18 +128,30 @@ describe("independent Agent Live scenarios", () => {
 
     const environment = createCodexJourneyEnvironment(
       {
-        PATH: "/usr/bin:/bin",
+        PATH: "/operator/private/bin:/usr/bin:/bin",
+        TMPDIR: "/operator/private/tmp",
+        USER: "operator",
+        LOGNAME: "operator",
         LANG: "en_US.UTF-8",
         GH_TOKEN: "operator-secret",
         MATRIX_PASS_CRITERIA: "private criteria",
       },
-      { HOME: "/isolated/home", CODEX_HOME: "/isolated/home/.codex" },
+      {
+        HOME: "/isolated/home",
+        CODEX_HOME: "/isolated/home/.codex",
+        TMPDIR: "/isolated/runtime/tmp",
+        PATH: "/isolated/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+      },
     );
     expect(environment).toMatchObject({
       HOME: "/isolated/home",
       CODEX_HOME: "/isolated/home/.codex",
+      TMPDIR: "/isolated/runtime/tmp",
+      PATH: "/isolated/home/.bearing/bin:/isolated/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
       LANG: "en_US.UTF-8",
     });
+    expect(environment).not.toHaveProperty("USER");
+    expect(environment).not.toHaveProperty("LOGNAME");
     expect(environment).not.toHaveProperty("GH_TOKEN");
     expect(environment).not.toHaveProperty("MATRIX_PASS_CRITERIA");
   });

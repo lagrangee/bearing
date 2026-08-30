@@ -66,6 +66,16 @@ conversation, prompts, observations, and private transcript. It cannot read the
 registry, Coordinator criteria, operator home, source checkout, or another
 Scenario runtime.
 
+Isolation is default-deny beyond Codex's required macOS platform rules. The
+runner allows only the current repository, Agent home, Scenario-private TMPDIR,
+canonical Node installation, selected Apple developer directory, verified Darwin
+OpenSSL configuration file, and the exact bounded local npm control root when a
+declared Fixture needs it. It does not enumerate historical runtimes, deny a
+shared runtime parent, serialize Generations behind a lock, or add recovery state.
+Admission runs positive Node/SQLite/Git checks and negative auth, source,
+manifest, registry, sibling, and ambient-runtime controls against the exact
+profile before any Agent behavior.
+
 Prepare all selected Scenarios before Agent execution starts. Preparation verifies
 the Generation basis and materialized starting state; it must not perform the
 behavior under test. `DELIVERY-02` may use only the existing bounded GitHub
@@ -74,7 +84,10 @@ general network access or a product loopback capability.
 
 Create one external evidence root and keep the Generation workspace, Scenario
 results, and final Matrix result beneath it so every durable pointer stays
-relative to that root. Prepare the complete selected registry once:
+relative to that root. The root must not resolve under `/tmp`, `/private/tmp`,
+`/var/tmp`, or `/private/var/tmp`, because those are Codex platform scratch
+surfaces. A fresh root under the current macOS `TMPDIR` is suitable when it
+resolves outside those fixed paths. Prepare the complete selected registry once:
 
 ```text
 bun scripts/run-live-journey.ts prepare-generation \
@@ -215,6 +228,12 @@ The Matrix passes only when every required Scenario passes. A rehearsal always
 records `releasePrerequisiteSatisfied: false`; only an all-pass exact Candidate
 result can record `true`. Neither result concludes an Effort, publishes a
 release, or passes a Milestone Gate.
+
+A development rehearsal is complete when it produces the full truthful ledger,
+even when that ledger contains semantic `fail` or `blocked` outcomes. Those
+outcomes become owner-specific follow-up findings; they do not authorize in-run
+repair, automatic retry, or expansion of the Harness. Candidate and release
+readiness can still require the exact all-pass result.
 
 Record Generation, Scenario, and Turn start and end timestamps plus actual peak
 concurrency. Derive durations from timestamp pairs; do not add separate Preparation,

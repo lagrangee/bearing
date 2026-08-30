@@ -25,8 +25,9 @@ const generationId = "11111111-1111-4111-8111-111111111111";
 const createFixture = async (
   mode: "admitted" | "model-unavailable" | "permission-failure" = "admitted",
   selectedRegistryPath = registryPath,
+  temporaryRoot = tmpdir(),
 ) => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "bearing-admission-test-")));
+  const root = await realpath(await mkdtemp(join(temporaryRoot, "bearing-admission-test-")));
   const packageRoot = join(root, "package-root");
   const tarball = join(root, "bearing.tgz");
   const operatorCodexHome = join(root, "operator-codex-home");
@@ -126,7 +127,7 @@ describe("Live Matrix Generation preflight", () => {
     ).toBe(true);
   });
 
-  test("prepares every selected Scenario and returns the sole Generation basis", async () => {
+  test("accepts the real Node TMPDIR and returns the sole Generation basis", async () => {
     const { fixture, result } = await prepare();
     expect(result).toMatchObject({
       outcome: "admitted",
@@ -143,6 +144,7 @@ describe("Live Matrix Generation preflight", () => {
       externalEffectsObserved: false,
     });
     if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+    expect(await realpath(fixture.workspaceRoot)).toStartWith(`${await realpath(tmpdir())}/`);
     expect(result.generationBasis.fixtureDefinitionSha256).toBe(
       await digestLiveScenarioFixtureSet({
         sourceRoot: process.cwd(),
@@ -165,15 +167,50 @@ describe("Live Matrix Generation preflight", () => {
     expect(launchedProfiles).toHaveLength(result.preparedScenarios.length);
     expect(probedProfiles).toEqual(launchedProfiles);
     for (const prepared of result.preparedScenarios) {
-      expect(JSON.parse(await readFile(prepared.paths.manifest, "utf8"))).not.toHaveProperty(
-        "admission",
-      );
+      const manifest = JSON.parse(await readFile(prepared.paths.manifest, "utf8"));
+      expect(manifest).not.toHaveProperty("admission");
+      expect(manifest.paths).not.toHaveProperty("boundedNpmControlRoot");
       await expect(verifyLiveScenarioGeneration(prepared.paths.manifest)).resolves.toBeDefined();
     }
     await discardLiveScenarioGenerationAdmission(result);
   });
 
-  test("denies one shared runtime container without enumerating ambient roots", async () => {
+  test("blocks a Coordinator workspace under the Codex macOS platform scratch roots", async () => {
+    if (process.platform !== "darwin") return;
+    const fixture = await createFixture("admitted", registryPath, "/private/tmp");
+    try {
+      const result = await prepareLiveScenarioGenerationAdmission({
+        sourceRoot: process.cwd(),
+        workspaceRoot: fixture.workspaceRoot,
+        operatorCodexHome: fixture.operatorCodexHome,
+        registryPath,
+        generationId,
+        package: fixture.package,
+        codexProgram: fixture.fakeCodex,
+      });
+      expect(result).toMatchObject({
+        outcome: "preflight blocked",
+        agentBehaviorStarted: false,
+        activeGenerationCreated: false,
+        externalEffectsObserved: false,
+        diagnostics: [
+          {
+            code: "workspace-not-fresh",
+            message:
+              "Scenario Coordinator workspace must stay outside Codex macOS platform scratch roots (/tmp, /private/tmp, /var/tmp, /private/var/tmp).",
+          },
+        ],
+      });
+      await expect(access(fixture.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(access(fixture.permissionProbeCapture)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("uses default-deny isolation without enumerating runtime roots", async () => {
     const runtimeContainer = join(await realpath(tmpdir()), "bearing-live-scenario-runtimes");
     await mkdir(runtimeContainer, { recursive: true });
     const ambientRoot = await mkdtemp(join(runtimeContainer, "ambient-"));
@@ -181,9 +218,13 @@ describe("Live Matrix Generation preflight", () => {
       const { result } = await prepare();
       if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
       for (const prepared of result.preparedScenarios) {
-        expect(prepared.paths.runtimeDenyRoots).toEqual([runtimeContainer]);
         expect(dirname(prepared.paths.runtimeRoot)).toBe(runtimeContainer);
-        expect(prepared.launch.initial.arguments.join("\n")).toContain(runtimeContainer);
+        expect(prepared.paths.runtimeTempDirectory).toBe(join(prepared.paths.runtimeRoot, "tmp"));
+        expect(prepared.launch.environment.TMPDIR).toBe(prepared.paths.runtimeTempDirectory);
+        expect(prepared.launch.initial.arguments.join("\n")).toContain('":minimal"="read"');
+        expect(prepared.launch.initial.arguments.join("\n")).not.toContain(
+          `${JSON.stringify(runtimeContainer)}="deny"`,
+        );
         expect(prepared.launch.initial.arguments.join("\n")).not.toContain(ambientRoot);
       }
       await discardLiveScenarioGenerationAdmission(result);

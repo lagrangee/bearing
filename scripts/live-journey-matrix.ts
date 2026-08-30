@@ -76,22 +76,17 @@ const sessionStateSchema = z.object({
   lastTurn: z.number().int().positive(),
 });
 
-const inheritedJourneyEnvironmentKeys = [
-  "COLORTERM",
-  "LANG",
-  "LC_ALL",
-  "LOGNAME",
-  "PATH",
-  "SHELL",
-  "TERM",
-  "TMPDIR",
-  "TZ",
-  "USER",
-] as const;
+const inheritedJourneyEnvironmentKeys = ["COLORTERM", "LANG", "LC_ALL", "TERM", "TZ"] as const;
 
 export const createCodexJourneyEnvironment = (
   operatorEnvironment: Readonly<Record<string, string | undefined>>,
-  launchEnvironment: Readonly<{ HOME: string; CODEX_HOME: string; SHELL?: string }>,
+  launchEnvironment: Readonly<{
+    HOME: string;
+    CODEX_HOME: string;
+    TMPDIR: string;
+    PATH: string;
+    SHELL?: string;
+  }>,
   options: Readonly<{ includeCanonicalBearingBin?: boolean }> = {},
 ): Readonly<Record<string, string>> => {
   const environment: Record<string, string> = {};
@@ -99,20 +94,16 @@ export const createCodexJourneyEnvironment = (
     const value = operatorEnvironment[key];
     if (value !== undefined) environment[key] = value;
   }
-  const operatorPath = environment["PATH"] ?? fail("Codex Journey launch requires PATH.");
-  environment["PATH"] = operatorPath
-    .split(delimiter)
-    .filter((entry) => entry.length > 0 && !/(?:^|[\\/])\.codex(?:[\\/]|$)/u.test(entry))
-    .join(delimiter);
-  if (environment["PATH"].length === 0) {
-    fail("Codex Journey launch requires one PATH entry outside operator Codex configuration.");
-  }
+  Object.assign(environment, launchEnvironment);
   if (options.includeCanonicalBearingBin !== false) {
-    environment["PATH"] =
-      `${join(launchEnvironment.HOME, ".bearing", "bin")}${delimiter}${environment["PATH"]}`;
+    environment["PATH"] = `${join(
+      launchEnvironment.HOME,
+      ".bearing",
+      "bin",
+    )}${delimiter}${environment["PATH"]}`;
   }
   environment["ZDOTDIR"] = join(launchEnvironment.HOME, ".shell");
-  return Object.freeze({ ...environment, ...launchEnvironment });
+  return Object.freeze(environment);
 };
 
 const blackBoxTerms = /(?:pass criteria|expected commands?|expected files?|matrix case)/iu;
