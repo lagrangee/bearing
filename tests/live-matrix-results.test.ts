@@ -62,6 +62,7 @@ const createScenario = (input: {
   outcome: "pass" | "fail" | "blocked";
   startedAt?: string;
   endedAt?: string;
+  evidence?: readonly { evidenceClass: "observation"; pointer: string; sha256: string }[];
 }) => {
   const startedAt = input.startedAt ?? "2026-08-30T00:00:01.000Z";
   const endedAt = input.endedAt ?? "2026-08-30T00:00:02.000Z";
@@ -70,7 +71,7 @@ const createScenario = (input: {
     scenarioId: input.scenarioId,
     outcome: input.outcome,
     rationale: `${input.scenarioId} received a truthful ${input.outcome} verdict.`,
-    evidence: [
+    evidence: input.evidence ?? [
       {
         evidenceClass: "observation",
         pointer: `observations/${input.scenarioId.toLowerCase()}.json`,
@@ -92,7 +93,21 @@ const writeVerifiableMatrix = async () => {
   const generationBytes = `${JSON.stringify(basis, null, 2)}\n`;
   await writeFile(join(root, generationPointer), generationBytes);
 
-  const result = createScenario({ scenarioId: "ENTRY-03", outcome: "pass" });
+  const observationPointer = "generation/scenarios/ENTRY-03/observations/turn-01.json";
+  const observationBytes = `${JSON.stringify({ schemaVersion: 1, turn: 1 })}\n`;
+  await mkdir(join(root, "generation/scenarios/ENTRY-03/observations"), { recursive: true });
+  await writeFile(join(root, observationPointer), observationBytes);
+  const result = createScenario({
+    scenarioId: "ENTRY-03",
+    outcome: "pass",
+    evidence: [
+      {
+        evidenceClass: "observation",
+        pointer: observationPointer,
+        sha256: sha256(observationBytes),
+      },
+    ],
+  });
   const resultPointer = "scenario-results/ENTRY-03.json";
   const resultBytes = `${JSON.stringify(result, null, 2)}\n`;
   await mkdir(join(root, "scenario-results"));
@@ -115,7 +130,16 @@ const writeVerifiableMatrix = async () => {
   });
   const matrixPath = join(root, "matrix-result.json");
   await writeFile(matrixPath, `${JSON.stringify(matrix, null, 2)}\n`);
-  return { root, scenarioIds, basis, matrix, matrixPath, generationPointer, resultPointer };
+  return {
+    root,
+    scenarioIds,
+    basis,
+    matrix,
+    matrixPath,
+    generationPointer,
+    resultPointer,
+    observationPointer,
+  };
 };
 
 describe("minimal Live Matrix results", () => {
@@ -408,6 +432,41 @@ describe("minimal Live Matrix results", () => {
         endedAt: "2026-08-30T00:01:00.000Z",
       }),
     ).toThrow("result pointers must be unique");
+
+    const sharedEvidence = [
+      {
+        evidenceClass: "observation" as const,
+        pointer: "generation/scenarios/shared/observations/turn-01.json",
+        sha256: digest("8"),
+      },
+    ];
+    expect(() =>
+      createLiveMatrixResult({
+        generationBasis: basis,
+        generationBasisReference: reference("generation", "a"),
+        registeredScenarioIds: scenarioIds,
+        scenarioResults: [
+          {
+            result: createScenario({
+              scenarioId: "ENTRY-03",
+              outcome: "pass",
+              evidence: sharedEvidence,
+            }),
+            reference: reference("entry-03", "1"),
+          },
+          {
+            result: createScenario({
+              scenarioId: "STOP-02",
+              outcome: "pass",
+              evidence: sharedEvidence,
+            }),
+            reference: reference("stop-02", "2"),
+          },
+        ],
+        peakConcurrency: 2,
+        endedAt: "2026-08-30T00:01:00.000Z",
+      }),
+    ).toThrow("observation pointers must be globally unique");
   });
 
   test("only an all-pass release Candidate satisfies the release prerequisite", () => {
@@ -462,6 +521,18 @@ describe("minimal Live Matrix results", () => {
 
     await expect(verifyLiveMatrixResult(escaped.matrixPath, escaped.scenarioIds)).rejects.toThrow(
       "escapes its Matrix evidence root",
+    );
+  });
+
+  test("rejects a missing or tampered Scenario observation", async () => {
+    const missing = await writeVerifiableMatrix();
+    await rm(join(missing.root, missing.observationPointer));
+    await expect(verifyLiveMatrixResult(missing.matrixPath, missing.scenarioIds)).rejects.toThrow();
+
+    const tampered = await writeVerifiableMatrix();
+    await writeFile(join(tampered.root, tampered.observationPointer), "{}\n");
+    await expect(verifyLiveMatrixResult(tampered.matrixPath, tampered.scenarioIds)).rejects.toThrow(
+      "digest mismatch",
     );
   });
 });

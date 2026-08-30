@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -12,6 +22,7 @@ import {
 } from "../scripts/live-scenario-registry";
 import {
   liveScenarioDefinitionDigest,
+  verifyLiveScenarioBehaviorBoundary,
   verifyLiveScenarioGeneration,
 } from "../scripts/live-scenario-runner";
 import { localRehearsalWorktreeDigest } from "../scripts/local-rehearsal-identity";
@@ -36,13 +47,26 @@ const createFixture = async (
   const permissionProbeCapture = join(root, "permission-probe-arguments.txt");
   await Promise.all([
     mkdir(join(packageRoot, "package/docs"), { recursive: true }),
+    mkdir(join(packageRoot, "package/bin"), { recursive: true }),
     mkdir(operatorCodexHome),
   ]);
+  const fakeBearing = join(packageRoot, "package/bin/bearing.mjs");
   await Promise.all([
     writeFile(join(packageRoot, "package/docs/agent-installation.md"), "# Install\n"),
     writeFile(
       join(packageRoot, "package/package.json"),
-      '{"name":"@lagrangee/bearing","version":"0.1.2-dev"}\n',
+      '{"name":"@lagrangee/bearing","version":"0.1.2-dev","bin":{"bearing":"bin/bearing.mjs"}}\n',
+    ),
+    writeFile(
+      fakeBearing,
+      `#!/usr/bin/env node
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+if (process.argv[2] !== "install") process.exit(64);
+const skillRoot = join(process.env.HOME, ".bearing/kit/current/skills/bearing");
+await mkdir(skillRoot, { recursive: true });
+await writeFile(join(skillRoot, "SKILL.md"), "# Fixture Bearing Skill\\n");
+`,
     ),
     writeFile(join(operatorCodexHome, "auth.json"), "{}\n"),
     writeFile(
@@ -64,7 +88,7 @@ exit 64
 `,
     ),
   ]);
-  await chmod(fakeCodex, 0o755);
+  await Promise.all([chmod(fakeCodex, 0o755), chmod(fakeBearing, 0o755)]);
   const packed = Bun.spawnSync(["tar", "-czf", tarball, "package"], {
     cwd: packageRoot,
     stdout: "pipe",
@@ -114,19 +138,6 @@ const prepare = async (
 };
 
 describe("Live Matrix Generation preflight", () => {
-  test("keeps tracked Scenario runtime composition finite", async () => {
-    const tracked = await loadLiveScenarioRegistry("validation/live-journey/registry.json");
-    expect(tracked.scenarios.length).toBeGreaterThan(0);
-    expect(
-      tracked.scenarios.every(
-        ({ composition }) =>
-          composition.model === "gpt-5.6-luna" &&
-          composition.reasoningEffort === "high" &&
-          composition.timeProfile === "standard",
-      ),
-    ).toBe(true);
-  });
-
   test("accepts the real Node TMPDIR and returns the sole Generation basis", async () => {
     const { fixture, result } = await prepare();
     expect(result).toMatchObject({
@@ -207,6 +218,67 @@ describe("Live Matrix Generation preflight", () => {
       });
     } finally {
       await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rechecks mutable Agent inputs without repeating the full Generation preflight", async () => {
+    const { result } = await prepare();
+    if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+    const prepared = result.preparedScenarios[0];
+    if (prepared === undefined) throw new Error("Expected one prepared Scenario.");
+    const controlLink = join(prepared.paths.agentHome, ".codex/skills");
+    const skillDirectory = join(prepared.paths.agentHome, "skill-directory");
+    try {
+      await expect(
+        verifyLiveScenarioBehaviorBoundary(prepared.paths.manifest),
+      ).resolves.toBeDefined();
+      await rm(controlLink);
+      await symlink(join(prepared.paths.agentHome, ".shell"), controlLink);
+      await expect(verifyLiveScenarioBehaviorBoundary(prepared.paths.manifest)).rejects.toThrow(
+        "isolated control links changed",
+      );
+      await rm(controlLink);
+      await symlink(skillDirectory, controlLink);
+      await writeFile(prepared.paths.prompts[0] as string, "tampered prompt\n");
+      await expect(verifyLiveScenarioBehaviorBoundary(prepared.paths.manifest)).rejects.toThrow(
+        "prompt changed",
+      );
+    } finally {
+      await discardLiveScenarioGenerationAdmission(result);
+    }
+  });
+
+  test("rejects a changed preinstalled Bearing Skill at the narrow behavior boundary", async () => {
+    const fixture = await createFixture("admitted", prerequisiteRegistryPath);
+    const prerequisiteSkillRoot = join(fixture.root, "prerequisite-skills");
+    await mkdir(join(prerequisiteSkillRoot, "implement"), { recursive: true });
+    await writeFile(join(prerequisiteSkillRoot, "implement/SKILL.md"), "# Implement fixture\n");
+    const result = await prepareLiveScenarioGenerationAdmission({
+      sourceRoot: process.cwd(),
+      workspaceRoot: fixture.workspaceRoot,
+      operatorCodexHome: fixture.operatorCodexHome,
+      registryPath: prerequisiteRegistryPath,
+      generationId,
+      package: fixture.package,
+      codexProgram: fixture.fakeCodex,
+      prerequisiteSkillRoot,
+    });
+    if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+    const prepared = result.preparedScenarios[0];
+    if (prepared === undefined) throw new Error("Expected one prepared Scenario.");
+    try {
+      await expect(
+        verifyLiveScenarioBehaviorBoundary(prepared.paths.manifest),
+      ).resolves.toBeDefined();
+      await writeFile(
+        join(prepared.paths.agentHome, ".bearing/kit/current/skills/bearing/SKILL.md"),
+        "# Tampered Bearing Skill\n",
+      );
+      await expect(verifyLiveScenarioBehaviorBoundary(prepared.paths.manifest)).rejects.toThrow(
+        "Preinstalled Bearing Skill changed",
+      );
+    } finally {
+      await discardLiveScenarioGenerationAdmission(result);
     }
   });
 

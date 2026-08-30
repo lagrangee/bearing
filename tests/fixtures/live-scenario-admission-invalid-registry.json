@@ -7,13 +7,7 @@
       "fixture": { "source": "validation/live-journey/fixtures/local-loop" },
       "composition": {
         "fixtureProfile": "unknown-profile",
-        "skills": [{ "skill": "bearing", "role": "prerequisite" }],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }]
       },
       "prompts": ["Inspect the fixture."],
       "requiredOutcomes": ["The request stays bounded."],

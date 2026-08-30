@@ -163,9 +163,17 @@ const writeMatrixResult = async (root: string, receipt: CandidateReceipt) => {
   const generationBasisBytes = serializeCandidateJson(generationBasis);
   await writeFile(join(root, generationBasisPointer), generationBasisBytes);
   const resultsRoot = join(root, "scenario-results");
-  await mkdir(resultsRoot);
+  const observationsRoot = join(root, "observations");
+  await Promise.all([mkdir(resultsRoot), mkdir(observationsRoot)]);
   const scenarioResults = await Promise.all(
     registry.scenarios.map(async (scenario) => {
+      const observationPointer = `observations/${scenario.id.toLowerCase()}.json`;
+      const observationBytes = serializeCandidateJson({
+        schemaVersion: 1,
+        scenarioId: scenario.id,
+        turn: 1,
+      });
+      await writeFile(join(root, observationPointer), observationBytes);
       const result = createLiveMatrixScenarioTerminalResult({
         generationId,
         scenarioId: scenario.id,
@@ -174,8 +182,8 @@ const writeMatrixResult = async (root: string, receipt: CandidateReceipt) => {
         evidence: [
           {
             evidenceClass: "observation",
-            pointer: `observations/${scenario.id.toLowerCase()}.json`,
-            sha256: "d".repeat(64),
+            pointer: observationPointer,
+            sha256: sha256Bytes(Buffer.from(observationBytes)),
           },
         ],
         turns: [

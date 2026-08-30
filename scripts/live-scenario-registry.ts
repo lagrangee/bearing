@@ -71,14 +71,16 @@ export const liveScenarioSkillRoleSchema = z.enum([
   "intentionally-absent",
 ]);
 
-export const liveScenarioAgentSurfaceProfileSchema = z.enum(["codex"]);
 export const liveScenarioCapabilityProfileSchema = z.enum([
-  "none",
   "bounded-local-npm-update",
   "github-bounded-delivery",
 ]);
-export const liveScenarioResourceKeySchema = z.enum(["github-validation-repository"]);
-export const liveScenarioTimeProfileSchema = z.enum(["standard"]);
+export type LiveScenarioCapabilityProfile = z.infer<typeof liveScenarioCapabilityProfileSchema>;
+
+export const liveScenarioResourceKeyForCapability = (
+  capabilityProfile: LiveScenarioCapabilityProfile | undefined,
+): "github-validation-repository" | undefined =>
+  capabilityProfile === "github-bounded-delivery" ? "github-validation-repository" : undefined;
 
 const liveScenarioCompositionSchema = z
   .object({
@@ -94,12 +96,7 @@ const liveScenarioCompositionSchema = z
       )
       .min(1)
       .max(liveScenarioSkillNameSchema.options.length),
-    agentSurfaceProfile: liveScenarioAgentSurfaceProfileSchema,
-    capabilityProfile: liveScenarioCapabilityProfileSchema,
-    resourceKeys: z.array(liveScenarioResourceKeySchema).max(8),
-    model: z.literal("gpt-5.6-luna"),
-    reasoningEffort: z.literal("high"),
-    timeProfile: liveScenarioTimeProfileSchema,
+    capabilityProfile: liveScenarioCapabilityProfileSchema.optional(),
   })
   .strict()
   .superRefine((composition, context) => {
@@ -109,24 +106,6 @@ const liveScenarioCompositionSchema = z
         code: "custom",
         path: ["skills"],
         message: "Each Matrix Skill must declare exactly one role.",
-      });
-    }
-    if (new Set(composition.resourceKeys).size !== composition.resourceKeys.length) {
-      context.addIssue({
-        code: "custom",
-        path: ["resourceKeys"],
-        message: "Matrix Resource Keys must be unique.",
-      });
-    }
-    const expectedResourceKeys =
-      composition.capabilityProfile === "github-bounded-delivery"
-        ? ["github-validation-repository"]
-        : [];
-    if (JSON.stringify(composition.resourceKeys) !== JSON.stringify(expectedResourceKeys)) {
-      context.addIssue({
-        code: "custom",
-        path: ["resourceKeys"],
-        message: "Matrix Resource Keys must exactly match the selected Capability Profile.",
       });
     }
   });
@@ -195,7 +174,7 @@ const liveScenarioRegistrySchema = z
           ? "github-bounded-delivery"
           : scenario.composition.fixtureProfile === "older-kit-active-stable-repository"
             ? "bounded-local-npm-update"
-            : "none";
+            : undefined;
       if (scenario.composition.capabilityProfile !== expectedCapability) {
         context.addIssue({
           code: "custom",

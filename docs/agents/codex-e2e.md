@@ -56,8 +56,12 @@ preflight and all selected Scenario preparation before launching an Agent child.
 Scenarios with rolling concurrency four: start the next registry entry whenever an active Scenario
 reaches a terminal boundary. Turns declared in one Scenario continue sequentially in that
 Scenario's one fresh conversation. That normal continuation is part of its single execution
-opportunity; it does not authorize recovery of a failed or partial execution. Before each turn, the
-runner revalidates the prepared launch. Beyond Codex's required macOS platform defaults, the final
+opportunity; it does not authorize recovery of a failed or partial execution. Before Scenario
+execution, the runner performs one full package, Fixture, toolchain, isolation, and launch
+validation. Before each declared Turn, it confirms the sealed manifest digest, Scenario identity,
+Agent-readable installation input, installed Bearing Skill boundary, control links, prompt bytes,
+and prepared launch are unchanged; it does not repeat the full source, package, toolchain, Fixture,
+or remote preflight. Beyond Codex's required macOS platform defaults, the final
 permission profile allows only the current Scenario repository, Agent home, private runtime
 TMPDIR, canonical Node installation, selected Apple developer directory, verified Darwin OpenSSL
 configuration file, and an exact bounded local npm control root when that declared Fixture needs
@@ -167,6 +171,10 @@ evaluation nor Matrix completion. Diagnose it outside the Generation and use a f
 
 The Scenario result itself does not copy separate before-state or after-state evidence classes;
 its bounded observation pointers identify the state the Coordinator inspected.
+Those referenced observation files remain beneath the same Matrix evidence root. Matrix completion
+and every later Matrix verifier resolve and hash-check them; a missing, escaped, reused, or changed
+observation invalidates the Matrix. They are leaf evidence cited by a Scenario result, not a fourth
+result envelope.
 
 `execution.json` carries only the Generation ID, actual peak concurrency, and each Scenario's
 `completed` execution state between the runner, evaluator, and aggregator. It exists only for a

@@ -7,13 +7,7 @@
       "fixture": { "source": "validation/live-journey/fixtures/local-loop" },
       "composition": {
         "fixtureProfile": "fresh-installation-repository",
-        "skills": [{ "skill": "bearing", "role": "installation-under-test" }],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
       },
       "prompts": ["Inspect the installation instructions."],
       "requiredOutcomes": ["The request stays bounded."],
@@ -25,13 +19,7 @@
       "fixture": { "source": "validation/live-journey/fixtures/local-loop" },
       "composition": {
         "fixtureProfile": "fresh-installation-repository",
-        "skills": [{ "skill": "bearing", "role": "installation-under-test" }],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
       },
       "prompts": ["Inspect the isolated repository."],
       "requiredOutcomes": ["The request stays bounded."],

@@ -409,7 +409,7 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
             ? [join(verified.paths.agentHome, ".agents/skills")]
             : [],
       });
-      verifiedScenarios.push(await verifyLiveScenarioGeneration(prepared.paths.manifest));
+      verifiedScenarios.push(verified);
     } catch (error) {
       return failPrepared("permission-failure", error, prepared.scenario.id);
     }

@@ -20,6 +20,7 @@ import {
 import {
   digestLiveScenarioFixtureSet,
   type LiveScenario,
+  liveScenarioResourceKeyForCapability,
   loadLiveScenarioRegistry,
   preflightLiveScenarioRegistry,
 } from "../scripts/live-scenario-registry";
@@ -56,12 +57,6 @@ const prerequisiteSkillScenario = {
       { skill: "bearing", role: "prerequisite" },
       { skill: "implement", role: "prerequisite" },
     ],
-    agentSurfaceProfile: "codex",
-    capabilityProfile: "none",
-    resourceKeys: [],
-    model: "gpt-5.6-luna",
-    reasoningEffort: "high",
-    timeProfile: "standard",
   },
   prompts: ["Inspect the isolated repository."],
   requiredOutcomes: ["The request stays bounded."],
@@ -238,10 +233,13 @@ describe("KISS Live Scenario inventory", () => {
         ...githubDelivery.forbiddenOutcomes,
       ].join("\n"),
     ).not.toMatch(/Implement Skill|TDD|Code Review/iu);
-    expect(githubDelivery.composition).toMatchObject({
-      capabilityProfile: "github-bounded-delivery",
-      resourceKeys: ["github-validation-repository"],
-    });
+    expect(githubDelivery.composition.capabilityProfile).toBe("github-bounded-delivery");
+    expect(liveScenarioResourceKeyForCapability(githubDelivery.composition.capabilityProfile)).toBe(
+      "github-validation-repository",
+    );
+    expect(liveScenarioResourceKeyForCapability(localDelivery.composition.capabilityProfile)).toBe(
+      undefined,
+    );
   });
 
   test("materializes NATIVE-02 as one unclaimed Human-owned decision ticket", async () => {

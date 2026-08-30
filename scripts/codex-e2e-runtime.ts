@@ -1,14 +1,12 @@
 import { COPYFILE_EXCL, W_OK } from "node:constants";
 import { createHash } from "node:crypto";
-import { realpathSync, type Stats } from "node:fs";
+import { realpathSync } from "node:fs";
 import {
   access,
   chmod,
   copyFile,
   lstat,
   mkdir,
-  readdir,
-  readFile,
   realpath,
   rm,
   symlink,
@@ -653,87 +651,6 @@ export const codexE2ELaunchContract = (input: {
       ]),
       appendPromptAsFinalArgument: true as const,
     }),
-  });
-};
-
-type OperatorFileDigest = Readonly<{ locator: string; sha256: string }>;
-
-const optionalRegularFile = async (path: string): Promise<Uint8Array | undefined> => {
-  let state: Stats;
-  try {
-    state = await lstat(path);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
-    throw error;
-  }
-  if (!state.isFile()) throw new Error(`Codex operator input must be a regular file: ${path}`);
-  return readFile(path);
-};
-
-const discoverSkillFiles = async (
-  root: string,
-  directory = root,
-  ancestors = new Set<string>(),
-): Promise<string[]> => {
-  let canonicalDirectory: string;
-  try {
-    canonicalDirectory = await realpath(directory);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
-    throw error;
-  }
-  if (ancestors.has(canonicalDirectory)) {
-    throw new Error(`Codex operator skill inventory contains a directory cycle: ${directory}`);
-  }
-  const nextAncestors = new Set(ancestors);
-  nextAncestors.add(canonicalDirectory);
-  const files: string[] = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const target = join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await discoverSkillFiles(root, target, nextAncestors)));
-    else if (entry.isSymbolicLink()) {
-      const targetState = await lstat(await realpath(target));
-      if (targetState.isDirectory()) {
-        files.push(...(await discoverSkillFiles(root, target, nextAncestors)));
-      }
-    } else if (entry.isFile() && entry.name === "SKILL.md") files.push(target);
-  }
-  return files.sort((left, right) => left.localeCompare(right, "en"));
-};
-
-const digestOperatorFiles = (files: readonly OperatorFileDigest[]): string =>
-  createHash("sha256")
-    .update(files.map((file) => `${file.locator}\0${file.sha256}\n`).join(""))
-    .digest("hex");
-
-export const inspectCodexE2EOperatorContext = async (codexHome: string) => {
-  let globalInstructions: OperatorFileDigest | null = null;
-  for (const filename of ["AGENTS.override.md", "AGENTS.md"] as const) {
-    const locator = join(codexHome, filename);
-    const bytes = await optionalRegularFile(locator);
-    if (bytes !== undefined && new TextDecoder().decode(bytes).trim() !== "") {
-      globalInstructions = {
-        locator,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-      };
-      break;
-    }
-  }
-  const disabledSkills = await Promise.all(
-    (await discoverSkillFiles(join(codexHome, "skills"))).map(async (locator) => ({
-      locator,
-      sha256: createHash("sha256")
-        .update(await readFile(locator))
-        .digest("hex"),
-    })),
-  );
-  return Object.freeze({
-    globalInstructions,
-    disabledSkills: Object.freeze(disabledSkills),
-    fingerprint: digestOperatorFiles([
-      ...(globalInstructions === null ? [] : [globalInstructions]),
-      ...disabledSkills,
-    ]),
   });
 };
 

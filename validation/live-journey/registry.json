@@ -14,13 +14,7 @@
             "skill": "bearing",
             "role": "installation-under-test"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "请按照 ${INSTALL_ENTRY} 安装这里提供的 Bearing，并告诉我安装完成后下一步该做什么。"
@@ -51,13 +45,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "请把 README 里的 `small project` 改成 `minimal project`。"
@@ -82,13 +70,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "请为这个仓库配置 Bearing。先把需要我决定的方案给我看。",
@@ -114,13 +96,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "检查一下当前 Bearing 配置有没有漂移；有问题先告诉我。",
@@ -147,13 +123,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "请检查这个仓库是否需要 Bearing 更新，并先说明会改变什么。",
@@ -180,13 +150,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "帮我快速梳理这个项目现在的方向、当前 Effort 和 Gate 到哪了，以及你建议下一步优先做什么。先只分析。"
@@ -211,13 +175,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "我想给标签增加可选前缀，另外也想把示例 package 名称改清楚。帮我看看该怎么安排，先把方案给我看。",
@@ -243,13 +201,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "把现有的 Label Formatter Delivery 纳入当前 Bearing scope，先给我看你准备怎么绑定。",
@@ -275,13 +227,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "把现有的 Label Formatter Delivery 纳入当前 Bearing scope，先给我看你准备怎么绑定。",
@@ -307,13 +253,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "我在考虑把 Label Formatter Delivery 纳入当前 Bearing scope，先看看会怎么绑定。",
@@ -339,13 +279,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "确认一下 Label Formatter Delivery 是否已经纳入当前 Bearing scope。"
@@ -370,13 +304,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "请推进现有的 Decide secondary label casing decision ticket；完成后把结果同步回 Bearing。",
@@ -405,13 +333,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "上一次读取当前已绑定的 Decide secondary label casing 工作时失败了。请从可信的 resumption point 恢复 provider basis，不要执行 ticket。"
@@ -436,13 +358,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "请使用 Bearing 执行当前已绑定、标题为 Update output 的 native ticket。"
@@ -467,13 +383,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "请执行当前已绑定的 Run the failing delivery check ticket，并如实告诉我结果。"
@@ -498,13 +408,7 @@
             "skill": "bearing",
             "role": "prerequisite"
           }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        ]
       },
       "prompts": [
         "请完成当前的 Complete secondary label formatting ticket，验证后把实际结果同步到 Bearing。"
@@ -531,14 +435,7 @@
             "role": "prerequisite"
           }
         ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "github-bounded-delivery",
-        "resourceKeys": [
-          "github-validation-repository"
-        ],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        "capabilityProfile": "github-bounded-delivery"
       },
       "prompts": [
         "我想在现有 Stable Label Formatting 里增加 isReadyLabel，这次交付用 GitHub 跟踪。先把 scope 给我看。",

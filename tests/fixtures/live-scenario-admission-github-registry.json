@@ -8,12 +8,7 @@
       "composition": {
         "fixtureProfile": "active-github-repository",
         "skills": [{ "skill": "bearing", "role": "prerequisite" }],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "github-bounded-delivery",
-        "resourceKeys": ["github-validation-repository"],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
+        "capabilityProfile": "github-bounded-delivery"
       },
       "prompts": ["Prepare the bounded delivery."],
       "requiredOutcomes": ["The request stays bounded."],

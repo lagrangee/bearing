@@ -31,6 +31,7 @@ import { parseLiveMatrixGenerationBasis } from "./live-matrix-generation";
 import {
   createLiveMatrixResult,
   createLiveMatrixScenarioTerminalResult,
+  verifyLiveMatrixScenarioEvidence,
 } from "./live-matrix-results";
 import { runLiveMatrixSchedule } from "./live-matrix-scheduler";
 import { prepareLiveScenarioGenerationAdmission } from "./live-scenario-admission";
@@ -45,6 +46,7 @@ import {
 import {
   createLiveScenarioEvaluation,
   liveScenarioIdSchema,
+  liveScenarioResourceKeyForCapability,
   loadLiveScenarioRegistry,
   preflightLiveScenarioRegistry,
 } from "./live-scenario-registry";
@@ -53,6 +55,7 @@ import {
   liveScenarioCandidateDefinitionDigest,
   liveScenarioDefinitionDigest,
   liveScenarioHarnessIdentitySha256,
+  verifyLiveScenarioBehaviorBoundary,
   verifyLiveScenarioGeneration,
 } from "./live-scenario-runner";
 import { assertCanonicalPackageBoundary } from "./release-boundary";
@@ -561,47 +564,7 @@ const snapshotScenarioAgentHome = (agentHome: string): Promise<string> =>
     excludeTrees: [".codex", "skill-directory/.system"],
   });
 
-type CodexTurnManifest = Readonly<{
-  generationId: string;
-  scenario: Readonly<{
-    id: string;
-    composition: Readonly<{ fixtureProfile: string; resourceKeys: readonly string[] }>;
-  }>;
-  paths: Readonly<{
-    sourceRoot: string;
-    manifest: string;
-    manifestDigest: string;
-    registry: string;
-    operatorCodexHome: string;
-    installationEntry: string;
-    agentHome: string;
-    repository: string;
-    prompts: readonly string[];
-    sessionState: string;
-    transcripts: string;
-    observations: string;
-    remoteInventories?: string | undefined;
-  }>;
-  launch: Readonly<{
-    environment: Readonly<{
-      HOME: string;
-      CODEX_HOME: string;
-      TMPDIR: string;
-      PATH: string;
-      SHELL?: string;
-    }>;
-    initial: Readonly<{
-      program: string;
-      workingDirectory: string;
-      arguments: readonly string[];
-    }>;
-    resume: Readonly<{
-      program: string;
-      workingDirectory: string;
-      arguments: readonly string[];
-    }>;
-  }>;
-}>;
+type CodexTurnManifest = Awaited<ReturnType<typeof verifyLiveScenarioGeneration>>;
 
 const prepareCodexTurn = async (manifest: CodexTurnManifest, turn: number, promptFile: string) => {
   const sessionState = await readCodexSessionState(manifest.paths.sessionState);
@@ -838,9 +801,6 @@ const readPreparedGenerationManifests = async (
       ) {
         fail(`Prepared Scenario contradicts its Generation basis: ${scenarioId}.`);
       }
-      if (manifest.scenario.composition.resourceKeys.length > 1) {
-        fail(`Live Matrix supports at most one Resource Key: ${scenarioId}.`);
-      }
       return manifest;
     }),
   );
@@ -871,7 +831,9 @@ const readGenerationExecution = async (
 };
 
 const observedScenarioObservationPointers = async (
-  manifest: Awaited<ReturnType<typeof verifyLiveScenarioGeneration>>,
+  manifest: Readonly<{
+    paths: Readonly<{ observations: string; prompts: readonly string[] }>;
+  }>,
 ) => {
   const observed = (await readdir(manifest.paths.observations))
     .filter((name) => /^turn-\d{2}\.json$/u.test(name))
@@ -890,13 +852,21 @@ const observedScenarioObservationPointers = async (
 };
 
 const runScenarioTurn = async (input: {
-  manifestPath: string;
+  manifest: CodexTurnManifest;
   turn: number;
   promptFile: string;
 }) => {
   const turn = input.turn;
   if (!Number.isSafeInteger(turn) || turn <= 0) fail("Live Scenario turn must be positive.");
-  const manifest = await verifyLiveScenarioGeneration(resolve(input.manifestPath));
+  const manifest = input.manifest;
+  const currentManifest = await verifyLiveScenarioBehaviorBoundary(manifest.paths.manifest);
+  if (
+    currentManifest.generationId !== manifest.generationId ||
+    currentManifest.scenario.id !== manifest.scenario.id ||
+    JSON.stringify(currentManifest.launch) !== JSON.stringify(manifest.launch)
+  ) {
+    fail("Live Scenario manifest changed before its next Turn.");
+  }
   const expectedPrompt = manifest.paths.prompts[turn - 1];
   if (expectedPrompt === undefined || resolve(input.promptFile) !== expectedPrompt) {
     fail("Live Scenario turn requires its generated natural-language prompt.");
@@ -1029,12 +999,15 @@ const runGeneration = async (): Promise<void> => {
   }
   let generationFault: Readonly<{ scenarioId: string; reason: unknown }> | undefined;
   const scheduled = await runLiveMatrixSchedule(
-    manifests.map((manifest) => ({
-      task: manifest,
-      ...(manifest.scenario.composition.resourceKeys[0] === undefined
-        ? {}
-        : { resourceKey: manifest.scenario.composition.resourceKeys[0] }),
-    })),
+    manifests.map((manifest) => {
+      const resourceKey = liveScenarioResourceKeyForCapability(
+        manifest.scenario.composition.capabilityProfile,
+      );
+      return {
+        task: manifest,
+        ...(resourceKey === undefined ? {} : { resourceKey }),
+      };
+    }),
     async (manifest) => {
       if (generationFault !== undefined) {
         throw new Error(
@@ -1044,7 +1017,7 @@ const runGeneration = async (): Promise<void> => {
       try {
         for (const [index, promptFile] of manifest.paths.prompts.entries()) {
           await runScenarioTurn({
-            manifestPath: manifest.paths.manifest,
+            manifest,
             turn: index + 1,
             promptFile,
           });
@@ -1091,8 +1064,11 @@ const runGeneration = async (): Promise<void> => {
 
 const evaluateScenario = async (): Promise<void> => {
   const generation = await readGenerationBasis(required("generation"));
+  const evidenceRoot = dirname(generation.workspaceRoot);
   const execution = await readGenerationExecution(generation);
-  const manifest = await verifyLiveScenarioGeneration(resolve(required("manifest")));
+  const manifest = await verifyLiveScenarioBehaviorBoundary(resolve(required("manifest")), {
+    behaviorCompleted: true,
+  });
   const output = resolve(required("output"));
   await ensureMissing(output);
   const readback = generation.basis.preparedScenarios.find(
@@ -1223,7 +1199,10 @@ const evaluateScenario = async (): Promise<void> => {
     evidence: await Promise.all(
       pointers.map(async (pointer) => ({
         evidenceClass: "observation" as const,
-        pointer,
+        pointer: relative(evidenceRoot, join(manifest.paths.workspaceRoot, pointer)).replaceAll(
+          "\\",
+          "/",
+        ),
         sha256: await sha256File(join(manifest.paths.workspaceRoot, pointer)),
       })),
     ),
@@ -1243,6 +1222,15 @@ const evaluateScenario = async (): Promise<void> => {
     Promise.resolve(resolve(manifest.paths.sessionState)),
   ]);
   const durableOutput = join(outputParent, basename(output));
+  const outputRelation = relative(evidenceRoot, durableOutput);
+  if (
+    outputRelation === "" ||
+    outputRelation === ".." ||
+    outputRelation.startsWith(`..${sep}`) ||
+    isAbsolute(outputRelation)
+  ) {
+    fail("Bounded Scenario result must stay inside its Matrix evidence root.");
+  }
   const outputInCleanupDirectory = cleanupDirectories.some((directory) => {
     const relation = relative(directory, durableOutput);
     return (
@@ -1303,7 +1291,7 @@ const completeMatrix = async (): Promise<void> => {
     fail("Matrix completion requires the tracked source registry.");
   }
   const registry = await loadLiveScenarioRegistry(trackedRegistryPath);
-  const resultsRoot = resolve(required("results"));
+  const resultsRoot = await realpath(resolve(required("results")));
   const expectedNames = registry.scenarios.map(({ id }) => `${id}.json`);
   const observedNames = (await readdir(resultsRoot))
     .filter((name) => name.endsWith(".json"))
@@ -1314,12 +1302,19 @@ const completeMatrix = async (): Promise<void> => {
   ) {
     fail("Matrix result directory requires one exact JSON result per registered Scenario.");
   }
-  const outputRoot = dirname(output);
+  const outputRoot = await realpath(dirname(output));
+  if (outputRoot !== dirname(generation.workspaceRoot)) {
+    fail("Matrix result must be written at its Generation evidence root.");
+  }
   const scenarioResults = await Promise.all(
     expectedNames.map(async (name) => {
       const path = join(resultsRoot, name);
+      const result = await verifyLiveMatrixScenarioEvidence(
+        outputRoot,
+        JSON.parse(await readFile(path, "utf8")),
+      );
       return {
-        result: JSON.parse(await readFile(path, "utf8")),
+        result,
         reference: {
           pointer: relative(outputRoot, path).replaceAll("\\", "/"),
           sha256: await sha256File(path),

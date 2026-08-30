@@ -17,7 +17,6 @@ import { z } from "zod";
 import {
   assertIsolatedCodexHomeControlLinks,
   codexE2ELaunchContract,
-  inspectCodexE2EOperatorContext,
   inspectCodexE2EToolchain,
   prepareIsolatedCodexHome,
   probeCodexE2EPermissionProfile,
@@ -244,8 +243,8 @@ const manifestSchema = z.object({
   scenario: z.object({ id: z.string().min(1), name: z.string().min(1) }).passthrough(),
   package: liveScenarioPackageSchema,
   matrixDefinitionSha256: z.string().regex(/^[0-9a-f]{64}$/u),
-  operatorContextFingerprint: z.string().regex(/^[0-9a-f]{64}$/u),
   startingStateSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  installationGuideSha256: z.string().regex(/^[0-9a-f]{64}$/u),
   installedSkillSha256: z
     .string()
     .regex(/^[0-9a-f]{64}$/u)
@@ -335,6 +334,124 @@ const manifestSchema = z.object({
     })
     .optional(),
 });
+
+export type LiveScenarioGenerationManifest = z.infer<typeof manifestSchema>;
+
+export const readLiveScenarioGenerationManifest = async (path: string) => {
+  const manifestPath = resolve(path);
+  const bytes = await readFile(manifestPath, "utf8");
+  if ((await readFile(`${manifestPath}.sha256`, "utf8")).trim() !== sha256(bytes)) {
+    fail("Live Scenario manifest digest mismatch.");
+  }
+  const manifest = manifestSchema.parse(JSON.parse(bytes));
+  if (
+    manifest.paths.manifest !== manifestPath ||
+    manifest.paths.manifestDigest !== `${manifestPath}.sha256` ||
+    manifest.paths.workspaceRoot !== dirname(manifestPath)
+  ) {
+    fail("Live Scenario manifest locator mismatch.");
+  }
+  const registry = await loadLiveScenarioRegistry(manifest.paths.registry);
+  const scenario =
+    registry.scenarios.find(({ id }) => id === manifest.scenario.id) ??
+    fail(`Live Scenario is no longer registered: ${manifest.scenario.id}.`);
+  if (JSON.stringify(scenario) !== JSON.stringify(manifest.scenario)) {
+    fail("Live Scenario definition changed after preparation.");
+  }
+  return Object.freeze({ ...manifest, scenario });
+};
+
+type LiveScenarioGenerationManifestReadback = Awaited<
+  ReturnType<typeof readLiveScenarioGenerationManifest>
+>;
+
+const verifyLiveScenarioAgentInputs = async (
+  parsed: LiveScenarioGenerationManifestReadback,
+  options: Readonly<{ behaviorCompleted?: boolean }> = {},
+) => {
+  if ((await sha256File(parsed.paths.installationArtifact)) !== parsed.package.artifact.sha256) {
+    fail("Live Scenario installation package copy changed after preparation.");
+  }
+  if (
+    (await sha256File(parsed.paths.installationGuide)) !== parsed.installationGuideSha256 ||
+    (await readFile(parsed.paths.installationEntry, "utf8")) !==
+      installationEntry({
+        packageName: parsed.package.packageName,
+        packageVersion: parsed.package.packageVersion,
+        artifactPath: parsed.paths.installationArtifact,
+        artifactSha256: parsed.package.artifact.sha256,
+        installationGuide: parsed.paths.installationGuide,
+      })
+  ) {
+    fail("Live Scenario installation guidance changed after preparation.");
+  }
+  const observationNames = await readdir(parsed.paths.observations);
+  if (parsed.installedSkillSha256 !== null) {
+    const currentSkillSha256 = await digestLiveScenarioFixture(
+      join(parsed.paths.agentHome, "skill-directory/bearing"),
+    );
+    const acceptedSkillDigests =
+      (observationNames.length > 0 || options.behaviorCompleted === true) &&
+      parsed.fixtureIdentity.olderGlobalKit !== undefined
+        ? [parsed.installedSkillSha256, parsed.fixtureIdentity.olderGlobalKit.targetSkillSha256]
+        : [parsed.installedSkillSha256];
+    if (!acceptedSkillDigests.includes(currentSkillSha256)) {
+      fail("Preinstalled Bearing Skill changed outside the recorded Scenario transition.");
+    }
+  }
+  await assertIsolatedCodexHomeControlLinks(parsed.paths.agentHome);
+  const expectedPrompts = parsed.scenario.prompts.map((prompt) =>
+    prompt.replaceAll(installationEntryToken, parsed.paths.installationEntry),
+  );
+  if (parsed.paths.prompts.length !== expectedPrompts.length) {
+    fail("Live Scenario prompt set changed before Agent behavior.");
+  }
+  for (const [index, promptPath] of parsed.paths.prompts.entries()) {
+    if ((await readFile(promptPath, "utf8")) !== `${expectedPrompts[index]}\n`) {
+      fail("Live Scenario prompt changed before Agent behavior.");
+    }
+  }
+  const scenarioContainer = await realpath(dirname(parsed.paths.workspaceRoot));
+  const storedLaunch = codexE2ELaunchContract({
+    repositoryRoot: parsed.paths.repository,
+    isolatedHome: parsed.paths.agentHome,
+    codexHome: parsed.launch.environment.CODEX_HOME,
+    runtimeTempDirectory: parsed.paths.runtimeTempDirectory,
+    toolchain: parsed.toolchain,
+    disabledOperatorSkillPaths: [],
+    ...(parsed.paths.boundedNpmControlRoot === undefined
+      ? {}
+      : { boundedNpmControlRoot: parsed.paths.boundedNpmControlRoot }),
+    readDeniedPaths: [
+      parsed.paths.sourceRoot,
+      parsed.paths.registry,
+      parsed.paths.operatorCodexHome,
+      scenarioContainer,
+    ],
+    writeAllowedPaths:
+      parsed.scenario.composition.fixtureProfile === "fresh-installation-repository"
+        ? [join(parsed.paths.agentHome, ".agents/skills")]
+        : [],
+    program: parsed.launch.initial.program,
+    skipGitRepositoryCheck: parsed.scenario.composition.fixtureProfile === "non-project-directory",
+    ...(parsed.fixtureIdentity.runtime === undefined
+      ? {}
+      : { shellProgram: parsed.fixtureIdentity.runtime.shell.program }),
+  });
+  if (JSON.stringify(storedLaunch) !== JSON.stringify(parsed.launch)) {
+    fail("Live Scenario Codex launch changed before Agent behavior.");
+  }
+  return Object.freeze({ launch: storedLaunch, observationNames: Object.freeze(observationNames) });
+};
+
+export const verifyLiveScenarioBehaviorBoundary = async (
+  path: string,
+  options: Readonly<{ behaviorCompleted?: boolean }> = {},
+) => {
+  const parsed = await readLiveScenarioGenerationManifest(path);
+  const verified = await verifyLiveScenarioAgentInputs(parsed, options);
+  return Object.freeze({ ...parsed, launch: verified.launch });
+};
 
 const ensureIndependentNewWorkspace = async (
   sourceRoot: string,
@@ -748,6 +865,10 @@ export const prepareLiveScenarioGeneration = async (input: {
     const installationArtifact = join(installationSource, matrixPackage.artifact.file);
     const installationGuide = join(installationSource, "agent-installation.md");
     const installationEntryPath = join(installationSource, "README.local.md");
+    const installationGuideBytes = await packageFile(
+      matrixPackage.artifact.path,
+      "package/docs/agent-installation.md",
+    );
     const sessionState = join(workspaceRoot, "codex-session.json");
     await Promise.all([
       mkdir(runtimeTempDirectory, { mode: 0o700 }),
@@ -764,17 +885,12 @@ export const prepareLiveScenarioGeneration = async (input: {
     if (scenario.composition.fixtureProfile === "fresh-installation-repository") {
       await mkdir(join(agentHome, ".agents/skills"), { recursive: true });
     }
-    const operatorContext = await inspectCodexE2EOperatorContext(agentCodexHome);
     await Promise.all([
       writeFile(installationArtifact, await readFile(matrixPackage.artifact.path), {
         flag: "wx",
         mode: 0o600,
       }),
-      writeFile(
-        installationGuide,
-        await packageFile(matrixPackage.artifact.path, "package/docs/agent-installation.md"),
-        { flag: "wx" },
-      ),
+      writeFile(installationGuide, installationGuideBytes, { flag: "wx" }),
       writeFile(
         installationEntryPath,
         installationEntry({
@@ -1005,7 +1121,7 @@ export const prepareLiveScenarioGeneration = async (input: {
       codexHome: agentCodexHome,
       runtimeTempDirectory,
       toolchain,
-      disabledOperatorSkillPaths: operatorContext.disabledSkills.map(({ locator }) => locator),
+      disabledOperatorSkillPaths: [],
       ...(boundedNpmControlRoot === undefined ? {} : { boundedNpmControlRoot }),
       readDeniedPaths,
       writeAllowedPaths,
@@ -1021,8 +1137,8 @@ export const prepareLiveScenarioGeneration = async (input: {
       scenario,
       package: matrixPackage,
       matrixDefinitionSha256,
-      operatorContextFingerprint: operatorContext.fingerprint,
       startingStateSha256: await digestLiveScenarioFixture(repository),
+      installationGuideSha256: sha256(installationGuideBytes),
       installedSkillSha256,
       fixtureIdentity: Object.freeze({
         ...(fixtureRuntime === undefined ? {} : { runtime: fixtureRuntime }),
@@ -1098,23 +1214,8 @@ export const verifyLiveScenarioGeneration = async (
   path: string,
   options: Readonly<{ behaviorCompleted?: boolean }> = {},
 ) => {
-  const manifestPath = resolve(path);
-  const bytes = await readFile(manifestPath, "utf8");
-  if ((await readFile(`${manifestPath}.sha256`, "utf8")).trim() !== sha256(bytes)) {
-    fail("Live Scenario manifest digest mismatch.");
-  }
-  const parsed = manifestSchema.parse(JSON.parse(bytes));
-  if (
-    parsed.paths.manifest !== manifestPath ||
-    parsed.paths.manifestDigest !== `${manifestPath}.sha256` ||
-    parsed.paths.workspaceRoot !== dirname(manifestPath)
-  ) {
-    fail("Live Scenario manifest locator mismatch.");
-  }
-  const registry = await loadLiveScenarioRegistry(parsed.paths.registry);
-  const scenario =
-    registry.scenarios.find(({ id }) => id === parsed.scenario.id) ??
-    fail(`Live Scenario is no longer registered: ${parsed.scenario.id}.`);
+  const parsed = await readLiveScenarioGenerationManifest(path);
+  const scenario = parsed.scenario;
   const runtimeContainer = await realpath(dirname(parsed.paths.runtimeRoot));
   const temporaryRoot = await realpath(dirname(runtimeContainer));
   const expectedRuntimeContainer = liveScenarioRuntimeContainer(temporaryRoot);
@@ -1124,7 +1225,6 @@ export const verifyLiveScenarioGeneration = async (
     scenario.id,
     parsed.paths.workspaceRoot,
   );
-  const scenarioContainer = await realpath(dirname(parsed.paths.workspaceRoot));
   if (
     parsed.paths.operatorCodexHome !== (await realpath(parsed.paths.operatorCodexHome)) ||
     runtimeContainer !== expectedRuntimeContainer ||
@@ -1142,9 +1242,6 @@ export const verifyLiveScenarioGeneration = async (
     fail("Live Scenario runtime locator does not match its opaque Generation identity.");
   }
   await verifyCodexE2EToolchain(parsed.toolchain);
-  if (JSON.stringify(scenario) !== JSON.stringify(parsed.scenario)) {
-    fail("Live Scenario definition changed after preparation.");
-  }
   const expectsInstallationRuntime =
     scenario.composition.fixtureProfile === "fresh-installation-repository";
   const expectsOlderGlobalKit =
@@ -1203,27 +1300,12 @@ export const verifyLiveScenarioGeneration = async (
   if ((await sha256File(parsed.package.artifact.path)) !== parsed.package.artifact.sha256) {
     fail("Live Scenario package changed after preparation.");
   }
-  if ((await sha256File(parsed.paths.installationArtifact)) !== parsed.package.artifact.sha256) {
-    fail("Live Scenario installation package copy changed after preparation.");
-  }
-  if (
-    !(await readFile(parsed.paths.installationGuide)).equals(
-      await packageFile(parsed.package.artifact.path, "package/docs/agent-installation.md"),
-    ) ||
-    (await readFile(parsed.paths.installationEntry, "utf8")) !==
-      installationEntry({
-        packageName: parsed.package.packageName,
-        packageVersion: parsed.package.packageVersion,
-        artifactPath: parsed.paths.installationArtifact,
-        artifactSha256: parsed.package.artifact.sha256,
-        installationGuide: parsed.paths.installationGuide,
-      })
-  ) {
-    fail("Live Scenario installation guidance changed after preparation.");
-  }
   await assertLiveScenarioArtifactPackageIdentity(parsed.package);
   await assertLiveScenarioSourceCurrent(parsed.paths.sourceRoot, parsed.package);
-  const observationNames = await readdir(parsed.paths.observations);
+  const { launch: storedLaunch, observationNames } = await verifyLiveScenarioAgentInputs(
+    parsed,
+    options,
+  );
   if (observationNames.length === 0 && options.behaviorCompleted !== true) {
     const currentFixtureSha256 = await digestLiveScenarioFixture(parsed.paths.repository);
     if (currentFixtureSha256 !== parsed.startingStateSha256) {
@@ -1236,57 +1318,6 @@ export const verifyLiveScenarioGeneration = async (
     ) {
       fail("G1 older Global Kit changed before Agent behavior.");
     }
-  }
-  if (parsed.installedSkillSha256 !== null) {
-    const currentSkillSha256 = await digestLiveScenarioFixture(
-      join(parsed.paths.agentHome, "skill-directory/bearing"),
-    );
-    const acceptedSkillDigests =
-      (observationNames.length > 0 || options.behaviorCompleted === true) &&
-      parsed.fixtureIdentity.olderGlobalKit !== undefined
-        ? [parsed.installedSkillSha256, parsed.fixtureIdentity.olderGlobalKit.targetSkillSha256]
-        : [parsed.installedSkillSha256];
-    if (!acceptedSkillDigests.includes(currentSkillSha256)) {
-      fail("Preinstalled Bearing Skill changed outside the recorded Scenario transition.");
-    }
-  }
-  await assertIsolatedCodexHomeControlLinks(parsed.paths.agentHome);
-  const expectedPrompts = scenario.prompts.map((prompt) =>
-    prompt.replaceAll(installationEntryToken, parsed.paths.installationEntry),
-  );
-  for (const [index, promptPath] of parsed.paths.prompts.entries()) {
-    if ((await readFile(promptPath, "utf8")) !== `${expectedPrompts[index]}\n`) {
-      fail("Live Scenario prompt changed before Agent behavior.");
-    }
-  }
-  const storedLaunch = codexE2ELaunchContract({
-    repositoryRoot: parsed.paths.repository,
-    isolatedHome: parsed.paths.agentHome,
-    codexHome: parsed.launch.environment.CODEX_HOME,
-    runtimeTempDirectory: parsed.paths.runtimeTempDirectory,
-    toolchain: parsed.toolchain,
-    disabledOperatorSkillPaths: [],
-    ...(parsed.paths.boundedNpmControlRoot === undefined
-      ? {}
-      : { boundedNpmControlRoot: parsed.paths.boundedNpmControlRoot }),
-    readDeniedPaths: [
-      parsed.paths.sourceRoot,
-      parsed.paths.registry,
-      parsed.paths.operatorCodexHome,
-      scenarioContainer,
-    ],
-    writeAllowedPaths:
-      scenario.composition.fixtureProfile === "fresh-installation-repository"
-        ? [join(parsed.paths.agentHome, ".agents/skills")]
-        : [],
-    program: parsed.launch.initial.program,
-    skipGitRepositoryCheck: scenario.composition.fixtureProfile === "non-project-directory",
-    ...(parsed.fixtureIdentity.runtime === undefined
-      ? {}
-      : { shellProgram: parsed.fixtureIdentity.runtime.shell.program }),
-  });
-  if (JSON.stringify(storedLaunch) !== JSON.stringify(parsed.launch)) {
-    fail("Live Scenario Codex launch changed before Agent behavior.");
   }
   if (parsed.github !== undefined) {
     const expectedScopeKey = deriveLiveScenarioGitHubScopeKey({

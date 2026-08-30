@@ -9,6 +9,7 @@ import {
 import {
   createLiveScenarioEvaluation,
   digestLiveScenarioFixture,
+  liveScenarioResourceKeyForCapability,
   loadLiveScenarioRegistry,
   materializeLiveScenarioFixture,
   parseLiveScenarioEvaluation,
@@ -27,15 +28,30 @@ describe("independent Agent Live scenarios", () => {
     expect(new Set(scenarioIds).size).toBe(scenarioIds.length);
     expect(
       registry.scenarios.every(
-        ({ prompts, requiredOutcomes, forbiddenOutcomes, composition }) =>
-          prompts.length > 0 &&
-          requiredOutcomes.length > 0 &&
-          forbiddenOutcomes.length > 0 &&
-          composition.model === "gpt-5.6-luna" &&
-          composition.reasoningEffort === "high" &&
-          composition.resourceKeys.length <= 1,
+        ({ prompts, requiredOutcomes, forbiddenOutcomes }) =>
+          prompts.length > 0 && requiredOutcomes.length > 0 && forbiddenOutcomes.length > 0,
       ),
     ).toBe(true);
+    expect(
+      registry.scenarios.filter(({ composition }) => composition.capabilityProfile !== undefined),
+    ).toEqual([
+      expect.objectContaining({
+        id: "DELIVERY-02",
+        composition: expect.objectContaining({
+          capabilityProfile: "github-bounded-delivery",
+        }),
+      }),
+    ]);
+    expect(
+      registry.scenarios.map(({ composition }) =>
+        liveScenarioResourceKeyForCapability(composition.capabilityProfile),
+      ),
+    ).toEqual(
+      registry.scenarios.map(({ id }) =>
+        id === "DELIVERY-02" ? "github-validation-repository" : undefined,
+      ),
+    );
+    expect(liveScenarioResourceKeyForCapability("bounded-local-npm-update")).toBeUndefined();
 
     await expect(
       preflightLiveScenarioRegistry({ sourceRoot, registryPath }),

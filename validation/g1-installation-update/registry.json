@@ -7,7 +7,7 @@
       "fixture": {
         "source": "validation/live-journey/fixtures/local-loop"
       },
-      "composition": { "fixtureProfile": "fresh-installation-repository", "skills": [{ "skill": "bearing", "role": "installation-under-test" }], "agentSurfaceProfile": "codex", "capabilityProfile": "none", "resourceKeys": [], "model": "gpt-5.6-luna", "reasoningEffort": "high", "timeProfile": "standard" },
+      "composition": { "fixtureProfile": "fresh-installation-repository", "skills": [{ "skill": "bearing", "role": "installation-under-test" }] },
       "prompts": [
         "请按照 ${INSTALL_ENTRY} 安装这里提供的 exact Bearing package，并将它接入当前已有的 Agent Skills 目录。安装后说明 Global Kit、Agent Surface Integration 与 bare CLI 各自的状态；不要配置当前 repository，也不要启动 Portal。",
         "我希望以后能直接输入 bare `bearing`。请检查这个隔离环境实际使用的 zsh startup profile，展示 exact file 和 exact delta，但在我确认前不要写。",
@@ -30,7 +30,7 @@
       "fixture": {
         "source": "validation/live-journey/fixtures/safety-lifecycle"
       },
-      "composition": { "fixtureProfile": "older-kit-active-stable-repository", "skills": [{ "skill": "bearing", "role": "prerequisite" }], "agentSurfaceProfile": "codex", "capabilityProfile": "bounded-local-npm-update", "resourceKeys": [], "model": "gpt-5.6-luna", "reasoningEffort": "high", "timeProfile": "standard" },
+      "composition": { "fixtureProfile": "older-kit-active-stable-repository", "skills": [{ "skill": "bearing", "role": "prerequisite" }], "capabilityProfile": "bounded-local-npm-update" },
       "prompts": [
         "请检查并更新这个隔离环境中的 Bearing Global Kit；exact target package 的本地入口是 ${INSTALL_ENTRY}。然后继续我最初的请求：检查当前仓库的 Bearing 配置是否可正常使用。任何 Global Kit 或 repository 写入都分别先展示影响并等我确认。",
         "同意刚才的 Global Kit 更新。完成后继续重试我的原请求；若 repository 还需要独立更新，请只展示完整、友好的候选，等我另行确认。",

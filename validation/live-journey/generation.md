@@ -122,8 +122,9 @@ bun scripts/run-live-journey.ts run-generation \
 
 The runner starts independent Scenarios with rolling concurrency four and starts
 the next eligible registry entry whenever one reaches a terminal boundary. A
-Scenario may declare at most one Resource Key; Scenarios with the same key run
-serially. Turns already declared for one Scenario continue sequentially in that
+Scenario capability may imply at most one scheduler Resource Key; Scenarios whose
+capabilities imply the same key run serially. The registry does not repeat scheduler
+keys. Turns already declared for one Scenario continue sequentially in that
 Scenario's one fresh conversation; this is part of its single execution
 opportunity, not a retry.
 
@@ -218,6 +219,11 @@ The only durable evidence topology is:
 1. `generation/generation.json`;
 2. `results/<SCENARIO-ID>.json` once per registry entry; and
 3. `matrix-result.json`, which references the Generation basis and every Scenario result.
+
+Each Scenario result also cites its retained observation files beneath
+`generation/scenarios/<SCENARIO-ID>/observations/`. `complete-matrix` and later
+Matrix/release verification resolve and hash-check every cited file. These files are
+leaf evidence, not an additional result layer.
 
 A complete valid ledger contains only `pass`, `fail`, and `blocked`. A missing
 result or missing completed-only `execution.json` prevents evaluation and

@@ -404,6 +404,12 @@ export const createLiveMatrixResult = (input: {
   if (references.some(({ result }) => result.generationId !== generationBasis.generationId)) {
     fail("Live Matrix Scenario result identity contradicts its Generation basis.");
   }
+  const observationPointers = references.flatMap(({ result }) =>
+    result.evidence.map(({ pointer }) => pointer),
+  );
+  if (new Set(observationPointers).size !== observationPointers.length) {
+    fail("Live Matrix Scenario observation pointers must be globally unique.");
+  }
   const ordered = requiredScenarioIds.map((scenarioId) => {
     const observed =
       references.find(({ result }) => result.scenarioId === scenarioId) ??
@@ -468,6 +474,23 @@ const readDurableReference = async (
   return Object.freeze({ bytes, path });
 };
 
+export const verifyLiveMatrixScenarioEvidence = async (
+  outputRoot: string,
+  input: unknown,
+): Promise<LiveMatrixScenarioTerminalResult> => {
+  const result = parseLiveMatrixScenarioTerminalResult(input);
+  await Promise.all(
+    result.evidence.map((reference) =>
+      readDurableReference(
+        outputRoot,
+        reference,
+        `Live Matrix Scenario observation ${result.scenarioId}/${reference.pointer}`,
+      ),
+    ),
+  );
+  return result;
+};
+
 export const verifyLiveMatrixResult = async (
   path: string,
   requiredScenarioIds: readonly string[],
@@ -502,7 +525,8 @@ export const verifyLiveMatrixResult = async (
         scenario.result,
         `Live Matrix Scenario result ${scenario.scenarioId}`,
       );
-      const result = parseLiveMatrixScenarioTerminalResult(
+      const result = await verifyLiveMatrixScenarioEvidence(
+        outputRoot,
         JSON.parse(resultBytes.bytes.toString("utf8")),
       );
       if (result.scenarioId !== scenario.scenarioId) {
