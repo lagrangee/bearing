@@ -11,6 +11,7 @@ import {
   digestLiveScenarioFixture,
   loadLiveScenarioRegistry,
   materializeLiveScenarioFixture,
+  parseLiveScenarioEvaluation,
   preflightLiveScenarioRegistry,
 } from "../scripts/live-scenario-registry";
 
@@ -48,7 +49,7 @@ describe("independent Agent Live scenarios", () => {
       [
         process.execPath,
         "scripts/run-live-journey.ts",
-        "preflight-matrix",
+        "check-matrix-definition",
         "--source-root",
         sourceRoot,
         "--registry",
@@ -152,7 +153,8 @@ describe("independent Agent Live scenarios", () => {
     const help = result.stdout.toString();
 
     expect(result.exitCode, result.stderr.toString()).toBe(0);
-    expect(help).toContain("preflight-matrix");
+    expect(help).toContain("check-matrix-definition");
+    expect(help).not.toContain("preflight-matrix");
     expect(help).toContain("prepare-generation");
     expect(help).toContain("run-generation");
     expect(help).toContain("evaluate-scenario");
@@ -200,6 +202,7 @@ describe("independent Agent Live scenarios", () => {
       outcome: "pass",
       semanticEvaluationAuthority: "coordinating-agent",
     });
+    expect(() => parseLiveScenarioEvaluation({ ...result, outcome: "not-run" })).toThrow();
 
     expect(() =>
       createLiveScenarioEvaluation({

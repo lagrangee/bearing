@@ -8,25 +8,31 @@ behavior, broker allowlists, sandbox rules, and result schemas.
 The Live Matrix is a release aid. It is not a workflow engine and must not become
 a blocker that costs more than the feedback it provides.
 
-## 1. Preflight the Matrix
+## 1. Check the Matrix definition
 
-Run the deterministic Fixture preflight before packaging:
+Run the deterministic definition check when the tracked Matrix or Fixture
+definition changes:
 
 ```text
-bun scripts/run-live-journey.ts preflight-matrix \
+bun scripts/run-live-journey.ts check-matrix-definition \
   --source-root <current-checkout> \
   --registry validation/live-journey/registry.json
 ```
 
 Static Fixture materialization is reusable until a tracked Scenario or Fixture
-definition changes. Every Generation still performs fresh, low-cost readbacks of
-the exact package, registry, Fixture, required Skills, model and reasoning effort,
-permission boundary, and the GitHub starting state when that Scenario is selected.
-Preflight failure is `preflight blocked`; no Agent behavior starts.
+definition changes. This check starts no Agent, creates no Generation or result,
+and is not a second execution surface. Every actual execution still starts with
+`prepare-generation`, whose fresh, low-cost preflight reads back the exact package,
+registry, Fixture, required Skills, model and reasoning effort, permission boundary,
+and the GitHub starting state when that Scenario is selected. A failed definition
+check is a developer validation failure. A fresh Generation preflight failure is
+`preflight blocked`; neither starts Agent behavior.
 
 The Coordinator reviews each natural request against its Fixture and required and
-forbidden user-visible outcomes. Criteria must not prescribe commands, paths,
-confirmation counts, or hidden implementation choices.
+forbidden user-visible outcomes. A request or Fixture work item may name its real
+task target, such as a README or public function. Criteria must not inject
+Coordinator-only answers, expected commands, confirmation counts, or hidden
+implementation choices.
 
 ## 2. Freeze one package and definition
 
@@ -108,19 +114,25 @@ serially. Turns already declared for one Scenario continue sequentially in that
 Scenario's one fresh conversation; this is part of its single execution
 opportunity, not a retry.
 
-The command writes `<evidence-root>/generation/execution.json`. This small
-Coordinator-internal handoff contains only the Generation ID, observed peak
-concurrency, and each Scenario's `completed` or `invalid` execution state. It is
-not a semantic verdict, is not cited by the Matrix result, and is not a fourth
-durable or release-evidence level. `complete-matrix` consumes and removes it after
-the final Matrix result is written.
+Only a successful `run-generation` writes
+`<evidence-root>/generation/execution.json`. This small Coordinator-internal
+handoff contains only the Generation ID, actual peak concurrency, and each
+Scenario's `completed` execution state. It is not a semantic verdict, is not cited
+by the Matrix result, and is not a fourth durable or release-evidence level.
+`complete-matrix` consumes and removes it after the final Matrix result is written.
+A Harness, runner, isolation, or effect uncertainty rejects `run-generation` as a
+whole and writes no handoff. Without that handoff, neither `evaluate-scenario` nor
+`complete-matrix` can proceed; discard the Generation and use a fresh Generation
+after diagnosis.
 
 Each Scenario has one execution opportunity in a Generation. Do not automatically
 retry, resume a failed or partial execution, reattach, restore a checkpoint, rerun
-a turn, or resample a semantic failure. A model, credential, network, runner,
-broker, sandbox, or Agent crash is a truthful terminal observation for that
-Generation. Continue other independent Scenarios when their identities remain
-valid. There is no execution timeout; long duration is recorded for later analysis.
+a turn, or resample a semantic failure. A known Scenario inability that preserves
+the verified isolation and effect boundaries can receive a truthful `blocked`
+verdict. If the Harness cannot prove identity, isolation, or effects after a runner,
+broker, sandbox, or Agent fault, `run-generation` rejects the whole Generation and
+writes no `execution.json`. There is no execution timeout; long duration is
+recorded for later analysis.
 
 Do not repair product, Skill, Fixture, prompt, registry, or Harness behavior inside
 the Generation. Collect the complete failure set first. Classify and repair it
@@ -130,11 +142,12 @@ a fresh Generation for the next observation.
 ## 5. Evaluate complete observations
 
 The Coordinator is the only semantic pass authority. Judge the complete
-conversation, tool activity, typed outcomes, before-and-after state, and provider
-observations. Accept any safe path that satisfies the user-visible contract.
+conversation, tool activity, typed outcomes, and the before-and-after state reached
+through the bounded observation pointers. Accept any safe path that satisfies the
+user-visible contract.
 
-After `run-generation`, author one Coordinator verdict input for every registry
-entry and evaluate each generated manifest exactly once:
+After a successful `run-generation`, author one Coordinator verdict input for
+every registry entry and evaluate each generated manifest exactly once:
 
 ```text
 bun scripts/run-live-journey.ts evaluate-scenario \
@@ -147,16 +160,22 @@ bun scripts/run-live-journey.ts evaluate-scenario \
 Every registered Scenario gets exactly one terminal result containing:
 
 - `scenarioId` and `generationId`;
-- `pass`, `fail`, `blocked`, or `invalid`, plus a short Coordinator rationale;
+- `pass`, `fail`, or `blocked`, plus a short Coordinator rationale;
 - bounded observation pointers and digests; and
-- per-turn and whole-Scenario timestamps and durations.
+- Turn and whole-Scenario start and end timestamps, with durations derived from
+  those timestamp pairs.
 
 The starting-state identity remains in the Generation preparation readback; the
-Scenario result does not repeat it.
+Scenario result does not repeat it or copy independent before-state and after-state
+evidence classes. The referenced observations carry the state inspected by the
+Coordinator.
 
 For `DELIVERY-02`, also verify the exact authorized remote delta and clean remote
-commit. Deterministic support may reject an identity mismatch, missing result,
-forbidden state, or contradiction. It cannot manufacture a semantic pass.
+commit. Score its GitHub Direct Execution consent, scope, delivery, and
+reconciliation only; `DELIVERY-01` already owns Implement/TDD/Code Review
+composition, so do not score that composition again. Deterministic support may
+reject an identity mismatch, missing result, forbidden state, or contradiction. It
+cannot manufacture a semantic pass.
 
 Private transcripts, credentials, session identifiers, and unrelated
 machine-private paths are not durable evidence.
@@ -187,12 +206,19 @@ The only durable evidence topology is:
 2. `results/<SCENARIO-ID>.json` once per registry entry; and
 3. `matrix-result.json`, which references the Generation basis and every Scenario result.
 
+A complete valid ledger contains only `pass`, `fail`, and `blocked`. A missing
+result or missing completed-only `execution.json` prevents evaluation and
+`complete-matrix`; a rejected Generation does not become a `not-run` or `invalid`
+Matrix entry.
+
 The Matrix passes only when every required Scenario passes. A rehearsal always
 records `releasePrerequisiteSatisfied: false`; only an all-pass exact Candidate
 result can record `true`. Neither result concludes an Effort, publishes a
 release, or passes a Milestone Gate.
 
-Record total duration, per-Scenario and per-turn duration, and peak concurrency.
+Record Generation, Scenario, and Turn start and end timestamps plus actual peak
+concurrency. Derive durations from timestamp pairs; do not add separate Preparation,
+Queue, evaluation, or publication timing phases.
 Highlight observations over ten minutes for later analysis. These numbers are
 optimization signals, not timeout fuses or reasons to keep repairing and rerunning
 the same Generation.

@@ -44,6 +44,7 @@ import {
 } from "./live-scenario-evidence";
 import {
   createLiveScenarioEvaluation,
+  liveScenarioIdSchema,
   loadLiveScenarioRegistry,
   preflightLiveScenarioRegistry,
 } from "./live-scenario-registry";
@@ -69,7 +70,7 @@ const usage = `Usage:
   bun scripts/run-live-journey.ts configure-github-repository \\
     --source-root <absolute-path> --github-repository <owner/name> [--github-program <path>]
 
-  bun scripts/run-live-journey.ts preflight-matrix \\
+  bun scripts/run-live-journey.ts check-matrix-definition \\
     --source-root <absolute-path> --registry <checkout-relative-path>
 
   bun scripts/run-live-journey.ts prepare-generation \\
@@ -783,19 +784,10 @@ const executionSummarySchema = z
     scenarios: z.array(
       z
         .object({
-          scenarioId: z.string().regex(/^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d{2}$/u),
-          state: z.enum(["completed", "invalid"]),
-          diagnostic: z.string().trim().min(1).max(800).optional(),
+          scenarioId: liveScenarioIdSchema,
+          state: z.literal("completed"),
         })
-        .strict()
-        .superRefine((scenario, context) => {
-          if ((scenario.state === "invalid") !== (scenario.diagnostic !== undefined)) {
-            context.addIssue({
-              code: "custom",
-              message: "Only an invalid Scenario execution requires one diagnostic.",
-            });
-          }
-        }),
+        .strict(),
     ),
   })
   .strict();
@@ -1026,6 +1018,7 @@ const runGeneration = async (): Promise<void> => {
     }
     await ensureMissing(manifest.paths.sessionState);
   }
+  let generationFault: Readonly<{ scenarioId: string; reason: unknown }> | undefined;
   const scheduled = await runLiveMatrixSchedule(
     manifests.map((manifest) => ({
       task: manifest,
@@ -1034,33 +1027,43 @@ const runGeneration = async (): Promise<void> => {
         : { resourceKey: manifest.scenario.composition.resourceKeys[0] }),
     })),
     async (manifest) => {
-      for (const [index, promptFile] of manifest.paths.prompts.entries()) {
-        await runScenarioTurn({
-          manifestPath: manifest.paths.manifest,
-          turn: index + 1,
-          promptFile,
-        });
+      if (generationFault !== undefined) {
+        throw new Error(
+          `Generation already became invalid while running ${generationFault.scenarioId}.`,
+        );
       }
-      return manifest.scenario.id;
+      try {
+        for (const [index, promptFile] of manifest.paths.prompts.entries()) {
+          await runScenarioTurn({
+            manifestPath: manifest.paths.manifest,
+            turn: index + 1,
+            promptFile,
+          });
+        }
+        return manifest.scenario.id;
+      } catch (reason) {
+        generationFault ??= { scenarioId: manifest.scenario.id, reason };
+        throw reason;
+      }
     },
   );
+  if (generationFault !== undefined) {
+    const diagnostic =
+      generationFault.reason instanceof Error
+        ? generationFault.reason.message
+        : String(generationFault.reason);
+    fail(
+      `Live Matrix Generation is invalid because ${generationFault.scenarioId} execution failed: ${diagnostic || "unknown failure"}. Prepare a fresh Generation.`,
+    );
+  }
   const summary = executionSummarySchema.parse({
     schemaVersion: 1,
     generationId: generation.basis.generationId,
     peakConcurrency: scheduled.peakConcurrency,
-    scenarios: scheduled.results.map(({ task, result }) =>
-      result.status === "fulfilled"
-        ? { scenarioId: task.scenario.id, state: "completed" as const }
-        : {
-            scenarioId: task.scenario.id,
-            state: "invalid" as const,
-            diagnostic:
-              (result.reason instanceof Error
-                ? result.reason.message
-                : String(result.reason)
-              ).slice(0, 800) || "Scenario execution failed without a diagnostic.",
-          },
-    ),
+    scenarios: scheduled.results.map(({ task }) => ({
+      scenarioId: task.scenario.id,
+      state: "completed" as const,
+    })),
   });
   await writeFile(
     executionPath,
@@ -1099,7 +1102,6 @@ const evaluateScenario = async (): Promise<void> => {
   ) {
     fail("Live Scenario evaluation contradicts its Generation basis.");
   }
-  const executionState = executionScenario?.state ?? fail("Scenario execution is unavailable.");
   const pointers = await observedScenarioObservationPointers(manifest);
   const observations = new Map();
   const githubObservations = new Map<
@@ -1140,7 +1142,7 @@ const evaluateScenario = async (): Promise<void> => {
   }
   const verdict = z
     .object({
-      outcome: z.enum(["pass", "fail", "blocked", "invalid"]),
+      outcome: z.enum(["pass", "fail", "blocked"]),
       rationale: z.string().trim().min(1).max(800),
       requiredOutcomeObservations: z.array(z.unknown()).default([]),
       forbiddenOutcomeObservations: z.array(z.unknown()).default([]),
@@ -1149,42 +1151,25 @@ const evaluateScenario = async (): Promise<void> => {
     .strict()
     .parse(JSON.parse(await readFile(resolve(required("verdicts")), "utf8")));
   const fullTurnSet = pointers.length === manifest.paths.prompts.length;
-  if (
-    (verdict.outcome === "pass" || verdict.outcome === "fail" || verdict.outcome === "blocked") &&
-    (executionState !== "completed" || !fullTurnSet)
-  ) {
+  if (!fullTurnSet) {
     fail("Semantic Live Scenario verdict requires every declared Turn to complete.");
   }
-  if (verdict.outcome === "invalid" && executionState !== "invalid") {
-    fail("Only a rejected Scenario execution may receive an invalid verdict.");
-  }
+  const evaluation = createLiveScenarioEvaluation({
+    scenario: manifest.scenario,
+    outcome: verdict.outcome,
+    coordinatorIdentity: manifest.coordinatorIdentity,
+    rationale: verdict.rationale,
+    requiredOutcomeObservations: verdict.requiredOutcomeObservations,
+    forbiddenOutcomeObservations: verdict.forbiddenOutcomeObservations,
+  });
+  const referencedPointers = [
+    ...evaluation.requiredOutcomeObservations,
+    ...evaluation.forbiddenOutcomeObservations,
+  ].flatMap(({ evidencePointers }) => evidencePointers);
   if (
-    verdict.outcome === "invalid" &&
-    (verdict.requiredOutcomeObservations.length !== 0 ||
-      verdict.forbiddenOutcomeObservations.length !== 0)
+    referencedPointers.some((pointer) => !pointers.includes(pointer) || !observations.has(pointer))
   ) {
-    fail("An invalid execution cannot claim semantic outcome observations.");
-  }
-  if (verdict.outcome !== "invalid") {
-    const evaluation = createLiveScenarioEvaluation({
-      scenario: manifest.scenario,
-      outcome: verdict.outcome,
-      coordinatorIdentity: manifest.coordinatorIdentity,
-      rationale: verdict.rationale,
-      requiredOutcomeObservations: verdict.requiredOutcomeObservations,
-      forbiddenOutcomeObservations: verdict.forbiddenOutcomeObservations,
-    });
-    const referencedPointers = [
-      ...evaluation.requiredOutcomeObservations,
-      ...evaluation.forbiddenOutcomeObservations,
-    ].flatMap(({ evidencePointers }) => evidencePointers);
-    if (
-      referencedPointers.some(
-        (pointer) => !pointers.includes(pointer) || !observations.has(pointer),
-      )
-    ) {
-      fail("Live Scenario verdict references evidence outside the complete turn set.");
-    }
+    fail("Live Scenario verdict references evidence outside the complete turn set.");
   }
   if (
     verdict.outcome === "pass" &&
@@ -1217,7 +1202,10 @@ const evaluateScenario = async (): Promise<void> => {
     (pointer) =>
       observations.get(pointer) ?? fail(`Live Scenario observation is unavailable: ${pointer}.`),
   );
-  const evaluatedAt = new Date().toISOString();
+  const firstObservation =
+    orderedObservations[0] ?? fail("Live Scenario has no completed Turn observation.");
+  const lastObservation =
+    orderedObservations.at(-1) ?? fail("Live Scenario has no completed Turn observation.");
   const result = createLiveMatrixScenarioTerminalResult({
     generationId: manifest.generationId,
     scenarioId: manifest.scenario.id,
@@ -1235,8 +1223,8 @@ const evaluateScenario = async (): Promise<void> => {
       startedAt: observation.startedAt,
       endedAt: observation.endedAt,
     })),
-    startedAt: orderedObservations[0]?.startedAt ?? evaluatedAt,
-    endedAt: orderedObservations.at(-1)?.endedAt ?? evaluatedAt,
+    startedAt: firstObservation.startedAt,
+    endedAt: lastObservation.endedAt,
   });
   const [outputParent, cleanupDirectories, cleanupSessionState] = await Promise.all([
     realpath(dirname(output)),
@@ -1287,7 +1275,7 @@ const configureGitHubRepository = async (): Promise<void> => {
   );
 };
 
-const preflightMatrix = async (): Promise<void> => {
+const checkMatrixDefinition = async (): Promise<void> => {
   const result = await preflightLiveScenarioRegistry({
     sourceRoot: resolve(required("source-root")),
     registryPath: required("registry"),
@@ -1366,7 +1354,7 @@ const completeMatrix = async (): Promise<void> => {
 if (command === "prepare-generation") await prepareGeneration();
 else if (command === "run-generation") await runGeneration();
 else if (command === "evaluate-scenario") await evaluateScenario();
-else if (command === "preflight-matrix") await preflightMatrix();
+else if (command === "check-matrix-definition") await checkMatrixDefinition();
 else if (command === "prepare-local-rehearsal") await prepareLocalRehearsal();
 else if (command === "prepare-candidate-package") await prepareCandidatePackage();
 else if (command === "configure-github-repository") await configureGitHubRepository();

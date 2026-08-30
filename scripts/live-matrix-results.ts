@@ -6,6 +6,7 @@ import {
   type LiveMatrixGenerationBasis,
   parseLiveMatrixGenerationBasis,
 } from "./live-matrix-generation";
+import { liveScenarioIdSchema } from "./live-scenario-registry";
 
 export const LIVE_MATRIX_COORDINATOR_AUTHORITY = "coordinator" as const;
 export const LIVE_MATRIX_SLOW_OBSERVATION_MS = 10 * 60 * 1_000;
@@ -16,12 +17,11 @@ const fail = (message: string): never => {
 
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/u);
 const generationIdSchema = z.string().uuid();
-const scenarioIdSchema = z.string().regex(/^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d{2}$/u);
 const timestampSchema = z.string().datetime({ offset: true });
-const outcomeSchema = z.enum(["pass", "fail", "blocked", "invalid"]);
+const outcomeSchema = z.enum(["pass", "fail", "blocked"]);
 
 const uniqueScenarioIdsSchema = z
-  .array(scenarioIdSchema)
+  .array(liveScenarioIdSchema)
   .min(1)
   .superRefine((scenarioIds, context) => {
     if (new Set(scenarioIds).size !== scenarioIds.length) {
@@ -65,7 +65,7 @@ const durablePointerSchema = z
 
 export const liveMatrixEvidencePointerSchema = z
   .object({
-    evidenceClass: z.enum(["observation", "before-state", "after-state"]),
+    evidenceClass: z.literal("observation"),
     pointer: durablePointerSchema,
     sha256: digestSchema,
   })
@@ -111,25 +111,20 @@ export const liveMatrixScenarioTerminalResultSchema = z
   .object({
     schemaVersion: z.literal(1),
     generationId: generationIdSchema,
-    scenarioId: scenarioIdSchema,
+    scenarioId: liveScenarioIdSchema,
     semanticEvaluationAuthority: z.literal(LIVE_MATRIX_COORDINATOR_AUTHORITY),
     outcome: outcomeSchema,
     rationale: z.string().trim().min(1).max(800),
     evidence: boundedEvidencePointersSchema,
-    turns: z.array(liveMatrixTurnTimingSchema),
+    turns: z
+      .array(liveMatrixTurnTimingSchema)
+      .min(1, "Every terminal Live Matrix Scenario requires at least one Turn."),
     startedAt: timestampSchema,
     endedAt: timestampSchema,
     durationMs: z.number().int().nonnegative().safe(),
   })
   .strict()
   .superRefine((result, context) => {
-    if ((result.outcome === "pass" || result.outcome === "fail") && result.turns.length === 0) {
-      context.addIssue({
-        code: "custom",
-        path: ["turns"],
-        message: "Passing and failing Live Matrix Scenarios require at least one Turn.",
-      });
-    }
     result.turns.forEach((turn, index) => {
       if (turn.turnNumber !== index + 1) {
         context.addIssue({
@@ -171,7 +166,7 @@ export const parseLiveMatrixScenarioTerminalResult = (
 export const createLiveMatrixScenarioTerminalResult = (input: {
   generationId: string;
   scenarioId: string;
-  outcome: "pass" | "fail" | "blocked" | "invalid";
+  outcome: "pass" | "fail" | "blocked";
   rationale: string;
   evidence: readonly z.input<typeof liveMatrixEvidencePointerSchema>[];
   turns: readonly {
@@ -201,7 +196,7 @@ export const createLiveMatrixScenarioTerminalResult = (input: {
 
 const matrixScenarioSummarySchema = z
   .object({
-    scenarioId: scenarioIdSchema,
+    scenarioId: liveScenarioIdSchema,
     outcome: outcomeSchema,
     rationale: z.string().trim().min(1).max(800),
     startedAt: timestampSchema,
@@ -217,7 +212,7 @@ const slowObservationSchema = z.discriminatedUnion("scope", [
   z
     .object({
       scope: z.literal("scenario"),
-      scenarioId: scenarioIdSchema,
+      scenarioId: liveScenarioIdSchema,
       durationMs: z.number().int().nonnegative().safe(),
       thresholdMs: z.literal(LIVE_MATRIX_SLOW_OBSERVATION_MS),
     })
@@ -225,7 +220,7 @@ const slowObservationSchema = z.discriminatedUnion("scope", [
   z
     .object({
       scope: z.literal("turn"),
-      scenarioId: scenarioIdSchema,
+      scenarioId: liveScenarioIdSchema,
       turnNumber: z.number().int().positive().safe(),
       durationMs: z.number().int().nonnegative().safe(),
       thresholdMs: z.literal(LIVE_MATRIX_SLOW_OBSERVATION_MS),
@@ -235,13 +230,12 @@ const slowObservationSchema = z.discriminatedUnion("scope", [
 
 const matrixReportSchema = z
   .object({
-    peakConcurrency: z.number().int().min(0).max(4).safe(),
+    peakConcurrency: z.number().int().min(1).max(4).safe(),
     scenarioCount: z.number().int().positive().safe(),
     passCount: z.number().int().nonnegative().safe(),
     nonPassCount: z.number().int().nonnegative().safe(),
-    failures: z.array(scenarioIdSchema),
-    blocked: z.array(scenarioIdSchema),
-    invalid: z.array(scenarioIdSchema),
+    failures: z.array(liveScenarioIdSchema),
+    blocked: z.array(liveScenarioIdSchema),
     slowObservations: z.array(slowObservationSchema),
   })
   .strict();
@@ -256,7 +250,7 @@ export const liveMatrixResultSchema = z
     startedAt: timestampSchema,
     endedAt: timestampSchema,
     durationMs: z.number().int().nonnegative().safe(),
-    peakConcurrency: z.number().int().min(0).max(4).safe(),
+    peakConcurrency: z.number().int().min(1).max(4).safe(),
     terminalOutcome: z.enum(["pass", "not-pass"]),
     releasePrerequisiteSatisfied: z.boolean(),
     scenarios: z.array(matrixScenarioSummarySchema).min(1),
@@ -276,9 +270,6 @@ const expectedReport = (
   const blocked = scenarios
     .filter(({ outcome }) => outcome === "blocked")
     .map(({ scenarioId }) => scenarioId);
-  const invalid = scenarios
-    .filter(({ outcome }) => outcome === "invalid")
-    .map(({ scenarioId }) => scenarioId);
   return {
     peakConcurrency,
     scenarioCount: scenarios.length,
@@ -286,7 +277,6 @@ const expectedReport = (
     nonPassCount: scenarios.filter(({ outcome }) => outcome !== "pass").length,
     failures,
     blocked,
-    invalid,
     slowObservations: scenarios.flatMap((scenario) => [
       ...(scenario.slowObservation
         ? [
@@ -351,8 +341,7 @@ export const parseLiveMatrixResultForScenarioIds = (
         scenario.slowObservation !== scenario.durationMs > LIVE_MATRIX_SLOW_OBSERVATION_MS ||
         Date.parse(scenario.startedAt) < Date.parse(result.startedAt) ||
         Date.parse(scenario.endedAt) > Date.parse(result.endedAt) ||
-        ((scenario.outcome === "pass" || scenario.outcome === "fail") &&
-          scenario.turns.length === 0) ||
+        scenario.turns.length === 0 ||
         scenario.turns.some(
           (turn, index) =>
             turn.turnNumber !== index + 1 ||
@@ -365,13 +354,7 @@ export const parseLiveMatrixResultForScenarioIds = (
   ) {
     fail("Live Matrix timestamps, durations, or slow observations contradict each other.");
   }
-  const allPreBehavior = result.scenarios.every(
-    ({ outcome, turns }) => (outcome === "blocked" || outcome === "invalid") && turns.length === 0,
-  );
-  if (
-    result.peakConcurrency > result.scenarios.length ||
-    (result.peakConcurrency === 0 && !allPreBehavior)
-  ) {
+  if (result.peakConcurrency > result.scenarios.length) {
     fail("Live Matrix peak concurrency contradicts the observed Scenario execution.");
   }
   const allPass = result.scenarios.every(({ outcome }) => outcome === "pass");

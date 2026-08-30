@@ -7,7 +7,7 @@ const fail = (message: string): never => {
   throw new Error(message);
 };
 
-const scenarioIdSchema = z.string().regex(/^[A-Z]+(?:-[A-Z]+)*-\d{2}$/u);
+export const liveScenarioIdSchema = z.string().regex(/^[A-Z]+(?:-[A-Z]+)*-\d{2}$/u);
 const boundedTextSchema = z.string().trim().min(1).max(800);
 const fixtureLocatorSchema = z
   .string()
@@ -150,7 +150,7 @@ const fixtureSchema = z
 
 const liveScenarioSchema = z
   .object({
-    id: scenarioIdSchema,
+    id: liveScenarioIdSchema,
     name: z.string().trim().min(1),
     fixture: fixtureSchema,
     composition: liveScenarioCompositionSchema,
@@ -307,7 +307,7 @@ export const liveScenarioReferencedFixtureSources = (
     scenarioIds === undefined
       ? undefined
       : z
-          .array(scenarioIdSchema)
+          .array(liveScenarioIdSchema)
           .min(1)
           .parse([...scenarioIds]);
   if (selectedIds !== undefined && new Set(selectedIds).size !== selectedIds.length) {
@@ -360,7 +360,7 @@ export const materializeLiveScenarioFixture = async (input: {
   outputRoot: string;
 }) => {
   const registry = liveScenarioRegistrySchema.parse(input.registry);
-  const scenarioId = scenarioIdSchema.parse(input.scenarioId);
+  const scenarioId = liveScenarioIdSchema.parse(input.scenarioId);
   const scenario =
     registry.scenarios.find(({ id }) => id === scenarioId) ??
     fail(`Unknown Live Scenario: ${scenarioId}.`);
@@ -400,8 +400,8 @@ const outcomeObservationSchema = z
 const liveScenarioEvaluationSchema = z
   .object({
     schemaVersion: z.literal(1),
-    scenarioId: scenarioIdSchema,
-    outcome: z.enum(["pass", "fail", "blocked", "not-run"]),
+    scenarioId: liveScenarioIdSchema,
+    outcome: z.enum(["pass", "fail", "blocked"]),
     semanticEvaluationAuthority: z.literal("coordinating-agent"),
     coordinatorIdentity: z.string().trim().min(1).max(200),
     rationale: boundedTextSchema,
@@ -433,14 +433,14 @@ const exactObservations = (
 
 export const createLiveScenarioEvaluation = (input: {
   scenario: LiveScenario;
-  outcome: "pass" | "fail" | "blocked" | "not-run";
+  outcome: "pass" | "fail" | "blocked";
   coordinatorIdentity: string;
   rationale: string;
   requiredOutcomeObservations: readonly unknown[];
   forbiddenOutcomeObservations: readonly unknown[];
 }) => {
   const scenario = liveScenarioSchema.parse(input.scenario);
-  const outcome = z.enum(["pass", "fail", "blocked", "not-run"]).parse(input.outcome);
+  const outcome = z.enum(["pass", "fail", "blocked"]).parse(input.outcome);
   const coordinatorIdentity = z.string().trim().min(1).max(200).parse(input.coordinatorIdentity);
   const rationale = boundedTextSchema.parse(input.rationale);
   const requiredOutcomeObservations = z

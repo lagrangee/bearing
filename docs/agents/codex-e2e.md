@@ -38,7 +38,8 @@ isolated home.
 The Scenario Agent receives only its natural user requests, exact package, isolated Agent home, and
 visible repository or provider state. It must not inspect the authentication file, infer or inspect
 the operator home, or inspect the Coordinator-only source checkout. Any such read invalidates the
-Scenario observation.
+Generation. Do not produce a Matrix result from that Generation; diagnose the fault outside the
+Generation and use a fresh Generation for the next observation.
 
 The Scenario manifest and tracked registry are Coordinator-only because they contain Scenario
 identity and semantic criteria. They stay outside the Agent repository and home. For the complete
@@ -82,6 +83,11 @@ fails while the Generation identity remains valid. Collect the complete failure 
 an owner outside the Generation; any accepted identity-changing fix requires a fresh Generation.
 No elapsed-time threshold terminates a Scenario; timing is an optimization observation.
 
+`check-matrix-definition` is a standalone deterministic definition check for the registry,
+Fixtures, Skill declarations, fixed model and effort, and declared capabilities. It starts no
+Agent, creates no Generation or result, and is not a second Matrix execution surface. Every real
+execution still begins with `prepare-generation`, which performs the fresh Generation preflight.
+
 The only Matrix execution surface is:
 
 ```text
@@ -90,13 +96,16 @@ prepare-generation -> run-generation -> evaluate-scenario x registry -> complete
 
 `prepare-generation` writes the durable `generation.json` basis and all private Scenario
 manifests. `run-generation` executes those prepared Scenarios once and writes the internal
-`execution.json` handoff. `evaluate-scenario` writes one terminal result for every registry entry.
+`execution.json` handoff only when every Scenario reaches a valid completed runner boundary.
+`evaluate-scenario` writes one terminal result for every registry entry.
 `complete-matrix` writes the one Matrix result after the exact result set exists. Do not expose a
 second per-Scenario preparation or turn-execution command.
 
 Do not convert the Matrix into one long story or a provider-file script. The Scenario Agent does
 not receive the registry, Scenario identifiers, required or forbidden outcomes, expected commands,
-file names, function names, confirmation counts, or Coordinator verdict. It chooses any
+confirmation counts, Coordinator-only answers, or hidden implementation choices. A natural user
+request or Fixture work item may name the real task target needed to ask for the work, such as a
+README or public function; that target is part of the request, not a leak. The Agent chooses any
 contract-valid workflow that satisfies the natural request.
 
 Provider-native byte shape, parser behavior, exact schema, broker allowlists, sandbox behavior,
@@ -122,14 +131,30 @@ Current Matrix evidence has only three durable levels:
   preparation readbacks;
 - one terminal result per Scenario with the Generation and Scenario IDs, Coordinator authority,
   semantic outcome, rationale, bounded observation pointers and digests, and per-turn and
-  whole-Scenario timing; and
+  whole-Scenario start and end timestamps; and
 - one Matrix result that references every registered Scenario result and the Generation basis, then
-  records the terminal summary, timing, observed peak concurrency, and slow observations.
+  records the terminal summary, Generation end timestamp, actual peak concurrency, and slow
+  observations.
 
-`execution.json` carries only the Generation ID, observed peak concurrency, and each Scenario's
-`completed` or `invalid` execution state between the runner, evaluator, and aggregator. It is not a
-semantic result, is not cited by the Matrix result, and is not a fourth durable or release-evidence
-level; `complete-matrix` removes it after writing the final result. The Codex CLI version belongs to verified per-turn runtime observations, not the Generation
+The Generation start timestamp is recorded in its basis. Scenario and Turn results record their
+own start and end timestamps; durations are derived from those pairs. Do not add Preparation,
+Queue, evaluation, publication, or other phase timing state.
+
+A valid complete Matrix has exactly one `pass`, `fail`, or `blocked` terminal result for every
+registered Scenario. `invalid` and `not-run` are not durable Scenario or Matrix outcomes, and a
+missing result prevents completion. A Generation-level Harness, isolation, or effect fault
+rejects `run-generation` as a whole, writes no `execution.json`, and therefore permits neither
+evaluation nor Matrix completion. Diagnose it outside the Generation and use a fresh Generation.
+
+The Scenario result itself does not copy separate before-state or after-state evidence classes;
+its bounded observation pointers identify the state the Coordinator inspected.
+
+`execution.json` carries only the Generation ID, actual peak concurrency, and each Scenario's
+`completed` execution state between the runner, evaluator, and aggregator. It exists only for a
+valid Generation; any Harness, runner, isolation, or effect uncertainty rejects the run without
+writing this handoff. It is not a semantic result, is not cited by the Matrix result, and is not a
+fourth durable or release-evidence level. `complete-matrix` removes the handoff after writing a
+valid final result. The Codex CLI version belongs to verified per-turn runtime observations, not the Generation
 basis. A Scenario result does not repeat the Fixture starting-state identity already bound by the
 Generation preparation readback.
 

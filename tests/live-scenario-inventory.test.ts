@@ -176,7 +176,8 @@ describe("KISS Live Scenario inventory", () => {
     ).toContain("formatPrimaryLabel");
   });
 
-  test("declares the real Wayfinder and Implement compositions", async () => {
+  test("keeps real Skill composition separate from bounded GitHub Direct Execution", async () => {
+    const registry = await loadLiveScenarioRegistry("validation/live-journey/registry.json");
     const native = await scenarioById("NATIVE-02");
     const wayfinder = await scenarioById("WAYFINDER-01");
     const localDelivery = await scenarioById("DELIVERY-01");
@@ -202,11 +203,25 @@ describe("KISS Live Scenario inventory", () => {
     expect(localDelivery.composition.skills.map(({ skill }) => skill)).toEqual([
       ...implementComposition,
     ]);
-    expect(githubDelivery.composition.skills.map(({ skill }) => skill)).toEqual([
-      ...implementComposition,
-    ]);
+    expect(
+      registry.scenarios
+        .filter(({ composition }) =>
+          composition.skills.some(({ skill }) =>
+            ["implement", "tdd", "code-review"].includes(skill),
+          ),
+        )
+        .map(({ id }) => id),
+    ).toEqual(["DELIVERY-01"]);
+    expect(githubDelivery.composition.skills.map(({ skill }) => skill)).toEqual(["bearing"]);
     expect(localDelivery.prompts.join("\n")).toMatch(/Implement Skill/iu);
-    expect(githubDelivery.prompts.join("\n")).toMatch(/Implement Skill/iu);
+    expect(githubDelivery.prompts).toHaveLength(2);
+    expect(
+      [
+        ...githubDelivery.prompts,
+        ...githubDelivery.requiredOutcomes,
+        ...githubDelivery.forbiddenOutcomes,
+      ].join("\n"),
+    ).not.toMatch(/Implement Skill|TDD|Code Review/iu);
     expect(githubDelivery.composition).toMatchObject({
       capabilityProfile: "github-bounded-delivery",
       resourceKeys: ["github-validation-repository"],

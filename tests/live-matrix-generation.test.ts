@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   createLiveMatrixGenerationBasis,
-  createLiveMatrixGenerationDisposition,
   parseLiveMatrixGenerationBasis,
-  parseLiveMatrixGenerationDisposition,
 } from "../scripts/live-matrix-generation";
 import { LIVE_MATRIX_CONCURRENCY } from "../scripts/live-matrix-scheduler";
 
@@ -130,30 +128,6 @@ describe("minimal Live Matrix Generation basis", () => {
           input.preparedScenarios[0],
           { ...input.preparedScenarios[1], permissionOutcome: "failed" },
         ],
-      }),
-    ).toThrow();
-  });
-
-  test("makes invalid or crashed Generations fresh-only without a recovery lifecycle", () => {
-    const basis = createLiveMatrixGenerationBasis(validInput());
-
-    expect(createLiveMatrixGenerationDisposition(basis, "valid")).toEqual({
-      generationId,
-      disposition: "valid",
-      freshGenerationRequired: false,
-    });
-    for (const disposition of ["invalid", "crashed"] as const) {
-      expect(createLiveMatrixGenerationDisposition(basis, disposition)).toEqual({
-        generationId,
-        disposition,
-        freshGenerationRequired: true,
-      });
-    }
-    expect(() =>
-      parseLiveMatrixGenerationDisposition({
-        generationId,
-        disposition: "crashed",
-        freshGenerationRequired: false,
       }),
     ).toThrow();
   });

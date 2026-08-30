@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -24,7 +24,7 @@ const createFixture = async (
   mode: "admitted" | "model-unavailable" | "permission-failure" = "admitted",
   selectedRegistryPath = registryPath,
 ) => {
-  const root = await mkdtemp(join(tmpdir(), "bearing-admission-test-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "bearing-admission-test-")));
   const packageRoot = join(root, "package-root");
   const tarball = join(root, "bearing.tgz");
   const operatorCodexHome = join(root, "operator-codex-home");
@@ -173,6 +173,90 @@ describe("Live Matrix Generation preflight", () => {
       await expect(verifyLiveScenarioGeneration(prepared.paths.manifest)).resolves.toBeDefined();
     }
     await discardLiveScenarioGenerationAdmission(result);
+  });
+
+  test("rejects the whole Generation after a runner fault without writing an execution handoff", async () => {
+    const { fixture, result } = await prepare();
+    if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+    const generationPath = join(fixture.workspaceRoot, "generation.json");
+    await writeFile(generationPath, `${JSON.stringify(result.generationBasis, null, 2)}\n`, {
+      flag: "wx",
+    });
+    await writeFile(
+      fixture.fakeCodex,
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\n' 'codex-fixture 1'
+  exit 0
+fi
+printf '%s\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"turn.failed","error":{"message":"fixture runner fault"}}'
+exit 17
+`,
+    );
+
+    try {
+      const run = Bun.spawnSync(
+        [
+          process.execPath,
+          "scripts/run-live-journey.ts",
+          "run-generation",
+          "--generation",
+          generationPath,
+        ],
+        { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+      );
+      expect(run.exitCode).not.toBe(0);
+      expect(run.stderr.toString()).toContain("Live Matrix Generation is invalid");
+      await expect(access(join(fixture.workspaceRoot, "execution.json"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+
+      const scenarioOutput = join(fixture.root, "scenario-result.json");
+      const evaluation = Bun.spawnSync(
+        [
+          process.execPath,
+          "scripts/run-live-journey.ts",
+          "evaluate-scenario",
+          "--generation",
+          generationPath,
+          "--manifest",
+          result.preparedScenarios[0]?.paths.manifest ?? "missing-manifest",
+          "--verdicts",
+          join(fixture.root, "missing-verdict.json"),
+          "--output",
+          scenarioOutput,
+        ],
+        { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+      );
+      expect(evaluation.exitCode).not.toBe(0);
+      await expect(access(scenarioOutput)).rejects.toMatchObject({ code: "ENOENT" });
+
+      const matrixOutput = join(fixture.root, "matrix-result.json");
+      const completion = Bun.spawnSync(
+        [
+          process.execPath,
+          "scripts/run-live-journey.ts",
+          "complete-matrix",
+          "--source-root",
+          process.cwd(),
+          "--registry",
+          join(process.cwd(), registryPath),
+          "--results",
+          join(fixture.root, "missing-results"),
+          "--generation",
+          generationPath,
+          "--output",
+          matrixOutput,
+        ],
+        { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+      );
+      expect(completion.exitCode).not.toBe(0);
+      await expect(access(matrixOutput)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await discardLiveScenarioGenerationAdmission(result);
+    }
   });
 
   test("blocks an unavailable model before Scenario preparation and cleans the workspace", async () => {

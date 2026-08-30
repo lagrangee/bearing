@@ -59,7 +59,7 @@ const createBasis = (
 
 const createScenario = (input: {
   scenarioId: string;
-  outcome: "pass" | "fail" | "blocked" | "invalid";
+  outcome: "pass" | "fail" | "blocked";
   startedAt?: string;
   endedAt?: string;
 }) => {
@@ -77,10 +77,7 @@ const createScenario = (input: {
         sha256: digest("8"),
       },
     ],
-    turns:
-      input.outcome === "pass" || input.outcome === "fail"
-        ? [{ turnNumber: 1, startedAt, endedAt }]
-        : [],
+    turns: [{ turnNumber: 1, startedAt, endedAt }],
     startedAt,
     endedAt,
   });
@@ -130,14 +127,9 @@ describe("minimal Live Matrix results", () => {
       rationale: "The required native writeback was absent.",
       evidence: [
         {
-          evidenceClass: "before-state",
-          pointer: "states/native-02-before.json",
+          evidenceClass: "observation",
+          pointer: "observations/native-02.json",
           sha256: digest("1"),
-        },
-        {
-          evidenceClass: "after-state",
-          pointer: "states/native-02-after.json",
-          sha256: digest("2"),
         },
       ],
       turns: [
@@ -162,6 +154,18 @@ describe("minimal Live Matrix results", () => {
       ],
       semanticEvaluationAuthority: LIVE_MATRIX_COORDINATOR_AUTHORITY,
     });
+    expect(() =>
+      parseLiveMatrixScenarioTerminalResult({
+        ...result,
+        evidence: [
+          {
+            evidenceClass: "before-state",
+            pointer: "states/native-02-before.json",
+            sha256: digest("2"),
+          },
+        ],
+      }),
+    ).toThrow();
     expect(() =>
       createLiveMatrixScenarioTerminalResult({
         ...result,
@@ -205,8 +209,11 @@ describe("minimal Live Matrix results", () => {
     if (turn === undefined) throw new Error("Expected one Turn timing row.");
 
     expect(() => parseLiveMatrixScenarioTerminalResult({ ...result, turns: [] })).toThrow(
-      "require at least one Turn",
+      "requires at least one Turn",
     );
+    expect(() =>
+      parseLiveMatrixScenarioTerminalResult({ ...result, outcome: "invalid" }),
+    ).toThrow();
     expect(() =>
       parseLiveMatrixScenarioTerminalResult({
         ...result,
@@ -232,12 +239,11 @@ describe("minimal Live Matrix results", () => {
       }),
     ).toThrow("within the Scenario window");
 
-    expect(createScenario({ scenarioId: "STOP-02", outcome: "blocked" }).turns).toEqual([]);
-    expect(createScenario({ scenarioId: "DELIVERY-02", outcome: "invalid" }).turns).toEqual([]);
+    expect(createScenario({ scenarioId: "STOP-02", outcome: "blocked" }).turns).toHaveLength(1);
   });
 
   test("aggregates the full registry after non-pass results and only reports slow work", () => {
-    const scenarioIds = ["ENTRY-03", "NATIVE-02", "STOP-02", "DELIVERY-02"];
+    const scenarioIds = ["ENTRY-03", "NATIVE-02", "STOP-02"];
     const basis = createBasis(scenarioIds);
     const pass = createScenario({ scenarioId: "ENTRY-03", outcome: "pass" });
     const fail = createScenario({
@@ -247,40 +253,32 @@ describe("minimal Live Matrix results", () => {
       endedAt: "2026-08-30T00:10:01.001Z",
     });
     const blocked = createScenario({ scenarioId: "STOP-02", outcome: "blocked" });
-    const invalid = createScenario({ scenarioId: "DELIVERY-02", outcome: "invalid" });
 
     const matrix = createLiveMatrixResult({
       generationBasis: basis,
       generationBasisReference: reference("generation", "a"),
       registeredScenarioIds: scenarioIds,
       scenarioResults: [
-        { result: invalid, reference: reference("delivery-02", "d") },
         { result: pass, reference: reference("entry-03", "1") },
         { result: blocked, reference: reference("stop-02", "3") },
         { result: fail, reference: reference("native-02", "2") },
       ],
-      peakConcurrency: 4,
+      peakConcurrency: 3,
       endedAt: "2026-08-30T00:11:00.000Z",
     });
 
     expect(matrix.scenarios.map(({ scenarioId }) => scenarioId)).toEqual(scenarioIds);
-    expect(matrix.scenarios.map(({ outcome }) => outcome)).toEqual([
-      "pass",
-      "fail",
-      "blocked",
-      "invalid",
-    ]);
+    expect(matrix.scenarios.map(({ outcome }) => outcome)).toEqual(["pass", "fail", "blocked"]);
     expect(matrix).toMatchObject({
       terminalOutcome: "not-pass",
       releasePrerequisiteSatisfied: false,
       report: {
-        scenarioCount: 4,
+        scenarioCount: 3,
         passCount: 1,
-        nonPassCount: 3,
+        nonPassCount: 2,
         failures: ["NATIVE-02"],
         blocked: ["STOP-02"],
-        invalid: ["DELIVERY-02"],
-        peakConcurrency: 4,
+        peakConcurrency: 3,
         slowObservations: [
           {
             scope: "scenario",
@@ -340,25 +338,20 @@ describe("minimal Live Matrix results", () => {
     expect(matrix.report.slowObservations).toEqual([]);
   });
 
-  test("accepts zero peak only for wholly pre-behavior blocked or invalid results", () => {
-    const scenarioIds = ["STOP-02", "DELIVERY-02"];
+  test("rejects zero peak because every valid result follows completed behavior", () => {
+    const scenarioIds = ["STOP-02"];
     const basis = createBasis(scenarioIds);
     const blocked = createScenario({ scenarioId: "STOP-02", outcome: "blocked" });
-    const invalid = createScenario({ scenarioId: "DELIVERY-02", outcome: "invalid" });
-    const matrix = createLiveMatrixResult({
-      generationBasis: basis,
-      generationBasisReference: reference("generation", "a"),
-      registeredScenarioIds: scenarioIds,
-      scenarioResults: [
-        { result: blocked, reference: reference("stop-02", "1") },
-        { result: invalid, reference: reference("delivery-02", "2") },
-      ],
-      peakConcurrency: 0,
-      endedAt: "2026-08-30T00:01:00.000Z",
-    });
-
-    expect(matrix.peakConcurrency).toBe(0);
-    expect(matrix.report.peakConcurrency).toBe(0);
+    expect(() =>
+      createLiveMatrixResult({
+        generationBasis: basis,
+        generationBasisReference: reference("generation", "a"),
+        registeredScenarioIds: scenarioIds,
+        scenarioResults: [{ result: blocked, reference: reference("stop-02", "1") }],
+        peakConcurrency: 0,
+        endedAt: "2026-08-30T00:01:00.000Z",
+      }),
+    ).toThrow();
 
     const passIds = ["ENTRY-03"];
     const passBasis = createBasis(passIds);
@@ -372,7 +365,7 @@ describe("minimal Live Matrix results", () => {
         peakConcurrency: 0,
         endedAt: "2026-08-30T00:01:00.000Z",
       }),
-    ).toThrow("peak concurrency contradicts");
+    ).toThrow();
     expect(() =>
       createLiveMatrixResult({
         generationBasis: passBasis,

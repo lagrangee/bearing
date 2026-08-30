@@ -1,16 +1,16 @@
 import { z } from "zod";
 import { CODEX_E2E_RUNTIME } from "./codex-e2e-runtime";
 import { LIVE_MATRIX_CONCURRENCY } from "./live-matrix-scheduler";
+import { liveScenarioIdSchema } from "./live-scenario-registry";
 
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/u);
 const generationIdSchema = z.string().uuid();
-const scenarioIdSchema = z.string().regex(/^[A-Z]+(?:-[A-Z]+)*-\d{2}$/u);
 const timestampSchema = z.string().datetime({ offset: true });
 
 const preparedScenarioReadbackSchema = z
   .object({
     generationId: generationIdSchema,
-    scenarioId: scenarioIdSchema,
+    scenarioId: liveScenarioIdSchema,
     fixtureSha256: digestSchema,
     skillsSha256: digestSchema,
     permissionOutcome: z.literal("passed"),
@@ -42,7 +42,7 @@ const generationBasisValueSchema = z
         concurrency: z.literal(LIVE_MATRIX_CONCURRENCY),
       })
       .strict(),
-    selectedScenarioIds: z.array(scenarioIdSchema).min(1),
+    selectedScenarioIds: z.array(liveScenarioIdSchema).min(1),
     preparedScenarios: z.array(preparedScenarioReadbackSchema).min(1),
   })
   .strict();
@@ -126,50 +126,6 @@ export const createLiveMatrixGenerationBasis = (input: unknown): LiveMatrixGener
       preparedScenarios: basis.selectedScenarioIds.map((scenarioId) =>
         preparedByScenarioId.get(scenarioId),
       ),
-    }),
-  );
-};
-
-const generationDispositionSchema = z.discriminatedUnion("disposition", [
-  z
-    .object({
-      generationId: generationIdSchema,
-      disposition: z.literal("valid"),
-      freshGenerationRequired: z.literal(false),
-    })
-    .strict(),
-  z
-    .object({
-      generationId: generationIdSchema,
-      disposition: z.literal("invalid"),
-      freshGenerationRequired: z.literal(true),
-    })
-    .strict(),
-  z
-    .object({
-      generationId: generationIdSchema,
-      disposition: z.literal("crashed"),
-      freshGenerationRequired: z.literal(true),
-    })
-    .strict(),
-]);
-
-export type LiveMatrixGenerationDisposition = z.infer<typeof generationDispositionSchema>;
-
-export const parseLiveMatrixGenerationDisposition = (
-  input: unknown,
-): LiveMatrixGenerationDisposition => generationDispositionSchema.parse(input);
-
-export const createLiveMatrixGenerationDisposition = (
-  basis: unknown,
-  disposition: "valid" | "invalid" | "crashed",
-): LiveMatrixGenerationDisposition => {
-  const generation = parseLiveMatrixGenerationBasis(basis);
-  return Object.freeze(
-    parseLiveMatrixGenerationDisposition({
-      generationId: generation.generationId,
-      disposition,
-      freshGenerationRequired: disposition !== "valid",
     }),
   );
 };
