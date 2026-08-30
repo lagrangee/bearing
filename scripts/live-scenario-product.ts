@@ -1,10 +1,74 @@
-import { cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import {
+  cp,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { z } from "zod";
 import type { LiveScenario } from "./live-scenario-registry";
 
 const fail = (message: string): never => {
   throw new Error(message);
+};
+
+const isMissing = (error: unknown): boolean =>
+  error instanceof Error && "code" in error && error.code === "ENOENT";
+
+const staysInside = (root: string, path: string): boolean => {
+  const relation = relative(root, path);
+  return relation !== "" && !relation.startsWith("..") && !isAbsolute(relation);
+};
+
+export const materializeDeclaredPrerequisiteSkills = async (input: {
+  scenario: LiveScenario;
+  trustedSkillRoot: string;
+  targetSkillRoot: string;
+}): Promise<readonly string[]> => {
+  if (!isAbsolute(input.trustedSkillRoot) || !isAbsolute(input.targetSkillRoot)) {
+    fail("Live Scenario Skill roots must be explicit absolute paths.");
+  }
+  const trustedSkillRoot = await realpath(input.trustedSkillRoot);
+  const targetSkillRoot = await realpath(input.targetSkillRoot);
+  const materialized: string[] = [];
+
+  for (const { skill, role } of input.scenario.composition.skills) {
+    if (skill === "bearing" || role !== "prerequisite") continue;
+    const declaredSource = join(trustedSkillRoot, skill);
+    let source: string;
+    try {
+      source = await realpath(declaredSource);
+    } catch (error) {
+      if (isMissing(error)) fail(`Declared prerequisite Skill is unavailable: ${skill}.`);
+      throw error;
+    }
+    if (!staysInside(trustedSkillRoot, source)) {
+      fail(`Declared prerequisite Skill escapes the trusted root: ${skill}.`);
+    }
+    const entrypoint = await lstat(join(source, "SKILL.md")).catch((error: unknown) => {
+      if (isMissing(error)) fail(`Declared prerequisite Skill has no SKILL.md: ${skill}.`);
+      throw error;
+    });
+    if (!entrypoint.isFile()) {
+      fail(`Declared prerequisite Skill entrypoint must be a regular file: ${skill}.`);
+    }
+    const target = join(targetSkillRoot, skill);
+    try {
+      await lstat(target);
+      fail(`Declared prerequisite Skill target already exists: ${skill}.`);
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+    }
+    await cp(source, target, { recursive: true, errorOnExist: true, force: false });
+    materialized.push(skill);
+  }
+
+  return Object.freeze(materialized);
 };
 
 const execute = async (
@@ -477,7 +541,7 @@ export const materializeLiveScenarioProductState = async (input: {
         ),
         `# 05 — Decide secondary label casing
 
-Type: task
+Type: grilling
 
 Status: claimed
 
@@ -491,6 +555,21 @@ How should secondary labels normalize surrounding whitespace and letter casing?
       await retainNativeTickets(input.repositoryRoot, ["05-decide-secondary-label-casing.md"], []);
     }
     if (materializer === "active-ambiguous-native-repository") {
+      await writeFile(
+        join(input.repositoryRoot, ".scratch/label-delivery/issues/02-update-output.md"),
+        `# 02 — Update output
+
+Type: task
+
+Status: ready-for-agent
+
+Blocked by: None — can start immediately
+
+## Question
+
+How should the separate secondary output be updated?
+`,
+      );
       await retainNativeTickets(
         input.repositoryRoot,
         ["01-update-output.md", "02-update-output.md"],
@@ -501,6 +580,21 @@ How should secondary labels normalize surrounding whitespace and letter casing?
       );
     }
     if (materializer === "active-failing-execution-repository") {
+      await writeFile(
+        join(input.repositoryRoot, ".scratch/label-delivery/issues/03-run-failing-delivery.md"),
+        `# 03 — Run the failing delivery check
+
+Type: task
+
+Status: claimed
+
+Blocked by: None — can start immediately
+
+## Question
+
+Run \`bun test tests/missing-delivery.test.ts\` and preserve its actual outcome without changing files.
+`,
+      );
       await retainNativeTickets(
         input.repositoryRoot,
         ["03-run-failing-delivery.md"],

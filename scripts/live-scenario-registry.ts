@@ -7,7 +7,7 @@ const fail = (message: string): never => {
   throw new Error(message);
 };
 
-const scenarioIdSchema = z.string().regex(/^[A-Z]+-\d{2}$/u);
+const scenarioIdSchema = z.string().regex(/^[A-Z]+(?:-[A-Z]+)*-\d{2}$/u);
 const boundedTextSchema = z.string().trim().min(1).max(800);
 const fixtureLocatorSchema = z
   .string()
