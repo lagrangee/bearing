@@ -12,8 +12,6 @@ Use the existing exported-function seam.
 
 ## Decisions so far
 
-No decisions yet.
-
 ## Fog
 
 None.

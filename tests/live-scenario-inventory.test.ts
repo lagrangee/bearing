@@ -26,6 +26,7 @@ import {
 } from "../scripts/live-scenario-registry";
 import { liveScenarioDefinitionDigest } from "../scripts/live-scenario-runner";
 import { withBearingManagedPointer } from "../src/agent-surface-entry";
+import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
 
 const expectedScenarioIds = [
   "INSTALL-01",
@@ -195,6 +196,26 @@ describe("KISS Live Scenario inventory", () => {
     ).toContain("formatPrimaryLabel");
   });
 
+  test("keeps canonical local native fixtures capture-valid", async () => {
+    for (const source of [
+      "validation/live-journey/fixtures/planning-native-minimal",
+      "validation/live-journey/fixtures/delivery-minimal",
+    ]) {
+      const result = await createLocalMarkdownMattProvider({
+        repoRoot: source,
+        contractLocator: "docs/agents/issue-tracker.md",
+        triageLocator: "docs/agents/triage-labels.md",
+        clock: () => new Date("2026-08-30T00:00:00Z"),
+      }).capture({ provider: "matt-skills/v1", nativeScope: ".scratch/label-delivery" });
+
+      expect(result.state).toBe("available");
+      expect(result.freshness.assessment).toBe("current");
+      expect(result.coverage.assessment).toBe("complete");
+      expect(result.diagnostics).toEqual([]);
+      expect(result.projection?.map?.decisions).toEqual([]);
+    }
+  });
+
   test("keeps native and delivery Scenarios result-oriented at the host boundary", async () => {
     const native = await scenarioById("NATIVE-02");
     const localDelivery = await scenarioById("DELIVERY-01");
@@ -275,6 +296,41 @@ describe("KISS Live Scenario inventory", () => {
     expect(
       await readFile(join(repositoryRoot, ".scratch/label-delivery/map.md"), "utf8"),
     ).not.toMatch(/Grilling|Domain Modeling/iu);
+  });
+
+  test("materializes STOP-01 as two capture-valid unclaimed tickets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bearing-live-stop-01-"));
+    temporaryRoots.push(root);
+    const repositoryRoot = join(root, "repository");
+    const agentHome = join(root, "agent-home");
+    const scenario = await scenarioById("STOP-01");
+    await Promise.all([
+      cp(scenario.fixture.source, repositoryRoot, { recursive: true }),
+      mkdir(agentHome),
+    ]);
+    const initialized = Bun.spawnSync(["git", "init", "-q"], {
+      cwd: repositoryRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(initialized.exitCode, initialized.stderr.toString()).toBe(0);
+
+    await materializeLiveScenarioProductState({
+      scenario,
+      sourceRoot: process.cwd(),
+      repositoryRoot,
+      productProgram: join(process.cwd(), "dist/cli.js"),
+      agentHome,
+    });
+
+    const issueRoot = join(repositoryRoot, ".scratch/label-delivery/issues");
+    expect((await readdir(issueRoot)).sort()).toEqual([
+      "01-update-output.md",
+      "02-update-output.md",
+    ]);
+    for (const name of await readdir(issueRoot)) {
+      expect(await readFile(join(issueRoot, name), "utf8")).not.toMatch(/^Status:/mu);
+    }
   });
 
   test("rebuilds the isolated GitHub fixture for the current Kit", async () => {

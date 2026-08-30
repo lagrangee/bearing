@@ -567,8 +567,6 @@ How should secondary labels normalize surrounding whitespace and letter casing?
 
 Type: task
 
-Status: ready-for-agent
-
 Blocked by: None — can start immediately
 
 ## Question
