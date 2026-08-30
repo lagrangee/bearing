@@ -18,12 +18,13 @@ const createObservation = (
     endedAt: "2026-08-30T00:00:00.100Z",
     durationMs: 100,
   },
+  output = stdout,
 ) =>
   createLiveJourneyObservation({
     turn: 1,
     codexCliVersion: "codex-cli 0.147.0",
     exitCode: 0,
-    stdout,
+    stdout: output,
     stderr: "",
     before: { repository: "a".repeat(64), agentHome: "b".repeat(64) },
     after: { repository: "c".repeat(64), agentHome: "d".repeat(64) },
@@ -31,6 +32,59 @@ const createObservation = (
     stderrPointer: "transcripts/turn-01.stderr.log",
     ...timing,
   });
+
+describe("Live Journey Codex JSONL integrity", () => {
+  test("rejects a started item without a valid identity", () => {
+    for (const item of [{ type: "command_execution" }, { id: "" }]) {
+      const output = [
+        JSON.stringify({ type: "thread.started", thread_id: "private-session" }),
+        JSON.stringify({ type: "item.started", item }),
+        JSON.stringify({ type: "turn.completed" }),
+      ].join("\n");
+
+      expect(() => createObservation(undefined, output)).toThrow(
+        "Codex item.started event has no valid item ID.",
+      );
+    }
+  });
+
+  test("rejects a turn that completes with an unfinished started item", () => {
+    const output = [
+      JSON.stringify({ type: "thread.started", thread_id: "private-session" }),
+      JSON.stringify({ type: "item.started", item: { id: "item-1" } }),
+      JSON.stringify({ type: "turn.completed" }),
+    ].join("\n");
+
+    expect(() => createObservation(undefined, output)).toThrow(
+      "Codex turn completed with unfinished items: item-1",
+    );
+  });
+
+  test("does not treat item.updated as terminal", () => {
+    const output = [
+      JSON.stringify({ type: "thread.started", thread_id: "private-session" }),
+      JSON.stringify({ type: "item.started", item: { id: "item-1" } }),
+      JSON.stringify({ type: "item.updated", item: { id: "item-1" } }),
+      JSON.stringify({ type: "turn.completed" }),
+    ].join("\n");
+
+    expect(() => createObservation(undefined, output)).toThrow(
+      "Codex turn completed with unfinished items: item-1",
+    );
+  });
+
+  test("accepts completed items with or without a prior started event", () => {
+    const output = [
+      JSON.stringify({ type: "thread.started", thread_id: "private-session" }),
+      JSON.stringify({ type: "item.completed", item: { id: "item-without-start" } }),
+      JSON.stringify({ type: "item.started", item: { id: "item-1" } }),
+      JSON.stringify({ type: "item.completed", item: { id: "item-1" } }),
+      JSON.stringify({ type: "turn.completed" }),
+    ].join("\n");
+
+    expect(createObservation(undefined, output).terminalBoundary).toBe("turn.completed");
+  });
+});
 
 describe("Live Journey observation timing", () => {
   test("records an exact ISO observation window and permits a zero-duration turn", () => {

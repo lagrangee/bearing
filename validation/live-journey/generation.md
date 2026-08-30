@@ -172,10 +172,10 @@ Coordinator.
 
 For `DELIVERY-02`, also verify the exact authorized remote delta and clean remote
 commit. Score its GitHub Direct Execution consent, scope, delivery, and
-reconciliation only; `DELIVERY-01` already owns Implement/TDD/Code Review
-composition, so do not score that composition again. Deterministic support may
-reject an identity mismatch, missing result, forbidden state, or contradiction. It
-cannot manufacture a semantic pass.
+reconciliation only. Score `DELIVERY-01` on its bounded local change, truthful
+focused verification, native writeback, and exact reconciliation. Deterministic
+support may reject an identity mismatch, missing result, forbidden state, or
+contradiction. It cannot manufacture a semantic pass.
 
 Private transcripts, credentials, session identifiers, and unrelated
 machine-private paths are not durable evidence.
@@ -223,6 +223,8 @@ Highlight observations over ten minutes for later analysis. These numbers are
 optimization signals, not timeout fuses or reasons to keep repairing and rerunning
 the same Generation.
 
-Focused probes are diagnostic only. After accepted fixes, one complete fresh
-Generation is the evidence; passes from older identities are historical context
-and are never assembled into a current Matrix result.
+Focused probes cover `NATIVE-02`, `DELIVERY-01`, and `DELIVERY-02` and are
+diagnostic only. They score observable owner-transaction and delivery results,
+not a Skill invocation path. After accepted fixes, one complete fresh Generation
+is the evidence; passes from older identities are historical context and are
+never assembled into a current Matrix result.

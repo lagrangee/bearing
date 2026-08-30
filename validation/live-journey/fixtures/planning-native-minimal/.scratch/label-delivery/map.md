@@ -8,7 +8,7 @@ Decide the normalization rules needed for deterministic label output.
 
 ## Notes
 
-Use Grilling and Domain Modeling for human-owned decisions.
+Keep human-owned decisions with Human Authority; do not answer them on the user's behalf.
 
 ## Decisions so far
 

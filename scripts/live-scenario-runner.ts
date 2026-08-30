@@ -76,7 +76,10 @@ const installationEntryToken = ["$", "{INSTALL_ENTRY}"].join("");
 export const LIVE_SCENARIO_COORDINATOR_IDENTITY = "codex-coordinator" as const;
 const G1_INSTALLATION_SHELL = "/bin/zsh" as const;
 
-const liveScenarioRuntimePrefix = "bearing-live-scenario-";
+const liveScenarioRuntimeContainerName = "bearing-live-scenario-runtimes";
+
+const liveScenarioRuntimeContainer = (temporaryRoot: string) =>
+  join(temporaryRoot, liveScenarioRuntimeContainerName);
 
 const liveScenarioRuntimeRoot = (
   temporaryRoot: string,
@@ -85,32 +88,42 @@ const liveScenarioRuntimeRoot = (
   workspaceRoot: string,
 ) =>
   join(
-    temporaryRoot,
-    `${liveScenarioRuntimePrefix}${sha256(`${generationId}\0${scenarioId}\0${workspaceRoot}`).slice(
-      0,
-      32,
-    )}`,
+    liveScenarioRuntimeContainer(temporaryRoot),
+    `scenario-${sha256(`${generationId}\0${scenarioId}\0${workspaceRoot}`).slice(0, 32)}`,
   );
+
+const ensureLiveScenarioRuntimeContainer = async (temporaryRoot: string): Promise<string> => {
+  const container = liveScenarioRuntimeContainer(temporaryRoot);
+  try {
+    await mkdir(container, { mode: 0o700 });
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+  }
+  const identity = await lstat(container);
+  if (
+    !identity.isDirectory() ||
+    identity.isSymbolicLink() ||
+    (typeof process.getuid === "function" && identity.uid !== process.getuid())
+  ) {
+    fail("Live Scenario runtime container must be a private owned directory.");
+  }
+  await chmod(container, 0o700);
+  return realpath(container);
+};
 
 const liveScenarioReadDeniedPaths = (input: {
   sourceRoot: string;
   registryPath: string;
   operatorCodexHome: string;
   scenarioContainer: string;
-  existingRuntimeRoots: readonly string[];
+  runtimeDenyRoots: readonly string[];
 }) => [
   input.sourceRoot,
   input.registryPath,
   input.operatorCodexHome,
   input.scenarioContainer,
-  ...new Set(input.existingRuntimeRoots),
+  ...new Set(input.runtimeDenyRoots),
 ];
-
-const existingLiveScenarioRuntimeRoots = async (temporaryRoot: string): Promise<string[]> =>
-  (await readdir(temporaryRoot, { withFileTypes: true }))
-    .filter(({ name }) => name.startsWith(liveScenarioRuntimePrefix))
-    .map(({ name }) => join(temporaryRoot, name))
-    .sort((left, right) => left.localeCompare(right, "en"));
 
 export const deriveLiveScenarioGitHubScopeKey = (
   input: Parameters<typeof deriveGitHubJourneyScopeKey>[0],
@@ -607,6 +620,7 @@ export const prepareLiveScenarioGeneration = async (input: {
     .uuid()
     .parse(input.generationId ?? randomUUID());
   const temporaryRoot = await realpath(tmpdir());
+  const runtimeContainer = await ensureLiveScenarioRuntimeContainer(temporaryRoot);
   const scenarioContainer = await realpath(dirname(workspaceRoot));
   const runtimeRoot = liveScenarioRuntimeRoot(
     temporaryRoot,
@@ -614,9 +628,7 @@ export const prepareLiveScenarioGeneration = async (input: {
     scenario.id,
     workspaceRoot,
   );
-  const existingRuntimeRoots = (await existingLiveScenarioRuntimeRoots(temporaryRoot)).filter(
-    (path) => path !== runtimeRoot,
-  );
+  const runtimeDenyRoots = [runtimeContainer];
   const runtimeRelation = relative(scenarioContainer, runtimeRoot);
   if (
     runtimeRelation === "" ||
@@ -929,13 +941,12 @@ export const prepareLiveScenarioGeneration = async (input: {
       registryPath,
       operatorCodexHome,
       scenarioContainer,
-      existingRuntimeRoots,
+      runtimeDenyRoots,
     });
     const writeAllowedPaths =
       scenario.composition.fixtureProfile === "fresh-installation-repository"
         ? [join(agentHome, ".agents/skills")]
         : [];
-    const runtimeDenyRoots = [...new Set(existingRuntimeRoots)];
     const launch = codexE2ELaunchContract({
       repositoryRoot: repository,
       isolatedHome: agentHome,
@@ -1003,17 +1014,14 @@ export const prepareLiveScenarioGeneration = async (input: {
     await writeFile(manifestDigest, `${sha256(bytes)}\n`, { flag: "wx", mode: 0o600 });
     if (input.deferPermissionProbe !== true) {
       await probeCodexE2EPermissionProfile({
-        program: launch.initial.program,
-        repositoryRoot: repository,
-        isolatedHome: agentHome,
-        codexHome: agentCodexHome,
+        launch,
         manifestPath,
         registryPath,
         sourceRoot,
         operatorCodexHome,
         scenarioWorkspace: workspaceRoot,
         installationEntryPath,
-        readDeniedPaths,
+        runtimeIsolationRoot: runtimeContainer,
         writeAllowedPaths,
       });
     }
@@ -1048,7 +1056,9 @@ export const verifyLiveScenarioGeneration = async (
   const scenario =
     registry.scenarios.find(({ id }) => id === parsed.scenario.id) ??
     fail(`Live Scenario is no longer registered: ${parsed.scenario.id}.`);
-  const temporaryRoot = await realpath(dirname(parsed.paths.runtimeRoot));
+  const runtimeContainer = await realpath(dirname(parsed.paths.runtimeRoot));
+  const temporaryRoot = await realpath(dirname(runtimeContainer));
+  const expectedRuntimeContainer = liveScenarioRuntimeContainer(temporaryRoot);
   const expectedRuntimeRoot = liveScenarioRuntimeRoot(
     temporaryRoot,
     parsed.generationId,
@@ -1056,20 +1066,11 @@ export const verifyLiveScenarioGeneration = async (
     parsed.paths.workspaceRoot,
   );
   const scenarioContainer = await realpath(dirname(parsed.paths.workspaceRoot));
-  const currentRuntimeRoots = (await existingLiveScenarioRuntimeRoots(temporaryRoot)).filter(
-    (path) => path !== expectedRuntimeRoot,
-  );
-  const runtimeDenyRootSet = new Set(parsed.paths.runtimeDenyRoots);
   if (
     parsed.paths.operatorCodexHome !== (await realpath(parsed.paths.operatorCodexHome)) ||
+    runtimeContainer !== expectedRuntimeContainer ||
     parsed.paths.runtimeRoot !== expectedRuntimeRoot ||
-    runtimeDenyRootSet.size !== parsed.paths.runtimeDenyRoots.length ||
-    parsed.paths.runtimeDenyRoots.some(
-      (path) =>
-        dirname(path) !== temporaryRoot ||
-        !basename(path).startsWith(liveScenarioRuntimePrefix) ||
-        path === expectedRuntimeRoot,
-    ) ||
+    JSON.stringify(parsed.paths.runtimeDenyRoots) !== JSON.stringify([expectedRuntimeContainer]) ||
     parsed.paths.agentHome !== join(expectedRuntimeRoot, "agent-home") ||
     parsed.paths.repository !== join(expectedRuntimeRoot, "repository") ||
     parsed.paths.installationArtifact !==
@@ -1216,31 +1217,6 @@ export const verifyLiveScenarioGeneration = async (
   if (JSON.stringify(storedLaunch) !== JSON.stringify(parsed.launch)) {
     fail("Live Scenario Codex launch changed before Agent behavior.");
   }
-  const currentRuntimeDenyRoots = [
-    ...new Set([...parsed.paths.runtimeDenyRoots, ...currentRuntimeRoots]),
-  ];
-  const currentLaunch = codexE2ELaunchContract({
-    repositoryRoot: parsed.paths.repository,
-    isolatedHome: parsed.paths.agentHome,
-    codexHome: parsed.launch.environment.CODEX_HOME,
-    disabledOperatorSkillPaths: [],
-    readDeniedPaths: [
-      parsed.paths.sourceRoot,
-      parsed.paths.registry,
-      parsed.paths.operatorCodexHome,
-      scenarioContainer,
-      ...currentRuntimeDenyRoots,
-    ],
-    writeAllowedPaths:
-      scenario.composition.fixtureProfile === "fresh-installation-repository"
-        ? [join(parsed.paths.agentHome, ".agents/skills")]
-        : [],
-    program: parsed.launch.initial.program,
-    skipGitRepositoryCheck: scenario.composition.fixtureProfile === "non-project-directory",
-    ...(parsed.fixtureIdentity.runtime === undefined
-      ? {}
-      : { shellProgram: parsed.fixtureIdentity.runtime.shell.program }),
-  });
   if (parsed.github !== undefined) {
     const expectedScopeKey = deriveLiveScenarioGitHubScopeKey({
       packageVersion: parsed.package.packageVersion,
@@ -1273,5 +1249,5 @@ export const verifyLiveScenarioGeneration = async (
       fail("GitHub Live Scenario remote identity changed after preparation.");
     }
   }
-  return Object.freeze({ ...parsed, scenario, launch: currentLaunch });
+  return Object.freeze({ ...parsed, scenario, launch: storedLaunch });
 };

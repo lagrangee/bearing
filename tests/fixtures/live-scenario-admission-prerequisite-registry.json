@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {
+      "id": "TEST-SKILL-01",
+      "name": "Prerequisite Skill admission fixture",
+      "fixture": { "source": "validation/live-journey/fixtures/local-loop" },
+      "composition": {
+        "fixtureProfile": "active-repository",
+        "skills": [
+          { "skill": "bearing", "role": "prerequisite" },
+          { "skill": "implement", "role": "prerequisite" }
+        ],
+        "agentSurfaceProfile": "codex",
+        "capabilityProfile": "none",
+        "resourceKeys": [],
+        "model": "gpt-5.6-luna",
+        "reasoningEffort": "high",
+        "timeProfile": "standard"
+      },
+      "prompts": ["Inspect the isolated repository."],
+      "requiredOutcomes": ["The request stays bounded."],
+      "forbiddenOutcomes": ["No unrelated work is performed."]
+    }
+  ]
+}

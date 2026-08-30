@@ -551,8 +551,6 @@ export const materializeLiveScenarioProductState = async (input: {
 
 Type: grilling
 
-Status: claimed
-
 Blocked by: None — can start immediately
 
 ## Question

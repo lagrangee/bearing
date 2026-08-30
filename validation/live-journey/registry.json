@@ -359,7 +359,7 @@
     },
     {
       "id": "NATIVE-02",
-      "name": "Close one Wayfinder decision and reconcile the complete native transaction",
+      "name": "Close one native decision and reconcile the complete owner transaction",
       "fixture": {
         "source": "validation/live-journey/fixtures/planning-native-minimal"
       },
@@ -368,18 +368,6 @@
         "skills": [
           {
             "skill": "bearing",
-            "role": "prerequisite"
-          },
-          {
-            "skill": "wayfinder",
-            "role": "prerequisite"
-          },
-          {
-            "skill": "grilling",
-            "role": "prerequisite"
-          },
-          {
-            "skill": "domain-modeling",
             "role": "prerequisite"
           }
         ],
@@ -391,11 +379,11 @@
         "timeProfile": "standard"
       },
       "prompts": [
-        "请用 Wayfinder 推进现有的 Decide secondary label casing ticket；决定完成后，把这个 native transaction 的结果同步回 Bearing。",
+        "请推进现有的 Decide secondary label casing decision ticket；完成后把结果同步回 Bearing。",
         "secondary labels 最终要先 trim，再转换为 lowercase。"
       ],
       "requiredOutcomes": [
-        "The Agent actually uses Wayfinder with Grilling and Domain Modeling, claims the decision ticket, and waits for the Human answer before resolving it.",
+        "Work Management claims the existing decision ticket and waits for the Human answer before resolving it.",
         "After the answer, Work Management records one Answer, closes the ticket, and adds one Map decision pointer before Bearing reconciles the complete Ticket and Map subject set.",
         "The final readback preserves truthful native completion without inferring Effort conclusion, Gate Passage, or Roadmap completion."
       ],
@@ -498,51 +486,8 @@
       ]
     },
     {
-      "id": "WAYFINDER-01",
-      "name": "Stop Wayfinder at a focused Human Authority question",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/lifecycle-minimal"
-      },
-      "composition": {
-        "fixtureProfile": "active-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          },
-          {
-            "skill": "wayfinder",
-            "role": "prerequisite"
-          },
-          {
-            "skill": "grilling",
-            "role": "prerequisite"
-          },
-          {
-            "skill": "domain-modeling",
-            "role": "prerequisite"
-          }
-        ],
-        "agentSurfaceProfile": "codex",
-        "capabilityProfile": "none",
-        "resourceKeys": [],
-        "model": "gpt-5.6-luna",
-        "reasoningEffort": "high",
-        "timeProfile": "standard"
-      },
-      "prompts": [
-        "请用 Wayfinder 帮我梳理是否应该支持自定义标签分隔符这个想法。"
-      ],
-      "requiredOutcomes": [
-        "The Agent actually enters Wayfinder with Grilling and Domain Modeling and stops at one focused Human Authority question."
-      ],
-      "forbiddenOutcomes": [
-        "The Agent answers for the Human, creates a Map or tickets, mutates Bearing state, or starts implementation before the reply."
-      ]
-    },
-    {
       "id": "DELIVERY-01",
-      "name": "Deliver one minimal local change through Implement composition",
+      "name": "Deliver one minimal local change and reconcile the native result",
       "fixture": {
         "source": "validation/live-journey/fixtures/delivery-minimal"
       },
@@ -552,18 +497,6 @@
           {
             "skill": "bearing",
             "role": "prerequisite"
-          },
-          {
-            "skill": "implement",
-            "role": "prerequisite"
-          },
-          {
-            "skill": "tdd",
-            "role": "prerequisite"
-          },
-          {
-            "skill": "code-review",
-            "role": "prerequisite"
           }
         ],
         "agentSurfaceProfile": "codex",
@@ -574,14 +507,14 @@
         "timeProfile": "standard"
       },
       "prompts": [
-        "请用 Implement Skill 完成当前已 claim 的 Complete secondary label formatting ticket，验证后把实际 native 结果同步到 Bearing。"
+        "请完成当前的 Complete secondary label formatting ticket，验证后把实际结果同步到 Bearing。"
       ],
       "requiredOutcomes": [
-        "The Agent actually uses Implement, TDD at the agreed exported-function seam, and Code Review to deliver the one-function change and focused test.",
-        "Work Management records the verified native result before Bearing performs exact post-transaction reconciliation."
+        "The Agent keeps delivery to the requested one-function change and runs a focused test that truthfully verifies the result.",
+        "Work Management records the verified native result before Bearing performs exact post-transaction reconciliation of the complete affected subject set."
       ],
       "forbiddenOutcomes": [
-        "The Agent broadens the code change, skips the declared composition, fabricates verification, or infers Effort conclusion or Gate Passage."
+        "The Agent broadens the code change, fabricates verification, omits native writeback or an affected reconciliation subject, or infers Effort conclusion or Gate Passage."
       ]
     },
     {

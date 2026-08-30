@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readdir, realpath, rm } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import {
   prepareIsolatedCodexHome,
@@ -374,27 +374,15 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
   for (const prepared of preparedScenarios) {
     try {
       const verified = await verifyLiveScenarioGeneration(prepared.paths.manifest);
-      const siblingRuntimeRoots = preparedScenarios
-        .map(({ paths }) => paths.runtimeRoot)
-        .filter((runtimeRoot) => runtimeRoot !== prepared.paths.runtimeRoot);
       await probeCodexE2EPermissionProfile({
-        program: verified.launch.initial.program,
-        repositoryRoot: verified.paths.repository,
-        isolatedHome: verified.paths.agentHome,
-        codexHome: verified.launch.environment.CODEX_HOME,
+        launch: verified.launch,
         manifestPath: verified.paths.manifest,
         registryPath,
         sourceRoot,
         operatorCodexHome: verified.paths.operatorCodexHome,
         scenarioWorkspace: verified.paths.workspaceRoot,
         installationEntryPath: verified.paths.installationEntry,
-        readDeniedPaths: [
-          sourceRoot,
-          registryPath,
-          dirname(verified.paths.workspaceRoot),
-          verified.paths.operatorCodexHome,
-          ...siblingRuntimeRoots,
-        ],
+        runtimeIsolationRoot: resolve(verified.paths.runtimeRoot, ".."),
         writeAllowedPaths:
           verified.scenario.composition.fixtureProfile === "fresh-installation-repository"
             ? [join(verified.paths.agentHome, ".agents/skills")]

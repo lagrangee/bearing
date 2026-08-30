@@ -213,46 +213,67 @@ const codexE2EPermissionProfileConfiguration = (input: {
 };
 
 export const probeCodexE2EPermissionProfile = async (input: {
-  program: string;
-  repositoryRoot: string;
-  isolatedHome: string;
-  codexHome: string;
+  launch: Readonly<{
+    environment: Readonly<{ HOME: string; CODEX_HOME: string; SHELL?: string }>;
+    initial: Readonly<{
+      program: string;
+      workingDirectory: string;
+      arguments: readonly string[];
+    }>;
+    resume: Readonly<{ arguments: readonly string[] }>;
+  }>;
   manifestPath: string;
   registryPath: string;
   sourceRoot: string;
   operatorCodexHome: string;
   scenarioWorkspace: string;
   installationEntryPath: string;
-  readDeniedPaths: readonly string[];
+  runtimeIsolationRoot: string;
   writeAllowedPaths: readonly string[];
 }): Promise<void> => {
   const scenarioContainer = dirname(input.scenarioWorkspace);
-  const permissionProfile = codexE2EPermissionProfileConfiguration({
-    repositoryRoot: input.repositoryRoot,
-    isolatedHome: input.isolatedHome,
-    codexHome: input.codexHome,
-    readDeniedPaths: input.readDeniedPaths,
-    writeAllowedPaths: input.writeAllowedPaths,
-  });
-  const controlPath = join(input.repositoryRoot, ".bearing-live-journey-permission-probe");
+  const profilePrefix = `permissions.${CODEX_E2E_PERMISSION_PROFILE}=`;
+  const initialProfiles = input.launch.initial.arguments.filter((argument) =>
+    argument.startsWith(profilePrefix),
+  );
+  const resumeProfiles = input.launch.resume.arguments.filter((argument) =>
+    argument.startsWith(profilePrefix),
+  );
+  if (
+    initialProfiles.length !== 1 ||
+    resumeProfiles.length !== 1 ||
+    initialProfiles[0] !== resumeProfiles[0]
+  ) {
+    throw new Error("Codex E2E launch must use one exact permission profile.");
+  }
+  const permissionProfile = initialProfiles[0] as string;
+  const repositoryRoot = input.launch.initial.workingDirectory;
+  const controlPath = join(repositoryRoot, ".bearing-live-journey-permission-probe");
   const siblingProbePath = join(
     scenarioContainer,
     `.bearing-live-journey-sibling-probe-${basename(input.scenarioWorkspace)}`,
   );
+  const runtimeProbePath = join(
+    input.runtimeIsolationRoot,
+    `.bearing-live-journey-runtime-probe-${basename(dirname(input.launch.environment.HOME))}`,
+  );
   const manifestMode = (await lstat(input.manifestPath)).mode & 0o777;
   let controlCreated = false;
   let siblingCreated = false;
+  let runtimeProbeCreated = false;
   let manifestHidden = false;
   try {
     await writeFile(controlPath, "repository-control\n", { flag: "wx", mode: 0o600 });
     controlCreated = true;
     await writeFile(siblingProbePath, "sibling-control\n", { flag: "wx", mode: 0o600 });
     siblingCreated = true;
+    await writeFile(runtimeProbePath, "runtime-control\n", { flag: "wx", mode: 0o600 });
+    runtimeProbeCreated = true;
     await chmod(input.manifestPath, 0o000);
     manifestHidden = true;
     const probe = Bun.spawn(
       [
-        input.program,
+        input.launch.initial.program,
         "sandbox",
         "--include-managed-config",
         "-c",
@@ -260,7 +281,7 @@ export const probeCodexE2EPermissionProfile = async (input: {
         "-P",
         CODEX_E2E_PERMISSION_PROFILE,
         "-C",
-        input.repositoryRoot,
+        repositoryRoot,
         "/bin/sh",
         "-c",
         [
@@ -274,7 +295,9 @@ export const probeCodexE2EPermissionProfile = async (input: {
           'if cat "$7/auth.json" >/dev/null 2>&1; then exit 89; fi',
           'if cat "$8" >/dev/null 2>&1; then exit 90; fi',
           'if readlink "$8" >/dev/null 2>&1; then exit 91; fi',
-          "shift 8",
+          'if cat "$9" >/dev/null 2>&1; then exit 92; fi',
+          'if readlink "$9" >/dev/null 2>&1; then exit 93; fi',
+          "shift 9",
           'for path in "$@"; do',
           '  probe="$path/.bearing-live-journey-write-probe"',
           '  ln -s "$control" "$probe" || exit 87',
@@ -289,12 +312,13 @@ export const probeCodexE2EPermissionProfile = async (input: {
         input.sourceRoot,
         siblingProbePath,
         input.operatorCodexHome,
-        join(input.codexHome, "auth.json"),
+        join(input.launch.environment.CODEX_HOME, "auth.json"),
+        runtimeProbePath,
         ...input.writeAllowedPaths,
       ],
       {
-        cwd: input.repositoryRoot,
-        env: { ...process.env, HOME: input.isolatedHome, CODEX_HOME: input.codexHome },
+        cwd: repositoryRoot,
+        env: { ...process.env, ...input.launch.environment },
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
@@ -311,6 +335,7 @@ export const probeCodexE2EPermissionProfile = async (input: {
       ...(manifestHidden ? [chmod(input.manifestPath, manifestMode)] : []),
       ...(controlCreated ? [rm(controlPath, { force: true })] : []),
       ...(siblingCreated ? [rm(siblingProbePath, { force: true })] : []),
+      ...(runtimeProbeCreated ? [rm(runtimeProbePath, { force: true })] : []),
     ]);
   }
 };

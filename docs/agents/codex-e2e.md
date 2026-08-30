@@ -55,7 +55,9 @@ Scenarios with rolling concurrency four: start the next registry entry whenever 
 reaches a terminal boundary. Turns declared in one Scenario continue sequentially in that
 Scenario's one fresh conversation. That normal continuation is part of its single execution
 opportunity; it does not authorize recovery of a failed or partial execution. Before each turn, the
-runner rescans the opaque Scenario runtime roots and denies every other runtime root to that child.
+runner revalidates the prepared launch. All Scenario runtimes live below one private temporary
+container; the final permission profile denies that container and re-allows only the current
+Scenario repository and home. Admission probes that exact final profile before Agent behavior.
 
 For the GitHub Scenario, the runner can add only the operator's GitHub account selection to the
 isolated home. It does not copy a token or unrelated GitHub configuration to disk. A short-lived
@@ -107,6 +109,12 @@ confirmation counts, Coordinator-only answers, or hidden implementation choices.
 request or Fixture work item may name the real task target needed to ask for the work, such as a
 README or public function; that target is part of the request, not a leak. The Agent chooses any
 contract-valid workflow that satisfies the natural request.
+
+Structured Skill invocation is explicit-only at the current noninteractive host boundary. In
+particular, `codex exec` cannot inject a structured invocation for a Skill that disables model
+invocation. A natural prompt therefore cannot prove that Wayfinder or another named Skill ran.
+Automated Matrix Scenarios score user-visible contract outcomes, not a required Skill name or
+invocation path. This boundary does not create a manual gate or authorize a second runner.
 
 Provider-native byte shape, parser behavior, exact schema, broker allowlists, sandbox behavior,
 credential isolation, and evidence schema belong at deterministic contract seams. The Live Matrix

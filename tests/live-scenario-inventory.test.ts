@@ -19,6 +19,7 @@ import {
 } from "../scripts/live-scenario-product";
 import {
   digestLiveScenarioFixtureSet,
+  type LiveScenario,
   loadLiveScenarioRegistry,
   preflightLiveScenarioRegistry,
 } from "../scripts/live-scenario-registry";
@@ -41,10 +42,31 @@ const expectedScenarioIds = [
   "NATIVE-03",
   "STOP-01",
   "STOP-02",
-  "WAYFINDER-01",
   "DELIVERY-01",
   "DELIVERY-02",
 ] as const;
+
+const prerequisiteSkillScenario = {
+  id: "TEST-SKILL-01",
+  name: "Synthetic prerequisite Skill fixture",
+  fixture: { source: "validation/live-journey/fixtures/local-loop" },
+  composition: {
+    fixtureProfile: "active-repository",
+    skills: [
+      { skill: "bearing", role: "prerequisite" },
+      { skill: "implement", role: "prerequisite" },
+    ],
+    agentSurfaceProfile: "codex",
+    capabilityProfile: "none",
+    resourceKeys: [],
+    model: "gpt-5.6-luna",
+    reasoningEffort: "high",
+    timeProfile: "standard",
+  },
+  prompts: ["Inspect the isolated repository."],
+  requiredOutcomes: ["The request stays bounded."],
+  forbiddenOutcomes: ["No unrelated work is performed."],
+} satisfies LiveScenario;
 
 const expectedFixtureSources = [
   "validation/live-journey/fixtures/code-minimal",
@@ -68,7 +90,7 @@ const scenarioById = async (id: (typeof expectedScenarioIds)[number]) => {
 };
 
 describe("KISS Live Scenario inventory", () => {
-  test("tracks exactly the eighteen representative scenarios on four fixture families", async () => {
+  test("tracks exactly the seventeen representative scenarios on four fixture families", async () => {
     const registry = await loadLiveScenarioRegistry("validation/live-journey/registry.json");
 
     expect(registry.scenarios.map(({ id }) => id)).toEqual([...expectedScenarioIds]);
@@ -92,7 +114,7 @@ describe("KISS Live Scenario inventory", () => {
       sourceRoot: process.cwd(),
       registryPath: "validation/live-journey/registry.json",
     });
-    expect(preflight.scenarioCount).toBe(18);
+    expect(preflight.scenarioCount).toBe(17);
     expect(preflight.semanticReviewScenarioIds).toEqual([...expectedScenarioIds]);
   });
 
@@ -178,44 +200,36 @@ describe("KISS Live Scenario inventory", () => {
     ).toContain("formatPrimaryLabel");
   });
 
-  test("keeps real Skill composition separate from bounded GitHub Direct Execution", async () => {
-    const registry = await loadLiveScenarioRegistry("validation/live-journey/registry.json");
+  test("keeps native and delivery Scenarios result-oriented at the host boundary", async () => {
     const native = await scenarioById("NATIVE-02");
-    const wayfinder = await scenarioById("WAYFINDER-01");
     const localDelivery = await scenarioById("DELIVERY-01");
     const githubDelivery = await scenarioById("DELIVERY-02");
 
-    expect(native.composition.skills.map(({ skill }) => skill)).toEqual([
-      "bearing",
-      "wayfinder",
-      "grilling",
-      "domain-modeling",
-    ]);
+    expect(native.composition.skills.map(({ skill }) => skill)).toEqual(["bearing"]);
     expect(native.prompts).toHaveLength(2);
-    expect(native.prompts[0]).toMatch(/Wayfinder/iu);
-    expect(wayfinder.composition.skills.map(({ skill }) => skill)).toEqual([
-      "bearing",
-      "wayfinder",
-      "grilling",
-      "domain-modeling",
-    ]);
-    expect(wayfinder.forbiddenOutcomes.join("\n")).toMatch(/creates a Map/iu);
-
-    const implementComposition = ["bearing", "implement", "tdd", "code-review"] as const;
-    expect(localDelivery.composition.skills.map(({ skill }) => skill)).toEqual([
-      ...implementComposition,
-    ]);
+    expect(native.prompts.join("\n")).not.toMatch(/Wayfinder|Grilling|Domain Modeling/iu);
+    expect(native.requiredOutcomes.join("\n")).toMatch(
+      /claims the existing decision ticket.*waits for the Human answer/is,
+    );
+    expect(native.requiredOutcomes.join("\n")).toMatch(
+      /records one Answer.*Map decision pointer.*complete Ticket and Map subject set/is,
+    );
+    expect(native.requiredOutcomes.join("\n")).toMatch(
+      /without inferring Effort conclusion, Gate Passage, or Roadmap completion/iu,
+    );
     expect(
-      registry.scenarios
-        .filter(({ composition }) =>
-          composition.skills.some(({ skill }) =>
-            ["implement", "tdd", "code-review"].includes(skill),
-          ),
-        )
-        .map(({ id }) => id),
-    ).toEqual(["DELIVERY-01"]);
+      [...native.prompts, ...native.requiredOutcomes, ...native.forbiddenOutcomes].join("\n"),
+    ).not.toMatch(/actually uses|Grilling|Domain Modeling/iu);
+
+    expect(localDelivery.composition.skills.map(({ skill }) => skill)).toEqual(["bearing"]);
+    expect(localDelivery.prompts.join("\n")).not.toMatch(/Implement Skill|TDD|Code Review/iu);
+    expect(localDelivery.requiredOutcomes.join("\n")).toMatch(
+      /one-function change.*focused test.*truthfully verifies/is,
+    );
+    expect(localDelivery.requiredOutcomes.join("\n")).toMatch(
+      /records the verified native result.*exact post-transaction reconciliation/is,
+    );
     expect(githubDelivery.composition.skills.map(({ skill }) => skill)).toEqual(["bearing"]);
-    expect(localDelivery.prompts.join("\n")).toMatch(/Implement Skill/iu);
     expect(githubDelivery.prompts).toHaveLength(2);
     expect(
       [
@@ -230,7 +244,7 @@ describe("KISS Live Scenario inventory", () => {
     });
   });
 
-  test("materializes NATIVE-02 as one claimed grilling ticket", async () => {
+  test("materializes NATIVE-02 as one unclaimed Human-owned decision ticket", async () => {
     const root = await mkdtemp(join(tmpdir(), "bearing-live-native-02-"));
     temporaryRoots.push(root);
     const repositoryRoot = join(root, "repository");
@@ -259,7 +273,10 @@ describe("KISS Live Scenario inventory", () => {
     expect(await readdir(issueRoot)).toEqual(["05-decide-secondary-label-casing.md"]);
     expect(
       await readFile(join(issueRoot, "05-decide-secondary-label-casing.md"), "utf8"),
-    ).toContain("Type: grilling");
+    ).not.toMatch(/^Status:/mu);
+    expect(
+      await readFile(join(repositoryRoot, ".scratch/label-delivery/map.md"), "utf8"),
+    ).not.toMatch(/Grilling|Domain Modeling/iu);
   });
 
   test("rebuilds the isolated GitHub fixture for the current Kit", async () => {
@@ -359,34 +376,27 @@ describe("KISS Live Scenario inventory", () => {
     expect(status.stdout.toString().trim()).toBe("");
   });
 
-  test("copies only declared non-Bearing prerequisite Skills from the trusted root", async () => {
+  test("copies only declared prerequisite Skills from the trusted root", async () => {
     const root = await mkdtemp(join(tmpdir(), "bearing-live-skills-"));
     temporaryRoots.push(root);
     const trustedSkillRoot = join(root, "trusted");
     const targetSkillRoot = join(root, "target");
     await Promise.all([mkdir(trustedSkillRoot), mkdir(targetSkillRoot)]);
-    for (const skill of ["implement", "tdd", "code-review", "ambient"]) {
+    for (const skill of ["implement", "ambient"]) {
       await mkdir(join(trustedSkillRoot, skill));
       await writeFile(join(trustedSkillRoot, skill, "SKILL.md"), `# ${skill}\n`);
     }
 
-    const materialized = await materializeDeclaredPrerequisiteSkills({
-      scenario: await scenarioById("DELIVERY-01"),
-      trustedSkillRoot,
-      targetSkillRoot,
-    });
-
-    expect(materialized).toEqual(["implement", "tdd", "code-review"]);
-    expect((await readdir(targetSkillRoot)).sort()).toEqual(["code-review", "implement", "tdd"]);
-    await expect(lstat(join(targetSkillRoot, "bearing"))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(lstat(join(targetSkillRoot, "ambient"))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(
-      materializeDeclaredPrerequisiteSkills({
-        scenario: await scenarioById("DELIVERY-01"),
+    expect(
+      await materializeDeclaredPrerequisiteSkills({
+        scenario: prerequisiteSkillScenario,
         trustedSkillRoot,
         targetSkillRoot,
       }),
-    ).rejects.toThrow("target already exists");
+    ).toEqual(["implement"]);
+    expect(await readdir(targetSkillRoot)).toEqual(["implement"]);
+    await expect(lstat(join(targetSkillRoot, "bearing"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(targetSkillRoot, "ambient"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test("rejects a declared Skill that escapes the trusted root", async () => {
@@ -397,11 +407,11 @@ describe("KISS Live Scenario inventory", () => {
     const targetSkillRoot = join(root, "target");
     await Promise.all([mkdir(trustedSkillRoot), mkdir(outside), mkdir(targetSkillRoot)]);
     await writeFile(join(outside, "SKILL.md"), "# outside\n");
-    await symlink(outside, join(trustedSkillRoot, "wayfinder"));
+    await symlink(outside, join(trustedSkillRoot, "implement"));
 
     await expect(
       materializeDeclaredPrerequisiteSkills({
-        scenario: await scenarioById("WAYFINDER-01"),
+        scenario: prerequisiteSkillScenario,
         trustedSkillRoot,
         targetSkillRoot,
       }),

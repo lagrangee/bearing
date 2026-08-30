@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   discardLiveScenarioGenerationAdmission,
   prepareLiveScenarioGenerationAdmission,
@@ -18,6 +18,8 @@ import { localRehearsalWorktreeDigest } from "../scripts/local-rehearsal-identit
 import { sha256File } from "../scripts/release-digest";
 
 const registryPath = "tests/fixtures/live-scenario-admission-registry.json";
+const prerequisiteRegistryPath =
+  "tests/fixtures/live-scenario-admission-prerequisite-registry.json";
 const generationId = "11111111-1111-4111-8111-111111111111";
 
 const createFixture = async (
@@ -30,6 +32,7 @@ const createFixture = async (
   const operatorCodexHome = join(root, "operator-codex-home");
   const workspaceRoot = join(root, "generation-workspace");
   const fakeCodex = join(root, "codex-fixture");
+  const permissionProbeCapture = join(root, "permission-probe-arguments.txt");
   await Promise.all([
     mkdir(join(packageRoot, "package/docs"), { recursive: true }),
     mkdir(operatorCodexHome),
@@ -53,6 +56,7 @@ if [ "$1" = "debug" ] && [ "$2" = "models" ]; then
   exit 0
 fi
 if [ "$1" = "sandbox" ]; then
+  printf '%s\\n' "$@" >> ${JSON.stringify(permissionProbeCapture)}
   ${mode === "permission-failure" ? "exit 17" : "exit 0"}
 fi
 exit 64
@@ -71,6 +75,7 @@ exit 64
     workspaceRoot,
     operatorCodexHome,
     fakeCodex,
+    permissionProbeCapture,
     package: {
       evidenceClass: "local-rehearsal" as const,
       packageName: "@lagrangee/bearing" as const,
@@ -108,28 +113,9 @@ const prepare = async (
 };
 
 describe("Live Matrix Generation preflight", () => {
-  test("keeps exactly the 18 finite tracked Scenario compositions", async () => {
+  test("keeps tracked Scenario runtime composition finite", async () => {
     const tracked = await loadLiveScenarioRegistry("validation/live-journey/registry.json");
-    expect(tracked.scenarios.map(({ id }) => id)).toEqual([
-      "INSTALL-01",
-      "ENTRY-03",
-      "CONFIG-01",
-      "CONFIG-02",
-      "CONFIG-UPDATE-01",
-      "GUIDE-01",
-      "INTAKE-01",
-      "NATIVE-01",
-      "NATIVE-04",
-      "STOP-03",
-      "NATIVE-05",
-      "NATIVE-02",
-      "NATIVE-03",
-      "STOP-01",
-      "STOP-02",
-      "WAYFINDER-01",
-      "DELIVERY-01",
-      "DELIVERY-02",
-    ]);
+    expect(tracked.scenarios.length).toBeGreaterThan(0);
     expect(
       tracked.scenarios.every(
         ({ composition }) =>
@@ -141,7 +127,7 @@ describe("Live Matrix Generation preflight", () => {
   });
 
   test("prepares every selected Scenario and returns the sole Generation basis", async () => {
-    const { result } = await prepare();
+    const { fixture, result } = await prepare();
     expect(result).toMatchObject({
       outcome: "admitted",
       generationId,
@@ -166,6 +152,18 @@ describe("Live Matrix Generation preflight", () => {
     );
     expect(result.preparedScenarios).toHaveLength(2);
     expect(result.generationBasis.preparedScenarios).toHaveLength(2);
+    const probedProfiles = (await readFile(fixture.permissionProbeCapture, "utf8"))
+      .split("\n")
+      .filter((argument) => argument.startsWith("permissions.bearing_live_journey="));
+    const launchedProfiles = result.preparedScenarios
+      .map(({ launch }) =>
+        launch.initial.arguments.find((argument) =>
+          argument.startsWith("permissions.bearing_live_journey="),
+        ),
+      )
+      .filter((profile): profile is string => profile !== undefined);
+    expect(launchedProfiles).toHaveLength(result.preparedScenarios.length);
+    expect(probedProfiles).toEqual(launchedProfiles);
     for (const prepared of result.preparedScenarios) {
       expect(JSON.parse(await readFile(prepared.paths.manifest, "utf8"))).not.toHaveProperty(
         "admission",
@@ -175,7 +173,26 @@ describe("Live Matrix Generation preflight", () => {
     await discardLiveScenarioGenerationAdmission(result);
   });
 
-  test("rejects the whole Generation after a runner fault without writing an execution handoff", async () => {
+  test("denies one shared runtime container without enumerating ambient roots", async () => {
+    const runtimeContainer = join(await realpath(tmpdir()), "bearing-live-scenario-runtimes");
+    await mkdir(runtimeContainer, { recursive: true });
+    const ambientRoot = await mkdtemp(join(runtimeContainer, "ambient-"));
+    try {
+      const { result } = await prepare();
+      if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+      for (const prepared of result.preparedScenarios) {
+        expect(prepared.paths.runtimeDenyRoots).toEqual([runtimeContainer]);
+        expect(dirname(prepared.paths.runtimeRoot)).toBe(runtimeContainer);
+        expect(prepared.launch.initial.arguments.join("\n")).toContain(runtimeContainer);
+        expect(prepared.launch.initial.arguments.join("\n")).not.toContain(ambientRoot);
+      }
+      await discardLiveScenarioGenerationAdmission(result);
+    } finally {
+      await rm(ambientRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a malformed Codex item boundary without writing an execution handoff", async () => {
     const { fixture, result } = await prepare();
     if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
     const generationPath = join(fixture.workspaceRoot, "generation.json");
@@ -191,8 +208,9 @@ if [ "$1" = "--version" ]; then
 fi
 printf '%s\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"}'
 printf '%s\n' '{"type":"turn.started"}'
-printf '%s\n' '{"type":"turn.failed","error":{"message":"fixture runner fault"}}'
-exit 17
+printf '%s\n' '{"type":"item.started","item":{"type":"command_execution"}}'
+printf '%s\n' '{"type":"turn.completed"}'
+exit 0
 `,
     );
 
@@ -298,21 +316,20 @@ exit 17
   });
 
   test("requires the explicit prerequisite root and every declared Skill before preparation", async () => {
-    const trackedRegistry = "validation/live-journey/registry.json";
-    const fixture = await createFixture("admitted", trackedRegistry);
+    const fixture = await createFixture("admitted", prerequisiteRegistryPath);
     const missingRoot = await prepareLiveScenarioGenerationAdmission({
       sourceRoot: process.cwd(),
       workspaceRoot: fixture.workspaceRoot,
       operatorCodexHome: fixture.operatorCodexHome,
-      registryPath: trackedRegistry,
-      scenarioIds: ["DELIVERY-01"],
+      registryPath: prerequisiteRegistryPath,
+      scenarioIds: ["TEST-SKILL-01"],
       generationId,
       package: fixture.package,
       codexProgram: fixture.fakeCodex,
     });
     expect(missingRoot).toMatchObject({
       outcome: "preflight blocked",
-      diagnostics: [{ code: "prerequisite-skill-unavailable", scenarioId: "DELIVERY-01" }],
+      diagnostics: [{ code: "prerequisite-skill-unavailable", scenarioId: "TEST-SKILL-01" }],
     });
 
     const emptySkillRoot = join(fixture.root, "empty-skills");
@@ -321,8 +338,8 @@ exit 17
       sourceRoot: process.cwd(),
       workspaceRoot: join(fixture.root, "missing-skill-workspace"),
       operatorCodexHome: fixture.operatorCodexHome,
-      registryPath: trackedRegistry,
-      scenarioIds: ["DELIVERY-01"],
+      registryPath: prerequisiteRegistryPath,
+      scenarioIds: ["TEST-SKILL-01"],
       generationId,
       package: fixture.package,
       prerequisiteSkillRoot: emptySkillRoot,
@@ -330,7 +347,7 @@ exit 17
     });
     expect(missingSkill).toMatchObject({
       outcome: "preflight blocked",
-      diagnostics: [{ code: "prerequisite-skill-unavailable", scenarioId: "DELIVERY-01" }],
+      diagnostics: [{ code: "prerequisite-skill-unavailable", scenarioId: "TEST-SKILL-01" }],
     });
   });
 
@@ -339,8 +356,12 @@ exit 17
     expect(result).toMatchObject({
       outcome: "preflight blocked",
       diagnostics: [{ code: "permission-failure", scenarioId: "TEST-01" }],
+      activeGenerationCreated: false,
     });
     await expect(access(fixture.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(join(fixture.workspaceRoot, "generation.json"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   test("blocks a missing GitHub capability before workspace creation", async () => {
