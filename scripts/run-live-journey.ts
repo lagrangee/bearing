@@ -4,7 +4,10 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import packageMetadata from "../package.json";
-import { assertCodexE2EOutputIsolation } from "./codex-e2e-runtime";
+import {
+  assertCodexE2EOutputIsolation,
+  redactCodexE2EEphemeralCapabilities,
+} from "./codex-e2e-runtime";
 import {
   assertGitHubRemoteIntegrity,
   captureGitHubRemoteInventory,
@@ -678,21 +681,26 @@ const runPreparedCodexTurn = async (prepared: Awaited<ReturnType<typeof prepareC
   ) {
     fail("GitHub credential appeared in Codex process output; transcript was not written.");
   }
+  const ephemeralCapabilityValues = [
+    prepared.environment["BEARING_GITHUB_BROKER_SOCKET"],
+    prepared.environment["BEARING_GITHUB_BROKER_AUTH"],
+  ].filter((value): value is string => value !== undefined);
+  const output = {
+    stdout: redactCodexE2EEphemeralCapabilities(result.stdout, ephemeralCapabilityValues),
+    stderr: redactCodexE2EEphemeralCapabilities(result.stderr, ephemeralCapabilityValues),
+  };
   assertCodexE2EOutputIsolation({
-    stdout: result.stdout,
-    stderr: result.stderr,
+    ...output,
     operatorCodexHome: prepared.operatorCodexHome,
-    ephemeralCapabilityValues: [
-      prepared.environment["BEARING_GITHUB_BROKER_SOCKET"],
-      prepared.environment["BEARING_GITHUB_BROKER_AUTH"],
-    ].filter((value): value is string => value !== undefined),
+    ephemeralCapabilityValues,
   });
   await Promise.all([
-    writeFile(prepared.transcriptPath, result.stdout, { flag: "wx" }),
-    writeFile(prepared.stderrPath, result.stderr, { flag: "wx" }),
+    writeFile(prepared.transcriptPath, output.stdout, { flag: "wx" }),
+    writeFile(prepared.stderrPath, output.stderr, { flag: "wx" }),
   ]);
   return {
     ...result,
+    ...output,
     startedAt: new Date(startedAt).toISOString(),
     endedAt: new Date(endedAt).toISOString(),
     durationMs,

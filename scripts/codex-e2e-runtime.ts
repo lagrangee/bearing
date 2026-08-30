@@ -273,6 +273,15 @@ export const assertCodexE2EOutputIsolation = (input: {
   }
 };
 
+export const redactCodexE2EEphemeralCapabilities = (
+  value: string,
+  capabilities: readonly string[],
+): string =>
+  [...new Set(capabilities.filter((capability) => capability.length > 0))].reduce(
+    (redacted, capability) => redacted.replaceAll(capability, "<ephemeral-capability-redacted>"),
+    value,
+  );
+
 export const prepareIsolatedCodexHome = async (input: {
   operatorCodexHome: string;
   isolatedHome: string;

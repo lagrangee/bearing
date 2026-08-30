@@ -86,7 +86,11 @@ API methods, file-backed inputs, and Agent-supplied GraphQL. Missing isolated ac
 Scenario before behavior. Do not add another broker, filesystem mailbox, polling protocol, product
 loopback, or general capability framework. The launcher gives the Agent a Scenario-private TMPDIR,
 a canonical toolchain PATH, and no operator USER or LOGNAME. Broker authentication and socket
-values are ephemeral and must be rejected before Codex output is written as a transcript.
+values are ephemeral. If Codex echoes an exact ephemeral value, the runner replaces every exact
+occurrence with an explicit redaction marker before transcript publication and then rechecks the
+output; an actual GitHub token, operator configuration path, or unremoved capability value still
+rejects the Turn before publication. Redaction is not a semantic pass and remains visible to the
+Coordinator in the private transcript.
 
 ## Matrix and Scenario contract
 

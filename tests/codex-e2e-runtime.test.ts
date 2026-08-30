@@ -22,6 +22,7 @@ import {
   inspectCodexE2EToolchain,
   prepareIsolatedCodexHome,
   readCodexE2EModelAvailability,
+  redactCodexE2EEphemeralCapabilities,
 } from "../scripts/codex-e2e-runtime";
 
 const fixtureToolchain = Object.freeze({
@@ -341,6 +342,21 @@ describe("repository Codex E2E policy", () => {
         ephemeralCapabilityValues: ["ephemeral-auth"],
       }),
     ).toThrow("ephemeral capability value");
+    const redacted = redactCodexE2EEphemeralCapabilities(
+      "socket=/private/tmp/broker.sock auth=ephemeral-auth auth=ephemeral-auth",
+      ["/private/tmp/broker.sock", "ephemeral-auth", "ephemeral-auth", ""],
+    );
+    expect(redacted).toBe(
+      "socket=<ephemeral-capability-redacted> auth=<ephemeral-capability-redacted> auth=<ephemeral-capability-redacted>",
+    );
+    expect(() =>
+      assertCodexE2EOutputIsolation({
+        stdout: redacted,
+        stderr: "",
+        operatorCodexHome: "/Users/operator/.codex",
+        ephemeralCapabilityValues: ["/private/tmp/broker.sock", "ephemeral-auth"],
+      }),
+    ).not.toThrow();
   });
 
   test("records only the required exact-candidate and runtime evidence", () => {
