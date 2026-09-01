@@ -112,20 +112,45 @@ const runProcess = async (
   args: readonly string[],
   environment: Readonly<Record<string, string>>,
   workingDirectory?: string,
+  hooks?: Readonly<{
+    beforeSpawn: () => Promise<void>;
+    spawnFailed: () => Promise<void>;
+    spawned: (childPid: number) => Promise<void>;
+  }>,
 ) => {
-  const child = Bun.spawn([program, ...args], {
-    ...(workingDirectory === undefined ? {} : { cwd: workingDirectory }),
-    env: environment,
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  return { exitCode, stdout, stderr };
+  await hooks?.beforeSpawn();
+  const child = await (async () => {
+    try {
+      return Bun.spawn([program, ...args], {
+        ...(workingDirectory === undefined ? {} : { cwd: workingDirectory }),
+        env: environment,
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+    } catch (error) {
+      await hooks?.spawnFailed();
+      throw error;
+    }
+  })();
+  try {
+    await hooks?.spawned(child.pid);
+  } catch (error) {
+    child.kill();
+    await child.exited;
+    throw error;
+  }
+  const exited = child.exited;
+  const stdout = new Response(child.stdout).text();
+  const stderr = new Response(child.stderr).text();
+  try {
+    const [exitCode, stdoutText, stderrText] = await Promise.all([exited, stdout, stderr]);
+    return { exitCode, stdout: stdoutText, stderr: stderrText };
+  } catch (error) {
+    child.kill();
+    await Promise.allSettled([exited, stdout, stderr]);
+    throw error;
+  }
 };
 
 const readGeneration = async (path: string) => {
@@ -192,6 +217,27 @@ const isAlreadyExists = (error: unknown): boolean =>
 const activeSlotPath = (generation: Generation, slot: number): string =>
   join(generation.workspaceRoot, `.active-scenario-${slot}`);
 
+const scenarioStartReservationPath = (manifest: Manifest): string =>
+  join(manifest.paths.workspaceRoot, "start-reserved");
+
+const startReservationSchema = z
+  .object({ scenarioId: liveScenarioIdSchema, ownerPid: z.number().int().positive() })
+  .strict();
+
+const scenarioHasActiveSlot = async (
+  generation: Generation,
+  scenarioId: string,
+): Promise<boolean> => {
+  const slots = Array.from({ length: LIVE_MATRIX_CONCURRENCY }, (_, index) => index + 1);
+  const owners = await Promise.all(
+    slots.map(async (slot) => {
+      const path = activeSlotPath(generation, slot);
+      return (await exists(path)) ? (await readFile(path, "utf8")).trim() : undefined;
+    }),
+  );
+  return owners.includes(scenarioId);
+};
+
 const releaseScenarioSlot = async (generation: Generation, scenarioId: string): Promise<void> => {
   const slots = Array.from({ length: LIVE_MATRIX_CONCURRENCY }, (_, index) => index + 1);
   await Promise.all(
@@ -208,9 +254,13 @@ const reserveScenarioStart = async (
   generation: Generation,
   manifest: Manifest,
 ): Promise<string> => {
-  const reservation = join(manifest.paths.workspaceRoot, "start-reserved");
+  const reservation = scenarioStartReservationPath(manifest);
   try {
-    await writeFile(reservation, `${manifest.scenario.id}\n`, { flag: "wx" });
+    await writeFile(
+      reservation,
+      `${JSON.stringify({ scenarioId: manifest.scenario.id, ownerPid: process.pid })}\n`,
+      { flag: "wx" },
+    );
   } catch (error) {
     if (isAlreadyExists(error)) {
       fail("An adaptive Scenario can start only once in one Generation.");
@@ -238,7 +288,9 @@ const redactExactValues = (value: string, replacements: readonly (readonly [stri
     value,
   );
 
-const rejectedDurableEventStream = (reason: "credential-match" | "scanner-unavailable"): string =>
+const rejectedDurableEventStream = (
+  reason: "credential-match" | "scanner-unavailable" | "mechanical-failure",
+): string =>
   `${JSON.stringify({ type: "thread.started", thread_id: "[evidence-rejected]" })}\n${JSON.stringify(
     {
       type: "turn.started",
@@ -249,6 +301,24 @@ const rejectedDurableEventStream = (reason: "credential-match" | "scanner-unavai
 
 const snapshotScenarioAgentHome = (agentHome: string): Promise<string> =>
   snapshotDirectory(agentHome, { excludeTrees: [".codex", "skill-directory/.system"] });
+
+const invocationMarkerPath = (manifest: Manifest): string =>
+  join(manifest.paths.workspaceRoot, "turn-invocation-started.json");
+
+const generationInvocationMarkerPath = (generation: Generation, scenarioId: string): string =>
+  join(generation.workspaceRoot, "scenarios", scenarioId, "turn-invocation-started.json");
+
+const invocationMarkerSchema = z
+  .object({
+    turn: z.number().int().positive(),
+    startedAt: z.string().datetime({ offset: true }),
+    codexCliVersion: z.string().min(1),
+    human: z.string().min(1),
+    ownerPid: z.number().int().positive(),
+    childPid: z.number().int().positive().optional(),
+    before: z.object({ repository: z.string(), agentHome: z.string() }).strict(),
+  })
+  .strict();
 
 const appendConversation = async (
   manifest: Manifest,
@@ -273,23 +343,20 @@ const appendConversation = async (
   await writeFile(manifest.paths.conversation, durableConversation(`${current}${section}`));
 };
 
-const appendAgentReply = async (manifest: Manifest, agent: string): Promise<void> => {
-  const current = await readFile(manifest.paths.conversation, "utf8");
-  await writeFile(
-    manifest.paths.conversation,
-    scanLiveScenarioDurableText({
-      value: `${current}### Agent\n\n${agent}\n\n`,
-      configPath: resolve(".gitleaks.toml"),
-    }),
-  );
-};
-
-const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number }) => {
+const runTurn = async (input: {
+  manifest: Manifest;
+  prompt: string;
+  human: string;
+  turn: number;
+  turnClaimed?: boolean;
+}) => {
   const manifest = await verifyLiveScenarioBehaviorBoundary(input.manifest.paths.manifest);
   if (await exists(manifest.paths.result))
     fail("A finalized Scenario cannot be resumed or resampled.");
   const turnMarker = join(manifest.paths.workspaceRoot, "turn-in-progress");
-  await writeFile(turnMarker, `${input.turn}\n`, { flag: "wx" });
+  if (input.turnClaimed !== true) {
+    await writeFile(turnMarker, `${input.turn}\n`, { flag: "wx" });
+  }
   try {
     const sessionState = await readCodexSessionState(manifest.paths.sessionState);
     if (sessionState === undefined && input.turn !== 1) {
@@ -314,6 +381,10 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
       registry.scenarios.map(({ id }) => id),
       [manifest.paths.installationEntry],
     );
+    const human = scanLiveScenarioDurableText({
+      value: input.human,
+      configPath: resolve(".gitleaks.toml"),
+    });
     const environment = createCodexJourneyEnvironment(process.env, manifest.launch.environment, {
       includeCanonicalBearingBin:
         manifest.scenario.fixedValidationFixture.profile !== "fresh-installation-repository",
@@ -386,6 +457,29 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
       manifest.paths.sessionState,
       ...(manifest.paths.remoteInventories === undefined ? [] : [manifest.paths.remoteInventories]),
     ];
+    const invocationMarker = invocationMarkerPath(manifest);
+    const invocationHooks = {
+      beforeSpawn: () =>
+        writeFile(
+          invocationMarker,
+          `${JSON.stringify({
+            turn: input.turn,
+            startedAt: new Date(startedAt).toISOString(),
+            codexCliVersion: version.stdout.trim(),
+            human,
+            ownerPid: process.pid,
+            before,
+          })}\n`,
+          { flag: "wx" },
+        ),
+      spawnFailed: () => rm(invocationMarker, { force: true }),
+      spawned: async (childPid: number) => {
+        const marker = invocationMarkerSchema.parse(
+          JSON.parse(await readFile(invocationMarker, "utf8")),
+        );
+        await writeFile(invocationMarker, `${JSON.stringify({ ...marker, childPid })}\n`);
+      },
+    } as const;
     if (manifest.github === undefined) {
       processResult = await withCoordinatorStateHidden(
         {
@@ -393,7 +487,14 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
           agentHome: manifest.paths.agentHome,
           repository: manifest.paths.repository,
         },
-        () => runProcess(step.program, [...args, prompt], environment, step.workingDirectory),
+        () =>
+          runProcess(
+            step.program,
+            [...args, prompt],
+            environment,
+            step.workingDirectory,
+            invocationHooks,
+          ),
       );
     } else {
       const inventoryRoot =
@@ -435,6 +536,7 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
               [...args, ...broker.codexArguments, prompt],
               broker.environment,
               step.workingDirectory,
+              invocationHooks,
             ),
         );
       } finally {
@@ -552,6 +654,8 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
       });
     }
     if (evidenceOutcome === "rejected") {
+      await appendConversation(manifest, input.turn, human);
+      await rm(invocationMarker, { force: true });
       return Object.freeze({
         scenarioId: manifest.scenario.id,
         turn: input.turn,
@@ -560,10 +664,13 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
       });
     }
     if (!observationCompletedCleanly(observation) || observedSessionId === undefined) {
+      await appendConversation(manifest, input.turn, human);
+      await rm(invocationMarker, { force: true });
       fail(`Live Scenario ${manifest.scenario.id} Turn ${input.turn} did not complete cleanly.`);
     }
     const agentReply = extractCodexAgentReply(durableOutput.stdout);
-    await appendAgentReply(manifest, agentReply);
+    await appendConversation(manifest, input.turn, human, agentReply);
+    await rm(invocationMarker, { force: true });
     return Object.freeze({
       scenarioId: manifest.scenario.id,
       turn: input.turn,
@@ -572,8 +679,154 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
       observation: observationPath,
     });
   } finally {
-    await rm(turnMarker, { force: true });
+    if (input.turnClaimed !== true) await rm(turnMarker, { force: true });
   }
+};
+
+const sealInterruptedInvocation = async (manifest: Manifest) => {
+  const markerPath = invocationMarkerPath(manifest);
+  const marker = invocationMarkerSchema.parse(JSON.parse(await readFile(markerPath, "utf8")));
+  const turnLabel = String(marker.turn).padStart(2, "0");
+  const eventsPath = join(manifest.paths.events, `turn-${turnLabel}.jsonl`);
+  const stderrPath = join(manifest.paths.events, `turn-${turnLabel}.stderr.log`);
+  const observationPath = join(manifest.paths.observations, `turn-${turnLabel}.json`);
+  const stdout = rejectedDurableEventStream("mechanical-failure");
+  const endedAt = new Date().toISOString();
+  const after = {
+    repository: await snapshotDirectory(manifest.paths.repository).catch(
+      () => "[repository snapshot unavailable after invocation]",
+    ),
+    agentHome: await snapshotScenarioAgentHome(manifest.paths.agentHome).catch(
+      () => "[agent-home snapshot unavailable after invocation]",
+    ),
+  };
+  await Promise.all([
+    rm(eventsPath, { force: true }),
+    rm(stderrPath, { force: true }),
+    rm(observationPath, { force: true }),
+  ]);
+  await Promise.all([
+    writeFile(eventsPath, stdout, { flag: "wx" }),
+    writeFile(stderrPath, "", { flag: "wx" }),
+  ]);
+  const observation = createLiveJourneyObservation({
+    turn: marker.turn,
+    codexCliVersion: marker.codexCliVersion,
+    exitCode: 1,
+    stdout,
+    stderr: "",
+    before: marker.before,
+    after,
+    rawEventsPointer: `events/turn-${turnLabel}.jsonl`,
+    stderrPointer: `events/turn-${turnLabel}.stderr.log`,
+    startedAt: marker.startedAt,
+    endedAt,
+    durationMs: Date.parse(endedAt) - Date.parse(marker.startedAt),
+  });
+  await writeFile(
+    observationPath,
+    scanLiveScenarioDurableEvidence({ value: observation, configPath: resolve(".gitleaks.toml") }),
+    { flag: "wx" },
+  );
+  const conversationHasTurn =
+    (await exists(manifest.paths.conversation)) &&
+    (await readFile(manifest.paths.conversation, "utf8")).includes(`## Turn ${marker.turn}\n`);
+  if (!conversationHasTurn) {
+    await appendConversation(manifest, marker.turn, marker.human);
+  }
+  await Promise.all([
+    rm(markerPath, { force: true }),
+    rm(manifest.paths.sessionState, { force: true }),
+    rm(join(manifest.paths.workspaceRoot, "turn-in-progress"), { force: true }),
+  ]);
+  return Object.freeze({
+    scenarioId: manifest.scenario.id,
+    turn: marker.turn,
+    evidenceOutcome: "rejected" as const,
+    observation: observationPath,
+  });
+};
+
+const processIsAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false;
+    return true;
+  }
+};
+
+const invocationNeedsRecovery = async (
+  generation: Generation,
+  scenarioId: string,
+): Promise<boolean> => {
+  const markerPath = generationInvocationMarkerPath(generation, scenarioId);
+  if (!(await exists(markerPath))) return false;
+  const marker = invocationMarkerSchema.parse(JSON.parse(await readFile(markerPath, "utf8")));
+  if (
+    processIsAlive(marker.ownerPid) ||
+    (marker.childPid !== undefined && processIsAlive(marker.childPid))
+  ) {
+    fail("Adaptive Scenario Turn invocation is still active.");
+  }
+  if (marker.childPid === undefined) {
+    fail("Adaptive Scenario child terminality is unavailable; abandon this Generation.");
+  }
+  return true;
+};
+
+const recoverTerminatedInvocation = async (manifest: Manifest) => {
+  const recoveryClaim = join(manifest.paths.workspaceRoot, "invocation-recovery-claimed");
+  try {
+    await writeFile(recoveryClaim, `${process.pid}\n`, { flag: "wx" });
+  } catch (error) {
+    if (isAlreadyExists(error)) fail("Adaptive Scenario invocation recovery is already active.");
+    throw error;
+  }
+  try {
+    const marker = invocationMarkerSchema.parse(
+      JSON.parse(await readFile(invocationMarkerPath(manifest), "utf8")),
+    );
+    if (
+      processIsAlive(marker.ownerPid) ||
+      (marker.childPid !== undefined && processIsAlive(marker.childPid))
+    ) {
+      fail("Adaptive Scenario Turn invocation is still active.");
+    }
+    if (marker.childPid === undefined) {
+      fail("Adaptive Scenario child terminality is unavailable; abandon this Generation.");
+    }
+    return await sealInterruptedInvocation(manifest);
+  } finally {
+    await rm(recoveryClaim, { force: true });
+  }
+};
+
+const recoverTerminatedPreInvocationStart = async (
+  generation: Generation,
+  manifest: Manifest,
+): Promise<void> => {
+  const reservationPath = scenarioStartReservationPath(manifest);
+  if (!(await exists(reservationPath))) return;
+  const reservation = startReservationSchema.parse(
+    JSON.parse(await readFile(reservationPath, "utf8")),
+  );
+  if (reservation.scenarioId !== manifest.scenario.id || processIsAlive(reservation.ownerPid)) {
+    fail("An adaptive Scenario can start only once in one Generation.");
+  }
+  if (
+    (await orderedObservationNames(manifest)).length > 0 ||
+    (await exists(manifest.paths.sessionState))
+  ) {
+    fail("A terminated start cannot discard observed Scenario behavior.");
+  }
+  await Promise.all([
+    releaseScenarioSlot(generation, manifest.scenario.id),
+    rm(reservationPath, { force: true }),
+    rm(join(manifest.paths.workspaceRoot, "turn-in-progress"), { force: true }),
+    rm(manifest.paths.conversation, { force: true }),
+  ]);
 };
 
 export const startAdaptiveScenario = async (input: {
@@ -581,7 +834,13 @@ export const startAdaptiveScenario = async (input: {
   scenarioId: string;
 }) => {
   const generation = await readGeneration(input.generationPath);
-  const manifest = await readScenario(generation, input.scenarioId);
+  const scenarioId = liveScenarioIdSchema.parse(input.scenarioId);
+  const recoveryRequired = await invocationNeedsRecovery(generation, scenarioId);
+  const manifest = await readScenario(generation, scenarioId);
+  if (recoveryRequired) {
+    return recoverTerminatedInvocation(manifest);
+  }
+  await recoverTerminatedPreInvocationStart(generation, manifest);
   if (
     (await orderedObservationNames(manifest)).length !== 0 ||
     (await exists(manifest.paths.sessionState))
@@ -595,10 +854,21 @@ export const startAdaptiveScenario = async (input: {
     "[installation entry]",
   );
   try {
-    await appendConversation(manifest, 1, readablePrompt);
-    return await runTurn({ manifest, prompt, turn: 1 });
+    return await runTurn({ manifest, prompt, human: readablePrompt, turn: 1 });
   } catch (error) {
-    await rm(activeSlot, { force: true });
+    const observations = await orderedObservationNames(manifest);
+    const behaviorEvidenceExists =
+      observations.length > 0 || (await exists(manifest.paths.sessionState));
+    if (await exists(invocationMarkerPath(manifest))) {
+      return sealInterruptedInvocation(manifest);
+    }
+    if (!behaviorEvidenceExists) {
+      await Promise.all([
+        rm(activeSlot, { force: true }),
+        rm(scenarioStartReservationPath(manifest), { force: true }),
+        rm(manifest.paths.conversation, { force: true }),
+      ]);
+    }
     throw error;
   }
 };
@@ -609,10 +879,21 @@ export const resumeAdaptiveScenario = async (input: {
   replyPath: string;
 }) => {
   const generation = await readGeneration(input.generationPath);
-  const manifest = await readScenario(generation, input.scenarioId);
+  const scenarioId = liveScenarioIdSchema.parse(input.scenarioId);
+  if (await exists(join(generation.workspaceRoot, "scenarios", scenarioId, "result.json"))) {
+    fail("A finalized Scenario cannot be resumed or resampled.");
+  }
+  const recoveryRequired = await invocationNeedsRecovery(generation, scenarioId);
+  const manifest = await readScenario(generation, scenarioId);
+  if (recoveryRequired) {
+    return recoverTerminatedInvocation(manifest);
+  }
   const observations = await orderedObservationNames(manifest);
   if (observations.length === 0 || !(await exists(manifest.paths.sessionState))) {
     fail("Adaptive resume requires the same started Codex conversation.");
+  }
+  if (!(await scenarioHasActiveSlot(generation, manifest.scenario.id))) {
+    fail("Adaptive resume requires the Scenario to retain its active capacity slot.");
   }
   const replyBytes =
     input.replyPath === "-"
@@ -625,20 +906,68 @@ export const resumeAdaptiveScenario = async (input: {
     );
   }
   const turn = observations.length + 1;
-  await appendConversation(manifest, turn, reply);
-  return runTurn({ manifest, prompt: reply, turn });
+  const turnMarker = join(manifest.paths.workspaceRoot, "turn-in-progress");
+  await writeFile(turnMarker, `${turn}\n`, { flag: "wx" });
+  try {
+    return await runTurn({ manifest, prompt: reply, human: reply, turn, turnClaimed: true });
+  } catch (error) {
+    if (await exists(invocationMarkerPath(manifest))) {
+      return sealInterruptedInvocation(manifest);
+    }
+    throw error;
+  } finally {
+    await rm(turnMarker, { force: true });
+  }
 };
 
-const gitRead = (repository: string, args: readonly string[]): string => {
-  const result = Bun.spawnSync(["git", ...args], {
+const TERMINAL_GIT_OUTPUT_LIMIT = 256 * 1024;
+
+const readBoundedGitStream = async (
+  stream: ReadableStream<Uint8Array>,
+  onLimit: () => void,
+): Promise<Readonly<{ text: string; truncated: boolean }>> => {
+  const reader = stream.getReader();
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  let truncated = false;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = Buffer.from(value);
+    const remaining = TERMINAL_GIT_OUTPUT_LIMIT - bytes;
+    if (remaining > 0) {
+      const retained = chunk.subarray(0, remaining);
+      chunks.push(retained);
+      bytes += retained.byteLength;
+    }
+    if (chunk.byteLength > remaining) {
+      truncated = true;
+      onLimit();
+      await reader.cancel();
+      break;
+    }
+  }
+  const suffix = truncated ? `\n[output truncated at ${TERMINAL_GIT_OUTPUT_LIMIT} bytes]\n` : "";
+  return Object.freeze({ text: `${Buffer.concat(chunks).toString("utf8")}${suffix}`, truncated });
+};
+
+const gitRead = async (repository: string, args: readonly string[]): Promise<string> => {
+  const child = Bun.spawn(["git", ...args], {
     cwd: repository,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
   });
-  if (result.exitCode !== 0)
-    fail(result.stderr.toString().trim() || `git ${args.join(" ")} failed.`);
-  return result.stdout.toString();
+  const stop = () => child.kill();
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    readBoundedGitStream(child.stdout, stop),
+    readBoundedGitStream(child.stderr, stop),
+  ]);
+  if (exitCode !== 0 && !stdout.truncated && !stderr.truncated) {
+    fail(stderr.text.trim() || `git ${args.join(" ")} failed.`);
+  }
+  return stdout.text;
 };
 
 const captureTerminalObservation = async (manifest: Manifest) => {
@@ -658,21 +987,28 @@ const captureTerminalObservation = async (manifest: Manifest) => {
   }
   if (observers.includes("git")) {
     value["git"] = {
-      head: gitRead(manifest.paths.repository, ["rev-parse", "HEAD"]).trim(),
-      headCommit: gitRead(manifest.paths.repository, [
+      head: (await gitRead(manifest.paths.repository, ["rev-parse", "HEAD"])).trim(),
+      headCommit: await gitRead(manifest.paths.repository, [
         "show",
         "--no-ext-diff",
+        "--no-textconv",
         "--format=fuller",
         "--stat",
         "--patch",
         "HEAD",
       ]),
-      status: gitRead(manifest.paths.repository, ["status", "--short"]),
-      diff: gitRead(manifest.paths.repository, ["diff", "--no-ext-diff", "--binary"]),
-      stagedDiff: gitRead(manifest.paths.repository, [
+      status: await gitRead(manifest.paths.repository, ["status", "--short"]),
+      diff: await gitRead(manifest.paths.repository, [
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--binary",
+      ]),
+      stagedDiff: await gitRead(manifest.paths.repository, [
         "diff",
         "--cached",
         "--no-ext-diff",
+        "--no-textconv",
         "--binary",
       ]),
     };
@@ -700,7 +1036,12 @@ export const finalizeAdaptiveScenario = async (input: {
   verdictPath: string;
 }) => {
   const generation = await readGeneration(input.generationPath);
-  const manifest = await readScenario(generation, input.scenarioId);
+  const scenarioId = liveScenarioIdSchema.parse(input.scenarioId);
+  const recoveryRequired = await invocationNeedsRecovery(generation, scenarioId);
+  const manifest = await readScenario(generation, scenarioId);
+  if (recoveryRequired) {
+    await recoverTerminatedInvocation(manifest);
+  }
   await ensureMissing(manifest.paths.result);
   const verdict = z
     .object({
@@ -720,13 +1061,14 @@ export const finalizeAdaptiveScenario = async (input: {
     const pointer = `observations/${name}`;
     const first = JSON.parse(await readFile(join(manifest.paths.observations, name), "utf8")) as {
       codex?: { cliVersion?: unknown };
+      github?: unknown;
     };
     const cliVersion =
       typeof first.codex?.cliVersion === "string"
         ? first.codex.cliVersion
         : fail("Turn observation has no Codex CLI identity.");
     observations.push(
-      manifest.github === undefined
+      manifest.github === undefined || first.github === undefined
         ? await verifyLiveJourneyObservation({
             workspaceRoot: manifest.paths.workspaceRoot,
             pointer,
@@ -746,6 +1088,14 @@ export const finalizeAdaptiveScenario = async (input: {
     observations.some((observation) => !observationCompletedCleanly(observation))
   ) {
     fail("A passing semantic verdict cannot contradict an incomplete Codex Turn.");
+  }
+  if (
+    verdict.outcome !== "blocked" &&
+    observations.some(
+      (observation) => (observation.eventCounts["durable-evidence-rejected"] ?? 0) > 0,
+    )
+  ) {
+    fail("Rejected or synthetic Turn evidence must be finalized as blocked.");
   }
   const verdictSealPath = join(manifest.paths.terminal, "verdict.json");
   await writeOrVerifyExact(

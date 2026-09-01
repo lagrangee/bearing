@@ -300,13 +300,13 @@ const materializeDevelopmentRepositoryUpdateSource = async (input: {
     ),
   ) as Readonly<{ outcome?: unknown }>;
   if (bootstrap.outcome !== "applied" && bootstrap.outcome !== "no-op") {
-    fail("CONFIG-04 Development Runtime bootstrap did not complete.");
+    fail("Active configuration repair did not complete Development Runtime bootstrap.");
   }
 
   const manifestPath = join(input.repositoryRoot, ".bearing/manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
   if (manifest["packageVersion"] !== "0.1.2-dev" || manifest["runtime"] !== "development") {
-    fail("CONFIG-04 target Development Configuration was not established.");
+    fail("Active configuration repair did not establish the target Development Configuration.");
   }
   await writeFile(
     manifestPath,
@@ -328,7 +328,7 @@ const materializeDevelopmentRepositoryUpdateSource = async (input: {
     context?: Readonly<{ receipt?: Readonly<{ channel?: unknown }> }>;
   }>;
   if (inspected.outcome !== "resolved" || inspected.context?.receipt?.channel !== "development") {
-    fail("CONFIG-04 Development Runtime receipt is not coherent.");
+    fail("Active configuration repair returned an incoherent Development Runtime receipt.");
   }
 };
 

@@ -242,10 +242,13 @@ and both required lanes are `pass` before Publication dispatch.
 
 ## 8. Dispatch protected Publication
 
-Re-read the Candidate Receipt and confirm that component readiness, the Matrix result, both Human
-compatibility results, and Known Exceptions still match its exact identity. Read the package version,
-source commit, Candidate workflow/run identity, and frozen digest directly from that receipt. Dispatch
-only the component-owned protected main Publication capability with those inputs.
+The Coordinating Agent separately re-reads the Candidate Receipt and the Human-dispositioned Matrix
+review, and confirms that component readiness, both Human compatibility results, and Known Exceptions
+still match the exact Candidate identity. The deterministic Release Operator does not accept a Matrix
+outcome or derive Publication authority from it; invoking that operator is itself downstream of this
+Human-owned review. Read the package version, source commit, Candidate workflow/run identity, and
+frozen digest directly from the Receipt. Dispatch only the component-owned protected main Publication
+capability with those inputs.
 
 The protected publication environment asks the Human for checkpoint 3. Do not add a chat approval or
 approve on the Human's behalf. The Publication workflow owns frozen-byte verification, npm mutation,

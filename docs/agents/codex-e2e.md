@@ -80,6 +80,14 @@ At most four Scenarios may be active. One Scenario has at most one active Turn. 
 Scenarios may continue after another fails so the Generation yields the complete truthful result
 set.
 
+A mechanical failure before Codex invocation rolls back only the unobserved start reservation, so
+the same Scenario may still start once. After one Turn has durable observation or resumable session
+continuity, the Scenario retains its active slot until finalization even when that Turn is incomplete.
+Cross-process recovery must prove both the lifecycle owner and spawned Codex child have terminated;
+missing child identity abandons the Generation rather than guessing or killing an unknown process.
+Sealing a result releases the slot; later cleanup failure cannot reopen or mutate conversation or
+result evidence.
+
 ## Mechanical execution surface
 
 `check-matrix-definition` is a deterministic registry and Fixture check. It starts no Agent and is
@@ -125,8 +133,9 @@ or an incomplete result set. If Turn bytes fail the required secret scan, publis
 failed observation that names the rejection class, then let the Orchestrator seal `blocked`; never
 publish the rejected bytes or establish resumable session state. Scan each complete readable
 conversation before replacing its durable copy. Seal the exact Orchestrator verdict before terminal
-capture, and seal the Scenario result before runner-owned cleanup. These checks do not evaluate
-Bearing Intent.
+capture, and seal the Scenario result before runner-owned cleanup. Git terminal commands stream no
+more than 256 KiB per output and record an explicit truncation marker at that boundary. These checks
+do not evaluate Bearing Intent.
 
 Matrix output has no deterministic relationship to Candidate readiness, publication, release,
 Effort conclusion, Gate Passage, or Roadmap completion. A green deterministic suite does not imply a

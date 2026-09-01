@@ -252,6 +252,9 @@ exit 0
         scenarioId: "test-one",
         replyPath,
       });
+      const preparedRepository = result.preparedScenarios[0]?.paths.repository;
+      if (preparedRepository === undefined) throw new Error("Expected prepared repository.");
+      await writeFile(join(preparedRepository, "README.md"), "x".repeat(400_000));
       const finalized = await finalizeAdaptiveScenario({
         generationPath,
         scenarioId: "test-one",
@@ -286,6 +289,8 @@ exit 0
         ),
       );
       expect(terminalObservation.git.headCommit).toContain("commit ");
+      expect(terminalObservation.git.diff).toContain("[output truncated at 262144 bytes]");
+      expect(Buffer.byteLength(terminalObservation.git.diff, "utf8")).toBeLessThan(263_000);
       const rawEvents = await readFile(
         join(result.workspaceRoot, "scenarios/test-one/events/turn-01.jsonl"),
         "utf8",
@@ -504,6 +509,443 @@ exit 0
     }
   });
 
+  test("rolls back a failed pre-invocation start so the same Scenario can start once", async () => {
+    const fixture = await createFixture();
+    let result: Awaited<ReturnType<typeof prepareLiveScenarioGenerationAdmission>> | undefined;
+    try {
+      result = await prepareLiveScenarioGenerationAdmission({
+        sourceRoot: process.cwd(),
+        workspaceRoot: fixture.workspaceRoot,
+        operatorCodexHome: fixture.operatorCodexHome,
+        registryPath,
+        scenarioIds: ["test-one"],
+        generationId,
+        package: fixture.package,
+        codexProgram: fixture.fakeCodex,
+      });
+      if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+      const generationPath = join(result.workspaceRoot, "generation.json");
+      const firstVersionProbe = join(fixture.root, "first-version-probe");
+      await writeFile(generationPath, `${JSON.stringify(result.generationBasis, null, 2)}\n`, {
+        flag: "wx",
+      });
+      await writeFile(
+        fixture.fakeCodex,
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  if [ ! -e ${JSON.stringify(firstVersionProbe)} ]; then
+    touch ${JSON.stringify(firstVersionProbe)}
+    exit 17
+  fi
+  printf '%s\\n' 'codex-fixture 1'
+  exit 0
+fi
+printf '%s\\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\\n' '{"type":"turn.started"}'
+printf '%s\\n' '{"type":"item.completed","item":{"id":"done","type":"agent_message","text":"Adaptive reply"}}'
+printf '%s\\n' '{"type":"turn.completed"}'
+exit 0
+`,
+      );
+      const scenarioRoot = join(result.workspaceRoot, "scenarios/test-one");
+      await Promise.all([
+        writeFile(
+          join(scenarioRoot, "start-reserved"),
+          `${JSON.stringify({ scenarioId: "test-one", ownerPid: 2_147_483_647 })}\n`,
+          { flag: "wx" },
+        ),
+        writeFile(join(scenarioRoot, "turn-in-progress"), "1\n", { flag: "wx" }),
+        writeFile(join(result.workspaceRoot, ".active-scenario-1"), "test-one\n", { flag: "wx" }),
+      ]);
+
+      await expect(
+        startAdaptiveScenario({ generationPath, scenarioId: "test-one" }),
+      ).rejects.toThrow("Codex CLI version lookup failed");
+      await expect(
+        startAdaptiveScenario({ generationPath, scenarioId: "test-one" }),
+      ).resolves.toMatchObject({ scenarioId: "test-one", turn: 1 });
+    } finally {
+      if (result?.outcome === "admitted") await discardLiveScenarioGenerationAdmission(result);
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("seals a post-invocation evidence failure as blocked instead of resampling", async () => {
+    const fixture = await createFixture();
+    let result: Awaited<ReturnType<typeof prepareLiveScenarioGenerationAdmission>> | undefined;
+    try {
+      result = await prepareLiveScenarioGenerationAdmission({
+        sourceRoot: process.cwd(),
+        workspaceRoot: fixture.workspaceRoot,
+        operatorCodexHome: fixture.operatorCodexHome,
+        registryPath,
+        scenarioIds: ["test-one"],
+        generationId,
+        package: fixture.package,
+        codexProgram: fixture.fakeCodex,
+      });
+      if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+      const generationPath = join(result.workspaceRoot, "generation.json");
+      await writeFile(generationPath, `${JSON.stringify(result.generationBasis, null, 2)}\n`, {
+        flag: "wx",
+      });
+      await writeFile(
+        fixture.fakeCodex,
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' 'codex-fixture 1'
+  exit 0
+fi
+printf '%s\\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\\n' '{"type":"turn.started"}'
+printf '%s\\n' '${fixture.operatorCodexHome}'
+printf '%s\\n' '{"type":"turn.completed"}'
+exit 0
+`,
+      );
+      const verdictPath = join(fixture.root, "blocked-verdict.json");
+      const failVerdictPath = join(fixture.root, "fail-verdict.json");
+      await writeFile(
+        verdictPath,
+        '{"outcome":"blocked","rationale":"Post-invocation evidence failed closed."}\n',
+      );
+      await writeFile(
+        failVerdictPath,
+        '{"outcome":"fail","rationale":"This is not a product failure."}\n',
+      );
+
+      await expect(
+        startAdaptiveScenario({ generationPath, scenarioId: "test-one" }),
+      ).resolves.toMatchObject({ evidenceOutcome: "rejected", turn: 1 });
+      await expect(
+        startAdaptiveScenario({ generationPath, scenarioId: "test-one" }),
+      ).rejects.toThrow("start only once");
+      await expect(
+        finalizeAdaptiveScenario({
+          generationPath,
+          scenarioId: "test-one",
+          verdictPath: failVerdictPath,
+        }),
+      ).rejects.toThrow("must be finalized as blocked");
+      await expect(
+        finalizeAdaptiveScenario({ generationPath, scenarioId: "test-one", verdictPath }),
+      ).resolves.toMatchObject({ outcome: "blocked" });
+      const scenarioRoot = join(result.workspaceRoot, "scenarios/test-one");
+      const events = await readFile(join(scenarioRoot, "events/turn-01.jsonl"), "utf8");
+      expect(events).toContain('"reason":"mechanical-failure"');
+      expect(events).not.toContain(fixture.operatorCodexHome);
+    } finally {
+      if (result?.outcome === "admitted") await discardLiveScenarioGenerationAdmission(result);
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rolls back an unsent Human reply when resume fails before invocation", async () => {
+    const fixture = await createFixture();
+    let result: Awaited<ReturnType<typeof prepareLiveScenarioGenerationAdmission>> | undefined;
+    try {
+      result = await prepareLiveScenarioGenerationAdmission({
+        sourceRoot: process.cwd(),
+        workspaceRoot: fixture.workspaceRoot,
+        operatorCodexHome: fixture.operatorCodexHome,
+        registryPath,
+        scenarioIds: ["test-one"],
+        generationId,
+        package: fixture.package,
+        codexProgram: fixture.fakeCodex,
+      });
+      if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+      const generationPath = join(result.workspaceRoot, "generation.json");
+      await writeFile(generationPath, `${JSON.stringify(result.generationBasis, null, 2)}\n`, {
+        flag: "wx",
+      });
+      await writeFile(
+        fixture.fakeCodex,
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' 'codex-fixture 1'
+  exit 0
+fi
+printf '%s\\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\\n' '{"type":"turn.started"}'
+printf '%s\\n' '{"type":"item.completed","item":{"id":"done","type":"agent_message","text":"Adaptive reply"}}'
+printf '%s\\n' '{"type":"turn.completed"}'
+exit 0
+`,
+      );
+      await startAdaptiveScenario({ generationPath, scenarioId: "test-one" });
+      const failedVersionProbe = join(fixture.root, "failed-resume-version-probe");
+      await writeFile(
+        fixture.fakeCodex,
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  if [ ! -e ${JSON.stringify(failedVersionProbe)} ]; then
+    touch ${JSON.stringify(failedVersionProbe)}
+    exit 17
+  fi
+  printf '%s\\n' 'codex-fixture 1'
+  exit 0
+fi
+printf '%s\\n' '{"type":"turn.started"}'
+printf '%s\\n' '{"type":"item.completed","item":{"id":"done","type":"agent_message","text":"Resumed reply"}}'
+printf '%s\\n' '{"type":"turn.completed"}'
+exit 0
+`,
+      );
+      const replyPath = join(fixture.root, "reply.txt");
+      await writeFile(replyPath, "只发送一次。\n");
+
+      await expect(
+        resumeAdaptiveScenario({ generationPath, scenarioId: "test-one", replyPath }),
+      ).rejects.toThrow("Codex CLI version lookup failed");
+      await expect(
+        resumeAdaptiveScenario({ generationPath, scenarioId: "test-one", replyPath }),
+      ).resolves.toMatchObject({ turn: 2, agentReply: "Resumed reply" });
+      const conversation = await readFile(
+        join(result.workspaceRoot, "scenarios/test-one/conversation.md"),
+        "utf8",
+      );
+      expect(conversation.match(/## Turn 2/gu)).toHaveLength(1);
+      expect(conversation.match(/只发送一次。/gu)).toHaveLength(1);
+
+      await writeFile(
+        fixture.fakeCodex,
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' 'codex-fixture 1'
+  exit 0
+fi
+sleep 1
+printf '%s\\n' '{"type":"turn.started"}'
+printf '%s\\n' '{"type":"item.completed","item":{"id":"done","type":"agent_message","text":"Only one resume owned the Turn"}}'
+printf '%s\\n' '{"type":"turn.completed"}'
+exit 0
+`,
+      );
+      const concurrentReplyPath = join(fixture.root, "concurrent-reply.txt");
+      await writeFile(concurrentReplyPath, "只允许一个并发回复。\n");
+      const firstResume = resumeAdaptiveScenario({
+        generationPath,
+        scenarioId: "test-one",
+        replyPath: concurrentReplyPath,
+      });
+      const activeInvocationMarker = join(
+        result.workspaceRoot,
+        "scenarios/test-one/turn-invocation-started.json",
+      );
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (
+          await access(activeInvocationMarker).then(
+            () => true,
+            () => false,
+          )
+        )
+          break;
+        await Bun.sleep(10);
+      }
+      await expect(
+        resumeAdaptiveScenario({
+          generationPath,
+          scenarioId: "test-one",
+          replyPath: concurrentReplyPath,
+        }),
+      ).rejects.toThrow("invocation is still active");
+      await expect(firstResume).resolves.toMatchObject({ turn: 3 });
+      const finalConversation = await readFile(
+        join(result.workspaceRoot, "scenarios/test-one/conversation.md"),
+        "utf8",
+      );
+      expect(finalConversation.match(/## Turn 3/gu)).toHaveLength(1);
+      expect(finalConversation.match(/只允许一个并发回复。/gu)).toHaveLength(1);
+    } finally {
+      if (result?.outcome === "admitted") await discardLiveScenarioGenerationAdmission(result);
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("finalizes a durable invocation marker left by a terminated CLI process", async () => {
+    const fixture = await createFixture();
+    let result: Awaited<ReturnType<typeof prepareLiveScenarioGenerationAdmission>> | undefined;
+    try {
+      result = await prepareLiveScenarioGenerationAdmission({
+        sourceRoot: process.cwd(),
+        workspaceRoot: fixture.workspaceRoot,
+        operatorCodexHome: fixture.operatorCodexHome,
+        registryPath,
+        scenarioIds: ["test-one"],
+        generationId,
+        package: fixture.package,
+        codexProgram: fixture.fakeCodex,
+      });
+      if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+      const generationPath = join(result.workspaceRoot, "generation.json");
+      const scenarioRoot = join(result.workspaceRoot, "scenarios/test-one");
+      const invocationMarker = join(scenarioRoot, "turn-invocation-started.json");
+      await writeFile(generationPath, `${JSON.stringify(result.generationBasis, null, 2)}\n`, {
+        flag: "wx",
+      });
+      await Promise.all([
+        writeFile(
+          join(scenarioRoot, "start-reserved"),
+          `${JSON.stringify({ scenarioId: "test-one", ownerPid: 2_147_483_647 })}\n`,
+          { flag: "wx" },
+        ),
+        writeFile(join(scenarioRoot, "turn-in-progress"), "1\n", { flag: "wx" }),
+        writeFile(join(result.workspaceRoot, ".active-scenario-1"), "test-one\n", { flag: "wx" }),
+        writeFile(
+          invocationMarker,
+          `${JSON.stringify({
+            turn: 1,
+            startedAt: new Date().toISOString(),
+            codexCliVersion: "codex-fixture 1",
+            human: "Inspect the installation instructions.",
+            ownerPid: 2_147_483_647,
+            childPid: 2_147_483_646,
+            before: { repository: "fixture-before", agentHome: "fixture-before" },
+          })}\n`,
+          { flag: "wx" },
+        ),
+      ]);
+      const verdictPath = join(fixture.root, "terminated-verdict.json");
+      await writeFile(
+        verdictPath,
+        '{"outcome":"blocked","rationale":"The invoked CLI process terminated before evidence publication."}\n',
+      );
+
+      const recoveries = await Promise.allSettled([
+        finalizeAdaptiveScenario({ generationPath, scenarioId: "test-one", verdictPath }),
+        finalizeAdaptiveScenario({ generationPath, scenarioId: "test-one", verdictPath }),
+      ]);
+      expect(recoveries.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+      expect(recoveries.filter(({ status }) => status === "rejected")).toHaveLength(1);
+      await expect(access(invocationMarker)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(access(join(scenarioRoot, "turn-in-progress"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      const scenarioResult = JSON.parse(
+        await readFile(join(scenarioRoot, "result.json"), "utf8"),
+      ) as { terminalEvidence: { pointer: string; sha256: string }[] };
+      const terminalObservation = scenarioResult.terminalEvidence.find(({ pointer }) =>
+        pointer.endsWith("terminal/observation.json"),
+      );
+      if (terminalObservation === undefined) throw new Error("Expected terminal observation.");
+      expect(
+        await sha256File(join(dirname(result.workspaceRoot), terminalObservation.pointer)),
+      ).toBe(terminalObservation.sha256);
+    } finally {
+      if (result?.outcome === "admitted") await discardLiveScenarioGenerationAdmission(result);
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps an incomplete resumable Scenario inside the four-active ceiling", async () => {
+    const scenarioIds = ["test-one", "test-two", "test-three", "test-four", "test-five"];
+    const fixture = await createFixture("admitted", concurrencyRegistryPath);
+    let result: Awaited<ReturnType<typeof prepareLiveScenarioGenerationAdmission>> | undefined;
+    try {
+      result = await prepareLiveScenarioGenerationAdmission({
+        sourceRoot: process.cwd(),
+        workspaceRoot: fixture.workspaceRoot,
+        operatorCodexHome: fixture.operatorCodexHome,
+        registryPath: concurrencyRegistryPath,
+        scenarioIds,
+        generationId,
+        package: fixture.package,
+        codexProgram: fixture.fakeCodex,
+      });
+      if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+      const generationPath = join(result.workspaceRoot, "generation.json");
+      await writeFile(generationPath, `${JSON.stringify(result.generationBasis, null, 2)}\n`, {
+        flag: "wx",
+      });
+      await writeFile(
+        fixture.fakeCodex,
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' 'codex-fixture 1'
+  exit 0
+fi
+printf '%s\\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\\n' '{"type":"turn.started"}'
+case "$*" in
+  *"test one"*) printf '%s\\n' '{"type":"turn.failed"}'; exit 17 ;;
+esac
+printf '%s\\n' '{"type":"item.completed","item":{"id":"done","type":"agent_message","text":"Adaptive reply"}}'
+printf '%s\\n' '{"type":"turn.completed"}'
+exit 0
+`,
+      );
+
+      await expect(
+        startAdaptiveScenario({ generationPath, scenarioId: "test-one" }),
+      ).rejects.toThrow("did not complete cleanly");
+      const remaining = await Promise.allSettled(
+        scenarioIds
+          .slice(1)
+          .map((scenarioId) => startAdaptiveScenario({ generationPath, scenarioId })),
+      );
+      expect(remaining.filter(({ status }) => status === "fulfilled")).toHaveLength(3);
+      expect(remaining.filter(({ status }) => status === "rejected")).toHaveLength(1);
+    } finally {
+      if (result?.outcome === "admitted") await discardLiveScenarioGenerationAdmission(result);
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("does not mutate conversation evidence after a Scenario result is sealed", async () => {
+    const fixture = await createFixture();
+    let result: Awaited<ReturnType<typeof prepareLiveScenarioGenerationAdmission>> | undefined;
+    try {
+      result = await prepareLiveScenarioGenerationAdmission({
+        sourceRoot: process.cwd(),
+        workspaceRoot: fixture.workspaceRoot,
+        operatorCodexHome: fixture.operatorCodexHome,
+        registryPath,
+        scenarioIds: ["test-one"],
+        generationId,
+        package: fixture.package,
+        codexProgram: fixture.fakeCodex,
+      });
+      if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
+      const generationPath = join(result.workspaceRoot, "generation.json");
+      await writeFile(generationPath, `${JSON.stringify(result.generationBasis, null, 2)}\n`, {
+        flag: "wx",
+      });
+      await writeFile(
+        fixture.fakeCodex,
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' 'codex-fixture 1'
+  exit 0
+fi
+printf '%s\\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\\n' '{"type":"turn.started"}'
+printf '%s\\n' '{"type":"item.completed","item":{"id":"done","type":"agent_message","text":"Adaptive reply"}}'
+printf '%s\\n' '{"type":"turn.completed"}'
+exit 0
+`,
+      );
+      const verdictPath = join(fixture.root, "verdict.json");
+      const replyPath = join(fixture.root, "reply.txt");
+      await Promise.all([
+        writeFile(verdictPath, '{"outcome":"pass","rationale":"Terminal."}\n'),
+        writeFile(replyPath, "再继续。\n"),
+      ]);
+      await startAdaptiveScenario({ generationPath, scenarioId: "test-one" });
+      await finalizeAdaptiveScenario({ generationPath, scenarioId: "test-one", verdictPath });
+      const conversationPath = join(result.workspaceRoot, "scenarios/test-one/conversation.md");
+      const before = await readFile(conversationPath, "utf8");
+
+      await expect(
+        resumeAdaptiveScenario({ generationPath, scenarioId: "test-one", replyPath }),
+      ).rejects.toThrow("finalized Scenario");
+      expect(await readFile(conversationPath, "utf8")).toBe(before);
+    } finally {
+      if (result?.outcome === "admitted") await discardLiveScenarioGenerationAdmission(result);
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
   test("blocks a Coordinator workspace under the Codex macOS platform scratch roots", async () => {
     if (process.platform !== "darwin") return;
     const fixture = await createFixture("admitted", registryPath, "/private/tmp");
@@ -589,7 +1031,7 @@ exit 0
     }
   });
 
-  test("rejects a malformed adaptive Turn without producing a semantic result", async () => {
+  test("seals a malformed post-invocation Turn for a truthful blocked result", async () => {
     const { fixture, result } = await prepare();
     if (result.outcome !== "admitted") throw new Error("Expected admitted Generation.");
     const generationPath = join(fixture.workspaceRoot, "generation.json");
@@ -610,14 +1052,19 @@ printf '%s\\n' '{"type":"turn.completed"}'
 exit 0
 `,
     );
+    const verdictPath = join(fixture.root, "malformed-verdict.json");
+    await writeFile(
+      verdictPath,
+      '{"outcome":"blocked","rationale":"Malformed invocation evidence failed closed."}\n',
+    );
 
     try {
       await expect(
         startAdaptiveScenario({ generationPath, scenarioId: "test-one" }),
-      ).rejects.toThrow("unfinished items");
+      ).resolves.toMatchObject({ evidenceOutcome: "rejected", turn: 1 });
       await expect(
-        access(join(fixture.workspaceRoot, "scenarios/test-one/result.json")),
-      ).rejects.toMatchObject({ code: "ENOENT" });
+        finalizeAdaptiveScenario({ generationPath, scenarioId: "test-one", verdictPath }),
+      ).resolves.toMatchObject({ outcome: "blocked" });
     } finally {
       await discardLiveScenarioGenerationAdmission(result);
     }
