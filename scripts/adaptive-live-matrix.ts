@@ -177,20 +177,6 @@ const orderedObservationNames = async (manifest: Manifest): Promise<readonly str
   return names;
 };
 
-const activeScenarioCount = async (generation: Generation): Promise<number> => {
-  let active = 0;
-  for (const scenarioId of generation.basis.selectedScenarioIds) {
-    const root = join(generation.workspaceRoot, "scenarios", scenarioId);
-    if (
-      (await exists(join(root, "codex-session.json"))) &&
-      !(await exists(join(root, "result.json")))
-    ) {
-      active += 1;
-    }
-  }
-  return active;
-};
-
 export const assertAdaptiveScenarioCapacity = (activeScenarioCount: number): void => {
   if (!Number.isSafeInteger(activeScenarioCount) || activeScenarioCount < 0) {
     fail("Adaptive Matrix active Scenario count must be a non-negative integer.");
@@ -198,6 +184,53 @@ export const assertAdaptiveScenarioCapacity = (activeScenarioCount: number): voi
   if (activeScenarioCount >= LIVE_MATRIX_CONCURRENCY) {
     fail("The adaptive Matrix allows at most four active Scenarios.");
   }
+};
+
+const isAlreadyExists = (error: unknown): boolean =>
+  error instanceof Error && "code" in error && error.code === "EEXIST";
+
+const activeSlotPath = (generation: Generation, slot: number): string =>
+  join(generation.workspaceRoot, `.active-scenario-${slot}`);
+
+const releaseScenarioSlot = async (
+  generation: Generation,
+  scenarioId: string,
+): Promise<void> => {
+  await Promise.all(
+    Array.from({ length: LIVE_MATRIX_CONCURRENCY }, async (_, index) => {
+      const path = activeSlotPath(generation, index + 1);
+      if ((await exists(path)) && (await readFile(path, "utf8")).trim() === scenarioId) {
+        await rm(path, { force: true });
+      }
+    }),
+  );
+};
+
+const reserveScenarioStart = async (
+  generation: Generation,
+  manifest: Manifest,
+): Promise<string> => {
+  const reservation = join(manifest.paths.workspaceRoot, "start-reserved");
+  try {
+    await writeFile(reservation, `${manifest.scenario.id}\n`, { flag: "wx" });
+  } catch (error) {
+    if (isAlreadyExists(error)) {
+      fail("An adaptive Scenario can start only once in one Generation.");
+    }
+    throw error;
+  }
+  for (let slot = 1; slot <= LIVE_MATRIX_CONCURRENCY; slot += 1) {
+    const path = activeSlotPath(generation, slot);
+    try {
+      await writeFile(path, `${manifest.scenario.id}\n`, { flag: "wx" });
+      return path;
+    } catch (error) {
+      if (!isAlreadyExists(error)) throw error;
+    }
+  }
+  await rm(reservation, { force: true });
+  assertAdaptiveScenarioCapacity(LIVE_MATRIX_CONCURRENCY);
+  return fail("Adaptive Scenario capacity reservation failed.");
 };
 
 const redactExactValues = (value: string, replacements: readonly (readonly [string, string])[]) =>
@@ -547,14 +580,19 @@ export const startAdaptiveScenario = async (input: {
   ) {
     fail("An adaptive Scenario can start only once in one Generation.");
   }
-  assertAdaptiveScenarioCapacity(await activeScenarioCount(generation));
+  const activeSlot = await reserveScenarioStart(generation, manifest);
   const prompt = (await readFile(manifest.paths.initialPrompt, "utf8")).trimEnd();
   const readablePrompt = manifest.scenario.initialPrompt.replace(
     installationEntryToken,
     "[installation entry]",
   );
-  await appendConversation(manifest, 1, readablePrompt);
-  return runTurn({ manifest, prompt, turn: 1 });
+  try {
+    await appendConversation(manifest, 1, readablePrompt);
+    return await runTurn({ manifest, prompt, turn: 1 });
+  } catch (error) {
+    await rm(activeSlot, { force: true });
+    throw error;
+  }
 };
 
 export const resumeAdaptiveScenario = async (input: {
@@ -740,6 +778,7 @@ export const finalizeAdaptiveScenario = async (input: {
     scanLiveScenarioDurableEvidence({ value: result, configPath: resolve(".gitleaks.toml") }),
     { flag: "wx" },
   );
+  await releaseScenarioSlot(generation, manifest.scenario.id);
   if (manifest.github !== undefined) {
     await cleanupGitHubMatrixFixture({
       lifecycle: manifest.github.fixtureLifecycle,

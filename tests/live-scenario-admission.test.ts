@@ -36,6 +36,8 @@ import { sha256File } from "../scripts/release-digest";
 const registryPath = "tests/fixtures/live-scenario-admission-registry.json";
 const prerequisiteRegistryPath =
   "tests/fixtures/live-scenario-admission-prerequisite-registry.json";
+const concurrencyRegistryPath =
+  "tests/fixtures/live-scenario-admission-concurrency-registry.json";
 const generationId = "11111111-1111-4111-8111-111111111111";
 
 const createFixture = async (
@@ -420,6 +422,77 @@ exit 0
         "utf8",
       );
       expect(conversation).not.toContain(rejectedSecret);
+    } finally {
+      if (result?.outcome === "admitted") await discardLiveScenarioGenerationAdmission(result);
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("atomically reserves no more than four concurrent Scenario starts", async () => {
+    const scenarioIds = ["test-one", "test-two", "test-three", "test-four", "test-five"];
+    const fixture = await createFixture("admitted", concurrencyRegistryPath);
+    let result: Awaited<ReturnType<typeof prepareLiveScenarioGenerationAdmission>> | undefined;
+    try {
+      result = await prepareLiveScenarioGenerationAdmission({
+        sourceRoot: process.cwd(),
+        workspaceRoot: fixture.workspaceRoot,
+        operatorCodexHome: fixture.operatorCodexHome,
+        registryPath: concurrencyRegistryPath,
+        scenarioIds,
+        generationId,
+        package: fixture.package,
+        codexProgram: fixture.fakeCodex,
+      });
+      if (result.outcome !== "admitted") {
+        throw new Error(`Expected admitted Generation: ${JSON.stringify(result)}`);
+      }
+      const generationPath = join(result.workspaceRoot, "generation.json");
+      await writeFile(generationPath, `${JSON.stringify(result.generationBasis, null, 2)}\n`, {
+        flag: "wx",
+      });
+      await writeFile(
+        fixture.fakeCodex,
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' 'codex-fixture 1'
+  exit 0
+fi
+printf '%s\\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\\n' '{"type":"turn.started"}'
+printf '%s\\n' '{"type":"item.completed","item":{"id":"done","type":"agent_message","text":"Adaptive reply"}}'
+printf '%s\\n' '{"type":"turn.completed"}'
+exit 0
+`,
+      );
+
+      const starts = await Promise.allSettled(
+        scenarioIds.map((scenarioId) => startAdaptiveScenario({ generationPath, scenarioId })),
+      );
+      expect(starts.filter(({ status }) => status === "fulfilled")).toHaveLength(4);
+      expect(starts.filter(({ status }) => status === "rejected")).toHaveLength(1);
+      const rejectedIndex = starts.findIndex(({ status }) => status === "rejected");
+      const rejected = starts[rejectedIndex];
+      expect(rejected?.status === "rejected" ? String(rejected.reason) : "").toContain(
+        "at most four",
+      );
+
+      const completedIndex = starts.findIndex(({ status }) => status === "fulfilled");
+      const verdictPath = join(fixture.root, "capacity-verdict.json");
+      await writeFile(
+        verdictPath,
+        '{"outcome":"pass","rationale":"Observed one bounded terminal Scenario."}\n',
+      );
+      await finalizeAdaptiveScenario({
+        generationPath,
+        scenarioId: scenarioIds[completedIndex] ?? "",
+        verdictPath,
+      });
+      await expect(
+        startAdaptiveScenario({
+          generationPath,
+          scenarioId: scenarioIds[rejectedIndex] ?? "",
+        }),
+      ).resolves.toMatchObject({ evidenceOutcome: "published" });
     } finally {
       if (result?.outcome === "admitted") await discardLiveScenarioGenerationAdmission(result);
       await rm(fixture.root, { recursive: true, force: true });
