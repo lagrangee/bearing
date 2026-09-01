@@ -411,10 +411,9 @@ const repositoryLabelsQuery = `query($owner: String!, $name: String!, $cursor: S
   }
 }`;
 
-const repositoryIssuesQuery = `query($owner: String!, $name: String!, $cursor: String) {
+const repositoryIssueQuery = `query($owner: String!, $name: String!, $issueNumber: Int!) {
   repository(owner: $owner, name: $name) {
-    issues(first: 50, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
-      nodes {
+    issue(number: $issueNumber) {
         id number state stateReason title body createdAt updatedAt closedAt
         comments(first: 100) { nodes { body } totalCount pageInfo { hasNextPage } }
         labels(first: 100) { nodes { id name } pageInfo { hasNextPage } }
@@ -424,8 +423,6 @@ const repositoryIssuesQuery = `query($owner: String!, $name: String!, $cursor: S
         subIssues(first: 100) { nodes { id number } pageInfo { hasNextPage } }
         blockedBy(first: 100) { nodes { id number } pageInfo { hasNextPage } }
         blocking(first: 100) { nodes { id number } pageInfo { hasNextPage } }
-      }
-      pageInfo { hasNextPage endCursor }
     }
   }
 }`;
@@ -1982,10 +1979,24 @@ export const inspectGitHubRepository = async (program: string, repositorySlug: s
   return found;
 };
 
+export const parseGitHubRemoteInventoryIssueNumbers = (
+  input: readonly number[],
+): readonly [number, number] => {
+  if (input.length !== 2) {
+    fail("GitHub remote inventory requires one exact fixture pair.");
+  }
+  const issueNumbers = z.array(z.number().int().positive()).parse(input);
+  if (new Set(issueNumbers).size !== issueNumbers.length) {
+    fail("GitHub remote inventory requires two distinct current-Generation issues.");
+  }
+  return issueNumbers as [number, number];
+};
+
 export const captureGitHubRemoteInventory = async (input: {
   program: string;
   repositorySlug: string;
   scopeKey: string;
+  issueNumbers: readonly number[];
 }) => {
   const repositorySlug = parseGitHubRepositorySlug(input.repositorySlug);
   const repository = await inspectGitHubRepository(input.program, repositorySlug.slug);
@@ -2033,16 +2044,15 @@ export const captureGitHubRemoteInventory = async (input: {
       : undefined;
   } while (labelCursor !== undefined);
 
-  const issues: unknown[] = [];
-  let issueCursor: string | undefined;
-  do {
-    const response = z
-      .object({
-        data: z.object({
-          repository: z.object({
-            issues: z.object({
-              nodes: z.array(
-                z.object({
+  const issueNumbers = parseGitHubRemoteInventoryIssueNumbers(input.issueNumbers);
+  const issues = await Promise.all(
+    issueNumbers.map(async (issueNumber) => {
+      const response = z
+        .object({
+          data: z.object({
+            repository: z.object({
+              issue: z
+                .object({
                   id: z.string(),
                   number: z.number(),
                   state: z.string(),
@@ -2079,21 +2089,27 @@ export const captureGitHubRemoteInventory = async (input: {
                     nodes: z.array(rawIssueRelationSchema),
                     pageInfo: z.object({ hasNextPage: z.boolean() }),
                   }),
-                }),
-              ),
-              pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
+                })
+                .nullable(),
             }),
           }),
-        }),
-      })
-      .parse(
-        await runGitHubGraphQL(
-          input.program,
-          { owner: repositorySlug.owner, name: repositorySlug.name, cursor: issueCursor },
-          repositoryIssuesQuery,
-        ),
-      );
-    for (const issue of response.data.repository.issues.nodes) {
+        })
+        .parse(
+          await runGitHubGraphQL(
+            input.program,
+            {
+              owner: repositorySlug.owner,
+              name: repositorySlug.name,
+              issueNumber: String(issueNumber),
+            },
+            repositoryIssueQuery,
+          ),
+        );
+      const issue =
+        response.data.repository.issue ?? fail(`GitHub issue #${issueNumber} is missing.`);
+      if (issue.number !== issueNumber) {
+        fail(`GitHub issue #${issueNumber} returned a contradictory identity.`);
+      }
       if (
         issue.comments.pageInfo.hasNextPage ||
         issue.labels.pageInfo.hasNextPage ||
@@ -2104,7 +2120,7 @@ export const captureGitHubRemoteInventory = async (input: {
       ) {
         fail(`GitHub issue #${issue.number} exceeds the bounded inventory relation limit.`);
       }
-      issues.push({
+      return {
         ...issue,
         commentCount: issue.comments.totalCount,
         comments: issue.comments.nodes.map((comment) => comment.body),
@@ -2113,13 +2129,9 @@ export const captureGitHubRemoteInventory = async (input: {
         subIssues: issue.subIssues.nodes,
         blockedBy: issue.blockedBy.nodes,
         blocking: issue.blocking.nodes,
-      });
-    }
-    issueCursor = response.data.repository.issues.pageInfo.hasNextPage
-      ? (response.data.repository.issues.pageInfo.endCursor ??
-        fail("GitHub issue pagination cursor is missing."))
-      : undefined;
-  } while (issueCursor !== undefined);
+      };
+    }),
+  );
 
   return sanitizeGitHubRemoteInventory(
     { candidateBranchCommit: branch?.sha ?? null, repository, labels, issues },

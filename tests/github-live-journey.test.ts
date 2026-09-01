@@ -13,6 +13,7 @@ import {
   createGitHubJourneyObservation,
   deriveGitHubJourneyScopeKey,
   derivePackageScopeKey,
+  parseGitHubRemoteInventoryIssueNumbers,
   parseGitHubRepositorySlug,
   provisionIsolatedGitHubAccountSelection,
   readFixedGitHubValidationRepository,
@@ -111,6 +112,14 @@ const rawInventory = (scopeKey: string, includeCandidate = true, includeMarker =
 });
 
 describe("GitHub and Active Reconciliation live Journey", () => {
+  test("bounds remote inventory to one exact current-Generation fixture pair", () => {
+    expect(parseGitHubRemoteInventoryIssueNumbers([20, 21])).toEqual([20, 21]);
+    expect(() => parseGitHubRemoteInventoryIssueNumbers([20, 20])).toThrow("distinct");
+    expect(() => parseGitHubRemoteInventoryIssueNumbers([20, 21, 22])).toThrow(
+      "exact fixture pair",
+    );
+  });
+
   test("requires an exact candidate-owned Active Configuration baseline", () => {
     const exact = {
       lifecycle: { state: "active", removalRequired: false },

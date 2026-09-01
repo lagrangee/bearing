@@ -192,10 +192,7 @@ const isAlreadyExists = (error: unknown): boolean =>
 const activeSlotPath = (generation: Generation, slot: number): string =>
   join(generation.workspaceRoot, `.active-scenario-${slot}`);
 
-const releaseScenarioSlot = async (
-  generation: Generation,
-  scenarioId: string,
-): Promise<void> => {
+const releaseScenarioSlot = async (generation: Generation, scenarioId: string): Promise<void> => {
   await Promise.all(
     Array.from({ length: LIVE_MATRIX_CONCURRENCY }, async (_, index) => {
       const path = activeSlotPath(generation, index + 1);
@@ -241,9 +238,11 @@ const redactExactValues = (value: string, replacements: readonly (readonly [stri
   );
 
 const rejectedDurableEventStream = (reason: "credential-match" | "scanner-unavailable"): string =>
-  `${JSON.stringify({ type: "thread.started", thread_id: "[evidence-rejected]" })}\n${JSON.stringify({
-    type: "turn.started",
-  })}\n${JSON.stringify({ type: "durable-evidence-rejected", reason })}\n${JSON.stringify({
+  `${JSON.stringify({ type: "thread.started", thread_id: "[evidence-rejected]" })}\n${JSON.stringify(
+    {
+      type: "turn.started",
+    },
+  )}\n${JSON.stringify({ type: "durable-evidence-rejected", reason })}\n${JSON.stringify({
     type: "turn.failed",
   })}\n`;
 
@@ -404,6 +403,10 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
         program: manifest.github.program,
         repositorySlug: manifest.github.repositorySlug,
         scopeKey: manifest.github.scopeKey,
+        issueNumbers: [
+          manifest.github.fixtureLifecycle.parent.number,
+          manifest.github.fixtureLifecycle.child.number,
+        ],
       });
       remoteBeforeBytes = `${JSON.stringify(remoteBefore, null, 2)}\n`;
       await writeOrVerifyGitHubRemoteBaseline({ path: beforePath, bytes: remoteBeforeBytes });
@@ -440,6 +443,10 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
         program: manifest.github.program,
         repositorySlug: manifest.github.repositorySlug,
         scopeKey: manifest.github.scopeKey,
+        issueNumbers: [
+          manifest.github.fixtureLifecycle.parent.number,
+          manifest.github.fixtureLifecycle.child.number,
+        ],
       });
       remoteAfterBytes = `${JSON.stringify(remoteAfter, null, 2)}\n`;
       await writeFile(afterPath, remoteAfterBytes, { flag: "wx" });
@@ -667,6 +674,7 @@ const captureTerminalObservation = async (manifest: Manifest) => {
       program: github.program,
       repositorySlug: github.repositorySlug,
       scopeKey: github.scopeKey,
+      issueNumbers: [github.fixtureLifecycle.parent.number, github.fixtureLifecycle.child.number],
     });
   }
   return value;

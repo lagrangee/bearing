@@ -999,6 +999,7 @@ export const prepareLiveScenarioGeneration = async (input: {
           program: githubProgram,
           repositorySlug: fixed.configuration.repositorySlug,
           scopeKey,
+          issueNumbers: [githubFixtureLifecycle.parent.number, githubFixtureLifecycle.child.number],
         });
         if (
           baseline.repositoryIdentitySha256 !== fixed.configuration.repositoryIdentitySha256 ||
