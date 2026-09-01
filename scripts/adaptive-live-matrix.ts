@@ -61,6 +61,17 @@ const ensureMissing = async (path: string): Promise<void> => {
   if (await exists(path)) fail(`Output already exists: ${path}`);
 };
 
+const writeOrVerifyExact = async (path: string, bytes: string): Promise<void> => {
+  try {
+    await writeFile(path, bytes, { flag: "wx" });
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+    if ((await readFile(path, "utf8")) !== bytes) {
+      fail(`Sealed evidence cannot be replaced: ${path}`);
+    }
+  }
+};
+
 const pathIsInside = (root: string, path: string): boolean => {
   const relation = relative(resolve(root), resolve(path));
   return relation === "" || (!relation.startsWith("..") && !isAbsolute(relation));
@@ -196,6 +207,13 @@ const redactExactValues = (value: string, replacements: readonly (readonly [stri
     value,
   );
 
+const rejectedDurableEventStream = (reason: "credential-match" | "scanner-unavailable"): string =>
+  `${JSON.stringify({ type: "thread.started", thread_id: "[evidence-rejected]" })}\n${JSON.stringify({
+    type: "turn.started",
+  })}\n${JSON.stringify({ type: "durable-evidence-rejected", reason })}\n${JSON.stringify({
+    type: "turn.failed",
+  })}\n`;
+
 const snapshotScenarioAgentHome = (agentHome: string): Promise<string> =>
   snapshotDirectory(agentHome, { excludeTrees: [".codex", "skill-directory/.system"] });
 
@@ -208,17 +226,29 @@ const appendConversation = async (
   const section = `## Turn ${turn}\n\n### Human\n\n${human}\n\n${
     agent === undefined ? "" : `### Agent\n\n${agent}\n\n`
   }`;
+  const durableConversation = (value: string) =>
+    scanLiveScenarioDurableText({ value, configPath: resolve(".gitleaks.toml") });
   if (turn === 1) {
-    await writeFile(manifest.paths.conversation, `# Conversation\n\n${section}`, { flag: "wx" });
+    await writeFile(
+      manifest.paths.conversation,
+      durableConversation(`# Conversation\n\n${section}`),
+      { flag: "wx" },
+    );
     return;
   }
   const current = await readFile(manifest.paths.conversation, "utf8");
-  await writeFile(manifest.paths.conversation, `${current}${section}`);
+  await writeFile(manifest.paths.conversation, durableConversation(`${current}${section}`));
 };
 
 const appendAgentReply = async (manifest: Manifest, agent: string): Promise<void> => {
   const current = await readFile(manifest.paths.conversation, "utf8");
-  await writeFile(manifest.paths.conversation, `${current}### Agent\n\n${agent}\n\n`);
+  await writeFile(
+    manifest.paths.conversation,
+    scanLiveScenarioDurableText({
+      value: `${current}### Agent\n\n${agent}\n\n`,
+      configPath: resolve(".gitleaks.toml"),
+    }),
+  );
 };
 
 const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number }) => {
@@ -407,16 +437,27 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
       operatorCodexHome,
       ephemeralCapabilityValues: ephemeralValues,
     });
-    const durableOutput = {
-      stdout: scanLiveScenarioDurableText({
-        value: output.stdout,
-        configPath: resolve(".gitleaks.toml"),
-      }),
-      stderr: scanLiveScenarioDurableText({
-        value: output.stderr,
-        configPath: resolve(".gitleaks.toml"),
-      }),
-    };
+    let evidenceOutcome: "published" | "rejected" = "published";
+    let durableOutput: Readonly<{ stdout: string; stderr: string }>;
+    try {
+      durableOutput = {
+        stdout: scanLiveScenarioDurableText({
+          value: output.stdout,
+          configPath: resolve(".gitleaks.toml"),
+        }),
+        stderr: scanLiveScenarioDurableText({
+          value: output.stderr,
+          configPath: resolve(".gitleaks.toml"),
+        }),
+      };
+    } catch (error) {
+      evidenceOutcome = "rejected";
+      const reason =
+        error instanceof Error && error.message.includes("failed the required Gitleaks scan")
+          ? "credential-match"
+          : "scanner-unavailable";
+      durableOutput = { stdout: rejectedDurableEventStream(reason), stderr: "" };
+    }
     await Promise.all([
       writeFile(eventsPath, durableOutput.stdout, { flag: "wx" }),
       writeFile(stderrPath, durableOutput.stderr, { flag: "wx" }),
@@ -457,12 +498,24 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
       }),
       { flag: "wx" },
     );
-    if (observation.invocationStarted && observedSessionId !== undefined) {
+    if (
+      evidenceOutcome === "published" &&
+      observation.invocationStarted &&
+      observedSessionId !== undefined
+    ) {
       await writeCodexSessionState(manifest.paths.sessionState, {
         schemaVersion: 1,
         generationId: manifest.generationId,
         sessionId: observedSessionId,
         lastTurn: input.turn,
+      });
+    }
+    if (evidenceOutcome === "rejected") {
+      return Object.freeze({
+        scenarioId: manifest.scenario.id,
+        turn: input.turn,
+        evidenceOutcome,
+        observation: observationPath,
       });
     }
     if (!observationCompletedCleanly(observation) || observedSessionId === undefined) {
@@ -473,6 +526,7 @@ const runTurn = async (input: { manifest: Manifest; prompt: string; turn: number
     return Object.freeze({
       scenarioId: manifest.scenario.id,
       turn: input.turn,
+      evidenceOutcome,
       agentReply,
       observation: observationPath,
     });
@@ -638,6 +692,11 @@ export const finalizeAdaptiveScenario = async (input: {
   ) {
     fail("A passing semantic verdict cannot contradict an incomplete Codex Turn.");
   }
+  const verdictSealPath = join(manifest.paths.terminal, "verdict.json");
+  await writeOrVerifyExact(
+    verdictSealPath,
+    scanLiveScenarioDurableEvidence({ value: verdict, configPath: resolve(".gitleaks.toml") }),
+  );
   const terminalPath = join(manifest.paths.terminal, "observation.json");
   if (!(await exists(terminalPath))) {
     await writeFile(
@@ -664,7 +723,10 @@ export const finalizeAdaptiveScenario = async (input: {
         ),
       ),
     ),
-    terminalEvidence: [await evidenceReference(evidenceRoot, terminalPath)],
+    terminalEvidence: await Promise.all([
+      evidenceReference(evidenceRoot, verdictSealPath),
+      evidenceReference(evidenceRoot, terminalPath),
+    ]),
     turns: observations.map((observation) => ({
       turnNumber: observation.turn,
       startedAt: observation.startedAt,
@@ -673,17 +735,17 @@ export const finalizeAdaptiveScenario = async (input: {
     startedAt: observations[0]?.startedAt ?? fail("Scenario start observation is unavailable."),
     endedAt: observations.at(-1)?.endedAt ?? fail("Scenario end observation is unavailable."),
   });
+  await writeFile(
+    manifest.paths.result,
+    scanLiveScenarioDurableEvidence({ value: result, configPath: resolve(".gitleaks.toml") }),
+    { flag: "wx" },
+  );
   if (manifest.github !== undefined) {
     await cleanupGitHubMatrixFixture({
       lifecycle: manifest.github.fixtureLifecycle,
       program: manifest.github.program,
     });
   }
-  await writeFile(
-    manifest.paths.result,
-    scanLiveScenarioDurableEvidence({ value: result, configPath: resolve(".gitleaks.toml") }),
-    { flag: "wx" },
-  );
   await Promise.all([
     rm(manifest.paths.runtimeRoot, { recursive: true, force: true }),
     rm(manifest.paths.sessionState, { force: true }),

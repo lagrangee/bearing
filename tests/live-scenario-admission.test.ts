@@ -272,6 +272,12 @@ exit 0
         expect.stringContaining("turn-01.jsonl"),
         expect.stringContaining("turn-02.jsonl"),
       ]);
+      expect(
+        scenarioResult.terminalEvidence.map(({ pointer }: { pointer: string }) => pointer),
+      ).toEqual([
+        expect.stringContaining("terminal/verdict.json"),
+        expect.stringContaining("terminal/observation.json"),
+      ]);
       const rawEvents = await readFile(
         join(result.workspaceRoot, "scenarios/test-one/events/turn-01.jsonl"),
         "utf8",
