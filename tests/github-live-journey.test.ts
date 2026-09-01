@@ -13,6 +13,7 @@ import {
   createGitHubJourneyObservation,
   deriveGitHubJourneyScopeKey,
   derivePackageScopeKey,
+  githubGraphQLVariableArguments,
   parseGitHubRemoteInventoryIssueNumbers,
   parseGitHubRepositorySlug,
   provisionIsolatedGitHubAccountSelection,
@@ -112,6 +113,16 @@ const rawInventory = (scopeKey: string, includeCandidate = true, includeMarker =
 });
 
 describe("GitHub and Active Reconciliation live Journey", () => {
+  test("preserves GraphQL integer variables as typed gh fields", () => {
+    expect(
+      githubGraphQLVariableArguments({
+        owner: "example",
+        issueNumber: 20,
+        cursor: undefined,
+      }),
+    ).toEqual(["--raw-field", "owner=example", "--field", "issueNumber=20"]);
+  });
+
   test("bounds remote inventory to one exact current-Generation fixture pair", () => {
     expect(parseGitHubRemoteInventoryIssueNumbers([20, 21])).toEqual([20, 21]);
     expect(() => parseGitHubRemoteInventoryIssueNumbers([20, 20])).toThrow("distinct");

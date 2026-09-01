@@ -427,15 +427,23 @@ const repositoryIssueQuery = `query($owner: String!, $name: String!, $issueNumbe
   }
 }`;
 
+export const githubGraphQLVariableArguments = (
+  variables: Readonly<Record<string, string | number | undefined>>,
+) =>
+  Object.entries(variables).flatMap(([key, value]) => {
+    if (value === undefined) return [];
+    return typeof value === "number"
+      ? ["--field", `${key}=${value}`]
+      : ["--raw-field", `${key}=${value}`];
+  });
+
 const runGitHubGraphQL = async (
   program: string,
-  variables: Readonly<Record<string, string | undefined>>,
+  variables: Readonly<Record<string, string | number | undefined>>,
   query: string,
 ) => {
   const args = ["api", "graphql", "--raw-field", `query=${query}`];
-  for (const [key, value] of Object.entries(variables)) {
-    if (value !== undefined) args.push("--raw-field", `${key}=${value}`);
-  }
+  args.push(...githubGraphQLVariableArguments(variables));
   const process = Bun.spawn([program, ...args], {
     env: globalThis.process.env,
     stdin: "ignore",
@@ -2100,7 +2108,7 @@ export const captureGitHubRemoteInventory = async (input: {
             {
               owner: repositorySlug.owner,
               name: repositorySlug.name,
-              issueNumber: String(issueNumber),
+              issueNumber,
             },
             repositoryIssueQuery,
           ),
