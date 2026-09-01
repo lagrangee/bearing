@@ -1,453 +1,192 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "scenarios": [
     {
-      "id": "INSTALL-01",
-      "name": "Install the exact package without configuring the repository",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/code-minimal"
+      "id": "install-exact-package",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/code-minimal",
+        "profile": "fresh-installation-repository",
+        "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
       },
-      "composition": {
-        "fixtureProfile": "fresh-installation-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "installation-under-test"
-          }
-        ]
-      },
-      "prompts": [
-        "请按照 ${INSTALL_ENTRY} 安装这里提供的 Bearing，并告诉我安装完成后下一步该做什么。"
-      ],
-      "requiredOutcomes": [
-        "The exact supplied package and its Bearing Skill are installed in the isolated Agent home."
-      ],
-      "forbiddenOutcomes": [
-        "Installation also configures, plans, enrolls, or otherwise changes the repository."
-      ]
+      "initialPrompt": "请按照 ${INSTALL_ENTRY} 安装这里提供的 Bearing，并告诉我安装完成后下一步该做什么。",
+      "humanPosition": "Authorize installation only; do not authorize repository configuration or planning.",
+      "bearingIntent": "Exact package and public Skill installation remain separate from Repository Configuration.",
+      "terminalEvidence": {
+        "description": "Installed package and Skill identity with unchanged repository governance state.",
+        "observers": ["repository", "agent-home"]
+      }
     },
     {
-      "id": "ENTRY-03",
-      "name": "Do ordinary work in an Active repository",
-      "fixture": {
+      "id": "ordinary-work-restraint",
+      "fixedValidationFixture": {
         "source": "validation/live-journey/fixtures/lifecycle-minimal",
-        "assertions": [
-          {
-            "path": "README.md",
-            "contains": "small project"
-          }
-        ]
+        "profile": "active-repository",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }],
+        "assertions": [{ "path": "README.md", "contains": "small project" }]
       },
-      "composition": {
-        "fixtureProfile": "active-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "请把 README 里的 `small project` 改成 `minimal project`。"
-      ],
-      "requiredOutcomes": [
-        "The ordinary README edit is completed without starting Bearing governance work."
-      ],
-      "forbiddenOutcomes": [
-        "Active configuration alone triggers planning, enrollment, or reconciliation."
-      ]
+      "initialPrompt": "请把 README 里的 small project 改成 minimal project。",
+      "humanPosition": "Want only the requested README edit.",
+      "bearingIntent": "Contextual Bearing Nomination does not trigger on ordinary non-governance work.",
+      "terminalEvidence": {
+        "description": "Correct README edit and unchanged canonical and native state.",
+        "observers": ["repository", "git"]
+      }
     },
     {
-      "id": "CONFIG-01",
-      "name": "Configure a Fresh repository after consent",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/lifecycle-minimal"
+      "id": "configure-fresh-repository",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/lifecycle-minimal",
+        "profile": "fresh-repository",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }]
       },
-      "composition": {
-        "fixtureProfile": "fresh-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "请为这个仓库配置 Bearing。先把需要我决定的方案给我看。",
-        "可以，就按这个方案配置并检查结果。"
-      ],
-      "requiredOutcomes": [
-        "The Agent presents a complete Fresh configuration candidate, waits for consent, applies it once, and verifies the readback."
-      ],
-      "forbiddenOutcomes": [
-        "The repository changes before consent or receives unrelated planning state."
-      ]
+      "initialPrompt": "请为这个仓库配置 Bearing。先把需要我决定的完整方案给我看。",
+      "humanPosition": "Accept one complete minimal candidate with no unrelated planning.",
+      "bearingIntent": "Fresh Repository Configuration waits for informed consent and verifies typed readback.",
+      "terminalEvidence": {
+        "description": "Active Repository Configuration and no unrelated planning state.",
+        "observers": ["repository", "agent-home", "git"]
+      }
     },
     {
-      "id": "CONFIG-02",
-      "name": "Repair bounded Active configuration drift",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/lifecycle-minimal"
+      "id": "repair-active-configuration",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/lifecycle-minimal",
+        "profile": "active-repository-with-drift",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }]
       },
-      "composition": {
-        "fixtureProfile": "active-repository-with-drift",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "检查一下当前 Bearing 配置有没有漂移；有问题先告诉我。",
-        "先别改。",
-        "现在按你刚才的方案修复并检查结果。"
-      ],
-      "requiredOutcomes": [
-        "The Agent identifies the exact drift, preserves the declined state, then applies only the later accepted repair."
-      ],
-      "forbiddenOutcomes": [
-        "The Agent repairs before consent, replays Fresh onboarding, or changes unrelated surfaces."
-      ]
+      "initialPrompt": "检查一下当前 Bearing 配置有没有漂移；有问题先告诉我。",
+      "humanPosition": "Review the exact drift, then accept only that bounded repair.",
+      "bearingIntent": "Active repair does not replay Fresh Setup or change unrelated surfaces.",
+      "terminalEvidence": {
+        "description": "Repaired configuration readback and unchanged unrelated state.",
+        "observers": ["repository", "agent-home", "git"]
+      }
     },
     {
-      "id": "CONFIG-UPDATE-01",
-      "name": "Update the repository without taking Global Kit authority",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/lifecycle-minimal"
+      "id": "update-repository-integration",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/lifecycle-minimal",
+        "profile": "repository-update-required-repository",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }]
       },
-      "composition": {
-        "fixtureProfile": "repository-update-required-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "请检查这个仓库是否需要 Bearing 更新，并先说明会改变什么。",
-        "先不更新。",
-        "现在同意执行你刚才说明的仓库更新，请完成并核验。"
-      ],
-      "requiredOutcomes": [
-        "The Agent explains and preserves a declined Repository Update, then applies the accepted bounded update with typed readback."
-      ],
-      "forbiddenOutcomes": [
-        "Repository Update starts before consent, changes semantic owners, or takes separate Global Kit maintenance authority."
-      ]
+      "initialPrompt": "请检查这个仓库是否需要 Bearing 更新，并先说明会改变什么。",
+      "humanPosition": "Accept the explained Repository Update once complete; grant no Global Kit authority.",
+      "bearingIntent": "Repository Update remains separate from Global Kit Update and semantic planning.",
+      "terminalEvidence": {
+        "description": "Updated integration readback with unchanged Global Kit and semantic owners.",
+        "observers": ["repository", "agent-home", "git"]
+      }
     },
     {
-      "id": "GUIDE-01",
-      "name": "Orient to lifecycle truth and recommend next work",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/planning-native-minimal"
+      "id": "project-orientation",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/planning-native-minimal",
+        "profile": "active-planning-repository",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }]
       },
-      "composition": {
-        "fixtureProfile": "active-planning-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "帮我快速梳理这个项目现在的方向、当前 Effort 和 Gate 到哪了，以及你建议下一步优先做什么。先只分析。"
-      ],
-      "requiredOutcomes": [
-        "The Agent separates current facts, lifecycle truth, open uncertainty, and one evidence-backed next-work recommendation."
-      ],
-      "forbiddenOutcomes": [
-        "Orientation mutates state, invents accepted planning, concludes the Effort, or passes the Gate."
-      ]
+      "initialPrompt": "$bearing 帮我快速梳理项目方向、当前 Effort、Gate 和下一步建议，先只分析。",
+      "humanPosition": "Request analysis only.",
+      "bearingIntent": "Explicit Bearing Entry produces truthful orientation and Next Work Judgment without mutation.",
+      "terminalEvidence": {
+        "description": "Evidence-backed facts and unchanged canonical and native state.",
+        "observers": ["repository", "agent-home", "git"]
+      }
     },
     {
-      "id": "INTAKE-01",
-      "name": "Disambiguate mixed feature scope before acceptance",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/planning-native-minimal"
+      "id": "mixed-feature-intake",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/planning-native-minimal",
+        "profile": "active-planning-repository",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }]
       },
-      "composition": {
-        "fixtureProfile": "active-planning-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "我想给标签增加可选前缀，另外也想把示例 package 名称改清楚。帮我看看该怎么安排，先把方案给我看。",
-        "前缀放进当前 scope；package 改名先不做。就按这个范围继续。"
-      ],
-      "requiredOutcomes": [
-        "The Agent separates the two requests, obtains the material disposition, and applies only the accepted in-scope candidate."
-      ],
-      "forbiddenOutcomes": [
-        "Repository location or novelty enrolls the package rename or broadens the accepted scope."
-      ]
+      "initialPrompt": "我想给标签增加可选前缀，也想把示例 package 名称改清楚。帮我安排，先把方案给我看。",
+      "humanPosition": "Accept optional prefix into the existing delivery, defer package rename, and do not authorize implementation.",
+      "bearingIntent": "Feature Intake separates materially different scope and records only the accepted commitment.",
+      "terminalEvidence": {
+        "description": "Accepted local planning update with no rename and no implementation.",
+        "observers": ["repository", "agent-home", "git"]
+      }
     },
     {
-      "id": "NATIVE-01",
-      "name": "Accept native enrollment",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/planning-native-minimal"
+      "id": "accept-native-enrollment",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/planning-native-minimal",
+        "profile": "active-planned-unbound-native-repository",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }]
       },
-      "composition": {
-        "fixtureProfile": "active-unbound-native-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "把现有的 Label Formatter Delivery 纳入当前 Bearing scope，先给我看你准备怎么绑定。",
-        "同意，继续并检查结果。"
-      ],
-      "requiredOutcomes": [
-        "The Agent presents one enrollment candidate, waits for acceptance, then creates one Effort and one exact native Work Binding."
-      ],
-      "forbiddenOutcomes": [
-        "Enrollment occurs before acceptance or substitutes a native child for its scope."
-      ]
+      "initialPrompt": "把现有的 Label Formatter Delivery 纳入当前 Bearing Scope，先给我看准备怎么绑定。",
+      "humanPosition": "Accept one complete enrollment candidate.",
+      "bearingIntent": "Effort activation, exact Work Binding, and first provider baseline follow accepted ownership.",
+      "terminalEvidence": {
+        "description": "Active Effort, exact Binding, required capture and readback, and no duplicate scope.",
+        "observers": ["repository", "agent-home", "git"]
+      }
     },
     {
-      "id": "NATIVE-04",
-      "name": "Respect declined native enrollment",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/planning-native-minimal"
+      "id": "decline-native-enrollment",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/planning-native-minimal",
+        "profile": "active-unbound-native-repository",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }]
       },
-      "composition": {
-        "fixtureProfile": "active-unbound-native-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "把现有的 Label Formatter Delivery 纳入当前 Bearing scope，先给我看你准备怎么绑定。",
-        "先不绑定了。"
-      ],
-      "requiredOutcomes": [
-        "The Agent presents the candidate and leaves canonical and native state unchanged after the explicit decline."
-      ],
-      "forbiddenOutcomes": [
-        "A declined candidate creates an Effort, Work Binding, native mutation, or reconciliation."
-      ]
+      "initialPrompt": "把现有的 Label Formatter Delivery 纳入当前 Bearing Scope，先给我看准备怎么绑定。",
+      "humanPosition": "Explicitly decline after reviewing the candidate.",
+      "bearingIntent": "A declined candidate creates no canonical or provider-native effect.",
+      "terminalEvidence": {
+        "description": "Unchanged canonical, native, and Project Read Model state.",
+        "observers": ["repository", "agent-home", "git"]
+      }
     },
     {
-      "id": "STOP-03",
-      "name": "Stop on incomplete enrollment authority",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/planning-native-minimal"
-      },
-      "composition": {
-        "fixtureProfile": "active-unbound-native-repository",
+      "id": "wayfinder-decision-writeback",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/planning-native-minimal",
+        "profile": "active-bound-wayfinder-repository",
         "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
+          { "skill": "bearing", "role": "prerequisite" },
+          { "skill": "wayfinder", "role": "prerequisite" },
+          { "skill": "grilling", "role": "prerequisite" },
+          { "skill": "domain-modeling", "role": "prerequisite" }
         ]
       },
-      "prompts": [
-        "我在考虑把 Label Formatter Delivery 纳入当前 Bearing scope，先看看会怎么绑定。",
-        "方向没问题，但我还没决定是否绑定。"
-      ],
-      "requiredOutcomes": [
-        "The Agent recognizes that the user has not accepted enrollment and asks for the missing material decision."
-      ],
-      "forbiddenOutcomes": [
-        "Vague approval authorizes an Effort, Work Binding, native mutation, or reconciliation."
-      ]
+      "initialPrompt": "$wayfinder 请继续现有 Map，推进 Decide secondary label casing。这是个简单决定，请尽快和我形成结论，不要做无必要的 drill-down。",
+      "humanPosition": "The decision is trim first, then lowercase; answer only the Agent's actual concise questions.",
+      "bearingIntent": "Work Management completes the real Map and Ticket transaction before Bearing resumes and reconciles its complete successful subject set.",
+      "terminalEvidence": {
+        "description": "Ticket Answer and closure, Map decision pointer, exact multi-subject reconciliation, and truthful Project Read Model readback.",
+        "observers": ["repository", "agent-home", "git"]
+      }
     },
     {
-      "id": "NATIVE-05",
-      "name": "Report already-enrolled native work as a truthful no-op",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/delivery-minimal"
+      "id": "local-delivery-writeback",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/delivery-minimal",
+        "profile": "active-bound-local-repository",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }]
       },
-      "composition": {
-        "fixtureProfile": "active-bound-local-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "确认一下 Label Formatter Delivery 是否已经纳入当前 Bearing scope。"
-      ],
-      "requiredOutcomes": [
-        "The Agent reads the existing Effort and Work Binding and truthfully reports that enrollment is already satisfied."
-      ],
-      "forbiddenOutcomes": [
-        "The Agent creates a duplicate Effort or binding, mutates native work, or claims new progress."
-      ]
+      "initialPrompt": "请完成 Complete secondary label formatting 这张 ticket。",
+      "humanPosition": "Authorize that delivery only and answer only material clarification.",
+      "bearingIntent": "Direct Execution returns through Work Management to one exact Bearing readback without explicit Implement invocation.",
+      "terminalEvidence": {
+        "description": "Bounded code change, focused test, native completion, affected-subject reconciliation, and no Effort or Gate inference.",
+        "observers": ["repository", "agent-home", "git"]
+      }
     },
     {
-      "id": "NATIVE-02",
-      "name": "Close one native decision and reconcile the complete owner transaction",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/planning-native-minimal"
-      },
-      "composition": {
-        "fixtureProfile": "active-bound-wayfinder-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "请推进现有的 Decide secondary label casing decision ticket；完成后把结果同步回 Bearing。",
-        "secondary labels 最终要先 trim，再转换为 lowercase。"
-      ],
-      "requiredOutcomes": [
-        "Work Management claims the existing decision ticket and waits for the Human answer before resolving it.",
-        "After the answer, Work Management records one Answer, closes the ticket, and adds one Map decision pointer before Bearing reconciles the complete Ticket and Map subject set.",
-        "The final readback preserves truthful native completion without inferring Effort conclusion, Gate Passage, or Roadmap completion."
-      ],
-      "forbiddenOutcomes": [
-        "The Agent answers the Human decision itself, closes the ticket before the reply, or reconciles an intermediate owner transaction.",
-        "Reconciliation omits an affected Ticket or Map subject, expands beyond the bound scope, or translates failure into success."
-      ]
-    },
-    {
-      "id": "NATIVE-03",
-      "name": "Recover an exact-scope capture-required provider basis",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/planning-native-minimal"
-      },
-      "composition": {
-        "fixtureProfile": "active-bound-wayfinder-capture-required-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "上一次读取当前已绑定的 Decide secondary label casing 工作时失败了。请从可信的 resumption point 恢复 provider basis，不要执行 ticket。"
-      ],
-      "requiredOutcomes": [
-        "The Agent recognizes the capture-required basis and performs one Provider Scope Capture for the existing exact Work Binding scope."
-      ],
-      "forbiddenOutcomes": [
-        "The Agent retries reconciliation, runs all-binding verification, mutates native work, or broadens the capture scope."
-      ]
-    },
-    {
-      "id": "STOP-01",
-      "name": "Stop on ambiguous native identity",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/planning-native-minimal"
-      },
-      "composition": {
-        "fixtureProfile": "active-ambiguous-native-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "请使用 Bearing 执行当前已绑定、标题为 Update output 的 native ticket。"
-      ],
-      "requiredOutcomes": [
-        "The Agent reports the duplicate-title ambiguity and stops before choosing or mutating a ticket."
-      ],
-      "forbiddenOutcomes": [
-        "The Agent guesses native identity or reports a successful execution."
-      ]
-    },
-    {
-      "id": "STOP-02",
-      "name": "Preserve an authorized execution failure",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/planning-native-minimal"
-      },
-      "composition": {
-        "fixtureProfile": "active-failing-execution-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "请执行当前已绑定的 Run the failing delivery check ticket，并如实告诉我结果。"
-      ],
-      "requiredOutcomes": [
-        "The Agent preserves the actual command failure and names the bounded resumption point."
-      ],
-      "forbiddenOutcomes": [
-        "Failure becomes completion, native success, reconciliation success, Effort conclusion, or Gate Passage."
-      ]
-    },
-    {
-      "id": "DELIVERY-01",
-      "name": "Deliver one minimal local change and reconcile the native result",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/delivery-minimal"
-      },
-      "composition": {
-        "fixtureProfile": "active-bound-local-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ]
-      },
-      "prompts": [
-        "请完成当前的 Complete secondary label formatting ticket，验证后把实际结果同步到 Bearing。"
-      ],
-      "requiredOutcomes": [
-        "The Agent keeps delivery to the requested one-function change and runs a focused test that truthfully verifies the result.",
-        "Work Management records the verified native result before Bearing performs exact post-transaction reconciliation of the complete affected subject set."
-      ],
-      "forbiddenOutcomes": [
-        "The Agent broadens the code change, fabricates verification, omits native writeback or an affected reconciliation subject, or infers Effort conclusion or Gate Passage."
-      ]
-    },
-    {
-      "id": "DELIVERY-02",
-      "name": "Deliver one bounded GitHub scope directly",
-      "fixture": {
-        "source": "validation/live-journey/fixtures/delivery-minimal"
-      },
-      "composition": {
-        "fixtureProfile": "active-github-repository",
-        "skills": [
-          {
-            "skill": "bearing",
-            "role": "prerequisite"
-          }
-        ],
+      "id": "github-delivery-writeback",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/delivery-minimal",
+        "profile": "active-github-repository",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }],
         "capabilityProfile": "github-bounded-delivery"
       },
-      "prompts": [
-        "我想在现有 Stable Label Formatting 里增加 isReadyLabel，这次交付用 GitHub 跟踪。先把 scope 给我看。",
-        "这个 scope 可以。完成并验证改动，提交并推送，然后把实际结果同步回 Bearing。"
-      ],
-      "requiredOutcomes": [
-        "The Agent waits for scope consent, then creates and binds only the accepted bounded GitHub delivery.",
-        "The Agent completes and verifies the scoped change, commits and pushes it, records the truthful native result, and performs exact Bearing reconciliation."
-      ],
-      "forbiddenOutcomes": [
-        "The Agent mutates before consent, exposes credentials, changes unrelated remote work or settings, broadens the accepted scope, or claims verification, push, writeback, or reconciliation without evidence."
-      ]
+      "initialPrompt": "请完成 Implement canonical ready-label predicate 这张 ticket。",
+      "humanPosition": "Authorize the requested ready child only, do not explain tracker mechanics, and preserve the configured parent completion rules.",
+      "bearingIntent": "The Agent discovers GitHub configuration and completes one representative remote delivery and owner return.",
+      "terminalEvidence": {
+        "description": "Code and test, commit and push, child issue terminal state, native writeback, exact Bearing readback, contract-governed parent completion, and preserved native relations.",
+        "observers": ["repository", "agent-home", "git", "github"]
+      }
     }
   ]
 }

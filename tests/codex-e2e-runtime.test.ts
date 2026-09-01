@@ -20,6 +20,7 @@ import {
   codexE2ERuntimeArguments,
   createCodexE2EEvidenceRecord,
   inspectCodexE2EToolchain,
+  prepareCodexE2EShellEnvironment,
   prepareIsolatedCodexHome,
   readCodexE2EModelAvailability,
   redactCodexE2EEphemeralCapabilities,
@@ -31,7 +32,8 @@ const fixtureToolchain = Object.freeze({
   nodeInstallRoot: "/opt/node",
   openSslConfig: "/System/Library/OpenSSL/openssl.cnf",
   selectedDeveloperDirectory: "/Library/Developer/CommandLineTools",
-  path: "/opt/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+  gitExecutable: "/Library/Developer/CommandLineTools/usr/bin/git",
+  path: "/opt/node/bin:/Library/Developer/CommandLineTools/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 });
 
 const fakeModelProgram = async (input: {
@@ -70,12 +72,15 @@ describe("repository Codex E2E policy", () => {
     expect(CODEX_E2E_RUNTIME).toEqual({
       model: "gpt-5.6-luna",
       reasoningEffort: "high",
+      fastMode: true,
     });
     expect(codexE2ERuntimeArguments()).toEqual([
       "--model",
       "gpt-5.6-luna",
       "--config",
       'model_reasoning_effort="high"',
+      "--enable",
+      "fast_mode",
     ]);
     expect(() => codexE2ERuntimeArguments({ model: "fallback" })).toThrow(
       "does not accept runtime overrides",
@@ -94,6 +99,10 @@ describe("repository Codex E2E policy", () => {
       boundedNpmControlRoot,
       readDeniedPaths: ["/tmp/source", "/tmp/source/validation/live-journey/registry.json"],
       writeAllowedPaths: [],
+    });
+    expect(launch.environment).toMatchObject({
+      DEVELOPER_DIR: fixtureToolchain.selectedDeveloperDirectory,
+      npm_config_script_shell: "/bin/bash",
     });
     for (const step of [launch.initial, launch.resume]) {
       expect(step.arguments).toContain('default_permissions="bearing_live_journey"');
@@ -175,6 +184,7 @@ describe("repository Codex E2E policy", () => {
     expect(toolchain.nodeExecutable).toBe(await realpath(Bun.which("node") ?? "node"));
     expect(toolchain.nodeExecutable).toBe(join(toolchain.nodeInstallRoot, "bin", "node"));
     expect(toolchain.path.split(":")[0]).toBe(toolchain.nodeBin);
+    expect(toolchain.path.split(":")[1]).toBe("/Library/Developer/CommandLineTools/usr/bin");
     expect(toolchain.openSslConfig).toBe("/System/Library/OpenSSL/openssl.cnf");
     const xcodeSelect = Bun.spawnSync(["/usr/bin/xcode-select", "-p"], {
       stdout: "pipe",
@@ -184,6 +194,7 @@ describe("repository Codex E2E policy", () => {
     expect(toolchain.selectedDeveloperDirectory).toBe(
       await realpath(xcodeSelect.stdout.toString().trim()),
     );
+    expect(toolchain.gitExecutable).toBe(join(toolchain.selectedDeveloperDirectory, "usr/bin/git"));
     const git = Bun.spawnSync(["/usr/bin/git", "--version"], {
       stdout: "pipe",
       stderr: "pipe",
@@ -303,6 +314,8 @@ describe("repository Codex E2E policy", () => {
       operatorCodexHome,
       isolatedHome,
     });
+    const canonicalPath = "/opt/node/bin:/opt/developer/usr/bin:/usr/bin:/bin";
+    await prepareCodexE2EShellEnvironment({ isolatedHome, path: canonicalPath });
 
     expect(agentCodexHome).toBe(await realpath(join(isolatedHome, ".codex")));
     expect((await lstat(join(agentCodexHome, "auth.json"))).isFile()).toBe(true);
@@ -315,7 +328,12 @@ describe("repository Codex E2E policy", () => {
       await realpath(join(isolatedHome, "skill-directory")),
     );
     expect((await lstat(join(isolatedHome, ".shell"))).isDirectory()).toBe(true);
-    await expect(assertIsolatedCodexHomeControlLinks(isolatedHome)).resolves.toBeUndefined();
+    expect(await readFile(join(isolatedHome, ".shell/.zprofile"), "utf8")).toBe(
+      `export PATH=${JSON.stringify(canonicalPath)}\n`,
+    );
+    await expect(
+      assertIsolatedCodexHomeControlLinks(isolatedHome, canonicalPath),
+    ).resolves.toBeUndefined();
     await expect(readFile(join(agentCodexHome, "config.toml"), "utf8")).rejects.toThrow();
   });
 
@@ -379,6 +397,7 @@ describe("repository Codex E2E policy", () => {
         cliVersion: "codex-cli 1.2.3",
         requestedModel: "gpt-5.6-luna",
         requestedReasoningEffort: "high",
+        requestedFastMode: true,
         invocationStarted: true,
         terminalBoundary: "completed:orientation-declined",
       },
@@ -395,30 +414,31 @@ describe("repository Codex E2E policy", () => {
     ).toThrow("full lowercase commit");
   });
 
-  test("documents the repository-wide KISS Matrix boundary", async () => {
+  test("documents the repository-wide adaptive Matrix boundary", async () => {
     const policy = await readFile("docs/agents/codex-e2e.md", "utf8");
-    expect(policy).toContain("Every Codex E2E Scenario must run with:");
-    expect(policy).toContain("Model: `gpt-5.6-luna`");
-    expect(policy).toContain("Reasoning effort: `high`");
-    expect(policy).toContain("Do not use another model as a fallback");
+    expect(policy).toContain("Every Scenario launches Codex explicitly with:");
+    expect(policy).toContain("model `gpt-5.6-luna`");
+    expect(policy).toContain("reasoning effort `high`");
+    expect(policy).toContain("Do not inherit these values from operator configuration");
     expect(policy).toContain(
-      "one fresh Codex runtime home inside each isolated Scenario Agent home",
+      "Every Scenario receives a fresh repository, Agent home, runtime home",
     );
-    expect(policy).toContain("Scenarios with rolling concurrency four");
-    expect(policy).toContain("Each Scenario has one execution opportunity");
+    expect(policy).toContain("The current top-level Codex is the sole Human Orchestrator");
+    expect(policy).toContain("At most four Scenarios may be active");
+    expect(policy).toContain("resume only the same conversation before a semantic result exists");
     expect(policy).toMatch(
-      /Do not automatically retry,\s+resume, reattach, restore a checkpoint, or resample it/u,
+      /short-lived broker for the configured private validation\s+repository/u,
     );
-    expect(policy).toMatch(/existing bounded runner-owned capability/u);
-    expect(policy).toContain("existing bounded broker fails closed");
-    expect(policy).toMatch(/Do not add another broker,[\s\S]*product\s+loopback/u);
-    expect(policy).toContain("Current Matrix evidence has only three durable levels:");
-    expect(policy).toContain("one Generation basis");
-    expect(policy).toContain("one terminal result per Scenario");
-    expect(policy).toContain("one Matrix result that references every registered Scenario result");
-    expect(policy).toMatch(
-      /Collect the complete failure set before fixing[\s\S]*fresh Generation/u,
+    expect(policy).toContain("Durable evidence has three levels:");
+    expect(policy).toContain("one `generation.json` basis");
+    expect(policy).toContain("one result per Scenario");
+    expect(policy).toContain(
+      "one Matrix result citing the exact Generation and Scenario result set",
     );
-    expect(policy).toContain("Historical reports remain historical");
+    expect(policy).toContain("There is no fixed-Turn runner");
+    expect(policy).toContain("A semantic result cannot be restarted, retried, or resampled");
+    expect(policy).toContain(
+      "Matrix output has no deterministic relationship to Candidate readiness",
+    );
   });
 });

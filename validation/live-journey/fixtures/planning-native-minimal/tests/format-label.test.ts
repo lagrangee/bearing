@@ -1,6 +1,7 @@
-import { expect, test } from "bun:test";
-import { formatPrimaryLabel } from "../src/format-label";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { formatPrimaryLabel } from "../src/format-label.ts";
 
 test("formats the primary label", () => {
-  expect(formatPrimaryLabel(" active ")).toBe("ACTIVE");
+  assert.equal(formatPrimaryLabel(" active "), "ACTIVE");
 });

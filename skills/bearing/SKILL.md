@@ -14,6 +14,14 @@ The Repository Configuration managed pointer is the sole authority for contextua
 it only under its stated conditions; repository presence does not nominate Bearing. Explicit
 Bearing invocation remains available when the pointer did not nominate the request.
 
+When Bearing nomination and an explicit invocation of another Skill apply to the same request,
+Bearing remains the router: select and load the operation's direct references before handing the
+original request to that Skill. Preserve the selected Bearing operation across the handoff and
+return control to its required readback after the other Skill's owner operation completes.
+Do not hand off until the selected reference's required pre-owner steps are complete; loading the
+reference alone is not completion. Preserve its exact state across the handoff, then execute its
+required post-owner steps and readback after control returns.
+
 Select the CLI from the managed pointer. Replace the leading `bearing` token in every command below
 with that CLI. Stable Runtime uses `$HOME/.bearing/bin/bearing`. Development Runtime uses
 `node <repo-root>/dist/cli.js`; first run its `runtime inspect --repo <repo-root>` operation and

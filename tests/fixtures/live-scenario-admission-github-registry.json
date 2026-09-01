@@ -1,18 +1,21 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "scenarios": [
     {
-      "id": "TEST-03",
-      "name": "Missing GitHub capability fixture",
-      "fixture": { "source": "validation/live-journey/fixtures/local-loop" },
-      "composition": {
-        "fixtureProfile": "active-github-repository",
+      "id": "github-test",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "active-github-repository",
         "skills": [{ "skill": "bearing", "role": "prerequisite" }],
         "capabilityProfile": "github-bounded-delivery"
       },
-      "prompts": ["Prepare the bounded delivery."],
-      "requiredOutcomes": ["The request stays bounded."],
-      "forbiddenOutcomes": ["No unrelated work is performed."]
+      "initialPrompt": "Prepare the bounded delivery.",
+      "humanPosition": "Authorize the bounded child only.",
+      "bearingIntent": "Keep remote delivery scoped.",
+      "terminalEvidence": {
+        "description": "Bounded GitHub state.",
+        "observers": ["repository", "agent-home", "git", "github"]
+      }
     }
   ]
 }

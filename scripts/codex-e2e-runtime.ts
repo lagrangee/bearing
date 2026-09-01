@@ -7,6 +7,7 @@ import {
   copyFile,
   lstat,
   mkdir,
+  readFile,
   realpath,
   rm,
   symlink,
@@ -18,6 +19,7 @@ import { z } from "zod";
 export const CODEX_E2E_RUNTIME = Object.freeze({
   model: "gpt-5.6-luna",
   reasoningEffort: "high",
+  fastMode: true,
 } as const);
 
 const codexModelCatalogIdentifierSchema = z
@@ -104,7 +106,6 @@ export const CODEX_E2E_DISABLED_FEATURES = Object.freeze([
 
 const CODEX_E2E_DARWIN_OPENSSL_CONFIG = "/System/Library/OpenSSL/openssl.cnf";
 const CODEX_E2E_XCODE_SELECT = "/usr/bin/xcode-select";
-const CODEX_E2E_APPLE_GIT = "/usr/bin/git";
 const CODEX_E2E_SYSTEM_PATH = Object.freeze(["/usr/bin", "/bin", "/usr/sbin", "/sbin"]);
 
 export type CodexE2EToolchain = Readonly<{
@@ -113,6 +114,7 @@ export type CodexE2EToolchain = Readonly<{
   nodeInstallRoot: string;
   openSslConfig: string;
   selectedDeveloperDirectory: string;
+  gitExecutable: string;
   path: string;
 }>;
 
@@ -150,25 +152,36 @@ const assertNotOperatorWritable = async (path: string, description: string): Pro
 export const verifyCodexE2EToolchain = async (
   toolchain: CodexE2EToolchain,
 ): Promise<CodexE2EToolchain> => {
-  const [nodeExecutable, nodeInstallRoot, openSslConfig, selectedDeveloperDirectory] =
-    await Promise.all([
-      realpath(toolchain.nodeExecutable),
-      realpath(toolchain.nodeInstallRoot),
-      realpath(toolchain.openSslConfig),
-      realpath(toolchain.selectedDeveloperDirectory),
-    ]);
-  const [nodeState, installState, openSslState, developerDirectoryState] = await Promise.all([
-    lstat(toolchain.nodeExecutable),
-    lstat(toolchain.nodeInstallRoot),
-    lstat(toolchain.openSslConfig),
-    lstat(toolchain.selectedDeveloperDirectory),
+  const [
+    nodeExecutable,
+    nodeInstallRoot,
+    openSslConfig,
+    selectedDeveloperDirectory,
+    gitExecutable,
+  ] = await Promise.all([
+    realpath(toolchain.nodeExecutable),
+    realpath(toolchain.nodeInstallRoot),
+    realpath(toolchain.openSslConfig),
+    realpath(toolchain.selectedDeveloperDirectory),
+    realpath(toolchain.gitExecutable),
   ]);
+  const [nodeState, installState, openSslState, developerDirectoryState, gitState] =
+    await Promise.all([
+      lstat(toolchain.nodeExecutable),
+      lstat(toolchain.nodeInstallRoot),
+      lstat(toolchain.openSslConfig),
+      lstat(toolchain.selectedDeveloperDirectory),
+      lstat(toolchain.gitExecutable),
+    ]);
   const [selectedDeveloperDirectoryOutput, gitVersion] = await Promise.all([
     readSystemToolOutput(CODEX_E2E_XCODE_SELECT, ["-p"]),
-    readSystemToolOutput(CODEX_E2E_APPLE_GIT, ["--version"]),
+    readSystemToolOutput(toolchain.gitExecutable, ["--version"]),
   ]);
   const currentSelectedDeveloperDirectory = await realpath(selectedDeveloperDirectoryOutput);
-  const expectedPath = [toolchain.nodeBin, ...CODEX_E2E_SYSTEM_PATH].join(delimiter);
+  const expectedGitExecutable = join(selectedDeveloperDirectory, "usr/bin/git");
+  const expectedPath = [toolchain.nodeBin, dirname(gitExecutable), ...CODEX_E2E_SYSTEM_PATH].join(
+    delimiter,
+  );
   if (
     process.platform !== "darwin" ||
     nodeExecutable !== toolchain.nodeExecutable ||
@@ -188,6 +201,10 @@ export const verifyCodexE2EToolchain = async (
     currentSelectedDeveloperDirectory !== selectedDeveloperDirectory ||
     !developerDirectoryState.isDirectory() ||
     developerDirectoryState.uid !== 0 ||
+    gitExecutable !== toolchain.gitExecutable ||
+    gitExecutable !== expectedGitExecutable ||
+    !gitState.isFile() ||
+    (gitState.mode & 0o111) === 0 ||
     !gitVersion.startsWith("git version ") ||
     toolchain.path !== expectedPath
   ) {
@@ -226,6 +243,7 @@ export const inspectCodexE2EToolchain = async (
   const selectedDeveloperDirectory = await realpath(
     await readSystemToolOutput(CODEX_E2E_XCODE_SELECT, ["-p"]),
   );
+  const gitExecutable = await realpath(join(selectedDeveloperDirectory, "usr/bin/git"));
 
   return verifyCodexE2EToolchain({
     nodeExecutable,
@@ -233,7 +251,8 @@ export const inspectCodexE2EToolchain = async (
     nodeInstallRoot,
     openSslConfig: CODEX_E2E_DARWIN_OPENSSL_CONFIG,
     selectedDeveloperDirectory,
-    path: [nodeBin, ...CODEX_E2E_SYSTEM_PATH].join(delimiter),
+    gitExecutable,
+    path: [nodeBin, dirname(gitExecutable), ...CODEX_E2E_SYSTEM_PATH].join(delimiter),
   });
 };
 
@@ -308,7 +327,22 @@ export const prepareIsolatedCodexHome = async (input: {
   return agentCodexHome;
 };
 
-export const assertIsolatedCodexHomeControlLinks = async (isolatedHome: string): Promise<void> => {
+export const prepareCodexE2EShellEnvironment = async (input: {
+  isolatedHome: string;
+  path: string;
+}): Promise<void> => {
+  const isolatedHome = await realpath(input.isolatedHome);
+  await writeFile(
+    join(isolatedHome, ".shell", ".zprofile"),
+    `export PATH=${JSON.stringify(input.path)}\n`,
+    { flag: "wx", mode: 0o600 },
+  );
+};
+
+export const assertIsolatedCodexHomeControlLinks = async (
+  isolatedHome: string,
+  shellPath?: string,
+): Promise<void> => {
   const agentCodexHome = join(isolatedHome, ".codex");
   const agentAuth = join(agentCodexHome, "auth.json");
   const agentSkills = join(agentCodexHome, "skills");
@@ -325,6 +359,13 @@ export const assertIsolatedCodexHomeControlLinks = async (isolatedHome: string):
   ) {
     throw new Error("Codex E2E isolated control links changed after preparation.");
   }
+  if (
+    shellPath !== undefined &&
+    (await readFile(join(isolatedHome, ".shell", ".zprofile"), "utf8")) !==
+      `export PATH=${JSON.stringify(shellPath)}\n`
+  ) {
+    throw new Error("Codex E2E isolated shell environment changed after preparation.");
+  }
 };
 
 export const codexE2ERuntimeArguments = (override?: unknown): readonly string[] => {
@@ -336,6 +377,8 @@ export const codexE2ERuntimeArguments = (override?: unknown): readonly string[] 
     CODEX_E2E_RUNTIME.model,
     "--config",
     `model_reasoning_effort=${JSON.stringify(CODEX_E2E_RUNTIME.reasoningEffort)}`,
+    "--enable",
+    "fast_mode",
   ];
 };
 
@@ -417,6 +460,8 @@ export const probeCodexE2EPermissionProfile = async (input: {
       CODEX_HOME: string;
       TMPDIR: string;
       PATH: string;
+      DEVELOPER_DIR: string;
+      npm_config_script_shell: string;
       SHELL?: string;
     }>;
     initial: Readonly<{
@@ -437,6 +482,7 @@ export const probeCodexE2EPermissionProfile = async (input: {
   toolchain: CodexE2EToolchain;
   isProjectRepository: boolean;
   writeAllowedPaths: readonly string[];
+  effectiveEnvironment: Readonly<Record<string, string>>;
 }): Promise<void> => {
   const scenarioContainer = dirname(input.scenarioWorkspace);
   const profilePrefix = `permissions.${CODEX_E2E_PERMISSION_PROFILE}=`;
@@ -454,6 +500,17 @@ export const probeCodexE2EPermissionProfile = async (input: {
     throw new Error("Codex E2E launch must use one exact permission profile.");
   }
   const permissionProfile = initialProfiles[0] as string;
+  for (const [key, value] of Object.entries(input.launch.environment)) {
+    const effectiveValue = input.effectiveEnvironment[key];
+    const canonicalBearingPath = `${join(
+      input.launch.environment.HOME,
+      ".bearing",
+      "bin",
+    )}${delimiter}${value}`;
+    if (effectiveValue !== value && !(key === "PATH" && effectiveValue === canonicalBearingPath)) {
+      throw new Error(`Codex E2E effective environment changed ${key}.`);
+    }
+  }
   const repositoryRoot = input.launch.initial.workingDirectory;
   const controlPath = join(repositoryRoot, ".bearing-live-journey-permission-probe");
   const siblingProbePath = join(
@@ -526,12 +583,16 @@ export const probeCodexE2EPermissionProfile = async (input: {
           'node_executable="$3"',
           'runtime_tmp="$4"',
           'project_repository="$5"',
+          'developer_directory="$6"',
+          'npm_script_shell="$7"',
+          'git_executable="$8"',
           'node_probe="$runtime_tmp/permission-probe.sqlite"',
           '/usr/bin/env node -e \'const { realpathSync } = require("node:fs"); const { DatabaseSync } = require("node:sqlite"); if (realpathSync(process.execPath) !== process.argv[1]) process.exit(41); for (const value of [process.cwd(), process.env.HOME, process.env.CODEX_HOME, process.env.TMPDIR]) realpathSync(value); const database = new DatabaseSync(process.argv[2]); database.exec("CREATE TABLE probe(value INTEGER)"); database.close();\' "$node_executable" "$node_probe" || exit 96',
           'rm "$node_probe" || exit 97',
-          "/usr/bin/git --version >/dev/null || exit 98",
-          'if [ "$project_repository" = "yes" ]; then /usr/bin/git -C "$PWD" rev-parse --is-inside-work-tree >/dev/null || exit 99; fi',
-          "shift 5",
+          '"$git_executable" --version >/dev/null || exit 98',
+          'if [ "$project_repository" = "yes" ]; then "$git_executable" -C "$PWD" rev-parse --is-inside-work-tree >/dev/null || exit 99; fi',
+          `/bin/zsh -lc '[[ "$(command -v node)" = "$1" ]] && [ "$DEVELOPER_DIR" = "$2" ] && [ "$npm_config_script_shell" = "$3" ] && [[ "$(command -v git)" = "$4" ]] && git --version >/dev/null' bearing-login-probe "$node_executable" "$developer_directory" "$npm_script_shell" "$git_executable" || exit 102`,
+          "shift 8",
           'for path in "$@"; do',
           '  probe="$path/.bearing-live-journey-write-probe"',
           '  ln -s "$control" "$probe" || exit 100',
@@ -553,11 +614,14 @@ export const probeCodexE2EPermissionProfile = async (input: {
         input.toolchain.nodeExecutable,
         input.launch.environment.TMPDIR,
         input.isProjectRepository ? "yes" : "no",
+        input.toolchain.selectedDeveloperDirectory,
+        "/bin/bash",
+        input.toolchain.gitExecutable,
         ...input.writeAllowedPaths,
       ],
       {
         cwd: repositoryRoot,
-        env: input.launch.environment,
+        env: input.effectiveEnvironment,
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
@@ -630,6 +694,8 @@ export const codexE2ELaunchContract = (input: {
       CODEX_HOME: input.codexHome,
       TMPDIR: input.runtimeTempDirectory,
       PATH: input.toolchain.path,
+      DEVELOPER_DIR: input.toolchain.selectedDeveloperDirectory,
+      npm_config_script_shell: "/bin/bash",
       ...(input.shellProgram === undefined ? {} : { SHELL: input.shellProgram }),
     }),
     initial: Object.freeze({
@@ -709,6 +775,7 @@ export const createCodexE2EEvidenceRecord = (input: CodexE2EEvidenceInput) => {
       cliVersion: input.codexCliVersion,
       requestedModel: CODEX_E2E_RUNTIME.model,
       requestedReasoningEffort: CODEX_E2E_RUNTIME.reasoningEffort,
+      requestedFastMode: CODEX_E2E_RUNTIME.fastMode,
       invocationStarted: input.invocationStarted,
       terminalBoundary: input.terminalBoundary,
     }),

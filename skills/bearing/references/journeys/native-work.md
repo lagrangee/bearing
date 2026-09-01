@@ -14,8 +14,10 @@ managed effects. Provider reads never mutate native work.
 ## Operation
 
 1. Resolve the exact native reference when it already exists. If the request can identify more than
-   one plausible reference, stop and ask the Human to select the exact identity. Do not batch,
-   order, claim, or execute any approximate candidate. When an exact planned-Effort start has no
+   one plausible reference, stop and ask the Human to select the exact identity. When several
+   candidates remain, present their exact identities to the Human and end the turn; Human selection
+   is the only continuation to Inspect. Do not batch, order, claim, or execute any approximate
+   candidate. When an exact planned-Effort start has no
    native identity yet, accept only the Effort owner's confirmed named handoff; do not predict or
    fabricate the future scope. Otherwise run `bearing inspect --native <native-reference> --repo
    <repo-root>`. Preserve the canonical `result.reference` returned by Inspect exactly as returned;
@@ -31,8 +33,12 @@ managed effects. Provider reads never mutate native work.
    include its known source and target subjects. Bearing never invokes, emulates, or replaces the
    workflow and does not require a Bearing receipt, provider-neutral candidate write set, or
    relation `kind`/`source`/`target` payloads. Do not translate failed, ambiguous, incomplete, or
-   spec-only results. Completion: the owner operation is terminal and its actual successful scope
-   and subject set are exact.
+   spec-only results. Completing a decision Ticket records the Human answer and native decision
+   closure; it does not authorize implementation without a separate accepted delivery request.
+   A completed Delivery Ticket includes its actual checklist, Answer or completion evidence, and
+   terminal status in the same Work Management transaction before any reconciliation.
+   Completion: the owner operation is terminal and its actual successful scope and subject set are
+   exact.
 3. When that owner transaction supplies the scope for a new Work Binding, return its exact identity
    to the Effort owner. After the canonical Binding and Activation transaction, use one Provider
    Scope Capture as the first baseline; do not substitute Targeted Native Reconciliation. The
@@ -41,12 +47,13 @@ managed effects. Provider reads never mutate native work.
    complete actual successful set and run exactly one Targeted Native Reconciliation through
    `bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope>` with one exact
    `--ref` for each subject. Check complete subject closure before issuing the command, and use each
-   provider-canonical native reference unchanged; reconciliation is not a payload probe. Provider
-   readback derives current relations and their direction. The accepted native outcome authorizes
-   this exact readback without another confirmation. Any issued reconciliation command is the sole
-   attempt: failure is terminal, not authority for a corrected second command. Completion: one
-   post-transaction result covers the complete deduplicated subject set and only provider-proven
-   relations.
+   provider-canonical native reference unchanged; reconciliation is not a payload probe. When one
+   transaction writes both a Ticket and its Map decision pointer, both exact references belong in
+   the sole reconciliation. Provider readback derives current relations and their direction. The
+   accepted native outcome authorizes this exact readback without another confirmation. Any issued
+   reconciliation command is the sole attempt: failure is terminal, not authority for a corrected
+   second command. Completion: one post-transaction result covers the complete deduplicated subject
+   set and only provider-proven relations.
 5. If work is unbound, complete Work Management as Standalone Native Work before Bearing considers
    enrollment, then apply the Enrollment Boundary below. Native work never waits for enrollment.
    Completion: the terminal native disposition and bounded Bearing continuation match the table.

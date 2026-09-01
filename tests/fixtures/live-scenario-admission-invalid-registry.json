@@ -1,17 +1,20 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "scenarios": [
     {
-      "id": "TEST-04",
-      "name": "Unknown profile fixture",
-      "fixture": { "source": "validation/live-journey/fixtures/local-loop" },
-      "composition": {
-        "fixtureProfile": "unknown-profile",
+      "id": "invalid-test",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "unknown-profile",
         "skills": [{ "skill": "bearing", "role": "prerequisite" }]
       },
-      "prompts": ["Inspect the fixture."],
-      "requiredOutcomes": ["The request stays bounded."],
-      "forbiddenOutcomes": ["No unrelated work is performed."]
+      "initialPrompt": "Inspect the fixture.",
+      "humanPosition": "Authorize inspection only.",
+      "bearingIntent": "Reject invalid fixtures.",
+      "terminalEvidence": {
+        "description": "Invalid fixture state.",
+        "observers": ["repository"]
+      }
     }
   ]
 }

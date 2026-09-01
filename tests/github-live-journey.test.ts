@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { codexE2ELaunchContract, inspectCodexE2EToolchain } from "../scripts/codex-e2e-runtime";
 import {
   assertGitHubRemoteIntegrity,
   authorizeGitHubJourneyCommand,
@@ -590,9 +591,41 @@ describe("GitHub and Active Reconciliation live Journey", () => {
     const fakeGit = join(root, "fake-git");
     const issueReadAttempts = join(root, "issue-read-attempts");
     const agentHome = join(root, "agent-home");
+    const codexHome = join(agentHome, ".codex");
     const scopeKey = `bearing-live-0-1-1-${"a".repeat(20)}`;
     await mkdir(agentHome);
     await mkdir(join(root, ".git"));
+    let nodeProgram = Bun.which("node");
+    if (nodeProgram === null) throw new Error("Node is unavailable for the test GitHub client.");
+    let baseEnvironment: Readonly<Record<string, string>> = {
+      HOME: agentHome,
+      CODEX_HOME: codexHome,
+      PATH: "/bin",
+    };
+    const codexProgram = process.platform === "darwin" ? Bun.which("codex") : null;
+    let permissionProfile: string | undefined;
+    if (codexProgram !== null) {
+      const toolchain = await inspectCodexE2EToolchain();
+      nodeProgram = toolchain.nodeExecutable;
+      const runtimeTempDirectory = join(testRoot, "runtime-tmp");
+      await Promise.all([mkdir(codexHome), mkdir(runtimeTempDirectory)]);
+      const launch = codexE2ELaunchContract({
+        repositoryRoot: root,
+        isolatedHome: agentHome,
+        codexHome,
+        runtimeTempDirectory,
+        toolchain,
+        disabledOperatorSkillPaths: [],
+        readDeniedPaths: [join(testRoot, "denied")],
+        writeAllowedPaths: [],
+        program: codexProgram,
+      });
+      baseEnvironment = launch.environment;
+      permissionProfile = launch.initial.arguments.find((argument) =>
+        argument.startsWith("permissions.bearing_live_journey="),
+      );
+      if (permissionProfile === undefined) throw new Error("Permission profile is unavailable.");
+    }
     await writeFile(
       join(root, ".git/config"),
       '[core]\n\trepositoryformatversion = 0\n[remote "origin"]\n\turl = https://github.com/example/bearing-validation.git\n[user]\n\tname = Bearing Live Matrix\n\temail = live-matrix@example.invalid\n',
@@ -670,6 +703,7 @@ describe("GitHub and Active Reconciliation live Journey", () => {
       program: fakeGitHub,
       agentHome,
       gitProgram: fakeGit,
+      nodeProgram,
     });
     const source = await readFile(join(agentHome, ".config/gh/hosts.yml"), "utf8");
     const preparedGitConfigSha256 = createHash("sha256")
@@ -687,7 +721,8 @@ describe("GitHub and Active Reconciliation live Journey", () => {
       scopeKey,
       preparedGitConfigSha256,
       gitProgram: fakeGit,
-      baseEnvironment: { HOME: agentHome, CODEX_HOME: join(agentHome, ".codex"), PATH: "/bin" },
+      nodeProgram,
+      baseEnvironment,
     });
     const environment = broker.environment;
     expect(broker.socketPath).toMatch(/^\/private\/tmp\/bgj-[0-9a-f]{24}\/broker\.sock$/u);
@@ -700,17 +735,20 @@ describe("GitHub and Active Reconciliation live Journey", () => {
       join(agentHome, ".config/bearing-live-journey/.zprofile"),
       "utf8",
     );
-    expect(launcher).toContain("github-client.ts");
+    expect(launcher).toContain(nodeProgram);
+    expect(launcher).toContain("github-client.mjs");
     expect(launcher).not.toContain("BEARING_GITHUB_OPERATOR_HOME");
     expect(launcher).not.toContain("GH_CONFIG_DIR");
     expect(launcher).not.toContain("oauth_token");
-    expect(gitLauncher).toContain("github-client.ts");
+    expect(gitLauncher).toContain(nodeProgram);
+    expect(gitLauncher).toContain("github-client.mjs");
     expect(gitLauncher).toContain(fakeGit);
     expect(gitLauncher).not.toContain("fake-secret-token");
     const client = await readFile(
-      join(agentHome, ".config/bearing-live-journey/github-client.ts"),
+      join(agentHome, ".config/bearing-live-journey/github-client.mjs"),
       "utf8",
     );
+    expect(client).not.toContain("Bun.");
     expect(client).toContain('sandbox_permissions="require_escalated"');
     expect(client).toContain("Retry this exact gh or git push command once");
     expect(bearingLauncher).toContain(join(agentHome, ".bearing/bin/bearing"));
@@ -734,7 +772,7 @@ describe("GitHub and Active Reconciliation live Journey", () => {
     expect(broker.codexArguments[3]).toContain("fixed Journey repository");
     expect(broker.codexArguments[3]).toContain("Do not approve other escalated commands");
     expect(environment["PATH"]).toStartWith(join(agentHome, ".local/bin"));
-    expect(shellEnvironment).toContain(join(agentHome, ".local/bin"));
+    expect(shellEnvironment).toBe(`export PATH=${JSON.stringify(environment["PATH"])}\n`);
     expect(environment["ZDOTDIR"]).toBe(join(agentHome, ".config/bearing-live-journey"));
     expect(environment).toMatchObject({
       GIT_TERMINAL_PROMPT: "0",
@@ -764,12 +802,20 @@ describe("GitHub and Active Reconciliation live Journey", () => {
       );
     });
     expect(nestedLogin).toEqual({ stdout: "example-agent\n", stderr: "" });
-    if (process.platform === "darwin") {
+    if (codexProgram !== null && permissionProfile !== undefined) {
       const sandboxedLogin = Bun.spawn(
         [
-          "/usr/bin/sandbox-exec",
-          "-p",
-          "(version 1)(allow default)(deny network*)(allow network-outbound (remote unix-socket))",
+          codexProgram,
+          "sandbox",
+          "--include-managed-config",
+          "-c",
+          permissionProfile,
+          "-c",
+          socketPermission,
+          "-P",
+          "bearing_live_journey",
+          "-C",
+          root,
           join(agentHome, ".local/bin/gh"),
           "api",
           "user",
@@ -869,6 +915,20 @@ describe("GitHub and Active Reconciliation live Journey", () => {
       { env: environment, stdout: "pipe", stderr: "pipe" },
     );
     expect(await identityPreservingEdit.exited).toBe(0);
+    for (const issueNumber of [21, 20]) {
+      const allowedClose = Bun.spawn(
+        [
+          join(agentHome, ".local/bin/gh"),
+          "issue",
+          "close",
+          String(issueNumber),
+          "--comment",
+          "Verified delivery completed.",
+        ],
+        { env: environment, stdout: "pipe", stderr: "pipe" },
+      );
+      expect(await allowedClose.exited).toBe(0);
+    }
     const pushed = Bun.spawn(
       [
         join(agentHome, ".local/bin/git"),
@@ -929,7 +989,8 @@ describe("GitHub and Active Reconciliation live Journey", () => {
         scopeKey,
         preparedGitConfigSha256,
         gitProgram: fakeGit,
-        baseEnvironment: { HOME: agentHome, CODEX_HOME: join(agentHome, ".codex"), PATH: "/bin" },
+        nodeProgram,
+        baseEnvironment,
       }),
     ).rejects.toThrow("support file conflicts");
     await expect(lstat(compromisedMarker)).rejects.toMatchObject({ code: "ENOENT" });
@@ -942,7 +1003,8 @@ describe("GitHub and Active Reconciliation live Journey", () => {
       scopeKey,
       preparedGitConfigSha256,
       gitProgram: fakeGit,
-      baseEnvironment: { HOME: agentHome, CODEX_HOME: join(agentHome, ".codex"), PATH: "/bin" },
+      nodeProgram,
+      baseEnvironment,
     });
     expect(resumedBroker.socketPath).toBe(broker.socketPath);
     expect(resumedBroker.environment["BEARING_GITHUB_BROKER_AUTH"]).toBe(
@@ -962,7 +1024,8 @@ describe("GitHub and Active Reconciliation live Journey", () => {
         scopeKey,
         preparedGitConfigSha256,
         gitProgram: fakeGit,
-        baseEnvironment: { HOME: agentHome, CODEX_HOME: join(agentHome, ".codex"), PATH: "/bin" },
+        nodeProgram,
+        baseEnvironment,
       }),
     ).rejects.toThrow("configuration changed after Scenario preparation");
     await expect(
@@ -970,14 +1033,28 @@ describe("GitHub and Active Reconciliation live Journey", () => {
         program: fakeGitHub,
         agentHome,
         gitProgram: fakeGit,
+        nodeProgram,
       }),
     ).resolves.toBeUndefined();
+    await writeFile(join(agentHome, ".config/gh/hosts.yml"), "{}\n");
+    await expect(
+      provisionIsolatedGitHubAccountSelection({
+        program: fakeGitHub,
+        agentHome,
+        gitProgram: fakeGit,
+        nodeProgram,
+      }),
+    ).resolves.toBeUndefined();
+    expect(await readFile(join(agentHome, ".config/gh/hosts.yml"), "utf8")).toBe(
+      "github.com:\n  git_protocol: https\n  users:\n    example-agent: {}\n  user: example-agent\n",
+    );
     await writeFile(join(agentHome, ".config/gh/hosts.yml"), "github.com: conflict\n");
     await expect(
       provisionIsolatedGitHubAccountSelection({
         program: fakeGitHub,
         agentHome,
         gitProgram: fakeGit,
+        nodeProgram,
       }),
     ).rejects.toThrow("conflicts");
   });
@@ -1037,6 +1114,7 @@ describe("GitHub and Active Reconciliation live Journey", () => {
     const workspace = await mkdtemp(join(tmpdir(), "bearing-github-observation-"));
     await Promise.all([
       mkdir(join(workspace, "github/observations"), { recursive: true }),
+      mkdir(join(workspace, "github/events"), { recursive: true }),
       mkdir(join(workspace, "github/transcripts"), { recursive: true }),
       mkdir(join(workspace, "github/remote-inventories"), { recursive: true }),
     ]);
@@ -1058,7 +1136,7 @@ describe("GitHub and Active Reconciliation live Journey", () => {
       stderr: "",
       before: { repository: "a".repeat(64), agentHome: "b".repeat(64) },
       after: { repository: "c".repeat(64), agentHome: "d".repeat(64) },
-      transcriptPointer: "github/transcripts/turn-01.jsonl",
+      rawEventsPointer: "github/events/turn-01.jsonl",
       stderrPointer: "github/transcripts/turn-01.stderr.log",
       startedAt: "2026-08-30T00:00:00.000Z",
       endedAt: "2026-08-30T00:00:00.100Z",
@@ -1069,7 +1147,7 @@ describe("GitHub and Active Reconciliation live Journey", () => {
       remoteAfterBytes,
     });
     await Promise.all([
-      writeFile(join(workspace, "github/transcripts/turn-01.jsonl"), stdout),
+      writeFile(join(workspace, "github/events/turn-01.jsonl"), stdout),
       writeFile(join(workspace, "github/transcripts/turn-01.stderr.log"), ""),
       writeFile(
         join(workspace, "github/remote-inventories/turn-01-before.json"),

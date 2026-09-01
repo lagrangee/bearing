@@ -475,6 +475,298 @@ const runGitHubCommand = async (input: {
   return stdout.trim();
 };
 
+export const GITHUB_MATRIX_FIXTURE_LABEL = "matrix-fixture" as const;
+export const GITHUB_MATRIX_MILESTONE_PREFIX = "Bearing Live Matrix " as const;
+
+export type GitHubMatrixLifecycleCommand = (args: readonly string[]) => Promise<string>;
+
+const coordinatorGitHubCommand =
+  (program: string): GitHubMatrixLifecycleCommand =>
+  (args) =>
+    runGitHubCommand({
+      program,
+      args,
+      environment: globalThis.process.env,
+      failureMessage: "GitHub Matrix fixture lifecycle command failed.",
+    });
+
+const githubMilestoneSchema = z.object({
+  number: z.number().int().positive(),
+  title: z.string().min(1),
+  state: z.enum(["open", "closed"]),
+});
+
+const githubLifecycleIssueSchema = z.object({
+  id: z.number().int().positive(),
+  node_id: z.string().min(1),
+  number: z.number().int().positive(),
+  state: z.enum(["open", "closed"]),
+  title: z.string().min(1),
+  labels: z.array(z.object({ name: z.string().min(1) })),
+  pull_request: z.unknown().optional(),
+});
+
+export type GitHubMatrixFixtureLifecycle = Readonly<{
+  repositorySlug: string;
+  repository: Readonly<{ databaseId: number; nodeId: string }>;
+  scopeKey: string;
+  generationId: string;
+  milestone: Readonly<{ number: number; title: string }>;
+  parent: Readonly<{ id: number; nodeId: string; number: number }>;
+  child: Readonly<{ id: number; nodeId: string; number: number }>;
+}>;
+
+const lifecycleMarker = (scopeKey: string): string => `<!-- bearing-live-scope:${scopeKey} -->`;
+
+const parseLifecycleIssue = (bytes: string) => githubLifecycleIssueSchema.parse(JSON.parse(bytes));
+
+const closeMatrixFixtureIssue = async (input: {
+  command: GitHubMatrixLifecycleCommand;
+  repositorySlug: string;
+  issue: z.infer<typeof githubLifecycleIssueSchema>;
+}) => {
+  if (input.issue.state === "closed") return;
+  await input.command([
+    "api",
+    "--method",
+    "PATCH",
+    `repos/${input.repositorySlug}/issues/${input.issue.number}`,
+    "--raw-field",
+    "state=closed",
+    "--raw-field",
+    "state_reason=not_planned",
+  ]);
+};
+
+export const cleanupGitHubMatrixFixture = async (input: {
+  lifecycle: GitHubMatrixFixtureLifecycle;
+  program?: string;
+  command?: GitHubMatrixLifecycleCommand;
+}) => {
+  const command = input.command ?? coordinatorGitHubCommand(input.program ?? "gh");
+  const { repositorySlug, milestone, parent, child } = input.lifecycle;
+  const issues = await Promise.all(
+    [parent.number, child.number].map(async (number) =>
+      parseLifecycleIssue(await command(["api", `repos/${repositorySlug}/issues/${number}`])),
+    ),
+  );
+  for (const issue of issues) {
+    if (!issue.labels.some(({ name }) => name === GITHUB_MATRIX_FIXTURE_LABEL)) {
+      fail(`GitHub Matrix cleanup refuses unlabelled Issue #${issue.number}.`);
+    }
+    await closeMatrixFixtureIssue({ command, repositorySlug, issue });
+  }
+  const milestoneState = githubMilestoneSchema.parse(
+    JSON.parse(await command(["api", `repos/${repositorySlug}/milestones/${milestone.number}`])),
+  );
+  if (
+    milestoneState.title !== milestone.title ||
+    !milestoneState.title.startsWith(GITHUB_MATRIX_MILESTONE_PREFIX)
+  ) {
+    fail("GitHub Matrix cleanup milestone identity changed.");
+  }
+  if (milestoneState.state === "open") {
+    await command([
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${repositorySlug}/milestones/${milestone.number}`,
+      "--raw-field",
+      "state=closed",
+    ]);
+  }
+  return Object.freeze({
+    closedIssueNumbers: issues.map(({ number }) => number),
+    milestone: milestone.number,
+  });
+};
+
+export const recoverStaleGitHubMatrixMilestones = async (input: {
+  repositorySlug: string;
+  currentGenerationId: string;
+  program?: string;
+  command?: GitHubMatrixLifecycleCommand;
+}) => {
+  const command = input.command ?? coordinatorGitHubCommand(input.program ?? "gh");
+  const currentTitle = `${GITHUB_MATRIX_MILESTONE_PREFIX}${z.string().uuid().parse(input.currentGenerationId)}`;
+  const milestones = z
+    .array(githubMilestoneSchema)
+    .parse(
+      JSON.parse(
+        await command(["api", `repos/${input.repositorySlug}/milestones?state=open&per_page=100`]),
+      ),
+    )
+    .filter(
+      ({ title }) => title.startsWith(GITHUB_MATRIX_MILESTONE_PREFIX) && title !== currentTitle,
+    );
+  const recovered: number[] = [];
+  for (const milestone of milestones) {
+    const issues = z
+      .array(githubLifecycleIssueSchema)
+      .parse(
+        JSON.parse(
+          await command([
+            "api",
+            `repos/${input.repositorySlug}/issues?state=all&milestone=${milestone.number}&per_page=100`,
+          ]),
+        ),
+      )
+      .filter(({ pull_request: pullRequest }) => pullRequest === undefined);
+    if (
+      issues.length !== 2 ||
+      issues.some(({ labels }) => !labels.some(({ name }) => name === GITHUB_MATRIX_FIXTURE_LABEL))
+    ) {
+      fail(`Stale GitHub Matrix milestone #${milestone.number} is not one exact fixture pair.`);
+    }
+    for (const issue of issues) {
+      await closeMatrixFixtureIssue({ command, repositorySlug: input.repositorySlug, issue });
+    }
+    await command([
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${input.repositorySlug}/milestones/${milestone.number}`,
+      "--raw-field",
+      "state=closed",
+    ]);
+    recovered.push(milestone.number);
+  }
+  return Object.freeze(recovered);
+};
+
+export const prepareGitHubMatrixFixture = async (input: {
+  repositorySlug: string;
+  scopeKey: string;
+  generationId: string;
+  program?: string;
+  command?: GitHubMatrixLifecycleCommand;
+}): Promise<GitHubMatrixFixtureLifecycle> => {
+  if (!githubBrokerScopeKeyPattern.test(input.scopeKey))
+    fail("GitHub Matrix scope key is invalid.");
+  const generationId = z.string().uuid().parse(input.generationId);
+  const command = input.command ?? coordinatorGitHubCommand(input.program ?? "gh");
+  const repository = z
+    .object({ id: z.number().int().positive(), node_id: z.string().min(1) })
+    .parse(JSON.parse(await command(["api", `repos/${input.repositorySlug}`])));
+  await recoverStaleGitHubMatrixMilestones({
+    repositorySlug: input.repositorySlug,
+    currentGenerationId: generationId,
+    command,
+  });
+  await command([
+    "label",
+    "create",
+    GITHUB_MATRIX_FIXTURE_LABEL,
+    "--repo",
+    input.repositorySlug,
+    "--color",
+    "6f42c1",
+    "--description",
+    "Ephemeral Bearing Live Matrix fixture",
+    "--force",
+  ]);
+  const milestone = githubMilestoneSchema.parse(
+    JSON.parse(
+      await command([
+        "api",
+        "--method",
+        "POST",
+        `repos/${input.repositorySlug}/milestones`,
+        "--raw-field",
+        `title=${GITHUB_MATRIX_MILESTONE_PREFIX}${generationId}`,
+        "--raw-field",
+        "description=Ephemeral fixture owned by one Bearing Live Matrix Generation.",
+      ]),
+    ),
+  );
+  let parent: z.infer<typeof githubLifecycleIssueSchema> | undefined;
+  let child: z.infer<typeof githubLifecycleIssueSchema> | undefined;
+  try {
+    parent = parseLifecycleIssue(
+      await command([
+        "api",
+        "--method",
+        "POST",
+        `repos/${input.repositorySlug}/issues`,
+        "--raw-field",
+        "title=Canonical ready-label predicate delivery",
+        "--raw-field",
+        `body=Blocked by the delivery child.\n\n${lifecycleMarker(input.scopeKey)}`,
+        "--raw-field",
+        `labels[]=${GITHUB_MATRIX_FIXTURE_LABEL}`,
+        "--field",
+        `milestone=${milestone.number}`,
+      ]),
+    );
+    child = parseLifecycleIssue(
+      await command([
+        "api",
+        "--method",
+        "POST",
+        `repos/${input.repositorySlug}/issues`,
+        "--raw-field",
+        "title=Implement canonical ready-label predicate",
+        "--raw-field",
+        `body=Part of: #${parent.number}\n\n## What to build\n\nImplement the canonical ready-label predicate.\n\n## Acceptance criteria\n\n- [ ] Focused tests pass.\n- [ ] The delivery is written back through the configured owner.\n\n${lifecycleMarker(input.scopeKey)}`,
+        "--raw-field",
+        `labels[]=${GITHUB_MATRIX_FIXTURE_LABEL}`,
+        "--raw-field",
+        "labels[]=ready-for-agent",
+        "--field",
+        `milestone=${milestone.number}`,
+      ]),
+    );
+    await command([
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${input.repositorySlug}/issues/${parent.number}`,
+      "--raw-field",
+      `body=Blocked by: #${child.number}\n\n${lifecycleMarker(input.scopeKey)}`,
+    ]);
+    await command([
+      "api",
+      "--method",
+      "POST",
+      `repos/${input.repositorySlug}/issues/${parent.number}/sub_issues`,
+      "--field",
+      `sub_issue_id=${child.id}`,
+    ]);
+    await command([
+      "api",
+      "--method",
+      "POST",
+      `repos/${input.repositorySlug}/issues/${parent.number}/dependencies/blocked_by`,
+      "--field",
+      `issue_id=${child.id}`,
+    ]);
+    return Object.freeze({
+      repositorySlug: input.repositorySlug,
+      repository: Object.freeze({ databaseId: repository.id, nodeId: repository.node_id }),
+      scopeKey: input.scopeKey,
+      generationId,
+      milestone: Object.freeze({ number: milestone.number, title: milestone.title }),
+      parent: Object.freeze({ id: parent.id, nodeId: parent.node_id, number: parent.number }),
+      child: Object.freeze({ id: child.id, nodeId: child.node_id, number: child.number }),
+    });
+  } catch (error) {
+    for (const issue of [child, parent]) {
+      if (issue !== undefined) {
+        await closeMatrixFixtureIssue({ command, repositorySlug: input.repositorySlug, issue });
+      }
+    }
+    await command([
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${input.repositorySlug}/milestones/${milestone.number}`,
+      "--raw-field",
+      "state=closed",
+    ]).catch(() => undefined);
+    throw error;
+  }
+};
+
 const isolatedGitHubEnvironment = (
   agentHome: string,
   githubConfigDirectory: string,
@@ -511,7 +803,7 @@ const operatorGitHubLogin = async (program: string): Promise<string> => {
   return login;
 };
 
-const operatorGitHubToken = async (program: string): Promise<string> => {
+export const operatorGitHubToken = async (program: string): Promise<string> => {
   const token = await runGitHubCommand({
     program,
     args: ["auth", "token", "--hostname", "github.com"],
@@ -1201,6 +1493,7 @@ export const provisionIsolatedGitHubAccountSelection = async (input: {
   program: string;
   agentHome: string;
   gitProgram?: string;
+  nodeProgram: string;
 }): Promise<void> => {
   const login = await operatorGitHubLogin(input.program);
   const configDirectory = join(input.agentHome, ".config/gh");
@@ -1214,7 +1507,10 @@ export const provisionIsolatedGitHubAccountSelection = async (input: {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
   if (configurationExists) {
-    if ((await readFile(configPath, "utf8")) !== expectedConfiguration) {
+    const currentConfiguration = await readFile(configPath, "utf8");
+    if (currentConfiguration === "{}\n") {
+      await writeFile(configPath, expectedConfiguration);
+    } else if (currentConfiguration !== expectedConfiguration) {
       fail("Isolated GitHub account selection conflicts with this Journey account.");
     }
   } else {
@@ -1222,15 +1518,14 @@ export const provisionIsolatedGitHubAccountSelection = async (input: {
     await writeFile(configPath, expectedConfiguration, { flag: "wx", mode: 0o600 });
   }
 
-  const bunProgram = Bun.which("bun") ?? fail("Bun is unavailable for the isolated GitHub client.");
   const gitProgram =
     Bun.which(input.gitProgram ?? "git") ??
     fail("Git is unavailable for the isolated GitHub client.");
   const wrapperDirectory = join(input.agentHome, ".local", "bin");
   const wrapperPath = join(wrapperDirectory, "gh");
   const gitWrapperPath = join(wrapperDirectory, "git");
-  const clientPath = join(input.agentHome, ".config", "bearing-live-journey", "github-client.ts");
-  const expectedWrapper = `#!/bin/sh\nexec ${JSON.stringify(bunProgram)} ${JSON.stringify(clientPath)} gh "$@"\n`;
+  const clientPath = join(input.agentHome, ".config", "bearing-live-journey", "github-client.mjs");
+  const expectedWrapper = `#!/bin/sh\nexec ${JSON.stringify(input.nodeProgram)} ${JSON.stringify(clientPath)} gh "$@"\n`;
   const expectedGitWrapper = `#!/bin/sh
 is_push() {
   while [ "$1" = "-c" ]; do
@@ -1241,11 +1536,12 @@ is_push() {
 }
 if is_push "$@"; then
   while [ "$1" = "-c" ]; do shift 2; done
-  exec ${JSON.stringify(bunProgram)} ${JSON.stringify(clientPath)} git "$@"
+  exec ${JSON.stringify(input.nodeProgram)} ${JSON.stringify(clientPath)} git "$@"
 fi
 exec ${JSON.stringify(gitProgram)} "$@"
 `;
-  const expectedClient = `import { createConnection } from "node:net";
+  const expectedClient = `import { readFileSync } from "node:fs";
+import { createConnection } from "node:net";
 const socketPath = process.env["BEARING_GITHUB_BROKER_SOCKET"];
 const auth = process.env["BEARING_GITHUB_BROKER_AUTH"];
 if (socketPath === undefined || auth === undefined) throw new Error("GitHub Journey credential broker is unavailable.");
@@ -1254,11 +1550,11 @@ if (tool !== "gh" && tool !== "git") throw new Error("GitHub Journey broker tool
 const readsStdin = tool === "gh" && args.some((arg, index) =>
   (arg === "--input" && args[index + 1] === "-") || arg === "--input=-" || arg.endsWith("=@-")
 );
-const stdin = readsStdin ? await new Response(Bun.stdin.stream()).text() : "";
-let bytes: string;
+const stdin = readsStdin ? readFileSync(0, "utf8") : "";
+let bytes;
 try {
-  bytes = await new Promise<string>((resolve, reject) => {
-    const chunks: Buffer[] = [];
+  bytes = await new Promise((resolve, reject) => {
+    const chunks = [];
     const socket = createConnection({ path: socketPath }, () =>
       socket.write(JSON.stringify({ auth, tool, args, stdin }) + "\\n"),
     );
@@ -1279,7 +1575,7 @@ try {
   }
   throw error;
 }
-const result = JSON.parse(bytes) as { exitCode: number; stdout: string; stderr: string };
+const result = JSON.parse(bytes);
 process.stdout.write(result.stdout);
 process.stderr.write(result.stderr);
 process.exit(result.exitCode);
@@ -1287,15 +1583,12 @@ process.exit(result.exitCode);
   await mkdir(wrapperDirectory, { recursive: true });
   const expectedBearingWrapper = `#!/bin/sh\nexec ${JSON.stringify(join(input.agentHome, ".bearing", "bin", "bearing"))} "$@"\n`;
   const bearingWrapperPath = join(wrapperDirectory, "bearing");
-  const expectedShellEnvironment = `export PATH=${JSON.stringify(`${wrapperDirectory}:$PATH`)}\n`;
   const shellEnvironmentDirectory = join(input.agentHome, ".config", "bearing-live-journey");
-  const shellEnvironmentPath = join(shellEnvironmentDirectory, ".zprofile");
   await mkdir(shellEnvironmentDirectory, { recursive: true });
   for (const [path, bytes, mode] of [
     [wrapperPath, expectedWrapper, 0o700],
     [gitWrapperPath, expectedGitWrapper, 0o700],
     [bearingWrapperPath, expectedBearingWrapper, 0o700],
-    [shellEnvironmentPath, expectedShellEnvironment, 0o600],
     [clientPath, expectedClient, 0o600],
   ] as const) {
     try {
@@ -1317,6 +1610,7 @@ export const startGitHubJourneyCredentialBroker = async (input: {
   scopeKey: string;
   preparedGitConfigSha256: string;
   gitProgram?: string;
+  nodeProgram: string;
   baseEnvironment: Readonly<Record<string, string>>;
 }) => {
   if (!githubBrokerScopeKeyPattern.test(input.scopeKey)) {
@@ -1326,6 +1620,7 @@ export const startGitHubJourneyCredentialBroker = async (input: {
     program: input.program,
     agentHome: input.agentHome,
     ...(input.gitProgram === undefined ? {} : { gitProgram: input.gitProgram }),
+    nodeProgram: input.nodeProgram,
   });
   const githubProgram = Bun.which(input.program) ?? input.program;
   const gitProgram =
@@ -1620,6 +1915,21 @@ export const startGitHubJourneyCredentialBroker = async (input: {
     brokerSocketPath,
     brokerAuth,
   });
+  const shellEnvironmentPath = join(
+    input.agentHome,
+    ".config",
+    "bearing-live-journey",
+    ".zprofile",
+  );
+  const expectedShellEnvironment = `export PATH=${JSON.stringify(environment["PATH"])}\n`;
+  try {
+    if ((await readFile(shellEnvironmentPath, "utf8")) !== expectedShellEnvironment) {
+      fail("Isolated GitHub shell environment conflicts with this Journey account.");
+    }
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    await writeFile(shellEnvironmentPath, expectedShellEnvironment, { flag: "wx", mode: 0o600 });
+  }
   const wrapperPath = join(input.agentHome, ".local", "bin", "gh");
   try {
     const isolatedLogin = await runGitHubCommand({

@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test"
+    "test": "node --test tests/format-label.test.ts"
   }
 }

@@ -1,29 +1,35 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "scenarios": [
     {
-      "id": "TEST-01",
-      "name": "First admission fixture",
-      "fixture": { "source": "validation/live-journey/fixtures/local-loop" },
-      "composition": {
-        "fixtureProfile": "fresh-installation-repository",
+      "id": "test-one",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "fresh-installation-repository",
         "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
       },
-      "prompts": ["Inspect the installation instructions."],
-      "requiredOutcomes": ["The request stays bounded."],
-      "forbiddenOutcomes": ["No unrelated work is performed."]
+      "initialPrompt": "Inspect the installation instructions.",
+      "humanPosition": "Authorize inspection only.",
+      "bearingIntent": "Keep installation inspection bounded.",
+      "terminalEvidence": {
+        "description": "Installed fixture state.",
+        "observers": ["repository", "agent-home"]
+      }
     },
     {
-      "id": "TEST-02",
-      "name": "Second admission fixture",
-      "fixture": { "source": "validation/live-journey/fixtures/local-loop" },
-      "composition": {
-        "fixtureProfile": "fresh-installation-repository",
+      "id": "test-two",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "fresh-installation-repository",
         "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
       },
-      "prompts": ["Inspect the isolated repository."],
-      "requiredOutcomes": ["The request stays bounded."],
-      "forbiddenOutcomes": ["No unrelated work is performed."]
+      "initialPrompt": "Inspect the isolated repository.",
+      "humanPosition": "Authorize inspection only.",
+      "bearingIntent": "Keep repository inspection bounded.",
+      "terminalEvidence": {
+        "description": "Isolated fixture state.",
+        "observers": ["repository", "agent-home"]
+      }
     }
   ]
 }

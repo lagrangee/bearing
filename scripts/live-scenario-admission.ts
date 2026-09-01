@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readdir, realpath, rm } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import {
   prepareIsolatedCodexHome,
@@ -8,6 +8,8 @@ import {
   readCodexE2EModelAvailability,
   resolveCodexE2EProgram,
 } from "./codex-e2e-runtime";
+import { cleanupGitHubMatrixFixture } from "./github-live-journey";
+import { createCodexJourneyEnvironment } from "./live-journey-matrix";
 import {
   createLiveMatrixGenerationBasis,
   type LiveMatrixGenerationBasis,
@@ -89,6 +91,18 @@ const discardPreparedScenarios = async (
   workspaceRoot: string,
   preparedScenarios: readonly PreparedScenario[],
 ): Promise<void> => {
+  await Promise.all(
+    preparedScenarios.flatMap((prepared) =>
+      prepared.github === undefined
+        ? []
+        : [
+            cleanupGitHubMatrixFixture({
+              lifecycle: prepared.github.fixtureLifecycle,
+              program: prepared.github.program,
+            }),
+          ],
+    ),
+  );
   const runtimeRoots = [...new Set(preparedScenarios.map(({ paths }) => paths.runtimeRoot))];
   await Promise.all(runtimeRoots.map((root) => rm(root, { recursive: true, force: true })));
   await rm(workspaceRoot, { recursive: true, force: true });
@@ -117,7 +131,7 @@ const skillTopologyReadback = async (prepared: VerifiedScenario): Promise<string
   const skillRoot = join(prepared.paths.agentHome, "skill-directory");
   const actualNames = (await readdir(skillRoot)).filter((name) => name !== ".system").sort();
   const declaredNames = new Set<string>(
-    prepared.scenario.composition.skills.map(({ skill }) => skill),
+    prepared.scenario.fixedValidationFixture.skills.map(({ skill }) => skill),
   );
   const ambient = actualNames.filter((name) => !declaredNames.has(name));
   if (ambient.length > 0) {
@@ -125,7 +139,7 @@ const skillTopologyReadback = async (prepared: VerifiedScenario): Promise<string
   }
 
   const topology = [];
-  for (const declaration of prepared.scenario.composition.skills) {
+  for (const declaration of prepared.scenario.fixedValidationFixture.skills) {
     const path = join(skillRoot, declaration.skill);
     const available = await exists(path);
     if (available !== (declaration.role === "prerequisite")) {
@@ -147,7 +161,7 @@ const validatePrerequisiteSkillRoot = async (
   prerequisiteSkillRoot: string | undefined,
 ): Promise<LiveScenarioAdmissionDiagnostic | undefined> => {
   const requirements = scenarios.flatMap((scenario) =>
-    scenario.composition.skills
+    scenario.fixedValidationFixture.skills
       .filter(({ skill, role }) => skill !== "bearing" && role === "prerequisite")
       .map(({ skill }) => ({ scenarioId: scenario.id, skill })),
   );
@@ -200,7 +214,7 @@ export type AdmittedLiveScenarioGeneration = Readonly<{
   preparedScenarios: readonly PreparedScenario[];
   agentBehaviorStarted: false;
   activeGenerationCreated: false;
-  externalEffectsObserved: false;
+  externalEffectsObserved: boolean;
 }>;
 
 export const prepareLiveScenarioGenerationAdmission = async (input: {
@@ -283,8 +297,8 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
   );
   if (prerequisiteDiagnostic !== undefined) return blocked(generationId, [prerequisiteDiagnostic]);
   const missingGitHub = scenarios.find(
-    ({ composition }) =>
-      composition.capabilityProfile === "github-bounded-delivery" &&
+    ({ fixedValidationFixture }) =>
+      fixedValidationFixture.capabilityProfile === "github-bounded-delivery" &&
       input.githubCheckout === undefined,
   );
   if (missingGitHub !== undefined) {
@@ -297,8 +311,13 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
     ]);
   }
 
-  const workspaceRoot = resolve(input.workspaceRoot);
+  const requestedWorkspaceRoot = resolve(input.workspaceRoot);
+  let workspaceRoot: string;
   try {
+    workspaceRoot = join(
+      await realpath(dirname(requestedWorkspaceRoot)),
+      basename(requestedWorkspaceRoot),
+    );
     await ensureLiveScenarioCoordinatorWorkspace(sourceRoot, workspaceRoot);
   } catch (error) {
     return blocked(generationId, [
@@ -369,7 +388,7 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
             ? {}
             : { prerequisiteSkillRoot: input.prerequisiteSkillRoot }),
           codexProgram,
-          ...(scenario.composition.fixtureProfile !== "active-github-repository"
+          ...(scenario.fixedValidationFixture.profile !== "active-github-repository"
             ? {}
             : {
                 githubCheckout: input.githubCheckout,
@@ -402,12 +421,19 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
         runtimeContainer: resolve(verified.paths.runtimeRoot, ".."),
         ...(siblingRuntimeRoot === undefined ? {} : { siblingRuntimeRoot }),
         toolchain: verified.toolchain,
-        isProjectRepository:
-          verified.scenario.composition.fixtureProfile !== "non-project-directory",
+        isProjectRepository: true,
         writeAllowedPaths:
-          verified.scenario.composition.fixtureProfile === "fresh-installation-repository"
+          verified.scenario.fixedValidationFixture.profile === "fresh-installation-repository"
             ? [join(verified.paths.agentHome, ".agents/skills")]
             : [],
+        effectiveEnvironment: createCodexJourneyEnvironment(
+          process.env,
+          verified.launch.environment,
+          {
+            includeCanonicalBearingBin:
+              verified.scenario.fixedValidationFixture.profile !== "fresh-installation-repository",
+          },
+        ),
       });
       verifiedScenarios.push(verified);
     } catch (error) {
@@ -426,7 +452,17 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
         permissionOutcome: "passed" as const,
         ...(prepared.github === undefined
           ? {}
-          : { githubBaselineSha256: prepared.github.baselineInventorySha256 }),
+          : {
+              githubBaselineSha256: prepared.github.baselineInventorySha256,
+              githubFixture: {
+                milestoneNumber: prepared.github.fixtureLifecycle.milestone.number,
+                milestoneTitleSha256: createHash("sha256")
+                  .update(prepared.github.fixtureLifecycle.milestone.title)
+                  .digest("hex"),
+                parentIssueNumber: prepared.github.fixtureLifecycle.parent.number,
+                childIssueNumber: prepared.github.fixtureLifecycle.child.number,
+              },
+            }),
       })),
     );
   } catch (error) {
@@ -470,6 +506,6 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
     preparedScenarios: Object.freeze(preparedScenarios),
     agentBehaviorStarted: false as const,
     activeGenerationCreated: false as const,
-    externalEffectsObserved: false as const,
+    externalEffectsObserved: preparedScenarios.some(({ github }) => github !== undefined),
   });
 };

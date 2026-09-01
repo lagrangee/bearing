@@ -28,7 +28,7 @@ const createObservation = (
     stderr: "",
     before: { repository: "a".repeat(64), agentHome: "b".repeat(64) },
     after: { repository: "c".repeat(64), agentHome: "d".repeat(64) },
-    transcriptPointer: "transcripts/turn-01.jsonl",
+    rawEventsPointer: "events/turn-01.jsonl",
     stderrPointer: "transcripts/turn-01.stderr.log",
     ...timing,
   });

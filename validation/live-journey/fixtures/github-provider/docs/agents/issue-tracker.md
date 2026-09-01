@@ -53,11 +53,26 @@ the integer `sub_issue_id` field. Add a blocked-by relation with
 `POST repos/<owner>/<repo>/issues/<blocked-number>/dependencies/blocked_by` and the blocking Issue
 database ID in the integer `issue_id` field. Each target database ID must belong to this repository.
 Do not use GraphQL, an extension, or the body fallback as a substitute for either native relation.
+Read the integer ID from the REST issue resource, not `gh issue view --json id`:
+
+```bash
+CHILD_DATABASE_ID=$(gh api repos/<owner>/<repo>/issues/<child-number> --jq .id)
+gh api --method POST repos/<owner>/<repo>/issues/<parent-number>/sub_issues \
+  -F sub_issue_id="$CHILD_DATABASE_ID"
+gh api --method POST repos/<owner>/<repo>/issues/<parent-number>/dependencies/blocked_by \
+  -F issue_id="$CHILD_DATABASE_ID"
+```
+
+An accepted executable parent starts with the repository's `ready-for-agent` label before the
+first provider capture. Do not return an already accepted executable scope to `needs-triage`.
 
 After successful delivery validation, complete the delivery child. When that child is the parent's
 only delivery work and no unfinished work remains in the accepted scope, complete the parent too.
 Preserve the native relations and body fallbacks. Native parent completion is a Work Management
 effect; it does not conclude a Bearing Effort, pass a Gate, or complete a Roadmap.
+
+Create local commits as evidence when needed, but push the delivery branch once, after
+implementation, native completion, and Bearing synchronization are all recorded.
 
 ## Wayfinding operations
 

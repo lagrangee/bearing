@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { CODEX_E2E_RUNTIME } from "./codex-e2e-runtime";
-import { LIVE_MATRIX_CONCURRENCY } from "./live-matrix-scheduler";
 import { liveScenarioIdSchema } from "./live-scenario-registry";
+
+export const LIVE_MATRIX_CONCURRENCY = 4 as const;
 
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/u);
 const generationIdSchema = z.string().uuid();
@@ -15,6 +16,15 @@ const preparedScenarioReadbackSchema = z
     skillsSha256: digestSchema,
     permissionOutcome: z.literal("passed"),
     githubBaselineSha256: digestSchema.optional(),
+    githubFixture: z
+      .object({
+        milestoneNumber: z.number().int().positive(),
+        milestoneTitleSha256: digestSchema,
+        parentIssueNumber: z.number().int().positive(),
+        childIssueNumber: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -39,6 +49,7 @@ const generationBasisValueSchema = z
       .object({
         model: z.literal(CODEX_E2E_RUNTIME.model),
         reasoningEffort: z.literal(CODEX_E2E_RUNTIME.reasoningEffort),
+        fastMode: z.literal(CODEX_E2E_RUNTIME.fastMode),
         concurrency: z.literal(LIVE_MATRIX_CONCURRENCY),
       })
       .strict(),
@@ -114,6 +125,7 @@ export const createLiveMatrixGenerationBasis = (input: unknown): LiveMatrixGener
     runtime: {
       model: CODEX_E2E_RUNTIME.model,
       reasoningEffort: CODEX_E2E_RUNTIME.reasoningEffort,
+      fastMode: CODEX_E2E_RUNTIME.fastMode,
       concurrency: LIVE_MATRIX_CONCURRENCY,
     },
   });

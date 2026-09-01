@@ -1,20 +1,23 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "scenarios": [
     {
-      "id": "TEST-SKILL-01",
-      "name": "Prerequisite Skill admission fixture",
-      "fixture": { "source": "validation/live-journey/fixtures/local-loop" },
-      "composition": {
-        "fixtureProfile": "non-project-directory",
+      "id": "prerequisite-test",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/lifecycle-minimal",
+        "profile": "active-repository",
         "skills": [
           { "skill": "bearing", "role": "prerequisite" },
           { "skill": "implement", "role": "prerequisite" }
         ]
       },
-      "prompts": ["Inspect the isolated repository."],
-      "requiredOutcomes": ["The request stays bounded."],
-      "forbiddenOutcomes": ["No unrelated work is performed."]
+      "initialPrompt": "Inspect the isolated repository.",
+      "humanPosition": "Authorize inspection only.",
+      "bearingIntent": "Use only declared prerequisites.",
+      "terminalEvidence": {
+        "description": "Prerequisite materialization state.",
+        "observers": ["repository", "agent-home"]
+      }
     }
   ]
 }

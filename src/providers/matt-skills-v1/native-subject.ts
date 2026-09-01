@@ -19,6 +19,16 @@ export const mattNativeSubjectForObject = (object: MattProjectedObject): MattNat
   id: object.ref,
 });
 
+export const mattNativeObjectMatchesReference = (
+  object: MattProjectedObject,
+  reference: string,
+): boolean =>
+  object.ref === reference ||
+  (object.native.kind === "github" &&
+    (object.native.identity.url === reference ||
+      String(object.native.identity.number) === reference ||
+      `#${object.native.identity.number}` === reference));
+
 export const mattNativeScopeIdentity = (
   observation: Pick<MattSkillsV1ProviderObservation | MattObservationView, "binding">,
 ): string => {

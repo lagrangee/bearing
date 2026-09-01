@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   createLiveMatrixGenerationBasis,
+  LIVE_MATRIX_CONCURRENCY,
   parseLiveMatrixGenerationBasis,
 } from "../scripts/live-matrix-generation";
-import { LIVE_MATRIX_CONCURRENCY } from "../scripts/live-matrix-scheduler";
 
 const generationId = "11111111-1111-4111-8111-111111111111";
 const digest = (character: string) => character.repeat(64);
@@ -19,11 +19,11 @@ const validInput = () => ({
   fixtureDefinitionSha256: digest("3"),
   harnessIdentitySha256: digest("4"),
   startedAt: "2026-08-30T00:00:00.000Z",
-  selectedScenarioIds: ["NATIVE-02", "DELIVERY-02"],
+  selectedScenarioIds: ["accept-native-enrollment", "github-delivery-writeback"],
   preparedScenarios: [
     {
       generationId,
-      scenarioId: "DELIVERY-02",
+      scenarioId: "github-delivery-writeback",
       fixtureSha256: digest("5"),
       skillsSha256: digest("6"),
       permissionOutcome: "passed",
@@ -31,7 +31,7 @@ const validInput = () => ({
     },
     {
       generationId,
-      scenarioId: "NATIVE-02",
+      scenarioId: "accept-native-enrollment",
       fixtureSha256: digest("8"),
       skillsSha256: digest("9"),
       permissionOutcome: "passed",
@@ -50,12 +50,13 @@ describe("minimal Live Matrix Generation basis", () => {
       runtime: {
         model: "gpt-5.6-luna",
         reasoningEffort: "high",
+        fastMode: true,
         concurrency: LIVE_MATRIX_CONCURRENCY,
       },
     });
     expect(basis.preparedScenarios.map(({ scenarioId }) => scenarioId)).toEqual([
-      "NATIVE-02",
-      "DELIVERY-02",
+      "accept-native-enrollment",
+      "github-delivery-writeback",
     ]);
     expect(basis.preparedScenarios[0]).not.toHaveProperty("githubBaselineSha256");
     expect(basis.preparedScenarios[1]?.githubBaselineSha256).toBe(digest("7"));
@@ -81,7 +82,7 @@ describe("minimal Live Matrix Generation basis", () => {
     expect(() =>
       createLiveMatrixGenerationBasis({
         ...input,
-        selectedScenarioIds: ["NATIVE-02", "NATIVE-02"],
+        selectedScenarioIds: ["accept-native-enrollment", "accept-native-enrollment"],
       }),
     ).toThrow("Selected Scenario appears more than once");
     expect(() =>
@@ -101,7 +102,7 @@ describe("minimal Live Matrix Generation basis", () => {
         ...input,
         preparedScenarios: [
           input.preparedScenarios[0],
-          { ...input.preparedScenarios[1], scenarioId: "STOP-01" },
+          { ...input.preparedScenarios[1], scenarioId: "unselected-scenario" },
         ],
       }),
     ).toThrow("was not selected");

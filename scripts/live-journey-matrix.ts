@@ -32,6 +32,7 @@ const observationSchema = z
       cliVersion: z.string().min(1),
       requestedModel: z.literal(CODEX_E2E_RUNTIME.model),
       requestedReasoningEffort: z.literal(CODEX_E2E_RUNTIME.reasoningEffort),
+      requestedFastMode: z.literal(CODEX_E2E_RUNTIME.fastMode),
     }),
     eventCounts: z.record(z.string(), z.number().int().nonnegative()),
     state: z.object({
@@ -39,7 +40,7 @@ const observationSchema = z
       after: z.object({ repository: z.string(), agentHome: z.string() }),
     }),
     privateEvidence: z.object({
-      transcript: z.object({
+      rawEvents: z.object({
         pointer: evidencePointerSchema,
         sha256: z.string().regex(/^[0-9a-f]{64}$/u),
         bytes: z.number().int().nonnegative(),
@@ -85,7 +86,9 @@ export const createCodexJourneyEnvironment = (
     CODEX_HOME: string;
     TMPDIR: string;
     PATH: string;
-    SHELL?: string;
+    DEVELOPER_DIR: string;
+    npm_config_script_shell: string;
+    SHELL?: string | undefined;
   }>,
   options: Readonly<{ includeCanonicalBearingBin?: boolean }> = {},
 ): Readonly<Record<string, string>> => {
@@ -148,7 +151,7 @@ export const createLiveJourneyObservation = (input: {
   stderr: string;
   before: Readonly<{ repository: string; agentHome: string }>;
   after: Readonly<{ repository: string; agentHome: string }>;
-  transcriptPointer: string;
+  rawEventsPointer: string;
   stderrPointer: string;
   startedAt: string;
   endedAt: string;
@@ -201,6 +204,7 @@ export const createLiveJourneyObservation = (input: {
       cliVersion: input.codexCliVersion,
       requestedModel: CODEX_E2E_RUNTIME.model,
       requestedReasoningEffort: CODEX_E2E_RUNTIME.reasoningEffort,
+      requestedFastMode: CODEX_E2E_RUNTIME.fastMode,
     }),
     eventCounts: Object.freeze(
       Object.fromEntries(
@@ -212,7 +216,7 @@ export const createLiveJourneyObservation = (input: {
       after: Object.freeze(input.after),
     }),
     privateEvidence: Object.freeze({
-      transcript: Object.freeze(privateEvidence(input.transcriptPointer, input.stdout)),
+      rawEvents: Object.freeze(privateEvidence(input.rawEventsPointer, input.stdout)),
       stderr: Object.freeze(privateEvidence(input.stderrPointer, input.stderr)),
     }),
   };
@@ -232,6 +236,31 @@ export const extractCodexThreadId = (stdout: string): string | undefined => {
     }
   }
   return undefined;
+};
+
+export const extractCodexAgentReply = (stdout: string): string => {
+  const messages: string[] = [];
+  for (const line of stdout.split(/\r?\n/u)) {
+    try {
+      const event = JSON.parse(line) as Readonly<{
+        type?: unknown;
+        item?: Readonly<{ type?: unknown; text?: unknown }>;
+      }>;
+      if (
+        event.type === "item.completed" &&
+        event.item?.type === "agent_message" &&
+        typeof event.item.text === "string" &&
+        event.item.text.trim().length > 0
+      ) {
+        messages.push(event.item.text.trim());
+      }
+    } catch {
+      // Raw invalid JSONL remains durable diagnostic evidence.
+    }
+  }
+  const reply = messages.join("\n\n");
+  if (reply.length === 0) fail("Completed Codex Turn has no readable Agent reply.");
+  return reply;
 };
 
 export const readGeneratedEvidenceFile = async (workspaceRoot: string, pointer: string) => {
@@ -261,7 +290,7 @@ export const verifyLiveJourneyObservation = async (input: {
     fail("Observation Codex CLI version does not match the Coordinator evaluation.");
   }
   for (const evidence of [
-    observation.privateEvidence.transcript,
+    observation.privateEvidence.rawEvents,
     observation.privateEvidence.stderr,
   ]) {
     const file = await readGeneratedEvidenceFile(input.workspaceRoot, evidence.pointer);
@@ -272,7 +301,7 @@ export const verifyLiveJourneyObservation = async (input: {
   return observation;
 };
 
-export const observationSupportsSemanticPass = (input: unknown): boolean => {
+export const observationCompletedCleanly = (input: unknown): boolean => {
   const observation = observationSchema.parse(input);
   return (
     observation.invocationStarted &&

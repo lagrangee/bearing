@@ -38,7 +38,7 @@ export const materializeDeclaredPrerequisiteSkills = async (input: {
   const targetSkillRoot = await realpath(input.targetSkillRoot);
   const materialized: string[] = [];
 
-  for (const { skill, role } of input.scenario.composition.skills) {
+  for (const { skill, role } of input.scenario.fixedValidationFixture.skills) {
     if (skill === "bearing" || role !== "prerequisite") continue;
     const declaredSource = join(trustedSkillRoot, skill);
     let source: string;
@@ -74,12 +74,17 @@ export const materializeDeclaredPrerequisiteSkills = async (input: {
 
 const execute = async (
   command: readonly string[],
-  options: Readonly<{ cwd: string; home: string }>,
+  options: Readonly<{
+    cwd: string;
+    home: string;
+    environment?: Readonly<Record<string, string>>;
+  }>,
 ) => {
   const child = Bun.spawn([...command], {
     cwd: options.cwd,
     env: {
       ...process.env,
+      ...options.environment,
       HOME: options.home,
       BEARING_PORT: "1",
       npm_config_cache: join(options.home, "npm-cache"),
@@ -114,21 +119,15 @@ const developmentRuntimeManifestSchema = z
 
 const run = async (
   command: readonly string[],
-  options: Readonly<{ cwd: string; home: string }>,
+  options: Readonly<{ cwd: string; home: string; environment?: Readonly<Record<string, string>> }>,
 ) => {
-  const { exitCode, stdout, stderr } = await execute(command, options);
+  const { environment, ...executionOptions } = options;
+  const { exitCode, stdout, stderr } = await execute(command, {
+    ...executionOptions,
+    ...(environment === undefined ? {} : { environment }),
+  });
   if (exitCode !== 0) fail(stderr.trim() || stdout.trim() || `${command[0]} failed.`);
   return stdout;
-};
-
-const runExpectedProductOutcome = async (
-  command: readonly string[],
-  options: Readonly<{ cwd: string; home: string }>,
-): Promise<unknown> => {
-  const { exitCode, stdout, stderr } = await execute(command, options);
-  if (exitCode === 0) fail(`${command[0]} unexpectedly succeeded.`);
-  if (stdout.trim().length === 0) fail(stderr.trim() || `${command[0]} returned no receipt.`);
-  return JSON.parse(stdout);
 };
 
 const git = (root: string, args: readonly string[]): string => {
@@ -180,39 +179,6 @@ export const installLiveScenarioProduct = async (input: {
   const skillEntry = join(input.agentHome, "skill-directory/bearing");
   await symlink(relative(join(input.agentHome, "skill-directory"), skillTarget), skillEntry);
   return program;
-};
-
-export const materializeCompleteGlobalKitFromPackage = async (input: {
-  tarball: string;
-  installRoot: string;
-  agentHome: string;
-  repositoryRoot: string;
-}): Promise<string> => {
-  await mkdir(join(input.agentHome, ".agents/skills"), { recursive: true });
-  await mkdir(input.installRoot, { recursive: true });
-  await run(
-    [
-      "npm",
-      "install",
-      "--offline",
-      "--ignore-scripts",
-      "--no-audit",
-      "--no-fund",
-      "--prefix",
-      input.installRoot,
-      input.tarball,
-    ],
-    { cwd: input.installRoot, home: input.agentHome },
-  );
-  const productProgram = join(input.installRoot, "node_modules/.bin/bearing");
-  await run([productProgram, "install", "--surface", "agent-skills"], {
-    cwd: input.repositoryRoot,
-    home: input.agentHome,
-  });
-  const skillTarget = join(input.agentHome, ".bearing/kit/current/skills/bearing");
-  const skillEntry = join(input.agentHome, "skill-directory/bearing");
-  await symlink(relative(join(input.agentHome, "skill-directory"), skillTarget), skillEntry);
-  return productProgram;
 };
 
 const activate = async (input: {
@@ -369,9 +335,11 @@ const materializeDevelopmentRepositoryUpdateSource = async (input: {
 const installPlanningState = async (input: {
   sourceRoot: string;
   repositoryRoot: string;
-  includeEffort: boolean;
+  effortMode: "bound" | "absent" | "planned-unbound";
   productProgram: string;
   agentHome: string;
+  nativeScope?: string;
+  githubToken?: string;
 }): Promise<void> => {
   const baseline = join(input.sourceRoot, "validation/live-journey/fixtures/planning-state");
   await rm(join(input.repositoryRoot, ".bearing/state"), { recursive: true, force: true });
@@ -379,10 +347,9 @@ const installPlanningState = async (input: {
     recursive: true,
     force: true,
   });
-  if (!input.includeEffort) {
-    await rm(join(input.repositoryRoot, ".bearing/state/efforts/label-delivery.md"), {
-      force: true,
-    });
+  const effortPath = join(input.repositoryRoot, ".bearing/state/efforts/label-delivery.md");
+  if (input.effortMode === "absent") {
+    await rm(effortPath, { force: true });
     const gatePath = join(
       input.repositoryRoot,
       ".bearing/state/milestone-gates/stable-label-output.md",
@@ -392,23 +359,47 @@ const installPlanningState = async (input: {
       gatePath,
       gate.replace("Effort order:\n  - effort:label-delivery", "Effort order: []"),
     );
+  } else if (input.effortMode === "planned-unbound") {
+    const effort = await readFile(effortPath, "utf8");
+    await writeFile(
+      effortPath,
+      effort
+        .replace("Lifecycle: active", "Lifecycle: planned")
+        .replace(/^Activated at: .*\n/mu, "")
+        .replace(
+          /Work binding:\n {2}Provider: matt-skills\/v1\n {2}Native scope: \.scratch\/label-delivery\n/u,
+          "",
+        ),
+    );
+  } else if (input.nativeScope !== undefined) {
+    const effort = await readFile(effortPath, "utf8");
+    await writeFile(
+      effortPath,
+      effort.replace("Native scope: .scratch/label-delivery", `Native scope: ${input.nativeScope}`),
+    );
   }
   await run([input.productProgram, "cache", "rebuild", "--repo", input.repositoryRoot], {
     cwd: input.repositoryRoot,
     home: input.agentHome,
   });
-  if (input.includeEffort) {
+  if (input.effortMode === "bound") {
     await run(
       [
         input.productProgram,
         "provider",
         "capture",
         "--scope",
-        ".scratch/label-delivery",
+        input.nativeScope ?? ".scratch/label-delivery",
         "--repo",
         input.repositoryRoot,
       ],
-      { cwd: input.repositoryRoot, home: input.agentHome },
+      {
+        cwd: input.repositoryRoot,
+        home: input.agentHome,
+        ...(input.githubToken === undefined
+          ? {}
+          : { environment: { GH_TOKEN: input.githubToken } }),
+      },
     );
   }
 };
@@ -418,6 +409,8 @@ export const materializeGitHubLiveScenarioPlanningState = async (input: {
   repositoryRoot: string;
   productProgram: string;
   agentHome: string;
+  nativeScope: string;
+  githubToken: string;
 }): Promise<void> => {
   const agentSurfacePath = join(input.repositoryRoot, "AGENTS.md");
   await writeFile(
@@ -426,7 +419,7 @@ export const materializeGitHubLiveScenarioPlanningState = async (input: {
   );
   await rm(join(input.repositoryRoot, ".bearing"), { recursive: true, force: true });
   await activate(input);
-  await installPlanningState({ ...input, includeEffort: false });
+  await installPlanningState({ ...input, effortMode: "bound" });
   commitBaseline(input.repositoryRoot, "Prepare GitHub Live Scenario planning baseline");
 };
 
@@ -463,70 +456,25 @@ export const materializeLiveScenarioProductState = async (input: {
   productProgram: string;
   agentHome: string;
 }): Promise<void> => {
-  const materializer = input.scenario.composition.fixtureProfile;
-  if (
-    [
-      "fresh-repository",
-      "fresh-installation-repository",
-      "installed-unconfigured-repository",
-      "non-project-directory",
-    ].includes(materializer)
-  ) {
+  const materializer = input.scenario.fixedValidationFixture.profile;
+  if (["fresh-repository", "fresh-installation-repository"].includes(materializer)) {
     return;
-  }
-  if (materializer === "active-github-repository") {
-    await cp(
-      join(
-        input.sourceRoot,
-        "validation/live-journey/fixtures/github-provider/docs/agents/issue-tracker.md",
-      ),
-      join(input.repositoryRoot, "docs/agents/issue-tracker.md"),
-      { force: true },
-    );
   }
   if (materializer === "repository-update-required-repository") {
     await materializeDevelopmentRepositoryUpdateSource({
       ...input,
-      fixtureRoot: join(input.sourceRoot, input.scenario.fixture.source),
+      fixtureRoot: join(input.sourceRoot, input.scenario.fixedValidationFixture.source),
     });
     return;
   }
   await activate(input);
-  if (materializer === "older-kit-active-stable-repository") {
-    const manifestPath = join(input.repositoryRoot, ".bearing/manifest.json");
-    const target = z
-      .object({
-        status: z.literal("active"),
-        surfaces: z.array(z.string()),
-        executorProfiles: z.array(z.string()),
-      })
-      .passthrough()
-      .parse(JSON.parse(await readFile(manifestPath, "utf8")));
-    await writeFile(
-      manifestPath,
-      `${JSON.stringify(
-        {
-          schemaVersion: 1,
-          packageVersion: "0.1.1",
-          status: target.status,
-          surfaces: target.surfaces,
-          executorProfiles: target.executorProfiles,
-        },
-        null,
-        2,
-      )}\n`,
-    );
-  }
   if (
     [
       "active-planning-repository",
       "active-unbound-native-repository",
+      "active-planned-unbound-native-repository",
       "active-bound-local-repository",
       "active-bound-wayfinder-repository",
-      "active-bound-wayfinder-capture-required-repository",
-      "active-github-repository",
-      "active-ambiguous-native-repository",
-      "active-failing-execution-repository",
     ].includes(materializer)
   ) {
     if (materializer === "active-bound-local-repository") {
@@ -538,10 +486,7 @@ export const materializeLiveScenarioProductState = async (input: {
         ],
       );
     }
-    if (
-      materializer === "active-bound-wayfinder-repository" ||
-      materializer === "active-bound-wayfinder-capture-required-repository"
-    ) {
+    if (materializer === "active-bound-wayfinder-repository") {
       await writeFile(
         join(
           input.repositoryRoot,
@@ -556,148 +501,30 @@ Blocked by: None — can start immediately
 ## Question
 
 How should secondary labels normalize surrounding whitespace and letter casing?
+
+## Decision boundary
+
+This ticket decides only the ordered transformation for surrounding whitespace and letter casing.
+No new empty-string, internal-whitespace, or input-validation policy belongs to this decision.
 `,
       );
       await retainNativeTickets(input.repositoryRoot, ["05-decide-secondary-label-casing.md"], []);
     }
-    if (materializer === "active-ambiguous-native-repository") {
-      await writeFile(
-        join(input.repositoryRoot, ".scratch/label-delivery/issues/02-update-output.md"),
-        `# 02 — Update output
-
-Type: task
-
-Blocked by: None — can start immediately
-
-## Question
-
-How should the separate secondary output be updated?
-`,
-      );
-      await retainNativeTickets(
-        input.repositoryRoot,
-        ["01-update-output.md", "02-update-output.md"],
-        [
-          "- [Update primary output](issues/01-update-output.md) — Keep one bounded primary change.",
-          "- [Update secondary output](issues/02-update-output.md) — Keep the secondary behavior separate.",
-        ],
-      );
-    }
-    if (materializer === "active-failing-execution-repository") {
-      await writeFile(
-        join(input.repositoryRoot, ".scratch/label-delivery/issues/03-run-failing-delivery.md"),
-        `# 03 — Run the failing delivery check
-
-Type: task
-
-Status: claimed
-
-Blocked by: None — can start immediately
-
-## Question
-
-Run \`bun test tests/missing-delivery.test.ts\` and preserve its actual outcome without changing files.
-`,
-      );
-      await retainNativeTickets(
-        input.repositoryRoot,
-        ["03-run-failing-delivery.md"],
-        [
-          "- [Run the failing delivery check](issues/03-run-failing-delivery.md) — Preserve its actual command failure.",
-        ],
-      );
-    }
     await installPlanningState({
       ...input,
-      includeEffort: materializer !== "active-unbound-native-repository",
+      effortMode:
+        materializer === "active-unbound-native-repository"
+          ? "absent"
+          : materializer === "active-planned-unbound-native-repository"
+            ? "planned-unbound"
+            : "bound",
     });
-    if (materializer === "active-bound-wayfinder-capture-required-repository") {
-      const contractPath = join(input.repositoryRoot, "docs/agents/issue-tracker.md");
-      const contract = await readFile(contractPath, "utf8");
-      await rm(contractPath);
-      try {
-        const failed = await runExpectedProductOutcome(
-          [
-            input.productProgram,
-            "reconcile-native",
-            "--scope",
-            ".scratch/label-delivery",
-            "--ref",
-            ".scratch/label-delivery/issues/05-decide-secondary-label-casing.md",
-            "--repo",
-            input.repositoryRoot,
-          ],
-          { cwd: input.repositoryRoot, home: input.agentHome },
-        );
-        if (
-          !z
-            .object({ outcome: z.literal("unfulfilled") })
-            .passthrough()
-            .safeParse(failed).success
-        ) {
-          fail("NATIVE-03 did not establish a failed provider attempt.");
-        }
-      } finally {
-        await writeFile(contractPath, contract);
-      }
-      const inspected = z
-        .object({
-          result: z.object({
-            binding: z.object({
-              targetedReconciliationBasis: z.object({
-                state: z.literal("capture-required"),
-                reason: z.literal("latest-attempt-failed"),
-              }),
-            }),
-          }),
-        })
-        .passthrough()
-        .parse(
-          JSON.parse(
-            await run(
-              [
-                input.productProgram,
-                "inspect",
-                "--native",
-                ".scratch/label-delivery/issues/05-decide-secondary-label-casing.md",
-                "--repo",
-                input.repositoryRoot,
-              ],
-              { cwd: input.repositoryRoot, home: input.agentHome },
-            ),
-          ),
-        );
-      if (inspected.result.binding.targetedReconciliationBasis.state !== "capture-required") {
-        fail("NATIVE-03 Targeted Reconciliation Basis is not capture-required.");
-      }
-    }
   }
   if (materializer === "active-repository-with-drift") {
     const path = join(input.repositoryRoot, "AGENTS.md");
     const current = await readFile(path, "utf8");
     if (!current.includes("For a new request")) fail("Managed Agent Surface cannot be drifted.");
     await writeFile(path, current.replace("For a new request", "For a changed request"));
-  }
-  if (materializer === "kit-update-required-repository") {
-    await writeFile(
-      join(input.repositoryRoot, ".bearing/manifest.json"),
-      `${JSON.stringify({ schemaVersion: 99, status: "active" }, null, 2)}\n`,
-    );
-  }
-  if (materializer === "unsupported-repository") {
-    await writeFile(
-      join(input.repositoryRoot, ".bearing/manifest.json"),
-      `${JSON.stringify(
-        {
-          schemaVersion: 1,
-          packageVersion: "0.0.9",
-          surfaces: ["agent-skills"],
-          executorProfiles: [],
-        },
-        null,
-        2,
-      )}\n`,
-    );
   }
   commitBaseline(input.repositoryRoot, `Prepare ${input.scenario.id} Live Scenario baseline`);
 };

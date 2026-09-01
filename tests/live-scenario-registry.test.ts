@@ -1,250 +1,133 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-  assertJourneyAgentPrompt,
-  createCodexJourneyEnvironment,
-} from "../scripts/live-journey-matrix";
-import {
-  createLiveScenarioEvaluation,
-  digestLiveScenarioFixture,
-  liveScenarioResourceKeyForCapability,
   loadLiveScenarioRegistry,
   materializeLiveScenarioFixture,
-  parseLiveScenarioEvaluation,
+  parseLiveScenarioRegistry,
   preflightLiveScenarioRegistry,
 } from "../scripts/live-scenario-registry";
 
-const sourceRoot = process.cwd();
-const registryPath = "validation/live-journey/registry.json";
+const sourceRoot = resolve(import.meta.dir, "..");
+const registryPath = join(sourceRoot, "validation/live-journey/registry.json");
+const roots: string[] = [];
 
-describe("independent Agent Live scenarios", () => {
-  test("preflights the complete declarative registry without starting Agent behavior", async () => {
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+const scenarioIds = [
+  "install-exact-package",
+  "ordinary-work-restraint",
+  "configure-fresh-repository",
+  "repair-active-configuration",
+  "update-repository-integration",
+  "project-orientation",
+  "mixed-feature-intake",
+  "accept-native-enrollment",
+  "decline-native-enrollment",
+  "wayfinder-decision-writeback",
+  "local-delivery-writeback",
+  "github-delivery-writeback",
+] as const;
+
+describe("adaptive Live Matrix registry", () => {
+  test("declares the exact twelve semantic scenarios and five semantic fields", async () => {
     const registry = await loadLiveScenarioRegistry(registryPath);
-    const scenarioIds = registry.scenarios.map(({ id }) => id);
-
-    expect(registry.schemaVersion).toBe(1);
-    expect(new Set(scenarioIds).size).toBe(scenarioIds.length);
-    expect(
-      registry.scenarios.every(
-        ({ prompts, requiredOutcomes, forbiddenOutcomes }) =>
-          prompts.length > 0 && requiredOutcomes.length > 0 && forbiddenOutcomes.length > 0,
-      ),
-    ).toBe(true);
-    expect(
-      registry.scenarios.filter(({ composition }) => composition.capabilityProfile !== undefined),
-    ).toEqual([
-      expect.objectContaining({
-        id: "DELIVERY-02",
-        composition: expect.objectContaining({
-          capabilityProfile: "github-bounded-delivery",
-        }),
-      }),
-    ]);
-    expect(
-      registry.scenarios.map(({ composition }) =>
-        liveScenarioResourceKeyForCapability(composition.capabilityProfile),
-      ),
-    ).toEqual(
-      registry.scenarios.map(({ id }) =>
-        id === "DELIVERY-02" ? "github-validation-repository" : undefined,
-      ),
-    );
-    expect(liveScenarioResourceKeyForCapability("bounded-local-npm-update")).toBeUndefined();
-
-    await expect(
-      preflightLiveScenarioRegistry({ sourceRoot, registryPath }),
-    ).resolves.toMatchObject({
-      scenarioCount: scenarioIds.length,
-      semanticReviewRequired: true,
-      semanticReviewScenarioIds: scenarioIds,
-    });
-
-    const command = Bun.spawnSync(
-      [
-        process.execPath,
-        "scripts/run-live-journey.ts",
-        "check-matrix-definition",
-        "--source-root",
-        sourceRoot,
-        "--registry",
-        registryPath,
-      ],
-      { cwd: sourceRoot, stdout: "pipe", stderr: "pipe" },
-    );
-    expect(command.exitCode, command.stderr.toString()).toBe(0);
-    expect(JSON.parse(command.stdout.toString())).toMatchObject({
-      scenarioCount: scenarioIds.length,
-      semanticReviewRequired: true,
-      semanticReviewScenarioIds: scenarioIds,
-    });
-  });
-
-  test("materializes every Scenario from a stable source into an independent output", async () => {
-    const registry = await loadLiveScenarioRegistry(registryPath);
-    const root = await mkdtemp(join(tmpdir(), "bearing-live-scenario-fixtures-"));
-    const sourceDigests = new Map<string, string>();
-
-    for (const { fixture } of registry.scenarios) {
-      if (!sourceDigests.has(fixture.source)) {
-        sourceDigests.set(
-          fixture.source,
-          await digestLiveScenarioFixture(resolve(sourceRoot, fixture.source)),
-        );
-      }
-    }
-
+    expect(registry.schemaVersion).toBe(2);
+    expect(registry.scenarios.map(({ id }) => id)).toEqual([...scenarioIds]);
     for (const scenario of registry.scenarios) {
-      const outputRoot = join(root, scenario.id);
-      const materialized = await materializeLiveScenarioFixture({
-        registry,
-        scenarioId: scenario.id,
-        sourceRoot,
-        outputRoot,
-      });
-
-      expect(materialized).toMatchObject({
-        scenarioId: scenario.id,
-        fixtureProfile: scenario.composition.fixtureProfile,
-        fixtureRoot: outputRoot,
-      });
-      expect(materialized.startingStateSha256).toMatch(/^[0-9a-f]{64}$/u);
-      expect(await digestLiveScenarioFixture(outputRoot)).toBe(materialized.startingStateSha256);
-      await expect(
-        materializeLiveScenarioFixture({
-          registry,
-          scenarioId: scenario.id,
-          sourceRoot,
-          outputRoot,
-        }),
-      ).rejects.toThrow("already exists");
-    }
-
-    for (const [fixtureSource, digest] of sourceDigests) {
-      expect(await digestLiveScenarioFixture(resolve(sourceRoot, fixtureSource))).toBe(digest);
+      expect(Object.keys(scenario).sort()).toEqual([
+        "bearingIntent",
+        "fixedValidationFixture",
+        "humanPosition",
+        "id",
+        "initialPrompt",
+        "terminalEvidence",
+      ]);
+      expect(scenario.initialPrompt.trim()).not.toBe("");
+      expect(scenario.humanPosition.trim()).not.toBe("");
+      expect(scenario.bearingIntent.trim()).not.toBe("");
+      expect(scenario.terminalEvidence.observers.length).toBeGreaterThan(0);
     }
   });
 
-  test("keeps Scenario identity, criteria, and operator secrets outside Agent input", async () => {
-    const registry = await loadLiveScenarioRegistry(registryPath);
-    const scenarioIds = registry.scenarios.map(({ id }) => id);
-
-    expect(() =>
-      assertJourneyAgentPrompt(`Please complete ${scenarioIds[0]}.`, scenarioIds),
-    ).toThrow("black-box");
-    expect(
-      assertJourneyAgentPrompt("Please complete the requested repository task.", scenarioIds),
-    ).toBe("Please complete the requested repository task.");
-    for (const privateTerm of ["pass criteria", "expected command", "matrix case"]) {
-      expect(() =>
-        assertJourneyAgentPrompt(`The ${privateTerm} stays private from the Agent.`, scenarioIds),
-      ).toThrow("black-box");
+  test("contains no fixed-turn or deterministic semantic-evaluator contract", async () => {
+    const bytes = await readFile(registryPath, "utf8");
+    for (const legacy of ["prompts", "requiredOutcomes", "forbiddenOutcomes", "composition"]) {
+      expect(bytes).not.toContain(`"${legacy}"`);
     }
-
-    const environment = createCodexJourneyEnvironment(
-      {
-        PATH: "/operator/private/bin:/usr/bin:/bin",
-        TMPDIR: "/operator/private/tmp",
-        USER: "operator",
-        LOGNAME: "operator",
-        LANG: "en_US.UTF-8",
-        GH_TOKEN: "operator-secret",
-        MATRIX_PASS_CRITERIA: "private criteria",
-      },
-      {
-        HOME: "/isolated/home",
-        CODEX_HOME: "/isolated/home/.codex",
-        TMPDIR: "/isolated/runtime/tmp",
-        PATH: "/isolated/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-      },
-    );
-    expect(environment).toMatchObject({
-      HOME: "/isolated/home",
-      CODEX_HOME: "/isolated/home/.codex",
-      TMPDIR: "/isolated/runtime/tmp",
-      PATH: "/isolated/home/.bearing/bin:/isolated/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-      LANG: "en_US.UTF-8",
-    });
-    expect(environment).not.toHaveProperty("USER");
-    expect(environment).not.toHaveProperty("LOGNAME");
-    expect(environment).not.toHaveProperty("GH_TOKEN");
-    expect(environment).not.toHaveProperty("MATRIX_PASS_CRITERIA");
-  });
-
-  test("exposes one no-retry Generation runner surface", () => {
-    const result = Bun.spawnSync([process.execPath, "scripts/run-live-journey.ts", "--help"], {
+    const process = Bun.spawnSync(["bun", "scripts/run-live-journey.ts", "--help"], {
       cwd: sourceRoot,
       stdout: "pipe",
       stderr: "pipe",
     });
-    const help = result.stdout.toString();
-
-    expect(result.exitCode, result.stderr.toString()).toBe(0);
-    expect(help).toContain("check-matrix-definition");
-    expect(help).not.toContain("preflight-matrix");
-    expect(help).toContain("prepare-generation");
-    expect(help).toContain("run-generation");
-    expect(help).toContain("evaluate-scenario");
-    expect(help).toContain("complete-matrix");
-    for (const retired of [
-      "--journey-attempt",
-      "--retry-reason",
-      "matrix-status",
-      "recover-evidence-publication",
-      "inspect-evidence-bundle",
-      "inspect-generation",
-      "prepare-scenario",
-      "run-scenario-turn",
+    const help = process.stdout.toString();
+    expect(process.exitCode).toBe(0);
+    for (const operation of [
+      "prepare-generation",
+      "start-scenario",
+      "resume-scenario",
+      "finalize-scenario",
+      "complete-matrix",
     ]) {
-      expect(help).not.toContain(retired);
+      expect(help).toContain(operation);
     }
+    expect(help).not.toContain("run-generation");
+    expect(help).not.toContain("evaluate-scenario");
   });
 
-  test("keeps semantic judgment with the Coordinator and rejects observable conflicts", async () => {
+  test("preflights and materializes the declared validation fixtures", async () => {
+    const registry = await loadLiveScenarioRegistry(registryPath);
+    const preflight = await preflightLiveScenarioRegistry({
+      sourceRoot,
+      registryPath: "validation/live-journey/registry.json",
+    });
+    expect(preflight).toMatchObject({ scenarioCount: 12, semanticReviewRequired: true });
+
+    const root = await mkdtemp(join(tmpdir(), "bearing-semantic-fixture-"));
+    roots.push(root);
+    const materialized = await materializeLiveScenarioFixture({
+      registry,
+      scenarioId: "ordinary-work-restraint",
+      sourceRoot,
+      outputRoot: join(root, "fixture"),
+    });
+    expect(materialized.fixtureProfile).toBe("active-repository");
+    expect(materialized.startingStateSha256).toMatch(/^[0-9a-f]{64}$/u);
+  });
+
+  test("rejects legacy numeric ids and undeclared semantic fields", async () => {
     const registry = await loadLiveScenarioRegistry(registryPath);
     const scenario = registry.scenarios[0];
-    if (scenario === undefined) throw new Error("Tracked Live Scenario is unavailable.");
-    const evidencePointers = ["observations/turn-01.json"];
-    const requiredOutcomeObservations = scenario.requiredOutcomes.map((requirement) => ({
-      requirement,
-      observed: true,
-      evidencePointers,
-    }));
-    const forbiddenOutcomeObservations = scenario.forbiddenOutcomes.map((requirement) => ({
-      requirement,
-      observed: false,
-      evidencePointers,
-    }));
-
-    const result = createLiveScenarioEvaluation({
-      scenario,
-      outcome: "pass",
-      coordinatorIdentity: "codex-coordinator",
-      rationale: "The required outcome was observed without a forbidden outcome.",
-      requiredOutcomeObservations,
-      forbiddenOutcomeObservations,
-    });
-    expect(result).toMatchObject({
-      scenarioId: scenario.id,
-      outcome: "pass",
-      semanticEvaluationAuthority: "coordinating-agent",
-    });
-    expect(() => parseLiveScenarioEvaluation({ ...result, outcome: "not-run" })).toThrow();
-
+    expect(scenario).toBeDefined();
     expect(() =>
-      createLiveScenarioEvaluation({
-        scenario,
-        outcome: "pass",
-        coordinatorIdentity: "codex-coordinator",
-        rationale: "The claimed pass contradicts an observed forbidden outcome.",
-        requiredOutcomeObservations,
-        forbiddenOutcomeObservations: scenario.forbiddenOutcomes.map((requirement) => ({
-          requirement,
-          observed: true,
-          evidencePointers,
-        })),
+      parseLiveScenarioRegistry({
+        schemaVersion: 2,
+        scenarios: [{ ...scenario, id: "INSTALL-01", prompts: [scenario?.initialPrompt] }],
       }),
-    ).toThrow("contradicts");
+    ).toThrow();
+  });
+
+  test("keeps the representative GitHub prompt free of tracker and owner-return instructions", async () => {
+    const registry = await loadLiveScenarioRegistry(registryPath);
+    const scenario = registry.scenarios.find(({ id }) => id === "github-delivery-writeback");
+    const prompt = scenario?.initialPrompt;
+    expect(prompt).toBe("请完成 Implement canonical ready-label predicate 这张 ticket。");
+    for (const forbidden of [
+      "GitHub",
+      "issue",
+      "$implement",
+      "write back",
+      "reconcile",
+      "协调",
+      "同步",
+    ]) {
+      expect(prompt?.toLowerCase()).not.toContain(forbidden.toLowerCase());
+    }
+    expect(scenario?.humanPosition).toContain("configured parent completion rules");
+    expect(scenario?.terminalEvidence.description).toContain("contract-governed parent completion");
+    expect(scenario?.terminalEvidence.description).toContain("preserved native relations");
   });
 });

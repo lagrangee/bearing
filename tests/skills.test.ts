@@ -206,6 +206,21 @@ describe("public Bearing Agent surface", () => {
     ).toEqual(expectedReferences.sort());
   });
 
+  test("keeps Bearing as the router around an explicitly invoked owner Skill", async () => {
+    const { document } = await readSkillAt(skillRoot);
+    const text = markdownSemanticPlainText(markdownDocumentBody(document));
+
+    expect(text).toContain(
+      "Bearing nomination and an explicit invocation of another Skill apply to the same request",
+    );
+    expect(text).toContain("select and load the operation's direct references before handing");
+    expect(text).toContain("return control to its required readback");
+    expect(text).toContain(
+      "Do not hand off until the selected reference's required pre-owner steps are complete",
+    );
+    expect(text).toContain("required post-owner steps and readback after control returns");
+  });
+
   test("routes exact Effort start directly to its four Bearing owners", async () => {
     const { document } = await readSkillAt(skillRoot);
     const routing = tableWithColumns(document, ["Operation", "Load directly"]);
@@ -345,6 +360,8 @@ describe("public Bearing Agent surface", () => {
     expect(text).toContain("do not absolutize, relativize, normalize independently");
     expect(text).toContain("a separate recovery operation");
     expect(text).toContain("retroactively prove the failed transaction succeeded");
+    expect(text).toContain("candidates remain, present their exact identities to the Human");
+    expect(text).toMatch(/end the turn; Human selection\s+is the only continuation to Inspect/u);
   });
 
   test("keeps the public root as a compact router with one command table", async () => {
