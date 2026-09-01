@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { requiredPackagePaths } from "../scripts/release-boundary";
 import {
   type CandidateManifest,
@@ -169,9 +170,17 @@ class FakePublication implements ProtectedPublicationCapability {
 class FakePublicSmoke implements PublicSmokeCapability {
   readonly calls: Parameters<PublicSmokeCapability["run"]>[0][] = [];
 
+  constructor(
+    private readonly result: Awaited<ReturnType<PublicSmokeCapability["run"]>> = {
+      outcome: "passed",
+      publicPrefix: "npm+tag+release",
+      resumptionPoint: null,
+    },
+  ) {}
+
   async run(input: Parameters<PublicSmokeCapability["run"]>[0]) {
     this.calls.push(input);
-    return { outcome: "passed" as const, publicPrefix: "npm+tag+release", resumptionPoint: null };
+    return this.result;
   }
 }
 
@@ -229,4 +238,234 @@ test("blocks stale component and missing human evidence independently of Matrix"
   const result = await runReleaseOperator(stale, { publication, publicSmoke });
   expect(result).toMatchObject({ outcome: "blocked", blocker: { stage: "component-readiness" } });
   expect(publication.dispatches).toEqual([]);
+});
+
+test("preserves exact Human compatibility and known-exception stop boundaries", async () => {
+  const baseline = await readyInput();
+  const passed = baseline.humanCompatibility.claudeCode;
+  if (passed.outcome !== "pass") throw new Error("Expected a passing Human fixture.");
+  const anotherCandidate = { ...passed.candidate, frozenSha256: "f".repeat(64) };
+  const cases = [
+    {
+      input: {
+        ...baseline,
+        humanCompatibility: {
+          ...baseline.humanCompatibility,
+          claudeCode: { outcome: "missing" as const },
+        },
+      },
+      stage: "human-compatibility",
+      resumptionPoint: "collect:claude-code",
+    },
+    {
+      input: {
+        ...baseline,
+        humanCompatibility: {
+          ...baseline.humanCompatibility,
+          workBuddy: {
+            outcome: "anomaly" as const,
+            candidate: passed.candidate,
+            detail: "Desktop stopped before readback.",
+          },
+        },
+      },
+      stage: "human-compatibility",
+      resumptionPoint: "resolve:workbuddy",
+    },
+    {
+      input: {
+        ...baseline,
+        humanCompatibility: {
+          ...baseline.humanCompatibility,
+          workBuddy: { outcome: "pass" as const, candidate: anotherCandidate },
+        },
+      },
+      stage: "candidate-identity",
+      resumptionPoint: "rerun:workbuddy-with-exact-candidate",
+    },
+    {
+      input: {
+        ...baseline,
+        knownExceptions: {
+          ...baseline.knownExceptions,
+          items: [
+            {
+              summary: "Required installation route is unavailable.",
+              disposition: "contradicts-prerequisite" as const,
+              candidate: passed.candidate,
+              evidenceReference: "known-exception:installation-route",
+            },
+          ],
+        },
+      },
+      stage: "known-exceptions",
+      resumptionPoint: "resolve-contradicting-known-exception",
+    },
+  ] as const;
+
+  for (const scenario of cases) {
+    const publication = new FakePublication();
+    const publicSmoke = new FakePublicSmoke();
+    const result = await runReleaseOperator(scenario.input, { publication, publicSmoke });
+    expect(result).toMatchObject({
+      outcome: "blocked",
+      blocker: { stage: scenario.stage, resumptionPoint: scenario.resumptionPoint },
+      humanGo: "not-requested",
+      unchanged: { publication: "not-dispatched", publicSmoke: "not-run" },
+    });
+    expect(publication.dispatches).toEqual([]);
+    expect(publicSmoke.calls).toEqual([]);
+  }
+});
+
+test("preserves waiting, partial, and failed Publication outcomes without public readback", async () => {
+  const input = await readyInput();
+  const cases = [
+    {
+      publication: {
+        state: "waiting-for-environment-approval" as const,
+        workflowRunId: "654321",
+        monotonicPrefix: "none" as const,
+        environmentApproval: "pending" as const,
+      },
+      outcome: "awaiting-human-go",
+      resumptionPoint: "protected-environment-approval",
+    },
+    {
+      publication: {
+        state: "partial" as const,
+        workflowRunId: "654322",
+        monotonicPrefix: "npm+installed-package-smoke",
+        resumptionPoint: "immutable-tag",
+        detail: "Tag creation was unavailable.",
+        environmentApproval: "approved" as const,
+      },
+      outcome: "publication-incomplete",
+      resumptionPoint: "immutable-tag",
+    },
+    {
+      publication: {
+        state: "failed" as const,
+        workflowRunId: "654323",
+        monotonicPrefix: "none",
+        resumptionPoint: "npm",
+        detail: "Registry state was unverifiable.",
+        environmentApproval: "approved" as const,
+      },
+      outcome: "publication-incomplete",
+      resumptionPoint: "npm",
+    },
+  ] as const;
+
+  for (const scenario of cases) {
+    const publication = new FakePublication(scenario.publication);
+    const publicSmoke = new FakePublicSmoke();
+    const result = await runReleaseOperator(input, { publication, publicSmoke });
+    expect(result).toMatchObject({
+      outcome: scenario.outcome,
+      blocker: { stage: "publication", resumptionPoint: scenario.resumptionPoint },
+      handoff: { publication: { state: scenario.publication.state }, publicSmoke: null },
+      authority: { effortConclusion: false, gatePassage: false },
+    });
+    expect(publicSmoke.calls).toEqual([]);
+  }
+});
+
+test("reports incomplete public readback separately from successful Publication", async () => {
+  const input = await readyInput();
+  const publication = new FakePublication();
+  const publicSmoke = new FakePublicSmoke({
+    outcome: "incomplete",
+    publicPrefix: "npm+tag+release",
+    resumptionPoint: "pages",
+  });
+  const result = await runReleaseOperator(input, { publication, publicSmoke });
+  expect(result).toMatchObject({
+    outcome: "public-readback-incomplete",
+    blocker: { stage: "public-readback", resumptionPoint: "pages" },
+    handoff: {
+      publication: { state: "succeeded" },
+      publicSmoke: { outcome: "incomplete", publicPrefix: "npm+tag+release" },
+    },
+  });
+  expect(publication.dispatches).toHaveLength(1);
+  expect(publicSmoke.calls).toHaveLength(1);
+});
+
+test("continues only the same Publication authorization boundary", async () => {
+  const input = await readyInput();
+  const waiting = {
+    state: "waiting-for-environment-approval" as const,
+    workflowRunId: "654321",
+    monotonicPrefix: "none" as const,
+    environmentApproval: "pending" as const,
+  };
+  const initial = await runReleaseOperator(input, {
+    publication: new FakePublication(waiting),
+    publicSmoke: new FakePublicSmoke(),
+  });
+  if (!("continuation" in initial) || initial.continuation === null) {
+    throw new Error("Expected a Publication continuation.");
+  }
+
+  const retained = new FakePublication(waiting);
+  const continued = await runReleaseOperator(
+    { ...input, continuation: initial.continuation },
+    { publication: retained, publicSmoke: new FakePublicSmoke() },
+  );
+  expect(retained.dispatches).toEqual([]);
+  expect(retained.continuations).toHaveLength(1);
+  expect(continued).toMatchObject({
+    authorization: { mode: "retained", duplicateApprovalRequested: false },
+  });
+
+  const drifted: PublicationContinuation = {
+    ...initial.continuation,
+    request: {
+      ...initial.continuation.request,
+      inputs: { ...initial.continuation.request.inputs, candidate_run_id: "999999" },
+    },
+  };
+  const fresh = new FakePublication(waiting);
+  const restarted = await runReleaseOperator(
+    { ...input, continuation: drifted },
+    { publication: fresh, publicSmoke: new FakePublicSmoke() },
+  );
+  expect(fresh.continuations).toEqual([]);
+  expect(fresh.dispatches).toHaveLength(1);
+  expect(restarted).toMatchObject({ authorization: { mode: "fresh" } });
+
+  const mismatchedRun = await runReleaseOperator(
+    { ...input, continuation: initial.continuation },
+    {
+      publication: new FakePublication({ ...waiting, workflowRunId: "999999" }),
+      publicSmoke: new FakePublicSmoke(),
+    },
+  );
+  expect(mismatchedRun).toMatchObject({
+    outcome: "blocked",
+    blocker: {
+      stage: "publication",
+      resumptionPoint: "observe-publication-run:654321",
+    },
+    unchanged: { publication: "existing-run-unverified", publicSmoke: "not-run" },
+  });
+});
+
+test("targets one protected main Publication workflow with no duplicate approval input", async () => {
+  const workflow = parseYaml(await readFile(".github/workflows/publish.yml", "utf8")) as {
+    on: { workflow_dispatch: { inputs: Record<string, unknown> } };
+    jobs: { publish: { environment: string; if?: string } };
+  };
+  expect(Object.keys(workflow.on.workflow_dispatch.inputs)).toEqual([
+    "version",
+    "source_commit",
+    "candidate_workflow_name",
+    "candidate_run_id",
+    "candidate_run_attempt",
+    "frozen_sha256",
+  ]);
+  expect(workflow.jobs.publish.environment).toBe("npm-publish");
+  expect(workflow.jobs.publish.if).toBeUndefined();
+  await expect(readFile(".github/workflows/publish-preview.yml", "utf8")).rejects.toThrow();
 });

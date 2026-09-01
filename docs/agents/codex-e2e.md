@@ -121,7 +121,12 @@ Durable evidence has three levels:
 Session identity stays private. Durable references must remain below the Matrix evidence root,
 exclude credentials and session state, and pass digest verification. Deterministic checks may reject
 missing or changed evidence, unsafe paths, identity mismatch, incomplete Turns, credential leakage,
-or an incomplete result set. They do not evaluate Bearing Intent.
+or an incomplete result set. If Turn bytes fail the required secret scan, publish only a synthetic
+failed observation that names the rejection class, then let the Orchestrator seal `blocked`; never
+publish the rejected bytes or establish resumable session state. Scan each complete readable
+conversation before replacing its durable copy. Seal the exact Orchestrator verdict before terminal
+capture, and seal the Scenario result before runner-owned cleanup. These checks do not evaluate
+Bearing Intent.
 
 Matrix output has no deterministic relationship to Candidate readiness, publication, release,
 Effort conclusion, Gate Passage, or Roadmap completion. A green deterministic suite does not imply a

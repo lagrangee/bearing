@@ -13,7 +13,7 @@
       "bearingIntent": "Keep installation inspection bounded.",
       "terminalEvidence": {
         "description": "Installed fixture state.",
-        "observers": ["repository", "agent-home"]
+        "observers": ["repository", "agent-home", "git"]
       }
     },
     {

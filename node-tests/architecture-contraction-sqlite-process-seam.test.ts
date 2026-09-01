@@ -20,12 +20,9 @@ import {
 } from "../src/project-read-model/provider-operations";
 import {
   inspectProjectReadModel,
-  projectProviderEvidenceBindingKey,
   projectReadModelPath,
   publishProjectReadModel,
 } from "../src/project-read-model/store";
-import { encodeGitHubMattNativeScope } from "../src/providers/matt-skills-v1/github-native-scope";
-import { createMattReferenceProvider } from "../tests/fixtures/matt-reference-scenario";
 import { createRepresentativeProject } from "../tests/fixtures/representative-project";
 import { createValidBearingRepo } from "../tests/helpers";
 import { processEvidence, runNodeProcessGroup } from "./product-seams/sqlite-process-harness";
@@ -112,90 +109,6 @@ test("real SQLite process seam records committed publications and peak RSS", asy
     assert.ok((reader?.value.peakRssBytes ?? 0) > 0);
   } finally {
     await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("Project Read Model resolves GitHub issue-number aliases inside a bound scope", async () => {
-  const fixture = await createRepresentativeProject("representative");
-  try {
-    const nativeScope = encodeGitHubMattNativeScope({
-      host: "github.com",
-      rootKind: "parent-issue",
-      repository: {
-        owner: "example",
-        name: "reference",
-        databaseId: "9001",
-        nodeId: "R_reference",
-      },
-      root: {
-        objectKind: "issue",
-        number: 101,
-        databaseId: "9101",
-        nodeId: "I_reference_1",
-      },
-    });
-    const observation = await createMattReferenceProvider("github").capture({
-      provider: "matt-skills/v1",
-      nativeScope,
-    });
-    const delivery = observation.projection?.deliveryTickets[0];
-    if (delivery?.native.kind !== "github") throw new Error("Expected GitHub delivery evidence.");
-    const selection = {
-      provider: "matt-skills/v1" as const,
-      nativeScope,
-      observationId: observation.id,
-      effectiveFreshness: "current" as const,
-      latestAttempt: null,
-    };
-    const candidate = await materializeProjectReadModelCandidate(fixture.root);
-    await publishProjectReadModel(fixture.root, {
-      ...candidate,
-      providerEvidence: [
-        ...candidate.providerEvidence,
-        {
-          bindingKey: projectProviderEvidenceBindingKey(selection),
-          role: "bound",
-          observationId: observation.id,
-          ...(observation.sourceRevision === undefined
-            ? {}
-            : { sourceRevision: observation.sourceRevision }),
-          observation: JSON.stringify(observation),
-          selection: JSON.stringify(selection),
-        },
-      ],
-    });
-
-    for (const reference of [
-      String(delivery.native.identity.number),
-      `#${delivery.native.identity.number}`,
-      delivery.native.identity.url,
-    ]) {
-      const inspected = await queryCommittedProject(fixture.root, {
-        kind: "native-reference",
-        reference,
-      });
-      assert.deepEqual(inspected.result, {
-        reference,
-        binding: {
-          state: "bound",
-          provider: "matt-skills/v1",
-          nativeScope,
-          role: "bound",
-          observationId: observation.id,
-          effectiveFreshness: "current",
-          targetedReconciliationBasis: { state: "ready" },
-          planningReferences: [],
-        },
-        coverage: {
-          state: "available",
-          assessment: "incomplete",
-          completion: "undetermined",
-        },
-        generationFingerprint: candidate.basisFingerprint,
-      });
-    }
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
   }
 });
 

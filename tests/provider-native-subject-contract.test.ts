@@ -14,7 +14,6 @@ import {
 import { createLocalMarkdownMattProvider } from "../src/providers/matt-skills-v1/local-markdown";
 import { mattNativeRecords } from "../src/providers/matt-skills-v1/native-read-model";
 import {
-  mattNativeObjectMatchesReference,
   mattNativeScopeIdentity,
   mattNativeScopeLocator,
   mattNativeSubjectForObject,
@@ -209,20 +208,6 @@ test("keeps GitHub node identity stable across locator changes and trustworthy r
     throw new Error("Expected GitHub native route fixtures.");
   }
   const before = mattNativeSubjectForObject(delivery);
-  if (delivery.native.kind !== "github") {
-    throw new Error("Expected a GitHub delivery fixture.");
-  }
-  expect(mattNativeObjectMatchesReference(delivery, delivery.ref)).toBe(true);
-  expect(mattNativeObjectMatchesReference(delivery, delivery.native.identity.url)).toBe(true);
-  expect(mattNativeObjectMatchesReference(delivery, String(delivery.native.identity.number))).toBe(
-    true,
-  );
-  expect(mattNativeObjectMatchesReference(delivery, `#${delivery.native.identity.number}`)).toBe(
-    true,
-  );
-  expect(
-    mattNativeObjectMatchesReference(delivery, "https://github.com/example/reference/issues/0"),
-  ).toBe(false);
   const reparented = {
     ...projection,
     graph: {

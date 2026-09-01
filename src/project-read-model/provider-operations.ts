@@ -17,7 +17,7 @@ import {
   localNativeReferenceBelongsToScope,
 } from "../providers/matt-skills-v1/local-native-reference";
 import {
-  mattNativeObjectMatchesReference,
+  mattNativeSubjectForObject,
   sameMattNativeBindingDefinition,
 } from "../providers/matt-skills-v1/native-subject";
 import { mattObjects } from "../providers/matt-skills-v1/projection";
@@ -620,8 +620,8 @@ export const reconcileProjectNative = async (
   });
   const objects = matchingObservation === undefined ? [] : mattObjects(matchingObservation);
   const readback = references.flatMap((reference) => {
-    const entity = objects.find((candidate) =>
-      mattNativeObjectMatchesReference(candidate, reference),
+    const entity = objects.find(
+      (candidate) => mattNativeSubjectForObject(candidate).id === reference,
     );
     return entity === undefined ? [] : [{ nativeReference: reference, entity }];
   });

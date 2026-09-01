@@ -29,7 +29,7 @@ import {
 } from "../provider-evidence-contract";
 import type { ProviderEvidenceState } from "../provider-evidence-selection";
 import { canonicalizeLocalNativeReference } from "../providers/matt-skills-v1/local-native-reference";
-import { mattNativeObjectMatchesReference } from "../providers/matt-skills-v1/native-subject";
+import { mattNativeSubjectForObject } from "../providers/matt-skills-v1/native-subject";
 import { mattObjects } from "../providers/matt-skills-v1/projection";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import { assertActiveRepositoryIntegration } from "../repository-integration-lifecycle";
@@ -505,8 +505,10 @@ const nativeResult = (
       reference === selection.nativeScope ||
       locallyContained ||
       (observation !== undefined &&
-        mattObjects(observation).some((candidate) =>
-          mattNativeObjectMatchesReference(candidate, reference),
+        mattObjects(observation).some(
+          (candidate) =>
+            mattNativeSubjectForObject(candidate).id === reference ||
+            (candidate.native.kind === "github" && candidate.native.identity.url === reference),
         ));
     if (!subjectMatched) continue;
     const planningReferences = database

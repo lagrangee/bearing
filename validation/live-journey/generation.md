@@ -80,6 +80,8 @@ The verdict file is exactly:
 Use `fail` for an observed product-contract failure and `blocked` when trustworthy completion or
 continuity is unavailable. Do not ask the Agent to replay a committed failure. Target at most three
 post-initial replies for simple work, but allow materially progressing behavior to finish.
+When the runner reports `evidenceOutcome: rejected`, inspect only the synthetic failed observation
+and finalize `blocked`; the rejected bytes and session continuity are intentionally unavailable.
 
 ## 5. Complete the Matrix
 

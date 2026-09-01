@@ -193,9 +193,10 @@ const activeSlotPath = (generation: Generation, slot: number): string =>
   join(generation.workspaceRoot, `.active-scenario-${slot}`);
 
 const releaseScenarioSlot = async (generation: Generation, scenarioId: string): Promise<void> => {
+  const slots = Array.from({ length: LIVE_MATRIX_CONCURRENCY }, (_, index) => index + 1);
   await Promise.all(
-    Array.from({ length: LIVE_MATRIX_CONCURRENCY }, async (_, index) => {
-      const path = activeSlotPath(generation, index + 1);
+    slots.map(async (slot) => {
+      const path = activeSlotPath(generation, slot);
       if ((await exists(path)) && (await readFile(path, "utf8")).trim() === scenarioId) {
         await rm(path, { force: true });
       }
@@ -658,6 +659,14 @@ const captureTerminalObservation = async (manifest: Manifest) => {
   if (observers.includes("git")) {
     value["git"] = {
       head: gitRead(manifest.paths.repository, ["rev-parse", "HEAD"]).trim(),
+      headCommit: gitRead(manifest.paths.repository, [
+        "show",
+        "--no-ext-diff",
+        "--format=fuller",
+        "--stat",
+        "--patch",
+        "HEAD",
+      ]),
       status: gitRead(manifest.paths.repository, ["status", "--short"]),
       diff: gitRead(manifest.paths.repository, ["diff", "--no-ext-diff", "--binary"]),
       stagedDiff: gitRead(manifest.paths.repository, [

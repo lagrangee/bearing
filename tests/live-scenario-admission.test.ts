@@ -36,8 +36,7 @@ import { sha256File } from "../scripts/release-digest";
 const registryPath = "tests/fixtures/live-scenario-admission-registry.json";
 const prerequisiteRegistryPath =
   "tests/fixtures/live-scenario-admission-prerequisite-registry.json";
-const concurrencyRegistryPath =
-  "tests/fixtures/live-scenario-admission-concurrency-registry.json";
+const concurrencyRegistryPath = "tests/fixtures/live-scenario-admission-concurrency-registry.json";
 const generationId = "11111111-1111-4111-8111-111111111111";
 
 const createFixture = async (
@@ -280,6 +279,13 @@ exit 0
         expect.stringContaining("terminal/verdict.json"),
         expect.stringContaining("terminal/observation.json"),
       ]);
+      const terminalObservation = JSON.parse(
+        await readFile(
+          join(result.workspaceRoot, "scenarios/test-one/terminal/observation.json"),
+          "utf8",
+        ),
+      );
+      expect(terminalObservation.git.headCommit).toContain("commit ");
       const rawEvents = await readFile(
         join(result.workspaceRoot, "scenarios/test-one/events/turn-01.jsonl"),
         "utf8",
@@ -409,8 +415,7 @@ exit 0
 `,
       );
       await startAdaptiveScenario({ generationPath, scenarioId: "test-one" });
-      const rejectedSecret =
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+      const rejectedSecret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
       const replyPath = join(fixture.root, "secret-reply.txt");
       await writeFile(replyPath, `sealedPlanToken: ${rejectedSecret}\n`);
 

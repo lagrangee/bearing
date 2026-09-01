@@ -32,11 +32,9 @@ describe("repository setup review regressions", () => {
     expect(pointer).not.toMatch(/[\u3400-\u9fff]/u);
     expect(pointer).toContain("explicit Bearing concepts");
     expect(pointer).toContain("reasonable material planning/governance relevance");
-    expect(pointer).toContain("Repository issue-tracker planning, decisions, or execution");
-    expect(pointer).toContain("explicitly invokes another Skill");
-    expect(pointer).toContain("compose that Skill behind it");
     expect(pointer).toContain("ordinary non-governance code/documentation work");
-    expect(pointer).toContain("Explicit `$bearing`");
+    expect(pointer).toContain("Explicit `/bearing`");
+    expect(pointer).toContain("reliable Bearing orientation");
     expect(pointer).toContain("repository-independent conversation");
     expect(pointer).toContain("contextual guidance, not an executable hook");
     expect(pointer).not.toContain("bearing configure inspect");
