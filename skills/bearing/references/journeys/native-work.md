@@ -17,8 +17,12 @@ managed effects. Provider reads never mutate native work.
    one plausible reference, stop and ask the Human to select the exact identity. Do not batch,
    order, claim, or execute any approximate candidate. When an exact planned-Effort start has no
    native identity yet, accept only the Effort owner's confirmed named handoff; do not predict or
-   fabricate the future scope. Otherwise run `bearing inspect --native <native-reference> --repo
-   <repo-root>`. Preserve the canonical `result.reference` returned by Inspect exactly as returned;
+   fabricate the future scope. A bare GitHub issue number or `#number` is a tracker locator, not a
+   provider-canonical native reference. Resolve it with
+   `gh issue view <number> --json url --jq .url`, use that returned URL unchanged as
+   `<native-reference>`, and never pass the tracker locator. Every existing target then runs Native
+   Inspect through `bearing inspect --native <native-reference> --repo <repo-root>`. Preserve the
+   canonical `result.reference` returned by Inspect exactly as returned;
    do not absolutize, relativize, normalize independently, or reconstruct it from filesystem
    knowledge. For a bound result, preserve its `nativeScope` and Targeted Reconciliation Basis.
    When the basis is `capture-required`, complete the selected exact-scope baseline operation before

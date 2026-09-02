@@ -362,10 +362,29 @@ describe("public Bearing Agent surface", () => {
     const document = parseMarkdownDocument(await readRuntime("references/journeys/native-work.md"));
     const text = markdownSemanticPlainText(markdownDocumentBody(document));
 
-    expect(text).toContain("canonical result.reference returned by Inspect exactly as returned");
+    expect(text).toMatch(/canonical\s+result\.reference returned by Inspect exactly as returned/iu);
     expect(text).toContain("do not absolutize, relativize, normalize independently");
     expect(text).toContain("a separate recovery operation");
     expect(text).toContain("retroactively prove the failed transaction succeeded");
+  });
+
+  test("gives GitHub native admission an executable canonical URL step", async () => {
+    const document = parseMarkdownDocument(await readRuntime("references/journeys/native-work.md"));
+    const operation = queryMarkdownSections(document, { depth: 2 }).find(
+      ({ heading }) => heading.title === "Operation",
+    );
+    if (operation === undefined) throw new Error("Native Work operation section is absent.");
+    const operationLists = queryMarkdownLists(document, { within: operation, ordered: true });
+    const firstStep = operationLists[0]?.items[0]?.text;
+    if (firstStep === undefined) throw new Error("Native Work first operation step is absent.");
+    const resolveIndex = firstStep.indexOf("gh issue view <number> --json url --jq .url");
+    const inspectIndex = firstStep.indexOf(
+      "bearing inspect --native <native-reference> --repo <repo-root>",
+    );
+
+    expect(operationLists).toHaveLength(1);
+    expect(resolveIndex).toBeGreaterThanOrEqual(0);
+    expect(inspectIndex).toBeGreaterThan(resolveIndex);
   });
 
   test("keeps the public root as a compact router with one command table", async () => {
