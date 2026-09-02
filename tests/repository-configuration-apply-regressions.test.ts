@@ -46,7 +46,7 @@ describe("repository setup review regressions", () => {
         "ordinary-non-governance-work",
       ],
       nativeDiscovery: [
-        "exact-inspect-before-owner",
+        "provider-canonical-inspect-before-owner-mutation",
         "unbound-standalone-owner",
         "unavailable-or-ambiguous-stop-before-owner",
       ],

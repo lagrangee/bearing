@@ -16,19 +16,21 @@ Bearing invocation remains available when the pointer did not nominate the reque
 
 ### Owner composition
 
-When Bearing and another owner Skill apply to the same request, Bearing remains the router. Select
-the Bearing operation and complete its selected pre-owner sequence. For an existing native
-reference, use Native Inspect and require a `ready` Targeted Reconciliation Basis, completing its
-`capture-required` baseline first when needed; unavailable or ambiguous evidence stops before owner
-changes. A confirmed named start with no native identity follows its selected Effort-start
-sequence; an unbound target follows the Native Work standalone boundary. Preserve the selected
-operation and all available native state before handing the original request to the owner Skill;
-the owner returns every exact scope and subject it creates or changes. On terminal success, resume
-the selected post-owner continuation before the final Human response. An existing Binding gets one
-complete exact-subject reconciliation and readback. A named Effort start completes Binding and
-Activation followed by its first exact-scope Provider Capture. Unbound standalone work follows the
-Enrollment Boundary without reconciliation. This return is part of the same request, not optional
-cleanup. A failed, incomplete, or non-terminal owner outcome stops before any continuation.
+When Bearing and another owner Skill apply to the same request, Bearing remains the router. For
+native composition, load `references/journeys/native-work.md` before the owner claims or writes the
+target; it owns exact reference admission and the selected native continuation. Select the Bearing
+operation and complete its pre-owner sequence. For an existing native reference, use Native Inspect
+and require a `ready` Targeted Reconciliation Basis, completing its `capture-required` baseline
+first when needed; unavailable or ambiguous evidence stops before owner changes. A confirmed named
+start with no native identity follows its selected Effort-start sequence; an unbound target follows
+the Native Work standalone boundary. Preserve the selected operation and all available native state
+before handing the original request to the owner Skill; the owner returns every exact scope and
+subject it creates or changes. On terminal success, resume the selected post-owner continuation
+before the final Human response. An existing Binding gets one complete exact-subject reconciliation
+and readback. A named Effort start completes Binding and Activation followed by its first exact-scope
+Provider Capture. Unbound standalone work follows the Enrollment Boundary without reconciliation.
+This return is part of the same request, not optional cleanup. A failed, incomplete, or non-terminal
+owner outcome stops before any continuation.
 
 | Owner outcome | Bearing continuation |
 | --- | --- |

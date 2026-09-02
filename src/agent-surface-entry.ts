@@ -7,10 +7,7 @@ const nominationClauses = [
   ["explicit-bearing", "explicit Bearing concepts"],
   ["direct-continuation", "direct Bearing continuation"],
   ["material-governance", "material governance"],
-  [
-    "named-existing-native-classification",
-    "a request naming an existing repository decision or delivery",
-  ],
+  ["named-existing-native-classification", "a named existing repository decision/delivery"],
 ] as const;
 const exclusionClauses = [
   ["new-native", "proposed native work"],
@@ -22,8 +19,8 @@ const exclusionClauses = [
 ] as const;
 const nativeDiscoveryClauses = [
   [
-    "exact-inspect-before-owner",
-    "For named native work, use Bearing to resolve exact tracker identity and Binding.",
+    "provider-canonical-inspect-before-owner-mutation",
+    "For named native work, resolve its provider-canonical reference, complete Native Inspect, and confirm Binding before owner claim/write.",
   ],
   [
     "unbound-standalone-owner",

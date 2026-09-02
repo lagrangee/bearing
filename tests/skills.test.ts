@@ -212,9 +212,14 @@ describe("public Bearing Agent surface", () => {
       ({ heading }) => heading.title === "Owner composition",
     );
 
-    expect(section).toBeDefined();
-    expect(section?.markdown.trim().length).toBeGreaterThan(0);
-    expect(section?.markdown).not.toContain("```");
+    if (section === undefined) throw new Error("Owner composition section is absent.");
+    expect(section.markdown.trim().length).toBeGreaterThan(0);
+    expect(section.markdown).not.toContain("```");
+    expect(
+      queryMarkdownInlineCodes(document, { within: section }).filter((value) =>
+        value.startsWith("references/"),
+      ),
+    ).toEqual(["references/journeys/native-work.md"]);
     const contract = tableWithColumns(document, ["Owner outcome", "Bearing continuation"]);
     expect(contract.rows).toEqual([
       ["terminal-success", "resume-selected-post-owner-continuation-before-final-response"],
