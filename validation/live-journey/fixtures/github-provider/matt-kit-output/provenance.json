@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "materializedFrom": [
+    {
+      "skill": "setup-matt-pocock-skills",
+      "source": "issue-tracker-github.md",
+      "sha256": "ec8332bb69e7e79e349989e940be481a0c79b552be3acc613e718278bcc5e03d"
+    },
+    {
+      "skill": "to-spec",
+      "source": "SKILL.md",
+      "sha256": "5d26479544b08048d3a8f79d937b39bc613a617f026b3fd083bafc1e99a7b811"
+    },
+    {
+      "skill": "to-tickets",
+      "source": "SKILL.md",
+      "sha256": "5ecdf1d4df8a360ed39df21a2347f97ba177afd449a577da4f6b6ea8e1ebb808"
+    }
+  ],
+  "note": "The checked-in parent and child are stable GitHub issue bodies materialized from the installed Matt Kit workflow contracts. Dynamic native issue numbers are substituted during fixture preparation."
+}

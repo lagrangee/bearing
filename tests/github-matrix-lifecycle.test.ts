@@ -95,9 +95,20 @@ class FakeGitHubLifecycle {
       return JSON.stringify(issue);
     }
     const relation = endpoint?.match(/issues\/(\d+)\/(sub_issues|dependencies\/blocked_by)$/u);
-    if (relation !== undefined && relation !== null && method === "POST") {
-      this.relations.push(endpoint as string);
-      return "{}";
+    if (relation !== undefined && relation !== null) {
+      if (method === "POST") {
+        this.relations.push(endpoint as string);
+        return "{}";
+      }
+      const child = this.issues.get(101);
+      return JSON.stringify(child === undefined ? [] : [{ id: child.id, number: child.number }]);
+    }
+    const relationRead = endpoint?.match(
+      /issues\/(\d+)\/(sub_issues|dependencies\/blocked_by)\?per_page=100$/u,
+    );
+    if (relationRead !== undefined && relationRead !== null) {
+      const child = this.issues.get(101);
+      return JSON.stringify(child === undefined ? [] : [{ id: child.id, number: child.number }]);
     }
     const issueMatch = endpoint?.match(/issues\/(\d+)$/u);
     if (issueMatch !== undefined && issueMatch !== null) {
@@ -108,7 +119,7 @@ class FakeGitHubLifecycle {
         const body = values.find((value) => value.startsWith("body="));
         if (body !== undefined) issue.body = body.slice("body=".length);
       }
-      return JSON.stringify(issue);
+      return JSON.stringify({ ...issue, milestone: { number: issue.milestone } });
     }
     throw new Error(`unexpected command: ${values.join(" ")}`);
   };
@@ -121,6 +132,7 @@ describe("GitHub Matrix fixture lifecycle", () => {
   test("creates one milestone, stable label, parent, ready child, and both native relations", async () => {
     const fake = new FakeGitHubLifecycle();
     const lifecycle = await prepareGitHubMatrixFixture({
+      sourceRoot: process.cwd(),
       repositorySlug: "example/validation",
       scopeKey,
       generationId,
@@ -133,11 +145,19 @@ describe("GitHub Matrix fixture lifecycle", () => {
       parent: { number: 100 },
       child: { number: 101 },
     });
-    expect(fake.issues.get(100)?.labels).toContainEqual({ name: GITHUB_MATRIX_FIXTURE_LABEL });
+    expect(fake.issues.get(100)?.labels).toEqual([
+      { name: GITHUB_MATRIX_FIXTURE_LABEL },
+      { name: "ready-for-agent" },
+    ]);
     expect(fake.issues.get(101)?.labels).toEqual([
       { name: GITHUB_MATRIX_FIXTURE_LABEL },
       { name: "ready-for-agent" },
     ]);
+    for (const number of [100, 101]) {
+      expect(fake.issues.get(number)?.body).toContain("## What to build");
+      expect(fake.issues.get(number)?.body).toContain("## Acceptance criteria");
+      expect(fake.issues.get(number)?.body).toContain("## Completion evidence");
+    }
     expect(fake.issues.get(100)?.body).toContain("Blocked by: #101");
     expect(fake.issues.get(101)?.body).toContain("Part of: #100");
     expect(fake.relations).toEqual([
@@ -149,6 +169,7 @@ describe("GitHub Matrix fixture lifecycle", () => {
   test("cleans only the fixture pair and milestone idempotently after evidence capture", async () => {
     const fake = new FakeGitHubLifecycle();
     const lifecycle = await prepareGitHubMatrixFixture({
+      sourceRoot: process.cwd(),
       repositorySlug: "example/validation",
       scopeKey,
       generationId,
@@ -166,6 +187,22 @@ describe("GitHub Matrix fixture lifecycle", () => {
     expect(fake.calls.filter((args) => args.includes("state=closed"))).toHaveLength(
       writesAfterFirstCleanup,
     );
+  });
+
+  test("rejects a fixture whose native relation cannot be read back", async () => {
+    const fake = new FakeGitHubLifecycle();
+    const command: GitHubMatrixLifecycleCommand = async (args) =>
+      args.some((value) => value.endsWith("/sub_issues?per_page=100")) ? "[]" : fake.command(args);
+
+    await expect(
+      prepareGitHubMatrixFixture({
+        sourceRoot: process.cwd(),
+        repositorySlug: "example/validation",
+        scopeKey,
+        generationId,
+        command,
+      }),
+    ).rejects.toThrow("failed readback");
   });
 
   test("recovers only an exact stale Matrix milestone pair and leaves unrelated work untouched", async () => {

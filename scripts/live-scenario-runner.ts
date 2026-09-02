@@ -729,14 +729,18 @@ export const installGitHubScenarioProviderContract = async (input: {
   repository: string;
 }): Promise<void> => {
   const relativePath = "docs/agents/issue-tracker.md";
-  await cp(
-    join(
-      input.sourceRoot,
-      "validation/live-journey/fixtures/github-provider/docs/agents/issue-tracker.md",
-    ),
-    join(input.repository, relativePath),
-    { force: true },
+  const sourcePath = join(
+    input.sourceRoot,
+    "validation/live-journey/fixtures/github-provider/docs/agents/issue-tracker.md",
   );
+  await cp(sourcePath, join(input.repository, relativePath), { force: true });
+  if (
+    !Buffer.from(await readFile(sourcePath)).equals(
+      Buffer.from(await readFile(join(input.repository, relativePath))),
+    )
+  ) {
+    fail("GitHub Live Scenario provider contract failed exact readback.");
+  }
   if (git(input.repository, ["status", "--porcelain=v1", "--", relativePath]) !== "") {
     git(input.repository, ["add", "--", relativePath]);
     git(input.repository, [
@@ -965,6 +969,7 @@ export const prepareLiveScenarioGeneration = async (input: {
           journeyAttempt: 1,
         });
         githubFixtureLifecycle = await prepareGitHubMatrixFixture({
+          sourceRoot,
           program: githubProgram,
           repositorySlug: fixed.configuration.repositorySlug,
           scopeKey,

@@ -41,12 +41,14 @@ managed effects. Provider reads never mutate native work.
    complete actual successful set and run exactly one Targeted Native Reconciliation through
    `bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope>` with one exact
    `--ref` for each subject. Check complete subject closure before issuing the command, and use each
-   provider-canonical native reference unchanged; reconciliation is not a payload probe. Provider
-   readback derives current relations and their direction. The accepted native outcome authorizes
-   this exact readback without another confirmation. Any issued reconciliation command is the sole
-   attempt: failure is terminal, not authority for a corrected second command. Completion: one
-   post-transaction result covers the complete deduplicated subject set and only provider-proven
-   relations.
+   provider-canonical native reference unchanged. Admit only an unchanged `result.reference` from
+   Native Inspect or a provider-canonical reference returned by Work Management for its successful
+   write. Never synthesize a subject alias from an issue number, path knowledge, title, or opaque
+   scope identity; reconciliation is not a payload probe. Provider readback derives current
+   relations and their direction. The accepted native outcome authorizes this exact readback
+   without another confirmation. Any issued reconciliation command is the sole attempt: failure is
+   terminal, not authority for a corrected second command. Completion: one post-transaction result
+   covers the complete deduplicated subject set and only provider-proven relations.
 5. If work is unbound, complete Work Management as Standalone Native Work before Bearing considers
    enrollment, then apply the Enrollment Boundary below. Native work never waits for enrollment.
    Completion: the terminal native disposition and bounded Bearing continuation match the table.

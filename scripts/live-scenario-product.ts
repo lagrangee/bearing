@@ -383,24 +383,45 @@ const installPlanningState = async (input: {
     home: input.agentHome,
   });
   if (input.effortMode === "bound") {
-    await run(
-      [
-        input.productProgram,
-        "provider",
-        "capture",
-        "--scope",
-        input.nativeScope ?? ".scratch/label-delivery",
-        "--repo",
-        input.repositoryRoot,
-      ],
-      {
-        cwd: input.repositoryRoot,
-        home: input.agentHome,
-        ...(input.githubToken === undefined
-          ? {}
-          : { environment: { GH_TOKEN: input.githubToken } }),
-      },
-    );
+    const capture = z
+      .object({
+        command: z.literal("provider-capture"),
+        outcome: z.literal("complete"),
+        result: z.object({
+          scopes: z.array(
+            z.object({
+              scope: z.string().min(1),
+              disposition: z.literal("captured"),
+            }),
+          ),
+        }),
+      })
+      .parse(
+        JSON.parse(
+          await run(
+            [
+              input.productProgram,
+              "provider",
+              "capture",
+              "--scope",
+              input.nativeScope ?? ".scratch/label-delivery",
+              "--repo",
+              input.repositoryRoot,
+            ],
+            {
+              cwd: input.repositoryRoot,
+              home: input.agentHome,
+              ...(input.githubToken === undefined
+                ? {}
+                : { environment: { GH_TOKEN: input.githubToken } }),
+            },
+          ),
+        ),
+      );
+    const expectedScope = input.nativeScope ?? ".scratch/label-delivery";
+    if (capture.result.scopes.length !== 1 || capture.result.scopes[0]?.scope !== expectedScope) {
+      fail("Live Scenario provider baseline did not capture the exact Work Binding scope.");
+    }
   }
 };
 

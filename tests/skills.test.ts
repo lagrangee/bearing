@@ -206,6 +206,17 @@ describe("public Bearing Agent surface", () => {
     ).toEqual(expectedReferences.sort());
   });
 
+  test("keeps cross-Skill owner composition in the public router", async () => {
+    const { document } = await readSkillAt(skillRoot);
+    const section = queryMarkdownSections(document, { depth: 3 }).find(
+      ({ heading }) => heading.title === "Owner composition",
+    );
+
+    expect(section).toBeDefined();
+    expect(section?.markdown.trim().length).toBeGreaterThan(0);
+    expect(section?.markdown).not.toContain("```");
+  });
+
   test("routes exact Effort start directly to its four Bearing owners", async () => {
     const { document } = await readSkillAt(skillRoot);
     const routing = tableWithColumns(document, ["Operation", "Load directly"]);

@@ -1528,6 +1528,7 @@ const decodeSpec = (
 const decodeDelivery = (
   acquired: AcquiredIssue,
   repository: GitHubRepository,
+  diagnostics: ProviderDiagnostic[],
 ): MattDeliveryTicket | undefined => {
   const whatToBuild = section(acquired, "What to build");
   const acceptance = sectionItems(acquired, "Acceptance criteria");
@@ -1541,17 +1542,51 @@ const decodeDelivery = (
   const comments = acquired.comments.map(
     (comment) => githubCommentDocument(comment, "delivery.comments") as MattDeliveryComment,
   );
+  const trackerClosure = trackerClosureFor(acquired.issue);
+  const completionEvidence = queryMarkdownSection(acquired.document, {
+    title: "Completion evidence",
+  });
+  const completionEvidenceAvailable =
+    completionEvidence.state === "found" && completionEvidence.value.markdown.trim().length > 0;
+  let lifecycle: MattDeliveryTicket["lifecycle"] = { state: "open" };
+  if (trackerClosure.state === "closed") {
+    if (trackerClosure.disposition !== "completed") {
+      lifecycle = { state: "completion-unavailable", reason: "source-contract-gap" };
+    } else if (completionEvidence.state === "ambiguous") {
+      lifecycle = { state: "completion-unavailable", reason: "ambiguous-evidence" };
+      diagnostics.push(
+        diagnostic(
+          "matt.github.delivery.completion-evidence-ambiguous",
+          "format",
+          acquired.issue.html_url,
+          "Completed Delivery has duplicate or ambiguous canonical completion evidence.",
+        ),
+      );
+    } else if (!acceptance.every((item) => item.checked === true) || !completionEvidenceAvailable) {
+      lifecycle = { state: "completion-unavailable", reason: "incomplete-writeback" };
+      diagnostics.push(
+        diagnostic(
+          "matt.github.delivery.incomplete-writeback",
+          "format",
+          acquired.issue.html_url,
+          "Completed Delivery requires every acceptance item checked and non-empty canonical completion evidence.",
+        ),
+      );
+    } else {
+      lifecycle = {
+        state: "completed",
+        evidence: [`${acquired.issue.html_url}#completion-evidence`],
+      };
+    }
+  }
   return {
     kind: "delivery-ticket",
     ref: issueReference(repository, acquired.issue),
     title: acquired.issue.title,
     whatToBuild: whatToBuild.markdown,
     acceptanceCriteria: acceptance.map((item) => item.text),
-    lifecycle:
-      acquired.issue.state === "open"
-        ? { state: "open" }
-        : { state: "completion-unavailable", reason: "source-contract-gap" },
-    trackerClosure: trackerClosureFor(acquired.issue),
+    lifecycle,
+    trackerClosure,
     comments,
     ...(acquired.commentsCapability === "unsupported"
       ? {
@@ -1570,7 +1605,11 @@ const decodeDelivery = (
       ),
       semanticSection(
         "delivery.completion-evidence",
-        acquired.issue.state === "open" ? "confirmed-empty" : "unavailable",
+        completionEvidenceAvailable
+          ? "available"
+          : acquired.issue.state === "open"
+            ? "confirmed-empty"
+            : "unavailable",
       ),
       semanticSection(
         "delivery.comments",
@@ -2838,7 +2877,7 @@ const captureGitHubScope = async (
       continue;
     }
     const spec = decodeSpec(entry, repository, vocabulary, diagnostics);
-    const delivery = decodeDelivery(entry, repository);
+    const delivery = decodeDelivery(entry, repository, diagnostics);
     const specStructure = MATT_SPEC_SECTION_DEFINITIONS.flatMap((definition) =>
       [definition.title, ...definition.aliases].map((title) =>
         queryMarkdownSection(entry.document, { title }),
@@ -2971,7 +3010,7 @@ const captureGitHubScope = async (
         },
       ],
     },
-    completion: blocking || !freshnessCurrent ? "undetermined" : "incomplete",
+    completion: blocking || !freshnessCurrent ? "undetermined" : githubScopeCompletion(projection),
     diagnostics,
     projection,
   });
@@ -3025,10 +3064,7 @@ const githubIssueNumberFromReference = (
   const existing = githubProjectedObjects(projection).find(
     (object) =>
       object.ref === reference ||
-      (object.native.kind === "github" &&
-        (object.native.identity.url === reference ||
-          String(object.native.identity.number) === reference ||
-          `#${object.native.identity.number}` === reference)),
+      (object.native.kind === "github" && object.native.identity.url === reference),
   );
   if (existing?.native.kind === "github") return existing.native.identity.number;
   if (!URL.canParse(reference)) return undefined;
@@ -3469,7 +3505,7 @@ const reconcileGitHubScope = async (
       continue;
     }
     const spec = decodeSpec(entry, repository, vocabulary, diagnostics);
-    const delivery = decodeDelivery(entry, repository);
+    const delivery = decodeDelivery(entry, repository, diagnostics);
     if (spec !== undefined && delivery !== undefined) {
       diagnostics.push(
         diagnostic(

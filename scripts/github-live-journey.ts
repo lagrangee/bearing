@@ -5,6 +5,11 @@ import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import {
+  parseMarkdownDocument,
+  queryMarkdownList,
+  queryMarkdownSection,
+} from "../src/markdown-document";
+import {
   createLiveJourneyObservation,
   readGeneratedEvidenceFile,
   verifyLiveJourneyObservation,
@@ -511,6 +516,29 @@ const githubLifecycleIssueSchema = z.object({
   pull_request: z.unknown().optional(),
 });
 
+const githubFixtureIssueReadbackSchema = githubLifecycleIssueSchema.extend({
+  body: z.string(),
+  milestone: z.object({ number: z.number().int().positive() }),
+});
+
+const githubFixtureRelationReadbackSchema = z.array(
+  z.object({ id: z.number().int().positive(), number: z.number().int().positive() }),
+);
+
+const mattKitOutputProvenanceSchema = z.object({
+  schemaVersion: z.literal(1),
+  materializedFrom: z
+    .array(
+      z.object({
+        skill: z.enum(["setup-matt-pocock-skills", "to-spec", "to-tickets"]),
+        source: z.string().min(1),
+        sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+      }),
+    )
+    .length(3),
+  note: z.string().min(1),
+});
+
 export type GitHubMatrixFixtureLifecycle = Readonly<{
   repositorySlug: string;
   repository: Readonly<{ databaseId: number; nodeId: string }>;
@@ -524,6 +552,82 @@ export type GitHubMatrixFixtureLifecycle = Readonly<{
 const lifecycleMarker = (scopeKey: string): string => `<!-- bearing-live-scope:${scopeKey} -->`;
 
 const parseLifecycleIssue = (bytes: string) => githubLifecycleIssueSchema.parse(JSON.parse(bytes));
+
+const assertCanonicalFixtureDelivery = (
+  issue: z.infer<typeof githubFixtureIssueReadbackSchema>,
+): void => {
+  const document = parseMarkdownDocument(issue.body);
+  const whatToBuild = queryMarkdownSection(document, { title: "What to build" });
+  const acceptance = queryMarkdownSection(document, { title: "Acceptance criteria" });
+  const completionEvidence = queryMarkdownSection(document, { title: "Completion evidence" });
+  if (whatToBuild.state !== "found" || whatToBuild.value.markdown.trim().length === 0) {
+    fail(`GitHub Matrix fixture Issue #${issue.number} is not a canonical open Delivery.`);
+  }
+  const acceptanceSection =
+    acceptance.state === "found"
+      ? acceptance.value
+      : fail(`GitHub Matrix fixture Issue #${issue.number} is not a canonical open Delivery.`);
+  const completionEvidenceSection =
+    completionEvidence.state === "found"
+      ? completionEvidence.value
+      : fail(`GitHub Matrix fixture Issue #${issue.number} is not a canonical open Delivery.`);
+  if (completionEvidenceSection.markdown.trim().length !== 0) {
+    fail(`GitHub Matrix fixture Issue #${issue.number} is not a canonical open Delivery.`);
+  }
+  const acceptanceItems = queryMarkdownList(document, { within: acceptanceSection });
+  if (
+    acceptanceItems.state !== "found" ||
+    acceptanceItems.value.items.length === 0 ||
+    acceptanceItems.value.items.some(({ checked }) => checked !== false)
+  ) {
+    fail(`GitHub Matrix fixture Issue #${issue.number} has an invalid acceptance checklist.`);
+  }
+};
+
+const verifyGitHubMatrixFixture = async (input: {
+  command: GitHubMatrixLifecycleCommand;
+  repositorySlug: string;
+  milestoneNumber: number;
+  parentNumber: number;
+  childNumber: number;
+}): Promise<void> => {
+  const [parentBytes, childBytes, childrenBytes, blockersBytes] = await Promise.all([
+    input.command(["api", `repos/${input.repositorySlug}/issues/${input.parentNumber}`]),
+    input.command(["api", `repos/${input.repositorySlug}/issues/${input.childNumber}`]),
+    input.command([
+      "api",
+      `repos/${input.repositorySlug}/issues/${input.parentNumber}/sub_issues?per_page=100`,
+    ]),
+    input.command([
+      "api",
+      `repos/${input.repositorySlug}/issues/${input.parentNumber}/dependencies/blocked_by?per_page=100`,
+    ]),
+  ]);
+  const parent = githubFixtureIssueReadbackSchema.parse(JSON.parse(parentBytes));
+  const child = githubFixtureIssueReadbackSchema.parse(JSON.parse(childBytes));
+  const children = githubFixtureRelationReadbackSchema.parse(JSON.parse(childrenBytes));
+  const blockers = githubFixtureRelationReadbackSchema.parse(JSON.parse(blockersBytes));
+  assertCanonicalFixtureDelivery(parent);
+  assertCanonicalFixtureDelivery(child);
+  if (
+    parent.milestone.number !== input.milestoneNumber ||
+    child.milestone.number !== input.milestoneNumber ||
+    parent.state !== "open" ||
+    child.state !== "open" ||
+    !parent.body.includes(`Blocked by: #${child.number}`) ||
+    !child.body.includes(`Part of: #${parent.number}`) ||
+    !parent.labels.some(({ name }) => name === GITHUB_MATRIX_FIXTURE_LABEL) ||
+    !child.labels.some(({ name }) => name === GITHUB_MATRIX_FIXTURE_LABEL) ||
+    !parent.labels.some(({ name }) => name === "ready-for-agent") ||
+    !child.labels.some(({ name }) => name === "ready-for-agent") ||
+    children.length !== 1 ||
+    children[0]?.id !== child.id ||
+    blockers.length !== 1 ||
+    blockers[0]?.id !== child.id
+  ) {
+    fail("GitHub Matrix fixture native identity, ready state, or relations failed readback.");
+  }
+};
 
 const closeMatrixFixtureIssue = async (input: {
   command: GitHubMatrixLifecycleCommand;
@@ -640,6 +744,7 @@ export const recoverStaleGitHubMatrixMilestones = async (input: {
 };
 
 export const prepareGitHubMatrixFixture = async (input: {
+  sourceRoot: string;
   repositorySlug: string;
   scopeKey: string;
   generationId: string;
@@ -653,6 +758,23 @@ export const prepareGitHubMatrixFixture = async (input: {
   const repository = z
     .object({ id: z.number().int().positive(), node_id: z.string().min(1) })
     .parse(JSON.parse(await command(["api", `repos/${input.repositorySlug}`])));
+  const fixtureOutputRoot = join(
+    input.sourceRoot,
+    "validation/live-journey/fixtures/github-provider/matt-kit-output",
+  );
+  const [parentOutput, childOutput, provenance] = await Promise.all([
+    readFile(join(fixtureOutputRoot, "parent-delivery.md"), "utf8"),
+    readFile(join(fixtureOutputRoot, "child-delivery.md"), "utf8"),
+    readFile(join(fixtureOutputRoot, "provenance.json"), "utf8"),
+  ]);
+  const materializedFrom = mattKitOutputProvenanceSchema.parse(JSON.parse(provenance));
+  if (
+    new Set(materializedFrom.materializedFrom.map(({ skill }) => skill)).size !== 3 ||
+    !parentOutput.includes("#<delivery-child-number>") ||
+    !childOutput.includes("#<parent-number>")
+  ) {
+    fail("GitHub Matrix Matt Kit output is missing its exact native reference slot.");
+  }
   await recoverStaleGitHubMatrixMilestones({
     repositorySlug: input.repositorySlug,
     currentGenerationId: generationId,
@@ -696,9 +818,11 @@ export const prepareGitHubMatrixFixture = async (input: {
         "--raw-field",
         "title=Canonical ready-label predicate delivery",
         "--raw-field",
-        `body=Blocked by the delivery child.\n\n${lifecycleMarker(input.scopeKey)}`,
+        `body=${lifecycleMarker(input.scopeKey)}\n\n${parentOutput.replace("#<delivery-child-number>", "#pending")}`,
         "--raw-field",
         `labels[]=${GITHUB_MATRIX_FIXTURE_LABEL}`,
+        "--raw-field",
+        "labels[]=ready-for-agent",
         "--field",
         `milestone=${milestone.number}`,
       ]),
@@ -712,7 +836,7 @@ export const prepareGitHubMatrixFixture = async (input: {
         "--raw-field",
         "title=Implement canonical ready-label predicate",
         "--raw-field",
-        `body=Part of: #${parent.number}\n\n## What to build\n\nImplement the canonical ready-label predicate.\n\n## Acceptance criteria\n\n- [ ] Focused tests pass.\n- [ ] The delivery is written back through the configured owner.\n\n${lifecycleMarker(input.scopeKey)}`,
+        `body=${lifecycleMarker(input.scopeKey)}\n\n${childOutput.replace("#<parent-number>", `#${parent.number}`)}`,
         "--raw-field",
         `labels[]=${GITHUB_MATRIX_FIXTURE_LABEL}`,
         "--raw-field",
@@ -727,7 +851,7 @@ export const prepareGitHubMatrixFixture = async (input: {
       "PATCH",
       `repos/${input.repositorySlug}/issues/${parent.number}`,
       "--raw-field",
-      `body=Blocked by: #${child.number}\n\n${lifecycleMarker(input.scopeKey)}`,
+      `body=${lifecycleMarker(input.scopeKey)}\n\n${parentOutput.replace("#<delivery-child-number>", `#${child.number}`)}`,
     ]);
     await command([
       "api",
@@ -745,6 +869,13 @@ export const prepareGitHubMatrixFixture = async (input: {
       "--field",
       `issue_id=${child.id}`,
     ]);
+    await verifyGitHubMatrixFixture({
+      command,
+      repositorySlug: input.repositorySlug,
+      milestoneNumber: milestone.number,
+      parentNumber: parent.number,
+      childNumber: child.number,
+    });
     return Object.freeze({
       repositorySlug: input.repositorySlug,
       repository: Object.freeze({ databaseId: repository.id, nodeId: repository.node_id }),

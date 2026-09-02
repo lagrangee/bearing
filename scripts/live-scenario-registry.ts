@@ -300,7 +300,12 @@ export const liveScenarioReferencedFixtureSources = (
       ...new Set(
         registry.scenarios
           .filter(({ id }) => selected === undefined || selected.has(id))
-          .map(({ fixedValidationFixture }) => fixedValidationFixture.source),
+          .flatMap(({ fixedValidationFixture }) => [
+            fixedValidationFixture.source,
+            ...(fixedValidationFixture.profile === "active-github-repository"
+              ? ["validation/live-journey/fixtures/github-provider"]
+              : []),
+          ]),
       ),
     ].sort((left, right) => left.localeCompare(right, "en")),
   );
