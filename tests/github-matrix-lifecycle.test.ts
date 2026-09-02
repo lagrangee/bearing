@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   cleanupGitHubMatrixFixture,
   GITHUB_MATRIX_FIXTURE_LABEL,
@@ -156,10 +159,13 @@ describe("GitHub Matrix fixture lifecycle", () => {
     for (const number of [100, 101]) {
       expect(fake.issues.get(number)?.body).toContain("## What to build");
       expect(fake.issues.get(number)?.body).toContain("## Acceptance criteria");
+      expect(fake.issues.get(number)?.body).toContain("## Blocked by");
       expect(fake.issues.get(number)?.body).toContain("## Completion evidence");
     }
-    expect(fake.issues.get(100)?.body).toContain("Blocked by: #101");
-    expect(fake.issues.get(101)?.body).toContain("Part of: #100");
+    expect(fake.issues.get(100)?.body).toContain("- #101");
+    expect(fake.issues.get(101)?.body).toContain("## Parent\n\n#100");
+    expect(fake.issues.get(101)?.body).toContain("None — can start immediately");
+    expect(fake.issues.get(101)?.body).toContain("formatSecondaryLabel");
     expect(fake.relations).toEqual([
       "repos/example/validation/issues/100/sub_issues",
       "repos/example/validation/issues/100/dependencies/blocked_by",
@@ -203,6 +209,35 @@ describe("GitHub Matrix fixture lifecycle", () => {
         command,
       }),
     ).rejects.toThrow("failed readback");
+  });
+
+  test("rejects Matt Kit output that differs from its versioned materialization receipt", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bearing-github-fixture-contract-"));
+    try {
+      const source = join(
+        process.cwd(),
+        "validation/live-journey/fixtures/github-provider/matt-kit-output",
+      );
+      const output = join(root, "validation/live-journey/fixtures/github-provider/matt-kit-output");
+      await cp(source, output, { recursive: true });
+      const child = join(output, "child-delivery.md");
+      await writeFile(
+        child,
+        `${await readFile(child, "utf8")}\nChanged outside Matt Kit output.\n`,
+      );
+
+      await expect(
+        prepareGitHubMatrixFixture({
+          sourceRoot: root,
+          repositorySlug: "example/validation",
+          scopeKey,
+          generationId,
+          command: new FakeGitHubLifecycle().command,
+        }),
+      ).rejects.toThrow("versioned materialization receipt");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("recovers only an exact stale Matrix milestone pair and leaves unrelated work untouched", async () => {

@@ -23,6 +23,11 @@ and exact references across that handoff. After the owner transaction becomes te
 operation's required reconciliation and readback without waiting for another Human prompt. A
 failed, ambiguous, incomplete, or non-terminal owner outcome does not authorize reconciliation.
 
+| Owner outcome | Bearing continuation |
+| --- | --- |
+| `terminal-success` | `resume-reconcile-readback` |
+| `non-terminal-or-unsuccessful` | `stop-before-reconciliation` |
+
 Select the CLI from the managed pointer. Replace the leading `bearing` token in every command below
 with that CLI. Stable Runtime uses `$HOME/.bearing/bin/bearing`. Development Runtime uses
 `node <repo-root>/dist/cli.js`; first run its `runtime inspect --repo <repo-root>` operation and

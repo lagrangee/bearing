@@ -621,7 +621,9 @@ export const reconcileProjectNative = async (
   const objects = matchingObservation === undefined ? [] : mattObjects(matchingObservation);
   const readback = references.flatMap((reference) => {
     const entity = objects.find(
-      (candidate) => mattNativeSubjectForObject(candidate).id === reference,
+      (candidate) =>
+        mattNativeSubjectForObject(candidate).id === reference ||
+        (candidate.native.kind === "github" && candidate.native.identity.url === reference),
     );
     return entity === undefined ? [] : [{ nativeReference: reference, entity }];
   });
@@ -631,7 +633,12 @@ export const reconcileProjectNative = async (
       ? ("read" as const)
       : ("missing" as const),
   }));
-  const affectedSubjects = new Set(request.subjects);
+  const requestedReferenceByProjectedSubject = new Map(
+    readback.map(({ nativeReference, entity }) => [
+      mattNativeSubjectForObject(entity).id,
+      nativeReference,
+    ]),
+  );
   const providerRelations =
     !succeeded ||
     matchingObservation === undefined ||
@@ -641,23 +648,33 @@ export const reconcileProjectNative = async (
           ...matchingObservation.projection.graph.parentChild.map((relation) => ({
             relation: {
               kind: "parent-child" as const,
-              source: String(relation.parent),
-              target: String(relation.child),
+              source: requestedReferenceByProjectedSubject.get(String(relation.parent)),
+              target: requestedReferenceByProjectedSubject.get(String(relation.child)),
             },
             disposition: "read" as const,
           })),
           ...matchingObservation.projection.graph.blockedBy.map((relation) => ({
             relation: {
               kind: "blocked-by" as const,
-              source: String(relation.blocked),
-              target: String(relation.blocker),
+              source: requestedReferenceByProjectedSubject.get(String(relation.blocked)),
+              target: requestedReferenceByProjectedSubject.get(String(relation.blocker)),
             },
             disposition: "read" as const,
           })),
         ]
-          .filter(
-            ({ relation }) =>
-              affectedSubjects.has(relation.source) && affectedSubjects.has(relation.target),
+          .flatMap((entry) =>
+            entry.relation.source === undefined || entry.relation.target === undefined
+              ? []
+              : [
+                  {
+                    relation: {
+                      kind: entry.relation.kind,
+                      source: entry.relation.source,
+                      target: entry.relation.target,
+                    },
+                    disposition: entry.disposition,
+                  },
+                ],
           )
           .sort((left, right) =>
             `${left.relation.kind}\0${left.relation.source}\0${left.relation.target}`.localeCompare(

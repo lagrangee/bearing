@@ -180,7 +180,7 @@
         "skills": [{ "skill": "bearing", "role": "prerequisite" }],
         "capabilityProfile": "github-bounded-delivery"
       },
-      "initialPrompt": "请完成 Implement canonical ready-label predicate 这张 ticket。",
+      "initialPrompt": "请完成 Complete secondary label formatting 这张 ticket。",
       "humanPosition": "Authorize the requested ready child only, do not explain tracker mechanics, and preserve the configured parent completion rules.",
       "bearingIntent": "The Agent discovers GitHub configuration and completes one representative remote delivery and owner return.",
       "terminalEvidence": {

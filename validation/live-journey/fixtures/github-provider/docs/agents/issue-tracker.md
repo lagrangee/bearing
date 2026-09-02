@@ -40,9 +40,14 @@ Run `gh issue view <number> --comments` in this repository.
 A parent delivery scope and its delivery child use both GitHub-native relations and these body
 fallbacks. The two representations must agree.
 
-The parent and child are both canonical Deliveries. Each contains:
+The parent and child are both canonical Deliveries. Their base body follows the installed
+`to-tickets` GitHub issue contract:
 
 ```markdown
+## Parent
+
+<the parent issue reference, or a root-scope statement>
+
 ## What to build
 
 <the accepted delivery outcome>
@@ -51,13 +56,18 @@ The parent and child are both canonical Deliveries. Each contains:
 
 - [ ] <one observable acceptance condition>
 
+## Blocked by
+
+- <each blocking issue reference, or "None — can start immediately">
+
 ## Completion evidence
 
 <the commit, validation, and remote delivery evidence>
 ```
 
-The parent also contains `Blocked by: #<delivery-child-number>`. The child also contains `Part of:
-#<parent-number>`.
+`Completion evidence` is this repository's provider writeback extension to the installed
+`to-tickets` body contract. It must occur exactly once. The parent `Blocked by` section names the
+child; the child `Parent` section names the parent.
 
 Use GitHub's native sub-issue relation from parent to child and its native blocked-by relation from
 parent to child. Keep acceptance criteria as task-list items so their current state is observable.
@@ -88,8 +98,9 @@ Check the parent's acceptance items and record its completion evidence before cl
 the native relations and body fallbacks. Native parent completion is a Work Management effect; it
 does not conclude a Bearing Effort, pass a Gate, or complete a Roadmap.
 
-Create local commits as evidence when needed, but push the delivery branch once, after
-implementation, native completion, and Bearing synchronization are all recorded.
+After implementation and validation, create the local commit, push the delivery branch exactly
+once, and verify that the remote branch resolves to that commit. Then record that remote evidence
+in the native Delivery completion and allow Bearing to perform its post-owner synchronization.
 
 ## Wayfinding operations
 

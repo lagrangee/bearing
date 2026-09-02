@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { BEARING_POINTER } from "../src/agent-surface-entry";
+import { BEARING_CONTEXTUAL_NOMINATION_POLICY, BEARING_POINTER } from "../src/agent-surface-entry";
 import { applyInstallPlans } from "../src/installer";
 import { applyRepositoryConfigurationUnit } from "../src/repository-configuration-apply";
 import { LOCAL_MATT_CONTRACT, makeTemporaryDirectory, standardMattAgentSurface } from "./helpers";
@@ -30,15 +30,24 @@ describe("repository setup review regressions", () => {
   test("keeps Bearing nomination contextual and explicit", () => {
     expect(pointer.trim().split(/\s+/u).length).toBeLessThanOrEqual(100);
     expect(pointer).not.toMatch(/[\u3400-\u9fff]/u);
-    expect(pointer).toContain("explicit Bearing concepts");
-    expect(pointer).toContain("reasonable material planning/governance relevance");
-    expect(pointer).toContain("exact decision or delivery");
-    expect(pointer).toContain("configured Work Management contract");
-    expect(pointer).toContain("ordinary non-governance code/documentation work");
-    expect(pointer).toContain("Explicit `$bearing`");
-    expect(pointer).toContain("generic issue-tracker activity");
-    expect(pointer).toContain("repository-independent conversation");
-    expect(pointer).toContain("contextual guidance, not an executable hook");
+    expect(BEARING_CONTEXTUAL_NOMINATION_POLICY).toEqual({
+      includes: [
+        "explicit-bearing",
+        "direct-continuation",
+        "material-governance",
+        "bound-managed-decision-or-delivery",
+      ],
+      excludes: [
+        "unbound-or-uncertain-native",
+        "new-native",
+        "generic-tracker-activity",
+        "repository-location",
+        "generic-roadmap-word",
+        "repository-independent-conversation",
+        "ordinary-non-governance-work",
+      ],
+      ownerComposition: "bearing-remains-router",
+    });
     expect(pointer).not.toContain("bearing configure inspect");
     expect(pointer).toMatch(/functional operation validates[\s\S]*lifecycle/iu);
     expect(pointer).not.toContain("activation check");

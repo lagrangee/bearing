@@ -114,7 +114,7 @@ describe("adaptive Live Matrix registry", () => {
     const registry = await loadLiveScenarioRegistry(registryPath);
     const scenario = registry.scenarios.find(({ id }) => id === "github-delivery-writeback");
     const prompt = scenario?.initialPrompt;
-    expect(prompt).toBe("请完成 Implement canonical ready-label predicate 这张 ticket。");
+    expect(prompt).toBe("请完成 Complete secondary label formatting 这张 ticket。");
     for (const forbidden of [
       "GitHub",
       "issue",
@@ -129,5 +129,25 @@ describe("adaptive Live Matrix registry", () => {
     expect(scenario?.humanPosition).toContain("configured parent completion rules");
     expect(scenario?.terminalEvidence.description).toContain("contract-governed parent completion");
     expect(scenario?.terminalEvidence.description).toContain("preserved native relations");
+  });
+
+  test("keeps implicit owner-return scenarios free of Bearing coaching", async () => {
+    const registry = await loadLiveScenarioRegistry(registryPath);
+    const scenarios = registry.scenarios.filter(({ id }) =>
+      [
+        "wayfinder-decision-writeback",
+        "local-delivery-writeback",
+        "github-delivery-writeback",
+      ].includes(id),
+    );
+    expect(scenarios).toHaveLength(3);
+    for (const scenario of scenarios) {
+      expect(scenario.fixedValidationFixture.skills).toEqual(
+        expect.arrayContaining([{ skill: "bearing", role: "prerequisite" }]),
+      );
+      for (const coaching of ["$bearing", "reconcile", "capture", "同步回 Bearing"]) {
+        expect(scenario.initialPrompt).not.toContain(coaching);
+      }
+    }
   });
 });

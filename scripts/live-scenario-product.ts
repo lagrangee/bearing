@@ -431,6 +431,7 @@ export const materializeGitHubLiveScenarioPlanningState = async (input: {
   productProgram: string;
   agentHome: string;
   nativeScope: string;
+  nativeReferences: readonly [string, string];
   githubToken: string;
 }): Promise<void> => {
   const agentSurfacePath = join(input.repositoryRoot, "AGENTS.md");
@@ -441,6 +442,46 @@ export const materializeGitHubLiveScenarioPlanningState = async (input: {
   await rm(join(input.repositoryRoot, ".bearing"), { recursive: true, force: true });
   await activate(input);
   await installPlanningState({ ...input, effortMode: "bound" });
+  for (const reference of input.nativeReferences) {
+    const inspected = z
+      .object({
+        command: z.literal("inspect"),
+        outcome: z.literal("complete"),
+        result: z.object({
+          reference: z.literal(reference),
+          binding: z.object({
+            state: z.literal("bound"),
+            nativeScope: z.literal(input.nativeScope),
+            targetedReconciliationBasis: z.object({ state: z.literal("ready") }),
+          }),
+          coverage: z.object({
+            state: z.literal("available"),
+            completion: z.literal("incomplete"),
+          }),
+        }),
+      })
+      .parse(
+        JSON.parse(
+          await run(
+            [
+              input.productProgram,
+              "inspect",
+              "--native",
+              reference,
+              "--repo",
+              input.repositoryRoot,
+            ],
+            {
+              cwd: input.repositoryRoot,
+              home: input.agentHome,
+            },
+          ),
+        ),
+      );
+    if (inspected.result.reference !== reference) {
+      fail("GitHub Live Scenario provider projection failed canonical native readback.");
+    }
+  }
   commitBaseline(input.repositoryRoot, "Prepare GitHub Live Scenario planning baseline");
 };
 

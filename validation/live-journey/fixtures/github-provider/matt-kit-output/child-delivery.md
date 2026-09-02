@@ -1,13 +1,19 @@
-Part of: #<parent-number>
+## Parent
+
+#<parent-number>
 
 ## What to build
 
-Implement the canonical ready-label predicate.
+Add the exported `formatSecondaryLabel` function. It trims surrounding whitespace and lowercases
+the result.
 
 ## Acceptance criteria
 
-- [ ] Focused tests pass.
-- [ ] The delivery is written back through the configured owner.
+- [ ] The exported secondary formatter is covered by one focused test.
+- [ ] `npm test` passes.
+
+## Blocked by
+
+- None — can start immediately.
 
 ## Completion evidence
-

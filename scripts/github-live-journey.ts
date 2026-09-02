@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import {
+  markdownSemanticPlainText,
   parseMarkdownDocument,
   queryMarkdownList,
   queryMarkdownSection,
@@ -536,8 +537,32 @@ const mattKitOutputProvenanceSchema = z.object({
       }),
     )
     .length(3),
+  outputContract: z.object({
+    base: z.literal("to-tickets/github-issue-v1"),
+    requiredSections: z.tuple([
+      z.literal("What to build"),
+      z.literal("Acceptance criteria"),
+      z.literal("Blocked by"),
+    ]),
+    conditionalSections: z.tuple([z.literal("Parent")]),
+    providerExtensions: z.tuple([z.literal("Completion evidence")]),
+    artifacts: z
+      .array(
+        z.object({
+          file: z.enum(["parent-delivery.md", "child-delivery.md"]),
+          sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+        }),
+      )
+      .length(2),
+  }),
   note: z.string().min(1),
 });
+
+const mattKitFixtureSourceDigests = new Map([
+  ["setup-matt-pocock-skills", "ec8332bb69e7e79e349989e940be481a0c79b552be3acc613e718278bcc5e03d"],
+  ["to-spec", "5d26479544b08048d3a8f79d937b39bc613a617f026b3fd083bafc1e99a7b811"],
+  ["to-tickets", "5ecdf1d4df8a360ed39df21a2347f97ba177afd449a577da4f6b6ea8e1ebb808"],
+] as const);
 
 export type GitHubMatrixFixtureLifecycle = Readonly<{
   repositorySlug: string;
@@ -555,12 +580,22 @@ const parseLifecycleIssue = (bytes: string) => githubLifecycleIssueSchema.parse(
 
 const assertCanonicalFixtureDelivery = (
   issue: z.infer<typeof githubFixtureIssueReadbackSchema>,
+  options: Readonly<{ requiresParent: boolean }>,
 ): void => {
   const document = parseMarkdownDocument(issue.body);
+  const parent = queryMarkdownSection(document, { title: "Parent" });
   const whatToBuild = queryMarkdownSection(document, { title: "What to build" });
   const acceptance = queryMarkdownSection(document, { title: "Acceptance criteria" });
+  const blockedBy = queryMarkdownSection(document, { title: "Blocked by" });
   const completionEvidence = queryMarkdownSection(document, { title: "Completion evidence" });
-  if (whatToBuild.state !== "found" || whatToBuild.value.markdown.trim().length === 0) {
+  if (
+    (options.requiresParent &&
+      (parent.state !== "found" || parent.value.markdown.trim().length === 0)) ||
+    whatToBuild.state !== "found" ||
+    whatToBuild.value.markdown.trim().length === 0 ||
+    blockedBy.state !== "found" ||
+    blockedBy.value.markdown.trim().length === 0
+  ) {
     fail(`GitHub Matrix fixture Issue #${issue.number} is not a canonical open Delivery.`);
   }
   const acceptanceSection =
@@ -571,7 +606,7 @@ const assertCanonicalFixtureDelivery = (
     completionEvidence.state === "found"
       ? completionEvidence.value
       : fail(`GitHub Matrix fixture Issue #${issue.number} is not a canonical open Delivery.`);
-  if (completionEvidenceSection.markdown.trim().length !== 0) {
+  if (markdownSemanticPlainText(completionEvidenceSection.markdown).length !== 0) {
     fail(`GitHub Matrix fixture Issue #${issue.number} is not a canonical open Delivery.`);
   }
   const acceptanceItems = queryMarkdownList(document, { within: acceptanceSection });
@@ -607,15 +642,15 @@ const verifyGitHubMatrixFixture = async (input: {
   const child = githubFixtureIssueReadbackSchema.parse(JSON.parse(childBytes));
   const children = githubFixtureRelationReadbackSchema.parse(JSON.parse(childrenBytes));
   const blockers = githubFixtureRelationReadbackSchema.parse(JSON.parse(blockersBytes));
-  assertCanonicalFixtureDelivery(parent);
-  assertCanonicalFixtureDelivery(child);
+  assertCanonicalFixtureDelivery(parent, { requiresParent: false });
+  assertCanonicalFixtureDelivery(child, { requiresParent: true });
   if (
     parent.milestone.number !== input.milestoneNumber ||
     child.milestone.number !== input.milestoneNumber ||
     parent.state !== "open" ||
     child.state !== "open" ||
-    !parent.body.includes(`Blocked by: #${child.number}`) ||
-    !child.body.includes(`Part of: #${parent.number}`) ||
+    !parent.body.includes(`## Blocked by\n\n- #${child.number}`) ||
+    !child.body.includes(`## Parent\n\n#${parent.number}`) ||
     !parent.labels.some(({ name }) => name === GITHUB_MATRIX_FIXTURE_LABEL) ||
     !child.labels.some(({ name }) => name === GITHUB_MATRIX_FIXTURE_LABEL) ||
     !parent.labels.some(({ name }) => name === "ready-for-agent") ||
@@ -768,12 +803,23 @@ export const prepareGitHubMatrixFixture = async (input: {
     readFile(join(fixtureOutputRoot, "provenance.json"), "utf8"),
   ]);
   const materializedFrom = mattKitOutputProvenanceSchema.parse(JSON.parse(provenance));
+  const outputs = new Map([
+    ["parent-delivery.md", parentOutput],
+    ["child-delivery.md", childOutput],
+  ]);
   if (
     new Set(materializedFrom.materializedFrom.map(({ skill }) => skill)).size !== 3 ||
+    materializedFrom.materializedFrom.some(
+      ({ skill, sha256 }) => mattKitFixtureSourceDigests.get(skill) !== sha256,
+    ) ||
+    materializedFrom.outputContract.artifacts.some(
+      ({ file, sha256 }) => digestText(outputs.get(file) ?? "") !== sha256,
+    ) ||
+    new Set(materializedFrom.outputContract.artifacts.map(({ file }) => file)).size !== 2 ||
     !parentOutput.includes("#<delivery-child-number>") ||
     !childOutput.includes("#<parent-number>")
   ) {
-    fail("GitHub Matrix Matt Kit output is missing its exact native reference slot.");
+    fail("GitHub Matrix Matt Kit output does not match its versioned materialization receipt.");
   }
   await recoverStaleGitHubMatrixMilestones({
     repositorySlug: input.repositorySlug,
@@ -816,7 +862,7 @@ export const prepareGitHubMatrixFixture = async (input: {
         "POST",
         `repos/${input.repositorySlug}/issues`,
         "--raw-field",
-        "title=Canonical ready-label predicate delivery",
+        "title=Complete secondary label delivery",
         "--raw-field",
         `body=${lifecycleMarker(input.scopeKey)}\n\n${parentOutput.replace("#<delivery-child-number>", "#pending")}`,
         "--raw-field",
@@ -834,7 +880,7 @@ export const prepareGitHubMatrixFixture = async (input: {
         "POST",
         `repos/${input.repositorySlug}/issues`,
         "--raw-field",
-        "title=Implement canonical ready-label predicate",
+        "title=Complete secondary label formatting",
         "--raw-field",
         `body=${lifecycleMarker(input.scopeKey)}\n\n${childOutput.replace("#<parent-number>", `#${parent.number}`)}`,
         "--raw-field",

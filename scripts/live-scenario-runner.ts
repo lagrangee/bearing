@@ -707,6 +707,7 @@ export const materializeGitHubScenarioRepositoryFixture = async (input: {
       force: true,
     });
   }
+  await rm(join(input.repository, ".scratch"), { recursive: true, force: true });
   git(input.repository, ["add", "-A"]);
   if (git(input.repository, ["status", "--porcelain=v1"]) !== "") {
     git(input.repository, [
@@ -719,6 +720,7 @@ export const materializeGitHubScenarioRepositoryFixture = async (input: {
       "Install tracked GitHub delivery fixture",
     ]);
   }
+  git(input.repository, ["switch", "-c", "delivery-work"]);
   if (git(input.repository, ["status", "--porcelain=v1"]) !== "") {
     fail("GitHub Live Scenario fixture did not produce a clean baseline.");
   }
@@ -998,6 +1000,10 @@ export const prepareLiveScenarioGeneration = async (input: {
           productProgram,
           agentHome,
           nativeScope,
+          nativeReferences: [
+            `https://github.com/${fixed.configuration.repositorySlug}/issues/${githubFixtureLifecycle.parent.number}`,
+            `https://github.com/${fixed.configuration.repositorySlug}/issues/${githubFixtureLifecycle.child.number}`,
+          ],
           githubToken: await operatorGitHubToken(githubProgram),
         });
         const baseline = await captureGitHubRemoteInventory({

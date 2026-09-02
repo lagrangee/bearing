@@ -215,6 +215,11 @@ describe("public Bearing Agent surface", () => {
     expect(section).toBeDefined();
     expect(section?.markdown.trim().length).toBeGreaterThan(0);
     expect(section?.markdown).not.toContain("```");
+    const contract = tableWithColumns(document, ["Owner outcome", "Bearing continuation"]);
+    expect(contract.rows).toEqual([
+      ["terminal-success", "resume-reconcile-readback"],
+      ["non-terminal-or-unsuccessful", "stop-before-reconciliation"],
+    ]);
   });
 
   test("routes exact Effort start directly to its four Bearing owners", async () => {

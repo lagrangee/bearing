@@ -7,6 +7,7 @@ import { normalizeLocator } from "../../fingerprint";
 import {
   type MarkdownDocument,
   type MarkdownSection,
+  markdownSemanticPlainText,
   parseMarkdownDocument,
   queryMarkdownField,
   queryMarkdownLinks,
@@ -1318,12 +1319,24 @@ const bodyChildNumbers = (
   return numbers;
 };
 
-const bodyParentNumber = (acquired: AcquiredIssue): number | undefined => {
+const bodyParentNumber = (
+  acquired: AcquiredIssue,
+  repository: GitHubRepository,
+): number | undefined => {
   const field = queryMarkdownField(acquired.document, {
     label: "Part of",
     separator: "space",
   });
-  return field.state === "found" ? numericIssueReference(field.value.value) : undefined;
+  if (field.state === "found") return numericIssueReference(field.value.value);
+  const section = queryMarkdownSection(acquired.document, { title: "Parent" });
+  if (section.state !== "found") return undefined;
+  const links = queryMarkdownLinks(acquired.document, { within: section.value }).flatMap((link) => {
+    const target = canonicalIssueLink(link.target, repository);
+    return target === undefined ? [] : [target.number];
+  });
+  const direct = numericIssueReference(markdownSemanticPlainText(section.value.markdown));
+  const candidates = new Set([...(direct === undefined ? [] : [direct]), ...links]);
+  return candidates.size === 1 ? [...candidates][0] : undefined;
 };
 
 const wouldCreateParentCycle = (
@@ -1528,6 +1541,7 @@ const decodeSpec = (
 const decodeDelivery = (
   acquired: AcquiredIssue,
   repository: GitHubRepository,
+  vocabulary: TriageVocabulary | undefined,
   diagnostics: ProviderDiagnostic[],
 ): MattDeliveryTicket | undefined => {
   const whatToBuild = section(acquired, "What to build");
@@ -1542,12 +1556,20 @@ const decodeDelivery = (
   const comments = acquired.comments.map(
     (comment) => githubCommentDocument(comment, "delivery.comments") as MattDeliveryComment,
   );
-  const trackerClosure = trackerClosureFor(acquired.issue);
+  const mappedWontfix = acquired.issue.labels.some(
+    ({ name }) => vocabulary?.nativeToSemantic.get(name) === "wontfix",
+  );
+  const observedTrackerClosure = trackerClosureFor(acquired.issue);
+  const trackerClosure =
+    observedTrackerClosure.state === "closed" && mappedWontfix
+      ? { ...observedTrackerClosure, disposition: "wontfix" as const }
+      : observedTrackerClosure;
   const completionEvidence = queryMarkdownSection(acquired.document, {
     title: "Completion evidence",
   });
   const completionEvidenceAvailable =
-    completionEvidence.state === "found" && completionEvidence.value.markdown.trim().length > 0;
+    completionEvidence.state === "found" &&
+    markdownSemanticPlainText(completionEvidence.value.markdown).length > 0;
   let lifecycle: MattDeliveryTicket["lifecycle"] = { state: "open" };
   if (trackerClosure.state === "closed") {
     if (trackerClosure.disposition !== "completed") {
@@ -2510,14 +2532,14 @@ const captureGitHubScope = async (
           externalAnchors: [],
           relationFacets: [],
         };
-        if (bodyParentNumber(childDocument) !== currentIssue.number) {
+        if (bodyParentNumber(childDocument, repository) !== currentIssue.number) {
           acquisitionComplete = false;
           diagnostics.push(
             diagnostic(
               "matt.github.scope.fallback-parent",
               "identity",
               child.data.html_url,
-              "Matt task-list fallback child does not confirm the same parent with Part of.",
+              "Matt task-list fallback child does not confirm the same canonical parent reference.",
             ),
           );
           continue;
@@ -2717,7 +2739,7 @@ const captureGitHubScope = async (
         );
       }
     }
-    const fallbackParentNumber = bodyParentNumber(entry);
+    const fallbackParentNumber = bodyParentNumber(entry, repository);
     if (fallbackParentNumber !== undefined && entry.parentCapability !== "failed") {
       const fallbackParent = byNumber.get(fallbackParentNumber);
       if (fallbackParent === undefined) {
@@ -2877,7 +2899,7 @@ const captureGitHubScope = async (
       continue;
     }
     const spec = decodeSpec(entry, repository, vocabulary, diagnostics);
-    const delivery = decodeDelivery(entry, repository, diagnostics);
+    const delivery = decodeDelivery(entry, repository, vocabulary, diagnostics);
     const specStructure = MATT_SPEC_SECTION_DEFINITIONS.flatMap((definition) =>
       [definition.title, ...definition.aliases].map((title) =>
         queryMarkdownSection(entry.document, { title }),
@@ -3073,7 +3095,9 @@ const githubIssueNumberFromReference = (
     url.protocol !== "https:" ||
     url.hostname !== "github.com" ||
     url.username.length > 0 ||
-    url.password.length > 0
+    url.password.length > 0 ||
+    url.search.length > 0 ||
+    url.hash.length > 0
   ) {
     return undefined;
   }
@@ -3242,11 +3266,12 @@ const reconcileGitHubScope = async (
       issueNumbers.add(number);
     }
   }
-  const priorProjectedNumbers = new Set(
+  const priorProjectedReferenceByNumber = new Map(
     githubProjectedObjects(priorProjection).flatMap((object) =>
-      object.native.kind === "github" ? [object.native.identity.number] : [],
+      object.native.kind === "github" ? [[object.native.identity.number, object.ref] as const] : [],
     ),
   );
+  const priorProjectedNumbers = new Set(priorProjectedReferenceByNumber.keys());
   const relationEndpointIsInScope = (number: number): boolean =>
     issueNumbers.has(number) || priorProjectedNumbers.has(number);
 
@@ -3422,7 +3447,66 @@ const reconcileGitHubScope = async (
         }
       }
     }
+    if (entry.parentCapability === "unsupported") {
+      const fallbackParentNumber = bodyParentNumber(entry, repository);
+      const fallbackParentReference =
+        fallbackParentNumber === undefined
+          ? undefined
+          : priorProjectedReferenceByNumber.get(fallbackParentNumber);
+      if (fallbackParentReference !== undefined) {
+        parentChild.push({
+          parent: fallbackParentReference,
+          child: issueReference(repository, issue),
+          evidence: "matt-body-fallback",
+        });
+      }
+    }
   }
+
+  const priorProjectedReferences = new Set(
+    githubProjectedObjects(priorProjection).map((object) => String(object.ref)),
+  );
+  const admittedReferences = new Set(priorProjectedReferences);
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const relation of parentChild) {
+      const source = String(relation.parent);
+      const target = String(relation.child);
+      if (admittedReferences.has(source) && !admittedReferences.has(target)) {
+        admittedReferences.add(target);
+        expanded = true;
+      }
+      if (admittedReferences.has(target) && !admittedReferences.has(source)) {
+        admittedReferences.add(source);
+        expanded = true;
+      }
+    }
+  }
+  const admittedAcquired = acquired.filter((entry) => {
+    const reference = String(issueReference(repository, entry.issue));
+    if (admittedReferences.has(reference)) return true;
+    acquisitionComplete = false;
+    diagnostics.push(
+      diagnostic(
+        "matt.github.reconciliation.reference-invalid",
+        "identity",
+        entry.issue.html_url,
+        "Affected GitHub native reference is not related to the bound scope.",
+      ),
+    );
+    return false;
+  });
+  const admittedParentChild = parentChild.filter(
+    (relation) =>
+      admittedReferences.has(String(relation.parent)) &&
+      admittedReferences.has(String(relation.child)),
+  );
+  const admittedBlockedBy = blockedBy.filter(
+    (relation) =>
+      admittedReferences.has(String(relation.blocked)) &&
+      admittedReferences.has(String(relation.blocker)),
+  );
 
   const priorByNumber = new Map(
     githubProjectedObjects(priorProjection).flatMap((object) =>
@@ -3430,7 +3514,7 @@ const reconcileGitHubScope = async (
     ),
   );
   const byNumber = new Map<number, AcquiredIssue>(
-    acquired.map((entry) => [entry.issue.number, entry]),
+    admittedAcquired.map((entry) => [entry.issue.number, entry]),
   );
   for (const [number, object] of priorByNumber) {
     if (byNumber.has(number) || object.native.kind !== "github") continue;
@@ -3474,8 +3558,10 @@ const reconcileGitHubScope = async (
     });
   }
 
-  const targetedRefs = new Set(acquired.map((entry) => issueReference(repository, entry.issue)));
-  const mapEntry = acquired.find((entry) =>
+  const targetedRefs = new Set(
+    admittedAcquired.map((entry) => issueReference(repository, entry.issue)),
+  );
+  const mapEntry = admittedAcquired.find((entry) =>
     entry.issue.labels.some((label) => label.name === "wayfinder:map"),
   );
   const mapProjection =
@@ -3486,7 +3572,7 @@ const reconcileGitHubScope = async (
   const changedDelivery: MattDeliveryTicket[] = [];
   const changedIncoming: MattIncomingIssue[] = [];
   let changedSpec: MattSpec | undefined;
-  for (const entry of acquired) {
+  for (const entry of admittedAcquired) {
     if (entry === mapEntry) continue;
     if (entry.issue.labels.some((label) => label.name.startsWith("wayfinder:"))) {
       const ticket = decodeWayfinder(entry, repository, mapProjection, diagnostics);
@@ -3505,7 +3591,7 @@ const reconcileGitHubScope = async (
       continue;
     }
     const spec = decodeSpec(entry, repository, vocabulary, diagnostics);
-    const delivery = decodeDelivery(entry, repository, diagnostics);
+    const delivery = decodeDelivery(entry, repository, vocabulary, diagnostics);
     if (spec !== undefined && delivery !== undefined) {
       diagnostics.push(
         diagnostic(
@@ -3582,7 +3668,7 @@ const reconcileGitHubScope = async (
     graph: {
       parentChild: [
         ...new Map(
-          [...retainedParentChild, ...parentChild].map((relation) => [
+          [...retainedParentChild, ...admittedParentChild].map((relation) => [
             `${relation.parent}\0${relation.child}`,
             relation,
           ]),
@@ -3590,7 +3676,7 @@ const reconcileGitHubScope = async (
       ],
       blockedBy: [
         ...new Map(
-          [...retainedBlockedBy, ...blockedBy].map((relation) => [
+          [...retainedBlockedBy, ...admittedBlockedBy].map((relation) => [
             `${relation.blocked}\0${relation.blocker}`,
             relation,
           ]),
