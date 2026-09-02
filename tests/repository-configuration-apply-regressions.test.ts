@@ -35,10 +35,9 @@ describe("repository setup review regressions", () => {
         "explicit-bearing",
         "direct-continuation",
         "material-governance",
-        "bound-managed-decision-or-delivery",
+        "named-existing-native-classification",
       ],
       excludes: [
-        "unbound-or-uncertain-native",
         "new-native",
         "generic-tracker-activity",
         "repository-location",
@@ -46,10 +45,14 @@ describe("repository setup review regressions", () => {
         "repository-independent-conversation",
         "ordinary-non-governance-work",
       ],
-      ownerComposition: "bearing-remains-router",
+      nativeDiscovery: [
+        "exact-inspect-before-owner",
+        "unbound-standalone-owner",
+        "unavailable-or-ambiguous-stop-before-owner",
+      ],
+      ownerComposition: "preserve-and-return-before-final-response",
     });
     expect(pointer).not.toContain("bearing configure inspect");
-    expect(pointer).toMatch(/functional operation validates[\s\S]*lifecycle/iu);
     expect(pointer).not.toContain("activation check");
   });
 

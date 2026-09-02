@@ -17,16 +17,23 @@ Bearing invocation remains available when the pointer did not nominate the reque
 ### Owner composition
 
 When Bearing and another owner Skill apply to the same request, Bearing remains the router. Select
-the Bearing operation and its direct references, complete the required pre-owner admission, and
-then give the original request to the owner Skill. Preserve the selected operation, native scope,
-and exact references across that handoff. After the owner transaction becomes terminal, resume the
-operation's required reconciliation and readback without waiting for another Human prompt. A
-failed, ambiguous, incomplete, or non-terminal owner outcome does not authorize reconciliation.
+the Bearing operation and complete its selected pre-owner sequence. For an existing native
+reference, use Native Inspect and require a `ready` Targeted Reconciliation Basis, completing its
+`capture-required` baseline first when needed; unavailable or ambiguous evidence stops before owner
+changes. A confirmed named start with no native identity follows its selected Effort-start
+sequence; an unbound target follows the Native Work standalone boundary. Preserve the selected
+operation and all available native state before handing the original request to the owner Skill;
+the owner returns every exact scope and subject it creates or changes. On terminal success, resume
+the selected post-owner continuation before the final Human response. An existing Binding gets one
+complete exact-subject reconciliation and readback. A named Effort start completes Binding and
+Activation followed by its first exact-scope Provider Capture. Unbound standalone work follows the
+Enrollment Boundary without reconciliation. This return is part of the same request, not optional
+cleanup. A failed, incomplete, or non-terminal owner outcome stops before any continuation.
 
 | Owner outcome | Bearing continuation |
 | --- | --- |
-| `terminal-success` | `resume-reconcile-readback` |
-| `non-terminal-or-unsuccessful` | `stop-before-reconciliation` |
+| `terminal-success` | `resume-selected-post-owner-continuation-before-final-response` |
+| `non-terminal-or-unsuccessful` | `stop-before-post-owner-continuation` |
 
 Select the CLI from the managed pointer. Replace the leading `bearing` token in every command below
 with that CLI. Stable Runtime uses `$HOME/.bearing/bin/bearing`. Development Runtime uses

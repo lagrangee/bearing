@@ -217,8 +217,8 @@ describe("public Bearing Agent surface", () => {
     expect(section?.markdown).not.toContain("```");
     const contract = tableWithColumns(document, ["Owner outcome", "Bearing continuation"]);
     expect(contract.rows).toEqual([
-      ["terminal-success", "resume-reconcile-readback"],
-      ["non-terminal-or-unsuccessful", "stop-before-reconciliation"],
+      ["terminal-success", "resume-selected-post-owner-continuation-before-final-response"],
+      ["non-terminal-or-unsuccessful", "stop-before-post-owner-continuation"],
     ]);
   });
 
