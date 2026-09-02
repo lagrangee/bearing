@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { z } from "zod";
-import { withoutBearingManagedPointer } from "../src/agent-surface-entry";
+import { BEARING_POINTER, withoutBearingManagedPointer } from "../src/agent-surface-entry";
 import type { LiveScenario } from "./live-scenario-registry";
 
 const fail = (message: string): never => {
@@ -585,8 +585,13 @@ No new empty-string, internal-whitespace, or input-validation policy belongs to 
   if (materializer === "active-repository-with-drift") {
     const path = join(input.repositoryRoot, "AGENTS.md");
     const current = await readFile(path, "utf8");
-    if (!current.includes("For a new request")) fail("Managed Agent Surface cannot be drifted.");
-    await writeFile(path, current.replace("For a new request", "For a changed request"));
+    if (!current.includes(BEARING_POINTER)) fail("Managed Agent Surface cannot be drifted.");
+    const drifted = current.replace(
+      BEARING_POINTER,
+      `${BEARING_POINTER} Changed outside the managed pointer.`,
+    );
+    if (drifted === current) fail("Managed Agent Surface cannot be drifted.");
+    await writeFile(path, drifted);
   }
   commitBaseline(input.repositoryRoot, `Prepare ${input.scenario.id} Live Scenario baseline`);
 };

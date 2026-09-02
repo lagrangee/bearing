@@ -905,6 +905,10 @@ Keep this typed scalar unchanged.
 
 - [x] Keep acceptance identity typed.
 - [x] Keep completion evidence typed.
+
+## Completion evidence
+
+Commit abc123 preserves the authored Delivery document through the product seam.
 `,
       });
       const githubIncoming = githubIssue({
@@ -1021,6 +1025,10 @@ The triage note stays **independent** from the body.
           basis: "source-event",
         },
         actor: "closer",
+      });
+      assert.deepEqual(githubDeliveryProjection.lifecycle, {
+        state: "completed",
+        evidence: ["https://github.com/example/reference/issues/4#completion-evidence"],
       });
       assert.deepEqual(githubIncomingProjection.classification, {
         category: "bug",
