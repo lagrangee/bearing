@@ -68,7 +68,7 @@ test("Safety solely owns repository, secret, dependency, and license policy", as
       : (job.steps ?? []).flatMap((step) => (step.run === undefined ? [] : [step.run])),
   );
   expect(nonSafetyCommands.join("\n")).not.toMatch(
-    /public-source:check|gitleaks|npm audit|license:check/u,
+    /public-source:check|gitleaks:revision|gitleaks\/v8@\S+\s+git\b|npm audit|license:check/u,
   );
 });
 
@@ -202,6 +202,19 @@ test("Source Quality solely owns canonical aggregate repository verification", a
     }
   ).scripts;
   const sourceSteps = workflow.jobs["source-quality"]?.steps ?? [];
+  const scannerInstall = sourceSteps.find(
+    (step) => step.name === "Install Live Matrix evidence scanner",
+  );
+
+  expect(sourceSteps.find((step) => step.uses?.startsWith("actions/setup-go@"))?.with).toEqual({
+    "go-version": "1.26.5",
+    cache: false,
+  });
+  expect(scannerInstall).toMatchObject({
+    env: { GOBIN: ["$", "{{ runner.temp }}"].join("") },
+  });
+  expect(scannerInstall?.run).toContain("go install github.com/zricethezav/gitleaks/v8@v8.30.1");
+  expect(scannerInstall?.run).toContain('echo "$GOBIN" >> "$GITHUB_PATH"');
 
   expect(
     sourceSteps.find((step) => step.name === "Run canonical aggregate repository verification")
@@ -251,6 +264,11 @@ test("Source Quality solely owns canonical aggregate repository verification", a
 
   expect(sourceSteps.flatMap((step) => (step.run === undefined ? [] : [step.run]))).toEqual([
     "npm ci",
+    [
+      "go install github.com/zricethezav/gitleaks/v8@v8.30.1",
+      'echo "$GOBIN" >> "$GITHUB_PATH"',
+      "",
+    ].join("\n"),
     "bun run verify",
   ]);
   expect(
