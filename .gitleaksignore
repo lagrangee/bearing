@@ -1,0 +1,5 @@
+# Synthetic generic-api-key fixtures used to prove that durable Matrix evidence rejects secrets.
+3371e7f668515e3d246aac69890aee114998ecdf:tests/live-scenario-admission.test.ts:generic-api-key:418
+b0cf58aa63ddef81f1cbf75cfc8dd92688c1c337:tests/adaptive-live-matrix.test.ts:generic-api-key:59
+b0cf58aa63ddef81f1cbf75cfc8dd92688c1c337:tests/live-scenario-admission.test.ts:generic-api-key:229
+b0cf58aa63ddef81f1cbf75cfc8dd92688c1c337:tests/live-scenario-admission.test.ts:generic-api-key:319
