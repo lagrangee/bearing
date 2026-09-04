@@ -26,13 +26,12 @@ choose the relation. Native lifecycle remains with Work Management.
    Effort, selected Provider Configuration, intended native workflow, and direct authorization
    before native work starts. State the later combined Binding and Activation effect visibly. The
    unambiguous request supplies its Accepted Decision; do not ask for duplicate confirmation.
-4. Give Work Management the original user-invoked Matt request. It alone completes the selected
-   owner operation, creates or identifies the real provider-native scope, and returns its exact
-   identity. Bearing neither invokes nor replaces Wayfinder, To Spec, To Tickets, Implement, or
-   ordinary issue management. It does not predict the successful subject set, fabricate provider
-   identity, or author Matt-owned Map, Ticket, Spec, PRD, checklist, claim, dependency, Answer,
-   classification, or resolution meaning.
-5. After Work Management returns the exact scope identity, re-read current Bearing State and every
+4. Let the selected Work Management owner create or identify the real provider-native scope.
+   Preserve an explicitly user-invoked Matt Skill; otherwise use Ordinary Owner Work without
+   claiming Skill use. The Effort owner does not predict successful native subjects, fabricate
+   provider identity, or author Work Management meaning.
+5. After Workflow Completion exposes the exact provider-canonical scope identity, re-read current
+   Bearing State and every
    candidate precondition. Concurrent canonical change invalidates the candidate and stops without
    merge. With unchanged valid inputs, one canonical Planning Transaction creates the Work Binding,
    changes the Effort from `planned` to `active`, and records its Activation Bearing Event Commit

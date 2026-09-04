@@ -12,7 +12,7 @@ Use the existing exported-function seam.
 
 ## Decisions so far
 
-## Fog
+## Not yet specified
 
 None.
 

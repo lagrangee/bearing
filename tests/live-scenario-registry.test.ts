@@ -110,7 +110,7 @@ describe("adaptive Live Matrix registry", () => {
     ).toThrow();
   });
 
-  test("keeps the representative GitHub prompt free of tracker and owner-return instructions", async () => {
+  test("keeps the representative GitHub prompt free of tracker and orchestration instructions", async () => {
     const registry = await loadLiveScenarioRegistry(registryPath);
     const scenario = registry.scenarios.find(({ id }) => id === "github-delivery-writeback");
     const prompt = scenario?.initialPrompt;
@@ -131,7 +131,7 @@ describe("adaptive Live Matrix registry", () => {
     expect(scenario?.terminalEvidence.description).toContain("preserved native relations");
   });
 
-  test("keeps implicit owner-return scenarios free of Bearing coaching", async () => {
+  test("keeps composed native scenarios free of Bearing coaching", async () => {
     const registry = await loadLiveScenarioRegistry(registryPath);
     const scenarios = registry.scenarios.filter(({ id }) =>
       [

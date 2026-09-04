@@ -90,6 +90,32 @@ test("packed product exposes explicit provider cost classes and native typed rea
       },
     });
 
+    for (const reference of [
+      ".scratch/scope-001",
+      ".scratch/scope-001/evidence/unrecognized.md",
+      ".scratch/scope-001/issues/99-missing.md",
+    ]) {
+      const notSubject = await product.run(["inspect", "--native", reference, "--repo", "."], {
+        cwd: fixture.root,
+        observeRoots: [fixture.root],
+      });
+      expect(notSubject.exitClass).toBe("product-outcome");
+      expect(notSubject.effects).toEqual({ created: [], changed: [], removed: [] });
+      expect(JSON.parse(notSubject.stdout)).toMatchObject({
+        command: "inspect",
+        outcome: "unfulfilled",
+        request: { kind: "native-reference", reference },
+        result: { reason: "native-reference-not-subject" },
+        diagnostics: [
+          {
+            code: "native-reference-not-subject",
+            impact: "blocking",
+            target: reference,
+          },
+        ],
+      });
+    }
+
     const nativePath = `${fixture.root}/${fixture.nativeLocator}`;
     await writeFile(
       nativePath,

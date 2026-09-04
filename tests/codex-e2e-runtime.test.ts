@@ -433,8 +433,9 @@ describe("repository Codex E2E policy", () => {
     expect(policy).toContain("one `generation.json` basis");
     expect(policy).toContain("one result per Scenario");
     expect(policy).toContain(
-      "one Matrix result citing the exact Generation and Scenario result set",
+      "one Matrix result citing the exact Generation and selected Scenario result set",
     );
+    expect(policy).toContain("A complete Matrix selects all registered Scenarios");
     expect(policy).toContain("There is no fixed-Turn runner");
     expect(policy).toContain("A semantic result cannot be restarted, retried, or resampled");
     expect(policy).toContain(

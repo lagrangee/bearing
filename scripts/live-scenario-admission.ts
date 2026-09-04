@@ -8,7 +8,11 @@ import {
   readCodexE2EModelAvailability,
   resolveCodexE2EProgram,
 } from "./codex-e2e-runtime";
-import { cleanupGitHubMatrixFixture } from "./github-live-journey";
+import {
+  cleanupGitHubMatrixFixture,
+  githubMatrixFixturePreparationExternalEffect,
+  recoverPreparedGitHubMatrixFixtureFailure,
+} from "./github-live-journey";
 import { createCodexJourneyEnvironment } from "./live-journey-matrix";
 import {
   createLiveMatrixGenerationBasis,
@@ -24,6 +28,7 @@ import {
   digestLiveScenarioFixture,
   digestLiveScenarioFixtureSet,
   type LiveScenario,
+  liveScenarioSkillIsInstalled,
   loadLiveScenarioRegistry,
   preflightLiveScenarioRegistry,
 } from "./live-scenario-registry";
@@ -67,13 +72,14 @@ const diagnostic = (
 const blocked = (
   generationId: string | undefined,
   diagnostics: readonly LiveScenarioAdmissionDiagnostic[],
+  externalEffectsObserved = false,
 ) =>
   Object.freeze({
     outcome: "preflight blocked" as const,
     ...(generationId === undefined ? {} : { generationId }),
     agentBehaviorStarted: false as const,
     activeGenerationCreated: false as const,
-    externalEffectsObserved: false as const,
+    externalEffectsObserved,
     diagnostics: Object.freeze(diagnostics),
   });
 
@@ -91,7 +97,7 @@ const discardPreparedScenarios = async (
   workspaceRoot: string,
   preparedScenarios: readonly PreparedScenario[],
 ): Promise<void> => {
-  await Promise.all(
+  const remoteCleanup = await Promise.allSettled(
     preparedScenarios.flatMap((prepared) =>
       prepared.github === undefined
         ? []
@@ -104,8 +110,10 @@ const discardPreparedScenarios = async (
     ),
   );
   const runtimeRoots = [...new Set(preparedScenarios.map(({ paths }) => paths.runtimeRoot))];
-  await Promise.all(runtimeRoots.map((root) => rm(root, { recursive: true, force: true })));
-  await rm(workspaceRoot, { recursive: true, force: true });
+  const localCleanup = await Promise.allSettled([
+    ...runtimeRoots.map((root) => rm(root, { recursive: true, force: true })),
+    rm(workspaceRoot, { recursive: true, force: true }),
+  ]);
   const remaining = (
     await Promise.all(
       [...runtimeRoots, workspaceRoot].map(async (root) =>
@@ -115,6 +123,12 @@ const discardPreparedScenarios = async (
   ).filter((root) => root !== undefined);
   if (remaining.length > 0) {
     throw new Error(`Generation preflight cleanup left runtime roots: ${remaining.join(", ")}`);
+  }
+  const failures = [...remoteCleanup, ...localCleanup]
+    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    .map(({ reason }) => reason);
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "Generation preflight cleanup was incomplete.");
   }
 };
 
@@ -142,7 +156,7 @@ const skillTopologyReadback = async (prepared: VerifiedScenario): Promise<string
   for (const declaration of prepared.scenario.fixedValidationFixture.skills) {
     const path = join(skillRoot, declaration.skill);
     const available = await exists(path);
-    if (available !== (declaration.role === "prerequisite")) {
+    if (available !== liveScenarioSkillIsInstalled(declaration.role)) {
       throw new Error(
         `Declared ${declaration.role} Skill has the wrong availability: ${declaration.skill}.`,
       );
@@ -162,7 +176,7 @@ const validatePrerequisiteSkillRoot = async (
 ): Promise<LiveScenarioAdmissionDiagnostic | undefined> => {
   const requirements = scenarios.flatMap((scenario) =>
     scenario.fixedValidationFixture.skills
-      .filter(({ skill, role }) => skill !== "bearing" && role === "prerequisite")
+      .filter(({ skill, role }) => skill !== "bearing" && liveScenarioSkillIsInstalled(role))
       .map(({ skill }) => ({ scenarioId: scenario.id, skill })),
   );
   if (requirements.length === 0) return undefined;
@@ -343,14 +357,45 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
     error: unknown,
     scenarioId?: string,
   ): Promise<ReturnType<typeof blocked>> => {
-    await discardPreparedScenarios(workspaceRoot, preparedScenarios);
-    return blocked(generationId, [
-      diagnostic(
-        code,
-        error instanceof Error ? error.message : "Generation preflight failed.",
-        scenarioId,
+    const recoveredPrepared = await Promise.all(
+      preparedScenarios.flatMap((prepared) =>
+        prepared.github === undefined
+          ? []
+          : [
+              recoverPreparedGitHubMatrixFixtureFailure({
+                cause: error,
+                lifecycle: prepared.github.fixtureLifecycle,
+                program: prepared.github.program,
+              }),
+            ],
       ),
+    );
+    const runtimeRoots = [...new Set(preparedScenarios.map(({ paths }) => paths.runtimeRoot))];
+    const localCleanup = await Promise.allSettled([
+      ...runtimeRoots.map((root) => rm(root, { recursive: true, force: true })),
+      rm(workspaceRoot, { recursive: true, force: true }),
     ]);
+    const localCleanupFailures = localCleanup.filter(({ status }) => status === "rejected").length;
+    const externalEffects = [
+      githubMatrixFixturePreparationExternalEffect(error),
+      ...recoveredPrepared.map((recovered) => recovered.externalEffect),
+    ].filter((effect) => effect !== undefined);
+    const message = error instanceof Error ? error.message : "Generation preflight failed.";
+    const externalEffectReadback = externalEffects
+      .map(
+        (externalEffect) =>
+          ` External-effect recovery: ${externalEffect.repositorySlug}, Generation ${externalEffect.generationId}, milestone ${externalEffect.milestoneNumber === null ? externalEffect.milestoneTitle : `#${externalEffect.milestoneNumber}`}, Issues ${externalEffect.issueNumbers.map((number) => `#${number}`).join(", ") || "none"}; cleanup ${externalEffect.cleanupOutcome}${externalEffect.unverifiedTargets.length === 0 ? "" : ` for ${externalEffect.unverifiedTargets.join(", ")}`}.`,
+      )
+      .join("");
+    const localCleanupReadback =
+      localCleanupFailures === 0
+        ? ""
+        : ` Local preflight cleanup left ${localCleanupFailures} unverified target(s).`;
+    return blocked(
+      generationId,
+      [diagnostic(code, `${message}${externalEffectReadback}${localCleanupReadback}`, scenarioId)],
+      externalEffects.length > 0,
+    );
   };
 
   const modelHome = join(workspaceRoot, "model-readback-home");

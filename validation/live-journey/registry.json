@@ -41,7 +41,7 @@
       },
       "initialPrompt": "请为这个仓库配置 Bearing。先把需要我决定的完整方案给我看。",
       "humanPosition": "Accept one complete minimal candidate with no unrelated planning.",
-      "bearingIntent": "Fresh Repository Configuration waits for informed consent and verifies typed readback.",
+      "bearingIntent": "Fresh Repository Configuration waits for informed consent and verifies its exact applied effect.",
       "terminalEvidence": {
         "description": "Active Repository Configuration and no unrelated planning state.",
         "observers": ["repository", "agent-home", "git"]
@@ -58,7 +58,7 @@
       "humanPosition": "Review the exact drift, then accept only that bounded repair.",
       "bearingIntent": "Active repair does not replay Fresh Setup or change unrelated surfaces.",
       "terminalEvidence": {
-        "description": "Repaired configuration readback and unchanged unrelated state.",
+        "description": "Verified configuration repair and unchanged unrelated state.",
         "observers": ["repository", "agent-home", "git"]
       }
     },
@@ -73,7 +73,7 @@
       "humanPosition": "Accept the explained Repository Update once complete; grant no Global Kit authority.",
       "bearingIntent": "Repository Update remains separate from Global Kit Update and semantic planning.",
       "terminalEvidence": {
-        "description": "Updated integration readback with unchanged Global Kit and semantic owners.",
+        "description": "Verified integration update with unchanged Global Kit and semantic owners.",
         "observers": ["repository", "agent-home", "git"]
       }
     },
@@ -118,7 +118,7 @@
       "humanPosition": "Accept one complete enrollment candidate.",
       "bearingIntent": "Effort activation, exact Work Binding, and first provider baseline follow accepted ownership.",
       "terminalEvidence": {
-        "description": "Active Effort, exact Binding, required capture and readback, and no duplicate scope.",
+        "description": "Active Effort, exact Binding, required baseline capture and canonical validation, and no duplicate scope.",
         "observers": ["repository", "agent-home", "git"]
       }
     },
@@ -144,16 +144,16 @@
         "profile": "active-bound-wayfinder-repository",
         "skills": [
           { "skill": "bearing", "role": "prerequisite" },
-          { "skill": "wayfinder", "role": "prerequisite" },
+          { "skill": "wayfinder", "role": "user-invoked" },
           { "skill": "grilling", "role": "prerequisite" },
           { "skill": "domain-modeling", "role": "prerequisite" }
         ]
       },
       "initialPrompt": "$wayfinder 请继续现有 Map，推进 Decide secondary label casing。这是个简单决定，请尽快和我形成结论，不要做无必要的 drill-down。",
       "humanPosition": "The decision is trim first, then lowercase; answer only the Agent's actual concise questions.",
-      "bearingIntent": "Work Management completes the real Map and Ticket transaction before Bearing resumes and reconciles its complete successful subject set.",
+      "bearingIntent": "An exact owner-required claim may precede Bearing admission. Across the adaptive conversation, each Turn performs at most one applicable provider synchronization; Workflow Completion reconciles the complete pending Ticket and Map Native Write Set.",
       "terminalEvidence": {
-        "description": "Ticket Answer and closure, Map decision pointer, exact multi-subject reconciliation, and truthful Project Read Model readback.",
+        "description": "Ticket Answer and closure, Map decision pointer, exact multi-subject reconciliation, and matching Project Read Model evidence.",
         "observers": ["repository", "agent-home", "git"]
       }
     },
@@ -166,7 +166,7 @@
       },
       "initialPrompt": "请完成 Complete secondary label formatting 这张 ticket。",
       "humanPosition": "Authorize that delivery only and answer only material clarification.",
-      "bearingIntent": "Direct Execution returns through Work Management to one exact Bearing readback without explicit Implement invocation.",
+      "bearingIntent": "Ordinary Execution continues through Work Management to one exact Targeted Native Reconciliation without explicit Implement invocation.",
       "terminalEvidence": {
         "description": "Bounded code change, focused test, native completion, affected-subject reconciliation, and no Effort or Gate inference.",
         "observers": ["repository", "agent-home", "git"]
@@ -182,9 +182,9 @@
       },
       "initialPrompt": "请完成 Complete secondary label formatting 这张 ticket。",
       "humanPosition": "Authorize the requested ready child only, do not explain tracker mechanics, and preserve the configured parent completion rules.",
-      "bearingIntent": "The Agent discovers GitHub configuration and completes one representative remote delivery and owner return.",
+      "bearingIntent": "The Agent discovers GitHub configuration and completes one representative remote delivery, native writeback, and Targeted Native Reconciliation.",
       "terminalEvidence": {
-        "description": "Code and test, commit and push, child issue terminal state, native writeback, exact Bearing readback, contract-governed parent completion, and preserved native relations.",
+        "description": "Code and test, commit and push, child issue terminal state, native writeback, exact Targeted Native Reconciliation, contract-governed parent completion, and preserved native relations.",
         "observers": ["repository", "agent-home", "git", "github"]
       }
     }

@@ -32,28 +32,17 @@ describe("repository setup review regressions", () => {
     expect(pointer).not.toMatch(/[\u3400-\u9fff]/u);
     expect(BEARING_CONTEXTUAL_NOMINATION_POLICY).toEqual({
       includes: [
-        "explicit-bearing",
-        "direct-continuation",
-        "material-governance",
-        "named-existing-native-classification",
+        "bearing-planning-or-configuration",
+        "planning-related-feature",
+        "existing-native-work",
       ],
-      excludes: [
-        "new-native",
-        "generic-tracker-activity",
-        "repository-location",
-        "generic-roadmap-word",
-        "repository-independent-conversation",
-        "ordinary-non-governance-work",
-      ],
-      nativeDiscovery: [
-        "provider-canonical-inspect-before-owner-mutation",
-        "unbound-standalone-owner",
-        "unavailable-or-ambiguous-stop-before-owner",
-      ],
-      ownerComposition: "preserve-and-return-before-final-response",
+      excludes: ["unrelated-work"],
     });
-    expect(pointer).not.toContain("bearing configure inspect");
-    expect(pointer).not.toContain("activation check");
+    expect(pointer).toContain("including through another Skill");
+    expect(pointer).toContain("Use normal Agent behavior for unrelated work.");
+    expect(pointer).not.toContain("explicit Bearing concepts");
+    expect(pointer).not.toContain("direct continuation");
+    expect(pointer).not.toContain("new native proposals");
   });
 
   test("creates state and cache namespaces and removes an unselected surface pointer", async () => {

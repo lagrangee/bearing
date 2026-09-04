@@ -429,7 +429,12 @@ const completeMatrix = async (): Promise<void> => {
     fail("Matrix completion requires the tracked source registry.");
   }
   const registry = await loadLiveScenarioRegistry(trackedRegistryPath);
-  const resultPaths = registry.scenarios.map(({ id }) =>
+  const registeredScenarioIds = new Set(registry.scenarios.map(({ id }) => id));
+  const selectedScenarioIds = generation.basis.selectedScenarioIds;
+  if (selectedScenarioIds.some((id) => !registeredScenarioIds.has(id))) {
+    fail("Matrix Generation contains a Scenario absent from the tracked registry.");
+  }
+  const resultPaths = selectedScenarioIds.map((id) =>
     join(generation.workspaceRoot, "scenarios", id, "result.json"),
   );
   const outputRoot = await realpath(dirname(output));
@@ -468,7 +473,7 @@ const completeMatrix = async (): Promise<void> => {
       pointer: relative(outputRoot, generation.generationPath).replaceAll("\\", "/"),
       sha256: await sha256File(generation.generationPath),
     },
-    registeredScenarioIds: registry.scenarios.map(({ id }) => id),
+    selectedScenarioIds,
     scenarioResults,
     peakConcurrency: calculateAdaptivePeakConcurrency(
       scenarioResults.map(({ result: scenario }) => scenario),

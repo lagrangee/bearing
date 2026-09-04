@@ -81,7 +81,7 @@ Commands:
   uninstall  Remove only the package-owned Global Kit and known owned integration links.
   configure  Inspect, seal, and apply one exact Repository Configuration write set.
   catalog  Apply an explicit user-level Project Catalog lifecycle or recovery operation.
-  reconcile-native  Re-observe only the native subjects and relations affected by one completed Matt transaction.
+  reconcile-native  Re-observe affected native subjects and publish one current Project Read Model generation.
   provider  Explicitly capture exact Work Binding scopes or verify all current scopes.
   cache     Rebuild only the disposable repository Project Read Model.
   inspect  Read one typed result from the current Project Read Model generation.

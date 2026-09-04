@@ -77,15 +77,32 @@ The verdict file is exactly:
 {"outcome":"pass","rationale":"Evidence-backed semantic judgment."}
 ```
 
-Use `fail` for an observed product-contract failure and `blocked` when trustworthy completion or
-continuity is unavailable. Do not ask the Agent to replay a committed failure. Target at most three
+For `fail` or `blocked`, the Orchestrator must add exactly one `failureCategory`:
+
+```json
+{"outcome":"fail","failureCategory":"agent-adherence","rationale":"The loaded contract was clear, but the Agent did not follow it."}
+```
+
+| Category | Meaning |
+| --- | --- |
+| `test-system` | Harness, transport, fixture, permission, or trustworthy evidence failed. |
+| `activation` | The applicable Bearing Skill or required reference was not loaded. |
+| `contract` | Loaded Bearing instructions were ambiguous, contradictory, or insufficient. |
+| `product` | The Agent followed the contract, but Bearing code or provider behavior failed. |
+| `agent-adherence` | The applicable contract was loaded and clear, but the Agent did not follow it. |
+
+The Orchestrator chooses this semantic attribution from the conversation and evidence. Deterministic
+support only validates and preserves it; attribution does not change the verdict or create release
+authority. Do not ask the Agent to replay a committed failure. Target at most three
 post-initial replies for simple work, but allow materially progressing behavior to finish.
 When the runner reports `evidenceOutcome: rejected`, inspect only the synthetic failed observation
 and finalize `blocked`; the rejected bytes and session continuity are intentionally unavailable.
+A transport-interrupted Turn may support a later pass only when it has no Agent reply and no
+repository or Agent Home change, and the same private session subsequently completes cleanly.
 
 ## 5. Complete the Matrix
 
-After every registered Scenario has one result:
+After every Scenario selected in the Generation has one result:
 
 ```text
 bun scripts/run-live-journey.ts complete-matrix \
@@ -97,4 +114,6 @@ bun scripts/run-live-journey.ts complete-matrix \
 
 Review the complete conversations, raw events, terminal observations, failures, blocked results,
 durations, and peak concurrency. Matrix completion proves evidence integrity and completeness only.
+When the Generation selected fewer than all registered Scenarios, the result is a focused partial
+summary rather than complete Matrix evidence.
 It does not authorize Candidate, publication, Effort, Gate, Roadmap, or release decisions.

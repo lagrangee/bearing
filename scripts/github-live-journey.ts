@@ -506,6 +506,7 @@ const githubMilestoneSchema = z.object({
   title: z.string().min(1),
   state: z.enum(["open", "closed"]),
 });
+const githubMilestonePagesSchema = z.array(z.array(githubMilestoneSchema));
 
 const githubLifecycleIssueSchema = z.object({
   id: z.number().int().positive(),
@@ -516,6 +517,7 @@ const githubLifecycleIssueSchema = z.object({
   labels: z.array(z.object({ name: z.string().min(1) })),
   pull_request: z.unknown().optional(),
 });
+const githubLifecycleIssuePagesSchema = z.array(z.array(githubLifecycleIssueSchema));
 
 const githubFixtureIssueReadbackSchema = githubLifecycleIssueSchema.extend({
   body: z.string(),
@@ -574,14 +576,56 @@ export type GitHubMatrixFixtureLifecycle = Readonly<{
   child: Readonly<{ id: number; nodeId: string; number: number }>;
 }>;
 
+export type GitHubMatrixFixtureExternalEffect = Readonly<{
+  kind: "github-matrix-fixture";
+  repositorySlug: string;
+  generationId: string;
+  milestoneNumber: number | null;
+  milestoneTitle: string;
+  issueNumbers: readonly number[];
+  cleanupOutcome: "complete" | "unverified";
+  unverifiedTargets: readonly string[];
+}>;
+
+class GitHubMatrixFixturePreparationError extends Error {
+  readonly externalEffect: GitHubMatrixFixtureExternalEffect;
+
+  constructor(cause: unknown, externalEffect: GitHubMatrixFixtureExternalEffect) {
+    super(cause instanceof Error ? cause.message : "GitHub Matrix fixture preparation failed.", {
+      cause,
+    });
+    this.name = "GitHubMatrixFixturePreparationError";
+    this.externalEffect = externalEffect;
+  }
+}
+
+export const githubMatrixFixturePreparationExternalEffect = (
+  error: unknown,
+): GitHubMatrixFixtureExternalEffect | undefined =>
+  error instanceof GitHubMatrixFixturePreparationError ? error.externalEffect : undefined;
+
 const lifecycleMarker = (scopeKey: string): string => `<!-- bearing-live-scope:${scopeKey} -->`;
+
+const fixtureScopeKey = (body: string): string => {
+  const prefix = "<!-- bearing-live-scope:";
+  const markers = body
+    .split("\n")
+    .filter((line) => line.startsWith(prefix) && line.endsWith(" -->"));
+  if (markers.length !== 1) fail("GitHub Matrix fixture has no exact native scope marker.");
+  const marker = markers[0] ?? fail("GitHub Matrix fixture scope marker is unavailable.");
+  const scopeKey = marker.slice(prefix.length, -" -->".length);
+  if (!githubBrokerScopeKeyPattern.test(scopeKey)) {
+    fail("GitHub Matrix fixture has an invalid native scope marker.");
+  }
+  return scopeKey;
+};
 
 const parseLifecycleIssue = (bytes: string) => githubLifecycleIssueSchema.parse(JSON.parse(bytes));
 
-const assertCanonicalFixtureDelivery = (
+const readCanonicalFixtureDelivery = (
   issue: z.infer<typeof githubFixtureIssueReadbackSchema>,
   options: Readonly<{ requiresParent: boolean }>,
-): void => {
+) => {
   const document = parseMarkdownDocument(issue.body);
   const parent = queryMarkdownSection(document, { title: "Parent" });
   const whatToBuild = queryMarkdownSection(document, { title: "What to build" });
@@ -606,15 +650,29 @@ const assertCanonicalFixtureDelivery = (
     completionEvidence.state === "found"
       ? completionEvidence.value
       : fail(`GitHub Matrix fixture Issue #${issue.number} is not a canonical open Delivery.`);
+  const acceptanceItems = queryMarkdownList(document, { within: acceptanceSection });
+  const acceptanceItemValues =
+    acceptanceItems.state === "found"
+      ? acceptanceItems.value.items
+      : fail(`GitHub Matrix fixture Issue #${issue.number} has an invalid acceptance checklist.`);
+  if (acceptanceItemValues.length === 0) {
+    fail(`GitHub Matrix fixture Issue #${issue.number} has an invalid acceptance checklist.`);
+  }
+  return Object.freeze({ completionEvidenceSection, acceptanceItems: acceptanceItemValues });
+};
+
+const assertCanonicalFixtureDelivery = (
+  issue: z.infer<typeof githubFixtureIssueReadbackSchema>,
+  options: Readonly<{ requiresParent: boolean }>,
+): void => {
+  const { completionEvidenceSection, acceptanceItems } = readCanonicalFixtureDelivery(
+    issue,
+    options,
+  );
   if (markdownSemanticPlainText(completionEvidenceSection.markdown).length !== 0) {
     fail(`GitHub Matrix fixture Issue #${issue.number} is not a canonical open Delivery.`);
   }
-  const acceptanceItems = queryMarkdownList(document, { within: acceptanceSection });
-  if (
-    acceptanceItems.state !== "found" ||
-    acceptanceItems.value.items.length === 0 ||
-    acceptanceItems.value.items.some(({ checked }) => checked !== false)
-  ) {
+  if (acceptanceItems.some(({ checked }) => checked !== false)) {
     fail(`GitHub Matrix fixture Issue #${issue.number} has an invalid acceptance checklist.`);
   }
 };
@@ -682,6 +740,165 @@ const closeMatrixFixtureIssue = async (input: {
   ]);
 };
 
+const findGitHubMatrixMilestoneByTitle = async (input: {
+  command: GitHubMatrixLifecycleCommand;
+  repositorySlug: string;
+  title: string;
+}): Promise<z.infer<typeof githubMilestoneSchema> | undefined> => {
+  const matches = z
+    .array(githubMilestoneSchema)
+    .parse(
+      githubMilestonePagesSchema
+        .parse(
+          JSON.parse(
+            await input.command([
+              "api",
+              "--paginate",
+              "--slurp",
+              `repos/${input.repositorySlug}/milestones?state=all&per_page=100`,
+            ]),
+          ),
+        )
+        .flat(),
+    )
+    .filter(({ title }) => title === input.title);
+  if (matches.length > 1) fail(`GitHub Matrix milestone identity is ambiguous: ${input.title}.`);
+  return matches[0];
+};
+
+export const recoverGitHubMatrixFixturePreparationFailure = async (input: {
+  cause: unknown;
+  command?: GitHubMatrixLifecycleCommand;
+  program?: string;
+  repositorySlug: string;
+  generationId: string;
+  milestone: z.infer<typeof githubMilestoneSchema> | undefined;
+  issues: readonly z.infer<typeof githubLifecycleIssueSchema>[];
+  milestoneReadbackUnverified?: boolean;
+  unverifiedTargets?: readonly string[];
+}): Promise<GitHubMatrixFixturePreparationError> => {
+  const command = input.command ?? coordinatorGitHubCommand(input.program ?? "gh");
+  const unverifiedTargets = [...(input.unverifiedTargets ?? [])];
+  for (const issue of input.issues) {
+    try {
+      await closeMatrixFixtureIssue({
+        command,
+        repositorySlug: input.repositorySlug,
+        issue,
+      });
+    } catch {
+      unverifiedTargets.push(`issue #${issue.number}`);
+    }
+  }
+  if (input.milestone === undefined) {
+    if (input.milestoneReadbackUnverified === true) {
+      unverifiedTargets.push(`milestone ${GITHUB_MATRIX_MILESTONE_PREFIX}${input.generationId}`);
+    }
+  } else if (input.milestone.state === "open") {
+    try {
+      await command([
+        "api",
+        "--method",
+        "PATCH",
+        `repos/${input.repositorySlug}/milestones/${input.milestone.number}`,
+        "--raw-field",
+        "state=closed",
+      ]);
+    } catch {
+      unverifiedTargets.push(`milestone #${input.milestone.number}`);
+    }
+  }
+  return new GitHubMatrixFixturePreparationError(
+    input.cause,
+    Object.freeze({
+      kind: "github-matrix-fixture" as const,
+      repositorySlug: input.repositorySlug,
+      generationId: input.generationId,
+      milestoneNumber: input.milestone?.number ?? null,
+      milestoneTitle:
+        input.milestone?.title ?? `${GITHUB_MATRIX_MILESTONE_PREFIX}${input.generationId}`,
+      issueNumbers: Object.freeze(input.issues.map(({ number }) => number)),
+      cleanupOutcome: unverifiedTargets.length === 0 ? "complete" : "unverified",
+      unverifiedTargets: Object.freeze(unverifiedTargets),
+    }),
+  );
+};
+
+const readGitHubMatrixFixtureIssuesForRecovery = async (input: {
+  command: GitHubMatrixLifecycleCommand;
+  repositorySlug: string;
+  milestoneNumber: number;
+  scopeKey: string;
+}): Promise<z.infer<typeof githubFixtureIssueReadbackSchema>[]> => {
+  const summaries = githubLifecycleIssuePagesSchema
+    .parse(
+      JSON.parse(
+        await input.command([
+          "api",
+          "--paginate",
+          "--slurp",
+          `repos/${input.repositorySlug}/issues?state=all&milestone=${input.milestoneNumber}&per_page=100`,
+        ]),
+      ),
+    )
+    .flat()
+    .filter(({ pull_request: pullRequest }) => pullRequest === undefined);
+  const issues = await Promise.all(
+    summaries.map(async ({ number }) =>
+      githubFixtureIssueReadbackSchema.parse(
+        JSON.parse(await input.command(["api", `repos/${input.repositorySlug}/issues/${number}`])),
+      ),
+    ),
+  );
+  if (
+    issues.some(
+      (issue) =>
+        issue.milestone.number !== input.milestoneNumber ||
+        !issue.labels.some(({ name }) => name === GITHUB_MATRIX_FIXTURE_LABEL) ||
+        !["Complete secondary label delivery", "Complete secondary label formatting"].includes(
+          issue.title,
+        ) ||
+        fixtureScopeKey(issue.body) !== input.scopeKey,
+    )
+  ) {
+    fail(`GitHub Matrix milestone #${input.milestoneNumber} contains an unknown Issue.`);
+  }
+  return issues;
+};
+
+export const recoverPreparedGitHubMatrixFixtureFailure = (input: {
+  cause: unknown;
+  lifecycle: GitHubMatrixFixtureLifecycle;
+  program?: string;
+  command?: GitHubMatrixLifecycleCommand;
+}): Promise<GitHubMatrixFixturePreparationError> =>
+  recoverGitHubMatrixFixturePreparationFailure({
+    cause: input.cause,
+    ...(input.command === undefined ? {} : { command: input.command }),
+    ...(input.program === undefined ? {} : { program: input.program }),
+    repositorySlug: input.lifecycle.repositorySlug,
+    generationId: input.lifecycle.generationId,
+    milestone: { ...input.lifecycle.milestone, state: "open" },
+    issues: [
+      {
+        id: input.lifecycle.parent.id,
+        node_id: input.lifecycle.parent.nodeId,
+        number: input.lifecycle.parent.number,
+        state: "open",
+        title: "Complete secondary label delivery",
+        labels: [{ name: GITHUB_MATRIX_FIXTURE_LABEL }],
+      },
+      {
+        id: input.lifecycle.child.id,
+        node_id: input.lifecycle.child.nodeId,
+        number: input.lifecycle.child.number,
+        state: "open",
+        title: "Complete secondary label formatting",
+        labels: [{ name: GITHUB_MATRIX_FIXTURE_LABEL }],
+      },
+    ],
+  });
+
 export const cleanupGitHubMatrixFixture = async (input: {
   lifecycle: GitHubMatrixFixtureLifecycle;
   program?: string;
@@ -733,34 +950,68 @@ export const recoverStaleGitHubMatrixMilestones = async (input: {
 }) => {
   const command = input.command ?? coordinatorGitHubCommand(input.program ?? "gh");
   const currentTitle = `${GITHUB_MATRIX_MILESTONE_PREFIX}${z.string().uuid().parse(input.currentGenerationId)}`;
-  const milestones = z
-    .array(githubMilestoneSchema)
+  const milestones = githubMilestonePagesSchema
     .parse(
       JSON.parse(
-        await command(["api", `repos/${input.repositorySlug}/milestones?state=open&per_page=100`]),
+        await command([
+          "api",
+          "--paginate",
+          "--slurp",
+          `repos/${input.repositorySlug}/milestones?state=open&per_page=100`,
+        ]),
       ),
     )
-    .filter(
-      ({ title }) => title.startsWith(GITHUB_MATRIX_MILESTONE_PREFIX) && title !== currentTitle,
-    );
+    .flat()
+    .filter(({ title }) => {
+      if (!title.startsWith(GITHUB_MATRIX_MILESTONE_PREFIX) || title === currentTitle) return false;
+      return z.string().uuid().safeParse(title.slice(GITHUB_MATRIX_MILESTONE_PREFIX.length))
+        .success;
+    });
   const recovered: number[] = [];
   for (const milestone of milestones) {
-    const issues = z
-      .array(githubLifecycleIssueSchema)
+    const issueSummaries = githubLifecycleIssuePagesSchema
       .parse(
         JSON.parse(
           await command([
             "api",
+            "--paginate",
+            "--slurp",
             `repos/${input.repositorySlug}/issues?state=all&milestone=${milestone.number}&per_page=100`,
           ]),
         ),
       )
+      .flat()
       .filter(({ pull_request: pullRequest }) => pullRequest === undefined);
-    if (
-      issues.length !== 2 ||
-      issues.some(({ labels }) => !labels.some(({ name }) => name === GITHUB_MATRIX_FIXTURE_LABEL))
-    ) {
+    if (issueSummaries.length !== 2) {
       fail(`Stale GitHub Matrix milestone #${milestone.number} is not one exact fixture pair.`);
+    }
+    const issues = await Promise.all(
+      issueSummaries.map(async ({ number }) =>
+        githubFixtureIssueReadbackSchema.parse(
+          JSON.parse(await command(["api", `repos/${input.repositorySlug}/issues/${number}`])),
+        ),
+      ),
+    );
+    const parent =
+      issues.find(({ title }) => title === "Complete secondary label delivery") ??
+      fail(`Stale GitHub Matrix milestone #${milestone.number} has no exact parent Issue.`);
+    const child =
+      issues.find(({ title }) => title === "Complete secondary label formatting") ??
+      fail(`Stale GitHub Matrix milestone #${milestone.number} has no exact child Issue.`);
+    readCanonicalFixtureDelivery(parent, { requiresParent: false });
+    readCanonicalFixtureDelivery(child, { requiresParent: true });
+    const scopeKeys = new Set(issues.map(({ body }) => fixtureScopeKey(body)));
+    if (
+      scopeKeys.size !== 1 ||
+      issues.some(
+        ({ labels, milestone: issueMilestone }) =>
+          issueMilestone.number !== milestone.number ||
+          !labels.some(({ name }) => name === GITHUB_MATRIX_FIXTURE_LABEL),
+      ) ||
+      !parent.body.includes(`## Blocked by\n\n- #${child.number}`) ||
+      !child.body.includes(`## Parent\n\n#${parent.number}`)
+    ) {
+      fail(`Stale GitHub Matrix milestone #${milestone.number} failed exact fixture readback.`);
     }
     for (const issue of issues) {
       await closeMatrixFixtureIssue({ command, repositorySlug: input.repositorySlug, issue });
@@ -838,23 +1089,25 @@ export const prepareGitHubMatrixFixture = async (input: {
     "Ephemeral Bearing Live Matrix fixture",
     "--force",
   ]);
-  const milestone = githubMilestoneSchema.parse(
-    JSON.parse(
-      await command([
-        "api",
-        "--method",
-        "POST",
-        `repos/${input.repositorySlug}/milestones`,
-        "--raw-field",
-        `title=${GITHUB_MATRIX_MILESTONE_PREFIX}${generationId}`,
-        "--raw-field",
-        "description=Ephemeral fixture owned by one Bearing Live Matrix Generation.",
-      ]),
-    ),
-  );
+  const milestoneTitle = `${GITHUB_MATRIX_MILESTONE_PREFIX}${generationId}`;
+  let milestone: z.infer<typeof githubMilestoneSchema> | undefined;
   let parent: z.infer<typeof githubLifecycleIssueSchema> | undefined;
   let child: z.infer<typeof githubLifecycleIssueSchema> | undefined;
   try {
+    milestone = githubMilestoneSchema.parse(
+      JSON.parse(
+        await command([
+          "api",
+          "--method",
+          "POST",
+          `repos/${input.repositorySlug}/milestones`,
+          "--raw-field",
+          `title=${milestoneTitle}`,
+          "--raw-field",
+          "description=Ephemeral fixture owned by one Bearing Live Matrix Generation.",
+        ]),
+      ),
+    );
     parent = parseLifecycleIssue(
       await command([
         "api",
@@ -932,20 +1185,46 @@ export const prepareGitHubMatrixFixture = async (input: {
       child: Object.freeze({ id: child.id, nodeId: child.node_id, number: child.number }),
     });
   } catch (error) {
-    for (const issue of [child, parent]) {
-      if (issue !== undefined) {
-        await closeMatrixFixtureIssue({ command, repositorySlug: input.repositorySlug, issue });
+    let milestoneReadbackUnverified = false;
+    if (milestone === undefined) {
+      try {
+        milestone = await findGitHubMatrixMilestoneByTitle({
+          command,
+          repositorySlug: input.repositorySlug,
+          title: milestoneTitle,
+        });
+      } catch {
+        milestoneReadbackUnverified = true;
+      }
+      if (milestone === undefined && !milestoneReadbackUnverified) throw error;
+    }
+    let issues = [parent, child].filter((issue) => issue !== undefined);
+    const unverifiedTargets: string[] = [];
+    if (milestone !== undefined) {
+      try {
+        const observed = await readGitHubMatrixFixtureIssuesForRecovery({
+          command,
+          repositorySlug: input.repositorySlug,
+          milestoneNumber: milestone.number,
+          scopeKey: input.scopeKey,
+        });
+        issues = [
+          ...new Map([...issues, ...observed].map((issue) => [issue.number, issue])).values(),
+        ];
+      } catch {
+        unverifiedTargets.push(`milestone #${milestone.number} Issue inventory`);
       }
     }
-    await command([
-      "api",
-      "--method",
-      "PATCH",
-      `repos/${input.repositorySlug}/milestones/${milestone.number}`,
-      "--raw-field",
-      "state=closed",
-    ]).catch(() => undefined);
-    throw error;
+    throw await recoverGitHubMatrixFixturePreparationFailure({
+      cause: error,
+      command,
+      repositorySlug: input.repositorySlug,
+      generationId,
+      milestone,
+      issues,
+      milestoneReadbackUnverified,
+      unverifiedTargets,
+    });
   }
 };
 

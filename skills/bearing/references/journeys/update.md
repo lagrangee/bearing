@@ -12,7 +12,7 @@ expanded authority. Otherwise stop unchanged as Invalid or Unsupported.
 
 The Human authorizes one complete visible Repository Update candidate. The Agent owns semantic
 interpretation and the single target-manifest write. Deterministic Modules own lifecycle identity,
-target validation, contained readback, and the disposable Project Read Model rebuild.
+target validation, exact effect verification, and the disposable Project Read Model rebuild.
 
 Repository Update and Global Kit maintenance have separate owners and write scopes. A
 `repository-update-required` result supplies current target facts; it does not authorize or provide
@@ -56,8 +56,8 @@ runtime meaning.
    candidate. A material source change invalidates the acceptance: perform no write until the Agent
    re-evaluates the current facts, presents the changed candidate, and obtains confirmation again.
    A new write scope is a different mutation and requires separate authority. Write only the exact
-   target manifest. Completion: readback proves that one canonical write and every byte-preservation
-   invariant, or stop at one actionable blocker.
+   target manifest. Completion: exact effect verification proves that one canonical write and every
+   byte-preservation invariant, or stop at one actionable blocker.
 4. Validate the target manifest. For an Active target, run `bearing cache rebuild --repo
    <repo-root>` once. Reuse only validated typed provider evidence and preserve its freshness and
    failure meaning. Never acquire provider data or copy, edit, or migrate raw SQLite rows. For a

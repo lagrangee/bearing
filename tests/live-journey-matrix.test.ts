@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createLiveJourneyObservation,
+  passingObservationChainCompleted,
   verifyLiveJourneyObservation,
 } from "../scripts/live-journey-matrix";
 
@@ -87,6 +88,32 @@ describe("Live Journey Codex JSONL integrity", () => {
 });
 
 describe("Live Journey observation timing", () => {
+  test("records objective structured Skill invocation evidence when present", () => {
+    const observation = createLiveJourneyObservation({
+      turn: 1,
+      codexCliVersion: "codex-cli 0.147.0",
+      exitCode: 0,
+      stdout,
+      stderr: "",
+      before: { repository: "a".repeat(64), agentHome: "b".repeat(64) },
+      after: { repository: "c".repeat(64), agentHome: "d".repeat(64) },
+      rawEventsPointer: "events/turn-01.jsonl",
+      stderrPointer: "transcripts/turn-01.stderr.log",
+      startedAt: "2026-08-30T00:00:00.000Z",
+      endedAt: "2026-08-30T00:00:00.100Z",
+      durationMs: 100,
+      invokedSkill: {
+        name: "wayfinder",
+        path: "[scenario-runtime]/agent-home/skill-directory/wayfinder/SKILL.md",
+      },
+    });
+
+    expect(observation.invokedSkill).toEqual({
+      name: "wayfinder",
+      path: "[scenario-runtime]/agent-home/skill-directory/wayfinder/SKILL.md",
+    });
+  });
+
   test("records an exact ISO observation window and permits a zero-duration turn", () => {
     expect(createObservation()).toMatchObject({
       startedAt: "2026-08-30T00:00:00.000Z",
@@ -149,5 +176,97 @@ describe("Live Journey observation timing", () => {
         expectedCodexCliVersion: "codex-cli 0.147.0",
       }),
     ).rejects.toThrow("must equal endedAt minus startedAt");
+  });
+});
+
+describe("Live Journey recovered Turn continuity", () => {
+  const failedOutput = [
+    JSON.stringify({ type: "thread.started", thread_id: "private-session" }),
+    JSON.stringify({ type: "turn.started" }),
+    JSON.stringify({ type: "error", message: "transport unavailable" }),
+    JSON.stringify({ type: "turn.failed" }),
+  ].join("\n");
+  const completedOutput = [
+    JSON.stringify({ type: "thread.started", thread_id: "private-session" }),
+    JSON.stringify({ type: "turn.started" }),
+    JSON.stringify({
+      type: "item.completed",
+      item: { id: "done", type: "agent_message", text: "Recovered reply" },
+    }),
+    JSON.stringify({ type: "turn.completed" }),
+  ].join("\n");
+  const observation = (input: {
+    turn: number;
+    exitCode: number;
+    output: string;
+    before?: Readonly<{ repository: string; agentHome: string }>;
+    after?: Readonly<{ repository: string; agentHome: string }>;
+  }) =>
+    createLiveJourneyObservation({
+      turn: input.turn,
+      codexCliVersion: "codex-cli 0.147.0",
+      exitCode: input.exitCode,
+      stdout: input.output,
+      stderr: "",
+      before: input.before ?? { repository: "a".repeat(64), agentHome: "b".repeat(64) },
+      after: input.after ?? { repository: "a".repeat(64), agentHome: "b".repeat(64) },
+      rawEventsPointer: `events/turn-${String(input.turn).padStart(2, "0")}.jsonl`,
+      stderrPointer: `transcripts/turn-${String(input.turn).padStart(2, "0")}.stderr.log`,
+      startedAt: `2026-08-30T00:00:0${input.turn}.000Z`,
+      endedAt: `2026-08-30T00:00:0${input.turn}.100Z`,
+      durationMs: 100,
+    });
+
+  test("accepts a state-neutral no-reply failure followed by a clean same-session Turn", () => {
+    const interrupted = observation({ turn: 1, exitCode: 1, output: failedOutput });
+    const recovered = observation({ turn: 2, exitCode: 0, output: completedOutput });
+
+    expect(
+      passingObservationChainCompleted({
+        observations: [interrupted, recovered],
+        rawEventStreams: [failedOutput, completedOutput],
+        sessionLastTurn: 2,
+      }),
+    ).toBe(true);
+    expect(
+      passingObservationChainCompleted({
+        observations: [interrupted, recovered],
+        rawEventStreams: [failedOutput, completedOutput],
+        sessionLastTurn: 1,
+      }),
+    ).toBe(false);
+  });
+
+  test("rejects recovery after an Agent reply or repository mutation", () => {
+    const repliedThenFailed = [
+      JSON.stringify({ type: "thread.started", thread_id: "private-session" }),
+      JSON.stringify({ type: "turn.started" }),
+      JSON.stringify({
+        type: "item.completed",
+        item: { id: "partial", type: "agent_message", text: "A semantic response" },
+      }),
+      JSON.stringify({ type: "turn.failed" }),
+    ].join("\n");
+    const recovered = observation({ turn: 2, exitCode: 0, output: completedOutput });
+    const replied = observation({ turn: 1, exitCode: 1, output: repliedThenFailed });
+    const mutated = observation({
+      turn: 1,
+      exitCode: 1,
+      output: failedOutput,
+      after: { repository: "c".repeat(64), agentHome: "b".repeat(64) },
+    });
+
+    for (const [interrupted, raw] of [
+      [replied, repliedThenFailed],
+      [mutated, failedOutput],
+    ] as const) {
+      expect(
+        passingObservationChainCompleted({
+          observations: [interrupted, recovered],
+          rawEventStreams: [raw, completedOutput],
+          sessionLastTurn: 2,
+        }),
+      ).toBe(false);
+    }
   });
 });

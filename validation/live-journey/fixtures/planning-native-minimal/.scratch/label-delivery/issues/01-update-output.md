@@ -1,9 +1,11 @@
-# 01 — Update output
+# 01 — Define the next primary label option
 
-Type: task
+**What to build:** Extend primary label output with the next accepted formatting option.
 
-Blocked by: None — can start immediately
+**Blocked by:** None — can start immediately
 
-## Question
+**Status:** needs-info
 
-How should the primary output be updated?
+- [ ] Record the accepted option and its exact output form.
+- [ ] Preserve the existing trim and uppercase behavior.
+- [ ] Add focused automated coverage for the accepted option.

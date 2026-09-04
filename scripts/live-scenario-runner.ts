@@ -26,7 +26,6 @@ import {
 } from "./codex-e2e-runtime";
 import {
   captureGitHubRemoteInventory,
-  cleanupGitHubMatrixFixture,
   deriveGitHubJourneyScopeKey,
   type GitHubMatrixFixtureLifecycle,
   inspectGitHubRepository,
@@ -34,6 +33,7 @@ import {
   prepareGitHubMatrixFixture,
   provisionIsolatedGitHubAccountSelection,
   readFixedGitHubValidationRepository,
+  recoverPreparedGitHubMatrixFixtureFailure,
 } from "./github-live-journey";
 import { createCodexJourneyEnvironment } from "./live-journey-matrix";
 import { liveScenarioPackageSchema } from "./live-scenario-evidence";
@@ -48,6 +48,7 @@ import {
   digestLiveScenarioFixtureSet,
   liveScenarioReferencedFixtureSources,
   liveScenarioSchema,
+  liveScenarioSkillIsInstalled,
   loadLiveScenarioRegistry,
   materializeLiveScenarioFixture,
 } from "./live-scenario-registry";
@@ -1060,7 +1061,7 @@ export const prepareLiveScenarioGeneration = async (input: {
       );
     }
     const declaredPrerequisites = scenario.fixedValidationFixture.skills.filter(
-      ({ skill, role }) => skill !== "bearing" && role === "prerequisite",
+      ({ skill, role }) => skill !== "bearing" && liveScenarioSkillIsInstalled(role),
     );
     if (declaredPrerequisites.length > 0) {
       await materializeDeclaredPrerequisiteSkills({
@@ -1173,19 +1174,19 @@ export const prepareLiveScenarioGeneration = async (input: {
     }
     return manifest;
   } catch (error) {
-    await Promise.all([
-      ...(githubFixtureLifecycle === undefined
-        ? []
-        : [
-            cleanupGitHubMatrixFixture({
-              lifecycle: githubFixtureLifecycle,
-              ...(input.githubProgram === undefined ? {} : { program: input.githubProgram }),
-            }),
-          ]),
+    const preservedError =
+      githubFixtureLifecycle === undefined
+        ? error
+        : await recoverPreparedGitHubMatrixFixtureFailure({
+            cause: error,
+            lifecycle: githubFixtureLifecycle,
+            ...(input.githubProgram === undefined ? {} : { program: input.githubProgram }),
+          });
+    await Promise.allSettled([
       ...(runtimeCreated ? [rm(runtimeRoot, { recursive: true, force: true })] : []),
       ...(workspaceCreated ? [rm(workspaceRoot, { recursive: true, force: true })] : []),
     ]);
-    throw error;
+    throw preservedError;
   }
 };
 

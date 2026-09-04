@@ -1,6 +1,7 @@
 import { chmod, lstat, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
+import { codexAppServerArgumentsFromExec, runCodexAppServerTurn } from "./codex-app-server";
 import {
   assertCodexE2EOutputIsolation,
   redactCodexE2EEphemeralCapabilities,
@@ -19,14 +20,21 @@ import {
   createLiveJourneyObservation,
   extractCodexAgentReply,
   extractCodexThreadId,
+  type LiveJourneyEvidenceRejection,
+  type LiveJourneyInvocationFailureStage,
   observationCompletedCleanly,
+  passingObservationChainCompleted,
   readCodexSessionState,
+  readGeneratedEvidenceFile,
   snapshotDirectory,
   verifyLiveJourneyObservation,
   writeCodexSessionState,
 } from "./live-journey-matrix";
 import { LIVE_MATRIX_CONCURRENCY, parseLiveMatrixGenerationBasis } from "./live-matrix-generation";
-import { createLiveMatrixScenarioTerminalResult } from "./live-matrix-results";
+import {
+  createLiveMatrixScenarioTerminalResult,
+  liveMatrixSemanticVerdictSchema,
+} from "./live-matrix-results";
 import {
   liveScenarioMatrixPackageIdentitySha256,
   liveScenarioPackageEvidenceIdentity,
@@ -288,14 +296,12 @@ const redactExactValues = (value: string, replacements: readonly (readonly [stri
     value,
   );
 
-const rejectedDurableEventStream = (
-  reason: "credential-match" | "scanner-unavailable" | "mechanical-failure",
-): string =>
+const rejectedDurableEventStream = (rejection: LiveJourneyEvidenceRejection): string =>
   `${JSON.stringify({ type: "thread.started", thread_id: "[evidence-rejected]" })}\n${JSON.stringify(
     {
       type: "turn.started",
     },
-  )}\n${JSON.stringify({ type: "durable-evidence-rejected", reason })}\n${JSON.stringify({
+  )}\n${JSON.stringify({ type: "durable-evidence-rejected", ...rejection })}\n${JSON.stringify({
     type: "turn.failed",
   })}\n`;
 
@@ -316,9 +322,67 @@ const invocationMarkerSchema = z
     human: z.string().min(1),
     ownerPid: z.number().int().positive(),
     childPid: z.number().int().positive().optional(),
+    stage: z
+      .enum([
+        "codex-invocation",
+        "github-broker-shutdown",
+        "github-remote-after-readback",
+        "output-processing",
+        "evidence-publication",
+        "conversation-publication",
+      ])
+      .default("codex-invocation"),
     before: z.object({ repository: z.string(), agentHome: z.string() }).strict(),
   })
   .strict();
+
+const writeInvocationStage = async (
+  markerPath: string,
+  stage: LiveJourneyInvocationFailureStage,
+): Promise<void> => {
+  const marker = invocationMarkerSchema.parse(JSON.parse(await readFile(markerPath, "utf8")));
+  await writeFile(markerPath, `${JSON.stringify({ ...marker, stage })}\n`);
+};
+
+const safeMechanicalFailure = (
+  manifest: Manifest,
+  error: unknown,
+): Readonly<{ name: string; message: string }> => {
+  const name =
+    error instanceof Error
+      ? error.name.replace(/[^A-Za-z0-9_.-]/gu, "").slice(0, 64) || "Error"
+      : "NonErrorThrow";
+  const rawMessage =
+    error instanceof Error ? error.message : "A non-Error value was thrown after invocation.";
+  const message = redactExactValues(rawMessage, [
+    [manifest.paths.sourceRoot, "[source-root]"],
+    [manifest.paths.operatorCodexHome, "[operator-codex-home]"],
+    [manifest.paths.runtimeRoot, "[scenario-runtime]"],
+    [manifest.paths.workspaceRoot, "[scenario-evidence]"],
+    [manifest.paths.repository, "[scenario-repository]"],
+    [manifest.paths.agentHome, "[scenario-agent-home]"],
+  ])
+    .replace(/[\r\n\t]+/gu, " ")
+    .trim()
+    .slice(0, 512);
+  const candidate = {
+    name,
+    message: message.length === 0 ? "Mechanical failure produced no readable message." : message,
+  };
+  try {
+    return JSON.parse(
+      scanLiveScenarioDurableText({
+        value: JSON.stringify(candidate),
+        configPath: resolve(".gitleaks.toml"),
+      }),
+    ) as Readonly<{ name: string; message: string }>;
+  } catch {
+    return Object.freeze({
+      name: "DiagnosticUnavailable",
+      message: "Mechanical failure summary did not pass the required safety scan.",
+    });
+  }
+};
 
 const appendConversation = async (
   manifest: Manifest,
@@ -442,7 +506,9 @@ const runTurn = async (input: {
     }
 
     const startedAt = Date.now();
-    let processResult: Awaited<ReturnType<typeof runProcess>>;
+    let processResult: Awaited<ReturnType<typeof runProcess>> & {
+      readonly invokedSkill?: Readonly<{ name: string; path: string }>;
+    };
     let processEnvironment = environment;
     let remoteBeforeBytes: string | undefined;
     let remoteAfterBytes: string | undefined;
@@ -468,6 +534,7 @@ const runTurn = async (input: {
             codexCliVersion: version.stdout.trim(),
             human,
             ownerPid: process.pid,
+            stage: "codex-invocation",
             before,
           })}\n`,
           { flag: "wx" },
@@ -480,6 +547,46 @@ const runTurn = async (input: {
         await writeFile(invocationMarker, `${JSON.stringify({ ...marker, childPid })}\n`);
       },
     } as const;
+    const userInvokedSkill = manifest.scenario.fixedValidationFixture.skills.find(
+      ({ role }) => role === "user-invoked",
+    );
+    const runScenarioTurn = (
+      turnEnvironment: Readonly<Record<string, string>>,
+      extraArgs = [] as readonly string[],
+    ) =>
+      userInvokedSkill === undefined
+        ? runProcess(
+            step.program,
+            [...args, ...extraArgs, prompt],
+            turnEnvironment,
+            step.workingDirectory,
+            invocationHooks,
+          )
+        : runCodexAppServerTurn({
+            program: step.program,
+            arguments: [
+              ...codexAppServerArgumentsFromExec(manifest.launch.initial.arguments),
+              ...extraArgs,
+            ],
+            environment: turnEnvironment,
+            workingDirectory: step.workingDirectory,
+            ...(sessionState === undefined ? {} : { sessionId: sessionState.sessionId }),
+            prompt,
+            ...(sessionState !== undefined
+              ? {}
+              : {
+                  invokedSkill: {
+                    name: userInvokedSkill.skill,
+                    path: join(
+                      manifest.paths.agentHome,
+                      "skill-directory",
+                      userInvokedSkill.skill,
+                      "SKILL.md",
+                    ),
+                  },
+                }),
+            hooks: invocationHooks,
+          });
     if (manifest.github === undefined) {
       processResult = await withCoordinatorStateHidden(
         {
@@ -487,14 +594,7 @@ const runTurn = async (input: {
           agentHome: manifest.paths.agentHome,
           repository: manifest.paths.repository,
         },
-        () =>
-          runProcess(
-            step.program,
-            [...args, prompt],
-            environment,
-            step.workingDirectory,
-            invocationHooks,
-          ),
+        () => runScenarioTurn(environment),
       );
     } else {
       const inventoryRoot =
@@ -530,18 +630,13 @@ const runTurn = async (input: {
             agentHome: manifest.paths.agentHome,
             repository: manifest.paths.repository,
           },
-          () =>
-            runProcess(
-              step.program,
-              [...args, ...broker.codexArguments, prompt],
-              broker.environment,
-              step.workingDirectory,
-              invocationHooks,
-            ),
+          () => runScenarioTurn(broker.environment, broker.codexArguments),
         );
+        await writeInvocationStage(invocationMarker, "github-broker-shutdown");
       } finally {
         await broker.stop();
       }
+      await writeInvocationStage(invocationMarker, "github-remote-after-readback");
       const remoteAfter = await captureGitHubRemoteInventory({
         program: manifest.github.program,
         repositorySlug: manifest.github.repositorySlug,
@@ -554,8 +649,17 @@ const runTurn = async (input: {
       remoteAfterBytes = `${JSON.stringify(remoteAfter, null, 2)}\n`;
       await writeFile(afterPath, remoteAfterBytes, { flag: "wx" });
     }
+    await writeInvocationStage(invocationMarker, "output-processing");
     const endedAt = Date.now();
-    const observedSessionId = extractCodexThreadId(processResult.stdout) ?? sessionState?.sessionId;
+    const emittedSessionId = extractCodexThreadId(processResult.stdout);
+    if (
+      sessionState !== undefined &&
+      emittedSessionId !== undefined &&
+      emittedSessionId !== sessionState.sessionId
+    ) {
+      fail("Codex resume changed the private session identity.");
+    }
+    const observedSessionId = emittedSessionId ?? sessionState?.sessionId;
     const ephemeralValues = [
       processEnvironment["BEARING_GITHUB_BROKER_SOCKET"],
       processEnvironment["BEARING_GITHUB_BROKER_AUTH"],
@@ -581,6 +685,7 @@ const runTurn = async (input: {
       ephemeralCapabilityValues: ephemeralValues,
     });
     let evidenceOutcome: "published" | "rejected" = "published";
+    let evidenceRejection: LiveJourneyEvidenceRejection | undefined;
     let durableOutput: Readonly<{ stdout: string; stderr: string }>;
     try {
       durableOutput = {
@@ -599,8 +704,10 @@ const runTurn = async (input: {
         error instanceof Error && error.message.includes("failed the required Gitleaks scan")
           ? "credential-match"
           : "scanner-unavailable";
-      durableOutput = { stdout: rejectedDurableEventStream(reason), stderr: "" };
+      evidenceRejection = { reason };
+      durableOutput = { stdout: rejectedDurableEventStream(evidenceRejection), stderr: "" };
     }
+    await writeInvocationStage(invocationMarker, "evidence-publication");
     await Promise.all([
       writeFile(eventsPath, durableOutput.stdout, { flag: "wx" }),
       writeFile(stderrPath, durableOutput.stderr, { flag: "wx" }),
@@ -622,6 +729,15 @@ const runTurn = async (input: {
       startedAt: new Date(startedAt).toISOString(),
       endedAt: new Date(endedAt).toISOString(),
       durationMs: endedAt - startedAt,
+      ...(evidenceRejection === undefined ? {} : { evidenceRejection }),
+      ...(processResult.invokedSkill === undefined
+        ? {}
+        : {
+            invokedSkill: {
+              name: processResult.invokedSkill.name,
+              path: redactExactValues(processResult.invokedSkill.path, locatorReplacements),
+            },
+          }),
     } as const;
     const observation =
       manifest.github === undefined
@@ -654,6 +770,7 @@ const runTurn = async (input: {
       });
     }
     if (evidenceOutcome === "rejected") {
+      await writeInvocationStage(invocationMarker, "conversation-publication");
       await appendConversation(manifest, input.turn, human);
       await rm(invocationMarker, { force: true });
       return Object.freeze({
@@ -663,6 +780,7 @@ const runTurn = async (input: {
         observation: observationPath,
       });
     }
+    await writeInvocationStage(invocationMarker, "conversation-publication");
     if (!observationCompletedCleanly(observation) || observedSessionId === undefined) {
       await appendConversation(manifest, input.turn, human);
       await rm(invocationMarker, { force: true });
@@ -683,14 +801,25 @@ const runTurn = async (input: {
   }
 };
 
-const sealInterruptedInvocation = async (manifest: Manifest) => {
+const sealInterruptedInvocation = async (manifest: Manifest, error?: unknown) => {
   const markerPath = invocationMarkerPath(manifest);
   const marker = invocationMarkerSchema.parse(JSON.parse(await readFile(markerPath, "utf8")));
   const turnLabel = String(marker.turn).padStart(2, "0");
   const eventsPath = join(manifest.paths.events, `turn-${turnLabel}.jsonl`);
   const stderrPath = join(manifest.paths.events, `turn-${turnLabel}.stderr.log`);
   const observationPath = join(manifest.paths.observations, `turn-${turnLabel}.json`);
-  const stdout = rejectedDurableEventStream("mechanical-failure");
+  const evidenceRejection = {
+    reason: "mechanical-failure" as const,
+    stage: marker.stage,
+    error:
+      error === undefined
+        ? {
+            name: "InterruptedProcess",
+            message: "The original exception is unavailable after process termination.",
+          }
+        : safeMechanicalFailure(manifest, error),
+  };
+  const stdout = rejectedDurableEventStream(evidenceRejection);
   const endedAt = new Date().toISOString();
   const after = {
     repository: await snapshotDirectory(manifest.paths.repository).catch(
@@ -722,6 +851,7 @@ const sealInterruptedInvocation = async (manifest: Manifest) => {
     startedAt: marker.startedAt,
     endedAt,
     durationMs: Date.parse(endedAt) - Date.parse(marker.startedAt),
+    evidenceRejection,
   });
   await writeFile(
     observationPath,
@@ -860,7 +990,7 @@ export const startAdaptiveScenario = async (input: {
     const behaviorEvidenceExists =
       observations.length > 0 || (await exists(manifest.paths.sessionState));
     if (await exists(invocationMarkerPath(manifest))) {
-      return sealInterruptedInvocation(manifest);
+      return sealInterruptedInvocation(manifest, error);
     }
     if (!behaviorEvidenceExists) {
       await Promise.all([
@@ -912,7 +1042,7 @@ export const resumeAdaptiveScenario = async (input: {
     return await runTurn({ manifest, prompt: reply, human: reply, turn, turnClaimed: true });
   } catch (error) {
     if (await exists(invocationMarkerPath(manifest))) {
-      return sealInterruptedInvocation(manifest);
+      return sealInterruptedInvocation(manifest, error);
     }
     throw error;
   } finally {
@@ -1030,6 +1160,26 @@ const evidenceReference = async (evidenceRoot: string, path: string) => ({
   sha256: await sha256File(path),
 });
 
+export const verifyAdaptiveTurnObservation = async (input: {
+  workspaceRoot: string;
+  pointer: string;
+  expectedCodexCliVersion: string;
+  github: boolean;
+}) =>
+  input.github
+    ? (
+        await verifyGitHubJourneyObservation({
+          workspaceRoot: input.workspaceRoot,
+          pointer: input.pointer,
+          expectedCodexCliVersion: input.expectedCodexCliVersion,
+        })
+      ).base
+    : verifyLiveJourneyObservation({
+        workspaceRoot: input.workspaceRoot,
+        pointer: input.pointer,
+        expectedCodexCliVersion: input.expectedCodexCliVersion,
+      });
+
 export const finalizeAdaptiveScenario = async (input: {
   generationPath: string;
   scenarioId: string;
@@ -1043,13 +1193,9 @@ export const finalizeAdaptiveScenario = async (input: {
     await recoverTerminatedInvocation(manifest);
   }
   await ensureMissing(manifest.paths.result);
-  const verdict = z
-    .object({
-      outcome: z.enum(["pass", "fail", "blocked"]),
-      rationale: z.string().trim().min(1).max(800),
-    })
-    .strict()
-    .parse(JSON.parse(await readFile(resolve(input.verdictPath), "utf8")));
+  const verdict = liveMatrixSemanticVerdictSchema.parse(
+    JSON.parse(await readFile(resolve(input.verdictPath), "utf8")),
+  );
   const names = await orderedObservationNames(manifest);
   if (names.length === 0 || !(await exists(manifest.paths.conversation))) {
     fail(
@@ -1057,37 +1203,43 @@ export const finalizeAdaptiveScenario = async (input: {
     );
   }
   const observations = [];
+  const rawEventStreams: string[] = [];
   for (const name of names) {
     const pointer = `observations/${name}`;
     const first = JSON.parse(await readFile(join(manifest.paths.observations, name), "utf8")) as {
       codex?: { cliVersion?: unknown };
-      github?: unknown;
     };
     const cliVersion =
       typeof first.codex?.cliVersion === "string"
         ? first.codex.cliVersion
         : fail("Turn observation has no Codex CLI identity.");
-    observations.push(
-      manifest.github === undefined || first.github === undefined
-        ? await verifyLiveJourneyObservation({
-            workspaceRoot: manifest.paths.workspaceRoot,
-            pointer,
-            expectedCodexCliVersion: cliVersion,
-          })
-        : (
-            await verifyGitHubJourneyObservation({
-              workspaceRoot: manifest.paths.workspaceRoot,
-              pointer,
-              expectedCodexCliVersion: cliVersion,
-            })
-          ).base,
+    const observation = await verifyAdaptiveTurnObservation({
+      workspaceRoot: manifest.paths.workspaceRoot,
+      pointer,
+      expectedCodexCliVersion: cliVersion,
+      github: manifest.github !== undefined,
+    });
+    observations.push(observation);
+    rawEventStreams.push(
+      (
+        await readGeneratedEvidenceFile(
+          manifest.paths.workspaceRoot,
+          observation.privateEvidence.rawEvents.pointer,
+        )
+      ).bytes.toString("utf8"),
     );
   }
+  const sessionState = await readCodexSessionState(manifest.paths.sessionState);
   if (
     verdict.outcome === "pass" &&
-    observations.some((observation) => !observationCompletedCleanly(observation))
+    (sessionState?.generationId !== manifest.generationId ||
+      !passingObservationChainCompleted({
+        observations,
+        rawEventStreams,
+        sessionLastTurn: sessionState?.lastTurn,
+      }))
   ) {
-    fail("A passing semantic verdict cannot contradict an incomplete Codex Turn.");
+    fail("A passing semantic verdict requires a clean or safely resumed Codex Turn chain.");
   }
   if (
     verdict.outcome !== "blocked" &&
@@ -1118,6 +1270,7 @@ export const finalizeAdaptiveScenario = async (input: {
     generationId: manifest.generationId,
     scenarioId: manifest.scenario.id,
     outcome: verdict.outcome,
+    ...(verdict.failureCategory === undefined ? {} : { failureCategory: verdict.failureCategory }),
     rationale: verdict.rationale,
     conversation: await evidenceReference(evidenceRoot, manifest.paths.conversation),
     rawEvents: await Promise.all(

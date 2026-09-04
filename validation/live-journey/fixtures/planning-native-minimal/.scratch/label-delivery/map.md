@@ -12,7 +12,7 @@ Keep human-owned decisions with Human Authority; do not answer them on the user'
 
 ## Decisions so far
 
-## Fog
+## Not yet specified
 
 - The secondary label casing rule is not decided.
 

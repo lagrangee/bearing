@@ -8,6 +8,7 @@ import {
   GITHUB_MATRIX_MILESTONE_PREFIX,
   type GitHubMatrixLifecycleCommand,
   prepareGitHubMatrixFixture,
+  recoverPreparedGitHubMatrixFixtureFailure,
   recoverStaleGitHubMatrixMilestones,
 } from "../scripts/github-live-journey";
 
@@ -42,6 +43,14 @@ class FakeGitHubLifecycle {
   command: GitHubMatrixLifecycleCommand = async (args) => {
     const values = [...args];
     this.calls.push(values);
+    const paginated = (items: readonly unknown[]) =>
+      JSON.stringify(
+        values.includes("--slurp")
+          ? Array.from({ length: Math.ceil(items.length / 100) }, (_, index) =>
+              items.slice(index * 100, (index + 1) * 100),
+            )
+          : items.slice(0, 100),
+      );
     if (values[0] === "label") return "";
     const method = values[values.indexOf("--method") + 1] ?? "GET";
     const endpoint = values.find((value) => value.startsWith("repos/example/validation"));
@@ -49,7 +58,10 @@ class FakeGitHubLifecycle {
       return JSON.stringify({ id: 9001, node_id: "R_validation" });
     }
     if (endpoint === "repos/example/validation/milestones?state=open&per_page=100") {
-      return JSON.stringify([...this.milestones.values()].filter(({ state }) => state === "open"));
+      return paginated([...this.milestones.values()].filter(({ state }) => state === "open"));
+    }
+    if (endpoint === "repos/example/validation/milestones?state=all&per_page=100") {
+      return paginated([...this.milestones.values()]);
     }
     if (endpoint === "repos/example/validation/milestones" && method === "POST") {
       const title =
@@ -69,9 +81,7 @@ class FakeGitHubLifecycle {
     const milestoneIssues = endpoint?.match(/issues\?state=all&milestone=(\d+)&per_page=100$/u);
     if (milestoneIssues !== undefined && milestoneIssues !== null) {
       const milestone = Number(milestoneIssues[1]);
-      return JSON.stringify(
-        [...this.issues.values()].filter((issue) => issue.milestone === milestone),
-      );
+      return paginated([...this.issues.values()].filter((issue) => issue.milestone === milestone));
     }
     if (endpoint === "repos/example/validation/issues" && method === "POST") {
       const raw = values.filter((value) => !value.startsWith("--"));
@@ -211,6 +221,150 @@ describe("GitHub Matrix fixture lifecycle", () => {
     ).rejects.toThrow("failed readback");
   });
 
+  test("preserves partial external-effect recovery when fixture cleanup is unverified", async () => {
+    const fake = new FakeGitHubLifecycle();
+    const command: GitHubMatrixLifecycleCommand = async (args) => {
+      const values = [...args];
+      if (values.some((value) => value.endsWith("/sub_issues?per_page=100"))) {
+        return "[]";
+      }
+      if (
+        values.some((value) => value.endsWith("/issues/101")) &&
+        values.includes("state=closed")
+      ) {
+        throw new Error("fixture cleanup timed out");
+      }
+      return fake.command(args);
+    };
+
+    const error = await prepareGitHubMatrixFixture({
+      sourceRoot: process.cwd(),
+      repositorySlug: "example/validation",
+      scopeKey,
+      generationId,
+      command,
+    }).catch((cause: unknown) => cause);
+
+    expect(error).toMatchObject({
+      name: "GitHubMatrixFixturePreparationError",
+      message: "GitHub Matrix fixture native identity, ready state, or relations failed readback.",
+      externalEffect: {
+        kind: "github-matrix-fixture",
+        repositorySlug: "example/validation",
+        generationId,
+        milestoneNumber: 10,
+        issueNumbers: [100, 101],
+        cleanupOutcome: "unverified",
+        unverifiedTargets: ["issue #101"],
+      },
+    });
+    expect(fake.issues.get(100)?.state).toBe("closed");
+    expect(fake.milestones.get(10)?.state).toBe("closed");
+  });
+
+  test("recovers a milestone whose create response was lost and preserves the original failure", async () => {
+    const fake = new FakeGitHubLifecycle();
+    for (let number = 1_000; number < 1_101; number += 1) {
+      fake.addMilestone({ number, title: `Historical ${number}`, state: "closed" });
+    }
+    const command: GitHubMatrixLifecycleCommand = async (args) => {
+      const values = [...args];
+      if (values.includes("POST") && values.includes("repos/example/validation/milestones")) {
+        await fake.command(args);
+        throw new Error("milestone response lost");
+      }
+      return fake.command(args);
+    };
+
+    const error = await prepareGitHubMatrixFixture({
+      sourceRoot: process.cwd(),
+      repositorySlug: "example/validation",
+      scopeKey,
+      generationId,
+      command,
+    }).catch((cause: unknown) => cause);
+
+    expect(error).toMatchObject({
+      name: "GitHubMatrixFixturePreparationError",
+      message: "milestone response lost",
+      externalEffect: {
+        milestoneNumber: 10,
+        milestoneTitle: `${GITHUB_MATRIX_MILESTONE_PREFIX}${generationId}`,
+        issueNumbers: [],
+        cleanupOutcome: "complete",
+      },
+    });
+    expect(fake.milestones.get(10)?.state).toBe("closed");
+  });
+
+  test("recovers a fixture Issue whose create response was lost", async () => {
+    const fake = new FakeGitHubLifecycle();
+    let issueResponseLost = false;
+    const command: GitHubMatrixLifecycleCommand = async (args) => {
+      const values = [...args];
+      if (
+        !issueResponseLost &&
+        values.includes("POST") &&
+        values.includes("repos/example/validation/issues")
+      ) {
+        issueResponseLost = true;
+        await fake.command(args);
+        throw new Error("issue response lost");
+      }
+      return fake.command(args);
+    };
+
+    const error = await prepareGitHubMatrixFixture({
+      sourceRoot: process.cwd(),
+      repositorySlug: "example/validation",
+      scopeKey,
+      generationId,
+      command,
+    }).catch((cause: unknown) => cause);
+
+    expect(error).toMatchObject({
+      name: "GitHubMatrixFixturePreparationError",
+      message: "issue response lost",
+      externalEffect: {
+        milestoneNumber: 10,
+        issueNumbers: [100],
+        cleanupOutcome: "complete",
+      },
+    });
+    expect(fake.issues.get(100)?.state).toBe("closed");
+    expect(fake.milestones.get(10)?.state).toBe("closed");
+  });
+
+  test("preserves a post-create failure while cleaning its exact remote fixture", async () => {
+    const fake = new FakeGitHubLifecycle();
+    const lifecycle = await prepareGitHubMatrixFixture({
+      sourceRoot: process.cwd(),
+      repositorySlug: "example/validation",
+      scopeKey,
+      generationId,
+      command: fake.command,
+    });
+
+    const error = await recoverPreparedGitHubMatrixFixtureFailure({
+      cause: new Error("local materialization failed"),
+      lifecycle,
+      command: fake.command,
+    });
+
+    expect(error).toMatchObject({
+      name: "GitHubMatrixFixturePreparationError",
+      message: "local materialization failed",
+      externalEffect: {
+        milestoneNumber: 10,
+        issueNumbers: [100, 101],
+        cleanupOutcome: "complete",
+      },
+    });
+    expect(fake.issues.get(100)?.state).toBe("closed");
+    expect(fake.issues.get(101)?.state).toBe("closed");
+    expect(fake.milestones.get(10)?.state).toBe("closed");
+  });
+
   test("rejects Matt Kit output that differs from its versioned materialization receipt", async () => {
     const root = await mkdtemp(join(tmpdir(), "bearing-github-fixture-contract-"));
     try {
@@ -242,20 +396,34 @@ describe("GitHub Matrix fixture lifecycle", () => {
 
   test("recovers only an exact stale Matrix milestone pair and leaves unrelated work untouched", async () => {
     const fake = new FakeGitHubLifecycle();
-    fake.addMilestone({ number: 7, title: `${GITHUB_MATRIX_MILESTONE_PREFIX}old`, state: "open" });
+    const staleGenerationId = "22222222-2222-4222-8222-222222222222";
+    fake.addMilestone({
+      number: 7,
+      title: `${GITHUB_MATRIX_MILESTONE_PREFIX}${staleGenerationId}`,
+      state: "open",
+    });
     fake.addMilestone({ number: 8, title: "Product milestone", state: "open" });
-    for (const number of [70, 71]) {
-      fake.addIssue({
-        id: 10000 + number,
-        node_id: `I_${number}`,
-        number,
-        state: "open",
-        title: `Fixture ${number}`,
-        body: "",
-        labels: [{ name: GITHUB_MATRIX_FIXTURE_LABEL }],
-        milestone: 7,
-      });
-    }
+    const marker = `<!-- bearing-live-scope:${scopeKey} -->`;
+    fake.addIssue({
+      id: 10070,
+      node_id: "I_70",
+      number: 70,
+      state: "open",
+      title: "Complete secondary label delivery",
+      body: `${marker}\n\n## What to build\n\nComplete the delivery.\n\n## Acceptance criteria\n\n- [ ] Delivery complete\n\n## Blocked by\n\n- #71\n\n## Completion evidence\n`,
+      labels: [{ name: GITHUB_MATRIX_FIXTURE_LABEL }],
+      milestone: 7,
+    });
+    fake.addIssue({
+      id: 10071,
+      node_id: "I_71",
+      number: 71,
+      state: "open",
+      title: "Complete secondary label formatting",
+      body: `${marker}\n\n## Parent\n\n#70\n\n## What to build\n\nComplete the child.\n\n## Acceptance criteria\n\n- [ ] Child complete\n\n## Blocked by\n\nNone — can start immediately\n\n## Completion evidence\n`,
+      labels: [{ name: GITHUB_MATRIX_FIXTURE_LABEL }],
+      milestone: 7,
+    });
     const recovered = await recoverStaleGitHubMatrixMilestones({
       repositorySlug: "example/validation",
       currentGenerationId: generationId,
@@ -264,5 +432,40 @@ describe("GitHub Matrix fixture lifecycle", () => {
     expect(recovered).toEqual([7]);
     expect(fake.milestones.get(7)?.state).toBe("closed");
     expect(fake.milestones.get(8)?.state).toBe("open");
+  });
+
+  test("refuses a stale milestone whose labelled Issues lack exact fixture identity", async () => {
+    const fake = new FakeGitHubLifecycle();
+    fake.addMilestone({
+      number: 7,
+      title: `${GITHUB_MATRIX_MILESTONE_PREFIX}22222222-2222-4222-8222-222222222222`,
+      state: "open",
+    });
+    for (const number of [70, 71]) {
+      fake.addIssue({
+        id: 10000 + number,
+        node_id: `I_${number}`,
+        number,
+        state: "open",
+        title:
+          number === 70
+            ? "Complete secondary label delivery"
+            : "Complete secondary label formatting",
+        body: "## What to build\n\nUnrelated labelled work.\n",
+        labels: [{ name: GITHUB_MATRIX_FIXTURE_LABEL }],
+        milestone: 7,
+      });
+    }
+
+    await expect(
+      recoverStaleGitHubMatrixMilestones({
+        repositorySlug: "example/validation",
+        currentGenerationId: generationId,
+        command: fake.command,
+      }),
+    ).rejects.toThrow("canonical open Delivery");
+    expect(fake.issues.get(70)?.state).toBe("open");
+    expect(fake.issues.get(71)?.state).toBe("open");
+    expect(fake.milestones.get(7)?.state).toBe("open");
   });
 });

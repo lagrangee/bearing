@@ -1,6 +1,6 @@
 ---
 name: bearing-dev
-description: Use only in the Bearing source repository when its managed pointer selects the Development Runtime, or when explicitly invoked there.
+description: Use the repository-local Bearing Development Runtime when explicitly requested in the Bearing source repository or selected by its managed pointer.
 ---
 
 # Bearing Development Runtime

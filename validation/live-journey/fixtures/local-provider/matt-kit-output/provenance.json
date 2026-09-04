@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "materializedFrom": [
+    {
+      "skill": "setup-matt-pocock-skills",
+      "source": "issue-tracker-local.md",
+      "sha256": "6f38f66f9ffce2fdc26c43608d06b527f60e45c6f43003d0ea77d4e2641c9de3"
+    },
+    {
+      "skill": "to-spec",
+      "source": "SKILL.md",
+      "sha256": "5d26479544b08048d3a8f79d937b39bc613a617f026b3fd083bafc1e99a7b811"
+    },
+    {
+      "skill": "to-tickets",
+      "source": "SKILL.md",
+      "sha256": "5ecdf1d4df8a360ed39df21a2347f97ba177afd449a577da4f6b6ea8e1ebb808"
+    },
+    {
+      "skill": "wayfinder",
+      "source": "SKILL.md",
+      "sha256": "d33e2141f7c8bbfd137fef0213cbec465820e4680e67da5d0f0815d6742d26c2"
+    }
+  ],
+  "configuredContract": {
+    "base": "setup-matt-pocock-skills/local-markdown-v1",
+    "providerExtensions": [
+      "PRD.md spec locator",
+      "matt-skills/v1 provider declaration",
+      "feature directory as provider-native scope identity",
+      "strict Blocked by grammar",
+      "Local Map lifecycle Status",
+      "ordinary Delivery completion and Human implementation handoff",
+      "empty Wayfinder list sections remain empty"
+    ],
+    "artifacts": [
+      {
+        "file": "validation/live-journey/fixtures/lifecycle-minimal/docs/agents/issue-tracker.md",
+        "sha256": "16b4eaeae5bd74cab61a8d0224a97b16e2e6b2ed1235418b134cd5c26dfd8233"
+      },
+      {
+        "file": "validation/live-journey/fixtures/lifecycle-minimal/docs/agents/triage-labels.md",
+        "sha256": "c70d574da03274e85a0b63971ab039ff20b8b3f053bc817a43b1fedb374dcb95"
+      },
+      {
+        "file": "validation/live-journey/fixtures/planning-native-minimal/docs/agents/issue-tracker.md",
+        "sha256": "16b4eaeae5bd74cab61a8d0224a97b16e2e6b2ed1235418b134cd5c26dfd8233"
+      },
+      {
+        "file": "validation/live-journey/fixtures/planning-native-minimal/docs/agents/triage-labels.md",
+        "sha256": "c70d574da03274e85a0b63971ab039ff20b8b3f053bc817a43b1fedb374dcb95"
+      },
+      {
+        "file": "validation/live-journey/fixtures/delivery-minimal/docs/agents/issue-tracker.md",
+        "sha256": "16b4eaeae5bd74cab61a8d0224a97b16e2e6b2ed1235418b134cd5c26dfd8233"
+      },
+      {
+        "file": "validation/live-journey/fixtures/delivery-minimal/docs/agents/triage-labels.md",
+        "sha256": "c70d574da03274e85a0b63971ab039ff20b8b3f053bc817a43b1fedb374dcb95"
+      }
+    ]
+  },
+  "outputContract": {
+    "artifacts": [
+      {
+        "owner": "to-spec",
+        "file": "validation/live-journey/fixtures/planning-native-minimal/.scratch/label-delivery/PRD.md",
+        "sha256": "5e21f8fb3386f1675c35b5f3959c74b5af4af02ee25a8c1bf6f1fb150b3d4882"
+      },
+      {
+        "owner": "wayfinder",
+        "file": "validation/live-journey/fixtures/planning-native-minimal/.scratch/label-delivery/map.md",
+        "sha256": "cc0d425e6784de9df4545ca48cf9fa6cfd4253daf43e512f1b659c265687460f"
+      },
+      {
+        "owner": "to-tickets",
+        "file": "validation/live-journey/fixtures/planning-native-minimal/.scratch/label-delivery/issues/01-update-output.md",
+        "sha256": "1d8b583c32b7afd17091e6d79cb80e8418284ecdb95dd239ba04c6a41480d473"
+      },
+      {
+        "owner": "to-spec",
+        "file": "validation/live-journey/fixtures/delivery-minimal/.scratch/label-delivery/PRD.md",
+        "sha256": "ec849a3952e32ae3e5642f5cb035d8a8de8c4953a3b8ef10713de677fcd69284"
+      },
+      {
+        "owner": "wayfinder",
+        "file": "validation/live-journey/fixtures/delivery-minimal/.scratch/label-delivery/map.md",
+        "sha256": "6111a7952d53ece24aaee8dd548862158e0b08faf7936468ef4f5c61ad9f5909"
+      },
+      {
+        "owner": "to-tickets",
+        "file": "validation/live-journey/fixtures/delivery-minimal/.scratch/label-delivery/issues/04-complete-secondary-format.md",
+        "sha256": "b1759ac680f2235afe92eeed5a6db9ce2f130da00100dd41fd29e44930939ccd"
+      },
+      {
+        "owner": "wayfinder",
+        "file": "validation/live-journey/fixtures/local-provider/matt-kit-output/wayfinder-ticket.md",
+        "sha256": "ddc77a75714cd576dbbfcab3ddc7585f720e7bf24d4b40efaeda07d6b33b8665"
+      }
+    ]
+  },
+  "note": "The checked-in Local Markdown fixtures are digest-bound materializations of the pinned Matt Kit contracts plus the declared repository-specific provider extensions. Generations verify these fixed bytes and never regenerate them through Agent behavior."
+}

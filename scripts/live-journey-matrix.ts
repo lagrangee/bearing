@@ -18,6 +18,56 @@ const evidencePointerSchema = z
     message: "Evidence pointers must stay relative to the generated workspace.",
   });
 
+const evidenceRejectionReasonSchema = z.enum([
+  "credential-match",
+  "scanner-unavailable",
+  "mechanical-failure",
+]);
+
+const invocationFailureStageSchema = z.enum([
+  "codex-invocation",
+  "github-broker-shutdown",
+  "github-remote-after-readback",
+  "output-processing",
+  "evidence-publication",
+  "conversation-publication",
+]);
+
+const evidenceRejectionSchema = z
+  .object({
+    reason: evidenceRejectionReasonSchema,
+    stage: invocationFailureStageSchema.optional(),
+    error: z
+      .object({
+        name: z.string().min(1).max(64),
+        message: z.string().min(1).max(512),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((rejection, context) => {
+    if (rejection.reason === "mechanical-failure") {
+      if (rejection.stage === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["stage"],
+          message: "Mechanical evidence rejection requires one failure stage.",
+        });
+      }
+      if (rejection.error === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["error"],
+          message: "Mechanical evidence rejection requires one safe error summary.",
+        });
+      }
+    }
+  });
+
+export type LiveJourneyEvidenceRejection = z.infer<typeof evidenceRejectionSchema>;
+export type LiveJourneyInvocationFailureStage = z.infer<typeof invocationFailureStageSchema>;
+
 const observationSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -34,6 +84,13 @@ const observationSchema = z
       requestedReasoningEffort: z.literal(CODEX_E2E_RUNTIME.reasoningEffort),
       requestedFastMode: z.literal(CODEX_E2E_RUNTIME.fastMode),
     }),
+    invokedSkill: z
+      .object({
+        name: z.string().min(1),
+        path: z.string().min(1),
+      })
+      .optional(),
+    evidenceRejection: evidenceRejectionSchema.optional(),
     eventCounts: z.record(z.string(), z.number().int().nonnegative()),
     state: z.object({
       before: z.object({ repository: z.string(), agentHome: z.string() }),
@@ -66,6 +123,21 @@ const observationSchema = z
         code: "custom",
         path: ["durationMs"],
         message: "Observation duration must equal endedAt minus startedAt.",
+      });
+    }
+    const rejectionCount = observation.eventCounts["durable-evidence-rejected"] ?? 0;
+    if (rejectionCount > 0 && observation.evidenceRejection === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["evidenceRejection"],
+        message: "Rejected durable evidence requires one main-observation diagnosis.",
+      });
+    }
+    if (observation.evidenceRejection !== undefined && rejectionCount !== 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["eventCounts", "durable-evidence-rejected"],
+        message: "One evidence rejection diagnosis requires one matching synthetic event.",
       });
     }
   });
@@ -156,6 +228,8 @@ export const createLiveJourneyObservation = (input: {
   startedAt: string;
   endedAt: string;
   durationMs: number;
+  invokedSkill?: Readonly<{ name: string; path: string }>;
+  evidenceRejection?: LiveJourneyEvidenceRejection;
 }) => {
   if (!Number.isSafeInteger(input.turn) || input.turn <= 0) fail("Observation turn is invalid.");
   const eventCounts: Record<string, number> = {};
@@ -206,6 +280,19 @@ export const createLiveJourneyObservation = (input: {
       requestedReasoningEffort: CODEX_E2E_RUNTIME.reasoningEffort,
       requestedFastMode: CODEX_E2E_RUNTIME.fastMode,
     }),
+    ...(input.invokedSkill === undefined
+      ? {}
+      : { invokedSkill: Object.freeze(input.invokedSkill) }),
+    ...(input.evidenceRejection === undefined
+      ? {}
+      : {
+          evidenceRejection: Object.freeze({
+            ...input.evidenceRejection,
+            ...(input.evidenceRejection.error === undefined
+              ? {}
+              : { error: Object.freeze(input.evidenceRejection.error) }),
+          }),
+        }),
     eventCounts: Object.freeze(
       Object.fromEntries(
         Object.entries(eventCounts).sort(([left], [right]) => left.localeCompare(right)),
@@ -310,6 +397,67 @@ export const observationCompletedCleanly = (input: unknown): boolean => {
     (observation.eventCounts["turn.failed"] ?? 0) === 0 &&
     (observation.eventCounts["invalid-jsonl"] ?? 0) === 0
   );
+};
+
+const rawEventsContainAgentReply = (stdout: string): boolean => {
+  for (const line of stdout.split(/\r?\n/u).filter((entry) => entry.length > 0)) {
+    try {
+      const event = JSON.parse(line) as Readonly<{
+        type?: unknown;
+        item?: Readonly<{ type?: unknown }>;
+      }>;
+      if (event.type === "item.completed" && event.item?.type === "agent_message") return true;
+    } catch {
+      // observationSchema event counts reject invalid JSONL from recovered pass evidence.
+    }
+  }
+  return false;
+};
+
+const observationIsRecoverableInterruption = (input: unknown, rawEvents: string): boolean => {
+  const observation = observationSchema.parse(input);
+  return (
+    observation.invocationStarted &&
+    observation.exitCode !== 0 &&
+    observation.terminalBoundary === "turn.failed" &&
+    (observation.eventCounts["turn.failed"] ?? 0) === 1 &&
+    (observation.eventCounts["turn.completed"] ?? 0) === 0 &&
+    (observation.eventCounts["invalid-jsonl"] ?? 0) === 0 &&
+    (observation.eventCounts["durable-evidence-rejected"] ?? 0) === 0 &&
+    observation.state.before.repository === observation.state.after.repository &&
+    observation.state.before.agentHome === observation.state.after.agentHome &&
+    !rawEventsContainAgentReply(rawEvents)
+  );
+};
+
+export const passingObservationChainCompleted = (input: {
+  observations: readonly unknown[];
+  rawEventStreams: readonly string[];
+  sessionLastTurn: number | undefined;
+}): boolean => {
+  if (
+    input.observations.length === 0 ||
+    input.rawEventStreams.length !== input.observations.length
+  ) {
+    return false;
+  }
+  const observations = input.observations.map((observation) =>
+    observationSchema.parse(observation),
+  );
+  if (
+    input.sessionLastTurn !== observations.length ||
+    !observationCompletedCleanly(observations.at(-1))
+  ) {
+    return false;
+  }
+  return observations.every((observation, index) => {
+    if (observation.turn !== index + 1) return false;
+    if (observationCompletedCleanly(observation)) return true;
+    return (
+      index < observations.length - 1 &&
+      observationIsRecoverableInterruption(observation, input.rawEventStreams[index] ?? "")
+    );
+  });
 };
 
 export const readCodexSessionState = async (path: string) => {

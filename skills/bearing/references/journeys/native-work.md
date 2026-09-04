@@ -2,60 +2,79 @@
 
 ## Applicability
 
-Use when the user invokes Work Management to create or identify native work, or after any known
-native write that may be inside an accepted Work Binding.
+Use when the request creates, identifies, or changes provider-native work, including an explicitly
+invoked owner Skill, ordinary owner work, and native writeback after Execution.
+
+## Working terms
+
+- An **Owner Skill** is a Skill the Human actually invoked for this work. Preserve its workflow and
+  authority. When none was invoked, perform **Ordinary Owner Work** without claiming Skill use.
+- A **Human Handoff** pauses owner work for one material Human choice or authorization. It is not
+  completion or failure.
+- **Workflow Completion** means the current owner task is fulfilled. It does not imply provider,
+  Effort, Gate, or Roadmap completion.
+- The **Pending Native Write Set** is every exact native subject successfully changed in this
+  request and not yet covered by successful provider synchronization. A changed relation or pointer
+  includes both known endpoints.
 
 ## Authority
 
 Work Management owns native status, claim, blocker, dependency, checklist, Answer, and resolution.
-Bearing owns local Binding lookup, relevant planning context, and exact readback of successful
-managed effects. Provider reads never mutate native work.
+The Agent owns exact admission and the Pending Native Write Set.
+Deterministic Bearing Modules own Binding lookup, provider acquisition, and exact reconciliation.
+Provider reads never mutate native work.
+
+## Native claim boundary
+
+Claim is an owner-specific concurrency operation, not a generic Native Work step. Preserve the
+selected owner's exact claim representation; never translate Wayfinder's `claimed` state into a
+Delivery ticket lifecycle or triage state.
+
+| Owner mode | Claim authority |
+| --- | --- |
+| `invoked-owner-workflow-with-required-claim` | `exact-owner-defined-claim-only` |
+| `ordinary-owner-work` | `none` |
+| `owner-workflow-without-claim` | `none` |
 
 ## Operation
 
-1. Resolve the exact native reference when it already exists. If the request can identify more than
-   one plausible reference, stop and ask the Human to select the exact identity. Do not batch,
-   order, claim, or execute any approximate candidate. When an exact planned-Effort start has no
-   native identity yet, accept only the Effort owner's confirmed named handoff; do not predict or
-   fabricate the future scope. A bare GitHub issue number or `#number` is a tracker locator, not a
-   provider-canonical native reference. Resolve it with
-   `gh issue view <number> --json url --jq .url`, use that returned URL unchanged as
-   `<native-reference>`, and never pass the tracker locator. Every existing target then runs Native
-   Inspect through `bearing inspect --native <native-reference> --repo <repo-root>`. Preserve the
-   canonical `result.reference` returned by Inspect exactly as returned;
-   do not absolutize, relativize, normalize independently, or reconstruct it from filesystem
-   knowledge. For a bound result, preserve its `nativeScope` and Targeted Reconciliation Basis.
-   When the basis is `capture-required`, complete the selected exact-scope baseline operation before
-   Work Management starts; a failed capture stops without native mutation. Completion: the target is
-   a confirmed named start with no scope yet, unbound, or bound to one Effort with a `ready` basis.
-2. Give Work Management the original request that explicitly invoked its Matt workflow. Let it
-   complete its full owner operation before returning control, including provider-specific final
-   review. Preserve one terminal outcome, the exact scope identity it created or identified, and
-   every native subject it confirms it successfully wrote. For a successful relation mutation,
-   include its known source and target subjects. Bearing never invokes, emulates, or replaces the
-   workflow and does not require a Bearing receipt, provider-neutral candidate write set, or
-   relation `kind`/`source`/`target` payloads. Do not translate failed, ambiguous, incomplete, or
-   spec-only results. Completion: the owner operation is terminal and its actual successful scope
-   and subject set are exact.
-3. When that owner transaction supplies the scope for a new Work Binding, return its exact identity
-   to the Effort owner. After the canonical Binding and Activation transaction, use one Provider
-   Scope Capture as the first baseline; do not substitute Targeted Native Reconciliation. The
-   accepted named invocation authorizes this continuation without duplicate confirmation.
-4. For an existing Binding, only after the Matt Native Work Transaction closes, deduplicate its
-   complete actual successful set and run exactly one Targeted Native Reconciliation through
-   `bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope>` with one exact
-   `--ref` for each subject. Check complete subject closure before issuing the command, and use each
-   provider-canonical native reference unchanged. Admit only an unchanged `result.reference` from
-   Native Inspect or a provider-canonical reference returned by Work Management for its successful
-   write. Never synthesize a subject alias from an issue number, path knowledge, title, or opaque
-   scope identity; reconciliation is not a payload probe. Provider readback derives current
-   relations and their direction. The accepted native outcome authorizes this exact readback
-   without another confirmation. Any issued reconciliation command is the sole attempt: failure is
-   terminal, not authority for a corrected second command. Completion: one post-transaction result
-   covers the complete deduplicated subject set and only provider-proven relations.
-5. If work is unbound, complete Work Management as Standalone Native Work before Bearing considers
-   enrollment, then apply the Enrollment Boundary below. Native work never waits for enrollment.
-   Completion: the terminal native disposition and bounded Bearing continuation match the table.
+1. Preserve an actually invoked Owner Skill and its original request. Otherwise use Ordinary Owner
+   Work from the natural request and repository contract.
+2. Admit every existing native subject before owner mutation; a Binding scope identifies the
+   provider boundary but is not itself a native subject. An invoked owner whose contract requires a
+   claim may perform only that exact claim first; all other work performs no pre-admission mutation.
+   Resolve ambiguity with the Human. For Local Markdown, use the exact repository-relative tracker
+   locator unchanged as `<native-reference>` and keep provider identity separate. A bare GitHub issue
+   number or `#number` is a tracker locator: resolve it with
+   `gh issue view <number> --json url --jq .url`, then use the returned URL unchanged as
+   `<native-reference>`. Run `bearing inspect --native <native-reference> --repo <repo-root>` and
+   preserve its canonical `result.reference` and Binding. For a bound subject, also preserve its
+   `nativeScope` and Targeted Reconciliation Basis. If the basis is `capture-required`, complete one
+   exact-scope baseline and end the current Turn without owner mutation; continue the preserved owner
+   work after the next Human reply. That capture is the Turn's one provider synchronization. If the
+   basis is `ready`, perform no baseline capture. A confirmed named Effort start with no native
+   identity instead lets its accepted owner workflow create the real scope.
+3. Run the owner workflow in the same conversation until Human Handoff, Workflow Completion, or
+   Workflow Failure. Add only actual successful writes to the Pending Native Write Set; requested,
+   attempted, or rolled-back writes add nothing.
+4. Apply the matching provider follow-up before replying:
+
+| Owner state | Provider follow-up |
+| --- | --- |
+| `human-handoff` | Preserve the owner workflow, scope, and pending writes for the next Turn; this Turn may perform zero or one exact reconciliation. |
+| `workflow-complete; existing-binding; pending-native-write-set-present` | Reconcile the complete pending set once before reporting completion. |
+| `workflow-complete; accepted-new-binding` | Let the Effort owner create the Binding and Activation, then establish the first baseline with one exact-scope capture. |
+| `workflow-complete; unbound-native-work` | Preserve the standalone result, then apply the Enrollment Boundary. |
+| `workflow-complete; no-pending-native-write-set` | Perform no provider synchronization. |
+| `workflow-failed` | Preserve partial effects and the exact resumption point; perform no post-owner provider follow-up. |
+
+5. For an existing Binding, reconcile with `bearing reconcile-native --repo <repo-root>
+   --scope <opaque-native-scope>` and one unchanged provider-canonical `--ref` for each pending
+   subject. Retain the complete typed result and clear only covered subjects after success. A later
+   Turn may synchronize new writes once; the same Turn never repeats synchronization to discover
+   fields, change references, or recover a failure.
+6. Standalone Native Work never waits for enrollment. Complete its owner workflow first, then make
+   at most the advisory suggestion allowed below.
 
 ## Enrollment Boundary
 
@@ -77,8 +96,13 @@ managed effects. Provider reads never mutate native work.
 
 - **Required:** A failed targeted reconciliation stops at its exact resumption point with prior
   evidence non-current; there is no full-scope capture or verification fallback in that native
-  transaction. Any later exact-scope capture is a separate recovery operation and cannot
-  retroactively prove the failed transaction succeeded.
+  Turn. Any later exact-scope capture is a separate recovery operation and cannot retroactively
+  prove the failed reconciliation succeeded.
 - **Consider:** A lifecycle-mismatch diagnostic may support a later Effort decision.
 - **Do not infer:** Evidence-only rows in the Enrollment Boundary do not create a Binding, activate
   or conclude an Effort, pass a Gate, complete a Roadmap, or supply event time.
+
+## Completion criterion
+
+The actual owner was preserved, every existing native subject completed exact admission, and each owner
+boundary applied its matching provider follow-up to the complete Pending Native Write Set.

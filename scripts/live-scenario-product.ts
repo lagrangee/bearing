@@ -12,7 +12,7 @@ import {
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { z } from "zod";
 import { BEARING_POINTER, withoutBearingManagedPointer } from "../src/agent-surface-entry";
-import type { LiveScenario } from "./live-scenario-registry";
+import { type LiveScenario, liveScenarioSkillIsInstalled } from "./live-scenario-registry";
 
 const fail = (message: string): never => {
   throw new Error(message);
@@ -39,7 +39,7 @@ export const materializeDeclaredPrerequisiteSkills = async (input: {
   const materialized: string[] = [];
 
   for (const { skill, role } of input.scenario.fixedValidationFixture.skills) {
-    if (skill === "bearing" || role !== "prerequisite") continue;
+    if (skill === "bearing" || !liveScenarioSkillIsInstalled(role)) continue;
     const declaredSource = join(trustedSkillRoot, skill);
     let source: string;
     try {
@@ -488,7 +488,6 @@ export const materializeGitHubLiveScenarioPlanningState = async (input: {
 const retainNativeTickets = async (
   repositoryRoot: string,
   retained: readonly string[],
-  decisions: readonly string[],
 ): Promise<void> => {
   const issueRoot = join(repositoryRoot, ".scratch/label-delivery/issues");
   for (const name of [
@@ -500,15 +499,6 @@ const retainNativeTickets = async (
   ]) {
     if (!retained.includes(name)) await rm(join(issueRoot, name), { force: true });
   }
-  const mapPath = join(repositoryRoot, ".scratch/label-delivery/map.md");
-  const map = await readFile(mapPath, "utf8");
-  await writeFile(
-    mapPath,
-    map.replace(
-      /## Decisions so far\n\n[\s\S]*?\n\n## Fog/u,
-      `## Decisions so far\n\n${decisions.join("\n")}\n\n## Fog`,
-    ),
-  );
 };
 
 export const materializeLiveScenarioProductState = async (input: {
@@ -540,37 +530,21 @@ export const materializeLiveScenarioProductState = async (input: {
     ].includes(materializer)
   ) {
     if (materializer === "active-bound-local-repository") {
-      await retainNativeTickets(
-        input.repositoryRoot,
-        ["04-complete-secondary-format.md"],
-        [
-          "- [Complete secondary label formatting](issues/04-complete-secondary-format.md) — Finish the accepted secondary behavior.",
-        ],
-      );
+      await retainNativeTickets(input.repositoryRoot, ["04-complete-secondary-format.md"]);
     }
     if (materializer === "active-bound-wayfinder-repository") {
-      await writeFile(
+      await cp(
+        join(
+          input.sourceRoot,
+          "validation/live-journey/fixtures/local-provider/matt-kit-output/wayfinder-ticket.md",
+        ),
         join(
           input.repositoryRoot,
           ".scratch/label-delivery/issues/05-decide-secondary-label-casing.md",
         ),
-        `# 05 — Decide secondary label casing
-
-Type: grilling
-
-Blocked by: None — can start immediately
-
-## Question
-
-How should secondary labels normalize surrounding whitespace and letter casing?
-
-## Decision boundary
-
-This ticket decides only the ordered transformation for surrounding whitespace and letter casing.
-No new empty-string, internal-whitespace, or input-validation policy belongs to this decision.
-`,
+        { force: false },
       );
-      await retainNativeTickets(input.repositoryRoot, ["05-decide-secondary-label-casing.md"], []);
+      await retainNativeTickets(input.repositoryRoot, ["05-decide-secondary-label-casing.md"]);
     }
     await installPlanningState({
       ...input,

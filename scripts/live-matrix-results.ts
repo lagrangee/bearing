@@ -19,6 +19,47 @@ const digestSchema = z.string().regex(/^[0-9a-f]{64}$/u);
 const generationIdSchema = z.string().uuid();
 const timestampSchema = z.string().datetime({ offset: true });
 const outcomeSchema = z.enum(["pass", "fail", "blocked"]);
+export const liveMatrixFailureCategorySchema = z.enum([
+  "test-system",
+  "activation",
+  "contract",
+  "product",
+  "agent-adherence",
+]);
+
+export type LiveMatrixFailureCategory = z.infer<typeof liveMatrixFailureCategorySchema>;
+
+const requireFailureCategory = (
+  value: {
+    outcome: "pass" | "fail" | "blocked";
+    failureCategory?: LiveMatrixFailureCategory | undefined;
+  },
+  context: z.RefinementCtx,
+) => {
+  if (value.outcome === "pass" && value.failureCategory !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["failureCategory"],
+      message: "A passing Live Matrix verdict cannot carry a failure category.",
+    });
+  }
+  if (value.outcome !== "pass" && value.failureCategory === undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["failureCategory"],
+      message: "A non-passing Live Matrix verdict requires one coordinator failure category.",
+    });
+  }
+};
+
+export const liveMatrixSemanticVerdictSchema = z
+  .object({
+    outcome: outcomeSchema,
+    failureCategory: liveMatrixFailureCategorySchema.optional(),
+    rationale: z.string().trim().min(1).max(800),
+  })
+  .strict()
+  .superRefine(requireFailureCategory);
 
 const uniqueScenarioIdsSchema = z
   .array(liveScenarioIdSchema)
@@ -97,11 +138,12 @@ export type LiveMatrixTurnTiming = z.infer<typeof liveMatrixTurnTimingSchema>;
 
 export const liveMatrixScenarioTerminalResultSchema = z
   .object({
-    schemaVersion: z.literal(2),
+    schemaVersion: z.literal(3),
     generationId: generationIdSchema,
     scenarioId: liveScenarioIdSchema,
     semanticEvaluationAuthority: z.literal(LIVE_MATRIX_COORDINATOR_AUTHORITY),
     outcome: outcomeSchema,
+    failureCategory: liveMatrixFailureCategorySchema.optional(),
     rationale: z.string().trim().min(1).max(800),
     conversation: liveMatrixEvidenceReferenceSchema,
     rawEvents: uniqueReferences(liveMatrixEvidenceReferenceSchema),
@@ -113,6 +155,7 @@ export const liveMatrixScenarioTerminalResultSchema = z
   })
   .strict()
   .superRefine((result, context) => {
+    requireFailureCategory(result, context);
     const allPointers = [
       result.conversation.pointer,
       ...result.rawEvents.map(({ pointer }) => pointer),
@@ -166,6 +209,7 @@ export const createLiveMatrixScenarioTerminalResult = (input: {
   generationId: string;
   scenarioId: string;
   outcome: "pass" | "fail" | "blocked";
+  failureCategory?: LiveMatrixFailureCategory | undefined;
   rationale: string;
   conversation: z.input<typeof liveMatrixEvidenceReferenceSchema>;
   rawEvents: readonly z.input<typeof liveMatrixEvidenceReferenceSchema>[];
@@ -175,11 +219,12 @@ export const createLiveMatrixScenarioTerminalResult = (input: {
   endedAt: string;
 }): LiveMatrixScenarioTerminalResult =>
   parseLiveMatrixScenarioTerminalResult({
-    schemaVersion: 2,
+    schemaVersion: 3,
     generationId: input.generationId,
     scenarioId: input.scenarioId,
     semanticEvaluationAuthority: LIVE_MATRIX_COORDINATOR_AUTHORITY,
     outcome: input.outcome,
+    ...(input.failureCategory === undefined ? {} : { failureCategory: input.failureCategory }),
     rationale: input.rationale,
     conversation: input.conversation,
     rawEvents: input.rawEvents,
@@ -201,6 +246,7 @@ const matrixScenarioSummarySchema = z
   .object({
     scenarioId: liveScenarioIdSchema,
     outcome: outcomeSchema,
+    failureCategory: liveMatrixFailureCategorySchema.optional(),
     rationale: z.string().trim().min(1).max(800),
     startedAt: timestampSchema,
     endedAt: timestampSchema,
@@ -209,7 +255,8 @@ const matrixScenarioSummarySchema = z
     turns: z.array(liveMatrixTurnTimingSchema.extend({ slowObservation: z.boolean() }).strict()),
     result: liveMatrixEvidenceReferenceSchema,
   })
-  .strict();
+  .strict()
+  .superRefine(requireFailureCategory);
 
 const slowObservationSchema = z.discriminatedUnion("scope", [
   z
@@ -240,13 +287,21 @@ const matrixReportSchema = z
     blockedCount: z.number().int().nonnegative().safe(),
     failures: z.array(liveScenarioIdSchema),
     blocked: z.array(liveScenarioIdSchema),
+    failureAttributions: z.array(
+      z
+        .object({
+          scenarioId: liveScenarioIdSchema,
+          category: liveMatrixFailureCategorySchema,
+        })
+        .strict(),
+    ),
     slowObservations: z.array(slowObservationSchema),
   })
   .strict();
 
 export const liveMatrixResultSchema = z
   .object({
-    schemaVersion: z.literal(2),
+    schemaVersion: z.literal(3),
     generationId: generationIdSchema,
     evidenceClass: z.enum(["local-rehearsal", "release-candidate"]),
     semanticEvaluationAuthority: z.literal(LIVE_MATRIX_COORDINATOR_AUTHORITY),
@@ -280,6 +335,13 @@ const expectedReport = (
     blockedCount: blocked.length,
     failures,
     blocked,
+    failureAttributions: scenarios
+      .filter(({ outcome }) => outcome !== "pass")
+      .map(({ scenarioId, failureCategory }) => ({
+        scenarioId,
+        category:
+          failureCategory ?? fail(`Non-passing Scenario has no attribution: ${scenarioId}.`),
+      })),
     slowObservations: scenarios.flatMap((scenario) => [
       ...(scenario.slowObservation
         ? [
@@ -357,15 +419,15 @@ export const parseLiveMatrixResultForScenarioIds = (
 export const createLiveMatrixResult = (input: {
   generationBasis: unknown;
   generationBasisReference: z.input<typeof liveMatrixEvidenceReferenceSchema>;
-  registeredScenarioIds: readonly string[];
+  selectedScenarioIds: readonly string[];
   scenarioResults: readonly z.input<typeof scenarioResultReferenceSchema>[];
   peakConcurrency: number;
   endedAt: string;
 }): LiveMatrixResult => {
   const generationBasis = parseLiveMatrixGenerationBasis(input.generationBasis);
-  const requiredScenarioIds = uniqueScenarioIdsSchema.parse([...input.registeredScenarioIds]);
+  const requiredScenarioIds = uniqueScenarioIdsSchema.parse([...input.selectedScenarioIds]);
   if (JSON.stringify(generationBasis.selectedScenarioIds) !== JSON.stringify(requiredScenarioIds)) {
-    fail("Live Matrix Generation basis does not bind the exact registry Scenario order.");
+    fail("Live Matrix Generation basis does not bind the exact selected Scenario order.");
   }
   const references = z
     .array(scenarioResultReferenceSchema)
@@ -388,6 +450,9 @@ export const createLiveMatrixResult = (input: {
     return {
       scenarioId,
       outcome: observed.result.outcome,
+      ...(observed.result.failureCategory === undefined
+        ? {}
+        : { failureCategory: observed.result.failureCategory }),
       rationale: observed.result.rationale,
       startedAt: observed.result.startedAt,
       endedAt: observed.result.endedAt,
@@ -402,7 +467,7 @@ export const createLiveMatrixResult = (input: {
   });
   return parseLiveMatrixResultForScenarioIds(
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       generationId: generationBasis.generationId,
       evidenceClass: generationBasis.package.evidenceClass,
       semanticEvaluationAuthority: LIVE_MATRIX_COORDINATOR_AUTHORITY,
@@ -502,7 +567,7 @@ export const verifyLiveMatrixResult = async (
   const recreated = createLiveMatrixResult({
     generationBasis,
     generationBasisReference: matrix.generationBasis,
-    registeredScenarioIds: requiredScenarioIds,
+    selectedScenarioIds: requiredScenarioIds,
     scenarioResults,
     peakConcurrency: matrix.peakConcurrency,
     endedAt: matrix.endedAt,
