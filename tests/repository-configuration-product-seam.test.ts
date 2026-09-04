@@ -341,10 +341,12 @@ test("packed Repository Configuration seals one exact Fresh write set and applie
     });
     const exactAgentSurface = await readFile(join(root, "AGENTS.md"), "utf8");
     expect(exactAgentSurface).toContain(BEARING_POINTER);
-    await writeFile(
-      join(root, "AGENTS.md"),
-      exactAgentSurface.replace("For a new request", "For a changed request"),
+    const driftedAgentSurface = exactAgentSurface.replace(
+      BEARING_POINTER,
+      `${BEARING_POINTER} Changed outside the managed pointer.`,
     );
+    expect(driftedAgentSurface).not.toBe(exactAgentSurface);
+    await writeFile(join(root, "AGENTS.md"), driftedAgentSurface);
     const drifted = await product.run(["configure", "inspect", "--repo", root], {
       observeRoots: [root, product.homeDir],
     });

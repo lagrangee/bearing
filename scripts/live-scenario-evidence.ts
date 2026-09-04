@@ -50,22 +50,6 @@ const localRehearsalPackageSchema = z
     sourceHead: z.string().min(1),
     worktreeSha256: sha256Schema,
     artifact: liveScenarioArtifactSchema,
-    fixtures: z
-      .object({
-        olderGlobalKit: z
-          .object({
-            packageName: z.literal("@lagrangee/bearing"),
-            packageVersion: z.literal("0.1.1"),
-            source: z.object({
-              kind: z.literal("npm"),
-              spec: z.literal("@lagrangee/bearing@0.1.1"),
-            }),
-            artifact: liveScenarioArtifactSchema,
-          })
-          .strict(),
-      })
-      .strict()
-      .optional(),
     matrixDefinitionSha256: sha256Schema,
   })
   .strict();
@@ -75,6 +59,65 @@ export const liveScenarioPackageSchema = z.discriminatedUnion("evidenceClass", [
   localRehearsalPackageSchema,
 ]);
 export type LiveScenarioPackage = z.infer<typeof liveScenarioPackageSchema>;
+
+const boundedArtifactSchema = z.object({ file: z.string().min(1), sha256: sha256Schema }).strict();
+
+export const liveScenarioBoundedPackageSchema = z.discriminatedUnion("evidenceClass", [
+  z
+    .object({
+      evidenceClass: z.literal("release-candidate"),
+      packageName: z.literal("@lagrangee/bearing"),
+      packageVersion: z.string().min(1),
+      sourceCommit: z.string().min(1),
+      workflow: z
+        .object({
+          name: z.string().min(1),
+          runId: z.string().min(1),
+          runAttempt: z.number().int().positive(),
+        })
+        .strict(),
+      artifact: boundedArtifactSchema,
+      matrixDefinitionSha256: sha256Schema,
+    })
+    .strict(),
+  z
+    .object({
+      evidenceClass: z.literal("local-rehearsal"),
+      packageName: z.literal("@lagrangee/bearing"),
+      packageVersion: z.string().min(1),
+      sourceHead: z.string().min(1),
+      worktreeSha256: sha256Schema,
+      artifact: boundedArtifactSchema,
+      matrixDefinitionSha256: sha256Schema,
+    })
+    .strict(),
+]);
+
+export const liveScenarioPackageEvidenceIdentity = (input: LiveScenarioPackage) =>
+  liveScenarioBoundedPackageSchema.parse(
+    input.evidenceClass === "release-candidate"
+      ? {
+          evidenceClass: input.evidenceClass,
+          packageName: input.packageName,
+          packageVersion: input.packageVersion,
+          sourceCommit: input.sourceCommit,
+          workflow: input.workflow,
+          artifact: { file: input.artifact.file, sha256: input.artifact.sha256 },
+          matrixDefinitionSha256: input.matrixDefinitionSha256,
+        }
+      : {
+          evidenceClass: input.evidenceClass,
+          packageName: input.packageName,
+          packageVersion: input.packageVersion,
+          sourceHead: input.sourceHead,
+          worktreeSha256: input.worktreeSha256,
+          artifact: { file: input.artifact.file, sha256: input.artifact.sha256 },
+          matrixDefinitionSha256: input.matrixDefinitionSha256,
+        },
+  );
+
+export const liveScenarioMatrixPackageIdentitySha256 = (input: unknown): string =>
+  sha256(`matrix-package-v1\0${JSON.stringify(liveScenarioBoundedPackageSchema.parse(input))}\n`);
 
 const candidateReceiptBindingSchema = z
   .object({
@@ -123,23 +166,76 @@ export const readLiveScenarioPackageBasis = async (
 
 const requiredGitleaksVersion = "8.30.1";
 
+const redactSealedPlanFingerprints = (value: string): string =>
+  value.replace(
+    /(--plan-token(?:=|\s+))sha256:[0-9a-f]{64}\b/giu,
+    "$1<sealed-plan-fingerprint-redacted>",
+  );
+
+const gitleaksRuleIds = (value: string): readonly string[] => {
+  try {
+    const findings: unknown = JSON.parse(value);
+    if (!Array.isArray(findings)) return [];
+    return [
+      ...new Set(
+        findings.flatMap((finding) =>
+          typeof finding === "object" &&
+          finding !== null &&
+          "RuleID" in finding &&
+          typeof finding.RuleID === "string"
+            ? [finding.RuleID]
+            : [],
+        ),
+      ),
+    ];
+  } catch {
+    return [];
+  }
+};
+
 export const scanLiveScenarioDurableEvidence = (input: {
   value: unknown;
   configPath: string;
   program?: string;
 }): string => {
   const bytes = `${JSON.stringify(input.value, null, 2)}\n`;
+  return scanLiveScenarioDurableText({ ...input, value: bytes });
+};
+
+export const scanLiveScenarioDurableText = (input: {
+  value: string;
+  configPath: string;
+  program?: string;
+}): string => {
+  const bytes = redactSealedPlanFingerprints(input.value);
   const program = input.program ?? "gitleaks";
   const version = Bun.spawnSync([program, "version"], { stdout: "pipe", stderr: "pipe" });
   if (version.exitCode !== 0 || version.stdout.toString().trim() !== requiredGitleaksVersion) {
     fail(`Durable Matrix evidence requires Gitleaks ${requiredGitleaksVersion}.`);
   }
   const scan = Bun.spawnSync(
-    [program, "stdin", "--config", input.configPath, "--no-banner", "--no-color", "--redact"],
+    [
+      program,
+      "stdin",
+      "--config",
+      input.configPath,
+      "--no-banner",
+      "--no-color",
+      "--redact",
+      "--report-format",
+      "json",
+      "--report-path",
+      "-",
+    ],
     { stdin: Buffer.from(bytes, "utf8"), stdout: "pipe", stderr: "pipe" },
   );
   if (scan.exitCode !== 0) {
-    fail("Durable Live Scenario evidence failed the required Gitleaks scan.");
+    const ruleIds = gitleaksRuleIds(scan.stdout.toString());
+    fail(
+      `Durable Live Scenario evidence failed the required Gitleaks scan.${
+        ruleIds.length === 0 ? "" : ` Rules: ${ruleIds.join(", ")}.`
+      }`,
+    );
   }
   return bytes;
 };

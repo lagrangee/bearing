@@ -9,7 +9,9 @@ recovery, or an explicit all-Binding provider verification.
 
 Bearing owns the disposable Project Read Model and bounded provider acquisition. These operations
 read provider-owned native state and publish evidence only; they do not choose a Work Binding,
-mutate native work, or change canonical planning and lifecycle.
+mutate native work, or change canonical planning and lifecycle. Disposable means a later Bearing
+operation can replace or rebuild the projection without losing source truth; the current published
+generation remains the machine-owned result until that operation occurs.
 
 ## Operation
 
@@ -32,7 +34,8 @@ mutate native work, or change canonical planning and lifecycle.
   recovery point. It does not roll back, retry, repair automatically, or create a temporary
   standalone fallback.
 - **Required:** When Native Inspect reports `capture-required`, exact-scope capture must complete
-  before Matt native mutation. A failed post-transaction reconciliation remains failed; a later
+  before Matt native mutation beyond an owner-required exact concurrency claim. A failed
+  reconciliation remains failed; a later
   recovery capture restores current full-scope evidence but neither retries nor retroactively
   completes that reconciliation.
 - **Do not infer:** Rebuild, capture, verification, or provider completion changes native work,

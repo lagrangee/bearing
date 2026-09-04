@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "scenarios": [
+    {
+      "id": "test-one",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "fresh-installation-repository",
+        "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
+      },
+      "initialPrompt": "Inspect the installation instructions.",
+      "humanPosition": "Authorize inspection only.",
+      "bearingIntent": "Keep installation inspection bounded.",
+      "terminalEvidence": {
+        "description": "Installed fixture state.",
+        "observers": ["repository", "agent-home", "git"]
+      }
+    },
+    {
+      "id": "test-two",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "fresh-installation-repository",
+        "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
+      },
+      "initialPrompt": "Inspect the isolated repository.",
+      "humanPosition": "Authorize inspection only.",
+      "bearingIntent": "Keep repository inspection bounded.",
+      "terminalEvidence": {
+        "description": "Isolated fixture state.",
+        "observers": ["repository", "agent-home"]
+      }
+    }
+  ]
+}

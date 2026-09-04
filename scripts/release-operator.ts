@@ -1,5 +1,3 @@
-import { verifyLiveScenarioMatrixResult } from "./live-scenario-generation";
-import { liveScenarioDefinitionDigest } from "./live-scenario-runner";
 import type { PublicReleaseSmokeOptions } from "./public-release-smoke";
 import { verifyReleaseCandidate } from "./release-candidate-lib";
 
@@ -49,7 +47,6 @@ type KnownException = Readonly<{
 
 export type ReleaseOperatorInput = Readonly<{
   candidateReceiptPath: string;
-  matrixResultPath: string;
   componentEfforts: readonly ComponentEffort[];
   releaseContent: CandidateBoundEvidence<"current" | "missing" | "partial" | "stale" | "failed">;
   boundedCiCleanup: CandidateBoundEvidence<"current" | "missing" | "partial" | "stale" | "failed">;
@@ -165,7 +162,6 @@ const sameCandidateIdentity = (left: CandidateIdentity, right: CandidateIdentity
 type RetainedEvidence = Readonly<{
   candidateProof?: Readonly<{ state: "verified" | "invalid"; identity?: CandidateIdentity }>;
   componentReadiness?: Readonly<{ state: "ready" | "blocked" }>;
-  matrix?: Readonly<{ state: "pass" | "not-pass" | "invalid"; generationId?: string }>;
   humanCompatibility?: Readonly<{ state: "pass" | "blocked" }>;
 }>;
 
@@ -314,67 +310,6 @@ export const runReleaseOperator = async (
       retainedEvidence: { candidateProof, componentReadiness },
     });
   }
-  const matrixResult = await verifyLiveScenarioMatrixResult(input.matrixResultPath).then(
-    (value) => ({ value }) as const,
-    (error: unknown) => ({ error }) as const,
-  );
-  if ("error" in matrixResult) {
-    return blocked({
-      stage: "matrix",
-      reason: `Matrix result validation failed: ${matrixResult.error instanceof Error ? matrixResult.error.message : String(matrixResult.error)}`,
-      owner: "live-journey-coordinating-agent",
-      resumptionPoint: "regenerate-complete-matrix-result",
-      retainedEvidence: { candidateProof, componentReadiness, matrix: { state: "invalid" } },
-    });
-  }
-  const matrix = matrixResult.value;
-  const currentMatrixDefinitionSha256 = await liveScenarioDefinitionDigest({
-    sourceRoot: process.cwd(),
-    registryPath: "validation/live-journey/registry.json",
-  });
-  if (
-    matrix.evidenceClass !== "release-candidate" ||
-    matrix.package.evidenceClass !== "release-candidate" ||
-    matrix.terminalOutcome !== "pass" ||
-    matrix.releasePrerequisiteSatisfied !== true ||
-    matrix.scenarios.some((scenario) => scenario.outcome !== "pass") ||
-    matrix.matrixDefinitionSha256 !== currentMatrixDefinitionSha256
-  ) {
-    return blocked({
-      stage: "matrix",
-      reason: "The complete Scenario Matrix is not one all-pass release prerequisite.",
-      owner: "live-journey-coordinating-agent",
-      resumptionPoint: "complete-one-passing-matrix-generation",
-      retainedEvidence: {
-        candidateProof,
-        componentReadiness,
-        matrix: { state: "not-pass", generationId: matrix.generationId },
-      },
-    });
-  }
-  const matrixIdentity: CandidateIdentity = {
-    packageVersion: matrix.package.packageVersion,
-    sourceCommit: matrix.package.sourceCommit,
-    workflow: matrix.package.workflow,
-    frozenSha256: matrix.package.artifact.sha256,
-  };
-  if (!sameCandidateIdentity(matrixIdentity, identity)) {
-    return blocked({
-      stage: "candidate-identity",
-      reason: "Matrix result identity does not match the verified Candidate Receipt.",
-      owner: "live-journey-coordinating-agent",
-      resumptionPoint: "restart-candidate-freeze-and-full-matrix",
-      retainedEvidence: {
-        candidateProof,
-        componentReadiness,
-        matrix: { state: "invalid", generationId: matrix.generationId },
-      },
-    });
-  }
-  const matrixEvidence = Object.freeze({
-    state: "pass" as const,
-    generationId: matrix.generationId,
-  });
   const lanes = [
     ["claude-code", input.humanCompatibility.claudeCode],
     ["workbuddy", input.humanCompatibility.workBuddy],
@@ -389,7 +324,6 @@ export const runReleaseOperator = async (
         retainedEvidence: {
           candidateProof,
           componentReadiness,
-          matrix: matrixEvidence,
           humanCompatibility: { state: "blocked" },
         },
       });
@@ -403,7 +337,6 @@ export const runReleaseOperator = async (
         retainedEvidence: {
           candidateProof,
           componentReadiness,
-          matrix: matrixEvidence,
           humanCompatibility: { state: "blocked" },
         },
       });
@@ -417,7 +350,6 @@ export const runReleaseOperator = async (
         retainedEvidence: {
           candidateProof,
           componentReadiness,
-          matrix: matrixEvidence,
           humanCompatibility: { state: "blocked" },
         },
       });
@@ -437,7 +369,6 @@ export const runReleaseOperator = async (
       retainedEvidence: {
         candidateProof,
         componentReadiness,
-        matrix: matrixEvidence,
         humanCompatibility: humanCompatibilityEvidence,
       },
     });
@@ -456,7 +387,6 @@ export const runReleaseOperator = async (
       retainedEvidence: {
         candidateProof,
         componentReadiness,
-        matrix: matrixEvidence,
         humanCompatibility: humanCompatibilityEvidence,
       },
     });
@@ -473,7 +403,6 @@ export const runReleaseOperator = async (
       retainedEvidence: {
         candidateProof,
         componentReadiness,
-        matrix: matrixEvidence,
         humanCompatibility: humanCompatibilityEvidence,
       },
     });
@@ -495,7 +424,6 @@ export const runReleaseOperator = async (
       retainedEvidence: {
         candidateProof,
         componentReadiness,
-        matrix: matrixEvidence,
         humanCompatibility: humanCompatibilityEvidence,
       },
       unchanged: {
@@ -585,7 +513,6 @@ export const runReleaseOperator = async (
         boundedCiCleanup: input.boundedCiCleanup,
       }),
       candidateProof,
-      matrix: matrixEvidence,
       humanCompatibility: Object.freeze({
         ...humanCompatibilityEvidence,
         ...input.humanCompatibility,

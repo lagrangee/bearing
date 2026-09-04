@@ -18,6 +18,20 @@ Execution remain usable for unrelated or Human-selected Standalone Native Work; 
 govern only Human-accepted Bearing Scope. Keyword matches, novelty, complexity, repository location,
 and Ticket or file count are not relationship evidence or enrollment authority.
 
+## Accepted disposition routing
+
+| Accepted disposition | Condition | Continuation |
+| --- | --- | --- |
+| `existing-bound-native-detail` | `canonical-effort-unchanged` | `native-work; ordinary-owner-work-or-user-invoked-owner-skill; no-canonical-effort-mutation` |
+| `canonical-effort-change` | `effort-meaning-changed` | `effort-owner; canonical-mutation` |
+| `standalone-native-work` | `no-accepted-bearing-scope` | `ordinary-owner-work-or-user-invoked-owner-skill; no-bearing-enrollment` |
+
+Provider-native PRD, Map, Ticket, checklist, status, and resolution changes inside an existing
+Binding are native detail when the current Effort meaning remains accurate. Load Native Work before
+those owner writes. Native Work preserves an actually invoked Owner Skill or uses Ordinary Owner
+Work, then owns admission, the exact successful write set, and provider follow-up. Select the
+Effort owner only when the accepted result changes canonical Effort meaning.
+
 ## Operation
 
 1. Perform one minimal read-only orientation from current Project Context, relevant planning facts,
@@ -28,15 +42,15 @@ and Ticket or file count are not relationship evidence or enrollment authority.
    relationship or planning opportunity. Continue every unrelated scope without either condition
    through ordinary native delivery.
 3. When an explicit or high-confidence material relationship exists, obtain the Human's explicit
-   Feature Scope Disposition before implementation: create or revise only the related planned
-   Effort, or keep the work as Standalone Native Work. Before a real native scope exists, the
-   planned Effort has no Work Binding. One answer may cover several clearly related visible scopes
-   and may also accept a complete planning candidate shown with that choice. Without a complete
-   candidate visible before the answer, the answer selects only the disposition. The Agent must
-   then show the candidate and stop for separate explicit acceptance; a request to continue does
-   not authorize writes in that turn. Directly naming an accepted Roadmap or Gate establishes a
-   relationship but creates no Effort, Work Binding, or implementation authority. A limit from
-   another planning operation is not a later native-scope disposition.
+   Feature Scope Disposition before implementation: extend existing bound native detail, create or
+   revise only the related planned Effort, or keep the work as Standalone Native Work. Before a real
+   native scope exists, the planned Effort has no Work Binding. One answer may cover several clearly
+   related visible scopes and may also accept a complete planning candidate shown with that choice.
+   A Human answer that supplies every missing choice and directly authorizes the exact disclosed
+   planning update is complete acceptance. A bare request to continue supplies neither missing
+   choices nor write authority; show the complete candidate and stop. Directly naming an accepted
+   Roadmap or Gate establishes a relationship but creates no Effort, Work Binding, or implementation
+   authority. A limit from another planning operation is not a later native-scope disposition.
 4. When the feature exposes a material planning opportunity without an accepted commitment, select
    only the semantic owner whose meaning would change: Roadmap for an outcome horizon, Gate for a
    decision boundary, or Effort for a delivery commitment. Offer one proportionate recommendation
@@ -45,12 +59,13 @@ and Ticket or file count are not relationship evidence or enrollment authority.
 5. Treat a Bearing Scope choice as authority for the managed branch only. It does not accept
    undisclosed Roadmap, Gate, Effort, Binding, or native planning meaning. When the branch requires
    any of that new meaning, show one complete owner-separated candidate and obtain Human acceptance
-   before any canonical or native write. Apply the visible-candidate acceptance boundary from step
-   3 to this candidate.
+   before any canonical or native write. Apply the acceptance boundary from step 3, then follow the
+   Accepted disposition routing table; never use the Effort owner merely because native delivery
+   detail belongs to an existing Effort.
 6. When the user explicitly starts a named planned Effort, continue through the exact start owners
    so Work Management creates or identifies the real scope before one Binding and Activation
-   transaction and its baseline capture. Feature Intake does not copy that sequence or choose the
-   native workflow. Continue Standalone Native Work through normal delivery without enrollment.
+   transaction and its baseline capture. Feature Intake does not copy that sequence. Continue
+   Standalone Native Work through the selected Work Management mode without enrollment.
 
 ## After this operation
 

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "scenarios": [
+    {
+      "id": "prerequisite-test",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/lifecycle-minimal",
+        "profile": "active-repository",
+        "skills": [
+          { "skill": "bearing", "role": "prerequisite" },
+          { "skill": "implement", "role": "prerequisite" }
+        ]
+      },
+      "initialPrompt": "Inspect the isolated repository.",
+      "humanPosition": "Authorize inspection only.",
+      "bearingIntent": "Use only declared prerequisites.",
+      "terminalEvidence": {
+        "description": "Prerequisite materialization state.",
+        "observers": ["repository", "agent-home"]
+      }
+    }
+  ]
+}

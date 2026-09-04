@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "materializedFrom": [
+    {
+      "skill": "setup-matt-pocock-skills",
+      "source": "issue-tracker-github.md",
+      "sha256": "ec8332bb69e7e79e349989e940be481a0c79b552be3acc613e718278bcc5e03d"
+    },
+    {
+      "skill": "to-spec",
+      "source": "SKILL.md",
+      "sha256": "5d26479544b08048d3a8f79d937b39bc613a617f026b3fd083bafc1e99a7b811"
+    },
+    {
+      "skill": "to-tickets",
+      "source": "SKILL.md",
+      "sha256": "5ecdf1d4df8a360ed39df21a2347f97ba177afd449a577da4f6b6ea8e1ebb808"
+    }
+  ],
+  "outputContract": {
+    "base": "to-tickets/github-issue-v1",
+    "requiredSections": ["What to build", "Acceptance criteria", "Blocked by"],
+    "conditionalSections": ["Parent"],
+    "providerExtensions": ["Completion evidence"],
+    "artifacts": [
+      {
+        "file": "parent-delivery.md",
+        "sha256": "cc7a17c448d08bd369e15a4e922a18313e5333084a874e9322b3a09a0ca692b6"
+      },
+      {
+        "file": "child-delivery.md",
+        "sha256": "a66a0746726b3619d2afb43fc0b407ce578b43389de9f5b87afcb444820ce2f6"
+      }
+    ]
+  },
+  "note": "The checked-in bodies are digest-bound materializations of the installed Matt Kit GitHub issue contract plus the repository-owned completion-evidence extension. Dynamic native issue references are substituted during fixture preparation."
+}

@@ -1,0 +1,579 @@
+import { createHash } from "node:crypto";
+import { readFile, realpath } from "node:fs/promises";
+import { dirname, isAbsolute, posix, relative, resolve, sep } from "node:path";
+import { z } from "zod";
+import {
+  type LiveMatrixGenerationBasis,
+  parseLiveMatrixGenerationBasis,
+} from "./live-matrix-generation";
+import { liveScenarioIdSchema } from "./live-scenario-registry";
+
+export const LIVE_MATRIX_COORDINATOR_AUTHORITY = "coordinator" as const;
+export const LIVE_MATRIX_SLOW_OBSERVATION_MS = 10 * 60 * 1_000;
+
+const fail = (message: string): never => {
+  throw new Error(message);
+};
+
+const digestSchema = z.string().regex(/^[0-9a-f]{64}$/u);
+const generationIdSchema = z.string().uuid();
+const timestampSchema = z.string().datetime({ offset: true });
+const outcomeSchema = z.enum(["pass", "fail", "blocked"]);
+export const liveMatrixFailureCategorySchema = z.enum([
+  "test-system",
+  "activation",
+  "contract",
+  "product",
+  "agent-adherence",
+]);
+
+export type LiveMatrixFailureCategory = z.infer<typeof liveMatrixFailureCategorySchema>;
+
+const requireFailureCategory = (
+  value: {
+    outcome: "pass" | "fail" | "blocked";
+    failureCategory?: LiveMatrixFailureCategory | undefined;
+  },
+  context: z.RefinementCtx,
+) => {
+  if (value.outcome === "pass" && value.failureCategory !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["failureCategory"],
+      message: "A passing Live Matrix verdict cannot carry a failure category.",
+    });
+  }
+  if (value.outcome !== "pass" && value.failureCategory === undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["failureCategory"],
+      message: "A non-passing Live Matrix verdict requires one coordinator failure category.",
+    });
+  }
+};
+
+export const liveMatrixSemanticVerdictSchema = z
+  .object({
+    outcome: outcomeSchema,
+    failureCategory: liveMatrixFailureCategorySchema.optional(),
+    rationale: z.string().trim().min(1).max(800),
+  })
+  .strict()
+  .superRefine(requireFailureCategory);
+
+const uniqueScenarioIdsSchema = z
+  .array(liveScenarioIdSchema)
+  .min(1)
+  .superRefine((scenarioIds, context) => {
+    if (new Set(scenarioIds).size !== scenarioIds.length) {
+      context.addIssue({
+        code: "custom",
+        message: "Live Matrix Scenario identities must be unique.",
+      });
+    }
+  });
+
+const durablePointerSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(300)
+  .superRefine((pointer, context) => {
+    const segments = pointer.split("/");
+    if (
+      pointer.includes("\\") ||
+      pointer.startsWith("/") ||
+      /^[A-Za-z]:/u.test(pointer) ||
+      posix.normalize(pointer) !== pointer ||
+      segments.some((segment) => segment === "" || segment === "." || segment === "..")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Live Matrix evidence pointers must be normalized relative paths.",
+      });
+    }
+    if (segments.some((segment) => /^(?:credentials?|sessions?)(?:[._-]|$)/iu.test(segment))) {
+      context.addIssue({
+        code: "custom",
+        message: "Live Matrix results cannot point to credentials or session state.",
+      });
+    }
+  });
+
+export const liveMatrixEvidenceReferenceSchema = z
+  .object({ pointer: durablePointerSchema, sha256: digestSchema })
+  .strict();
+
+const uniqueReferences = <Shape extends z.ZodTypeAny>(schema: Shape) =>
+  z
+    .array(schema)
+    .min(1)
+    .max(32)
+    .superRefine((references, context) => {
+      const pointers = references.map((reference) => (reference as { pointer: string }).pointer);
+      if (new Set(pointers).size !== pointers.length) {
+        context.addIssue({ code: "custom", message: "Evidence pointers must be unique." });
+      }
+    });
+
+export const liveMatrixTurnTimingSchema = z
+  .object({
+    turnNumber: z.number().int().positive().safe(),
+    startedAt: timestampSchema,
+    endedAt: timestampSchema,
+    durationMs: z.number().int().nonnegative().safe(),
+  })
+  .strict()
+  .superRefine((turn, context) => {
+    if (turn.durationMs !== Date.parse(turn.endedAt) - Date.parse(turn.startedAt)) {
+      context.addIssue({
+        code: "custom",
+        path: ["durationMs"],
+        message: "Live Matrix Turn duration must equal endedAt minus startedAt.",
+      });
+    }
+  });
+
+export type LiveMatrixTurnTiming = z.infer<typeof liveMatrixTurnTimingSchema>;
+
+export const liveMatrixScenarioTerminalResultSchema = z
+  .object({
+    schemaVersion: z.literal(3),
+    generationId: generationIdSchema,
+    scenarioId: liveScenarioIdSchema,
+    semanticEvaluationAuthority: z.literal(LIVE_MATRIX_COORDINATOR_AUTHORITY),
+    outcome: outcomeSchema,
+    failureCategory: liveMatrixFailureCategorySchema.optional(),
+    rationale: z.string().trim().min(1).max(800),
+    conversation: liveMatrixEvidenceReferenceSchema,
+    rawEvents: uniqueReferences(liveMatrixEvidenceReferenceSchema),
+    terminalEvidence: uniqueReferences(liveMatrixEvidenceReferenceSchema),
+    turns: z.array(liveMatrixTurnTimingSchema).min(1),
+    startedAt: timestampSchema,
+    endedAt: timestampSchema,
+    durationMs: z.number().int().nonnegative().safe(),
+  })
+  .strict()
+  .superRefine((result, context) => {
+    requireFailureCategory(result, context);
+    const allPointers = [
+      result.conversation.pointer,
+      ...result.rawEvents.map(({ pointer }) => pointer),
+      ...result.terminalEvidence.map(({ pointer }) => pointer),
+    ];
+    if (new Set(allPointers).size !== allPointers.length) {
+      context.addIssue({
+        code: "custom",
+        message: "Scenario evidence references must be distinct.",
+      });
+    }
+    result.turns.forEach((turn, index) => {
+      if (turn.turnNumber !== index + 1) {
+        context.addIssue({
+          code: "custom",
+          path: ["turns", index, "turnNumber"],
+          message: "Live Matrix Turn numbers must be contiguous and start at one.",
+        });
+      }
+      if (
+        Date.parse(turn.startedAt) < Date.parse(result.startedAt) ||
+        Date.parse(turn.endedAt) > Date.parse(result.endedAt)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["turns", index],
+          message: "Live Matrix Turn timestamps must stay within the Scenario window.",
+        });
+      }
+    });
+    const durationMs = Date.parse(result.endedAt) - Date.parse(result.startedAt);
+    if (durationMs < 0 || result.durationMs !== durationMs) {
+      context.addIssue({
+        code: "custom",
+        path: ["durationMs"],
+        message: "Live Matrix Scenario duration must equal endedAt minus startedAt.",
+      });
+    }
+  });
+
+export type LiveMatrixScenarioTerminalResult = z.infer<
+  typeof liveMatrixScenarioTerminalResultSchema
+>;
+
+export const parseLiveMatrixScenarioTerminalResult = (
+  input: unknown,
+): LiveMatrixScenarioTerminalResult =>
+  Object.freeze(liveMatrixScenarioTerminalResultSchema.parse(input));
+
+export const createLiveMatrixScenarioTerminalResult = (input: {
+  generationId: string;
+  scenarioId: string;
+  outcome: "pass" | "fail" | "blocked";
+  failureCategory?: LiveMatrixFailureCategory | undefined;
+  rationale: string;
+  conversation: z.input<typeof liveMatrixEvidenceReferenceSchema>;
+  rawEvents: readonly z.input<typeof liveMatrixEvidenceReferenceSchema>[];
+  terminalEvidence: readonly z.input<typeof liveMatrixEvidenceReferenceSchema>[];
+  turns: readonly { turnNumber: number; startedAt: string; endedAt: string }[];
+  startedAt: string;
+  endedAt: string;
+}): LiveMatrixScenarioTerminalResult =>
+  parseLiveMatrixScenarioTerminalResult({
+    schemaVersion: 3,
+    generationId: input.generationId,
+    scenarioId: input.scenarioId,
+    semanticEvaluationAuthority: LIVE_MATRIX_COORDINATOR_AUTHORITY,
+    outcome: input.outcome,
+    ...(input.failureCategory === undefined ? {} : { failureCategory: input.failureCategory }),
+    rationale: input.rationale,
+    conversation: input.conversation,
+    rawEvents: input.rawEvents,
+    terminalEvidence: input.terminalEvidence,
+    turns: input.turns.map((turn) => ({
+      ...turn,
+      durationMs: Date.parse(turn.endedAt) - Date.parse(turn.startedAt),
+    })),
+    startedAt: input.startedAt,
+    endedAt: input.endedAt,
+    durationMs: Date.parse(input.endedAt) - Date.parse(input.startedAt),
+  });
+
+const scenarioResultReferenceSchema = z
+  .object({ result: z.unknown(), reference: liveMatrixEvidenceReferenceSchema })
+  .strict();
+
+const matrixScenarioSummarySchema = z
+  .object({
+    scenarioId: liveScenarioIdSchema,
+    outcome: outcomeSchema,
+    failureCategory: liveMatrixFailureCategorySchema.optional(),
+    rationale: z.string().trim().min(1).max(800),
+    startedAt: timestampSchema,
+    endedAt: timestampSchema,
+    durationMs: z.number().int().nonnegative().safe(),
+    slowObservation: z.boolean(),
+    turns: z.array(liveMatrixTurnTimingSchema.extend({ slowObservation: z.boolean() }).strict()),
+    result: liveMatrixEvidenceReferenceSchema,
+  })
+  .strict()
+  .superRefine(requireFailureCategory);
+
+const slowObservationSchema = z.discriminatedUnion("scope", [
+  z
+    .object({
+      scope: z.literal("scenario"),
+      scenarioId: liveScenarioIdSchema,
+      durationMs: z.number().int().nonnegative().safe(),
+      thresholdMs: z.literal(LIVE_MATRIX_SLOW_OBSERVATION_MS),
+    })
+    .strict(),
+  z
+    .object({
+      scope: z.literal("turn"),
+      scenarioId: liveScenarioIdSchema,
+      turnNumber: z.number().int().positive().safe(),
+      durationMs: z.number().int().nonnegative().safe(),
+      thresholdMs: z.literal(LIVE_MATRIX_SLOW_OBSERVATION_MS),
+    })
+    .strict(),
+]);
+
+const matrixReportSchema = z
+  .object({
+    peakConcurrency: z.number().int().min(1).max(4).safe(),
+    scenarioCount: z.number().int().positive().safe(),
+    passCount: z.number().int().nonnegative().safe(),
+    failCount: z.number().int().nonnegative().safe(),
+    blockedCount: z.number().int().nonnegative().safe(),
+    failures: z.array(liveScenarioIdSchema),
+    blocked: z.array(liveScenarioIdSchema),
+    failureAttributions: z.array(
+      z
+        .object({
+          scenarioId: liveScenarioIdSchema,
+          category: liveMatrixFailureCategorySchema,
+        })
+        .strict(),
+    ),
+    slowObservations: z.array(slowObservationSchema),
+  })
+  .strict();
+
+export const liveMatrixResultSchema = z
+  .object({
+    schemaVersion: z.literal(3),
+    generationId: generationIdSchema,
+    evidenceClass: z.enum(["local-rehearsal", "release-candidate"]),
+    semanticEvaluationAuthority: z.literal(LIVE_MATRIX_COORDINATOR_AUTHORITY),
+    generationBasis: liveMatrixEvidenceReferenceSchema,
+    startedAt: timestampSchema,
+    endedAt: timestampSchema,
+    durationMs: z.number().int().nonnegative().safe(),
+    peakConcurrency: z.number().int().min(1).max(4).safe(),
+    scenarios: z.array(matrixScenarioSummarySchema).min(1),
+    report: matrixReportSchema,
+  })
+  .strict();
+
+export type LiveMatrixResult = z.infer<typeof liveMatrixResultSchema>;
+
+const expectedReport = (
+  scenarios: readonly z.infer<typeof matrixScenarioSummarySchema>[],
+  peakConcurrency: number,
+) => {
+  const failures = scenarios
+    .filter(({ outcome }) => outcome === "fail")
+    .map(({ scenarioId }) => scenarioId);
+  const blocked = scenarios
+    .filter(({ outcome }) => outcome === "blocked")
+    .map(({ scenarioId }) => scenarioId);
+  return {
+    peakConcurrency,
+    scenarioCount: scenarios.length,
+    passCount: scenarios.filter(({ outcome }) => outcome === "pass").length,
+    failCount: failures.length,
+    blockedCount: blocked.length,
+    failures,
+    blocked,
+    failureAttributions: scenarios
+      .filter(({ outcome }) => outcome !== "pass")
+      .map(({ scenarioId, failureCategory }) => ({
+        scenarioId,
+        category:
+          failureCategory ?? fail(`Non-passing Scenario has no attribution: ${scenarioId}.`),
+      })),
+    slowObservations: scenarios.flatMap((scenario) => [
+      ...(scenario.slowObservation
+        ? [
+            {
+              scope: "scenario" as const,
+              scenarioId: scenario.scenarioId,
+              durationMs: scenario.durationMs,
+              thresholdMs: LIVE_MATRIX_SLOW_OBSERVATION_MS,
+            },
+          ]
+        : []),
+      ...scenario.turns
+        .filter(({ slowObservation }) => slowObservation)
+        .map(({ turnNumber, durationMs }) => ({
+          scope: "turn" as const,
+          scenarioId: scenario.scenarioId,
+          turnNumber,
+          durationMs,
+          thresholdMs: LIVE_MATRIX_SLOW_OBSERVATION_MS,
+        })),
+    ]),
+  };
+};
+
+const assertExactScenarioSet = (
+  observedScenarioIds: readonly string[],
+  requiredScenarioIds: readonly string[],
+): void => {
+  const required = uniqueScenarioIdsSchema.parse([...requiredScenarioIds]);
+  if (
+    observedScenarioIds.length !== required.length ||
+    new Set(observedScenarioIds).size !== observedScenarioIds.length ||
+    required.some((scenarioId) => !observedScenarioIds.includes(scenarioId))
+  ) {
+    fail("Live Matrix result requires each registered Scenario exactly once.");
+  }
+};
+
+export const parseLiveMatrixResultForScenarioIds = (
+  input: unknown,
+  requiredScenarioIds: readonly string[],
+): LiveMatrixResult => {
+  const result = liveMatrixResultSchema.parse(input);
+  const observedScenarioIds = result.scenarios.map(({ scenarioId }) => scenarioId);
+  assertExactScenarioSet(observedScenarioIds, requiredScenarioIds);
+  if (JSON.stringify(observedScenarioIds) !== JSON.stringify(requiredScenarioIds)) {
+    fail("Live Matrix Scenario summaries must follow registry order.");
+  }
+  const durationMs = Date.parse(result.endedAt) - Date.parse(result.startedAt);
+  if (
+    durationMs < 0 ||
+    result.durationMs !== durationMs ||
+    result.peakConcurrency > result.scenarios.length ||
+    result.scenarios.some(
+      (scenario) =>
+        scenario.durationMs !== Date.parse(scenario.endedAt) - Date.parse(scenario.startedAt) ||
+        scenario.slowObservation !== scenario.durationMs > LIVE_MATRIX_SLOW_OBSERVATION_MS ||
+        Date.parse(scenario.startedAt) < Date.parse(result.startedAt) ||
+        Date.parse(scenario.endedAt) > Date.parse(result.endedAt) ||
+        scenario.turns.some(
+          (turn, index) =>
+            turn.turnNumber !== index + 1 ||
+            turn.durationMs !== Date.parse(turn.endedAt) - Date.parse(turn.startedAt) ||
+            turn.slowObservation !== turn.durationMs > LIVE_MATRIX_SLOW_OBSERVATION_MS,
+        ),
+    ) ||
+    JSON.stringify(result.report) !==
+      JSON.stringify(expectedReport(result.scenarios, result.peakConcurrency))
+  ) {
+    fail("Live Matrix timestamps, durations, or report contradict the Scenario results.");
+  }
+  return Object.freeze(result);
+};
+
+export const createLiveMatrixResult = (input: {
+  generationBasis: unknown;
+  generationBasisReference: z.input<typeof liveMatrixEvidenceReferenceSchema>;
+  selectedScenarioIds: readonly string[];
+  scenarioResults: readonly z.input<typeof scenarioResultReferenceSchema>[];
+  peakConcurrency: number;
+  endedAt: string;
+}): LiveMatrixResult => {
+  const generationBasis = parseLiveMatrixGenerationBasis(input.generationBasis);
+  const requiredScenarioIds = uniqueScenarioIdsSchema.parse([...input.selectedScenarioIds]);
+  if (JSON.stringify(generationBasis.selectedScenarioIds) !== JSON.stringify(requiredScenarioIds)) {
+    fail("Live Matrix Generation basis does not bind the exact selected Scenario order.");
+  }
+  const references = z
+    .array(scenarioResultReferenceSchema)
+    .parse(input.scenarioResults)
+    .map(({ result, reference }) => ({
+      result: parseLiveMatrixScenarioTerminalResult(result),
+      reference,
+    }));
+  assertExactScenarioSet(
+    references.map(({ result }) => result.scenarioId),
+    requiredScenarioIds,
+  );
+  if (references.some(({ result }) => result.generationId !== generationBasis.generationId)) {
+    fail("Live Matrix Scenario result identity contradicts its Generation basis.");
+  }
+  const ordered = requiredScenarioIds.map((scenarioId) => {
+    const observed =
+      references.find(({ result }) => result.scenarioId === scenarioId) ??
+      fail(`Live Matrix Scenario result is unavailable: ${scenarioId}.`);
+    return {
+      scenarioId,
+      outcome: observed.result.outcome,
+      ...(observed.result.failureCategory === undefined
+        ? {}
+        : { failureCategory: observed.result.failureCategory }),
+      rationale: observed.result.rationale,
+      startedAt: observed.result.startedAt,
+      endedAt: observed.result.endedAt,
+      durationMs: observed.result.durationMs,
+      slowObservation: observed.result.durationMs > LIVE_MATRIX_SLOW_OBSERVATION_MS,
+      turns: observed.result.turns.map((turn) => ({
+        ...turn,
+        slowObservation: turn.durationMs > LIVE_MATRIX_SLOW_OBSERVATION_MS,
+      })),
+      result: observed.reference,
+    };
+  });
+  return parseLiveMatrixResultForScenarioIds(
+    {
+      schemaVersion: 3,
+      generationId: generationBasis.generationId,
+      evidenceClass: generationBasis.package.evidenceClass,
+      semanticEvaluationAuthority: LIVE_MATRIX_COORDINATOR_AUTHORITY,
+      generationBasis: input.generationBasisReference,
+      startedAt: generationBasis.startedAt,
+      endedAt: input.endedAt,
+      durationMs: Date.parse(input.endedAt) - Date.parse(generationBasis.startedAt),
+      peakConcurrency: input.peakConcurrency,
+      scenarios: ordered,
+      report: expectedReport(ordered, input.peakConcurrency),
+    },
+    requiredScenarioIds,
+  );
+};
+
+const readDurableReference = async (
+  outputRoot: string,
+  reference: z.infer<typeof liveMatrixEvidenceReferenceSchema>,
+  label: string,
+): Promise<Readonly<{ bytes: Buffer; path: string }>> => {
+  const path = await realpath(resolve(outputRoot, reference.pointer));
+  const relation = relative(outputRoot, path);
+  if (
+    relation === "" ||
+    relation === ".." ||
+    relation.startsWith(`..${sep}`) ||
+    isAbsolute(relation)
+  ) {
+    fail(`${label} escapes its Matrix evidence root.`);
+  }
+  const bytes = await readFile(path);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  if (sha256 !== reference.sha256) fail(`${label} digest mismatch.`);
+  return Object.freeze({ bytes, path });
+};
+
+export const verifyLiveMatrixScenarioEvidence = async (
+  outputRoot: string,
+  input: unknown,
+): Promise<LiveMatrixScenarioTerminalResult> => {
+  const result = parseLiveMatrixScenarioTerminalResult(input);
+  await Promise.all([
+    readDurableReference(
+      outputRoot,
+      result.conversation,
+      `Scenario conversation ${result.scenarioId}`,
+    ),
+    ...result.rawEvents.map((reference) =>
+      readDurableReference(outputRoot, reference, `Scenario raw events ${result.scenarioId}`),
+    ),
+    ...result.terminalEvidence.map((reference) =>
+      readDurableReference(
+        outputRoot,
+        reference,
+        `Scenario terminal evidence ${result.scenarioId}`,
+      ),
+    ),
+  ]);
+  return result;
+};
+
+export const verifyLiveMatrixResult = async (
+  path: string,
+  requiredScenarioIds: readonly string[],
+): Promise<Readonly<{ matrix: LiveMatrixResult; generationBasis: LiveMatrixGenerationBasis }>> => {
+  const matrixPath = await realpath(resolve(path));
+  const outputRoot = dirname(matrixPath);
+  const matrix = parseLiveMatrixResultForScenarioIds(
+    JSON.parse(await readFile(matrixPath, "utf8")),
+    requiredScenarioIds,
+  );
+  const generationBytes = await readDurableReference(
+    outputRoot,
+    matrix.generationBasis,
+    "Live Matrix Generation basis",
+  );
+  const generationBasis = parseLiveMatrixGenerationBasis(
+    JSON.parse(generationBytes.bytes.toString("utf8")),
+  );
+  const scenarioResults = await Promise.all(
+    matrix.scenarios.map(async (scenario) => {
+      const resultBytes = await readDurableReference(
+        outputRoot,
+        scenario.result,
+        `Live Matrix Scenario result ${scenario.scenarioId}`,
+      );
+      const result = await verifyLiveMatrixScenarioEvidence(
+        outputRoot,
+        JSON.parse(resultBytes.bytes.toString("utf8")),
+      );
+      if (result.scenarioId !== scenario.scenarioId) {
+        fail(`Live Matrix Scenario result pointer has the wrong identity: ${scenario.scenarioId}.`);
+      }
+      return Object.freeze({ result, reference: scenario.result });
+    }),
+  );
+  const recreated = createLiveMatrixResult({
+    generationBasis,
+    generationBasisReference: matrix.generationBasis,
+    selectedScenarioIds: requiredScenarioIds,
+    scenarioResults,
+    peakConcurrency: matrix.peakConcurrency,
+    endedAt: matrix.endedAt,
+  });
+  if (JSON.stringify(recreated) !== JSON.stringify(matrix)) {
+    fail("Live Matrix summary contradicts its cited Generation or Scenario results.");
+  }
+  return Object.freeze({ matrix, generationBasis });
+};

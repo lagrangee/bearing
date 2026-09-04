@@ -7,7 +7,7 @@ const fail = (message: string): never => {
   throw new Error(message);
 };
 
-const scenarioIdSchema = z.string().regex(/^[A-Z]+-\d{2}$/u);
+export const liveScenarioIdSchema = z.string().regex(/^[a-z]+(?:-[a-z]+)*$/u);
 const boundedTextSchema = z.string().trim().min(1).max(800);
 const fixtureLocatorSchema = z
   .string()
@@ -16,47 +16,68 @@ const fixtureLocatorSchema = z
   .max(300)
   .refine(
     (value) => !isAbsolute(value) && !value.split(/[\\/]/u).includes("..") && value !== ".",
-    "Fixture assertion locators must stay bounded and relative.",
-  );
-export const liveScenarioEvidencePointerSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(300)
-  .refine(
-    (value) =>
-      !isAbsolute(value) &&
-      !value.split(/[\\/]/u).includes("..") &&
-      !value
-        .split(/[\\/]/u)
-        .some((segment) => /(?:transcript|session|operator-config)/iu.test(segment)),
-    "Scenario evidence pointers must stay bounded and relative.",
+    "Fixture locators must stay bounded and relative.",
   );
 
-const fixtureSchema = z
+export const liveScenarioFixtureProfileSchema = z.enum([
+  "fresh-installation-repository",
+  "active-repository",
+  "fresh-repository",
+  "active-repository-with-drift",
+  "repository-update-required-repository",
+  "active-planning-repository",
+  "active-planned-unbound-native-repository",
+  "active-unbound-native-repository",
+  "active-bound-wayfinder-repository",
+  "active-bound-local-repository",
+  "active-github-repository",
+]);
+
+export const liveScenarioSkillNameSchema = z.enum([
+  "bearing",
+  "wayfinder",
+  "grilling",
+  "domain-modeling",
+  "implement",
+  "tdd",
+  "code-review",
+]);
+
+export const liveScenarioSkillRoleSchema = z.enum([
+  "prerequisite",
+  "user-invoked",
+  "installation-under-test",
+  "intentionally-absent",
+]);
+export type LiveScenarioSkillRole = z.infer<typeof liveScenarioSkillRoleSchema>;
+
+export const liveScenarioSkillIsInstalled = (role: LiveScenarioSkillRole): boolean =>
+  role === "prerequisite" || role === "user-invoked";
+
+export const liveScenarioCapabilityProfileSchema = z.enum(["github-bounded-delivery"]);
+export type LiveScenarioCapabilityProfile = z.infer<typeof liveScenarioCapabilityProfileSchema>;
+
+export const liveScenarioResourceKeyForCapability = (
+  capabilityProfile: LiveScenarioCapabilityProfile | undefined,
+): "github-validation-repository" | undefined =>
+  capabilityProfile === "github-bounded-delivery" ? "github-validation-repository" : undefined;
+
+const fixedValidationFixtureSchema = z
   .object({
     source: z.string().min(1),
-    materializer: z.enum([
-      "fresh-repository",
-      "fresh-installation-repository",
-      "installed-unconfigured-repository",
-      "non-project-directory",
-      "active-repository",
-      "active-repository-with-drift",
-      "deactivated-repository",
-      "repository-update-required-repository",
-      "older-kit-active-stable-repository",
-      "kit-update-required-repository",
-      "unsupported-repository",
-      "active-planning-repository",
-      "active-unbound-native-repository",
-      "active-bound-local-repository",
-      "active-bound-wayfinder-repository",
-      "active-bound-wayfinder-capture-required-repository",
-      "active-github-repository",
-      "active-ambiguous-native-repository",
-      "active-failing-execution-repository",
-    ]),
+    profile: liveScenarioFixtureProfileSchema,
+    skills: z
+      .array(
+        z
+          .object({
+            skill: liveScenarioSkillNameSchema,
+            role: liveScenarioSkillRoleSchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(liveScenarioSkillNameSchema.options.length),
+    capabilityProfile: liveScenarioCapabilityProfileSchema.optional(),
     assertions: z
       .array(
         z
@@ -69,22 +90,63 @@ const fixtureSchema = z
       .max(24)
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((fixture, context) => {
+    const skillNames = fixture.skills.map(({ skill }) => skill);
+    if (new Set(skillNames).size !== skillNames.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["skills"],
+        message: "Each Matrix Skill must declare exactly one role.",
+      });
+    }
+    const userInvoked = fixture.skills.filter(({ role }) => role === "user-invoked");
+    if (userInvoked.length > 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["skills"],
+        message: "A Live Scenario may invoke at most one Skill in its Initial Prompt.",
+      });
+    }
+  });
 
-const liveScenarioSchema = z
+export const liveScenarioTerminalObserverSchema = z.enum([
+  "repository",
+  "agent-home",
+  "git",
+  "github",
+]);
+
+const terminalEvidenceSchema = z
   .object({
-    id: scenarioIdSchema,
-    name: z.string().trim().min(1),
-    fixture: fixtureSchema,
-    prompts: z.array(z.string().trim().min(1)).min(1),
-    requiredOutcomes: z.array(boundedTextSchema).min(1),
-    forbiddenOutcomes: z.array(boundedTextSchema).min(1),
+    description: boundedTextSchema,
+    observers: z.array(liveScenarioTerminalObserverSchema).min(1).max(4),
+  })
+  .strict()
+  .superRefine((evidence, context) => {
+    if (new Set(evidence.observers).size !== evidence.observers.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["observers"],
+        message: "Terminal Evidence observers must be unique.",
+      });
+    }
+  });
+
+export const liveScenarioSchema = z
+  .object({
+    id: liveScenarioIdSchema,
+    fixedValidationFixture: fixedValidationFixtureSchema,
+    initialPrompt: z.string().trim().min(1),
+    humanPosition: boundedTextSchema,
+    bearingIntent: boundedTextSchema,
+    terminalEvidence: terminalEvidenceSchema,
   })
   .strict();
 
 const liveScenarioRegistrySchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     scenarios: z.array(liveScenarioSchema).min(1),
   })
   .strict()
@@ -93,10 +155,202 @@ const liveScenarioRegistrySchema = z
     if (new Set(ids).size !== ids.length) {
       context.addIssue({ code: "custom", message: "Live Scenario IDs must be unique." });
     }
+    for (const [index, scenario] of registry.scenarios.entries()) {
+      const fixture = scenario.fixedValidationFixture;
+      const bearingRole = fixture.skills.find(({ skill }) => skill === "bearing")?.role;
+      const installationUnderTest = fixture.skills.filter(
+        ({ role }) => role === "installation-under-test",
+      );
+      const userInvoked = fixture.skills.find(({ role }) => role === "user-invoked");
+      if (
+        userInvoked !== undefined &&
+        !scenario.initialPrompt.startsWith(`$${userInvoked.skill} `)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["scenarios", index, "initialPrompt"],
+          message: "A user-invoked Skill must be the literal Initial Prompt entry.",
+        });
+      }
+      if (
+        fixture.profile === "fresh-installation-repository"
+          ? bearingRole !== "installation-under-test" || installationUnderTest.length !== 1
+          : bearingRole !== "prerequisite" || installationUnderTest.length !== 0
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["scenarios", index, "fixedValidationFixture", "skills"],
+          message:
+            "The Fixture Profile requires one coherent Bearing prerequisite or installation-under-test role.",
+        });
+      }
+      const expectedCapability =
+        fixture.profile === "active-github-repository" ? "github-bounded-delivery" : undefined;
+      if (fixture.capabilityProfile !== expectedCapability) {
+        context.addIssue({
+          code: "custom",
+          path: ["scenarios", index, "fixedValidationFixture", "capabilityProfile"],
+          message: "The Capability Profile contradicts the selected Fixture Profile.",
+        });
+      }
+      const observesGitHub = scenario.terminalEvidence.observers.includes("github");
+      if (observesGitHub !== (fixture.profile === "active-github-repository")) {
+        context.addIssue({
+          code: "custom",
+          path: ["scenarios", index, "terminalEvidence", "observers"],
+          message: "GitHub Terminal Evidence must belong only to the GitHub Fixture.",
+        });
+      }
+    }
   });
 
 export type LiveScenario = z.infer<typeof liveScenarioSchema>;
 export type LiveScenarioRegistry = z.infer<typeof liveScenarioRegistrySchema>;
+
+const localMattKitOutputProvenanceSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    materializedFrom: z.array(
+      z
+        .object({
+          skill: z.enum(["setup-matt-pocock-skills", "to-spec", "to-tickets", "wayfinder"]),
+          source: z.string().min(1),
+          sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+        })
+        .strict(),
+    ),
+    configuredContract: z
+      .object({
+        base: z.literal("setup-matt-pocock-skills/local-markdown-v1"),
+        providerExtensions: z.array(z.string().min(1)).min(1),
+        artifacts: z.array(
+          z
+            .object({
+              file: fixtureLocatorSchema,
+              sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+            })
+            .strict(),
+        ),
+      })
+      .strict(),
+    outputContract: z
+      .object({
+        artifacts: z.array(
+          z
+            .object({
+              owner: z.enum(["to-spec", "to-tickets", "wayfinder"]),
+              file: fixtureLocatorSchema,
+              sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+            })
+            .strict(),
+        ),
+      })
+      .strict(),
+    note: z.string().min(1),
+  })
+  .strict();
+
+const localMattKitSourceDigests = new Map([
+  [
+    "setup-matt-pocock-skills",
+    {
+      source: "issue-tracker-local.md",
+      sha256: "6f38f66f9ffce2fdc26c43608d06b527f60e45c6f43003d0ea77d4e2641c9de3",
+    },
+  ],
+  [
+    "to-spec",
+    {
+      source: "SKILL.md",
+      sha256: "5d26479544b08048d3a8f79d937b39bc613a617f026b3fd083bafc1e99a7b811",
+    },
+  ],
+  [
+    "to-tickets",
+    {
+      source: "SKILL.md",
+      sha256: "5ecdf1d4df8a360ed39df21a2347f97ba177afd449a577da4f6b6ea8e1ebb808",
+    },
+  ],
+  [
+    "wayfinder",
+    {
+      source: "SKILL.md",
+      sha256: "d33e2141f7c8bbfd137fef0213cbec465820e4680e67da5d0f0815d6742d26c2",
+    },
+  ],
+] as const);
+
+const localMattFixtureArtifactPaths = new Set([
+  "validation/live-journey/fixtures/lifecycle-minimal/docs/agents/issue-tracker.md",
+  "validation/live-journey/fixtures/lifecycle-minimal/docs/agents/triage-labels.md",
+  "validation/live-journey/fixtures/planning-native-minimal/docs/agents/issue-tracker.md",
+  "validation/live-journey/fixtures/planning-native-minimal/docs/agents/triage-labels.md",
+  "validation/live-journey/fixtures/delivery-minimal/docs/agents/issue-tracker.md",
+  "validation/live-journey/fixtures/delivery-minimal/docs/agents/triage-labels.md",
+  "validation/live-journey/fixtures/planning-native-minimal/.scratch/label-delivery/PRD.md",
+  "validation/live-journey/fixtures/planning-native-minimal/.scratch/label-delivery/map.md",
+  "validation/live-journey/fixtures/planning-native-minimal/.scratch/label-delivery/issues/01-update-output.md",
+  "validation/live-journey/fixtures/delivery-minimal/.scratch/label-delivery/PRD.md",
+  "validation/live-journey/fixtures/delivery-minimal/.scratch/label-delivery/map.md",
+  "validation/live-journey/fixtures/delivery-minimal/.scratch/label-delivery/issues/04-complete-secondary-format.md",
+  "validation/live-journey/fixtures/local-provider/matt-kit-output/wayfinder-ticket.md",
+]);
+
+const localMattFixtureProfiles = new Set<LiveScenario["fixedValidationFixture"]["profile"]>([
+  "active-planning-repository",
+  "active-planned-unbound-native-repository",
+  "active-unbound-native-repository",
+  "active-bound-wayfinder-repository",
+  "active-bound-local-repository",
+]);
+
+export const verifyLocalMattKitFixture = async (sourceRoot: string): Promise<void> => {
+  const failure =
+    "Local Matrix Matt Kit output does not match its versioned materialization receipt.";
+  try {
+    const provenance = localMattKitOutputProvenanceSchema.parse(
+      JSON.parse(
+        await readFile(
+          join(
+            sourceRoot,
+            "validation/live-journey/fixtures/local-provider/matt-kit-output/provenance.json",
+          ),
+          "utf8",
+        ),
+      ),
+    );
+    if (
+      provenance.materializedFrom.length !== localMattKitSourceDigests.size ||
+      new Set(provenance.materializedFrom.map(({ skill }) => skill)).size !==
+        localMattKitSourceDigests.size ||
+      provenance.materializedFrom.some(({ skill, source, sha256 }) => {
+        const expected = localMattKitSourceDigests.get(skill);
+        return expected?.source !== source || expected.sha256 !== sha256;
+      })
+    ) {
+      fail(failure);
+    }
+    const artifacts = [
+      ...provenance.configuredContract.artifacts,
+      ...provenance.outputContract.artifacts,
+    ];
+    if (
+      artifacts.length !== localMattFixtureArtifactPaths.size ||
+      new Set(artifacts.map(({ file }) => file)).size !== localMattFixtureArtifactPaths.size ||
+      artifacts.some(({ file }) => !localMattFixtureArtifactPaths.has(file))
+    ) {
+      fail(failure);
+    }
+    for (const artifact of artifacts) {
+      if (sha256(await readFile(join(sourceRoot, artifact.file))) !== artifact.sha256)
+        fail(failure);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message === failure) throw error;
+    fail(failure);
+  }
+};
 
 export const parseLiveScenarioRegistry = (input: unknown): LiveScenarioRegistry =>
   liveScenarioRegistrySchema.parse(input);
@@ -115,9 +369,14 @@ export const preflightLiveScenarioRegistry = async (input: {
     fail("Live Scenario registry must stay inside the source checkout.");
   }
   const registry = await loadLiveScenarioRegistry(registryPath);
+  const verifiesLocalMattKitOutput = registry.scenarios.some(({ fixedValidationFixture }) =>
+    localMattFixtureProfiles.has(fixedValidationFixture.profile),
+  );
+  if (verifiesLocalMattKitOutput) await verifyLocalMattKitFixture(sourceRoot);
   const fixtureAssertionsVerified: Array<{ scenarioId: string; count: number }> = [];
   for (const scenario of registry.scenarios) {
-    const fixtureRoot = resolve(sourceRoot, scenario.fixture.source);
+    const fixture = scenario.fixedValidationFixture;
+    const fixtureRoot = resolve(sourceRoot, fixture.source);
     const fixtureRelative = relative(sourceRoot, fixtureRoot);
     if (fixtureRelative.startsWith("..") || isAbsolute(fixtureRelative)) {
       fail(`Live Scenario fixture escapes the source checkout: ${scenario.id}.`);
@@ -127,7 +386,7 @@ export const preflightLiveScenarioRegistry = async (input: {
       fail(`Live Scenario fixture must be a directory: ${scenario.id}.`);
     }
     await digestLiveScenarioFixture(fixtureRoot);
-    const assertions = scenario.fixture.assertions ?? [];
+    const assertions = fixture.assertions ?? [];
     for (const assertion of assertions) {
       const path = resolve(fixtureRoot, assertion.path);
       const relation = relative(fixtureRoot, path);
@@ -148,6 +407,7 @@ export const preflightLiveScenarioRegistry = async (input: {
   return Object.freeze({
     scenarioCount: registry.scenarios.length,
     fixtureAssertionsVerified: Object.freeze(fixtureAssertionsVerified),
+    localMattKitOutputVerified: verifiesLocalMattKitOutput,
     semanticReviewRequired: true as const,
     semanticReviewScenarioIds: Object.freeze(registry.scenarios.map(({ id }) => id)),
   });
@@ -187,6 +447,71 @@ export const digestLiveScenarioFixture = async (root: string): Promise<string> =
   return sha256(frames.join(""));
 };
 
+export const liveScenarioReferencedFixtureSources = (
+  registryInput: LiveScenarioRegistry,
+  scenarioIds?: readonly string[],
+): readonly string[] => {
+  const registry = liveScenarioRegistrySchema.parse(registryInput);
+  const selectedIds =
+    scenarioIds === undefined
+      ? undefined
+      : z
+          .array(liveScenarioIdSchema)
+          .min(1)
+          .parse([...scenarioIds]);
+  if (selectedIds !== undefined && new Set(selectedIds).size !== selectedIds.length) {
+    fail("Selected Live Scenario IDs must be unique.");
+  }
+  const selected = selectedIds === undefined ? undefined : new Set(selectedIds);
+  if (
+    selected !== undefined &&
+    registry.scenarios.filter(({ id }) => selected.has(id)).length !== selected.size
+  ) {
+    fail("Selected Live Scenario IDs must exist in the registry.");
+  }
+  const selectedScenarios = registry.scenarios.filter(
+    ({ id }) => selected === undefined || selected.has(id),
+  );
+  const includesLocalMattOutput = selectedScenarios.some(({ fixedValidationFixture }) =>
+    localMattFixtureProfiles.has(fixedValidationFixture.profile),
+  );
+  return Object.freeze(
+    [
+      ...new Set(
+        selectedScenarios.flatMap(({ fixedValidationFixture }) => [
+          fixedValidationFixture.source,
+          ...(fixedValidationFixture.profile === "active-github-repository"
+            ? ["validation/live-journey/fixtures/github-provider"]
+            : []),
+        ]),
+      ),
+      ...(includesLocalMattOutput ? ["validation/live-journey/fixtures/local-provider"] : []),
+    ].sort((left, right) => left.localeCompare(right, "en")),
+  );
+};
+
+export const digestLiveScenarioFixtureSet = async (input: {
+  sourceRoot: string;
+  registry: LiveScenarioRegistry;
+  scenarioIds?: readonly string[];
+}): Promise<string> => {
+  const sourceRoot = resolve(input.sourceRoot);
+  const frames: string[] = [];
+  for (const source of liveScenarioReferencedFixtureSources(input.registry, input.scenarioIds)) {
+    const fixtureRoot = resolve(sourceRoot, source);
+    const fixtureRelative = relative(sourceRoot, fixtureRoot);
+    if (fixtureRelative.startsWith("..") || isAbsolute(fixtureRelative)) {
+      fail(`Live Scenario fixture escapes the source checkout: ${source}.`);
+    }
+    const state = await lstat(fixtureRoot);
+    if (!state.isDirectory()) {
+      fail(`Live Scenario fixture must be a directory: ${source}.`);
+    }
+    frames.push(`fixture\0${fixtureRelative}\0${await digestLiveScenarioFixture(fixtureRoot)}\n`);
+  }
+  return sha256(frames.join(""));
+};
+
 export const materializeLiveScenarioFixture = async (input: {
   registry: LiveScenarioRegistry;
   scenarioId: string;
@@ -194,7 +519,7 @@ export const materializeLiveScenarioFixture = async (input: {
   outputRoot: string;
 }) => {
   const registry = liveScenarioRegistrySchema.parse(input.registry);
-  const scenarioId = scenarioIdSchema.parse(input.scenarioId);
+  const scenarioId = liveScenarioIdSchema.parse(input.scenarioId);
   const scenario =
     registry.scenarios.find(({ id }) => id === scenarioId) ??
     fail(`Unknown Live Scenario: ${scenarioId}.`);
@@ -209,7 +534,7 @@ export const materializeLiveScenarioFixture = async (input: {
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
-  const fixtureSource = resolve(sourceRoot, scenario.fixture.source);
+  const fixtureSource = resolve(sourceRoot, scenario.fixedValidationFixture.source);
   const fixtureRelative = relative(sourceRoot, fixtureSource);
   if (fixtureRelative.startsWith("..") || isAbsolute(fixtureRelative)) {
     fail("Live Scenario fixture source must stay inside the source checkout.");
@@ -217,95 +542,8 @@ export const materializeLiveScenarioFixture = async (input: {
   await cp(fixtureSource, outputRoot, { recursive: true, errorOnExist: true, force: false });
   return Object.freeze({
     scenarioId,
-    materializer: scenario.fixture.materializer,
+    fixtureProfile: scenario.fixedValidationFixture.profile,
     fixtureRoot: outputRoot,
     startingStateSha256: await digestLiveScenarioFixture(outputRoot),
   });
-};
-
-const outcomeObservationSchema = z
-  .object({
-    requirement: boundedTextSchema,
-    observed: z.boolean(),
-    evidencePointers: z.array(liveScenarioEvidencePointerSchema).min(1).max(24),
-  })
-  .strict();
-
-const liveScenarioEvaluationSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    scenarioId: scenarioIdSchema,
-    outcome: z.enum(["pass", "fail", "blocked", "not-run"]),
-    semanticEvaluationAuthority: z.literal("coordinating-agent"),
-    coordinatorIdentity: z.string().trim().min(1).max(200),
-    rationale: boundedTextSchema,
-    requiredOutcomeObservations: z.array(outcomeObservationSchema).min(1),
-    forbiddenOutcomeObservations: z.array(outcomeObservationSchema).min(1),
-  })
-  .strict();
-
-export type LiveScenarioEvaluation = z.infer<typeof liveScenarioEvaluationSchema>;
-
-export const parseLiveScenarioEvaluation = (input: unknown): LiveScenarioEvaluation =>
-  liveScenarioEvaluationSchema.parse(input);
-
-const exactObservations = (
-  label: string,
-  requirements: readonly string[],
-  observations: readonly z.infer<typeof outcomeObservationSchema>[],
-): void => {
-  const expected = [...requirements].sort();
-  const observed = observations.map(({ requirement }) => requirement).sort();
-  if (
-    expected.length !== observed.length ||
-    new Set(observed).size !== observed.length ||
-    expected.some((requirement, index) => requirement !== observed[index])
-  ) {
-    fail(`Scenario evaluation requires each ${label} exactly once.`);
-  }
-};
-
-export const createLiveScenarioEvaluation = (input: {
-  scenario: LiveScenario;
-  outcome: "pass" | "fail" | "blocked" | "not-run";
-  coordinatorIdentity: string;
-  rationale: string;
-  requiredOutcomeObservations: readonly unknown[];
-  forbiddenOutcomeObservations: readonly unknown[];
-}) => {
-  const scenario = liveScenarioSchema.parse(input.scenario);
-  const outcome = z.enum(["pass", "fail", "blocked", "not-run"]).parse(input.outcome);
-  const coordinatorIdentity = z.string().trim().min(1).max(200).parse(input.coordinatorIdentity);
-  const rationale = boundedTextSchema.parse(input.rationale);
-  const requiredOutcomeObservations = z
-    .array(outcomeObservationSchema)
-    .parse(input.requiredOutcomeObservations);
-  const forbiddenOutcomeObservations = z
-    .array(outcomeObservationSchema)
-    .parse(input.forbiddenOutcomeObservations);
-  exactObservations("required outcome", scenario.requiredOutcomes, requiredOutcomeObservations);
-  exactObservations("forbidden outcome", scenario.forbiddenOutcomes, forbiddenOutcomeObservations);
-  if (
-    outcome === "pass" &&
-    (requiredOutcomeObservations.some(({ observed }) => !observed) ||
-      forbiddenOutcomeObservations.some(({ observed }) => observed))
-  ) {
-    fail("Scenario pass contradicts its hard observable outcomes.");
-  }
-  return Object.freeze(
-    liveScenarioEvaluationSchema.parse({
-      schemaVersion: 1 as const,
-      scenarioId: scenario.id,
-      outcome,
-      semanticEvaluationAuthority: "coordinating-agent" as const,
-      coordinatorIdentity,
-      rationale,
-      requiredOutcomeObservations: Object.freeze(
-        requiredOutcomeObservations.map((observation) => Object.freeze(observation)),
-      ),
-      forbiddenOutcomeObservations: Object.freeze(
-        forbiddenOutcomeObservations.map((observation) => Object.freeze(observation)),
-      ),
-    }),
-  );
 };

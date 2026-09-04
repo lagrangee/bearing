@@ -1,126 +1,202 @@
 # Codex E2E Policy
 
-This is the repository-wide execution policy for every Codex E2E Matrix, independent Live
-Scenario, live gated E2E, and Codex release smoke in this repository.
+This is the repository-wide policy for every Codex E2E Matrix, independent Live Scenario,
+live gated E2E, and Codex release smoke in this repository.
 
-## Required model configuration
+## Required launch
 
-Every Codex E2E Scenario must run with:
+Every Scenario launches Codex explicitly with:
 
-- Model: `gpt-5.6-luna`
-- Reasoning effort: `high`
+- model `gpt-5.6-luna`;
+- reasoning effort `high`; and
+- Fast mode enabled.
 
-The launch must make both values explicit. A conforming invocation includes:
+A conforming invocation includes:
 
 ```text
-codex exec --model gpt-5.6-luna --config 'model_reasoning_effort="high"'
+codex exec --model gpt-5.6-luna --config 'model_reasoning_effort="high"' --enable fast_mode
 ```
 
-Scenario-specific sandbox, output, prompt, and working-directory arguments can be added without
-weakening these values. The shared launcher denies direct sandbox network access. A Scenario can
-reach a selected remote provider or a required loopback product surface only through a bounded
-runner-owned capability that preserves the declared scope. No Scenario receives general network
-egress.
+Do not inherit these values from operator configuration and do not fall back to another model.
+Unavailability is `preflight blocked`.
 
-Do not inherit the model or reasoning effort from operator configuration, a profile, an environment
-default, or a previous session. Do not use another model as a fallback. Unavailability blocks that
-Scenario result.
+## Runtime and capability isolation
 
-## Runtime isolation
+Every Scenario receives a fresh repository, Agent home, runtime home, private TMPDIR, exact package,
+and declared Skill set. The Agent cannot read the operator home, source checkout, registry, hidden
+semantic fields, sibling Scenarios, credentials, session state, or Coordinator evidence. The native
+permission profile is default-deny outside the current Scenario roots and verified toolchain inputs.
 
-The support runner creates one fresh Codex runtime home inside each isolated Scenario Agent home.
-It can link only the operator `auth.json` needed for the real invocation. It does not expose the
-operator configuration, instructions, skills, session history, or other runtime state as product
-context. Agent-mediated installation integrates Skills only inside the isolated home.
+The runner copies only the authentication file required by Codex into runtime-owned storage and
+denies it to Agent tools. General network access and product loopback are prohibited. The GitHub
+Scenario may use only the existing short-lived broker for the configured private validation
+repository and current fixture scope. Tokens and ephemeral broker values cannot enter prompts,
+conversation evidence, raw events, terminal evidence, or results. Exact ephemeral values are
+redacted before durable publication, then the output is checked again.
 
-The Scenario Agent receives only its natural user requests, exact package, isolated Agent home, and
-visible repository or provider state. It must not follow the authentication link, infer or inspect
-the operator home, or inspect the Coordinator-only source checkout. Any such read invalidates the
-Scenario observation.
+The Coordinator workspace must stay outside `/tmp`, `/private/tmp`, `/var/tmp`, and
+`/private/var/tmp`. A new directory under the macOS per-user `TMPDIR` is allowed when its real path
+is outside those fixed roots.
 
-The Scenario manifest and tracked registry are Coordinator-only because they contain Scenario
-identity and semantic criteria. They stay outside the Agent repository and home. For the complete
-Codex child lifetime, the runner removes read permission from the manifest and uses the native
-Codex named permission profile to deny every read from the complete Coordinator source checkout,
-including Git objects, plus the exact registry when a test fixture places it elsewhere. The runner restores
-Coordinator access only after the child exits. Agent-readable prompts and installation files
-contain no criteria or answer hints.
+GitHub preflight records external effects as soon as it creates a milestone or Issue. A later
+preparation failure retains the Generation, repository, milestone, and known Issue identities,
+attempts cleanup for every known object, and reports cleanup as `complete` or `unverified` with the
+unverified targets. Its blocked admission reports `externalEffectsObserved: true`.
 
-Scenario preparation and Agent execution are separate harness phases. Complete all Scenario
-preparation before launching an Agent child. Do not prepare or reprepare a Scenario while any Agent
-child is active. Up to two already-prepared Agent children can run concurrently. Before a fresh
-reprepare, wait for all active children to end. Before each turn, the runner rescans the opaque
-Scenario runtime roots and denies every other runtime root to that child.
+## Scenario contract
 
-For the GitHub Scenario, the runner can add only the operator's GitHub account selection to the
-isolated home. It does not copy a token or unrelated GitHub configuration to disk. A short-lived
-per-turn broker resolves the token through the operator credential store and exposes only a bounded
-`gh` command capability for the fixed private validation repository. Every write is limited to
-Issues identified by the exact current scope key; creation must carry that key, and relation source
-and target Issues must already carry it. The Human does not authorize
-each turn again after authorizing the validation run.
+The tracked registry is `validation/live-journey/registry.json`. It contains exactly twelve
+independent, semantically named Scenarios. Each Scenario declares five semantic fields:
 
-The token must not enter the Agent environment, manifest, transcript, or durable evidence. The
-broker uses authenticated messages over one fixed Unix-domain socket, remains available for the
-complete Codex child lifetime, and removes the socket after the turn. Its Generation-local socket
-path and local capability value stay stable across resumed turns; its process and token remain
-per-turn. The broker fails closed for credential reads, cross-repository targets, destructive API
-methods, file-backed inputs, and Agent-supplied GraphQL. Missing isolated access blocks the Scenario before
-behavior. A socket collision is a harness failure. Do not add a filesystem mailbox, polling
-protocol, or application retry.
+1. Fixed Validation Fixture
+2. Initial Prompt
+3. Human Position
+4. Bearing Intent
+5. Terminal Evidence
 
-## Matrix and Scenario contract
+The ID is identity, not a sixth semantic field. Human Position and Bearing Intent are
+Coordinator-only. The Scenario Agent receives only the natural Initial Prompt, later natural Human
+replies, installation entry when applicable, and observable repository or provider state. It does
+not receive Scenario identity, criteria, expected commands, fixed follow-up Turns, or hidden
+answers.
 
-The tracked Matrix is `validation/live-journey/registry.json`. It contains a complete, stable set of
-independent behavior-driven Scenarios. Each Scenario starts from one verified identity-bound
-Fixture and one fresh Agent conversation. Scenarios do not share sessions, transcripts, or
-Agent-produced state. Continue independent Scenarios after one fails while the Generation remains
-active. An accepted identity-changing fix abandons that Generation instead of spending time on an
-obsolete package or Matrix definition.
+Local Matt-native Fixture artifacts are fixed, versioned materializations of the pinned Matt Kit
+setup, specification, ticket, and Wayfinder contracts plus explicitly declared provider extensions.
+Admission verifies their receipt and exact bytes; profile materialization may only select or copy
+those verified artifacts. It never authors a replacement native document from Harness prose or
+runs an Agent to regenerate the Fixture inside a Generation.
 
-Do not convert the Matrix into one long story or a provider-file script. The Scenario Agent does
-not receive the registry, Scenario identifiers, required or forbidden outcomes, expected commands,
-file names, function names, confirmation counts, or Coordinator verdict. It chooses any
-contract-valid workflow that satisfies the natural request.
+User-invoked-only Skills appear literally in the Initial Prompt only where the real journey requires
+them, and the Harness sends that declaration as Codex's structured Skill input rather than relying
+on prompt text to simulate invocation. Before starting the conversation, the Harness reloads the
+app-server Skill catalog for the Scenario repository and requires one enabled exact
+name-and-entrypoint identity match; the catalog path is the path sent in the structured input and recorded in the Turn
+observation. Later replies continue the same private Codex conversation without repeating the
+invocation. Direct delivery does not invent an `$implement` invocation.
 
-Provider-native byte shape, parser behavior, exact schema, broker allowlists, sandbox behavior,
-credential isolation, and evidence schema belong at deterministic contract seams. The Live Matrix
-tests whether the Agent can read those contracts, make semantic judgments, preserve consent and
-scope, compose owners, and report truthful outcomes.
+## Adaptive Human Orchestrator
 
-The Coordinating Agent is the only semantic evaluation authority. It uses the complete observed
-workflow and flexible semantic judgment. Deterministic support can reject identity mismatch,
-missing turns, forbidden state, unauthorized remote changes, or another contradiction. It cannot
-manufacture a semantic pass.
+The current top-level Codex is the sole Human Orchestrator. It reads each complete Agent response,
+authors the next concise natural reply, and decides when the Scenario is terminal. Deterministic
+support never chooses a reply and never manufactures `pass`, `fail`, or `blocked`. For every
+non-passing verdict, the Orchestrator also records one semantic failure category: `test-system` for
+harness, transport, fixture, permission, or evidence failure; `activation` when the applicable Skill
+or required reference was not loaded; `contract` when loaded instructions were ambiguous,
+contradictory, or insufficient; `product` when followed instructions reached faulty Bearing code or
+provider behavior; or `agent-adherence` when clear loaded instructions were not followed.
+Deterministic support validates and preserves this attribution but never derives it. Attribution
+does not alter the verdict or create release authority. Select the earliest causally sufficient
+category; an Agent's unsupported claim that a Skill was unavailable is not activation evidence.
 
-The shared launcher owns the fixed model arguments and rejects caller overrides. Every initial,
-resumed, retried, negative, reproduction, and release launch uses the same policy.
+Simple Scenarios target no more than three replies after the Initial Prompt. This is a soft
+interaction budget, not a timeout or result rule. Productive discussion or execution may continue;
+repetitive drill-down is recorded as workflow friction.
+
+A committed wrong writeback, unauthorized mutation, false completion, missing required owner
+return, or other already-observed Bearing contract violation is terminal `fail`. Do not reveal the
+missing internal operation or ask the Agent to retry it. A trustworthy transport interruption may
+resume only the same conversation before a semantic result exists. If continuity cannot be proven,
+finalize `blocked`. A recovered pass requires the interrupted Turn to contain no Agent reply and no
+repository or Agent Home change, followed through the retained private session by a clean completed
+Turn. A semantic result cannot be restarted, retried, or resampled inside its Generation.
+
+Judge owner composition at turn boundaries. An exact owner-required concurrency claim before
+Bearing admission is not by itself a failure. At most one applicable provider synchronization may
+follow the settled native writes of one Turn; a later Turn with new writes may synchronize again.
+A Human Handoff does not require synchronization. Before the Agent reports Workflow Completion for
+a request with pending bound native subjects, one reconciliation must cover the complete Pending
+Native Write Set. A skipped Human-Handoff synchronization carries its unsynchronized subjects into
+the next Turn. Repeated same-Turn capture or reconciliation is a workflow failure rather than a
+recovery path.
+
+At most four Scenarios may be active. One Scenario has at most one active Turn. Independent
+Scenarios may continue after another fails so the Generation yields the complete truthful result
+set.
+
+A mechanical failure before Codex invocation rolls back only the unobserved start reservation, so
+the same Scenario may still start once. After one Turn has durable observation or resumable session
+continuity, the Scenario retains its active slot until finalization even when that Turn is incomplete.
+Cross-process recovery must prove both the lifecycle owner and spawned Codex child have terminated;
+missing child identity abandons the Generation rather than guessing or killing an unknown process.
+Sealing a result releases the slot; later cleanup failure cannot reopen or mutate conversation or
+result evidence.
+
+## Mechanical execution surface
+
+`check-matrix-definition` is a deterministic registry and Fixture check. It starts no Agent and is
+not a second semantic suite. A real execution has exactly five mechanical lifecycle operations:
+
+```text
+prepare-generation
+start-scenario
+resume-scenario
+finalize-scenario
+complete-matrix
+```
+
+- `prepare-generation` freezes package, registry, Fixture, Harness, model configuration, prepared
+  Scenario set, and optional GitHub identities before behavior.
+- `start-scenario` sends the tracked Initial Prompt to one new conversation.
+- `resume-scenario` sends one Orchestrator-authored reply to that same conversation.
+- `finalize-scenario` captures declared terminal surfaces and records the Orchestrator verdict and
+  rationale.
+- `complete-matrix` requires exactly one identity-bound result for every Scenario selected in the
+  Generation and publishes only their summary. A complete Matrix selects all registered Scenarios;
+  a focused Generation remains explicitly partial.
+
+There is no fixed-Turn runner, deterministic semantic evaluator, automatic convergence pass,
+automatic focused-probe stage, or automatic release mapping. Identity-changing corrections happen
+outside the Generation and require a fresh Generation.
 
 ## Evidence
 
-Current Matrix evidence records:
+Durable evidence has three levels:
 
-- the evidence class and exact local-package or Candidate identity;
-- the Matrix definition and Generation identities;
-- the Scenario and Fixture starting-state identities;
-- the Codex CLI version, requested model, and requested reasoning effort;
-- whether every real Codex invocation started and reached its terminal boundary; and
-- the Coordinating Agent's rationale and required and forbidden outcome observations.
+- one `generation.json` basis binding package, registry, Fixture, Harness, model, Scenario, and
+  optional GitHub preparation identities;
+- one result per Scenario citing a redacted raw Codex event stream, readable complete conversation,
+  bounded terminal observations, contiguous Turn timestamps, Scenario timestamps, semantic outcome,
+  and Orchestrator rationale; and
+- one Matrix result citing the exact Generation and selected Scenario result set and summarizing
+  outcomes, durations, slow observations, and actual peak concurrency.
 
-Evidence does not retain credentials, unnecessary full transcripts, session identifiers,
-machine-specific private paths, or unrelated operator configuration. A higher-level release result
-can cite Scenario results without repeating model fields.
+Session identity stays private. Durable references must remain below the Matrix evidence root,
+exclude credentials and session state, and pass digest verification. Deterministic checks may reject
+missing or changed evidence, unsafe paths, identity mismatch, unrecovered incomplete Turns,
+credential leakage, or an incomplete result set. If Turn bytes fail the required secret scan, publish only a synthetic
+failed observation that names the rejection class, then let the Orchestrator seal `blocked`; never
+publish the rejected bytes or establish resumable session state. Scan each complete readable
+conversation before replacing its durable copy. Seal the exact Orchestrator verdict before terminal
+capture, and seal the Scenario result before runner-owned cleanup. Git terminal commands stream no
+more than 256 KiB per output and record an explicit truncation marker at that boundary. These checks
+do not evaluate Bearing Intent.
 
-Historical reports remain historical and are not current Matrix inputs. A Scenario used as
-evidence for a new package or Candidate is rerun under this policy. Local rehearsal evidence cannot
-become Candidate evidence by relabeling or reuse.
+A post-invocation mechanical rejection also records its bounded execution stage and a sanitized,
+length-limited Error name and message in both the synthetic event and main Turn observation. It
+never records a stack, raw rejected output, credential, private session identity, or ephemeral
+capability value; a diagnostic that cannot pass the required safety scan is replaced by an explicit
+unavailable summary.
 
-## Change boundary
+Matrix output has no deterministic relationship to Candidate readiness, publication, release,
+Effort conclusion, Gate Passage, or Roadmap completion. A green deterministic suite does not imply a
+semantic pass, and a structurally complete Matrix does not authorize release.
 
-Changing the required Codex model or reasoning effort is a repository-level test-policy decision.
-An Effort, Ticket, runbook, environment variable, or operator preference cannot weaken it locally.
+## GitHub lifecycle
+
+The GitHub Scenario uses one reusable configured template. Each Generation creates one uniquely
+named Matrix milestone, applies the stable `matrix-fixture` label, and creates one fresh parent plus
+one fresh `ready-for-agent` child in that milestone. The natural prompt names only the work item;
+tracker selection comes from repository configuration.
+
+Runner cleanup begins only after terminal evidence capture. It closes remaining fixture Issues
+without changing the verdict and closes the Generation milestone after all GitHub evidence is
+captured. A later preflight may recover only stale open Matrix milestones and their own fixture
+Issues; it cannot touch unrelated work or promote old evidence.
 
 ## Release Live Journey
 
-Before coordinating a Bearing release, or defining, running, or reviewing a release Live Journey,
-read and follow the [Release Live Journey Runbook](release-live-journey.md).
+Changing the required model, reasoning effort, Fast mode, registry semantics, or isolation contract
+is a repository-level policy decision. Before coordinating a Bearing release, or defining, running,
+or reviewing a release Live Journey, read and follow the
+[Release Live Journey Runbook](release-live-journey.md). Live Matrix evidence is an input to Human
+review, never deterministic release authority.

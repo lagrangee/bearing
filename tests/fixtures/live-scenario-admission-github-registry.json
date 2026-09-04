@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 2,
+  "scenarios": [
+    {
+      "id": "github-test",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "active-github-repository",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }],
+        "capabilityProfile": "github-bounded-delivery"
+      },
+      "initialPrompt": "Prepare the bounded delivery.",
+      "humanPosition": "Authorize the bounded child only.",
+      "bearingIntent": "Keep remote delivery scoped.",
+      "terminalEvidence": {
+        "description": "Bounded GitHub state.",
+        "observers": ["repository", "agent-home", "git", "github"]
+      }
+    }
+  ]
+}

@@ -8,35 +8,47 @@ import {
   readFile,
   realpath,
   rm,
-  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
+import { encodeGitHubMattNativeScope } from "../src/providers/matt-skills-v1/github";
 import {
   assertIsolatedCodexHomeControlLinks,
   codexE2ELaunchContract,
-  inspectCodexE2EOperatorContext,
+  inspectCodexE2EToolchain,
+  prepareCodexE2EShellEnvironment,
   prepareIsolatedCodexHome,
   probeCodexE2EPermissionProfile,
+  resolveCodexE2EProgram,
+  verifyCodexE2EToolchain,
 } from "./codex-e2e-runtime";
 import {
   captureGitHubRemoteInventory,
   deriveGitHubJourneyScopeKey,
+  type GitHubMatrixFixtureLifecycle,
   inspectGitHubRepository,
+  operatorGitHubToken,
+  prepareGitHubMatrixFixture,
   provisionIsolatedGitHubAccountSelection,
   readFixedGitHubValidationRepository,
+  recoverPreparedGitHubMatrixFixtureFailure,
 } from "./github-live-journey";
-import { liveScenarioArtifactSchema, liveScenarioPackageSchema } from "./live-scenario-evidence";
+import { createCodexJourneyEnvironment } from "./live-journey-matrix";
+import { liveScenarioPackageSchema } from "./live-scenario-evidence";
 import {
   installLiveScenarioProduct,
-  materializeCompleteGlobalKitFromPackage,
+  materializeDeclaredPrerequisiteSkills,
   materializeGitHubLiveScenarioPlanningState,
   materializeLiveScenarioProductState,
 } from "./live-scenario-product";
 import {
   digestLiveScenarioFixture,
+  digestLiveScenarioFixtureSet,
+  liveScenarioReferencedFixtureSources,
+  liveScenarioSchema,
+  liveScenarioSkillIsInstalled,
   loadLiveScenarioRegistry,
   materializeLiveScenarioFixture,
 } from "./live-scenario-registry";
@@ -50,43 +62,70 @@ const fail = (message: string): never => {
 
 const sha256 = (value: Uint8Array | string): string =>
   createHash("sha256").update(value).digest("hex");
+const liveScenarioHarnessFiles = Object.freeze([
+  ".gitleaks.toml",
+  "docs/agents/codex-e2e.md",
+  "package-lock.json",
+  "package.json",
+]);
+export const liveScenarioHarnessIdentitySha256 = async (input: {
+  sourceRoot: string;
+}): Promise<string> => {
+  const sourceRoot = resolve(input.sourceRoot);
+  const fileFrames = await Promise.all(
+    liveScenarioHarnessFiles.map(async (locator) => {
+      const bytes = await readFile(join(sourceRoot, locator));
+      return `${locator}\0${bytes.byteLength}\0${sha256(bytes)}\n`;
+    }),
+  );
+  const scriptsSha256 = await digestLiveScenarioFixture(join(sourceRoot, "scripts"));
+  return sha256(`live-scenario-harness-v1\0scripts\0${scriptsSha256}\n${fileFrames.join("")}`);
+};
 const installationEntryToken = ["$", "{INSTALL_ENTRY}"].join("");
 export const LIVE_SCENARIO_COORDINATOR_IDENTITY = "codex-coordinator" as const;
 const G1_INSTALLATION_SHELL = "/bin/zsh" as const;
 
-const liveScenarioRuntimePrefix = "bearing-live-scenario-";
+const liveScenarioRuntimeContainerName = "bearing-live-scenario-runtimes";
+
+const liveScenarioRuntimeContainer = (temporaryRoot: string) =>
+  join(temporaryRoot, liveScenarioRuntimeContainerName);
 
 const liveScenarioRuntimeRoot = (
   temporaryRoot: string,
   generationId: string,
   scenarioId: string,
-  journeyAttempt: number,
   workspaceRoot: string,
 ) =>
   join(
-    temporaryRoot,
-    `${liveScenarioRuntimePrefix}${sha256(
-      `${generationId}\0${scenarioId}\0${journeyAttempt}\0${workspaceRoot}`,
-    ).slice(0, 32)}`,
+    liveScenarioRuntimeContainer(temporaryRoot),
+    `scenario-${sha256(`${generationId}\0${scenarioId}\0${workspaceRoot}`).slice(0, 32)}`,
   );
+
+const ensureLiveScenarioRuntimeContainer = async (temporaryRoot: string): Promise<string> => {
+  const container = liveScenarioRuntimeContainer(temporaryRoot);
+  try {
+    await mkdir(container, { mode: 0o700 });
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+  }
+  const identity = await lstat(container);
+  if (
+    !identity.isDirectory() ||
+    identity.isSymbolicLink() ||
+    (typeof process.getuid === "function" && identity.uid !== process.getuid())
+  ) {
+    fail("Live Scenario runtime container must be a private owned directory.");
+  }
+  await chmod(container, 0o700);
+  return realpath(container);
+};
 
 const liveScenarioReadDeniedPaths = (input: {
   sourceRoot: string;
   registryPath: string;
+  operatorCodexHome: string;
   scenarioContainer: string;
-  existingRuntimeRoots: readonly string[];
-}) => [
-  input.sourceRoot,
-  input.registryPath,
-  input.scenarioContainer,
-  ...new Set(input.existingRuntimeRoots),
-];
-
-const existingLiveScenarioRuntimeRoots = async (temporaryRoot: string): Promise<string[]> =>
-  (await readdir(temporaryRoot, { withFileTypes: true }))
-    .filter(({ name }) => name.startsWith(liveScenarioRuntimePrefix))
-    .map(({ name }) => join(temporaryRoot, name))
-    .sort((left, right) => left.localeCompare(right, "en"));
+}) => [input.sourceRoot, input.registryPath, input.operatorCodexHome, input.scenarioContainer];
 
 export const deriveLiveScenarioGitHubScopeKey = (
   input: Parameters<typeof deriveGitHubJourneyScopeKey>[0],
@@ -165,53 +204,16 @@ const inspectG1InstallationRuntime = async () => {
   });
 };
 
-const installBoundedLocalNpmCapability = async (input: {
-  sourceRoot: string;
-  runtimeRoot: string;
-  agentHome: string;
-  targetArtifact: string;
-  targetFile: string;
-  targetSha256: string;
-  targetVersion: string;
-}): Promise<void> => {
-  const realNpm = Bun.which("npm") ?? fail("Bounded update rehearsal requires npm.");
-  const controlRoot = join(input.runtimeRoot, "bounded-update-capability");
-  const capability = join(controlRoot, "npm.mjs");
-  const configuration = join(controlRoot, "config.json");
-  const targetBytes = await readFile(input.targetArtifact);
-  await mkdir(controlRoot);
-  await cp(join(input.sourceRoot, "scripts/g1-local-npm-capability.mjs"), capability);
-  await writeFile(
-    configuration,
-    `${JSON.stringify(
-      {
-        schemaVersion: 1,
-        targetArtifact: input.targetArtifact,
-        targetFile: input.targetFile,
-        targetSha256: input.targetSha256,
-        targetIntegrity: `sha512-${createHash("sha512").update(targetBytes).digest("base64")}`,
-        targetVersion: input.targetVersion,
-        realNpm: await realpath(realNpm),
-      },
-      null,
-      2,
-    )}\n`,
-    { flag: "wx", mode: 0o400 },
-  );
-  await chmod(capability, 0o555);
-  await symlink(capability, join(input.agentHome, ".bearing/bin/npm"));
-};
-
 const manifestSchema = z.object({
   schemaVersion: z.literal(1),
   generationId: z.string().uuid(),
   coordinatorIdentity: z.literal(LIVE_SCENARIO_COORDINATOR_IDENTITY),
   evidenceClass: z.enum(["local-rehearsal", "release-candidate"]),
-  scenario: z.object({ id: z.string().min(1), name: z.string().min(1) }).passthrough(),
+  scenario: liveScenarioSchema,
   package: liveScenarioPackageSchema,
   matrixDefinitionSha256: z.string().regex(/^[0-9a-f]{64}$/u),
-  operatorContextFingerprint: z.string().regex(/^[0-9a-f]{64}$/u),
   startingStateSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  installationGuideSha256: z.string().regex(/^[0-9a-f]{64}$/u),
   installedSkillSha256: z
     .string()
     .regex(/^[0-9a-f]{64}$/u)
@@ -224,26 +226,14 @@ const manifestSchema = z.object({
       })
       .strict()
       .optional(),
-    olderGlobalKit: z
-      .object({
-        packageName: z.literal("@lagrangee/bearing"),
-        packageVersion: z.literal("0.1.1"),
-        source: z
-          .object({ kind: z.literal("npm"), spec: z.literal("@lagrangee/bearing@0.1.1") })
-          .strict(),
-        artifact: liveScenarioArtifactSchema,
-        installedKitSha256: z.string().regex(/^[0-9a-f]{64}$/u),
-        targetSkillSha256: z.string().regex(/^[0-9a-f]{64}$/u),
-      })
-      .strict()
-      .optional(),
   }),
   paths: z.object({
     sourceRoot: z.string(),
     registry: z.string(),
+    operatorCodexHome: z.string(),
     workspaceRoot: z.string(),
     runtimeRoot: z.string(),
-    runtimeDenyRoots: z.array(z.string()),
+    runtimeTempDirectory: z.string(),
     manifest: z.string(),
     manifestDigest: z.string(),
     installationArtifact: z.string(),
@@ -252,17 +242,32 @@ const manifestSchema = z.object({
     agentHome: z.string(),
     repository: z.string(),
     observations: z.string(),
-    attempts: z.string(),
-    transcripts: z.string(),
+    events: z.string(),
+    conversation: z.string(),
+    terminal: z.string(),
+    result: z.string(),
     sessionState: z.string(),
-    prompts: z.array(z.string()).min(1),
+    initialPrompt: z.string(),
     remoteInventories: z.string().optional(),
     baselineInventory: z.string().optional(),
+  }),
+  toolchain: z.object({
+    nodeExecutable: z.string(),
+    nodeBin: z.string(),
+    nodeInstallRoot: z.string(),
+    openSslConfig: z.string(),
+    selectedDeveloperDirectory: z.string(),
+    gitExecutable: z.string(),
+    path: z.string(),
   }),
   launch: z.object({
     environment: z.object({
       HOME: z.string(),
       CODEX_HOME: z.string(),
+      TMPDIR: z.string(),
+      PATH: z.string(),
+      DEVELOPER_DIR: z.string(),
+      npm_config_script_shell: z.literal("/bin/bash"),
       SHELL: z.string().optional(),
     }),
     initial: z.object({
@@ -284,13 +289,139 @@ const manifestSchema = z.object({
       repositorySlug: z.string().min(1),
       repositoryIdentitySha256: z.string().regex(/^[0-9a-f]{64}$/u),
       viewerPermission: z.string().min(1),
-      journeyAttempt: z.number().int().positive().default(1),
       scopeKey: z.string().min(1),
       baselineInventorySha256: z.string().regex(/^[0-9a-f]{64}$/u),
       preparedGitConfigSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+      fixtureLifecycle: z.object({
+        repositorySlug: z.string().min(1),
+        repository: z.object({
+          databaseId: z.number().int().positive(),
+          nodeId: z.string().min(1),
+        }),
+        scopeKey: z.string().min(1),
+        generationId: z.string().uuid(),
+        milestone: z.object({ number: z.number().int().positive(), title: z.string().min(1) }),
+        parent: z.object({
+          id: z.number().int().positive(),
+          nodeId: z.string().min(1),
+          number: z.number().int().positive(),
+        }),
+        child: z.object({
+          id: z.number().int().positive(),
+          nodeId: z.string().min(1),
+          number: z.number().int().positive(),
+        }),
+      }),
     })
     .optional(),
 });
+
+export type LiveScenarioGenerationManifest = z.infer<typeof manifestSchema>;
+
+export const readLiveScenarioGenerationManifest = async (path: string) => {
+  const manifestPath = resolve(path);
+  const bytes = await readFile(manifestPath, "utf8");
+  if ((await readFile(`${manifestPath}.sha256`, "utf8")).trim() !== sha256(bytes)) {
+    fail("Live Scenario manifest digest mismatch.");
+  }
+  const manifest = manifestSchema.parse(JSON.parse(bytes));
+  if (
+    manifest.paths.manifest !== manifestPath ||
+    manifest.paths.manifestDigest !== `${manifestPath}.sha256` ||
+    manifest.paths.workspaceRoot !== dirname(manifestPath)
+  ) {
+    fail("Live Scenario manifest locator mismatch.");
+  }
+  const registry = await loadLiveScenarioRegistry(manifest.paths.registry);
+  const scenario =
+    registry.scenarios.find(({ id }) => id === manifest.scenario.id) ??
+    fail(`Live Scenario is no longer registered: ${manifest.scenario.id}.`);
+  if (JSON.stringify(scenario) !== JSON.stringify(manifest.scenario)) {
+    fail("Live Scenario definition changed after preparation.");
+  }
+  return Object.freeze({ ...manifest, scenario });
+};
+
+type LiveScenarioGenerationManifestReadback = Awaited<
+  ReturnType<typeof readLiveScenarioGenerationManifest>
+>;
+
+const verifyLiveScenarioAgentInputs = async (parsed: LiveScenarioGenerationManifestReadback) => {
+  if ((await sha256File(parsed.paths.installationArtifact)) !== parsed.package.artifact.sha256) {
+    fail("Live Scenario installation package copy changed after preparation.");
+  }
+  if (
+    (await sha256File(parsed.paths.installationGuide)) !== parsed.installationGuideSha256 ||
+    (await readFile(parsed.paths.installationEntry, "utf8")) !==
+      installationEntry({
+        packageName: parsed.package.packageName,
+        packageVersion: parsed.package.packageVersion,
+        artifactPath: parsed.paths.installationArtifact,
+        artifactSha256: parsed.package.artifact.sha256,
+        installationGuide: parsed.paths.installationGuide,
+      })
+  ) {
+    fail("Live Scenario installation guidance changed after preparation.");
+  }
+  const observationNames = await readdir(parsed.paths.observations);
+  if (parsed.installedSkillSha256 !== null) {
+    const currentSkillSha256 = await digestLiveScenarioFixture(
+      join(parsed.paths.agentHome, "skill-directory/bearing"),
+    );
+    if (currentSkillSha256 !== parsed.installedSkillSha256) {
+      fail("Preinstalled Bearing Skill changed outside the recorded Scenario transition.");
+    }
+  }
+  const expectedEnvironment = createCodexJourneyEnvironment(
+    process.env,
+    parsed.launch.environment,
+    {
+      includeCanonicalBearingBin:
+        parsed.scenario.fixedValidationFixture.profile !== "fresh-installation-repository",
+    },
+  );
+  await assertIsolatedCodexHomeControlLinks(parsed.paths.agentHome, expectedEnvironment["PATH"]);
+  const expectedPrompt = parsed.scenario.initialPrompt.replaceAll(
+    installationEntryToken,
+    parsed.paths.installationEntry,
+  );
+  if ((await readFile(parsed.paths.initialPrompt, "utf8")) !== `${expectedPrompt}\n`) {
+    fail("Live Scenario Initial Prompt changed before Agent behavior.");
+  }
+  const scenarioContainer = await realpath(dirname(parsed.paths.workspaceRoot));
+  const storedLaunch = codexE2ELaunchContract({
+    repositoryRoot: parsed.paths.repository,
+    isolatedHome: parsed.paths.agentHome,
+    codexHome: parsed.launch.environment.CODEX_HOME,
+    runtimeTempDirectory: parsed.paths.runtimeTempDirectory,
+    toolchain: parsed.toolchain,
+    disabledOperatorSkillPaths: [],
+    readDeniedPaths: [
+      parsed.paths.sourceRoot,
+      parsed.paths.registry,
+      parsed.paths.operatorCodexHome,
+      scenarioContainer,
+    ],
+    writeAllowedPaths:
+      parsed.scenario.fixedValidationFixture.profile === "fresh-installation-repository"
+        ? [join(parsed.paths.agentHome, ".agents/skills")]
+        : [],
+    program: parsed.launch.initial.program,
+    ...(parsed.fixtureIdentity.runtime === undefined
+      ? {}
+      : { shellProgram: parsed.fixtureIdentity.runtime.shell.program }),
+  });
+  if (JSON.stringify(storedLaunch) !== JSON.stringify(parsed.launch)) {
+    fail("Live Scenario Codex launch changed before Agent behavior.");
+  }
+  return Object.freeze({ launch: storedLaunch, observationNames: Object.freeze(observationNames) });
+};
+
+export const verifyLiveScenarioBehaviorBoundary = async (path: string) => {
+  const parsed = await readLiveScenarioGenerationManifest(path);
+  const verified = await verifyLiveScenarioAgentInputs(parsed);
+  return Object.freeze({ ...parsed, launch: verified.launch });
+};
 
 const ensureIndependentNewWorkspace = async (
   sourceRoot: string,
@@ -319,20 +450,56 @@ const ensureIndependentNewWorkspace = async (
   }
 };
 
+const CODEX_DARWIN_PLATFORM_SCRATCH_ROOTS = [
+  "/tmp",
+  "/private/tmp",
+  "/var/tmp",
+  "/private/var/tmp",
+] as const;
+
+const isAtOrBelow = (root: string, candidate: string): boolean => {
+  const relation = relative(root, candidate);
+  return (
+    relation === "" ||
+    (!isAbsolute(relation) && relation !== ".." && !relation.startsWith(`..${sep}`))
+  );
+};
+
+export const ensureLiveScenarioCoordinatorWorkspace = async (
+  sourceRoot: string,
+  workspaceRoot: string,
+): Promise<void> => {
+  await ensureIndependentNewWorkspace(sourceRoot, workspaceRoot);
+  if (process.platform !== "darwin") return;
+
+  const canonicalParent = await realpath(dirname(workspaceRoot));
+  const canonicalWorkspace = join(canonicalParent, basename(workspaceRoot));
+  const scratchRoots = new Set<string>();
+  for (const root of CODEX_DARWIN_PLATFORM_SCRATCH_ROOTS) {
+    try {
+      scratchRoots.add(await realpath(root));
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
+  }
+  if ([...scratchRoots].some((root) => isAtOrBelow(root, canonicalWorkspace))) {
+    fail(
+      "Scenario Coordinator workspace must stay outside Codex macOS platform scratch roots (/tmp, /private/tmp, /var/tmp, /private/var/tmp).",
+    );
+  }
+};
+
 export const liveScenarioDefinitionDigest = async (input: {
   sourceRoot: string;
   registryPath: string;
 }): Promise<string> => {
   const sourceRoot = await realpath(resolve(input.sourceRoot));
   const registryPath = await realpath(resolve(sourceRoot, input.registryPath));
-  await loadLiveScenarioRegistry(registryPath);
+  const registry = await loadLiveScenarioRegistry(registryPath);
   const frames = [
     `registry\0${relative(sourceRoot, registryPath)}\0${sha256(await readFile(registryPath))}\n`,
   ];
-  const fixtureRoot = resolve(sourceRoot, "validation/live-journey/fixtures");
-  frames.push(
-    `fixtures\0${relative(sourceRoot, fixtureRoot)}\0${await digestLiveScenarioFixture(fixtureRoot)}\n`,
-  );
+  frames.push(`fixtures\0${await digestLiveScenarioFixtureSet({ sourceRoot, registry })}\n`);
   return sha256(frames.join(""));
 };
 
@@ -463,23 +630,23 @@ export const liveScenarioCandidateDefinitionDigest = async (input: {
   if (head.exitCode !== 0 || head.stdout.toString("utf8").trim() !== sourceCommit) {
     fail("Live Scenario definitions require the exact Candidate source commit checkout.");
   }
-  const registryRelative = relative(sourceRoot, resolve(sourceRoot, input.registryPath));
-  const fixturesRelative = relative(
-    sourceRoot,
-    resolve(sourceRoot, "validation/live-journey/fixtures"),
+  const registryPath = resolve(sourceRoot, input.registryPath);
+  const registryRelative = relative(sourceRoot, registryPath);
+  const registry = await loadLiveScenarioRegistry(registryPath);
+  const fixtureRelatives = liveScenarioReferencedFixtureSources(registry).map((fixtureSource) =>
+    relative(sourceRoot, resolve(sourceRoot, fixtureSource)),
   );
   if (
-    registryRelative.startsWith("..") ||
-    isAbsolute(registryRelative) ||
-    fixturesRelative.startsWith("..") ||
-    isAbsolute(fixturesRelative)
+    [registryRelative, ...fixtureRelatives].some(
+      (locator) => locator.startsWith("..") || isAbsolute(locator),
+    )
   ) {
     fail("Live Scenario Candidate definitions must stay inside the source checkout.");
   }
   const definition = {
     sourceRoot,
     sourceCommit,
-    pathspecs: [registryRelative, fixturesRelative],
+    pathspecs: [registryRelative, ...fixtureRelatives],
   } as const;
   assertExactCandidateDefinitionBytes(definition);
   const digest = await liveScenarioDefinitionDigest({
@@ -525,19 +692,58 @@ const cloneGitHubFixture = (input: {
   git(input.repository, ["config", "--local", "user.email", "live-matrix@example.invalid"]);
 };
 
+export const materializeGitHubScenarioRepositoryFixture = async (input: {
+  repository: string;
+  fixtureRoot: string;
+}): Promise<void> => {
+  for (const entry of await readdir(input.repository, { withFileTypes: true })) {
+    if (entry.name !== ".git") {
+      await rm(join(input.repository, entry.name), { recursive: true, force: true });
+    }
+  }
+  for (const entry of await readdir(input.fixtureRoot, { withFileTypes: true })) {
+    if (entry.name === ".git") fail("GitHub Live Scenario fixture must not contain .git.");
+    await cp(join(input.fixtureRoot, entry.name), join(input.repository, entry.name), {
+      recursive: true,
+      force: true,
+    });
+  }
+  await rm(join(input.repository, ".scratch"), { recursive: true, force: true });
+  git(input.repository, ["add", "-A"]);
+  if (git(input.repository, ["status", "--porcelain=v1"]) !== "") {
+    git(input.repository, [
+      "-c",
+      "user.name=Bearing Live Matrix",
+      "-c",
+      "user.email=live-matrix@example.invalid",
+      "commit",
+      "-qm",
+      "Install tracked GitHub delivery fixture",
+    ]);
+  }
+  git(input.repository, ["switch", "-c", "delivery-work"]);
+  if (git(input.repository, ["status", "--porcelain=v1"]) !== "") {
+    fail("GitHub Live Scenario fixture did not produce a clean baseline.");
+  }
+};
+
 export const installGitHubScenarioProviderContract = async (input: {
   sourceRoot: string;
   repository: string;
 }): Promise<void> => {
   const relativePath = "docs/agents/issue-tracker.md";
-  await cp(
-    join(
-      input.sourceRoot,
-      "validation/live-journey/fixtures/github-provider/docs/agents/issue-tracker.md",
-    ),
-    join(input.repository, relativePath),
-    { force: true },
+  const sourcePath = join(
+    input.sourceRoot,
+    "validation/live-journey/fixtures/github-provider/docs/agents/issue-tracker.md",
   );
+  await cp(sourcePath, join(input.repository, relativePath), { force: true });
+  if (
+    !Buffer.from(await readFile(sourcePath)).equals(
+      Buffer.from(await readFile(join(input.repository, relativePath))),
+    )
+  ) {
+    fail("GitHub Live Scenario provider contract failed exact readback.");
+  }
   if (git(input.repository, ["status", "--porcelain=v1", "--", relativePath]) !== "") {
     git(input.repository, ["add", "--", relativePath]);
     git(input.repository, [
@@ -566,46 +772,42 @@ export const prepareLiveScenarioGeneration = async (input: {
   codexProgram?: string;
   githubCheckout?: string;
   githubProgram?: string;
-  journeyAttempt?: number;
+  prerequisiteSkillRoot?: string;
+  deferPermissionProbe?: boolean;
 }) => {
   const sourceRoot = resolve(input.sourceRoot);
-  const workspaceRoot = resolve(input.workspaceRoot);
-  await ensureIndependentNewWorkspace(sourceRoot, workspaceRoot);
+  const requestedWorkspaceRoot = resolve(input.workspaceRoot);
+  const workspaceRoot = join(
+    await realpath(dirname(requestedWorkspaceRoot)),
+    basename(requestedWorkspaceRoot),
+  );
+  await ensureLiveScenarioCoordinatorWorkspace(sourceRoot, workspaceRoot);
+  const operatorCodexHome = await realpath(resolve(input.operatorCodexHome));
   const registryPath = await realpath(resolve(sourceRoot, input.registryPath));
   const registry = await loadLiveScenarioRegistry(registryPath);
   const scenario =
     registry.scenarios.find(({ id }) => id === input.scenarioId) ??
     fail(`Unknown Live Scenario: ${input.scenarioId}.`);
   const fixtureRuntime =
-    scenario.fixture.materializer === "fresh-installation-repository"
+    scenario.fixedValidationFixture.profile === "fresh-installation-repository"
       ? await inspectG1InstallationRuntime()
       : undefined;
   const generationId = z
     .string()
     .uuid()
     .parse(input.generationId ?? randomUUID());
-  const journeyAttempt = z
-    .number()
-    .int()
-    .positive()
-    .parse(input.journeyAttempt ?? 1);
-  if (
-    scenario.fixture.materializer !== "active-github-repository" &&
-    input.journeyAttempt !== undefined
-  ) {
-    fail("Journey attempt is only available for the GitHub Live Scenario.");
-  }
   const temporaryRoot = await realpath(tmpdir());
+  const runtimeContainer = await ensureLiveScenarioRuntimeContainer(temporaryRoot);
+  const [toolchain, codexProgram] = await Promise.all([
+    inspectCodexE2EToolchain(),
+    resolveCodexE2EProgram(input.codexProgram ?? "codex"),
+  ]);
   const scenarioContainer = await realpath(dirname(workspaceRoot));
   const runtimeRoot = liveScenarioRuntimeRoot(
     temporaryRoot,
     generationId,
     scenario.id,
-    journeyAttempt,
     workspaceRoot,
-  );
-  const existingRuntimeRoots = (await existingLiveScenarioRuntimeRoots(temporaryRoot)).filter(
-    (path) => path !== runtimeRoot,
   );
   const runtimeRelation = relative(scenarioContainer, runtimeRoot);
   if (
@@ -628,46 +830,22 @@ export const prepareLiveScenarioGeneration = async (input: {
     fail("Live Scenario package artifact digest mismatch.");
   }
   await assertLiveScenarioArtifactPackageIdentity(matrixPackage);
-  const olderGlobalKit =
-    scenario.fixture.materializer === "older-kit-active-stable-repository"
-      ? matrixPackage.evidenceClass === "local-rehearsal"
-        ? (matrixPackage.fixtures?.olderGlobalKit ??
-          fail("G1 update rehearsal requires the fixed 0.1.1 package artifact."))
-        : fail("G1 update rehearsal currently requires a local rehearsal package basis.")
-      : undefined;
-  if (olderGlobalKit !== undefined) {
-    if ((await sha256File(olderGlobalKit.artifact.path)) !== olderGlobalKit.artifact.sha256) {
-      fail("G1 older Global Kit artifact digest mismatch.");
-    }
-    const metadata = z
-      .object({ name: z.string(), version: z.string() })
-      .parse(
-        JSON.parse(
-          (await packageFile(olderGlobalKit.artifact.path, "package/package.json")).toString(
-            "utf8",
-          ),
-        ),
-      );
-    if (
-      metadata.name !== olderGlobalKit.packageName ||
-      metadata.version !== olderGlobalKit.packageVersion
-    ) {
-      fail("G1 older Global Kit artifact identity mismatch.");
-    }
-  }
-
   let workspaceCreated = false;
   let runtimeCreated = false;
+  let githubFixtureLifecycle: GitHubMatrixFixtureLifecycle | undefined;
   try {
     await mkdir(workspaceRoot);
     workspaceCreated = true;
     await mkdir(runtimeRoot);
     runtimeCreated = true;
+    const runtimeTempDirectory = join(runtimeRoot, "tmp");
     const agentHome = join(runtimeRoot, "agent-home");
     const repository = join(runtimeRoot, "repository");
     const observations = join(workspaceRoot, "observations");
-    const attempts = join(workspaceRoot, "attempts");
-    const transcripts = join(workspaceRoot, "transcripts");
+    const events = join(workspaceRoot, "events");
+    const conversation = join(workspaceRoot, "conversation.md");
+    const terminal = join(workspaceRoot, "terminal");
+    const result = join(workspaceRoot, "result.json");
     const remoteInventories = join(workspaceRoot, "github/remote-inventories");
     const promptDirectory = join(workspaceRoot, "prompts");
     const manifestPath = join(workspaceRoot, "scenario-manifest.json");
@@ -676,33 +854,33 @@ export const prepareLiveScenarioGeneration = async (input: {
     const installationArtifact = join(installationSource, matrixPackage.artifact.file);
     const installationGuide = join(installationSource, "agent-installation.md");
     const installationEntryPath = join(installationSource, "README.local.md");
+    const installationGuideBytes = await packageFile(
+      matrixPackage.artifact.path,
+      "package/docs/agent-installation.md",
+    );
     const sessionState = join(workspaceRoot, "codex-session.json");
     await Promise.all([
+      mkdir(runtimeTempDirectory, { mode: 0o700 }),
       mkdir(agentHome, { recursive: true }),
       mkdir(observations, { recursive: true }),
-      mkdir(attempts, { recursive: true }),
-      mkdir(transcripts, { recursive: true }),
+      mkdir(events, { recursive: true }),
+      mkdir(terminal, { recursive: true }),
       mkdir(promptDirectory, { recursive: true }),
     ]);
     await mkdir(installationSource);
     const agentCodexHome = await prepareIsolatedCodexHome({
-      operatorCodexHome: resolve(input.operatorCodexHome),
+      operatorCodexHome,
       isolatedHome: agentHome,
     });
-    if (scenario.fixture.materializer === "fresh-installation-repository") {
+    if (scenario.fixedValidationFixture.profile === "fresh-installation-repository") {
       await mkdir(join(agentHome, ".agents/skills"), { recursive: true });
     }
-    const operatorContext = await inspectCodexE2EOperatorContext(agentCodexHome);
     await Promise.all([
       writeFile(installationArtifact, await readFile(matrixPackage.artifact.path), {
         flag: "wx",
         mode: 0o600,
       }),
-      writeFile(
-        installationGuide,
-        await packageFile(matrixPackage.artifact.path, "package/docs/agent-installation.md"),
-        { flag: "wx" },
-      ),
+      writeFile(installationGuide, installationGuideBytes, { flag: "wx" }),
       writeFile(
         installationEntryPath,
         installationEntry({
@@ -718,13 +896,17 @@ export const prepareLiveScenarioGeneration = async (input: {
     if ((await sha256File(installationArtifact)) !== matrixPackage.artifact.sha256) {
       fail("Scenario installation package copy digest mismatch.");
     }
-    if (scenario.fixture.materializer === "active-github-repository") {
+    if (scenario.fixedValidationFixture.profile === "active-github-repository") {
       cloneGitHubFixture({
         checkout:
           input.githubCheckout ??
           fail("GitHub Live Scenario requires the fixed repository checkout."),
         repository,
         workspaceRoot: runtimeRoot,
+      });
+      await materializeGitHubScenarioRepositoryFixture({
+        repository,
+        fixtureRoot: join(sourceRoot, scenario.fixedValidationFixture.source),
       });
       await installGitHubScenarioProviderContract({ sourceRoot, repository });
       await mkdir(remoteInventories, { recursive: true });
@@ -735,52 +917,44 @@ export const prepareLiveScenarioGeneration = async (input: {
         sourceRoot,
         outputRoot: repository,
       });
-      if (scenario.fixture.materializer !== "non-project-directory") {
-        initializeRepository(repository);
-      }
+      initializeRepository(repository);
     }
     let installedSkillSha256: string | null = null;
-    let installedOlderKitSha256: string | undefined;
-    let targetSkillSha256: string | undefined;
     let github:
       | Readonly<{
           program: string;
           repositorySlug: string;
           repositoryIdentitySha256: string;
           viewerPermission: string;
-          journeyAttempt: number;
           scopeKey: string;
           baselineInventorySha256: string;
           preparedGitConfigSha256: string;
+          fixtureLifecycle: GitHubMatrixFixtureLifecycle;
         }>
       | undefined;
     let baselineInventory: string | undefined;
-    if (scenario.id !== "INSTALL-01") {
+    const bearingInstallationUnderTest = scenario.fixedValidationFixture.skills.some(
+      ({ skill, role }) => skill === "bearing" && role === "installation-under-test",
+    );
+    if (!bearingInstallationUnderTest) {
       const productProgram = await installLiveScenarioProduct({
         tarball: matrixPackage.artifact.path,
         installRoot: join(runtimeRoot, "product-install"),
         agentHome,
-        installGlobalKit: scenario.fixture.materializer !== "older-kit-active-stable-repository",
+        installGlobalKit: true,
       });
-      if (scenario.fixture.materializer === "older-kit-active-stable-repository") {
-        targetSkillSha256 = await digestLiveScenarioFixture(
-          join(runtimeRoot, "product-install/node_modules/@lagrangee/bearing/skills/bearing"),
-        );
-      }
-      if (scenario.fixture.materializer === "active-github-repository") {
-        await materializeGitHubLiveScenarioPlanningState({
-          sourceRoot,
-          repositoryRoot: repository,
-          productProgram,
-          agentHome,
-        });
+      if (scenario.fixedValidationFixture.profile === "active-github-repository") {
         const githubProgram = input.githubProgram ?? "gh";
         const fixed = await readFixedGitHubValidationRepository(sourceRoot);
         const remote = await inspectGitHubRepository(
           githubProgram,
           fixed.configuration.repositorySlug,
         );
-        await provisionIsolatedGitHubAccountSelection({ program: githubProgram, agentHome });
+        await provisionIsolatedGitHubAccountSelection({
+          program: githubProgram,
+          agentHome,
+          nodeProgram: toolchain.nodeExecutable,
+        });
         const scopeKey = deriveLiveScenarioGitHubScopeKey({
           packageVersion: matrixPackage.packageVersion,
           sourceIdentity:
@@ -795,16 +969,53 @@ export const prepareLiveScenarioGeneration = async (input: {
           matrixDefinitionSha256,
           generationId:
             input.generationId ?? fail("GitHub Live Scenario requires an explicit Generation ID."),
-          journeyAttempt,
+          journeyAttempt: 1,
+        });
+        githubFixtureLifecycle = await prepareGitHubMatrixFixture({
+          sourceRoot,
+          program: githubProgram,
+          repositorySlug: fixed.configuration.repositorySlug,
+          scopeKey,
+          generationId,
+        });
+        const parsedSlug = fixed.configuration.repositorySlug.split("/") as [string, string];
+        const nativeScope = encodeGitHubMattNativeScope({
+          host: "github.com",
+          rootKind: "parent-issue",
+          repository: {
+            owner: parsedSlug[0],
+            name: parsedSlug[1],
+            databaseId: String(githubFixtureLifecycle.repository.databaseId),
+            nodeId: githubFixtureLifecycle.repository.nodeId,
+          },
+          root: {
+            objectKind: "issue",
+            number: githubFixtureLifecycle.parent.number,
+            databaseId: String(githubFixtureLifecycle.parent.id),
+            nodeId: githubFixtureLifecycle.parent.nodeId,
+          },
+        });
+        await materializeGitHubLiveScenarioPlanningState({
+          sourceRoot,
+          repositoryRoot: repository,
+          productProgram,
+          agentHome,
+          nativeScope,
+          nativeReferences: [
+            `https://github.com/${fixed.configuration.repositorySlug}/issues/${githubFixtureLifecycle.parent.number}`,
+            `https://github.com/${fixed.configuration.repositorySlug}/issues/${githubFixtureLifecycle.child.number}`,
+          ],
+          githubToken: await operatorGitHubToken(githubProgram),
         });
         const baseline = await captureGitHubRemoteInventory({
           program: githubProgram,
           repositorySlug: fixed.configuration.repositorySlug,
           scopeKey,
+          issueNumbers: [githubFixtureLifecycle.parent.number, githubFixtureLifecycle.child.number],
         });
         if (
           baseline.repositoryIdentitySha256 !== fixed.configuration.repositoryIdentitySha256 ||
-          baseline.issues.some((issue) => issue.candidateScoped)
+          baseline.issues.filter((issue) => issue.candidateScoped).length !== 2
         ) {
           fail("GitHub Live Scenario fixed identity or fresh scope boundary is invalid.");
         }
@@ -816,10 +1027,10 @@ export const prepareLiveScenarioGeneration = async (input: {
           repositorySlug: fixed.configuration.repositorySlug,
           repositoryIdentitySha256: baseline.repositoryIdentitySha256,
           viewerPermission: remote.viewerPermission,
-          journeyAttempt,
           scopeKey,
           baselineInventorySha256: sha256(baselineBytes),
           preparedGitConfigSha256: await sha256File(join(repository, ".git/config")),
+          fixtureLifecycle: githubFixtureLifecycle,
         });
         const inspected = Bun.spawnSync(
           [join(agentHome, ".bearing/bin/bearing"), "configure", "inspect", "--repo", repository],
@@ -844,85 +1055,61 @@ export const prepareLiveScenarioGeneration = async (input: {
           productProgram,
           agentHome,
         });
-        if (scenario.fixture.materializer === "older-kit-active-stable-repository") {
-          const fixturePackage =
-            olderGlobalKit ?? fail("G1 update rehearsal older Global Kit package is unavailable.");
-          await materializeCompleteGlobalKitFromPackage({
-            tarball: fixturePackage.artifact.path,
-            installRoot: join(runtimeRoot, "older-product-install"),
-            agentHome,
-            repositoryRoot: repository,
-          });
-          const installedMetadata = z
-            .object({
-              name: z.literal("@lagrangee/bearing"),
-              version: z.literal("0.1.1"),
-            })
-            .passthrough()
-            .parse(
-              JSON.parse(
-                await readFile(join(agentHome, ".bearing/kit/current/package.json"), "utf8"),
-              ),
-            );
-          if (
-            installedMetadata.name !== fixturePackage.packageName ||
-            installedMetadata.version !== fixturePackage.packageVersion
-          ) {
-            fail("G1 update rehearsal did not establish the fixed older Global Kit.");
-          }
-          installedOlderKitSha256 = await digestLiveScenarioFixture(
-            join(agentHome, ".bearing/kit/current"),
-          );
-          await installBoundedLocalNpmCapability({
-            sourceRoot,
-            runtimeRoot,
-            agentHome,
-            targetArtifact: installationArtifact,
-            targetFile: matrixPackage.artifact.file,
-            targetSha256: matrixPackage.artifact.sha256,
-            targetVersion: matrixPackage.packageVersion,
-          });
-        }
       }
       installedSkillSha256 = await digestLiveScenarioFixture(
         join(agentHome, "skill-directory/bearing"),
       );
     }
-    const prompts = scenario.prompts.map((prompt) =>
-      prompt.replaceAll(installationEntryToken, installationEntryPath),
+    const declaredPrerequisites = scenario.fixedValidationFixture.skills.filter(
+      ({ skill, role }) => skill !== "bearing" && liveScenarioSkillIsInstalled(role),
     );
-    if (prompts.some((prompt) => /\$\{[A-Z_]+\}/u.test(prompt))) {
+    if (declaredPrerequisites.length > 0) {
+      await materializeDeclaredPrerequisiteSkills({
+        scenario,
+        trustedSkillRoot:
+          input.prerequisiteSkillRoot ??
+          fail(`Live Scenario ${scenario.id} requires an explicit prerequisite Skill root.`),
+        targetSkillRoot: join(agentHome, "skill-directory"),
+      });
+    }
+    const initialPrompt = scenario.initialPrompt.replaceAll(
+      installationEntryToken,
+      installationEntryPath,
+    );
+    if (/\$\{[A-Z_]+\}/u.test(initialPrompt)) {
       fail(`Live Scenario prompt has an unresolved runtime value: ${scenario.id}.`);
     }
-    const promptPaths = prompts.map((_, index) =>
-      join(promptDirectory, `turn-${String(index + 1).padStart(2, "0")}.txt`),
-    );
-    await Promise.all(
-      prompts.map((prompt, index) =>
-        writeFile(promptPaths[index] as string, `${prompt}\n`, { flag: "wx" }),
-      ),
-    );
+    const initialPromptPath = join(promptDirectory, "initial.txt");
+    await writeFile(initialPromptPath, `${initialPrompt}\n`, { flag: "wx" });
     const readDeniedPaths = liveScenarioReadDeniedPaths({
       sourceRoot,
       registryPath,
+      operatorCodexHome,
       scenarioContainer,
-      existingRuntimeRoots,
     });
     const writeAllowedPaths =
-      scenario.fixture.materializer === "fresh-installation-repository"
+      scenario.fixedValidationFixture.profile === "fresh-installation-repository"
         ? [join(agentHome, ".agents/skills")]
         : [];
-    const runtimeDenyRoots = readDeniedPaths.slice(3);
     const launch = codexE2ELaunchContract({
       repositoryRoot: repository,
       isolatedHome: agentHome,
       codexHome: agentCodexHome,
-      disabledOperatorSkillPaths: operatorContext.disabledSkills.map(({ locator }) => locator),
+      runtimeTempDirectory,
+      toolchain,
+      disabledOperatorSkillPaths: [],
       readDeniedPaths,
       writeAllowedPaths,
-      skipGitRepositoryCheck: scenario.fixture.materializer === "non-project-directory",
       ...(fixtureRuntime === undefined ? {} : { shellProgram: fixtureRuntime.shell.program }),
-      ...(input.codexProgram === undefined ? {} : { program: input.codexProgram }),
+      program: codexProgram,
+    });
+    const effectiveEnvironment = createCodexJourneyEnvironment(process.env, launch.environment, {
+      includeCanonicalBearingBin:
+        scenario.fixedValidationFixture.profile !== "fresh-installation-repository",
+    });
+    await prepareCodexE2EShellEnvironment({
+      isolatedHome: agentHome,
+      path: effectiveEnvironment["PATH"] ?? fail("Codex E2E PATH is unavailable."),
     });
     const manifest = Object.freeze({
       schemaVersion: 1 as const,
@@ -932,31 +1119,19 @@ export const prepareLiveScenarioGeneration = async (input: {
       scenario,
       package: matrixPackage,
       matrixDefinitionSha256,
-      operatorContextFingerprint: operatorContext.fingerprint,
       startingStateSha256: await digestLiveScenarioFixture(repository),
+      installationGuideSha256: sha256(installationGuideBytes),
       installedSkillSha256,
       fixtureIdentity: Object.freeze({
         ...(fixtureRuntime === undefined ? {} : { runtime: fixtureRuntime }),
-        ...(olderGlobalKit === undefined
-          ? {}
-          : {
-              olderGlobalKit: Object.freeze({
-                ...olderGlobalKit,
-                installedKitSha256:
-                  installedOlderKitSha256 ??
-                  fail("G1 update rehearsal older Global Kit digest is unavailable."),
-                targetSkillSha256:
-                  targetSkillSha256 ??
-                  fail("G1 update rehearsal target Skill digest is unavailable."),
-              }),
-            }),
       }),
       paths: Object.freeze({
         sourceRoot,
         registry: registryPath,
+        operatorCodexHome,
         workspaceRoot,
         runtimeRoot,
-        runtimeDenyRoots,
+        runtimeTempDirectory,
         manifest: manifestPath,
         manifestDigest,
         installationArtifact,
@@ -965,12 +1140,15 @@ export const prepareLiveScenarioGeneration = async (input: {
         agentHome,
         repository,
         observations,
-        attempts,
-        transcripts,
+        events,
+        conversation,
+        terminal,
+        result,
         sessionState,
-        prompts: promptPaths,
+        initialPrompt: initialPromptPath,
         ...(github === undefined ? {} : { remoteInventories, baselineInventory }),
       }),
+      toolchain,
       launch,
       ...(github === undefined ? {} : { github }),
     });
@@ -978,70 +1156,57 @@ export const prepareLiveScenarioGeneration = async (input: {
     const bytes = `${JSON.stringify(manifest, null, 2)}\n`;
     await writeFile(manifestPath, bytes, { flag: "wx", mode: 0o600 });
     await writeFile(manifestDigest, `${sha256(bytes)}\n`, { flag: "wx", mode: 0o600 });
-    await probeCodexE2EPermissionProfile({
-      program: launch.initial.program,
-      repositoryRoot: repository,
-      isolatedHome: agentHome,
-      codexHome: agentCodexHome,
-      manifestPath,
-      registryPath,
-      sourceRoot,
-      scenarioWorkspace: workspaceRoot,
-      installationEntryPath,
-      readDeniedPaths,
-      writeAllowedPaths,
-    });
+    if (input.deferPermissionProbe !== true) {
+      await probeCodexE2EPermissionProfile({
+        launch,
+        manifestPath,
+        registryPath,
+        sourceRoot,
+        operatorCodexHome,
+        scenarioWorkspace: workspaceRoot,
+        installationEntryPath,
+        runtimeContainer,
+        toolchain,
+        isProjectRepository: true,
+        writeAllowedPaths,
+        effectiveEnvironment,
+      });
+    }
     return manifest;
   } catch (error) {
-    await Promise.all([
+    const preservedError =
+      githubFixtureLifecycle === undefined
+        ? error
+        : await recoverPreparedGitHubMatrixFixtureFailure({
+            cause: error,
+            lifecycle: githubFixtureLifecycle,
+            ...(input.githubProgram === undefined ? {} : { program: input.githubProgram }),
+          });
+    await Promise.allSettled([
       ...(runtimeCreated ? [rm(runtimeRoot, { recursive: true, force: true })] : []),
       ...(workspaceCreated ? [rm(workspaceRoot, { recursive: true, force: true })] : []),
     ]);
-    throw error;
+    throw preservedError;
   }
 };
 
 export const verifyLiveScenarioGeneration = async (path: string) => {
-  const manifestPath = resolve(path);
-  const bytes = await readFile(manifestPath, "utf8");
-  if ((await readFile(`${manifestPath}.sha256`, "utf8")).trim() !== sha256(bytes)) {
-    fail("Live Scenario manifest digest mismatch.");
-  }
-  const parsed = manifestSchema.parse(JSON.parse(bytes));
-  if (
-    parsed.paths.manifest !== manifestPath ||
-    parsed.paths.manifestDigest !== `${manifestPath}.sha256` ||
-    parsed.paths.workspaceRoot !== dirname(manifestPath)
-  ) {
-    fail("Live Scenario manifest locator mismatch.");
-  }
-  const registry = await loadLiveScenarioRegistry(parsed.paths.registry);
-  const scenario =
-    registry.scenarios.find(({ id }) => id === parsed.scenario.id) ??
-    fail(`Live Scenario is no longer registered: ${parsed.scenario.id}.`);
-  const journeyAttempt = parsed.github?.journeyAttempt ?? 1;
-  const temporaryRoot = await realpath(dirname(parsed.paths.runtimeRoot));
+  const parsed = await readLiveScenarioGenerationManifest(path);
+  const scenario = parsed.scenario;
+  const runtimeContainer = await realpath(dirname(parsed.paths.runtimeRoot));
+  const temporaryRoot = await realpath(dirname(runtimeContainer));
+  const expectedRuntimeContainer = liveScenarioRuntimeContainer(temporaryRoot);
   const expectedRuntimeRoot = liveScenarioRuntimeRoot(
     temporaryRoot,
     parsed.generationId,
     scenario.id,
-    journeyAttempt,
     parsed.paths.workspaceRoot,
   );
-  const scenarioContainer = await realpath(dirname(parsed.paths.workspaceRoot));
-  const currentRuntimeRoots = (await existingLiveScenarioRuntimeRoots(temporaryRoot)).filter(
-    (path) => path !== expectedRuntimeRoot,
-  );
-  const runtimeDenyRootSet = new Set(parsed.paths.runtimeDenyRoots);
   if (
+    parsed.paths.operatorCodexHome !== (await realpath(parsed.paths.operatorCodexHome)) ||
+    runtimeContainer !== expectedRuntimeContainer ||
     parsed.paths.runtimeRoot !== expectedRuntimeRoot ||
-    runtimeDenyRootSet.size !== parsed.paths.runtimeDenyRoots.length ||
-    parsed.paths.runtimeDenyRoots.some(
-      (path) =>
-        dirname(path) !== temporaryRoot ||
-        !basename(path).startsWith(liveScenarioRuntimePrefix) ||
-        path === expectedRuntimeRoot,
-    ) ||
+    parsed.paths.runtimeTempDirectory !== join(expectedRuntimeRoot, "tmp") ||
     parsed.paths.agentHome !== join(expectedRuntimeRoot, "agent-home") ||
     parsed.paths.repository !== join(expectedRuntimeRoot, "repository") ||
     parsed.paths.installationArtifact !==
@@ -1053,46 +1218,16 @@ export const verifyLiveScenarioGeneration = async (path: string) => {
   ) {
     fail("Live Scenario runtime locator does not match its opaque Generation identity.");
   }
-  if (JSON.stringify(scenario) !== JSON.stringify(parsed.scenario)) {
-    fail("Live Scenario definition changed after preparation.");
-  }
+  await verifyCodexE2EToolchain(parsed.toolchain);
   const expectsInstallationRuntime =
-    scenario.fixture.materializer === "fresh-installation-repository";
-  const expectsOlderGlobalKit =
-    scenario.fixture.materializer === "older-kit-active-stable-repository";
-  if (
-    (parsed.fixtureIdentity.runtime !== undefined) !== expectsInstallationRuntime ||
-    (parsed.fixtureIdentity.olderGlobalKit !== undefined) !== expectsOlderGlobalKit
-  ) {
-    fail("Live Scenario Fixture identity does not match its materializer.");
+    scenario.fixedValidationFixture.profile === "fresh-installation-repository";
+  if ((parsed.fixtureIdentity.runtime !== undefined) !== expectsInstallationRuntime) {
+    fail("Live Scenario Fixture identity does not match its declared Fixture Profile.");
   }
   if (parsed.fixtureIdentity.runtime !== undefined) {
     const currentRuntime = await inspectG1InstallationRuntime();
     if (JSON.stringify(currentRuntime) !== JSON.stringify(parsed.fixtureIdentity.runtime)) {
       fail("G1 installation runtime identity changed after preparation.");
-    }
-  }
-  if (parsed.fixtureIdentity.olderGlobalKit !== undefined) {
-    const fixturePackage = parsed.fixtureIdentity.olderGlobalKit;
-    if (
-      (await sha256File(fixturePackage.artifact.path)) !== fixturePackage.artifact.sha256 ||
-      JSON.stringify(
-        z
-          .object({ name: z.string(), version: z.string() })
-          .parse(
-            JSON.parse(
-              (await packageFile(fixturePackage.artifact.path, "package/package.json")).toString(
-                "utf8",
-              ),
-            ),
-          ),
-      ) !==
-        JSON.stringify({
-          name: fixturePackage.packageName,
-          version: fixturePackage.packageVersion,
-        })
-    ) {
-      fail("G1 older Global Kit artifact changed after preparation.");
     }
   }
   if (
@@ -1107,109 +1242,15 @@ export const verifyLiveScenarioGeneration = async (path: string) => {
   if ((await sha256File(parsed.package.artifact.path)) !== parsed.package.artifact.sha256) {
     fail("Live Scenario package changed after preparation.");
   }
-  if ((await sha256File(parsed.paths.installationArtifact)) !== parsed.package.artifact.sha256) {
-    fail("Live Scenario installation package copy changed after preparation.");
-  }
-  if (
-    !(await readFile(parsed.paths.installationGuide)).equals(
-      await packageFile(parsed.package.artifact.path, "package/docs/agent-installation.md"),
-    ) ||
-    (await readFile(parsed.paths.installationEntry, "utf8")) !==
-      installationEntry({
-        packageName: parsed.package.packageName,
-        packageVersion: parsed.package.packageVersion,
-        artifactPath: parsed.paths.installationArtifact,
-        artifactSha256: parsed.package.artifact.sha256,
-        installationGuide: parsed.paths.installationGuide,
-      })
-  ) {
-    fail("Live Scenario installation guidance changed after preparation.");
-  }
   await assertLiveScenarioArtifactPackageIdentity(parsed.package);
   await assertLiveScenarioSourceCurrent(parsed.paths.sourceRoot, parsed.package);
-  const observationNames = await readdir(parsed.paths.observations);
+  const { launch: storedLaunch, observationNames } = await verifyLiveScenarioAgentInputs(parsed);
   if (observationNames.length === 0) {
     const currentFixtureSha256 = await digestLiveScenarioFixture(parsed.paths.repository);
     if (currentFixtureSha256 !== parsed.startingStateSha256) {
       fail("Live Scenario fixture changed before Agent behavior.");
     }
-    if (
-      parsed.fixtureIdentity.olderGlobalKit !== undefined &&
-      (await digestLiveScenarioFixture(join(parsed.paths.agentHome, ".bearing/kit/current"))) !==
-        parsed.fixtureIdentity.olderGlobalKit.installedKitSha256
-    ) {
-      fail("G1 older Global Kit changed before Agent behavior.");
-    }
   }
-  if (parsed.installedSkillSha256 !== null) {
-    const currentSkillSha256 = await digestLiveScenarioFixture(
-      join(parsed.paths.agentHome, "skill-directory/bearing"),
-    );
-    const acceptedSkillDigests =
-      observationNames.length > 0 && parsed.fixtureIdentity.olderGlobalKit !== undefined
-        ? [parsed.installedSkillSha256, parsed.fixtureIdentity.olderGlobalKit.targetSkillSha256]
-        : [parsed.installedSkillSha256];
-    if (!acceptedSkillDigests.includes(currentSkillSha256)) {
-      fail("Preinstalled Bearing Skill changed outside the recorded Scenario transition.");
-    }
-  }
-  await assertIsolatedCodexHomeControlLinks(parsed.paths.agentHome);
-  const expectedPrompts = scenario.prompts.map((prompt) =>
-    prompt.replaceAll(installationEntryToken, parsed.paths.installationEntry),
-  );
-  for (const [index, promptPath] of parsed.paths.prompts.entries()) {
-    if ((await readFile(promptPath, "utf8")) !== `${expectedPrompts[index]}\n`) {
-      fail("Live Scenario prompt changed before Agent behavior.");
-    }
-  }
-  const storedLaunch = codexE2ELaunchContract({
-    repositoryRoot: parsed.paths.repository,
-    isolatedHome: parsed.paths.agentHome,
-    codexHome: parsed.launch.environment.CODEX_HOME,
-    disabledOperatorSkillPaths: [],
-    readDeniedPaths: [
-      parsed.paths.sourceRoot,
-      parsed.paths.registry,
-      scenarioContainer,
-      ...parsed.paths.runtimeDenyRoots,
-    ],
-    writeAllowedPaths:
-      scenario.fixture.materializer === "fresh-installation-repository"
-        ? [join(parsed.paths.agentHome, ".agents/skills")]
-        : [],
-    program: parsed.launch.initial.program,
-    skipGitRepositoryCheck: scenario.fixture.materializer === "non-project-directory",
-    ...(parsed.fixtureIdentity.runtime === undefined
-      ? {}
-      : { shellProgram: parsed.fixtureIdentity.runtime.shell.program }),
-  });
-  if (JSON.stringify(storedLaunch) !== JSON.stringify(parsed.launch)) {
-    fail("Live Scenario Codex launch changed before Agent behavior.");
-  }
-  const currentRuntimeDenyRoots = [
-    ...new Set([...parsed.paths.runtimeDenyRoots, ...currentRuntimeRoots]),
-  ];
-  const currentLaunch = codexE2ELaunchContract({
-    repositoryRoot: parsed.paths.repository,
-    isolatedHome: parsed.paths.agentHome,
-    codexHome: parsed.launch.environment.CODEX_HOME,
-    disabledOperatorSkillPaths: [],
-    readDeniedPaths: [
-      parsed.paths.sourceRoot,
-      parsed.paths.registry,
-      scenarioContainer,
-      ...currentRuntimeDenyRoots,
-    ],
-    writeAllowedPaths:
-      scenario.fixture.materializer === "fresh-installation-repository"
-        ? [join(parsed.paths.agentHome, ".agents/skills")]
-        : [],
-    program: parsed.launch.initial.program,
-    skipGitRepositoryCheck: scenario.fixture.materializer === "non-project-directory",
-    ...(parsed.fixtureIdentity.runtime === undefined
-      ? {}
-      : { shellProgram: parsed.fixtureIdentity.runtime.shell.program }),
-  });
   if (parsed.github !== undefined) {
     const expectedScopeKey = deriveLiveScenarioGitHubScopeKey({
       packageVersion: parsed.package.packageVersion,
@@ -1224,7 +1265,7 @@ export const verifyLiveScenarioGeneration = async (path: string) => {
       artifactSha256: parsed.package.artifact.sha256,
       matrixDefinitionSha256: parsed.matrixDefinitionSha256,
       generationId: parsed.generationId,
-      journeyAttempt: parsed.github.journeyAttempt,
+      journeyAttempt: 1,
     });
     const fixed = await readFixedGitHubValidationRepository(parsed.paths.sourceRoot);
     const remote = await inspectGitHubRepository(
@@ -1242,5 +1283,5 @@ export const verifyLiveScenarioGeneration = async (path: string) => {
       fail("GitHub Live Scenario remote identity changed after preparation.");
     }
   }
-  return Object.freeze({ ...parsed, scenario, launch: currentLaunch });
+  return Object.freeze({ ...parsed, scenario, launch: storedLaunch });
 };

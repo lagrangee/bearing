@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readdir, readFile, readlink, realpath } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import {
   type MarkdownDocument,
   type MarkdownTable,
@@ -134,15 +134,21 @@ describe("public Bearing Agent surface", () => {
     const publicEntry = await readSkillAt(skillRoot);
     const developmentEntry = await readSkillAt(developmentSkillRoot);
 
-    expect(publicEntry.frontmatter).toEqual({
-      name: "bearing",
+    for (const [entry, name] of [
+      [publicEntry, "bearing"],
+      [developmentEntry, "bearing-dev"],
+    ] as const) {
+      expect(entry.frontmatter).toMatchObject({ name });
+      expect(typeof (entry.frontmatter as { description?: unknown }).description).toBe("string");
+      expect(Object.keys(entry.frontmatter as object).sort()).toEqual(["description", "name"]);
+    }
+    expect(publicEntry.frontmatter).toMatchObject({
       description:
-        "Use only for explicit Bearing invocation or when the current repository's Repository Configuration managed pointer nominates Bearing for this request; otherwise use normal Agent behavior.",
+        "Coordinate Bearing planning, repository integration, and provider-native work when explicitly requested or nominated by the active repository's managed Bearing pointer.",
     });
-    expect(developmentEntry.frontmatter).toEqual({
-      name: "bearing-dev",
+    expect(developmentEntry.frontmatter).toMatchObject({
       description:
-        "Use only in the Bearing source repository when its managed pointer selects the Development Runtime, or when explicitly invoked there.",
+        "Use the repository-local Bearing Development Runtime when explicitly requested in the Bearing source repository or selected by its managed pointer.",
     });
   });
 
@@ -150,6 +156,26 @@ describe("public Bearing Agent surface", () => {
     const discoveryEntry = join(process.cwd(), ".agents/skills/bearing-dev");
     expect(await readlink(discoveryEntry)).toBe("../../skills/bearing-dev");
     expect(await realpath(discoveryEntry)).toBe(await realpath(developmentSkillRoot));
+  });
+
+  test("resolves the public root from canonical and managed Development entry locators", async () => {
+    const entryLocators = [developmentSkillRoot, join(process.cwd(), ".agents/skills/bearing-dev")];
+    const expectedPublicRoot = await realpath(join(skillRoot, "SKILL.md"));
+
+    for (const entryLocator of entryLocators) {
+      const { document } = await readSkillAt(entryLocator);
+      const references = queryMarkdownInlineCodes(document).filter((value) =>
+        value.endsWith("bearing/SKILL.md"),
+      );
+      expect(references).toHaveLength(1);
+      const reference = references[0] as string;
+      const repositoryPrefix = "<repo-root>/";
+      const publicRootLocator = reference.startsWith(repositoryPrefix)
+        ? join(process.cwd(), reference.slice(repositoryPrefix.length))
+        : resolve(entryLocator, reference);
+
+      expect(await realpath(publicRootLocator)).toBe(expectedPublicRoot);
+    }
   });
 
   test("routes every runtime reference directly from the public root", async () => {
@@ -184,6 +210,49 @@ describe("public Bearing Agent surface", () => {
     expect(
       runtimeReferences.filter((reference) => directExecution[1]?.includes(reference)).sort(),
     ).toEqual(expectedReferences.sort());
+  });
+
+  test("routes cross-Skill native work through one executable journey", async () => {
+    const { document } = await readSkillAt(skillRoot);
+    const routing = tableWithColumns(document, ["Operation", "Load directly"]);
+    const nativeWork = routing.rows.find(
+      ([operation]) => operation === "Native work, including through another Skill",
+    );
+    if (nativeWork === undefined) throw new Error("Cross-Skill Native Work route is absent.");
+    const expectedReferences: (typeof runtimeReferences)[number][] = [
+      "references/journeys/native-work.md",
+      "references/journeys/project-read-model.md",
+    ];
+    expect(
+      runtimeReferences.filter((reference) => nativeWork[1]?.includes(reference)).sort(),
+    ).toEqual(expectedReferences.sort());
+
+    const nativeDocument = parseMarkdownDocument(
+      await readRuntime("references/journeys/native-work.md"),
+    );
+    const boundaries = tableWithColumns(nativeDocument, ["Owner state", "Provider follow-up"]);
+    expect(boundaries.rows.map(([state]) => state)).toEqual([
+      "human-handoff",
+      "workflow-complete; existing-binding; pending-native-write-set-present",
+      "workflow-complete; accepted-new-binding",
+      "workflow-complete; unbound-native-work",
+      "workflow-complete; no-pending-native-write-set",
+      "workflow-failed",
+    ]);
+  });
+
+  test("preserves invoked native owners and their sole pre-admission claim exception", async () => {
+    const nativeWork = parseMarkdownDocument(
+      await readRuntime("references/journeys/native-work.md"),
+    );
+    const claims = tableWithColumns(nativeWork, ["Owner mode", "Claim authority"]);
+    expect(new Map(claims.rows.map(([mode, authority]) => [mode, authority] as const))).toEqual(
+      new Map([
+        ["invoked-owner-workflow-with-required-claim", "exact-owner-defined-claim-only"],
+        ["ordinary-owner-work", "none"],
+        ["owner-workflow-without-claim", "none"],
+      ]),
+    );
   });
 
   test("routes exact Effort start directly to its four Bearing owners", async () => {
@@ -296,35 +365,73 @@ describe("public Bearing Agent surface", () => {
     });
   });
 
-  test("selects exact Effort start owners directly for an Intake continuation", async () => {
-    const { document } = await readSkillAt(skillRoot);
-    const routing = tableWithColumns(document, ["Operation", "Load directly"]);
-    const expectedStartReferences: (typeof runtimeReferences)[number][] = [
-      "references/contracts/canonical-mutation.md",
-      "references/owners/effort.md",
-      "references/journeys/native-work.md",
-      "references/journeys/project-read-model.md",
-    ];
-    const intakeReference = "references/journeys/feature-intake.md" as const;
-    const intake = routing.rows.find(
-      ([operation]) =>
-        operation === "Feature Intake with a material accepted commitment or planning opportunity",
+  test("routes accepted Feature Intake dispositions to their semantic owners", async () => {
+    const document = parseMarkdownDocument(
+      await readRuntime("references/journeys/feature-intake.md"),
     );
-    if (intake === undefined) throw new Error("Feature Intake route is absent.");
+    const continuations = tableWithColumns(document, [
+      "Accepted disposition",
+      "Condition",
+      "Continuation",
+    ]);
+    const rows = new Map(
+      continuations.rows.map(([disposition, condition, continuation]) => [
+        disposition,
+        {
+          condition: semanticTokens(condition),
+          continuation: semanticTokens(continuation),
+        },
+      ]),
+    );
 
-    expect(runtimeReferences.filter((reference) => intake[1]?.includes(reference)).sort()).toEqual(
-      [intakeReference, ...expectedStartReferences].sort(),
+    expect(rows).toEqual(
+      new Map([
+        [
+          "existing-bound-native-detail",
+          {
+            condition: ["canonical-effort-unchanged"],
+            continuation: [
+              "native-work",
+              "ordinary-owner-work-or-user-invoked-owner-skill",
+              "no-canonical-effort-mutation",
+            ].sort(),
+          },
+        ],
+        [
+          "canonical-effort-change",
+          {
+            condition: ["effort-meaning-changed"],
+            continuation: ["canonical-mutation", "effort-owner"],
+          },
+        ],
+        [
+          "standalone-native-work",
+          {
+            condition: ["no-accepted-bearing-scope"],
+            continuation: [
+              "ordinary-owner-work-or-user-invoked-owner-skill",
+              "no-bearing-enrollment",
+            ].sort(),
+          },
+        ],
+      ]),
     );
   });
 
-  test("hands Native Work the canonical Inspect reference without same-transaction recovery", async () => {
+  test("gives GitHub native admission an executable canonical URL step", async () => {
     const document = parseMarkdownDocument(await readRuntime("references/journeys/native-work.md"));
-    const text = markdownSemanticPlainText(markdownDocumentBody(document));
+    const operation = queryMarkdownSections(document, { depth: 2 }).find(
+      ({ heading }) => heading.title === "Operation",
+    );
+    if (operation === undefined) throw new Error("Native Work operation section is absent.");
+    const commands = queryMarkdownInlineCodes(document, { within: operation });
+    const resolveIndex = commands.indexOf("gh issue view <number> --json url --jq .url");
+    const inspectIndex = commands.indexOf(
+      "bearing inspect --native <native-reference> --repo <repo-root>",
+    );
 
-    expect(text).toContain("canonical result.reference returned by Inspect exactly as returned");
-    expect(text).toContain("do not absolutize, relativize, normalize independently");
-    expect(text).toContain("a separate recovery operation");
-    expect(text).toContain("retroactively prove the failed transaction succeeded");
+    expect(resolveIndex).toBeGreaterThanOrEqual(0);
+    expect(inspectIndex).toBeGreaterThan(resolveIndex);
   });
 
   test("keeps the public root as a compact router with one command table", async () => {
@@ -357,7 +464,7 @@ describe("public Bearing Agent surface", () => {
     const { document } = await readSkillAt(developmentSkillRoot);
     const operationalTokens = queryMarkdownInlineCodes(document);
 
-    expect(operationalTokens).toContain("../bearing/SKILL.md");
+    expect(operationalTokens).toContain("<repo-root>/skills/bearing/SKILL.md");
     expect(operationalTokens).toContain("node <repo-root>/dist/cli.js");
     expect(operationalTokens).toContain(
       "node <repo-root>/dist/cli.js runtime inspect --repo <repo-root>",

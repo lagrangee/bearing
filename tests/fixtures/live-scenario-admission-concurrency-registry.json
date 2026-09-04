@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 2,
+  "scenarios": [
+    {
+      "id": "test-one",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "fresh-installation-repository",
+        "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
+      },
+      "initialPrompt": "Inspect the isolated repository for test one.",
+      "humanPosition": "Authorize inspection only for test one.",
+      "bearingIntent": "Keep test one inspection bounded.",
+      "terminalEvidence": {
+        "description": "Test one fixture state.",
+        "observers": ["repository", "agent-home"]
+      }
+    },
+    {
+      "id": "test-two",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "fresh-installation-repository",
+        "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
+      },
+      "initialPrompt": "Inspect the isolated repository for test two.",
+      "humanPosition": "Authorize inspection only for test two.",
+      "bearingIntent": "Keep test two inspection bounded.",
+      "terminalEvidence": {
+        "description": "Test two fixture state.",
+        "observers": ["repository", "agent-home"]
+      }
+    },
+    {
+      "id": "test-three",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "fresh-installation-repository",
+        "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
+      },
+      "initialPrompt": "Inspect the isolated repository for test three.",
+      "humanPosition": "Authorize inspection only for test three.",
+      "bearingIntent": "Keep test three inspection bounded.",
+      "terminalEvidence": {
+        "description": "Test three fixture state.",
+        "observers": ["repository", "agent-home"]
+      }
+    },
+    {
+      "id": "test-four",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "fresh-installation-repository",
+        "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
+      },
+      "initialPrompt": "Inspect the isolated repository for test four.",
+      "humanPosition": "Authorize inspection only for test four.",
+      "bearingIntent": "Keep test four inspection bounded.",
+      "terminalEvidence": {
+        "description": "Test four fixture state.",
+        "observers": ["repository", "agent-home"]
+      }
+    },
+    {
+      "id": "test-five",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "fresh-installation-repository",
+        "skills": [{ "skill": "bearing", "role": "installation-under-test" }]
+      },
+      "initialPrompt": "Inspect the isolated repository for test five.",
+      "humanPosition": "Authorize inspection only for test five.",
+      "bearingIntent": "Keep test five inspection bounded.",
+      "terminalEvidence": {
+        "description": "Test five fixture state.",
+        "observers": ["repository", "agent-home"]
+      }
+    }
+  ]
+}

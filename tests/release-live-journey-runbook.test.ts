@@ -24,7 +24,7 @@ describe("reusable release Live Journey runbook", () => {
     expect(pointer).toContain("[Release Live Journey Runbook](release-live-journey.md)");
     expect(pointer).toContain("Before coordinating a Bearing release");
     expect(pointer).toMatch(
-      /or defining, running, or reviewing a release Live Journey,[\s\S]*read and follow/u,
+      /or defining, running,\s+or reviewing a release Live Journey,[\s\S]*read and follow/u,
     );
     expect(pointer).not.toContain("gpt-5.6-luna");
     expect(runbook).toContain("# Release Live Journey Runbook");
@@ -62,24 +62,36 @@ describe("reusable release Live Journey runbook", () => {
       runbook.indexOf("## 1. Qualify the Matrix locally"),
       runbook.indexOf("## 2. Finalize the release source"),
     );
+    const publication = runbook.slice(
+      runbook.indexOf("## 8. Dispatch protected Publication"),
+      runbook.indexOf("## 9. Read back the public release"),
+    );
 
     expect(rehearsal).toMatch(/local package[\s\S]*tracked Scenario registry/iu);
+    expect(rehearsal).toMatch(/fresh preparation[\s\S]*at most four active Scenarios/iu);
     expect(rehearsal).toMatch(
-      /run one turn at a time[\s\S]*classify[\s\S]*Product, Skill[\s\S]*new Generation/iu,
+      /committed semantic\s+failure[\s\S]*do not retry, restart, or resample/iu,
+    );
+    expect(rehearsal).toMatch(/Continue unrelated Scenarios[\s\S]*every registered identity/iu);
+    expect(rehearsal).toMatch(
+      /Review the complete outcome set[\s\S]*runner or harness[\s\S]*external environment/iu,
     );
     expect(rehearsal).toMatch(
-      /Runner, broker, sandbox, or harness[\s\S]*package and Matrix[\s\S]*current turn/iu,
+      /accepted correction occurs outside the Generation[\s\S]*fresh complete Generation/iu,
     );
     expect(rehearsal).toMatch(
       /semantic judgment[\s\S]*does not require[\s\S]*exact command[\s\S]*provider operation order/iu,
     );
-    expect(rehearsal).toMatch(/Transient model, network, or credential[\s\S]*bounded retry/iu);
+    expect(rehearsal).not.toMatch(/focused high-risk probe|bounded retry/iu);
+    expect(publication).toMatch(
+      /A bounded retry can continue only for the same Candidate, scope, target, and workflow semantics/u,
+    );
     expect(rehearsal).toMatch(/cannot prove Candidate readiness/iu);
     expect(rehearsal).toMatch(
       /cannot[\s\S]*Candidate readiness[\s\S]*Human compatibility[\s\S]*Publication readiness/iu,
     );
     expect(runbook).toMatch(
-      /local package passes[\s\S]*Finalize the release source[\s\S]*Candidate Freeze/iu,
+      /complete truthful adaptive Matrix[\s\S]*Finalize the release source/iu,
     );
   });
 

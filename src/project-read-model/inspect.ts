@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { isAbsolute, posix } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -28,7 +29,10 @@ import {
   targetedReconciliationBasis,
 } from "../provider-evidence-contract";
 import type { ProviderEvidenceState } from "../provider-evidence-selection";
-import { canonicalizeLocalNativeReference } from "../providers/matt-skills-v1/local-native-reference";
+import {
+  canonicalizeLocalNativeReference,
+  localNativeReferenceBelongsToScope,
+} from "../providers/matt-skills-v1/local-native-reference";
 import { mattNativeSubjectForObject } from "../providers/matt-skills-v1/native-subject";
 import { mattObjects } from "../providers/matt-skills-v1/projection";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
@@ -482,6 +486,7 @@ const nativeResult = (
   database: DatabaseSync,
   metadata: ProjectReadModelMetadata,
   reference: string,
+  existingLocalFile: boolean,
 ) => {
   const rows = database
     .prepare(
@@ -501,15 +506,23 @@ const nativeResult = (
       relativeNativeReference !== ".." &&
       !relativeNativeReference.startsWith("../") &&
       !posix.isAbsolute(relativeNativeReference);
-    const subjectMatched =
+    const localSubjectShape =
+      selection.nativeScope.startsWith(".") &&
+      localNativeReferenceBelongsToScope(selection.nativeScope, reference);
+    const observedSubject =
+      observation !== undefined &&
+      mattObjects(observation).some(
+        (candidate) =>
+          mattNativeSubjectForObject(candidate).id === reference ||
+          (candidate.native.kind === "github" && candidate.native.identity.url === reference),
+      );
+    if (
       reference === selection.nativeScope ||
-      locallyContained ||
-      (observation !== undefined &&
-        mattObjects(observation).some(
-          (candidate) =>
-            mattNativeSubjectForObject(candidate).id === reference ||
-            (candidate.native.kind === "github" && candidate.native.identity.url === reference),
-        ));
+      (locallyContained && (!localSubjectShape || (!existingLocalFile && !observedSubject)))
+    ) {
+      return { state: "not-subject" as const };
+    }
+    const subjectMatched = (localSubjectShape && existingLocalFile) || observedSubject;
     if (!subjectMatched) continue;
     const planningReferences = database
       .prepare("SELECT reference, payload_json FROM project_objects WHERE kind = 'effort'")
@@ -518,42 +531,54 @@ const nativeResult = (
         const effort = effortSchema.parse(parseJson(effortRow["payload_json"]));
         return effort.workBinding?.nativeScope === selection.nativeScope ? [effort.id] : [];
       });
-    return nativeInspectResultSchema.parse({
-      reference,
-      binding: {
-        state: "bound",
-        provider: selection.provider,
-        nativeScope: selection.nativeScope,
-        role: "bound",
-        observationId: selection.observationId,
-        effectiveFreshness: selection.effectiveFreshness,
-        targetedReconciliationBasis: targetedReconciliationBasis(selection, observation),
-        planningReferences,
-      },
-      coverage:
-        observation === undefined
-          ? { state: "unavailable" }
-          : {
-              state: "available",
-              assessment: observation.coverage.assessment,
-              completion: observation.completion,
-            },
-      generationFingerprint: metadata.basisFingerprint,
-    });
+    return {
+      state: "available" as const,
+      result: nativeInspectResultSchema.parse({
+        reference,
+        binding: {
+          state: "bound",
+          provider: selection.provider,
+          nativeScope: selection.nativeScope,
+          role: "bound",
+          observationId: selection.observationId,
+          effectiveFreshness: selection.effectiveFreshness,
+          targetedReconciliationBasis: targetedReconciliationBasis(selection, observation),
+          planningReferences,
+        },
+        coverage:
+          observation === undefined
+            ? { state: "unavailable" }
+            : {
+                state: "available",
+                assessment: observation.coverage.assessment,
+                completion: observation.completion,
+              },
+        generationFingerprint: metadata.basisFingerprint,
+      }),
+    };
   }
-  return nativeInspectResultSchema.parse({
-    reference,
-    binding: { state: "unbound" },
-    coverage: { state: "unavailable" },
-    generationFingerprint: metadata.basisFingerprint,
-  });
+  return {
+    state: "available" as const,
+    result: nativeInspectResultSchema.parse({
+      reference,
+      binding: { state: "unbound" },
+      coverage: { state: "unavailable" },
+      generationFingerprint: metadata.basisFingerprint,
+    }),
+  };
 };
 
-const queryCommittedProjectReadModel = (
+const queryCommittedProjectReadModel = async (
   root: string,
   request: ProjectInspectRequest,
-): Promise<ProjectInspectEnvelope> =>
-  withProjectReadModel(root, (database, metadata) => {
+): Promise<ProjectInspectEnvelope> => {
+  const localProbe =
+    request.kind === "native-reference" && !/^[a-z][a-z0-9+.-]*:/iu.test(request.reference)
+      ? await probeContainedInput(root, request.reference)
+      : undefined;
+  const existingLocalFile =
+    localProbe?.status === "available" && (await stat(localProbe.path)).isFile();
+  return withProjectReadModel(root, (database, metadata) => {
     const base = {
       schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,
       command: "inspect" as const,
@@ -581,12 +606,31 @@ const queryCommittedProjectReadModel = (
       };
     }
     if (request.kind === "native-reference") {
-      const result = nativeResult(database, metadata, request.reference);
+      const native = nativeResult(database, metadata, request.reference, existingLocalFile);
+      if (native.state === "not-subject") {
+        const code = "native-reference-not-subject";
+        const diagnostic = structuralDiagnosticSchema.parse({
+          reference: `diagnostic:${createHash("sha256")
+            .update(`${metadata.basisFingerprint}\u0000${code}\u0000${request.reference}`, "utf8")
+            .digest("hex")}`,
+          code,
+          impact: "blocking",
+          target: request.reference,
+          message:
+            "The native reference does not identify an available or previously observed exact provider-native subject within the Binding.",
+        });
+        return {
+          ...base,
+          outcome: "unfulfilled" as const,
+          diagnostics: [diagnostic],
+          result: { reason: code },
+        };
+      }
       return {
         ...base,
         outcome: "complete" as const,
         diagnostics: [],
-        result,
+        result: native.result,
       };
     }
     if (request.kind === "activity") {
@@ -611,6 +655,7 @@ const queryCommittedProjectReadModel = (
           result,
         };
   });
+};
 
 const busyProjectInspectEnvelope = (request: ProjectInspectRequest): ProjectInspectEnvelope => ({
   schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,

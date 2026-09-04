@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "scenarios": [
+    {
+      "id": "invalid-test",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/local-loop",
+        "profile": "unknown-profile",
+        "skills": [{ "skill": "bearing", "role": "prerequisite" }]
+      },
+      "initialPrompt": "Inspect the fixture.",
+      "humanPosition": "Authorize inspection only.",
+      "bearingIntent": "Reject invalid fixtures.",
+      "terminalEvidence": {
+        "description": "Invalid fixture state.",
+        "observers": ["repository"]
+      }
+    }
+  ]
+}

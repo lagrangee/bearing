@@ -35,6 +35,418 @@ import {
 import { makeTemporaryDirectory, writeFixture } from "./helpers";
 
 describe("GitHub matt-skills/v1 capture", () => {
+  test("completes a closed Delivery only from checked acceptance and canonical evidence", async () => {
+    const root = await createRepository();
+    const completedDelivery = githubIssue({
+      number: 10,
+      title: "Complete canonical delivery",
+      labels: ["custom-ready"],
+      state: "closed",
+      stateReason: "completed",
+      body: `## What to build
+
+Ship one bounded change.
+
+## Acceptance criteria
+
+- [x] The focused test passes.
+- [x] The delivery is written back.
+
+## Completion evidence
+
+Commit abc123 passed the focused test and was pushed to the delivery branch.
+`,
+    });
+    const endpoint = "repos/example/reference/issues/10";
+    const result = await createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      transport: new FixtureGitHubTransport({
+        "repos/example/reference": { first: response(repository, '"repo-v1"') },
+        [endpoint]: { first: response(completedDelivery, '"issue-10-v1"') },
+        [`${endpoint}/comments?per_page=100&page=1`]: {
+          first: response([], '"comments-10-v1"'),
+        },
+        [`${endpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+          first: response([], '"blocked-10-v1"'),
+        },
+      }),
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    }).capture({ provider: "matt-skills/v1", nativeScope: nativeScopeFor(completedDelivery) });
+
+    expect(result.state).toBe("available");
+    expect(result.completion).toBe("complete");
+    expect(result.diagnostics).toEqual([]);
+    expect(result.projection?.deliveryTickets[0]).toMatchObject({
+      lifecycle: {
+        state: "completed",
+        evidence: ["https://github.com/example/reference/issues/10#completion-evidence"],
+      },
+      trackerClosure: { state: "closed", disposition: "completed" },
+      semanticSections: expect.arrayContaining([
+        { role: "delivery.completion-evidence", availability: "available" },
+      ]),
+    });
+  });
+
+  test.each([
+    {
+      name: "missing evidence",
+      acceptance: "- [x] The focused test passes.",
+      evidence: "",
+      reason: "incomplete-writeback",
+    },
+    {
+      name: "HTML-comment-only evidence",
+      acceptance: "- [x] The focused test passes.",
+      evidence: "## Completion evidence\n\n<!-- bearing-live-scope:internal -->",
+      reason: "incomplete-writeback",
+    },
+    {
+      name: "unchecked acceptance",
+      acceptance: "- [ ] The focused test passes.",
+      evidence: "## Completion evidence\n\nCommit abc123 passed.",
+      reason: "incomplete-writeback",
+    },
+    {
+      name: "ambiguous evidence",
+      acceptance: "- [x] The focused test passes.",
+      evidence:
+        "## Completion evidence\n\nCommit abc123 passed.\n\n## Completion evidence\n\nCommit def456 passed.",
+      reason: "ambiguous-evidence",
+    },
+  ])("keeps a completed closure with $name completion-unavailable", async (fixture) => {
+    const root = await createRepository();
+    const issue = githubIssue({
+      number: 11,
+      title: "Incomplete canonical delivery",
+      state: "closed",
+      stateReason: "completed",
+      body: `## What to build
+
+Ship one bounded change.
+
+## Acceptance criteria
+
+${fixture.acceptance}
+
+${fixture.evidence}
+`,
+    });
+    const endpoint = "repos/example/reference/issues/11";
+    const result = await createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      transport: new FixtureGitHubTransport({
+        "repos/example/reference": { first: response(repository, '"repo-v1"') },
+        [endpoint]: { first: response(issue, '"issue-11-v1"') },
+        [`${endpoint}/comments?per_page=100&page=1`]: {
+          first: response([], '"comments-11-v1"'),
+        },
+        [`${endpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+          first: response([], '"blocked-11-v1"'),
+        },
+      }),
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    }).capture({ provider: "matt-skills/v1", nativeScope: nativeScopeFor(issue) });
+
+    expect(result.state).toBe("partial");
+    expect(result.completion).toBe("undetermined");
+    expect(result.projection?.deliveryTickets[0]?.lifecycle).toEqual({
+      state: "completion-unavailable",
+      reason: fixture.reason,
+    });
+    expect(result.diagnostics.map(({ code }) => code)).toContain(
+      fixture.reason === "ambiguous-evidence"
+        ? "matt.github.delivery.completion-evidence-ambiguous"
+        : "matt.github.delivery.incomplete-writeback",
+    );
+  });
+
+  test("keeps not-planned Delivery closure independent from successful completion", async () => {
+    const root = await createRepository();
+    const notPlanned = githubIssue({
+      number: 12,
+      title: "Declined canonical delivery",
+      state: "closed",
+      stateReason: "not_planned",
+      body: `## What to build
+
+Ship one bounded change.
+
+## Acceptance criteria
+
+- [x] The focused test passes.
+
+## Completion evidence
+
+This text must not override the native disposition.
+`,
+    });
+    const endpoint = "repos/example/reference/issues/12";
+    const result = await createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      transport: new FixtureGitHubTransport({
+        "repos/example/reference": { first: response(repository, '"repo-v1"') },
+        [endpoint]: { first: response(notPlanned, '"issue-12-v1"') },
+        [`${endpoint}/comments?per_page=100&page=1`]: {
+          first: response([], '"comments-12-v1"'),
+        },
+        [`${endpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+          first: response([], '"blocked-12-v1"'),
+        },
+      }),
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    }).capture({ provider: "matt-skills/v1", nativeScope: nativeScopeFor(notPlanned) });
+
+    expect(result.state).toBe("available");
+    expect(result.projection?.deliveryTickets[0]).toMatchObject({
+      lifecycle: { state: "completion-unavailable", reason: "source-contract-gap" },
+      trackerClosure: { state: "closed", disposition: "not-planned" },
+    });
+  });
+
+  test("keeps a mapped wontfix Delivery independent from successful completion", async () => {
+    const root = await createRepository();
+    const issue = githubIssue({
+      number: 12,
+      title: "Rejected canonical delivery",
+      labels: ["custom-wontfix"],
+      state: "closed",
+      stateReason: "completed",
+      body: `## What to build
+
+Ship one bounded change.
+
+## Acceptance criteria
+
+- [x] The focused test passes.
+
+## Completion evidence
+
+Commit abc123 passed.
+`,
+    });
+    const endpoint = "repos/example/reference/issues/12";
+    const result = await createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      transport: new FixtureGitHubTransport({
+        "repos/example/reference": { first: response(repository, '"repo-v1"') },
+        [endpoint]: { first: response(issue, '"issue-12-v1"') },
+        [`${endpoint}/comments?per_page=100&page=1`]: {
+          first: response([], '"comments-12-v1"'),
+        },
+        [`${endpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+          first: response([], '"blocked-12-v1"'),
+        },
+      }),
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    }).capture({ provider: "matt-skills/v1", nativeScope: nativeScopeFor(issue) });
+
+    expect(result.state).toBe("available");
+    expect(result.completion).toBe("incomplete");
+    expect(result.projection?.deliveryTickets[0]).toMatchObject({
+      lifecycle: { state: "completion-unavailable", reason: "source-contract-gap" },
+      trackerClosure: { state: "closed", disposition: "wontfix" },
+    });
+  });
+
+  test("admits bound canonical GitHub subjects and rejects synthesized or unbound references", async () => {
+    const root = await createRepository();
+    const issue = githubIssue({
+      number: 13,
+      title: "Canonical reconciliation subject",
+      body: `## What to build
+
+Ship one bounded change.
+
+## Acceptance criteria
+
+- [ ] The focused test passes.
+
+## Completion evidence
+`,
+    });
+    const endpoint = "repos/example/reference/issues/13";
+    const relatedChild = githubIssue({
+      number: 14,
+      title: "Owner-created related child",
+      body: `## Parent
+
+#13
+
+## What to build
+
+Ship the owner-created child.
+
+## Acceptance criteria
+
+- [ ] The focused test passes.
+
+## Blocked by
+
+- None — can start immediately.
+
+## Completion evidence
+`,
+    });
+    const unrelated = githubIssue({
+      number: 15,
+      title: "Unbound same-repository issue",
+      body: "This issue has no relation to the bound scope.",
+    });
+    const dependencyOnly = githubIssue({
+      number: 16,
+      title: "Dependency-only same-repository issue",
+      body: `## What to build
+
+Remain outside the bound scope despite a dependency edge.
+
+## Acceptance criteria
+
+- [ ] The focused test passes.
+
+## Blocked by
+
+- #13
+
+## Completion evidence
+`,
+    });
+    const relatedEndpoint = "repos/example/reference/issues/14";
+    const unrelatedEndpoint = "repos/example/reference/issues/15";
+    const dependencyEndpoint = "repos/example/reference/issues/16";
+    const fixtures: Record<string, FixtureResponse> = {
+      "repos/example/reference": { first: response(repository, '"repo-v1"') },
+      [endpoint]: { first: response(issue, '"issue-13-v1"') },
+      [`${endpoint}/comments?per_page=100&page=1`]: {
+        first: response([], '"comments-13-v1"'),
+      },
+      [`${endpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+        first: response([], '"blocked-13-v1"'),
+      },
+      [`${endpoint}/sub_issues?per_page=100&page=1`]: {
+        first: response([], '"children-13-v1"'),
+      },
+      [relatedEndpoint]: { first: response(relatedChild, '"issue-14-v1"') },
+      [`${relatedEndpoint}/parent`]: { first: response(issue, '"parent-14-v1"') },
+      [`${relatedEndpoint}/comments?per_page=100&page=1`]: {
+        first: response([], '"comments-14-v1"'),
+      },
+      [`${relatedEndpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+        first: response([], '"blocked-14-v1"'),
+      },
+      [`${relatedEndpoint}/sub_issues?per_page=100&page=1`]: {
+        first: response([], '"children-14-v1"'),
+      },
+      [unrelatedEndpoint]: { first: response(unrelated, '"issue-15-v1"') },
+      [`${unrelatedEndpoint}/comments?per_page=100&page=1`]: {
+        first: response([], '"comments-15-v1"'),
+      },
+      [`${unrelatedEndpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+        first: response([], '"blocked-15-v1"'),
+      },
+      [`${unrelatedEndpoint}/sub_issues?per_page=100&page=1`]: {
+        first: response([], '"children-15-v1"'),
+      },
+      [dependencyEndpoint]: { first: response(dependencyOnly, '"issue-16-v1"') },
+      [`${dependencyEndpoint}/comments?per_page=100&page=1`]: {
+        first: response([], '"comments-16-v1"'),
+      },
+      [`${dependencyEndpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+        first: response([issue], '"blocked-16-v1"'),
+      },
+      [`${dependencyEndpoint}/sub_issues?per_page=100&page=1`]: {
+        first: response([], '"children-16-v1"'),
+      },
+    };
+    const provider = createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      transport: new FixtureGitHubTransport(fixtures),
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    });
+    const binding = { provider: "matt-skills/v1" as const, nativeScope: nativeScopeFor(issue) };
+    const prior = await provider.capture(binding);
+    if (provider.reconcile === undefined) throw new Error("GitHub reconciliation is unavailable.");
+    const exact = await provider.reconcile({
+      binding,
+      prior,
+      affected: { subjects: [issue.html_url] },
+    });
+    expect(exact.state).toBe("available");
+    expect(exact.diagnostics).toEqual([]);
+
+    const ownerCreated = await provider.reconcile({
+      binding,
+      prior,
+      affected: { subjects: [relatedChild.html_url] },
+    });
+    expect(ownerCreated.state).toBe("available");
+    expect(ownerCreated.diagnostics).toEqual([]);
+    expect(ownerCreated.projection?.deliveryTickets.map(({ title }) => title)).toContain(
+      relatedChild.title,
+    );
+    expect(ownerCreated.projection?.graph.parentChild).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          parent: "github:R_reference:I_reference_13",
+          child: "github:R_reference:I_reference_14",
+        }),
+      ]),
+    );
+
+    const rejectingProvider = createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator,
+      transport: new FixtureGitHubTransport(fixtures),
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    });
+    if (rejectingProvider.reconcile === undefined) {
+      throw new Error("GitHub reconciliation is unavailable.");
+    }
+    const rejected = await rejectingProvider.reconcile({
+      binding,
+      prior,
+      affected: { subjects: ["#13"] },
+    });
+    expect(rejected.state).toBe("partial");
+    expect(rejected.diagnostics.map(({ code }) => code)).toContain(
+      "matt.github.reconciliation.reference-invalid",
+    );
+
+    const unbound = await rejectingProvider.reconcile({
+      binding,
+      prior,
+      affected: { subjects: [unrelated.html_url] },
+    });
+    expect(unbound.state).toBe("partial");
+    expect(unbound.diagnostics.map(({ code }) => code)).toContain(
+      "matt.github.reconciliation.reference-invalid",
+    );
+
+    const dependencyOnlyResult = await rejectingProvider.reconcile({
+      binding,
+      prior,
+      affected: { subjects: [dependencyOnly.html_url] },
+    });
+    expect(dependencyOnlyResult.state).toBe("partial");
+    expect(dependencyOnlyResult.diagnostics.map(({ code }) => code)).toContain(
+      "matt.github.reconciliation.reference-invalid",
+    );
+    expect(
+      dependencyOnlyResult.projection?.deliveryTickets.map(({ title }) => title),
+    ).not.toContain(dependencyOnly.title);
+  });
+
   test("captures one standalone issue through the public seam with custom mapping and current revalidation", async () => {
     const root = await createRepository();
     const transport = new FixtureGitHubTransport({
@@ -1743,7 +2155,7 @@ A bounded parent capture.
     ).toBe(false);
   });
 
-  test("uses the Matt Map task-list plus Part of fallback only after native hierarchy is proven unsupported", async () => {
+  test("uses the Matt Map task-list plus canonical Parent fallback only after native hierarchy is proven unsupported", async () => {
     const fallbackMap = githubIssue({
       number: 1,
       title: "Fallback Map",
@@ -1762,7 +2174,9 @@ Keep fallback membership bounded to the Matt Map contract.
       number: 3,
       title: "Research fallback scope",
       labels: ["wayfinder:research"],
-      body: `Part of #1
+      body: `## Parent
+
+#1
 
 ## Question
 

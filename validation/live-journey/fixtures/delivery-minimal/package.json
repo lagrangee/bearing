@@ -1,0 +1,8 @@
+{
+  "name": "bearing-live-delivery-minimal",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/format-label.test.ts"
+  }
+}

@@ -1,6 +1,6 @@
 ---
 name: bearing
-description: Use only for explicit Bearing invocation or when the current repository's Repository Configuration managed pointer nominates Bearing for this request; otherwise use normal Agent behavior.
+description: Coordinate Bearing planning, repository integration, and provider-native work when explicitly requested or nominated by the active repository's managed Bearing pointer.
 ---
 
 # Bearing
@@ -13,6 +13,15 @@ public Agent surface.
 The Repository Configuration managed pointer is the sole authority for contextual nomination. Use
 it only under its stated conditions; repository presence does not nominate Bearing. Explicit
 Bearing invocation remains available when the pointer did not nominate the request.
+
+### Native work through another Skill
+
+When the Human invokes another Skill to read or change an existing Map, PRD, Ticket, or provider
+issue in a Bearing-nominated repository, compose the request as **Native admission → owner workflow
+→ Native follow-up → Human response**. Preserve the invoked Skill as work owner and load
+`references/journeys/native-work.md` immediately. Only its required exact claim may precede Native
+Inspect. After the owner pauses or finishes, return its exact pending native write set to Native
+Work; the matching provider follow-up completes the composed request.
 
 Select the CLI from the managed pointer. Replace the leading `bearing` token in every command below
 with that CLI. Stable Runtime uses `$HOME/.bearing/bin/bearing`. Development Runtime uses
@@ -33,9 +42,11 @@ operation. A no-op, failed, or rolled-back transition does not change the loaded
 
 - The Agent owns semantic meaning, judgment, acceptance interpretation, canonical content, and
   scoped repair of its own attempted write set. Deterministic Bearing Modules own contained reads,
-  schema and reference validation, exact reconciliation, projection, and typed diagnostics.
+  schema and reference validation, exact reconciliation, projection, and typed diagnostics. Treat
+  each published Project Read Model generation as the current machine-owned result until a later
+  Bearing operation replaces or rebuilds it.
 - Work Management owns native status, claim, blockers, dependencies, checklists, Answer, and
-  resolution. Execution owns implementation, tests, review, commit, and its outcome. Portal is
+  resolution. Execution owns implementation, tests, review, commit, and its result. Portal is
   read-oriented and authorizes no canonical or native mutation.
 - Acquire only decision-relevant current evidence. Do not infer completeness, authority, scope, or
   lifecycle from repository scans, title matches, tests, receipts, diagnostics, native completion,
@@ -56,9 +67,9 @@ operation. A no-op, failed, or rolled-back transition does not change the loaded
 | Accepted sealed Repository Configuration change | `bearing configure apply <accepted-arguments> --plan-token <token>` |
 | Project Context | `bearing inspect project --repo <repo-root>` |
 | One planning target | `bearing inspect <stable-planning-reference> --repo <repo-root>` |
-| One native target and local Binding | `bearing inspect --native <native-reference> --repo <repo-root>` |
+| One native subject and Binding lookup | `bearing inspect --native <native-reference> --repo <repo-root>` |
 | Current deterministic diagnostics | `bearing inspect diagnostics --repo <repo-root>` |
-| Exact readback of successful managed native effects | `bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope> --ref <native-reference> [--ref <native-reference>]` |
+| Targeted reconciliation and current Project Read Model publication | `bearing reconcile-native --repo <repo-root> --scope <opaque-native-scope> --ref <native-reference> [--ref <native-reference>]` |
 | Exact Work Binding provider baseline | `bearing provider capture --scope <opaque-native-scope> [--scope <opaque-native-scope>] --repo <repo-root>` |
 | Explicit all-Binding provider verification | `bearing provider verify --all --repo <repo-root>` |
 | Disposable Project Read Model rebuild | `bearing cache rebuild --repo <repo-root>` |
@@ -87,8 +98,8 @@ with the package entry that invokes that exact candidate's installer.
 | Project Read Model rebuild, provider capture, or provider verification | `references/journeys/project-read-model.md` |
 | Project Orientation | `references/journeys/project-orientation.md`; also `references/journeys/scope-review.md` when existing-work evidence is included |
 | Whole-project Scope Review | `references/journeys/scope-review.md` |
-| Feature Intake with a material accepted commitment or planning opportunity | `references/journeys/feature-intake.md`; when its continuation explicitly starts a named planned Effort, also `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, `references/journeys/native-work.md`, and `references/journeys/project-read-model.md` |
-| Native Work | `references/journeys/native-work.md`; also `references/journeys/project-read-model.md` when Native Inspect reports `capture-required` |
+| Feature Intake for a proposed feature related to accepted planning or work | First load `references/journeys/feature-intake.md`; after acceptance, add `references/journeys/native-work.md` when the selected continuation writes native work; add `references/contracts/canonical-mutation.md` and the affected owner only when canonical Bearing meaning changes; a named planned Effort start also uses `references/owners/effort.md` and `references/journeys/project-read-model.md` |
+| Native work, including through another Skill | `references/journeys/native-work.md`; also `references/journeys/project-read-model.md` when Native Inspect reports `capture-required` |
 | Start or enroll an Effort through Matt work | `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, `references/journeys/native-work.md`, and `references/journeys/project-read-model.md` |
 | Direct Execution | `references/journeys/execution.md` and `references/journeys/native-work.md`; for a planned Effort with no Binding, also `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, and `references/journeys/project-read-model.md`; otherwise add `references/journeys/project-read-model.md` only when Native Inspect reports `capture-required` |
 | Explicit Next Work guidance | `references/journeys/next-work.md` |
@@ -102,5 +113,5 @@ with the package entry that invokes that exact candidate's installer.
 | Explicit Planning Audit | `references/owners/planning-audit.md` |
 | Planning Review | `references/owners/planning-review.md` |
 
-Selected references own their operation sequence, readback, failure boundary, and owner-local
+Selected references own their operation sequence, effect verification, failure boundary, and owner-local
 follow-up. They do not route onward.
