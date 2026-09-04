@@ -140,7 +140,7 @@ const assertNotOperatorWritable = async (path: string, description: string): Pro
     if (
       error instanceof Error &&
       "code" in error &&
-      (error.code === "EACCES" || error.code === "EPERM")
+      (error.code === "EACCES" || error.code === "EPERM" || error.code === "EROFS")
     ) {
       return;
     }
