@@ -213,8 +213,13 @@ test("Source Quality solely owns canonical aggregate repository verification", a
   expect(scannerInstall).toMatchObject({
     env: { GOBIN: ["$", "{{ runner.temp }}"].join("") },
   });
-  expect(scannerInstall?.run).toContain("go install github.com/zricethezav/gitleaks/v8@v8.30.1");
+  expect(scannerInstall?.run).toContain(
+    "go install -ldflags=-X=github.com/zricethezav/gitleaks/v8/version.Version=8.30.1 github.com/zricethezav/gitleaks/v8@v8.30.1",
+  );
   expect(scannerInstall?.run).toContain('echo "$GOBIN" >> "$GITHUB_PATH"');
+  expect(sourceSteps.find((step) => step.name === "Select canonical Darwin toolchain")?.run).toBe(
+    "sudo xcode-select --switch /Library/Developer/CommandLineTools",
+  );
 
   expect(
     sourceSteps.find((step) => step.name === "Run canonical aggregate repository verification")
@@ -265,10 +270,11 @@ test("Source Quality solely owns canonical aggregate repository verification", a
   expect(sourceSteps.flatMap((step) => (step.run === undefined ? [] : [step.run]))).toEqual([
     "npm ci",
     [
-      "go install github.com/zricethezav/gitleaks/v8@v8.30.1",
+      "go install -ldflags=-X=github.com/zricethezav/gitleaks/v8/version.Version=8.30.1 github.com/zricethezav/gitleaks/v8@v8.30.1",
       'echo "$GOBIN" >> "$GITHUB_PATH"',
       "",
     ].join("\n"),
+    "sudo xcode-select --switch /Library/Developer/CommandLineTools",
     "bun run verify",
   ]);
   expect(
