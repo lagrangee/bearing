@@ -35,7 +35,10 @@ import {
   githubTriageLocator as triageLocator,
 } from "./fixtures/github-matt-api";
 import { makeTemporaryDirectory, writeFixture } from "./helpers";
-import { mattReferenceSemanticView } from "./helpers/matt-reference-oracle";
+import {
+  type MattReferenceSemanticView,
+  mattReferenceSemanticView,
+} from "./helpers/matt-reference-oracle";
 
 describe("GitHub matt-skills/v1 targeted blocker relations", () => {
   const aliases = {
@@ -136,6 +139,15 @@ describe("GitHub matt-skills/v1 targeted blocker relations", () => {
     ]);
   };
 
+  const expectSameDeliveryAndRelations = (
+    semantic: MattReferenceSemanticView,
+    full: MattReferenceSemanticView,
+  ) => {
+    expect(semantic.delivery).toEqual(full.delivery);
+    expect(semantic.blockedBy).toEqual(full.blockedBy);
+    expect(semantic.parentChild.toSorted()).toEqual(full.parentChild.toSorted());
+  };
+
   test("preserves an unread blocked Delivery when only its open blocker is reconciled", async () => {
     const { fixtures, transport, reconcile, binding, prior, blocker } = await createFixture();
     expect(deliveryWork(prior)).toContainEqual(
@@ -195,9 +207,7 @@ describe("GitHub matt-skills/v1 targeted blocker relations", () => {
       }),
     );
     const full = mattReferenceSemanticView(await provider.capture(binding), aliases);
-    expect(semantic.delivery).toEqual(full.delivery);
-    expect(semantic.blockedBy).toEqual(full.blockedBy);
-    expect(semantic.parentChild.toSorted()).toEqual(full.parentChild.toSorted());
+    expectSameDeliveryAndRelations(semantic, full);
   });
 
   test("removes the old blocker after its owner is read without that dependency", async () => {
@@ -227,9 +237,7 @@ describe("GitHub matt-skills/v1 targeted blocker relations", () => {
     const semantic = mattReferenceSemanticView(result, aliases);
     const fullCapture = await provider.capture(binding);
     const full = mattReferenceSemanticView(fullCapture, aliases);
-    expect(semantic.delivery).toEqual(full.delivery);
-    expect(semantic.blockedBy).toEqual(full.blockedBy);
-    expect(semantic.parentChild.toSorted()).toEqual(full.parentChild.toSorted());
+    expectSameDeliveryAndRelations(semantic, full);
     expect(deliveryWork(result)).toEqual(deliveryWork(fullCapture));
   });
 
@@ -299,8 +307,7 @@ describe("GitHub matt-skills/v1 targeted blocker relations", () => {
     });
     const fullCapture = await provider.capture(binding);
     const full = mattReferenceSemanticView(fullCapture, aliases);
-    expect(semantic.delivery).toEqual(full.delivery);
-    expect(semantic.blockedBy).toEqual(full.blockedBy);
+    expectSameDeliveryAndRelations(semantic, full);
     const fullSubject = fullCapture.projection?.deliveryTickets.find(
       ({ title }) => title === "Blocked delivery",
     );
@@ -337,8 +344,7 @@ describe("GitHub matt-skills/v1 targeted blocker relations", () => {
     });
     const fullCapture = await provider.capture(binding);
     const full = mattReferenceSemanticView(fullCapture, aliases);
-    expect(semantic.delivery).toEqual(full.delivery);
-    expect(semantic.blockedBy).toEqual(full.blockedBy);
+    expectSameDeliveryAndRelations(semantic, full);
     expect(semantic.capture.diagnostics).toEqual(full.capture.diagnostics);
     expect(deliveryWork(result)).toEqual(deliveryWork(fullCapture));
   });
