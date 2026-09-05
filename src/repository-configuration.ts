@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import packageMetadata from "../package.json";
 import {
   AGENT_SURFACES,
@@ -12,6 +12,7 @@ import { inspectInstallPath } from "./install-boundary";
 import { pointsToMattContractLocator } from "./matt-agent-surface";
 import { readContainedFile, resolveRepositoryRoot } from "./path-boundary";
 import { PROJECT_GENERATION_VERSION } from "./project-generation/schema";
+import { projectReadModelPath } from "./project-read-model/store";
 import { decodeMattProviderConfiguration } from "./provider-configuration";
 import { validateMattSkillsV1Contract } from "./providers/matt-skills-v1";
 import type { ReconcileRepositoryResult } from "./reconcile-repository";
@@ -368,18 +369,6 @@ const normalizedProfiles = (profiles: readonly string[] | undefined): readonly s
 const planFingerprint = (plan: Omit<RepositoryConfigurationPlan, "sealedPlanToken">): string =>
   `sha256:${createHash("sha256").update(JSON.stringify(plan)).digest("hex")}`;
 
-const appendCachePrecondition = async (
-  root: string,
-  preconditions: readonly RepositoryTargetPrecondition[],
-): Promise<readonly RepositoryTargetPrecondition[]> => {
-  const cache = await captureRepositoryTargetPreconditions(root, [
-    ".bearing/cache/project-read-model.sqlite",
-  ]);
-  return [...preconditions, ...cache].sort((left, right) =>
-    left.target.localeCompare(right.target, "en"),
-  );
-};
-
 export const planRepositoryConfiguration = async (
   request: RepositoryConfigurationRequest,
 ): Promise<RepositoryConfigurationPlan> => {
@@ -473,10 +462,19 @@ export const planRepositoryConfiguration = async (
         ];
       }
       if (inspection.lifecycle.state === "fresh" || inspection.lifecycle.state === "deactivated") {
-        targets = [...targets, ".bearing/cache/project-read-model.sqlite"].sort((left, right) =>
+        const readModelTarget = relative(
+          inspection.repositoryRoot,
+          projectReadModelPath(inspection.repositoryRoot),
+        );
+        targets = [...targets, readModelTarget].sort((left, right) =>
           left.localeCompare(right, "en"),
         );
-        preconditions = await appendCachePrecondition(inspection.repositoryRoot, preconditions);
+        preconditions = [
+          ...preconditions,
+          ...(await captureRepositoryTargetPreconditions(inspection.repositoryRoot, [
+            readModelTarget,
+          ])),
+        ].sort((left, right) => left.target.localeCompare(right.target, "en"));
       }
     }
   }
