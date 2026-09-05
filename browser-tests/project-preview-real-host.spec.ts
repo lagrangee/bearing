@@ -1068,14 +1068,29 @@ test("text Asset and linked Preview preserve literal source and labels without e
   await routeAuthoredRemoteImages(page, "succeed");
   await page.setViewportSize({ width: 1280, height: 900 });
 
-  for (const surface of ["asset", "linked"] as const) {
-    await page.goto(
-      `${host.url}${planningLineageSubjectHref("g3-preview", {
-        kind: surface === "asset" ? "asset" : "native-subject",
-        id: surface === "asset" ? "asset:literal-source" : ".scratch/work/map.md",
-      })}`,
-    );
-    if (surface === "linked") {
+  const scenarios = [
+    {
+      surface: "asset",
+      subject: { kind: "asset", id: "asset:literal-source" },
+      openingLabel: /View Content/u,
+      title: literalPreviewTitle,
+      historyNote:
+        "This is not historical Project Read Model bytes; the registered Asset was revalidated against the current checkout.",
+      returnLabel: "Return to Asset detail",
+    },
+    {
+      surface: "linked",
+      subject: { kind: "native-subject", id: ".scratch/work/map.md" },
+      openingLabel: "Literal XML local",
+      title: literalLinkedFilename,
+      historyNote:
+        "This reads current-checkout linked content and is not historical Provider capture bytes.",
+      returnLabel: "Return to reading surface",
+    },
+  ] as const;
+  for (const scenario of scenarios) {
+    await page.goto(`${host.url}${planningLineageSubjectHref("g3-preview", scenario.subject)}`);
+    if (scenario.surface === "linked") {
       const destination = page.locator(".read-disclosure", {
         has: page.getByRole("heading", { name: "Safe reading", level: 3 }),
       });
@@ -1083,7 +1098,7 @@ test("text Asset and linked Preview preserve literal source and labels without e
       if (await toggle.isVisible()) await toggle.click();
     }
     const openingLink = page.getByRole("link", {
-      name: surface === "asset" ? /View Content/u : "Literal XML local",
+      name: scenario.openingLabel,
     });
     await expect(openingLink).toBeVisible();
     const previewTab = context.waitForEvent("page");
@@ -1095,31 +1110,21 @@ test("text Asset and linked Preview preserve literal source and labels without e
     expect(response.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
     const source = previewPage.locator("main pre");
     await expect(source).toBeVisible();
-    const screenshot = testInfo.outputPath(`${surface}-literal-preview.png`);
+    const screenshot = testInfo.outputPath(`${scenario.surface}-literal-preview.png`);
     await previewPage.screenshot({ path: screenshot });
-    await testInfo.attach(`${surface}-literal-preview`, {
+    await testInfo.attach(`${scenario.surface}-literal-preview`, {
       path: screenshot,
       contentType: "image/png",
     });
     expect.soft(await source.textContent()).toBe(literalPreviewText);
-    await expect
-      .soft(previewPage)
-      .toHaveTitle(surface === "asset" ? literalPreviewTitle : literalLinkedFilename);
+    await expect.soft(previewPage).toHaveTitle(scenario.title);
     await expect(previewPage.locator("script, main img, main button")).toHaveCount(0);
     expect(
       await previewPage.evaluate(() => Reflect.get(globalThis, "__previewTextRan")),
     ).toBeUndefined();
-    await expect(previewPage.locator("header p").last()).toHaveText(
-      surface === "asset"
-        ? "This is not historical Project Read Model bytes; the registered Asset was revalidated against the current checkout."
-        : "This reads current-checkout linked content and is not historical Provider capture bytes.",
-    );
+    await expect(previewPage.locator("header p").last()).toHaveText(scenario.historyNote);
     const closed = previewPage.waitForEvent("close");
-    await previewPage
-      .getByRole("button", {
-        name: surface === "asset" ? "Return to Asset detail" : "Return to reading surface",
-      })
-      .click();
+    await previewPage.getByRole("button", { name: scenario.returnLabel }).click();
     await closed;
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   }
