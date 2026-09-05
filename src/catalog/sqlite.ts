@@ -250,13 +250,14 @@ export const resetSqliteCatalog = async (homeDir: string): Promise<void> => {
     return databaseError(error);
   }
   if (present) {
-    const state = await readSqliteCatalogState(homeDir);
-    if (state.state === "ready") {
+    try {
       await runSqliteCatalogTransaction({
         homeDir,
         mutate: () => ({ result: undefined, next: emptyCatalogDocument() }),
       });
       return;
+    } catch (error) {
+      if (!(error instanceof CatalogRecoveryRequiredError)) throw error;
     }
   }
   await replaceUnavailableCatalog(path);
