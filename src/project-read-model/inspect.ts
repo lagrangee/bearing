@@ -48,6 +48,7 @@ import {
   planningInspectResultSchema,
   planningReferenceSchema,
   projectContextResultSchema,
+  projectReadModelObjectSchema,
 } from "./contract";
 import {
   compileProjectReadModel,
@@ -296,26 +297,44 @@ const diagnostics = (database: DatabaseSync): ProjectGeneration["diagnostics"] =
     .all()
     .map((row) => structuralDiagnosticSchema.parse(parseJson(row["payload_json"])));
 
+const singletonProjectionValidity = (database: DatabaseSync, projection: "summary" | "brief") => {
+  const row = database
+    .prepare(
+      "SELECT kind, payload_json FROM project_objects WHERE reference = ? AND kind = 'portal-projection-state'",
+    )
+    .get(`portal-projection:${projection}`);
+  const state = projectReadModelObjectSchema.parse({
+    kind: row?.["kind"],
+    value: parseJson(row?.["payload_json"]),
+  });
+  if (state.kind !== "portal-projection-state" || state.value.projection !== projection) {
+    throw new Error("Project Read Model singleton projection state is inconsistent.");
+  }
+  return state.value.validity;
+};
+
 const projectResult = (database: DatabaseSync, metadata: ProjectReadModelMetadata) => {
   const summaryRow = database
     .prepare("SELECT payload_json FROM project_objects WHERE reference = 'project-summary:current'")
     .get();
+  const summaryValidity = singletonProjectionValidity(database, "summary");
   const summary =
-    summaryRow === undefined
-      ? { validity: "absent" as const }
+    summaryValidity === "absent" || summaryValidity === "invalid"
+      ? { validity: summaryValidity }
       : {
-          validity: "available" as const,
-          value: projectSummarySchema.parse(parseJson(summaryRow["payload_json"])),
+          validity: summaryValidity,
+          value: projectSummarySchema.parse(parseJson(summaryRow?.["payload_json"])),
         };
   const briefRow = database
     .prepare("SELECT payload_json FROM project_objects WHERE reference = 'project-brief:current'")
     .get();
+  const briefValidity = singletonProjectionValidity(database, "brief");
   const brief =
-    briefRow === undefined
-      ? { validity: "absent" as const }
+    briefValidity === "absent" || briefValidity === "invalid"
+      ? { validity: briefValidity }
       : {
-          validity: "available" as const,
-          value: projectBriefSchema.parse(parseJson(briefRow["payload_json"])),
+          validity: briefValidity,
+          value: projectBriefSchema.parse(parseJson(briefRow?.["payload_json"])),
         };
   const roadmaps = database
     .prepare(
