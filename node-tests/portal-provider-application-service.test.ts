@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
-import { realpath, rm, writeFile } from "node:fs/promises";
+import { readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
 import { createProviderScopeObservation } from "../src/native-work-provider";
 import { createPortalProviderApplicationService } from "../src/portal/provider-application";
+import {
+  type PortalProviderApplicationResponse,
+  portalProviderApplicationResponseSchema,
+} from "../src/portal-provider-application-wire";
 import { rebuildProjectReadModel } from "../src/project-read-model/provider-operations";
 import { readProjectProviderEvidence } from "../src/project-read-model/store";
 import {
@@ -22,6 +27,76 @@ const catalogFor = (repoRoot: string) => async () => ({
       availability: "available" as const,
     },
   ],
+});
+
+test("Provider Application reports a competing publication without borrowing the winning capture", async () => {
+  const fixture = await createRepresentativeProject("representative");
+  const acquired = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let losing: Promise<PortalProviderApplicationResponse> | undefined;
+  try {
+    const root = await realpath(fixture.root);
+    await rebuildProjectReadModel(root);
+    const request = {
+      version: 1 as const,
+      action: "source-load" as const,
+      binding: { provider: "matt-skills/v1" as const, nativeScope: ".scratch/scope-001" },
+    };
+    const losingApplication = createPortalProviderApplicationService({
+      readCatalog: catalogFor(root),
+      providerDependencies: {
+        providerFactory: (input) => {
+          const provider = defaultMattProviderFactory(input);
+          return {
+            ...provider,
+            capture: async (binding) => {
+              const observation = await provider.capture(binding);
+              acquired.resolve();
+              await release.promise;
+              return observation;
+            },
+          };
+        },
+        now: () => "2026-08-08T10:00:00.000Z",
+      },
+    });
+    const winnerApplication = createPortalProviderApplicationService({
+      readCatalog: catalogFor(root),
+      providerDependencies: { now: () => "2026-08-08T11:00:00.000Z" },
+    });
+    losing = losingApplication.apply("fixture", request);
+    await acquired.promise;
+    const nativePath = join(root, fixture.nativeLocator);
+    const nativeBefore = await readFile(nativePath, "utf8");
+    await writeFile(nativePath, `${nativeBefore}\nWinning publication content.\n`);
+    const winner = await winnerApplication.apply("fixture", request);
+    assert.equal(winner.state, "completed");
+    assert.equal(winner.acquisitionCount, 1);
+    assert.equal(winner.observations[0]?.disposition, "captured");
+    assert.ok(winner.observations[0]?.observedAt);
+    release.resolve();
+    const loser = await losing;
+    assert.equal(loser.state, "attention");
+    if (loser.state !== "attention") throw new Error("Expected publication attention.");
+    assert.equal(loser.condition, "publication-conflict");
+    assert.equal(loser.acquisitionCount, 1);
+    assert.deepEqual(loser.observations, [
+      { scope: ".scratch/scope-001", disposition: "unpublished" },
+    ]);
+    assert.deepEqual(loser.diagnostics, [
+      {
+        reference: "project-read-model-publication-conflict",
+        summary: "Source refresh needs Agent Surface attention.",
+      },
+    ]);
+    assert.match(loser.explanation, /another|concurrent|competing/iu);
+    assert.match(loser.nextAction, /Agent Surface/u);
+    assert.deepEqual(portalProviderApplicationResponseSchema.parse(loser), loser);
+  } finally {
+    release.resolve();
+    await losing?.catch(() => {});
+    await rm(fixture.root, { recursive: true, force: true });
+  }
 });
 
 test("Provider Application keeps exact item, exact source, and all-sources costs distinct", async () => {

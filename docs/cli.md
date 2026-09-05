@@ -142,6 +142,21 @@ Cache rebuild creates only the disposable SQLite Project Read Model. Provider ve
 explicit cost-bearing operation over current Work Bindings. Inspect returns typed committed rows.
 These commands do not discover standalone work or expand Bearing Scope.
 
+Capture, verification, reconciliation and local Ensure Current derive a candidate from one captured
+canonical basis. Healthy local cache rebuild also uses its committed starting basis. Publication compares the committed metadata and bound evidence used by that
+operation in one SQLite transaction. A concurrent change returns
+`project-read-model-publication-conflict`; acquired evidence is `unpublished`, and the command is
+`unfulfilled` with its actual acquisition count. The result does not claim the winner's observation
+or generation. Pending native writes remain pending after a conflicted reconciliation. Inspect the
+current evidence before choosing another explicit operation; there is no automatic retry or broader
+acquisition.
+
+Fully equivalent final states reuse the committed receipt. Same-semantic attempt or display changes
+do not publish another generation, and concurrent detail evidence remains separate. A conflict records
+a failed attempt only for a requested bound row that still exactly matches its starting state,
+retaining its observation; changed or removed rows are untouched. Canonical files are not rechecked
+at completion: a later local edit belongs to a later operation.
+
 ## Inspect
 
 ```bash

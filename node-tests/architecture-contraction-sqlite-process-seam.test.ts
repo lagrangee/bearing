@@ -132,7 +132,9 @@ test("Project Read Model publishes atomically, preserves last-good, and stays is
     const firstReceipt = await publishProjectReadModel(fixture.root, firstCandidate, {
       now: () => "2026-08-08T00:00:00.000Z",
     });
-    assert.equal(firstReceipt.publicationCount, 1);
+    assert.notEqual(firstReceipt.state, "conflict");
+    if (firstReceipt.state === "conflict") throw new Error("Unexpected publication conflict.");
+    assert.equal(firstReceipt.receipt.publicationCount, 1);
     const evidenceAfterFirst = new DatabaseSync(projectReadModelPath(fixture.root), {
       readOnly: true,
     });

@@ -134,6 +134,18 @@ Cache rebuild 只创建 disposable SQLite Project Read Model。Provider verifica
 Work Bindings 的显式 cost-bearing operation。Inspect 返回 typed committed rows。这些命令不会
 发现 standalone work，也不会扩张 Bearing Scope。
 
+Capture、verification、reconciliation 与本地 Ensure Current 从一次捕获的 canonical basis
+派生候选；健康数据库的本地 cache rebuild 也使用自己的 committed starting basis。提交时在一个 SQLite transaction 中比较该操作使用的 committed metadata 与 bound
+evidence。发生并发变化时返回 `project-read-model-publication-conflict`：结果为 `unfulfilled`，
+保留实际 acquisition count，已取得但未发布的 evidence 标为 `unpublished`，不借用赢家的
+observation 或 generation。冲突 reconciliation 的 Pending Native Write Set 仍保持 pending。
+先 Inspect 当前 evidence，再选择后续显式操作；不会自动 retry 或扩大 acquisition。
+
+完全等价的最终状态复用同一 receipt；相同语义的 attempt 或 display 更新不增加 generation，
+并发 detail evidence 独立保留。冲突只为仍与起始状态完全一致的 requested bound row 记录失败
+attempt 并保留 observation；已变化或删除的 row 不受影响。完成时不会再次检查 canonical
+文件，后来的本地编辑属于后续操作。
+
 ## Inspect
 
 ```bash

@@ -93,7 +93,10 @@ test("direct exact capture initializes the current Binding in one publication", 
     const captured = await captureProjectProviderScopes(root, [".scratch/work"]);
     assert.equal(captured.outcome, "complete");
     assert.equal(captured.result.acquisitionCount, 1);
-    assert.deepEqual(captured.result.scopes, [{ scope: ".scratch/work", disposition: "captured" }]);
+    assert.deepEqual(
+      captured.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/work", disposition: "captured" }],
+    );
     const state = await inspectProjectReadModel(root);
     assert.equal(state.state, "ready");
     if (state.state !== "ready") throw new Error("Expected a ready Project Read Model.");
@@ -144,7 +147,10 @@ test("direct verify-all removes a deleted last Binding without acquiring its pri
     });
     assert.equal(verified.outcome, "complete");
     assert.equal(verified.result.acquisitionCount, 0);
-    assert.deepEqual(verified.result.scopes, []);
+    assert.deepEqual(
+      verified.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [],
+    );
     assert.deepEqual(acquired, []);
     assert.deepEqual(await readProjectProviderEvidence(root, "bound"), []);
     const after = await inspectProjectReadModel(root);
@@ -178,7 +184,7 @@ for (const intent of ["exact", "all"] as const) {
         assert.equal(result.result.acquisitionCount, expected.length);
         assert.deepEqual(acquired, expected);
         assert.deepEqual(
-          result.result.scopes,
+          result.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
           expected.map((scope) => ({ scope, disposition: "captured" })),
         );
         const state = await inspectProjectReadModel(root);
@@ -303,7 +309,10 @@ test("provider acquisition reads each canonical record once and leaves later edi
     const captured = await pending;
     assert.equal(captured.outcome, "complete");
     assert.deepEqual(acquired, [".scratch/work"]);
-    assert.deepEqual(captured.result.scopes, [{ scope: ".scratch/work", disposition: "captured" }]);
+    assert.deepEqual(
+      captured.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/work", disposition: "captured" }],
+    );
     assert.equal(canonicalReads.size, 6);
     assert.ok([...canonicalReads.values()].every((count) => count === 1));
     assert.deepEqual(
@@ -348,9 +357,10 @@ test("item refresh publishes detail evidence without changing bound evidence or 
 
     assert.equal(refreshed.outcome, "complete");
     assert.equal(refreshed.result.acquisitionCount, 1);
-    assert.deepEqual(refreshed.result.scopes, [
-      { scope: ".scratch/work", disposition: "captured" },
-    ]);
+    assert.deepEqual(
+      refreshed.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/work", disposition: "captured" }],
+    );
     assert.deepEqual(await readProjectProviderEvidence(root, "bound"), beforeBound);
     const detail = await readProjectProviderEvidence(root, "detail");
     assert.equal(detail.length, 1);
@@ -479,9 +489,10 @@ test("physical rebuild is local-only and exact capture replaces current bound ev
     });
     assert.equal(incomplete.outcome, "unfulfilled");
     assert.equal(incomplete.result.acquisitionCount, 1);
-    assert.deepEqual(incomplete.result.scopes, [
-      { scope: ".scratch/scope-002", disposition: "unavailable" },
-    ]);
+    assert.deepEqual(
+      incomplete.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/scope-002", disposition: "unavailable" }],
+    );
     const incompleteEvidence = (await readProjectProviderEvidence(fixture.root, "bound")).find(
       (entry) => entry.selection.nativeScope === ".scratch/scope-002",
     );
@@ -492,9 +503,10 @@ test("physical rebuild is local-only and exact capture replaces current bound ev
     const captured = await captureProjectProviderScopes(fixture.root, [".scratch/scope-001"]);
     assert.equal(captured.outcome, "complete");
     assert.equal(captured.result.acquisitionCount, 1);
-    assert.deepEqual(captured.result.scopes, [
-      { scope: ".scratch/scope-001", disposition: "captured" },
-    ]);
+    assert.deepEqual(
+      captured.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/scope-001", disposition: "captured" }],
+    );
     assert.equal(captured.result.missingEvidenceScopes.length, 8);
     assert.ok(!captured.result.missingEvidenceScopes.includes(".scratch/scope-001"));
 
@@ -555,9 +567,10 @@ test("physical rebuild is local-only and exact capture replaces current bound ev
       },
     });
     assert.equal(failedCapture.outcome, "unfulfilled");
-    assert.deepEqual(failedCapture.result.scopes, [
-      { scope: ".scratch/scope-001", disposition: "retained-after-failure" },
-    ]);
+    assert.deepEqual(
+      failedCapture.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/scope-001", disposition: "retained-after-failure" }],
+    );
     const afterFailedCapture = await inspectProjectReadModel(fixture.root);
     assert.equal(afterFailedCapture.state, "ready");
     if (beforeFailedCapture.state !== "ready" || afterFailedCapture.state !== "ready") {

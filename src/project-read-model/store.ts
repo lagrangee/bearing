@@ -1,6 +1,7 @@
 import { lstat, mkdir, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { AssetContentObservation } from "../asset-inputs";
 import type { FingerprintObservation } from "../fingerprint";
@@ -32,6 +33,7 @@ import {
 } from "../providers/matt-skills-v1/native-subject";
 import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-v1/schema";
 import { activeRuntimeExecutionContext } from "../runtime-context";
+import type { StructuralDiagnostic } from "../types";
 import {
   assertProjectReadModelObjectIdentity,
   assertProjectReadModelObjectRelationships,
@@ -902,15 +904,57 @@ const validateProjectReadModelCandidate = async (
   }
 };
 
+export type ProjectReadModelPublication =
+  | Readonly<{
+      state: "published" | "unchanged";
+      receipt: ProjectReadModelReceipt;
+      evidence: readonly ProjectProviderEvidence[];
+    }>
+  | Readonly<{ state: "conflict"; diagnostic: StructuralDiagnostic }>;
+
+const candidateBoundEvidence = (
+  candidate: ProjectReadModelCandidate,
+): readonly ProjectProviderEvidence[] =>
+  candidate.providerEvidence
+    .filter((row) => row.role === "bound")
+    .map((row) => ({
+      bindingKey: row.bindingKey,
+      role: row.role,
+      selection: providerObservationSelectionSchema.parse(parseJson(row.selection)),
+      ...(row.observation === undefined
+        ? {}
+        : {
+            observation: mattSkillsV1ProviderObservationSchema.parse(
+              parseJson(row.observation),
+            ) as MattSkillsV1ProviderObservation,
+          }),
+    }))
+    .sort((left, right) => left.bindingKey.localeCompare(right.bindingKey, "en"));
+
+const candidateMetadata = (candidate: ProjectReadModelCandidate) => ({
+  storageVersion: PROJECT_READ_MODEL_STORAGE_VERSION,
+  projectionVersion: PROJECT_READ_MODEL_PROJECTION_VERSION,
+  basisFingerprint: candidate.basisFingerprint,
+  basisInputs: candidate.basisInputs,
+  basisObservations: candidate.basisObservations,
+  assetContentObservations: candidate.assetContentObservations,
+});
+
 export const publishProjectReadModel = async (
   repoRoot: string,
   candidate: ProjectReadModelCandidate,
   options: Readonly<{
     now?: () => string;
     faultAt?: "before-commit";
+    operation?: Readonly<{
+      startingBasis: ProjectReadModelOperationBasis;
+      attempts: readonly ProjectProviderEvidence[];
+      publishGeneration: boolean;
+    }>;
   }> = {},
-): Promise<ProjectReadModelReceipt> => {
+): Promise<ProjectReadModelPublication> => {
   await validateProjectReadModelCandidate(candidate);
+  const desiredEvidence = candidateBoundEvidence(candidate);
   const cacheRoot = dirname(projectReadModelPath(repoRoot));
   const bearingRoot = join(repoRoot, ".bearing");
   const bearingMetadata = await lstat(bearingRoot);
@@ -944,14 +988,81 @@ export const publishProjectReadModel = async (
       if (previousMetadata.projectionVersion > PROJECT_READ_MODEL_PROJECTION_VERSION) {
         throw new Error("Project Read Model projection version is newer than this binary.");
       }
-      if (
-        previousMetadata.projectionVersion === PROJECT_READ_MODEL_PROJECTION_VERSION &&
-        previousMetadata.basisFingerprint === candidate.basisFingerprint
-      ) {
-        database.exec("COMMIT");
-        began = false;
-        return previousMetadata.receipt;
+    }
+    const currentEvidence = projectProviderEvidence(database, "bound");
+    const operation = options.operation;
+    const startingBound = operation?.startingBasis.evidence.filter((row) => row.role === "bound");
+    const attemptOnly =
+      operation !== undefined &&
+      previousMetadata !== undefined &&
+      (!operation.publishGeneration ||
+        candidate.basisFingerprint === operation.startingBasis.metadata?.basisFingerprint);
+    const finalEvidence = attemptOnly
+      ? (startingBound ?? []).map(
+          (entry) =>
+            operation.attempts.find((attempt) => attempt.bindingKey === entry.bindingKey) ?? entry,
+        )
+      : desiredEvidence;
+    const expectedMetadata = attemptOnly
+      ? operation.startingBasis.metadata
+      : candidateMetadata(candidate);
+    const withoutReceipt = (
+      metadata: ProjectReadModelMetadata | ReturnType<typeof candidateMetadata> | null | undefined,
+    ) => {
+      if (metadata === null || metadata === undefined) return metadata;
+      const { receipt: _receipt, ...basis } = metadata as ProjectReadModelMetadata;
+      return basis;
+    };
+    if (
+      previousMetadata !== undefined &&
+      isDeepStrictEqual(withoutReceipt(previousMetadata), withoutReceipt(expectedMetadata)) &&
+      isDeepStrictEqual(currentEvidence, finalEvidence)
+    ) {
+      database.exec("COMMIT");
+      began = false;
+      return { state: "unchanged", receipt: previousMetadata.receipt, evidence: currentEvidence };
+    }
+    if (
+      operation !== undefined &&
+      (!isDeepStrictEqual(previousMetadata ?? null, operation.startingBasis.metadata) ||
+        !isDeepStrictEqual(currentEvidence, startingBound))
+    ) {
+      const diagnostic: StructuralDiagnostic = {
+        code: "project-read-model-publication-conflict",
+        impact: "blocking",
+        target: projectReadModelPath(repoRoot),
+        message:
+          "Another operation changed the Project Read Model publication basis. This candidate was not published; inspect current evidence before an explicit next operation.",
+      };
+      for (const attempted of operation.attempts) {
+        const current = currentEvidence.find((entry) => entry.bindingKey === attempted.bindingKey);
+        const starting = startingBound?.find((entry) => entry.bindingKey === attempted.bindingKey);
+        const attempt = attempted.selection.latestAttempt;
+        if (
+          current !== undefined &&
+          starting !== undefined &&
+          attempt != null &&
+          isDeepStrictEqual(current, starting)
+        ) {
+          replaceProviderEvidence(database, {
+            ...current,
+            selection: {
+              ...current.selection,
+              latestAttempt: { ...attempt, outcome: "failed", diagnostics: [diagnostic] },
+            },
+          });
+        }
       }
+      database.exec("COMMIT");
+      began = false;
+      return { state: "conflict", diagnostic };
+    }
+    if (attemptOnly && previousMetadata !== undefined) {
+      for (const evidence of operation.attempts) replaceProviderEvidence(database, evidence);
+      const evidence = projectProviderEvidence(database, "bound");
+      database.exec("COMMIT");
+      began = false;
+      return { state: "unchanged", receipt: previousMetadata.receipt, evidence };
     }
     const receipt = projectReadModelReceiptSchema.parse({
       basisFingerprint: candidate.basisFingerprint,
@@ -967,7 +1078,7 @@ export const publishProjectReadModel = async (
     if (options.faultAt === "before-commit") throw new Error("Injected publication failure.");
     database.exec("COMMIT");
     began = false;
-    return receipt;
+    return { state: "published", receipt, evidence: desiredEvidence };
   } catch (error) {
     if (began) {
       try {
@@ -1068,6 +1179,93 @@ export const readProjectReadModelOperationBasis = async (repoRoot: string) => {
   return { state: "available" as const, basis };
 };
 
+const replaceProviderEvidence = (
+  database: DatabaseSync,
+  evidence: ProjectProviderEvidence,
+): void => {
+  const observation = evidence.observation;
+  const existing = database
+    .prepare(
+      "SELECT observation_id, source_revision, observation_json, selection_json FROM provider_evidence WHERE binding_key = ? AND role = ?",
+    )
+    .get(evidence.bindingKey, evidence.role);
+  const boundObservationChanged =
+    evidence.role === "bound" &&
+    (existing === undefined ||
+      existing["observation_id"] !== (observation?.id ?? null) ||
+      existing["source_revision"] !== (observation?.sourceRevision ?? null) ||
+      existing["observation_json"] !== (observation === undefined ? null : json(observation)));
+  if (boundObservationChanged) {
+    const existingObservation =
+      typeof existing?.["observation_json"] === "string"
+        ? (mattSkillsV1ProviderObservationSchema.parse(
+            parseJson(existing["observation_json"]),
+          ) as MattSkillsV1ProviderObservation)
+        : undefined;
+    const existingSelection =
+      typeof existing?.["selection_json"] === "string"
+        ? (providerObservationSelectionSchema.parse(
+            parseJson(existing["selection_json"]),
+          ) as ProviderObservationSelection)
+        : undefined;
+    const sameSemanticBasis =
+      existingObservation !== undefined &&
+      existingSelection !== undefined &&
+      observation !== undefined &&
+      fingerprintProviderObservationSelection([existingObservation], [existingSelection]) ===
+        fingerprintProviderObservationSelection([observation], [evidence.selection]);
+    if (!sameSemanticBasis) {
+      throw new Error(
+        "Scoped bound evidence replacement cannot change the selected observation outside generation publication.",
+      );
+    }
+  }
+  database
+    .prepare(
+      "INSERT INTO provider_evidence(binding_key, role, observation_id, source_revision, observation_json, selection_json) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(binding_key, role) DO UPDATE SET observation_id = excluded.observation_id, source_revision = excluded.source_revision, observation_json = excluded.observation_json, selection_json = excluded.selection_json",
+    )
+    .run(
+      evidence.bindingKey,
+      evidence.role,
+      observation?.id ?? null,
+      observation?.sourceRevision ?? null,
+      observation === undefined ? null : json(observation),
+      json(evidence.selection),
+    );
+  if (evidence.role === "bound") {
+    const update = database.prepare(
+      "UPDATE project_objects SET payload_json = ? WHERE reference = ? AND kind = 'portal-native-evidence'",
+    );
+    for (const row of database
+      .prepare(
+        "SELECT reference, payload_json FROM project_objects WHERE kind = 'portal-native-evidence'",
+      )
+      .all()) {
+      const object = projectReadModelObjectSchema.parse({
+        kind: "portal-native-evidence",
+        value: parseJson(row["payload_json"]),
+      });
+      if (object.kind !== "portal-native-evidence") {
+        throw new Error("Project Read Model native evidence kind is inconsistent.");
+      }
+      if (
+        object.value.role !== "bound" ||
+        projectProviderEvidenceBindingKey(object.value.selection) !== evidence.bindingKey
+      ) {
+        continue;
+      }
+      update.run(
+        json({
+          ...object.value,
+          selection: evidence.selection,
+          ...(observation === undefined ? {} : { observation }),
+        }),
+        String(row["reference"]),
+      );
+    }
+  }
+};
+
 export const replaceProjectProviderEvidence = async (
   repoRoot: string,
   evidence: ProjectProviderEvidence,
@@ -1084,87 +1282,7 @@ export const replaceProjectProviderEvidence = async (
     database.exec("BEGIN IMMEDIATE");
     began = true;
     const metadata = readMetadata(database, version);
-    const observation = evidence.observation;
-    const existing = database
-      .prepare(
-        "SELECT observation_id, source_revision, observation_json, selection_json FROM provider_evidence WHERE binding_key = ? AND role = ?",
-      )
-      .get(evidence.bindingKey, evidence.role);
-    const boundObservationChanged =
-      evidence.role === "bound" &&
-      (existing === undefined ||
-        existing["observation_id"] !== (observation?.id ?? null) ||
-        existing["source_revision"] !== (observation?.sourceRevision ?? null) ||
-        existing["observation_json"] !== (observation === undefined ? null : json(observation)));
-    if (boundObservationChanged) {
-      const existingObservation =
-        typeof existing?.["observation_json"] === "string"
-          ? (mattSkillsV1ProviderObservationSchema.parse(
-              parseJson(existing["observation_json"]),
-            ) as MattSkillsV1ProviderObservation)
-          : undefined;
-      const existingSelection =
-        typeof existing?.["selection_json"] === "string"
-          ? (providerObservationSelectionSchema.parse(
-              parseJson(existing["selection_json"]),
-            ) as ProviderObservationSelection)
-          : undefined;
-      const sameSemanticBasis =
-        existingObservation !== undefined &&
-        existingSelection !== undefined &&
-        observation !== undefined &&
-        fingerprintProviderObservationSelection([existingObservation], [existingSelection]) ===
-          fingerprintProviderObservationSelection([observation], [evidence.selection]);
-      if (!sameSemanticBasis) {
-        throw new Error(
-          "Scoped bound evidence replacement cannot change the selected observation outside generation publication.",
-        );
-      }
-    }
-    database
-      .prepare(
-        "INSERT INTO provider_evidence(binding_key, role, observation_id, source_revision, observation_json, selection_json) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(binding_key, role) DO UPDATE SET observation_id = excluded.observation_id, source_revision = excluded.source_revision, observation_json = excluded.observation_json, selection_json = excluded.selection_json",
-      )
-      .run(
-        evidence.bindingKey,
-        evidence.role,
-        observation?.id ?? null,
-        observation?.sourceRevision ?? null,
-        observation === undefined ? null : json(observation),
-        json(evidence.selection),
-      );
-    if (evidence.role === "bound") {
-      const update = database.prepare(
-        "UPDATE project_objects SET payload_json = ? WHERE reference = ? AND kind = 'portal-native-evidence'",
-      );
-      for (const row of database
-        .prepare(
-          "SELECT reference, payload_json FROM project_objects WHERE kind = 'portal-native-evidence'",
-        )
-        .all()) {
-        const object = projectReadModelObjectSchema.parse({
-          kind: "portal-native-evidence",
-          value: parseJson(row["payload_json"]),
-        });
-        if (object.kind !== "portal-native-evidence") {
-          throw new Error("Project Read Model native evidence kind is inconsistent.");
-        }
-        if (
-          object.value.role !== "bound" ||
-          projectProviderEvidenceBindingKey(object.value.selection) !== evidence.bindingKey
-        ) {
-          continue;
-        }
-        update.run(
-          json({
-            ...object.value,
-            selection: evidence.selection,
-            ...(observation === undefined ? {} : { observation }),
-          }),
-          String(row["reference"]),
-        );
-      }
-    }
+    replaceProviderEvidence(database, evidence);
     validatePayloads(database);
     if (readMetadata(database, version).basisFingerprint !== metadata.basisFingerprint) {
       throw new Error("Scoped provider evidence replacement changed the Project generation.");

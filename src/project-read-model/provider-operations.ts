@@ -211,7 +211,8 @@ type ProviderAcquisitionResult = Readonly<{
   acquisitionCount: number;
   scopes: readonly Readonly<{
     scope: string;
-    disposition: "captured" | "retained-after-failure" | "unavailable";
+    disposition: "captured" | "retained-after-failure" | "unavailable" | "unpublished";
+    observedAt?: string;
   }>[];
   generationFingerprint?: string;
   missingEvidenceScopes: readonly string[];
@@ -303,36 +304,43 @@ const acquisition = async (
   const captured = attemptedSelections.some(
     (selection) => selection.latestAttempt?.outcome === "succeeded",
   );
-  let generationFingerprint: string;
-  const startingMetadata = prepared.startingBasis?.metadata;
   const bindingsChanged =
     store.selections.length !== available.size ||
     store.selections.some((selection) => !available.has(selection.nativeScope));
-  if (
-    startingMetadata !== null &&
-    startingMetadata !== undefined &&
-    ((!captured && !bindingsChanged) ||
-      startingMetadata.basisFingerprint === prepared.candidate.basisFingerprint)
-  ) {
-    for (const selection of attemptedSelections) {
-      const observation = prepared.plan.providerObservations.find(
-        (candidate) => candidate.id === selection.observationId,
-      );
-      await replaceProjectProviderEvidence(root, {
-        bindingKey: projectProviderEvidenceBindingKey(selection),
-        role: "bound",
-        ...(observation === undefined ? {} : { observation }),
-        selection,
-      });
-    }
-    generationFingerprint = startingMetadata.basisFingerprint;
-  } else {
-    generationFingerprint = (await publishProjectReadModel(root, prepared.candidate))
-      .basisFingerprint;
+  const attempts: ProjectProviderEvidence[] = attemptedSelections.map((selection) => {
+    const observation = prepared.plan.providerObservations.find(
+      (candidate) => candidate.id === selection.observationId,
+    );
+    return {
+      bindingKey: projectProviderEvidenceBindingKey(selection),
+      role: "bound",
+      ...(observation === undefined ? {} : { observation }),
+      selection,
+    };
+  });
+  const publication = await publishProjectReadModel(root, prepared.candidate, {
+    operation: {
+      startingBasis: local.basis,
+      attempts,
+      publishGeneration: captured || bindingsChanged,
+    },
+  });
+  if (publication.state === "conflict") {
+    return {
+      schemaVersion: 1,
+      command: intent === "exact-scope-capture" ? "provider-capture" : "provider-verify",
+      outcome: "unfulfilled",
+      result: {
+        acquisitionCount: prepared.plan.providerObservationOperation.acquisitionCount,
+        scopes: selectedScopes.map((scope) => ({ scope, disposition: "unpublished" })),
+        missingEvidenceScopes: missingEvidenceScopes(priorEvidence),
+      },
+      diagnostics: [publication.diagnostic],
+    };
   }
-  const evidence = await readProjectProviderEvidence(root);
-  const requestedSelections = evidence.filter(
-    (entry) => entry.role === "bound" && selectedScopes.includes(entry.selection.nativeScope),
+  const evidence = publication.evidence;
+  const requestedSelections = evidence.filter((entry) =>
+    selectedScopes.includes(entry.selection.nativeScope),
   );
   const diagnostics = uniqueDiagnostics(
     requestedSelections.flatMap((entry) => entry.selection.latestAttempt?.diagnostics ?? []),
@@ -348,6 +356,7 @@ const acquisition = async (
       acquisitionCount: prepared.plan.providerObservationOperation.acquisitionCount,
       scopes: requestedSelections.map((entry) => ({
         scope: entry.selection.nativeScope,
+        ...(entry.observation === undefined ? {} : { observedAt: entry.observation.observedAt }),
         disposition:
           entry.selection.latestAttempt?.outcome === "succeeded"
             ? ("captured" as const)
@@ -355,7 +364,9 @@ const acquisition = async (
               ? ("unavailable" as const)
               : ("retained-after-failure" as const),
       })),
-      ...(selectedScopes.length === 0 ? {} : { generationFingerprint }),
+      ...(selectedScopes.length === 0
+        ? {}
+        : { generationFingerprint: publication.receipt.basisFingerprint }),
       missingEvidenceScopes: missingEvidenceScopes(evidence),
     },
     diagnostics,
@@ -421,7 +432,21 @@ export const refreshProjectProviderDetail = async (
     (candidate) => candidate.id === selection?.observationId,
   );
   if (prepared.startingBasis?.metadata === null) {
-    await publishProjectReadModel(root, prepared.candidate);
+    const publication = await publishProjectReadModel(root, prepared.candidate, {
+      operation: { startingBasis: local.basis, attempts: [], publishGeneration: true },
+    });
+    if (publication.state === "conflict") {
+      return {
+        schemaVersion: 1 as const,
+        command: "provider-detail-refresh" as const,
+        outcome: "unfulfilled" as const,
+        result: {
+          acquisitionCount: prepared.plan.providerDetailEvidenceOperation.acquisitionCount,
+          scopes: [{ scope: input.binding.nativeScope, disposition: "unpublished" as const }],
+        },
+        diagnostics: [publication.diagnostic],
+      };
+    }
   }
   if (selection !== undefined) {
     await replaceProjectProviderEvidence(root, {
@@ -442,6 +467,7 @@ export const refreshProjectProviderDetail = async (
       scopes: [
         {
           scope: input.binding.nativeScope,
+          ...(observation === undefined ? {} : { observedAt: observation.observedAt }),
           disposition: completed
             ? ("captured" as const)
             : observation === undefined
@@ -553,38 +579,42 @@ export const reconcileProjectNative = async (
       diagnostic.code === "matt.local.reconciliation.reference-outside-scope" ||
       diagnostic.code === "matt.github.reconciliation.reference-invalid",
   );
-  const startingMetadata = prepared.startingBasis?.metadata;
-  let generationFingerprint =
-    startingMetadata?.basisFingerprint ?? prepared.candidate.basisFingerprint;
-  if (startingMetadata === null) {
-    generationFingerprint = (await publishProjectReadModel(root, prepared.candidate))
-      .basisFingerprint;
-  } else if (succeeded) {
-    if (prepared.candidate.basisFingerprint === startingMetadata?.basisFingerprint) {
-      if (matchingSelection !== undefined) {
-        await replaceProjectProviderEvidence(root, {
-          bindingKey: projectProviderEvidenceBindingKey(matchingSelection),
-          role: "bound",
-          ...(matchingObservation === undefined ? {} : { observation: matchingObservation }),
-          selection: matchingSelection,
-        });
-      }
-    } else {
-      generationFingerprint = (await publishProjectReadModel(root, prepared.candidate))
-        .basisFingerprint;
-    }
-  } else if (!referenceRejected && matchingSelection !== undefined) {
-    await replaceProjectProviderEvidence(root, {
-      bindingKey: projectProviderEvidenceBindingKey(matchingSelection),
-      role: "bound",
-      ...(matchingObservation === undefined ? {} : { observation: matchingObservation }),
-      selection: matchingSelection,
-    });
-    const state = await inspectProjectReadModel(root);
-    if (state.state === "ready") {
-      generationFingerprint = state.metadata.basisFingerprint;
-    }
+  const attempts: ProjectProviderEvidence[] =
+    !referenceRejected && matchingSelection !== undefined
+      ? [
+          {
+            bindingKey: projectProviderEvidenceBindingKey(matchingSelection),
+            role: "bound",
+            selection: matchingSelection,
+            ...(matchingObservation === undefined ? {} : { observation: matchingObservation }),
+          },
+        ]
+      : [];
+  const publication = await publishProjectReadModel(root, prepared.candidate, {
+    operation: { startingBasis: local.basis, attempts, publishGeneration: succeeded },
+  });
+  if (publication.state === "conflict") {
+    return {
+      schemaVersion: 1 as const,
+      command: "reconcile-native" as const,
+      outcome: "unfulfilled" as const,
+      request,
+      result: {
+        requestFingerprint,
+        acquisitionCount: prepared.plan.providerObservationOperation.acquisitionCount,
+        dispositions: request.subjects.map((reference) => ({
+          reference,
+          disposition: "unpublished" as const,
+        })),
+        relationDispositions: [],
+        readback: [],
+        generationFingerprint: null,
+        scopedDiagnosticCount: 1,
+      },
+      diagnostics: [publication.diagnostic],
+    };
   }
+  const generationFingerprint = publication.receipt.basisFingerprint;
   const references = affectedReadReferences({
     subjects: request.subjects,
   });
@@ -683,7 +713,7 @@ export const rebuildProjectReadModel = async (
 > => {
   const root = await resolveRepositoryRoot(repoRoot);
   await assertActiveRepositoryIntegration(root, "cache-rebuild");
-  const state = await inspectProjectReadModel(root);
+  const state = await readProjectReadModelOperationBasis(root);
   if (state.state === "need-update") {
     return {
       schemaVersion: 1,
@@ -707,12 +737,11 @@ export const rebuildProjectReadModel = async (
       diagnostics: [],
     };
   }
-  const currentEvidence = state.state === "ready" ? await readProjectProviderEvidence(root) : [];
+  const startingBasis = state.state === "available" ? state.basis : undefined;
+  const currentEvidence = startingBasis?.evidence ?? [];
   const reusableEvidence = reuseCompatibleProjectEvidence(
     currentEvidence,
-    state.state === "ready" || state.state === "missing"
-      ? await legacyDevelopmentEvidence(root)
-      : [],
+    state.state === "available" ? await legacyDevelopmentEvidence(root) : [],
   );
   const candidate = await materializeProjectReadModelCandidate(root, {
     ...(reusableEvidence.length === 0
@@ -720,15 +749,32 @@ export const rebuildProjectReadModel = async (
       : projectEvidenceInputs(reusableEvidence)),
   });
   if (state.state === "recovery-required") await removeProjectReadModelForRebuild(root);
-  const receipt = await publishProjectReadModel(root, candidate);
-  const evidence = await readProjectProviderEvidence(root);
+  const publication = await publishProjectReadModel(
+    root,
+    candidate,
+    startingBasis === undefined
+      ? {}
+      : { operation: { startingBasis, attempts: [], publishGeneration: true } },
+  );
+  if (publication.state === "conflict")
+    return {
+      schemaVersion: 1,
+      command: "cache-rebuild",
+      outcome: "unfulfilled",
+      result: {
+        acquisitionCount: 0,
+        missingEvidenceScopes: missingEvidenceScopes(currentEvidence),
+      },
+      diagnostics: [publication.diagnostic],
+    };
+  const evidence = publication.evidence;
   return {
     schemaVersion: 1,
     command: "cache-rebuild",
     outcome: "complete",
     result: {
       acquisitionCount: 0,
-      generationFingerprint: receipt.basisFingerprint,
+      generationFingerprint: publication.receipt.basisFingerprint,
       missingEvidenceScopes: missingEvidenceScopes(evidence),
     },
     diagnostics: [],

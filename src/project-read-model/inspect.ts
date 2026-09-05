@@ -12,6 +12,7 @@ import { resolveRepositoryRoot } from "../path-boundary";
 import { queryPlanningActivity } from "../planning-activity";
 import { compileProjectGeneration, type ProjectCompilationOptions } from "../project-compilation";
 import type { ProjectGeneration } from "../project-generation/contract";
+import { buildGenerationDiagnostics } from "../project-generation/diagnostic-projection";
 import { buildProjectGeneration } from "../project-generation/projection";
 import {
   effortSchema,
@@ -276,7 +277,19 @@ const ensureCurrent = async (
       : { providerFactory: dependencies.providerFactory }),
   });
   const candidate = prepared.candidate;
-  const receipt = await publishProjectReadModel(repoRoot, candidate);
+  const publication = await publishProjectReadModel(repoRoot, candidate, {
+    operation: { startingBasis, attempts: [], publishGeneration: true },
+  });
+  if (publication.state === "conflict")
+    return {
+      state: "conflict" as const,
+      diagnostics: buildGenerationDiagnostics({
+        basisFingerprint: candidate.basisFingerprint,
+        diagnostics: [publication.diagnostic],
+        sourceLocators: [],
+      }).diagnostics,
+    };
+  const receipt = publication.receipt;
   return {
     state: "ready" as const,
     metadata: {
@@ -753,6 +766,15 @@ export const inspectProject = async (
     await assertActiveRepositoryIntegration(root, "inspect");
     const canonicalRequest = await canonicalInspectRequest(root, request);
     const current = await ensureCurrent(root, dependencies);
+    if (current.state === "conflict") {
+      return {
+        schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,
+        command: "inspect",
+        outcome: "unfulfilled",
+        request: canonicalRequest,
+        diagnostics: current.diagnostics,
+      };
+    }
     if (current.state === "need-update") {
       return {
         schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,
