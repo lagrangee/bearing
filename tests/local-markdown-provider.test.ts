@@ -777,6 +777,63 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     expect(targeted.projection?.deliveryTickets).toEqual(prior.projection?.deliveryTickets);
   });
 
+  test("an ambiguous multi-link Map disposition cannot hide a conflicting route", async () => {
+    const locator = `${nativeScope}/map.md`;
+    const { prior, targeted, full, targetedReads } = await observeReferenceChange(async (root) => {
+      await writeFixture(
+        root,
+        locator,
+        map.replace(
+          "- Do not add another tracker provider in this release.",
+          "- Do not add another tracker provider in this release.\n- [Research](issues/01-research.md) and [Research again](issues/01-research.md) — Contradict the decision.",
+        ),
+      );
+      return [locator];
+    });
+
+    expect(targetedReads).toEqual([locator]);
+    expect(targeted.state).toBe("partial");
+    expect(targeted.completion).toBe("undetermined");
+    expect(targeted.projection?.wayfinderTickets[0]).toMatchObject({
+      lifecycle: { state: "open" },
+      trackerClosure: { state: "closed", disposition: "completed" },
+    });
+    expect(targeted.diagnostics).toContainEqual({
+      code: "matt.local.relation.ambiguous",
+      class: "identity",
+      impact: "blocking",
+      target: `${nativeScope}/issues/01-research.md`,
+      message: expect.any(String),
+    });
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+    expect(targeted.projection?.wayfinderTickets[2]).toEqual(prior.projection?.wayfinderTickets[2]);
+    expect(targeted.projection?.deliveryTickets).toEqual(prior.projection?.deliveryTickets);
+  });
+
+  test("an ambiguous Map row isolates each referenced Ticket and preserves unrelated subjects", async () => {
+    const locator = `${nativeScope}/map.md`;
+    const { prior, targeted, full, targetedReads } = await observeReferenceChange(async (root) => {
+      await writeFixture(
+        root,
+        locator,
+        map.replace(
+          "## Fog",
+          "- [Research](issues/01-research.md) and [Grilling](issues/03-grilling.md) — An ambiguous decision.\n\n## Fog",
+        ),
+      );
+      return [locator];
+    });
+
+    expect(targetedReads).toEqual([locator]);
+    expect(targeted.state).toBe("partial");
+    expect(targeted.projection?.wayfinderTickets[0]?.lifecycle.state).toBe("open");
+    expect(targeted.projection?.wayfinderTickets[2]?.lifecycle.state).toBe("open");
+    expect(targeted.projection?.wayfinderTickets[1]).toEqual(prior.projection?.wayfinderTickets[1]);
+    expect(targeted.projection?.wayfinderTickets[3]).toEqual(prior.projection?.wayfinderTickets[3]);
+    expect(targeted.projection?.deliveryTickets).toEqual(prior.projection?.deliveryTickets);
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+  });
+
   for (const route of [
     {
       name: "repeated disposition",

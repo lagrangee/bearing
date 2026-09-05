@@ -933,6 +933,57 @@ const decodeIncoming = (
   };
 };
 
+const decodeIssues = (
+  files: readonly CapturedFile[],
+  vocabulary: TriageVocabulary | undefined,
+  diagnostics: CaptureDiagnostic[],
+): DecodedIssue[] => {
+  const decodedIssues: DecodedIssue[] = [];
+  for (const file of files) {
+    const shortReference = shortReferenceFor(file.locator);
+    if (shortReference === undefined) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.identity.invalid-reference",
+          "identity",
+          file.locator,
+          "Issue filename does not contain one canonical numeric short reference.",
+        ),
+      );
+      continue;
+    }
+    const role = issueRole(file);
+    if (role === "ambiguous") {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.role.ambiguous",
+          "format",
+          file.locator,
+          "Issue contains partial or conflicting Wayfinder and Delivery role evidence.",
+        ),
+      );
+    }
+    const wayfinder = role === "wayfinder" ? decodeWayfinder(file, diagnostics) : undefined;
+    const delivery =
+      role === "delivery" ? decodeDelivery(file, vocabulary, diagnostics) : undefined;
+    const incoming =
+      role === "incoming" ? decodeIncoming(file, vocabulary, diagnostics) : undefined;
+    const projected = wayfinder ?? delivery ?? incoming;
+    const decoded: DecodedIssue = {
+      locator: file.locator,
+      shortReference,
+      ...(projected === undefined ? {} : { kind: projected.kind }),
+      blockerReferences: blockerReferences(file, diagnostics),
+      ...(wayfinder === undefined ? {} : { wayfinder }),
+      ...(delivery === undefined ? {} : { delivery }),
+      ...(incoming === undefined ? {} : { incoming }),
+    };
+    decodedIssues.push(decoded);
+  }
+
+  return decodedIssues;
+};
+
 const gistAfterLinkLabel = (text: string, label: string): string => {
   const suffix = text.startsWith(label) ? text.slice(label.length).trim() : text.trim();
   return suffix.startsWith("—") || suffix.startsWith("-") ? suffix.slice(1).trim() : suffix;
@@ -1065,6 +1116,17 @@ const mapSectionEntries = (
           `Map ${title} item contains more than one canonical ticket link.`,
         ),
       );
+      for (const locator of new Set(canonicalLinks.map((candidate) => candidate.locator))) {
+        if (issueByLocator.get(locator)?.kind !== "wayfinder-ticket") continue;
+        diagnostics.push(
+          diagnostic(
+            "matt.local.relation.ambiguous",
+            "identity",
+            locator,
+            `Map ${title} item does not uniquely identify this Wayfinder ticket.`,
+          ),
+        );
+      }
       return { index, text: item.text };
     }
     const candidate = canonicalLinks[0];
@@ -1274,6 +1336,13 @@ const lifecycleWithMapEvidence = (
         "Wayfinder ticket has repeated or conflicting Map decision and out-of-scope pointers.",
       ),
     );
+    return ticket;
+  }
+  if (
+    diagnostics.some(
+      (item) => item.code === "matt.local.relation.ambiguous" && item.target === ticket.ref,
+    )
+  ) {
     return ticket;
   }
   if (ticket.trackerClosure.state !== "closed") return ticket;
@@ -1794,48 +1863,7 @@ const captureLocalScope = async (
     const file = await readTarget(locator, true);
     if (file !== undefined) issueFiles.push(file);
   }
-  const decodedIssues: DecodedIssue[] = [];
-  for (const file of issueFiles) {
-    const shortReference = shortReferenceFor(file.locator);
-    if (shortReference === undefined) {
-      diagnostics.push(
-        diagnostic(
-          "matt.local.identity.invalid-reference",
-          "identity",
-          file.locator,
-          "Issue filename does not contain one canonical numeric short reference.",
-        ),
-      );
-      continue;
-    }
-    const role = issueRole(file);
-    if (role === "ambiguous") {
-      diagnostics.push(
-        diagnostic(
-          "matt.local.role.ambiguous",
-          "format",
-          file.locator,
-          "Issue contains partial or conflicting Wayfinder and Delivery role evidence.",
-        ),
-      );
-    }
-    const wayfinder = role === "wayfinder" ? decodeWayfinder(file, diagnostics) : undefined;
-    const delivery =
-      role === "delivery" ? decodeDelivery(file, vocabulary, diagnostics) : undefined;
-    const incoming =
-      role === "incoming" ? decodeIncoming(file, vocabulary, diagnostics) : undefined;
-    const projected = wayfinder ?? delivery ?? incoming;
-    const decoded: DecodedIssue = {
-      locator: file.locator,
-      shortReference,
-      ...(projected === undefined ? {} : { kind: projected.kind }),
-      blockerReferences: blockerReferences(file, diagnostics),
-      ...(wayfinder === undefined ? {} : { wayfinder }),
-      ...(delivery === undefined ? {} : { delivery }),
-      ...(incoming === undefined ? {} : { incoming }),
-    };
-    decodedIssues.push(decoded);
-  }
+  const decodedIssues = decodeIssues(issueFiles, vocabulary, diagnostics);
 
   const issueByLocator = new Map(decodedIssues.map((issue) => [issue.locator, issue]));
   const mapProjection =
@@ -2243,49 +2271,13 @@ const localReconciliationProjection = async (
     );
   }
 
-  const changedIssues: DecodedIssue[] = [];
-  for (const file of capturedFiles.values()) {
-    if (file.locator === mapLocator || file.locator === specLocator) continue;
-    const shortReference = shortReferenceFor(file.locator);
-    if (shortReference === undefined) {
-      diagnostics.push(
-        diagnostic(
-          "matt.local.identity.invalid-reference",
-          "identity",
-          file.locator,
-          "Affected issue filename does not contain one canonical numeric short reference.",
-        ),
-      );
-      continue;
-    }
-    const role = issueRole(file);
-    if (role === "ambiguous") {
-      diagnostics.push(
-        diagnostic(
-          "matt.local.role.ambiguous",
-          "format",
-          file.locator,
-          "Affected issue contains partial or conflicting Wayfinder and Delivery role evidence.",
-        ),
-      );
-    }
-    const wayfinder = role === "wayfinder" ? decodeWayfinder(file, diagnostics) : undefined;
-    const delivery =
-      role === "delivery" ? decodeDelivery(file, vocabulary, diagnostics) : undefined;
-    const incoming =
-      role === "incoming" ? decodeIncoming(file, vocabulary, diagnostics) : undefined;
-    const projected = wayfinder ?? delivery ?? incoming;
-    const changed: DecodedIssue = {
-      locator: file.locator,
-      shortReference,
-      ...(projected === undefined ? {} : { kind: projected.kind }),
-      blockerReferences: blockerReferences(file, diagnostics),
-      ...(wayfinder === undefined ? {} : { wayfinder }),
-      ...(delivery === undefined ? {} : { delivery }),
-      ...(incoming === undefined ? {} : { incoming }),
-    };
-    changedIssues.push(changed);
-  }
+  const changedIssues = decodeIssues(
+    [...capturedFiles.values()].filter(
+      (file) => file.locator !== mapLocator && file.locator !== specLocator,
+    ),
+    vocabulary,
+    diagnostics,
+  );
 
   const changedRefs = new Set([...changedIssues.map((issue) => issue.locator), ...missingLocators]);
   const mergedWayfinder = [
