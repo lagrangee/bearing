@@ -4,10 +4,28 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { buildProjectOverviewModel } from "../src/portal-ui/project-overview-model";
 import { portalRowsToProjectData } from "../src/portal-ui/project-row-adapter";
-import { projectContextResultSchema } from "../src/project-read-model/contract";
+import {
+  type ProjectInspectEnvelope,
+  projectContextResultSchema,
+} from "../src/project-read-model/contract";
 import { inspectProject } from "../src/project-read-model/inspect";
 import { queryPortalProjectRowsWithGeneration } from "../src/project-read-model/portal";
 import { createValidBearingRepo } from "../tests/helpers";
+
+const readMatchingPortalOverview = async (
+  root: string,
+  inspected: ProjectInspectEnvelope,
+  diagnostics: ProjectInspectEnvelope["diagnostics"],
+) => {
+  const portal = await queryPortalProjectRowsWithGeneration(root, "overview");
+  assert.equal(portal.generation.basisFingerprint, inspected.generation?.basisFingerprint);
+  assert.equal(portal.generation.publicationCount, inspected.generation?.publicationCount);
+  assert.deepEqual(portal.rows.diagnostics, diagnostics);
+  const data = portalRowsToProjectData({ ...portal.rows, renderedMarkdown: [] });
+  assert.equal(data.section, "overview");
+  if (data.section !== "overview") throw new Error("Expected Overview project data.");
+  return { data, overview: buildProjectOverviewModel(data) };
+};
 
 test("Inspect and Portal retain an invalid Summary and its blocking diagnostic", async () => {
   const root = await createValidBearingRepo();
@@ -31,18 +49,8 @@ test("Inspect and Portal retain an invalid Summary and its blocking diagnostic",
     assert.equal(diagnostic.message, "Bearing artifact is missing ## Purpose.");
     assert.ok(context.diagnosticCounts.blocking > 0);
 
-    const portal = await queryPortalProjectRowsWithGeneration(root, "overview");
-    assert.equal(portal.generation.basisFingerprint, inspected.generation?.basisFingerprint);
-    assert.equal(portal.generation.publicationCount, inspected.generation?.publicationCount);
-    assert.deepEqual(
-      portal.rows.diagnostics.find((item) => item.reference === diagnostic.reference),
-      diagnostic,
-    );
-    const data = portalRowsToProjectData({ ...portal.rows, renderedMarkdown: [] });
-    assert.equal(data.section, "overview");
-    if (data.section !== "overview") throw new Error("Expected Overview project data.");
+    const { data, overview } = await readMatchingPortalOverview(root, inspected, [diagnostic]);
     assert.equal(data.summary.validity, "invalid");
-    const overview = buildProjectOverviewModel(data);
     assert.equal(overview.summary.state, "invalid");
     assert.ok(overview.attention.some((item) => item.key === diagnostic.reference));
   } finally {
@@ -86,18 +94,8 @@ The fixture Roadmap is active.
     assert.equal(diagnostic.message, "Bearing artifact is missing ## At a Glance.");
     assert.ok(context.diagnosticCounts.blocking > 0);
 
-    const portal = await queryPortalProjectRowsWithGeneration(root, "overview");
-    assert.equal(portal.generation.basisFingerprint, inspected.generation?.basisFingerprint);
-    assert.equal(portal.generation.publicationCount, inspected.generation?.publicationCount);
-    assert.deepEqual(
-      portal.rows.diagnostics.find((item) => item.reference === diagnostic.reference),
-      diagnostic,
-    );
-    const data = portalRowsToProjectData({ ...portal.rows, renderedMarkdown: [] });
-    assert.equal(data.section, "overview");
-    if (data.section !== "overview") throw new Error("Expected Overview project data.");
+    const { data, overview } = await readMatchingPortalOverview(root, inspected, [diagnostic]);
     assert.equal(data.brief.validity, "invalid");
-    const overview = buildProjectOverviewModel(data);
     assert.equal(overview.brief.state, "invalid");
     assert.ok(overview.attention.some((item) => item.key === diagnostic.reference));
   } finally {
@@ -160,15 +158,9 @@ The fixture Roadmap is active.
         assert.equal(context.brief.value.atAGlance, "Keep the accepted project decisions visible.");
       }
 
-      const portal = await queryPortalProjectRowsWithGeneration(root, "overview");
-      assert.equal(portal.generation.basisFingerprint, inspected.generation?.basisFingerprint);
-      assert.equal(portal.generation.publicationCount, inspected.generation?.publicationCount);
-      const data = portalRowsToProjectData({ ...portal.rows, renderedMarkdown: [] });
-      assert.equal(data.section, "overview");
-      if (data.section !== "overview") throw new Error("Expected Overview project data.");
+      const { data, overview } = await readMatchingPortalOverview(root, inspected, []);
       assert.deepEqual(data.summary, context.summary);
       assert.deepEqual(data.brief, context.brief);
-      const overview = buildProjectOverviewModel(data);
       assert.equal(overview.summary.state, validity);
       assert.equal(overview.brief.state, validity);
       assert.deepEqual(overview.attention, []);
