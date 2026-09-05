@@ -80,9 +80,9 @@ const createDevelopmentSourceProduct = async (root: string) => {
   await mkdir(homeDir);
   return {
     root,
-    run: (args: readonly string[]) =>
+    run: (args: readonly string[], cwd = root) =>
       runProcess(["node", join(root, "dist/cli.js"), ...args], {
-        cwd: root,
+        cwd,
         environment: { HOME: homeDir },
       }),
   };
@@ -846,6 +846,19 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
     ]);
     expect(bootstrap.exitCode, bootstrap.stderr).toBe(0);
     await writeValidBearingState(developmentProduct.root);
+    const explicitTarget = await developmentProduct.run(
+      ["cache", "rebuild", `--repo=${developmentProduct.root}`],
+      root,
+    );
+    expect(explicitTarget.exitCode, `${explicitTarget.stderr}\n${explicitTarget.stdout}`).toBe(0);
+    expect(JSON.parse(explicitTarget.stdout)).toMatchObject({
+      command: "cache-rebuild",
+      outcome: "complete",
+      runtime: JSON.parse(bootstrap.stdout).receipt,
+    });
+    await access(
+      join(developmentProduct.root, ".bearing/cache/development/project-read-model.sqlite"),
+    );
     const capture = await developmentProduct.run([
       "provider",
       "capture",
