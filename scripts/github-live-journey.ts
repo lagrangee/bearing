@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
+import { createServer, type Socket } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
@@ -2128,6 +2128,8 @@ export const startGitHubJourneyCredentialBroker = async (input: {
   );
   const brokerConfigDirectory = await mkdtemp("/private/tmp/bearing-github-config-");
   let stopped = false;
+  const sockets = new Set<Socket>();
+  const inFlight = new Set<Promise<void>>();
   const processRequest = async (
     bytes: string,
   ): Promise<z.infer<typeof githubBrokerResponseSchema>> => {
@@ -2316,11 +2318,18 @@ export const startGitHubJourneyCredentialBroker = async (input: {
     return response;
   };
   const server = createServer((socket) => {
+    if (stopped) {
+      socket.destroy();
+      return;
+    }
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+    socket.on("error", () => socket.destroy());
     const chunks: Buffer[] = [];
     let byteLength = 0;
     let processed = false;
     socket.on("data", (chunk) => {
-      if (processed) return;
+      if (stopped || processed) return;
       byteLength += chunk.byteLength;
       if (byteLength > 4_100_000) {
         socket.destroy(new Error("GitHub broker request is too large."));
@@ -2330,17 +2339,15 @@ export const startGitHubJourneyCredentialBroker = async (input: {
       const bytes = Buffer.concat(chunks).toString("utf8");
       if (!bytes.endsWith("\n")) return;
       processed = true;
-      void processRequest(bytes.slice(0, -1))
-        .then((response) => socket.end(JSON.stringify(response)))
-        .catch(() =>
-          socket.end(
-            JSON.stringify({
-              exitCode: 70,
-              stdout: "",
-              stderr: "GitHub broker failed.\n",
-            }),
-          ),
-        );
+      const operation = processRequest(bytes.slice(0, -1)).then((response) => {
+        // Stop owns transport teardown; accepted operations still finish without a reply.
+        if (!stopped && !socket.destroyed) socket.end(JSON.stringify(response));
+      });
+      inFlight.add(operation);
+      void operation.then(
+        () => inFlight.delete(operation),
+        () => inFlight.delete(operation),
+      );
     });
   });
   try {
@@ -2359,16 +2366,30 @@ export const startGitHubJourneyCredentialBroker = async (input: {
     ]);
     throw error;
   }
-  const stop = async (): Promise<void> => {
-    if (stopped) return;
+  let stopCompletion: Promise<void> | undefined;
+  const stop = (): Promise<void> => {
+    if (stopCompletion !== undefined) return stopCompletion;
     stopped = true;
-    await new Promise<void>((resolveClose, rejectClose) =>
-      server.close((error) => (error === undefined ? resolveClose() : rejectClose(error))),
-    );
-    await Promise.all([
-      rm(runtimeDirectory, { recursive: true, force: true }),
-      rm(brokerConfigDirectory, { recursive: true, force: true }),
-    ]);
+    stopCompletion = (async () => {
+      const closed = new Promise<void>((resolveClose, rejectClose) =>
+        server.close((error) => (error === undefined ? resolveClose() : rejectClose(error))),
+      );
+      for (const socket of sockets) socket.destroy();
+      await closed;
+      await Promise.all(inFlight);
+      const cleanup = await Promise.allSettled([
+        rm(runtimeDirectory, { recursive: true, force: true }),
+        rm(brokerConfigDirectory, { recursive: true, force: true }),
+      ]);
+      const failures = cleanup.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, "GitHub Journey credential broker cleanup failed.");
+      }
+    })();
+    return stopCompletion;
   };
   const environment = githubJourneyEnvironment({
     agentHome: input.agentHome,
@@ -2403,7 +2424,15 @@ export const startGitHubJourneyCredentialBroker = async (input: {
       fail("Isolated GitHub account selection changed account identity.");
     }
   } catch (error) {
-    await stop();
+    try {
+      await stop();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "GitHub Journey credential broker setup failed and cleanup failed.",
+        { cause: error },
+      );
+    }
     throw error;
   }
   return Object.freeze({
