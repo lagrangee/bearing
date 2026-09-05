@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { discoverPlanningAuditInputs } from "../src/discovery";
+import type { MattSkillsV1ProviderObservation } from "../src/providers/matt-skills-v1/capture";
 import {
   createGhCliGitHubReadTransport,
   createGitHubMattProvider,
@@ -12,6 +13,7 @@ import {
   type GitHubReadResponse,
   type GitHubReadTransport,
 } from "../src/providers/matt-skills-v1/github";
+import { buildMattNativeWorkRegion } from "../src/providers/matt-skills-v1/work-region";
 import {
   githubComment as comment,
   standardGitHubMattContract as contract,
@@ -33,6 +35,314 @@ import {
   githubTriageLocator as triageLocator,
 } from "./fixtures/github-matt-api";
 import { makeTemporaryDirectory, writeFixture } from "./helpers";
+import { mattReferenceSemanticView } from "./helpers/matt-reference-oracle";
+
+describe("GitHub matt-skills/v1 targeted blocker relations", () => {
+  const aliases = {
+    "github:R_reference:I_reference_2": "spec",
+    "github:R_reference:I_reference_3": "blocker",
+    "github:R_reference:I_reference_4": "blocked",
+    "github:R_reference:I_reference_5": "alternate",
+  };
+  const createFixture = async () => {
+    const blocker = githubIssue({
+      number: 3,
+      title: "Prepare native capture",
+      body: "## What to build\n\nPrepare the capture.\n\n## Acceptance criteria\n\n- [ ] Capture is prepared.\n",
+    });
+    const blocked = githubIssue({
+      number: 4,
+      title: "Blocked delivery",
+      body: "## What to build\n\nUse the capture.\n\n## Acceptance criteria\n\n- [ ] Capture is consumed.\n\n## Blocked by\n\n- #3\n",
+    });
+    const fixtures: Record<string, FixtureResponse> = {
+      "repos/example/reference": { first: response(repository, '"repo-v1"') },
+    };
+    for (const issue of [specIssue, blocker, blocked, scopedIncomingIssue]) {
+      const endpoint = `repos/example/reference/issues/${issue.number}`;
+      fixtures[endpoint] = { first: response(issue, `"issue-${issue.number}-v1"`) };
+      fixtures[`${endpoint}/parent`] = {
+        first:
+          issue.number === 2
+            ? { status: 404, headers: {} }
+            : response(specIssue, `"parent-${issue.number}-v1"`),
+      };
+      fixtures[`${endpoint}/comments?per_page=100&page=1`] = {
+        first: response([], `"comments-${issue.number}-v1"`),
+      };
+      fixtures[`${endpoint}/dependencies/blocked_by?per_page=100&page=1`] = {
+        first: response(issue.number === 4 ? [blocker] : [], `"deps-${issue.number}-v1"`),
+      };
+      fixtures[`${endpoint}/sub_issues?per_page=100&page=1`] = {
+        first: response(
+          issue.number === 2 ? [blocker, blocked, scopedIncomingIssue] : [],
+          `"children-${issue.number}-v1"`,
+        ),
+      };
+    }
+    const transport = new FixtureGitHubTransport(fixtures);
+    const provider = createGitHubMattProvider({
+      repoRoot: await createRepository(),
+      contractLocator,
+      triageLocator,
+      transport,
+      clock: () => new Date("2026-07-28T00:00:00Z"),
+    });
+    const binding = {
+      provider: "matt-skills/v1" as const,
+      nativeScope: nativeScopeFor(specIssue, "parent-issue"),
+    };
+    const prior = await provider.capture(binding);
+    expect(prior.state).toBe("available");
+    expect(prior.freshness.assessment).toBe("current");
+    expect(prior.coverage.assessment).toBe("complete");
+    expect(prior.diagnostics).toEqual([]);
+    if (provider.reconcile === undefined) throw new Error("GitHub reconciliation is unavailable.");
+    transport.requests.length = 0;
+    return {
+      fixtures,
+      transport,
+      provider,
+      reconcile: provider.reconcile,
+      binding,
+      prior,
+      blocker,
+      blocked,
+    };
+  };
+
+  const deliveryWork = (observation: MattSkillsV1ProviderObservation) =>
+    buildMattNativeWorkRegion(
+      observation,
+      [
+        {
+          ...observation.binding,
+          observationId: observation.id,
+          effectiveFreshness: observation.freshness.assessment,
+          latestAttempt: null,
+        },
+      ],
+      { state: "bound", effortIds: ["effort:dependency-ownership"] },
+    ).roles.find((role) => role.role === "delivery")?.items;
+
+  const expectOnlySubjectReads = (transport: FixtureGitHubTransport, number: number) => {
+    expect([...new Set(transport.requests.map(({ endpoint }) => endpoint))].sort()).toEqual([
+      "repos/example/reference",
+      `repos/example/reference/issues/${number}`,
+      `repos/example/reference/issues/${number}/comments?per_page=100&page=1`,
+      `repos/example/reference/issues/${number}/dependencies/blocked_by?per_page=100&page=1`,
+      `repos/example/reference/issues/${number}/parent`,
+      `repos/example/reference/issues/${number}/sub_issues?per_page=100&page=1`,
+    ]);
+  };
+
+  test("preserves an unread blocked Delivery when only its open blocker is reconciled", async () => {
+    const { fixtures, transport, reconcile, binding, prior, blocker } = await createFixture();
+    expect(deliveryWork(prior)).toContainEqual(
+      expect.objectContaining({
+        reference: "github:R_reference:I_reference_4",
+        frontier: "blocked",
+        blockers: ["github:R_reference:I_reference_3"],
+      }),
+    );
+    fixtures["repos/example/reference/issues/3"] = {
+      first: response({ ...blocker, title: "Prepare the updated native capture" }, '"issue-3-v2"'),
+    };
+    const result = await reconcile({ binding, prior, affected: { subjects: [blocker.html_url] } });
+
+    expectOnlySubjectReads(transport, 3);
+    expect(deliveryWork(result)).toContainEqual(
+      expect.objectContaining({
+        reference: "github:R_reference:I_reference_4",
+        frontier: "blocked",
+        blockers: ["github:R_reference:I_reference_3"],
+      }),
+    );
+    expect(result.projection?.graph.blockedBy).toEqual(prior.projection?.graph.blockedBy);
+    expect(new Set(result.projection?.graph.parentChild)).toEqual(
+      new Set(prior.projection?.graph.parentChild),
+    );
+  });
+
+  test.each([
+    "native",
+    "fallback",
+  ] as const)("replaces the acquired subject's %s blockers using unread in-scope identities", async (capability) => {
+    const { fixtures, transport, provider, reconcile, binding, prior, blocked } =
+      await createFixture();
+    fixtures["repos/example/reference/issues/4"] = {
+      first: response({ ...blocked, body: blocked.body.replace("- #3", "- #5") }, '"issue-4-v2"'),
+    };
+    fixtures["repos/example/reference/issues/4/dependencies/blocked_by?per_page=100&page=1"] = {
+      first:
+        capability === "native"
+          ? response([scopedIncomingIssue], '"deps-4-v2"')
+          : { status: 410, headers: {}, body: { message: "Gone" } },
+    };
+    const result = await reconcile({ binding, prior, affected: { subjects: [blocked.html_url] } });
+
+    expectOnlySubjectReads(transport, 4);
+    const semantic = mattReferenceSemanticView(result, aliases);
+    expect(semantic.blockedBy).toEqual(["blocked<alternate"]);
+    expect(result.projection?.graph.blockedBy.map(({ evidence }) => evidence)).toEqual([
+      capability === "native" ? "github-native" : "matt-body-fallback",
+    ]);
+    expect(deliveryWork(result)).toContainEqual(
+      expect.objectContaining({
+        reference: "github:R_reference:I_reference_4",
+        frontier: "blocked",
+        blockers: ["github:R_reference:I_reference_5"],
+      }),
+    );
+    const full = mattReferenceSemanticView(await provider.capture(binding), aliases);
+    expect(semantic.delivery).toEqual(full.delivery);
+    expect(semantic.blockedBy).toEqual(full.blockedBy);
+    expect(semantic.parentChild.toSorted()).toEqual(full.parentChild.toSorted());
+  });
+
+  test("removes the old blocker after its owner is read without that dependency", async () => {
+    const { fixtures, transport, provider, reconcile, binding, prior, blocked } =
+      await createFixture();
+    fixtures["repos/example/reference/issues/4"] = {
+      first: response(
+        { ...blocked, body: blocked.body.replace("\n## Blocked by\n\n- #3\n", "") },
+        '"issue-4-v2"',
+      ),
+    };
+    fixtures["repos/example/reference/issues/4/dependencies/blocked_by?per_page=100&page=1"] = {
+      first: response([], '"deps-4-v2"'),
+    };
+    const result = await reconcile({ binding, prior, affected: { subjects: [blocked.html_url] } });
+
+    expectOnlySubjectReads(transport, 4);
+    expect(result.state).toBe("available");
+    expect(result.projection?.graph.blockedBy).toEqual([]);
+    expect(deliveryWork(result)).toContainEqual(
+      expect.objectContaining({
+        reference: "github:R_reference:I_reference_4",
+        frontier: "ready",
+        blockers: [],
+      }),
+    );
+    const semantic = mattReferenceSemanticView(result, aliases);
+    const fullCapture = await provider.capture(binding);
+    const full = mattReferenceSemanticView(fullCapture, aliases);
+    expect(semantic.delivery).toEqual(full.delivery);
+    expect(semantic.blockedBy).toEqual(full.blockedBy);
+    expect(semantic.parentChild.toSorted()).toEqual(full.parentChild.toSorted());
+    expect(deliveryWork(result)).toEqual(deliveryWork(fullCapture));
+  });
+
+  test("replaces a refreshed parent's children without replacing unread subjects' blockers", async () => {
+    const { fixtures, transport, reconcile, binding, prior, blocked } = await createFixture();
+    fixtures["repos/example/reference/issues/2/sub_issues?per_page=100&page=1"] = {
+      first: response([blocked, scopedIncomingIssue], '"children-2-v2"'),
+    };
+    const result = await reconcile({
+      binding,
+      prior,
+      affected: { subjects: [specIssue.html_url] },
+    });
+
+    expectOnlySubjectReads(transport, 2);
+    const semantic = mattReferenceSemanticView(result, aliases);
+    expect(semantic.parentChild).toEqual(["spec>blocked", "spec>alternate"]);
+    expect(semantic.blockedBy).toEqual(["blocked<blocker"]);
+    expect(deliveryWork(result)).toContainEqual(
+      expect.objectContaining({
+        reference: "github:R_reference:I_reference_4",
+        frontier: "blocked",
+        blockers: ["github:R_reference:I_reference_3"],
+      }),
+    );
+  });
+
+  test.each([
+    "native",
+    "fallback",
+  ] as const)("keeps %s blockers outside the scope as evidence without reading them", async (capability) => {
+    const { fixtures, transport, provider, reconcile, binding, prior, blocked } =
+      await createFixture();
+    const external = githubIssue({
+      number: 6,
+      title: "Unbound dependency",
+      body: "Outside this scope.",
+    });
+    fixtures["repos/example/reference/issues/4"] = {
+      first: response({ ...blocked, body: blocked.body.replace("- #3", "- #6") }, '"issue-4-v2"'),
+    };
+    fixtures["repos/example/reference/issues/4/dependencies/blocked_by?per_page=100&page=1"] = {
+      first:
+        capability === "native"
+          ? response([external], '"deps-4-v2"')
+          : { status: 410, headers: {}, body: { message: "Gone" } },
+    };
+    const result = await reconcile({ binding, prior, affected: { subjects: [blocked.html_url] } });
+
+    expectOnlySubjectReads(transport, 4);
+    expect(result.state).toBe("available");
+    expect(result.diagnostics).toEqual([]);
+    const semantic = mattReferenceSemanticView(result, aliases);
+    expect(semantic.blockedBy).toEqual([]);
+    const subject = result.projection?.deliveryTickets.find(
+      ({ title }) => title === "Blocked delivery",
+    );
+    expect(subject?.native.sourceAnchors).toContainEqual({
+      kind: "external",
+      target: "https://github.com/example/reference/issues/6",
+    });
+    expect(subject?.native.rawFacets).toContainEqual({
+      key: "fallback-external-blocked-by",
+      values: [
+        "https://api.github.com/repos/example/reference|R_reference|example|reference|6|https://github.com/example/reference/issues/6",
+      ],
+    });
+    const fullCapture = await provider.capture(binding);
+    const full = mattReferenceSemanticView(fullCapture, aliases);
+    expect(semantic.delivery).toEqual(full.delivery);
+    expect(semantic.blockedBy).toEqual(full.blockedBy);
+    const fullSubject = fullCapture.projection?.deliveryTickets.find(
+      ({ title }) => title === "Blocked delivery",
+    );
+    expect(subject?.native.rawFacets.filter(({ key }) => key.includes("blocked-by"))).toEqual(
+      fullSubject?.native.rawFacets.filter(({ key }) => key.includes("blocked-by")),
+    );
+  });
+
+  test("preserves the full-capture native and fallback conflict semantics during reconciliation", async () => {
+    const { fixtures, transport, provider, reconcile, binding, prior, blocked } =
+      await createFixture();
+    fixtures["repos/example/reference/issues/4"] = {
+      first: response({ ...blocked, body: blocked.body.replace("- #3", "- #5") }, '"issue-4-v2"'),
+    };
+    const result = await reconcile({ binding, prior, affected: { subjects: [blocked.html_url] } });
+
+    expectOnlySubjectReads(transport, 4);
+    expect(result.state).toBe("partial");
+    const semantic = mattReferenceSemanticView(result, aliases);
+    expect(semantic.blockedBy).toEqual(["blocked<blocker"]);
+    expect(semantic.capture.diagnostics).toEqual([
+      "matt.github.relation.native-fallback-conflict:identity:blocking",
+    ]);
+    expect(deliveryWork(result)).toContainEqual(
+      expect.objectContaining({
+        reference: "github:R_reference:I_reference_4",
+        frontier: "blocked",
+        blockers: ["github:R_reference:I_reference_3"],
+      }),
+    );
+    expect(result.projection?.deliveryTickets[1]?.native.rawFacets).toContainEqual({
+      key: "relation-conflict:blocked-by-fallback",
+      values: ["github:R_reference:I_reference_5"],
+    });
+    const fullCapture = await provider.capture(binding);
+    const full = mattReferenceSemanticView(fullCapture, aliases);
+    expect(semantic.delivery).toEqual(full.delivery);
+    expect(semantic.blockedBy).toEqual(full.blockedBy);
+    expect(semantic.capture.diagnostics).toEqual(full.capture.diagnostics);
+    expect(deliveryWork(result)).toEqual(deliveryWork(fullCapture));
+  });
+});
 
 describe("GitHub matt-skills/v1 capture", () => {
   test("completes a closed Delivery only from checked acceptance and canonical evidence", async () => {
