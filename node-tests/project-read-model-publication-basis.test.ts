@@ -41,14 +41,6 @@ const attemptedEvidence = (
   },
 });
 
-const latch = () => {
-  let release = () => {};
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { promise, release };
-};
-
 test("a latest-attempt-only winner invalidates a pending publication despite the same fingerprint", async () => {
   const root = await createValidBearingRepo();
   try {
@@ -205,8 +197,8 @@ test("concurrent detail replacement survives canonical publication without causi
 
 test("two equivalent Ensure Current operations publish once and return the same receipt", async (context) => {
   const root = await realpath(await createValidBearingRepo());
-  const arrived = latch();
-  const resume = latch();
+  const arrived = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
   const originalOpen = fileSystem.open;
   let readers = 0;
   const opened = context.mock.method(
@@ -214,7 +206,7 @@ test("two equivalent Ensure Current operations publish once and return the same 
     "open",
     async (...args: Parameters<typeof originalOpen>) => {
       if (String(args[0]) === `${root}/.bearing/state/project-summary.md` && ++readers <= 2) {
-        if (readers === 2) arrived.release();
+        if (readers === 2) arrived.resolve();
         await resume.promise;
       }
       return originalOpen(...args);
@@ -238,7 +230,7 @@ test("two equivalent Ensure Current operations publish once and return the same 
         throw new Error("Ensure Current did not reach both canonical capture barriers.");
       }),
     ]);
-    resume.release();
+    resume.resolve();
     const results = await pending;
 
     assert.ok(
@@ -249,7 +241,7 @@ test("two equivalent Ensure Current operations publish once and return the same 
     assert.equal(results[0].generation.publicationCount, 1);
     assert.deepEqual((await operationBasis(root)).metadata?.receipt, results[0].generation);
   } finally {
-    resume.release();
+    resume.resolve();
     await Promise.allSettled([first, second]);
     opened.mock.restore();
     syncBuiltinESMExports();

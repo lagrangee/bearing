@@ -16,14 +16,6 @@ import { defaultMattProviderFactory } from "../src/provider-acquisition";
 import { targetedReconciliationBasis } from "../src/provider-evidence-contract";
 import { createValidBearingRepo } from "../tests/helpers";
 
-const latch = () => {
-  let release = () => {};
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { promise, release };
-};
-
 const addScope = async (root: string) => {
   await cp(`${root}/.scratch/work`, `${root}/.scratch/other`, { recursive: true });
   const effort = await readFile(`${root}/.bearing/state/efforts/test.md`, "utf8");
@@ -37,8 +29,8 @@ const addScope = async (root: string) => {
 
 test("a stale disjoint capture preserves the winner and records only its eligible failed attempt", async () => {
   const root = await createValidBearingRepo();
-  const acquired = latch();
-  const resume = latch();
+  const acquired = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
   try {
     await addScope(root);
     assert.equal((await verifyAllProjectProviderScopes(root)).outcome, "complete");
@@ -57,7 +49,7 @@ test("a stale disjoint capture preserves the winner and records only its eligibl
           ...provider,
           capture: async (binding) => {
             const result = await provider.capture(binding);
-            acquired.release();
+            acquired.resolve();
             await resume.promise;
             return result;
           },
@@ -79,7 +71,7 @@ test("a stale disjoint capture preserves the winner and records only its eligibl
       (row) => row.selection.nativeScope === ".scratch/other",
     );
     const winnerState = await inspectProjectReadModel(root);
-    resume.release();
+    resume.resolve();
     const loser = await pending;
     assert.equal(loser.outcome, "unfulfilled");
     assert.equal(loser.result.acquisitionCount, 1);
@@ -104,7 +96,7 @@ test("a stale disjoint capture preserves the winner and records only its eligibl
     });
     assert.deepEqual(await inspectProjectReadModel(root), winnerState);
   } finally {
-    resume.release();
+    resume.resolve();
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -116,8 +108,8 @@ for (const scenario of [
 ] as const) {
   test(`stale ${scenario.intent} keeps ${scenario.winnerScope} winner evidence and its own unpublished result`, async () => {
     const root = await createValidBearingRepo();
-    const acquired = latch();
-    const resume = latch();
+    const acquired = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
     let acquisitionCount = 0;
     try {
       await addScope(root);
@@ -131,7 +123,7 @@ for (const scenario of [
             capture: async (binding: Parameters<typeof provider.capture>[0]) => {
               acquisitionCount += 1;
               const observation = await provider.capture(binding);
-              acquired.release();
+              acquired.resolve();
               await resume.promise;
               return observation;
             },
@@ -139,7 +131,7 @@ for (const scenario of [
               assert.ok(provider.reconcile);
               acquisitionCount += 1;
               const observation = await provider.reconcile(request);
-              acquired.release();
+              acquired.resolve();
               await resume.promise;
               return observation;
             },
@@ -173,7 +165,7 @@ for (const scenario of [
         (row) => row.selection.nativeScope === scenario.winnerScope,
       );
       const winnerState = await inspectProjectReadModel(root);
-      resume.release();
+      resume.resolve();
       const loser = await pending;
       assert.equal(loser.outcome, "unfulfilled");
       assert.equal(loser.result.acquisitionCount, 1);
@@ -210,7 +202,7 @@ for (const scenario of [
       );
       assert.equal(JSON.stringify(loser), originalLoser);
     } finally {
-      resume.release();
+      resume.resolve();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -218,8 +210,8 @@ for (const scenario of [
 
 test("a healthy local rebuild cannot overwrite a provider publication acquired during its compilation", async (context) => {
   const root = await realpath(await createValidBearingRepo());
-  const reading = latch();
-  const resume = latch();
+  const reading = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
   const originalOpen = fileSystem.open;
   let holdNextCanonicalRead = false;
   const opened = context.mock.method(
@@ -228,7 +220,7 @@ test("a healthy local rebuild cannot overwrite a provider publication acquired d
     async (...args: Parameters<typeof originalOpen>) => {
       if (holdNextCanonicalRead && String(args[0]).startsWith(`${root}/.bearing/state/`)) {
         holdNextCanonicalRead = false;
-        reading.release();
+        reading.resolve();
         await resume.promise;
       }
       return originalOpen(...args);
@@ -252,7 +244,7 @@ test("a healthy local rebuild cannot overwrite a provider publication acquired d
     assert.equal((await captureProjectProviderScopes(root, [".scratch/work"])).outcome, "complete");
     const winner = await readProjectProviderEvidence(root, "bound");
     const winnerState = await inspectProjectReadModel(root);
-    resume.release();
+    resume.resolve();
     const loser = await rebuilding;
     assert.equal(loser.outcome, "unfulfilled");
     assert.equal(loser.result.acquisitionCount, 0);
@@ -263,7 +255,7 @@ test("a healthy local rebuild cannot overwrite a provider publication acquired d
     assert.deepEqual(await readProjectProviderEvidence(root, "bound"), winner);
     assert.deepEqual(await inspectProjectReadModel(root), winnerState);
   } finally {
-    resume.release();
+    resume.resolve();
     opened.mock.restore();
     syncBuiltinESMExports();
     await rm(root, { recursive: true, force: true });
