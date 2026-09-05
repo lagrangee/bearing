@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
@@ -76,6 +76,7 @@ else {
     repositorySlug: "example/bearing-validation",
     scopeKey: `bearing-live-broker-${"a".repeat(20)}`,
     preparedGitConfigSha256: createHash("sha256").update(gitConfig).digest("hex"),
+    gitProgram: program,
     nodeProgram,
     baseEnvironment: { HOME: agentHome, PATH: "/usr/bin:/bin" },
   };
@@ -110,6 +111,17 @@ const connect = async (path: string): Promise<Socket> => {
   return socket;
 };
 
+const readResponse = (client: Socket) =>
+  new Promise<string>((resolve, reject) => {
+    let bytes = "";
+    client.setEncoding("utf8");
+    client.on("data", (chunk) => {
+      bytes += chunk;
+    });
+    client.once("end", () => resolve(bytes));
+    client.once("error", reject);
+  });
+
 const settlesWithin = async (promise: Promise<unknown>, milliseconds = 250) =>
   Promise.race([promise.then(() => true), Bun.sleep(milliseconds).then(() => false)]);
 
@@ -126,6 +138,16 @@ const exists = (path: string) =>
     () => true,
     () => false,
   );
+
+const processExited = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return true;
+    throw error;
+  }
+};
 
 test("broker stop closes idle and partial clients without accepting later request bytes", async () => {
   const fixture = await createFixture();
@@ -173,15 +195,7 @@ test.each([
     expect(await exists(invocation.configDirectory)).toBe(true);
 
     await writeFile(fixture.exitReleasePath, "release");
-    await waitFor(async () => {
-      try {
-        process.kill(invocation.pid, 0);
-        return false;
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ESRCH") return true;
-        throw error;
-      }
-    });
+    await waitFor(async () => processExited(invocation.pid));
     expect(await settlesWithin(stopping)).toBe(false);
     expect(await exists(fixture.broker.runtimeDirectory)).toBe(true);
     expect(await exists(invocation.configDirectory)).toBe(true);
@@ -201,19 +215,69 @@ test.each([
   }
 });
 
+test.each([
+  { operation: "gh", tool: "gh", args: ["api", "repos/example/bearing-validation/issues/20"] },
+  { operation: "scope lookup", tool: "gh", args: ["issue", "close", "20"] },
+  { operation: "git", tool: "git", args: ["push", "origin", "HEAD:fixture-delivery"] },
+])("broker drains $operation after an output read rejects", async ({ tool, args }) => {
+  const fixture = await createFixture(true);
+  const client = await connect(fixture.broker.socketPath);
+  const outputError = new Error("GitHub controlled output read failure.");
+  const reading = spyOn(Response.prototype, "text").mockImplementationOnce(() =>
+    Promise.reject(outputError),
+  );
+  let stopping: Promise<void> | undefined;
+  let invocation: { pid: number; configDirectory: string } | undefined;
+  try {
+    client.write(
+      `${JSON.stringify({
+        auth: fixture.broker.environment["BEARING_GITHUB_BROKER_AUTH"],
+        tool,
+        args,
+        stdin: "",
+      })}\n`,
+    );
+    await waitFor(() => exists(fixture.invocationPath));
+    invocation = JSON.parse(await readFile(fixture.invocationPath, "utf8")) as {
+      pid: number;
+      configDirectory: string;
+    };
+    const started = invocation;
+    stopping = fixture.broker.stop();
+    expect(await settlesWithin(stopping)).toBe(false);
+    expect(await exists(fixture.broker.runtimeDirectory)).toBe(true);
+    expect(await exists(started.configDirectory)).toBe(true);
+
+    await writeFile(fixture.exitReleasePath, "release");
+    await waitFor(async () => processExited(started.pid));
+    expect(await settlesWithin(stopping)).toBe(false);
+    expect(await exists(fixture.broker.runtimeDirectory)).toBe(true);
+    expect(await exists(started.configDirectory)).toBe(true);
+
+    await writeFile(fixture.outputReleasePath, "release");
+    await stopping;
+    expect(await readFile(fixture.outputFinishedPath, "utf8")).toBe("complete");
+    expect(await exists(fixture.broker.runtimeDirectory)).toBe(false);
+    expect(await exists(started.configDirectory)).toBe(false);
+  } finally {
+    reading.mockRestore();
+    await writeFile(fixture.exitReleasePath, "release");
+    await writeFile(fixture.outputReleasePath, "release");
+    client.destroy();
+    await (stopping ?? fixture.broker.stop());
+    if (invocation !== undefined) {
+      const started = invocation;
+      await waitFor(async () => processExited(started.pid));
+    }
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("broker preserves a nonzero operation result and its complete output while running", async () => {
   const fixture = await createFixture(true, 23);
   const client = await connect(fixture.broker.socketPath);
   try {
-    const response = new Promise<string>((resolve, reject) => {
-      let bytes = "";
-      client.setEncoding("utf8");
-      client.on("data", (chunk) => {
-        bytes += chunk;
-      });
-      client.once("end", () => resolve(bytes));
-      client.once("error", reject);
-    });
+    const response = readResponse(client);
     client.write(fixture.request);
     await waitFor(() => exists(fixture.invocationPath));
     await writeFile(fixture.exitReleasePath, "release");
@@ -225,6 +289,42 @@ test("broker preserves a nonzero operation result and its complete output while 
       stderr: "original operation error\n",
     });
   } finally {
+    await writeFile(fixture.exitReleasePath, "release");
+    await writeFile(fixture.outputReleasePath, "release");
+    client.destroy();
+    await fixture.broker.stop();
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("broker preserves the first output read error after all terminal results settle", async () => {
+  const fixture = await createFixture(true, 23);
+  const client = await connect(fixture.broker.socketPath);
+  const originalText = Response.prototype.text;
+  const reading = spyOn(Response.prototype, "text")
+    .mockImplementationOnce(() => Promise.reject(new Error("GitHub original output read error.")))
+    .mockImplementationOnce(async function (this: Response) {
+      await originalText.call(this);
+      throw new Error("GitHub later output read error.");
+    });
+  try {
+    const response = readResponse(client);
+    client.write(fixture.request);
+    await waitFor(() => exists(fixture.invocationPath));
+    const { pid } = JSON.parse(await readFile(fixture.invocationPath, "utf8")) as { pid: number };
+    expect(await settlesWithin(response)).toBe(false);
+    await writeFile(fixture.exitReleasePath, "release");
+    await waitFor(async () => processExited(pid));
+    expect(await settlesWithin(response)).toBe(false);
+    await writeFile(fixture.outputReleasePath, "release");
+    expect(JSON.parse(await response)).toEqual({
+      exitCode: 70,
+      stdout: "",
+      stderr: "GitHub original output read error.\n",
+    });
+    expect(await readFile(fixture.outputFinishedPath, "utf8")).toBe("complete");
+  } finally {
+    reading.mockRestore();
     await writeFile(fixture.exitReleasePath, "release");
     await writeFile(fixture.outputReleasePath, "release");
     client.destroy();

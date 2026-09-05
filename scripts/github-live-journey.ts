@@ -465,6 +465,21 @@ const runGitHubGraphQL = async (
   return JSON.parse(stdout) as unknown;
 };
 
+const readJourneyCommandOutput = async (child: Bun.Subprocess<"ignore", "pipe", "pipe">) => {
+  const terminal = [
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ] as const;
+  try {
+    return await Promise.all(terminal);
+  } catch (error) {
+    // A failed stream does not end the subprocess or the other output reader.
+    await Promise.allSettled(terminal);
+    throw error;
+  }
+};
+
 const runGitHubCommand = async (input: {
   program: string;
   args: readonly string[];
@@ -477,11 +492,7 @@ const runGitHubCommand = async (input: {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    process.exited,
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-  ]);
+  const [exitCode, stdout, stderr] = await readJourneyCommandOutput(process);
   if (exitCode !== 0) fail(stderr.trim() || input.failureMessage);
   return stdout.trim();
 };
@@ -2177,11 +2188,7 @@ export const startGitHubJourneyCredentialBroker = async (input: {
             stdout: "pipe",
             stderr: "pipe",
           });
-          [exitCode, stdout, stderr] = await Promise.all([
-            child.exited,
-            new Response(child.stdout).text(),
-            new Response(child.stderr).text(),
-          ]);
+          [exitCode, stdout, stderr] = await readJourneyCommandOutput(child);
         } else {
           if (parsed.data.stdin.length > 0)
             fail("Git push stdin is outside the Journey capability.");
@@ -2234,11 +2241,7 @@ export const startGitHubJourneyCredentialBroker = async (input: {
                 stderr: "pipe",
               },
             );
-            const [code, out, error] = await Promise.all([
-              child.exited,
-              new Response(child.stdout).text(),
-              new Response(child.stderr).text(),
-            ]);
+            const [code, out, error] = await readJourneyCommandOutput(child);
             return { code, out, error } as const;
           };
           const expectedRemote = `https://github.com/${input.repositorySlug}.git`;
