@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, spyOn, test } from "bun:test";
 import {
   access,
   chmod,
@@ -248,6 +248,41 @@ describe("Bearing kit installer", () => {
 
     expect(await readdir(fixtureRoot)).toEqual(state === "empty" ? ["home"] : []);
     if (state === "empty") expect(await readdir(homeDir)).toEqual([]);
+  });
+
+  test("restores owned entries when the later bundle detach fails during uninstall", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-uninstall-rollback-");
+    await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    const current = join(homeDir, ".bearing/kit/current");
+    const cli = join(homeDir, ".bearing/bin/bearing");
+    const skill = join(homeDir, ".agents/skills/bearing");
+    const originalPackage = await readFile(join(current, "package.json"));
+    const filesystem = await import("node:fs/promises");
+    const renameEntry = filesystem.rename;
+    const detachFailure = new Error("injected bundle detach failure");
+    const failedDetach = spyOn(filesystem, "rename").mockImplementation(async (from, to) => {
+      if (from === current) {
+        await expect(lstat(cli)).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(lstat(skill)).rejects.toMatchObject({ code: "ENOENT" });
+        throw detachFailure;
+      }
+      await renameEntry(from, to);
+    });
+
+    try {
+      await expect(uninstallGlobalKit(homeDir)).rejects.toMatchObject({
+        message: "Bearing Global Kit uninstall failed; managed targets were restored.",
+        cause: detachFailure,
+      });
+    } finally {
+      failedDetach.mockRestore();
+    }
+
+    expect(await readlink(cli)).toBe(join(current, "dist/cli.js"));
+    expect(await readlink(skill)).toBe(join(current, "skills/bearing"));
+    expect(await readFile(join(current, "package.json"))).toEqual(originalPackage);
+    expect(await readdir(join(homeDir, ".bearing/kit"))).toEqual(["current"]);
   });
 
   test("reports exact cleanup locations and permits a later exact-candidate Fresh Install", async () => {
