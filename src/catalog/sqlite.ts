@@ -179,9 +179,10 @@ export const runSqliteCatalogTransaction = async <Result>(options: {
     const version = database.prepare("PRAGMA user_version").get()?.["user_version"];
     if (version === 0 && !databaseExisted) initializeSchema(database);
     else assertSchema(database);
+    const current = readDocument(database);
     let transaction: Readonly<{ result: Result; next?: CatalogDocument }>;
     try {
-      transaction = options.mutate(readDocument(database));
+      transaction = options.mutate(current);
     } catch (error) {
       mutationFailed = true;
       throw error;

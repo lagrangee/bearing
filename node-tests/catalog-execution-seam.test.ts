@@ -384,6 +384,7 @@ test("SQLite Catalog rejects existing incompatible schema, constraints, and open
   const root = await mkdtemp(join(tmpdir(), "bearing-sqlite-incompatible-"));
   const versionHome = join(root, "version-home");
   const constraintHome = join(root, "constraint-home");
+  const invalidRowHome = join(root, "invalid-row-home");
   const openHome = join(root, "open-home");
   const emptyHome = join(root, "empty-home");
   const repoRoot = join(root, "repo");
@@ -442,7 +443,17 @@ test("SQLite Catalog rejects existing incompatible schema, constraints, and open
     await mkdir(catalogDatabasePath(openHome), { recursive: true });
     assert.equal((await readCatalogState({ homeDir: openHome })).state, "failed");
 
-    for (const homeDir of [versionHome, constraintHome, emptyHome]) {
+    await upsertCatalogEntry({
+      homeDir: invalidRowHome,
+      repoRoot,
+      createEntryId: () => "invalid-row-entry",
+    });
+    const invalidRowDatabase = new DatabaseSync(catalogDatabasePath(invalidRowHome));
+    invalidRowDatabase.exec("UPDATE catalog_entries SET repo_root = 'relative'");
+    invalidRowDatabase.close();
+    assert.equal((await readCatalogState({ homeDir: invalidRowHome })).state, "failed");
+
+    for (const homeDir of [versionHome, constraintHome, emptyHome, invalidRowHome]) {
       await assert.rejects(resetCatalog({ homeDir, confirmed: false }), /confirmation/i);
       assert.equal((await resetCatalog({ homeDir, confirmed: true })).outcome, "applied");
       assert.deepEqual(await readCatalogDocument({ homeDir }), { version: 1, entries: [] });
