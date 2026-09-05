@@ -8,6 +8,7 @@ import {
   readFile,
   realpath,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -325,10 +326,65 @@ test("SQLite Catalog returns bounded catalog-busy and succeeds after the writer 
   }
 });
 
+test("confirmed reset preserves an exclusive writer through bounded busy failure", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bearing-sqlite-reset-busy-"));
+  const homeDir = join(root, "home");
+  const repoRoot = join(root, "repo");
+  const databasePath = catalogDatabasePath(homeDir);
+  const journalPath = `${databasePath}-journal`;
+  await makeRepository(repoRoot);
+  let holder: DatabaseSync | undefined;
+  try {
+    const { entry } = await upsertCatalogEntry({
+      homeDir,
+      repoRoot,
+      createEntryId: () => "writer-entry",
+    });
+    holder = new DatabaseSync(databasePath);
+    holder.exec("BEGIN EXCLUSIVE");
+    holder
+      .prepare("UPDATE catalog_entries SET display_name = ? WHERE entry_id = ?")
+      .run("Writer completed", "writer-entry");
+    const beforeDatabase = await stat(databasePath);
+    const beforeJournal = await stat(journalPath);
+    const beforeDatabaseBytes = await readFile(databasePath);
+    const beforeJournalBytes = await readFile(journalPath);
+
+    // The writer stays behind this barrier until reset has returned its busy result.
+    const startedAt = Date.now();
+    await assert.rejects(
+      resetCatalog({ homeDir, confirmed: true }),
+      (error) => error instanceof CatalogBusyError && error.code === "catalog-busy",
+    );
+    const elapsed = Date.now() - startedAt;
+    assert.ok(elapsed >= 750, `Expected the default busy wait, received ${elapsed}ms.`);
+    assert.ok(elapsed <= 5_000, `Expected bounded busy failure, received ${elapsed}ms.`);
+    assert.equal((await stat(databasePath)).ino, beforeDatabase.ino);
+    assert.equal((await stat(journalPath)).ino, beforeJournal.ino);
+    assert.deepEqual(await readFile(databasePath), beforeDatabaseBytes);
+    assert.deepEqual(await readFile(journalPath), beforeJournalBytes);
+
+    holder.exec("COMMIT");
+    holder.close();
+    holder = undefined;
+    assert.deepEqual(await readCatalogDocument({ homeDir }), {
+      version: 1,
+      entries: [{ ...entry, displayName: "Writer completed" }],
+    });
+  } finally {
+    try {
+      holder?.exec("ROLLBACK");
+    } catch {}
+    holder?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SQLite Catalog rejects existing incompatible schema, constraints, and open targets", async () => {
   const root = await mkdtemp(join(tmpdir(), "bearing-sqlite-incompatible-"));
   const versionHome = join(root, "version-home");
   const constraintHome = join(root, "constraint-home");
+  const invalidRowHome = join(root, "invalid-row-home");
   const openHome = join(root, "open-home");
   const emptyHome = join(root, "empty-home");
   const repoRoot = join(root, "repo");
@@ -386,6 +442,29 @@ test("SQLite Catalog rejects existing incompatible schema, constraints, and open
 
     await mkdir(catalogDatabasePath(openHome), { recursive: true });
     assert.equal((await readCatalogState({ homeDir: openHome })).state, "failed");
+
+    await upsertCatalogEntry({
+      homeDir: invalidRowHome,
+      repoRoot,
+      createEntryId: () => "invalid-row-entry",
+    });
+    const invalidRowDatabase = new DatabaseSync(catalogDatabasePath(invalidRowHome));
+    invalidRowDatabase.exec("UPDATE catalog_entries SET repo_root = 'relative'");
+    invalidRowDatabase.close();
+    assert.equal((await readCatalogState({ homeDir: invalidRowHome })).state, "failed");
+
+    for (const homeDir of [versionHome, constraintHome, emptyHome, invalidRowHome]) {
+      await assert.rejects(resetCatalog({ homeDir, confirmed: false }), /confirmation/i);
+      assert.equal((await resetCatalog({ homeDir, confirmed: true })).outcome, "applied");
+      assert.deepEqual(await readCatalogDocument({ homeDir }), { version: 1, entries: [] });
+      const registration = await upsertCatalogEntry({
+        homeDir,
+        repoRoot,
+        createEntryId: () => "reset-entry",
+      });
+      assert.equal(registration.outcome, "applied");
+      assert.deepEqual((await readCatalogDocument({ homeDir })).entries, [registration.entry]);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -271,14 +271,18 @@ test("Assets journey is responsive, accessible, focused, and network-local", asy
   for (const width of [768, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("./#/gates/release-candidate-ready");
+    // Hash navigation restores route focus on the next animation frame.
+    await expect(page.locator("#release-gate-screen :focus")).toHaveCount(1);
     await page.getByRole("link", { name: "Release Packaging", exact: true }).press("Enter");
     await expect(page).toHaveURL(/#\/efforts\/release-packaging$/u);
     await expect(page.getByRole("heading", { name: "Release Packaging", level: 1 })).toBeVisible();
+    await expect(page.locator("#main-content :focus")).toHaveCount(1);
     await page.getByRole("link", { name: /Full work history/iu }).press("Enter");
     await expect(page).toHaveURL(/#\/native-work\/release-packaging$/u);
     await expect(
       page.getByRole("heading", { name: "Release Packaging native work", level: 1 }),
     ).toBeVisible();
+    await expect(page.locator("#main-content :focus")).toHaveCount(1);
     await page
       .getByRole("link", { name: "Public Beta Readiness Review", exact: true })
       .press("Enter");

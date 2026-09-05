@@ -49,6 +49,11 @@ const conditionPresentation: Readonly<
     explanation: "The provider could not complete this source refresh.",
     nextAction: "Open Bearing in the Agent Surface to inspect the provider diagnostic.",
   },
+  "publication-conflict": {
+    explanation: "Another operation changed project evidence before this refresh could publish.",
+    nextAction:
+      "Open Bearing in the Agent Surface to inspect the current evidence and retry when appropriate.",
+  },
   "storage-recovery-required": {
     explanation: "Project data storage requires explicit recovery.",
     nextAction: "Open Bearing in the Agent Surface to review and run cache recovery.",
@@ -73,6 +78,7 @@ const providerFailureCondition = (
   diagnostics: readonly StructuralDiagnostic[],
 ): AttentionCondition => {
   const codes = diagnostics.map((diagnostic) => diagnostic.code.toLowerCase());
+  if (codes.includes("project-read-model-publication-conflict")) return "publication-conflict";
   if (codes.some((code) => /auth|permission/u.test(code))) return "provider-auth";
   if (codes.some((code) => /rate|limit/u.test(code))) return "provider-rate-limit";
   if (codes.some((code) => /network|timeout|connect/u.test(code))) return "provider-network";
@@ -105,28 +111,6 @@ const applicationDiagnostic = (
   target: string,
   message: string,
 ): StructuralDiagnostic => ({ code, impact: "blocking", target, message });
-
-const observedEvidence = async (
-  repoRoot: string,
-  scopes: readonly string[],
-  role: "bound" | "detail",
-) => {
-  const requested = new Set(scopes);
-  return (await readProjectProviderEvidence(repoRoot, role))
-    .filter((entry) => requested.has(entry.selection.nativeScope))
-    .map((entry) => ({
-      scope: entry.selection.nativeScope,
-      disposition:
-        entry.selection.latestAttempt?.outcome === "succeeded"
-          ? ("captured" as const)
-          : entry.observation === undefined
-            ? ("unavailable" as const)
-            : ("retained-after-failure" as const),
-      ...(entry.observation?.observedAt === undefined
-        ? {}
-        : { observedAt: entry.observation.observedAt }),
-    }));
-};
 
 const itemTargetAdmission = async (
   repoRoot: string,
@@ -285,20 +269,7 @@ export const createPortalProviderApplicationService = (options: {
             )
           : await verifyAllProjectProviderScopes(repoRoot, options.providerDependencies);
     const acquisitionCount = operation.result.acquisitionCount;
-    const scopes =
-      request.action === "all-sources-refresh"
-        ? "scopes" in operation.result
-          ? operation.result.scopes.map((scope) => scope.scope)
-          : []
-        : [request.binding.nativeScope];
-    const observations =
-      operation.outcome === "recovery-required" || operation.outcome === "need-update"
-        ? []
-        : await observedEvidence(
-            repoRoot,
-            scopes,
-            request.action === "item-refresh" ? "detail" : "bound",
-          );
+    const observations = [...operation.result.scopes];
     if (operation.outcome === "complete") {
       return {
         version: 1,

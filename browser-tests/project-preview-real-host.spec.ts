@@ -33,6 +33,14 @@ let markdownFixtureRoot = "";
 const remoteHttpImage = "http://images.example.test/http.png";
 const remoteHttpsImage = "https://images.example.test/https.png";
 const remoteMissingImage = "https://images.example.test/missing.png";
+const literalPreviewTitle = 'Source & "quoted" text';
+const literalPreviewText = `const view = <button title="a & b">{"<Save> & 'quoted'"}</button>;
+<?xml version="1.0"?>
+<item key="&amp;">A & B <child /></item>
+<script>globalThis.__previewTextRan = true</script>
+</pre><img src=x onerror="globalThis.__previewTextRan = true">
+`;
+const literalLinkedFilename = 'Source <Widget> & "quoted".xml';
 
 const routeAuthoredRemoteImages = async (
   page: Page,
@@ -148,6 +156,8 @@ test.beforeAll(async () => {
     ),
     writeFile(join(fixtureRoot, "docs/linked.md"), "# Linked Markdown document\n"),
     writeFile(join(fixtureRoot, "docs/linked.txt"), "Linked text document\n"),
+    writeFile(join(fixtureRoot, "docs/literal.tsx"), literalPreviewText),
+    writeFile(join(fixtureRoot, "docs", literalLinkedFilename), literalPreviewText),
     writeFile(join(fixtureRoot, "docs/sound.mp3"), "linked audio bytes"),
     writeFile(join(fixtureRoot, "docs/movie.mp4"), "linked video bytes"),
     writeFile(join(fixtureRoot, "docs/linked.pdf"), "%PDF linked document"),
@@ -217,6 +227,23 @@ Can current and resolved Work remain an exhaustive partition?
   );
   await writeFile(briefPath, projectBrief);
   await writeFile(
+    assetsPath,
+    (await readFile(assetsPath, "utf8")).replace(
+      "---\n\n# Asset Registry",
+      `  - ID: asset:literal-source
+    Title: ${JSON.stringify(literalPreviewTitle)}
+    Purpose: Read every literal source character.
+    Kind: reference
+    Source: docs/literal.tsx
+    Owner: effort:fixture
+    Added at: null
+    Disposition: active
+---
+
+# Asset Registry`,
+    ),
+  );
+  await writeFile(
     localEffortPath,
     localEffort.replace("Activated at: null", "Activated at: 2026-08-03T15:39:36.000Z"),
   );
@@ -264,6 +291,7 @@ Can current and resolved Work remain an exhaustive partition?
 [Over-limit local](../../docs/large.png)
 
 [Markdown local](../../docs/linked.md) [Text local](../../docs/linked.txt)
+[Literal XML local](../../docs/${encodeURIComponent(literalLinkedFilename)})
 [Audio local](../../docs/sound.mp3) [Video local](../../docs/movie.mp4)
 [PDF local](../../docs/linked.pdf)
 
@@ -1017,6 +1045,90 @@ test("compact Portal facts, statuses, Asset routes, and Work partitions hold on 
   expect(narrowLayout.valueTop).toBeGreaterThan(narrowLayout.labelBottom);
   expect(posts).toEqual([]);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("text Asset and linked Preview preserve literal source and labels without executing tags", async ({
+  context,
+  page,
+}, testInfo) => {
+  if (host === undefined) throw new Error("Text Preview real Host did not start.");
+  const errors: string[] = [];
+  const expectedMetaPolicyMessages = new Set([
+    "The Content Security Policy directive 'sandbox' is ignored when delivered via a <meta> element.",
+    "The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element.",
+  ]);
+  context.on("page", (previewPage) => {
+    previewPage.on("pageerror", (error) => errors.push(error.message));
+    previewPage.on("console", (message) => {
+      if (message.type() === "error" && !expectedMetaPolicyMessages.has(message.text())) {
+        errors.push(message.text());
+      }
+    });
+  });
+  await routeAuthoredRemoteImages(page, "succeed");
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  const scenarios = [
+    {
+      surface: "asset",
+      subject: { kind: "asset", id: "asset:literal-source" },
+      openingLabel: /View Content/u,
+      title: literalPreviewTitle,
+      historyNote:
+        "This is not historical Project Read Model bytes; the registered Asset was revalidated against the current checkout.",
+      returnLabel: "Return to Asset detail",
+    },
+    {
+      surface: "linked",
+      subject: { kind: "native-subject", id: ".scratch/work/map.md" },
+      openingLabel: "Literal XML local",
+      title: literalLinkedFilename,
+      historyNote:
+        "This reads current-checkout linked content and is not historical Provider capture bytes.",
+      returnLabel: "Return to reading surface",
+    },
+  ] as const;
+  for (const scenario of scenarios) {
+    await page.goto(`${host.url}${planningLineageSubjectHref("g3-preview", scenario.subject)}`);
+    if (scenario.surface === "linked") {
+      const destination = page.locator(".read-disclosure", {
+        has: page.getByRole("heading", { name: "Safe reading", level: 3 }),
+      });
+      const toggle = destination.getByRole("button", { name: /^Show more:/u });
+      if (await toggle.isVisible()) await toggle.click();
+    }
+    const openingLink = page.getByRole("link", {
+      name: scenario.openingLabel,
+    });
+    await expect(openingLink).toBeVisible();
+    const previewTab = context.waitForEvent("page");
+    await openingLink.click();
+    const previewPage = await previewTab;
+    await expect(previewPage).toHaveURL(/\/preview\/projects\/g3-preview\//u);
+    const response = await page.request.get(previewPage.url());
+    expect(response.headers()["content-security-policy"]).toContain("sandbox allow-scripts");
+    expect(response.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
+    const source = previewPage.locator("main pre");
+    await expect(source).toBeVisible();
+    const screenshot = testInfo.outputPath(`${scenario.surface}-literal-preview.png`);
+    await previewPage.screenshot({ path: screenshot });
+    await testInfo.attach(`${scenario.surface}-literal-preview`, {
+      path: screenshot,
+      contentType: "image/png",
+    });
+    expect.soft(await source.textContent()).toBe(literalPreviewText);
+    await expect.soft(previewPage).toHaveTitle(scenario.title);
+    await expect(previewPage.locator("script, main img, main button")).toHaveCount(0);
+    expect(
+      await previewPage.evaluate(() => Reflect.get(globalThis, "__previewTextRan")),
+    ).toBeUndefined();
+    await expect(previewPage.locator("header p").last()).toHaveText(scenario.historyNote);
+    const closed = previewPage.waitForEvent("close");
+    await previewPage.getByRole("button", { name: scenario.returnLabel }).click();
+    await closed;
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  }
+  expect(errors).toEqual([]);
 });
 
 test("prototype stays semantic-only while an ordinary HTML document keeps inert View Content", async ({

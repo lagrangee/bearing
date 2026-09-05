@@ -1,5 +1,17 @@
-import { beforeAll, describe, expect, test } from "bun:test";
-import { access, chmod, lstat, mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import { beforeAll, describe, expect, spyOn, test } from "bun:test";
+import {
+  access,
+  chmod,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  readlink,
+  rename,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { buildInstallPlans } from "../src/install-manifest";
 import {
@@ -154,6 +166,123 @@ describe("Bearing kit installer", () => {
 
     await expect(access(join(homeDir, ".agents"))).rejects.toThrow();
     await expect(access(join(homeDir, ".bearing"))).rejects.toThrow();
+  });
+
+  test.each([
+    { ancestor: ".agents", entry: "skills/bearing", source: "skills/bearing" },
+    { ancestor: ".agents/skills", entry: "bearing", source: "skills/bearing" },
+    { ancestor: ".bearing/bin", entry: "bearing", source: "dist/cli.js" },
+  ])("preserves owned entries when $ancestor links outside HOME", async ({
+    ancestor,
+    entry,
+    source,
+  }) => {
+    const fixtureRoot = await makeTemporaryDirectory("bearing-uninstall-containment-");
+    const homeDir = join(fixtureRoot, "home");
+    const outside = join(fixtureRoot, "home-outside");
+    await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    await rename(join(homeDir, ancestor), outside);
+    await symlink(outside, join(homeDir, ancestor), "dir");
+    await writeFile(join(outside, "sentinel.txt"), "outside sibling sentinel\n");
+
+    await expect(uninstallGlobalKit(homeDir)).rejects.toThrow(
+      `Installation target cannot use a symbolic link: ${join(homeDir, ancestor)}`,
+    );
+
+    expect(await readlink(join(outside, entry))).toBe(
+      join(homeDir, ".bearing/kit/current", source),
+    );
+    expect(await readFile(join(outside, "sentinel.txt"), "utf8")).toBe(
+      "outside sibling sentinel\n",
+    );
+    await access(join(homeDir, ".bearing/bin/bearing"));
+    await access(join(homeDir, ".bearing/kit/current/package.json"));
+    expect(await readdir(join(homeDir, ".bearing/kit"))).toEqual(["current"]);
+  });
+
+  test("uninstalls contained owned entries and preserves foreign entries with linked ancestors", async () => {
+    const fixtureRoot = await makeTemporaryDirectory("bearing-uninstall-ownership-");
+    const homeDir = join(fixtureRoot, "home");
+    const outside = join(fixtureRoot, "home-outside");
+    await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    await mkdir(join(outside, "skills"), { recursive: true });
+    await symlink(outside, join(homeDir, ".claude"), "dir");
+    const foreignSource = join(outside, "other-skill");
+    await symlink(foreignSource, join(outside, "skills/bearing"), "dir");
+    await writeFile(join(outside, "sentinel.txt"), "foreign sibling sentinel\n");
+    await mkdir(join(homeDir, ".workbuddy/skills"), { recursive: true });
+    await writeFile(join(homeDir, ".workbuddy/skills/bearing"), "user-owned skill\n");
+
+    const result = await uninstallGlobalKit(homeDir);
+
+    expect(result).toEqual({
+      outcome: "applied",
+      removedTargets: [".agents/skills/bearing", ".bearing/bin/bearing", ".bearing/kit/current"],
+    });
+    for (const target of result.removedTargets) {
+      await expect(lstat(join(homeDir, target))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+    expect(await readlink(join(outside, "skills/bearing"))).toBe(foreignSource);
+    expect(await readFile(join(outside, "sentinel.txt"), "utf8")).toBe(
+      "foreign sibling sentinel\n",
+    );
+    expect(await readFile(join(homeDir, ".workbuddy/skills/bearing"), "utf8")).toBe(
+      "user-owned skill\n",
+    );
+
+    expect(await uninstallGlobalKit(homeDir)).toEqual({ outcome: "no-op", removedTargets: [] });
+    await expect(lstat(join(homeDir, ".bearing/kit"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test.each([
+    "absent",
+    "empty",
+  ])("leaves an %s HOME unchanged when there is no owned target", async (state) => {
+    const fixtureRoot = await makeTemporaryDirectory("bearing-uninstall-noop-");
+    const homeDir = join(fixtureRoot, "home");
+    if (state === "empty") await mkdir(homeDir);
+
+    expect(await uninstallGlobalKit(homeDir)).toEqual({ outcome: "no-op", removedTargets: [] });
+
+    expect(await readdir(fixtureRoot)).toEqual(state === "empty" ? ["home"] : []);
+    if (state === "empty") expect(await readdir(homeDir)).toEqual([]);
+  });
+
+  test("restores owned entries when the later bundle detach fails during uninstall", async () => {
+    const homeDir = await makeTemporaryDirectory("bearing-uninstall-rollback-");
+    await mkdir(join(homeDir, ".agents/skills"), { recursive: true });
+    await installKit({ homeDir, packageRoot: process.cwd(), surfaces: ["agent-skills"] });
+    const current = join(homeDir, ".bearing/kit/current");
+    const cli = join(homeDir, ".bearing/bin/bearing");
+    const skill = join(homeDir, ".agents/skills/bearing");
+    const originalPackage = await readFile(join(current, "package.json"));
+    const filesystem = await import("node:fs/promises");
+    const renameEntry = filesystem.rename;
+    const detachFailure = new Error("injected bundle detach failure");
+    const failedDetach = spyOn(filesystem, "rename").mockImplementation(async (from, to) => {
+      if (from === current) {
+        await expect(lstat(cli)).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(lstat(skill)).rejects.toMatchObject({ code: "ENOENT" });
+        throw detachFailure;
+      }
+      await renameEntry(from, to);
+    });
+
+    try {
+      await expect(uninstallGlobalKit(homeDir)).rejects.toMatchObject({
+        message: "Bearing Global Kit uninstall failed; managed targets were restored.",
+        cause: detachFailure,
+      });
+    } finally {
+      failedDetach.mockRestore();
+    }
+
+    expect(await readlink(cli)).toBe(join(current, "dist/cli.js"));
+    expect(await readlink(skill)).toBe(join(current, "skills/bearing"));
+    expect(await readFile(join(current, "package.json"))).toEqual(originalPackage);
+    expect(await readdir(join(homeDir, ".bearing/kit"))).toEqual(["current"]);
   });
 
   test("reports exact cleanup locations and permits a later exact-candidate Fresh Install", async () => {

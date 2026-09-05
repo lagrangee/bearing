@@ -639,9 +639,31 @@ const runDevelopmentCommand = async (args: readonly string[]): Promise<void> => 
   });
 };
 
-const repositoryRootArgument = (args: readonly string[]): string => {
-  const index = args.indexOf("--repo");
-  return resolve(index === -1 ? process.cwd() : (args[index + 1] ?? process.cwd()));
+const repositoryRootArgument = (args: readonly string[]): string | undefined => {
+  const options = { repo: { type: "string" as const } };
+  const { tokens } = parseArgs({
+    args: [...args],
+    options,
+    allowPositionals: true,
+    strict: false,
+    tokens: true,
+  });
+  const repositoryArgs = tokens.flatMap((token) =>
+    token.kind === "option" && token.name === "repo"
+      ? args.slice(token.index, token.index + (token.inlineValue === false ? 2 : 1))
+      : [],
+  );
+  try {
+    const parsed = parseArgs({
+      args: repositoryArgs,
+      options,
+      allowPositionals: false,
+      strict: true,
+    });
+    return resolve(parsed.values.repo ?? process.cwd());
+  } catch {
+    return undefined;
+  }
 };
 
 const runRuntimeCommand = async (args: readonly string[]): Promise<void> => {
@@ -762,9 +784,15 @@ const main = async (): Promise<void> => {
   ) {
     throw new Error("Unknown command. Run bearing --help.");
   }
+  const repoRoot = repositoryRootArgument(args);
+  if (repoRoot === undefined) {
+    // Let the command handler retain its usage diagnostic and exit status before Runtime admission.
+    await dispatchRepositoryCommand(command, args);
+    return;
+  }
   if (command === "configure" && (args[0] === "inspect" || args[0] === "plan")) {
     const runtime = await resolveRepositoryRuntime({
-      repoRoot: repositoryRootArgument(args),
+      repoRoot,
       packageRoot: packageRoot(),
       publicHomeDir: homeDirectory(),
       invokedCliPath: fileURLToPath(import.meta.url),
@@ -787,7 +815,7 @@ const main = async (): Promise<void> => {
     return;
   }
   const runtime = await resolveRepositoryRuntime({
-    repoRoot: repositoryRootArgument(args),
+    repoRoot,
     packageRoot: packageRoot(),
     publicHomeDir: homeDirectory(),
     invokedCliPath: fileURLToPath(import.meta.url),

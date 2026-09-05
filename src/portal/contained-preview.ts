@@ -1,4 +1,5 @@
 import { extname } from "node:path";
+import { escapeHtml } from "markdown-it/lib/common/utils.mjs";
 import sanitizeHtml from "sanitize-html";
 import { sharedMarkdownEngine } from "./markdown-engine";
 
@@ -70,13 +71,7 @@ const sanitizerOptions = {
   disallowedTagsMode: "discard" as const,
 };
 
-const textSanitizerOptions = {
-  allowedAttributes: {},
-  allowedTags: [] as string[],
-  disallowedTagsMode: "discard" as const,
-};
-
-export const safePreviewText = (value: string): string => sanitizeHtml(value, textSanitizerOptions);
+export const safePreviewText = (value: string): string => escapeHtml(value);
 
 const safeHtml = (value: string): string => sanitizeHtml(value, sanitizerOptions);
 

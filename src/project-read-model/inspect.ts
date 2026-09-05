@@ -12,6 +12,7 @@ import { resolveRepositoryRoot } from "../path-boundary";
 import { queryPlanningActivity } from "../planning-activity";
 import { compileProjectGeneration, type ProjectCompilationOptions } from "../project-compilation";
 import type { ProjectGeneration } from "../project-generation/contract";
+import { buildGenerationDiagnostics } from "../project-generation/diagnostic-projection";
 import { buildProjectGeneration } from "../project-generation/projection";
 import {
   effortSchema,
@@ -48,14 +49,16 @@ import {
   planningInspectResultSchema,
   planningReferenceSchema,
   projectContextResultSchema,
+  projectReadModelObjectSchema,
 } from "./contract";
 import {
   compileProjectReadModel,
   inspectProjectReadModel,
   ProjectReadModelBusyError,
   type ProjectReadModelMetadata,
+  type ProjectReadModelOperationBasis,
   publishProjectReadModel,
-  readProjectProviderEvidence,
+  readProjectReadModelOperationBasis,
   withProjectReadModel,
 } from "./store";
 
@@ -173,6 +176,8 @@ export const currentBasisFingerprint = async (
 export const prepareProjectReadModelCandidate = async (
   repoRoot: string,
   options: Readonly<{
+    capturedInputs?: ProjectCompilationOptions["capturedInputs"];
+    startingBasis?: ProjectReadModelOperationBasis;
     providerObservationStore?: ProviderEvidenceState | null;
     providerObservationIntent?: ProjectCompilationOptions["providerObservationIntent"];
     providerFactory?: ProjectCompilationOptions["providerFactory"];
@@ -183,10 +188,21 @@ export const prepareProjectReadModelCandidate = async (
     providerDetailEvidenceState?: ProviderDetailEvidenceState | null;
   }> = {},
 ) => {
+  const providerObservationStore =
+    options.startingBasis === undefined
+      ? options.providerObservationStore
+      : {
+          schemaVersion: 1 as const,
+          observations: options.startingBasis.evidence.flatMap((entry) =>
+            entry.role === "bound" && entry.observation !== undefined ? [entry.observation] : [],
+          ),
+          selections: options.startingBasis.evidence.flatMap((entry) =>
+            entry.role === "bound" ? [entry.selection] : [],
+          ),
+        };
   const plan = await compileProjectGeneration(repoRoot, {
-    ...(options.providerObservationStore === undefined
-      ? {}
-      : { providerObservationStore: options.providerObservationStore }),
+    ...(options.capturedInputs === undefined ? {} : { capturedInputs: options.capturedInputs }),
+    ...(providerObservationStore === undefined ? {} : { providerObservationStore }),
     ...(options.providerObservationIntent === undefined
       ? {}
       : { providerObservationIntent: options.providerObservationIntent }),
@@ -232,7 +248,7 @@ export const prepareProjectReadModelCandidate = async (
     basisObservations: plan.basisObservations,
     assetContentObservations: plan.assetContentObservations,
   });
-  return { candidate, plan };
+  return { candidate, plan, startingBasis: options.startingBasis };
 };
 
 export const materializeProjectReadModelCandidate = async (
@@ -244,34 +260,36 @@ const ensureCurrent = async (
   repoRoot: string,
   dependencies: Readonly<{ providerFactory?: ProjectCompilationOptions["providerFactory"] }> = {},
 ) => {
-  const state = await inspectProjectReadModel(repoRoot);
+  const state = await readProjectReadModelOperationBasis(repoRoot);
   if (state.state === "need-update" || state.state === "recovery-required") return state;
-  if (state.state === "ready") {
-    const fingerprint = await currentBasisFingerprint(repoRoot, state.metadata);
-    if (fingerprint === state.metadata.basisFingerprint) return state;
+  const startingBasis = state.basis;
+  if (startingBasis.metadata !== null) {
+    const fingerprint = await currentBasisFingerprint(repoRoot, startingBasis.metadata);
+    if (fingerprint === startingBasis.metadata.basisFingerprint) {
+      return { state: "ready" as const, metadata: startingBasis.metadata };
+    }
   }
-  const providerEvidence =
-    state.state === "ready" ? await readProjectProviderEvidence(repoRoot) : undefined;
-  const providerObservationStore =
-    providerEvidence === undefined
-      ? undefined
-      : {
-          schemaVersion: 1 as const,
-          observations: providerEvidence.flatMap((entry) =>
-            entry.role === "bound" && entry.observation !== undefined ? [entry.observation] : [],
-          ),
-          selections: providerEvidence.flatMap((entry) =>
-            entry.role === "bound" ? [entry.selection] : [],
-          ),
-        };
-  const candidate = await materializeProjectReadModelCandidate(repoRoot, {
-    ...(providerObservationStore === undefined ? {} : { providerObservationStore }),
-    ...(providerEvidence === undefined ? {} : { providerDetailEvidenceState: null }),
+  const prepared = await prepareProjectReadModelCandidate(repoRoot, {
+    startingBasis,
+    providerDetailEvidenceState: null,
     ...(dependencies.providerFactory === undefined
       ? {}
       : { providerFactory: dependencies.providerFactory }),
   });
-  const receipt = await publishProjectReadModel(repoRoot, candidate);
+  const candidate = prepared.candidate;
+  const publication = await publishProjectReadModel(repoRoot, candidate, {
+    operation: { startingBasis, attempts: [], publishGeneration: true },
+  });
+  if (publication.state === "conflict")
+    return {
+      state: "conflict" as const,
+      diagnostics: buildGenerationDiagnostics({
+        basisFingerprint: candidate.basisFingerprint,
+        diagnostics: [publication.diagnostic],
+        sourceLocators: [],
+      }).diagnostics,
+    };
+  const receipt = publication.receipt;
   return {
     state: "ready" as const,
     metadata: {
@@ -292,26 +310,44 @@ const diagnostics = (database: DatabaseSync): ProjectGeneration["diagnostics"] =
     .all()
     .map((row) => structuralDiagnosticSchema.parse(parseJson(row["payload_json"])));
 
+const singletonProjectionValidity = (database: DatabaseSync, projection: "summary" | "brief") => {
+  const row = database
+    .prepare(
+      "SELECT kind, payload_json FROM project_objects WHERE reference = ? AND kind = 'portal-projection-state'",
+    )
+    .get(`portal-projection:${projection}`);
+  const state = projectReadModelObjectSchema.parse({
+    kind: row?.["kind"],
+    value: parseJson(row?.["payload_json"]),
+  });
+  if (state.kind !== "portal-projection-state" || state.value.projection !== projection) {
+    throw new Error("Project Read Model singleton projection state is inconsistent.");
+  }
+  return state.value.validity;
+};
+
 const projectResult = (database: DatabaseSync, metadata: ProjectReadModelMetadata) => {
   const summaryRow = database
     .prepare("SELECT payload_json FROM project_objects WHERE reference = 'project-summary:current'")
     .get();
+  const summaryValidity = singletonProjectionValidity(database, "summary");
   const summary =
-    summaryRow === undefined
-      ? { validity: "absent" as const }
+    summaryValidity === "absent" || summaryValidity === "invalid"
+      ? { validity: summaryValidity }
       : {
-          validity: "available" as const,
-          value: projectSummarySchema.parse(parseJson(summaryRow["payload_json"])),
+          validity: summaryValidity,
+          value: projectSummarySchema.parse(parseJson(summaryRow?.["payload_json"])),
         };
   const briefRow = database
     .prepare("SELECT payload_json FROM project_objects WHERE reference = 'project-brief:current'")
     .get();
+  const briefValidity = singletonProjectionValidity(database, "brief");
   const brief =
-    briefRow === undefined
-      ? { validity: "absent" as const }
+    briefValidity === "absent" || briefValidity === "invalid"
+      ? { validity: briefValidity }
       : {
-          validity: "available" as const,
-          value: projectBriefSchema.parse(parseJson(briefRow["payload_json"])),
+          validity: briefValidity,
+          value: projectBriefSchema.parse(parseJson(briefRow?.["payload_json"])),
         };
   const roadmaps = database
     .prepare(
@@ -730,6 +766,15 @@ export const inspectProject = async (
     await assertActiveRepositoryIntegration(root, "inspect");
     const canonicalRequest = await canonicalInspectRequest(root, request);
     const current = await ensureCurrent(root, dependencies);
+    if (current.state === "conflict") {
+      return {
+        schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,
+        command: "inspect",
+        outcome: "unfulfilled",
+        request: canonicalRequest,
+        diagnostics: current.diagnostics,
+      };
+    }
     if (current.state === "need-update") {
       return {
         schemaVersion: PROJECT_INSPECT_ENVELOPE_VERSION,

@@ -35,6 +35,7 @@ export const portalProviderConditionSchema = z.enum([
   "provider-rate-limit",
   "provider-network",
   "provider-unavailable",
+  "publication-conflict",
   "storage-recovery-required",
   "need-update",
   "removal-required",
@@ -43,7 +44,7 @@ export const portalProviderConditionSchema = z.enum([
 
 const observationSchema = z.strictObject({
   scope: nativeReferenceSchema,
-  disposition: z.enum(["captured", "retained-after-failure", "unavailable"]),
+  disposition: z.enum(["captured", "retained-after-failure", "unavailable", "unpublished"]),
   observedAt: z.iso.datetime({ offset: true }).optional(),
 });
 

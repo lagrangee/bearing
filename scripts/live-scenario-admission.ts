@@ -342,11 +342,13 @@ export const prepareLiveScenarioGenerationAdmission = async (input: {
     ]);
   }
   const preparedScenarios: PreparedScenario[] = [];
+  let workspaceCreated = false;
   try {
     await mkdir(workspaceRoot);
+    workspaceCreated = true;
     await mkdir(join(workspaceRoot, "scenarios"));
   } catch {
-    await rm(workspaceRoot, { recursive: true, force: true });
+    if (workspaceCreated) await rm(workspaceRoot, { recursive: true, force: true });
     return blocked(generationId, [
       diagnostic("workspace-not-fresh", "Generation workspace must be new and empty."),
     ]);

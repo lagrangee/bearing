@@ -80,9 +80,9 @@ const createDevelopmentSourceProduct = async (root: string) => {
   await mkdir(homeDir);
   return {
     root,
-    run: (args: readonly string[]) =>
+    run: (args: readonly string[], cwd = root) =>
       runProcess(["node", join(root, "dist/cli.js"), ...args], {
-        cwd: root,
+        cwd,
         environment: { HOME: homeDir },
       }),
   };
@@ -591,6 +591,143 @@ test("repository rollback and Catalog partial outcomes remain separate and resum
   }
 }, 60_000);
 
+test("Development reactivation seals the invocation's read model and ignores unrelated Stable cache changes", async () => {
+  const product = await installPackedProduct();
+  try {
+    const development = await createDevelopmentSourceProduct(
+      join(product.root, "development-reactivation"),
+    );
+    await writeStandardMattLocalRepository(development.root);
+    const args = [...activateArguments(development.root), "--runtime", "development"];
+    const stableLocator = ".bearing/cache/project-read-model.sqlite";
+    const developmentLocator = ".bearing/cache/development/project-read-model.sqlite";
+    const stablePath = join(development.root, stableLocator);
+    const developmentPath = join(development.root, developmentLocator);
+
+    const fresh = await development.run(["configure", "plan", ...args]);
+    expect(fresh.exitCode, fresh.stderr).toBe(0);
+    const freshPlan = JSON.parse(fresh.stdout);
+    expect(freshPlan.repositoryApplyUnit.targets).not.toContain(developmentLocator);
+    expect(freshPlan).toMatchObject({
+      acceptedDesiredConfiguration: { runtime: "development" },
+      repositoryApplyUnit: {
+        targets: expect.arrayContaining([stableLocator]),
+        preconditions: expect.arrayContaining([{ target: stableLocator, kind: "missing" }]),
+      },
+    });
+    const activated = await development.run([
+      "configure",
+      "apply",
+      ...args,
+      "--plan-token",
+      freshPlan.sealedPlanToken,
+    ]);
+    expect(activated.exitCode, activated.stderr).toBe(0);
+    await access(stablePath);
+    await expect(access(developmentPath)).rejects.toThrow();
+    const bootstrap = await development.run(["runtime", "bootstrap", "--repo", development.root]);
+    expect(bootstrap.exitCode, bootstrap.stderr).toBe(0);
+    await writeValidBearingState(development.root);
+    const rebuilt = await development.run(["cache", "rebuild", "--repo", development.root]);
+    expect(rebuilt.exitCode, rebuilt.stderr).toBe(0);
+    const priorReadModel = await readFile(developmentPath);
+
+    const deactivateArgs = ["--intent", "deactivate", "--repo", development.root];
+    const deactivation = await development.run(["configure", "plan", ...deactivateArgs]);
+    expect(deactivation.exitCode, deactivation.stderr).toBe(0);
+    const deactivated = await development.run([
+      "configure",
+      "apply",
+      ...deactivateArgs,
+      "--plan-token",
+      JSON.parse(deactivation.stdout).sealedPlanToken,
+    ]);
+    expect(deactivated.exitCode, deactivated.stderr).toBe(0);
+    await mkdir(join(development.root, ".bearing/cache/development"), { recursive: true });
+    await mkdir(join(development.root, ".bearing/executor-profiles"), { recursive: true });
+    await writeFile(developmentPath, priorReadModel);
+    const preserved = await snapshotOwnerBytes(development.root);
+    const manifestPath = join(development.root, ".bearing/manifest.json");
+    const deactivatedManifest = await readFile(manifestPath);
+
+    const reviewed = await development.run(["configure", "plan", ...args]);
+    expect(reviewed.exitCode, reviewed.stderr).toBe(0);
+    const reviewedPlan = JSON.parse(reviewed.stdout);
+    expect(reviewedPlan.repositoryApplyUnit.targets).not.toContain(stableLocator);
+    expect(reviewedPlan.repositoryApplyUnit.preconditions).not.toContainEqual(
+      expect.objectContaining({ target: stableLocator }),
+    );
+    expect(reviewedPlan).toMatchObject({
+      lifecycle: { state: "deactivated" },
+      canApply: true,
+      runtime: { channel: "development" },
+      repositoryApplyUnit: {
+        targets: expect.arrayContaining([developmentLocator]),
+        preconditions: expect.arrayContaining([
+          expect.objectContaining({ target: developmentLocator, kind: "file" }),
+        ]),
+      },
+    });
+    const changedReadModel = Buffer.from("read model changed after the accepted Plan\n");
+    await writeFile(developmentPath, changedReadModel);
+    const stale = await development.run([
+      "configure",
+      "apply",
+      ...args,
+      "--plan-token",
+      reviewedPlan.sealedPlanToken,
+    ]);
+    expect(stale.exitCode).toBe(1);
+    expect(stale.stderr).toMatch(/plan is stale or does not match the reviewed write set/iu);
+    expect(await readFile(manifestPath)).toEqual(deactivatedManifest);
+    expect(await snapshotOwnerBytes(development.root)).toEqual(preserved);
+    expect(await readFile(developmentPath)).toEqual(changedReadModel);
+
+    await rm(developmentPath);
+    const current = await development.run(["configure", "plan", ...args]);
+    expect(current.exitCode, current.stderr).toBe(0);
+    const currentPlan = JSON.parse(current.stdout);
+    expect(currentPlan.repositoryApplyUnit.preconditions).toContainEqual({
+      target: developmentLocator,
+      kind: "missing",
+    });
+    const stableSentinel = Buffer.from("unrelated Stable read model bytes\n");
+    await writeFile(stablePath, stableSentinel);
+    const applied = await development.run([
+      "configure",
+      "apply",
+      ...args,
+      "--plan-token",
+      currentPlan.sealedPlanToken,
+    ]);
+    expect(applied.exitCode, applied.stderr).toBe(0);
+    expect(JSON.parse(applied.stdout)).toMatchObject({
+      outcome: "applied",
+      runtime: { channel: "development" },
+      repository: { readModel: { acquisitionCount: 0 } },
+    });
+    expect(await readFile(stablePath)).toEqual(stableSentinel);
+    await access(developmentPath);
+    const inspected = await development.run(["configure", "inspect", "--repo", development.root]);
+    expect(inspected.exitCode, inspected.stderr).toBe(0);
+    expect(JSON.parse(inspected.stdout)).toMatchObject({
+      lifecycle: { state: "active" },
+      currentSelections: { runtime: "development" },
+      runtime: { channel: "development" },
+    });
+    const project = await development.run(["inspect", "project", "--repo", development.root]);
+    expect(project.exitCode, project.stderr).toBe(0);
+    expect(JSON.parse(project.stdout)).toMatchObject({
+      outcome: "partial",
+      runtime: { channel: "development" },
+      result: { summary: { validity: "available", value: { title: "Test Project" } } },
+      diagnostics: [expect.objectContaining({ code: "provider-observation-unavailable" })],
+    });
+  } finally {
+    await product.dispose();
+  }
+}, 60_000);
+
 test("Repository target requires explicit Runtime and preserves Stable and Development separation", async () => {
   const product = await installPackedProduct();
   const root = join(product.root, "unsupported-repository");
@@ -709,6 +846,19 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
     ]);
     expect(bootstrap.exitCode, bootstrap.stderr).toBe(0);
     await writeValidBearingState(developmentProduct.root);
+    const explicitTarget = await developmentProduct.run(
+      ["cache", "rebuild", `--repo=${developmentProduct.root}`],
+      root,
+    );
+    expect(explicitTarget.exitCode, `${explicitTarget.stderr}\n${explicitTarget.stdout}`).toBe(0);
+    expect(JSON.parse(explicitTarget.stdout)).toMatchObject({
+      command: "cache-rebuild",
+      outcome: "complete",
+      runtime: JSON.parse(bootstrap.stdout).receipt,
+    });
+    await access(
+      join(developmentProduct.root, ".bearing/cache/development/project-read-model.sqlite"),
+    );
     const capture = await developmentProduct.run([
       "provider",
       "capture",

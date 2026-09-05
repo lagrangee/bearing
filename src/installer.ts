@@ -1203,7 +1203,11 @@ export const uninstallGlobalKit = async (
   const transaction = randomUUID();
   const linkTransaction = join(kitRoot, `.uninstall-links-${transaction}`);
   const detachedBundle = join(kitRoot, `.uninstall-bundle-${transaction}`);
-  await ensureInstallDirectoryTargets(homeDir, [join(linkTransaction, "entry")]);
+  await ensureInstallDirectoryTargets(homeDir, [
+    ...ownedEntries.map((entry) => entry.target),
+    ...(currentState.kind === "directory" ? [current] : []),
+    join(linkTransaction, "entry"),
+  ]);
   await mkdir(linkTransaction, { mode: 0o700 });
   const mutations: ManagedLinkMutation[] = [];
   let bundleDetached = false;

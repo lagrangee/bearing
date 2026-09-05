@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import fileSystem, { cp, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -74,6 +75,37 @@ const developmentRuntimeContext = (
   },
 });
 
+const recordingProviderFactory =
+  (acquired: string[]) => (input: Parameters<typeof defaultMattProviderFactory>[0]) => {
+    const provider = defaultMattProviderFactory(input);
+    return {
+      ...provider,
+      capture: async (binding: Parameters<typeof provider.capture>[0]) => {
+        acquired.push(binding.nativeScope);
+        return provider.capture(binding);
+      },
+    };
+  };
+
+test("direct exact capture initializes the current Binding in one publication", async () => {
+  const root = await createValidBearingRepo();
+  try {
+    const captured = await captureProjectProviderScopes(root, [".scratch/work"]);
+    assert.equal(captured.outcome, "complete");
+    assert.equal(captured.result.acquisitionCount, 1);
+    assert.deepEqual(
+      captured.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/work", disposition: "captured" }],
+    );
+    const state = await inspectProjectReadModel(root);
+    assert.equal(state.state, "ready");
+    if (state.state !== "ready") throw new Error("Expected a ready Project Read Model.");
+    assert.equal(state.metadata.receipt.publicationCount, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("all-scope verification completes truthfully when the active project has no Work Bindings", async () => {
   const root = await createValidBearingRepo();
   try {
@@ -86,7 +118,6 @@ test("all-scope verification completes truthfully when the active project has no
         "",
       ),
     );
-    assert.equal((await rebuildProjectReadModel(root)).outcome, "complete");
     assert.deepEqual(await verifyAllProjectProviderScopes(root), {
       schemaVersion: 1,
       command: "provider-verify",
@@ -94,7 +125,217 @@ test("all-scope verification completes truthfully when the active project has no
       result: { acquisitionCount: 0, scopes: [], missingEvidenceScopes: [] },
       diagnostics: [],
     });
+    const state = await inspectProjectReadModel(root);
+    if (state.state !== "ready") throw new Error("Expected a ready Project Read Model.");
+    assert.equal(state.metadata.receipt.publicationCount, 1);
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("direct verify-all removes a deleted last Binding without acquiring its prior scope", async () => {
+  const root = await createValidBearingRepo();
+  try {
+    assert.equal((await captureProjectProviderScopes(root, [".scratch/work"])).outcome, "complete");
+    const before = await inspectProjectReadModel(root);
+    if (before.state !== "ready") throw new Error("Expected a ready Project Read Model.");
+    const effortPath = `${root}/.bearing/state/efforts/test.md`;
+    await rm(effortPath);
+    const acquired: string[] = [];
+    const verified = await verifyAllProjectProviderScopes(root, {
+      providerFactory: recordingProviderFactory(acquired),
+    });
+    assert.equal(verified.outcome, "complete");
+    assert.equal(verified.result.acquisitionCount, 0);
+    assert.deepEqual(
+      verified.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [],
+    );
+    assert.deepEqual(acquired, []);
+    assert.deepEqual(await readProjectProviderEvidence(root, "bound"), []);
+    const after = await inspectProjectReadModel(root);
+    if (after.state !== "ready") throw new Error("Expected a ready Project Read Model.");
+    assert.equal(
+      after.metadata.receipt.publicationCount,
+      before.metadata.receipt.publicationCount + 1,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+for (const intent of ["exact", "all"] as const) {
+  test(`direct ${intent} acquisition admits created, replaced and removed canonical Bindings`, async () => {
+    const root = await createValidBearingRepo();
+    try {
+      await captureProjectProviderScopes(root, [".scratch/work"]);
+      const effortPath = `${root}/.bearing/state/efforts/test.md`;
+      const addedPath = `${root}/.bearing/state/efforts/added.md`;
+      const effort = await readFile(effortPath, "utf8");
+      const acquired: string[] = [];
+      const run = async (scope: string, expected: readonly string[], publicationCount: number) => {
+        acquired.length = 0;
+        const dependencies = { providerFactory: recordingProviderFactory(acquired) };
+        const result =
+          intent === "exact"
+            ? await captureProjectProviderScopes(root, [scope, scope], dependencies)
+            : await verifyAllProjectProviderScopes(root, dependencies);
+        assert.equal(result.outcome, "complete");
+        assert.equal(result.result.acquisitionCount, expected.length);
+        assert.deepEqual(acquired, expected);
+        assert.deepEqual(
+          result.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+          expected.map((scope) => ({ scope, disposition: "captured" })),
+        );
+        const state = await inspectProjectReadModel(root);
+        if (state.state !== "ready") throw new Error("Expected a ready Project Read Model.");
+        assert.equal(state.metadata.receipt.publicationCount, publicationCount);
+      };
+
+      await cp(`${root}/.scratch/work`, `${root}/.scratch/added`, { recursive: true });
+      await writeFile(
+        addedPath,
+        effort
+          .replace("ID: effort:test", "ID: effort:added")
+          .replace("Native scope: .scratch/work", "Native scope: .scratch/added"),
+      );
+      await run(
+        ".scratch/added",
+        intent === "exact" ? [".scratch/added"] : [".scratch/added", ".scratch/work"],
+        2,
+      );
+
+      await cp(`${root}/.scratch/work`, `${root}/.scratch/replaced`, { recursive: true });
+      await writeFile(
+        addedPath,
+        effort
+          .replace("ID: effort:test", "ID: effort:added")
+          .replace("Native scope: .scratch/work", "Native scope: .scratch/replaced"),
+      );
+      await run(
+        ".scratch/replaced",
+        intent === "exact" ? [".scratch/replaced"] : [".scratch/replaced", ".scratch/work"],
+        3,
+      );
+      assert.deepEqual(
+        (await readProjectProviderEvidence(root, "bound")).map((row) => row.selection.nativeScope),
+        [".scratch/replaced", ".scratch/work"],
+      );
+
+      await rm(effortPath);
+      await run(".scratch/replaced", [".scratch/replaced"], 4);
+      assert.deepEqual(
+        (await readProjectProviderEvidence(root, "bound")).map((row) => row.selection.nativeScope),
+        [".scratch/replaced"],
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("invalid exact selection rejects empty, unknown and mixed scopes before provider I/O", async () => {
+  const root = await createValidBearingRepo();
+  try {
+    const acquired: string[] = [];
+    for (const scopes of [[], [".scratch/unknown"], [".scratch/work", ".scratch/unknown"]]) {
+      const rejected = await captureProjectProviderScopes(root, scopes, {
+        providerFactory: recordingProviderFactory(acquired),
+      });
+      assert.equal(rejected.outcome, "unfulfilled");
+      assert.equal(rejected.result.acquisitionCount, 0);
+      assert.equal(rejected.diagnostics[0]?.code, "provider-scope-selection-invalid");
+      assert.deepEqual(acquired, []);
+      assert.equal((await inspectProjectReadModel(root)).state, "missing");
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("provider acquisition reads each canonical record once and leaves later edits to the next operation", async (context) => {
+  const root = await realpath(await createValidBearingRepo());
+  const canonicalReads = new Map<string, number>();
+  const originalOpen = fileSystem.open;
+  const opened = context.mock.method(
+    fileSystem,
+    "open",
+    async (...args: Parameters<typeof originalOpen>) => {
+      const path = String(args[0]);
+      if (path.startsWith(`${root}/.bearing/state/`)) {
+        canonicalReads.set(path, (canonicalReads.get(path) ?? 0) + 1);
+      }
+      return originalOpen(...args);
+    },
+  );
+  syncBuiltinESMExports();
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let reached = () => {};
+  const acquiring = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  try {
+    await cp(`${root}/.scratch/work`, `${root}/.scratch/later`, { recursive: true });
+    const effortPath = `${root}/.bearing/state/efforts/test.md`;
+    const effort = await readFile(effortPath, "utf8");
+    const acquired: string[] = [];
+    const pending = captureProjectProviderScopes(root, [".scratch/work"], {
+      providerFactory: (input) => {
+        const provider = recordingProviderFactory(acquired)(input);
+        return {
+          ...provider,
+          capture: async (binding) => {
+            reached();
+            await released;
+            return provider.capture(binding);
+          },
+        };
+      },
+    });
+    await Promise.race([
+      acquiring,
+      pending.then(() => {
+        throw new Error("Expected provider acquisition to reach the barrier.");
+      }),
+    ]);
+    await writeFile(
+      effortPath,
+      effort.replace("Native scope: .scratch/work", "Native scope: .scratch/later"),
+    );
+    release();
+    const captured = await pending;
+    assert.equal(captured.outcome, "complete");
+    assert.deepEqual(acquired, [".scratch/work"]);
+    assert.deepEqual(
+      captured.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/work", disposition: "captured" }],
+    );
+    assert.equal(canonicalReads.size, 6);
+    assert.ok([...canonicalReads.values()].every((count) => count === 1));
+    assert.deepEqual(
+      (await readProjectProviderEvidence(root, "bound")).map((row) => row.selection.nativeScope),
+      [".scratch/work"],
+    );
+
+    canonicalReads.clear();
+    acquired.length = 0;
+    const later = await verifyAllProjectProviderScopes(root, {
+      providerFactory: recordingProviderFactory(acquired),
+    });
+    assert.equal(later.outcome, "complete");
+    assert.deepEqual(acquired, [".scratch/later"]);
+    assert.ok([...canonicalReads.values()].every((count) => count === 1));
+    assert.deepEqual(
+      (await readProjectProviderEvidence(root, "bound")).map((row) => row.selection.nativeScope),
+      [".scratch/later"],
+    );
+  } finally {
+    release();
+    opened.mock.restore();
+    syncBuiltinESMExports();
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -116,9 +357,10 @@ test("item refresh publishes detail evidence without changing bound evidence or 
 
     assert.equal(refreshed.outcome, "complete");
     assert.equal(refreshed.result.acquisitionCount, 1);
-    assert.deepEqual(refreshed.result.scopes, [
-      { scope: ".scratch/work", disposition: "captured" },
-    ]);
+    assert.deepEqual(
+      refreshed.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/work", disposition: "captured" }],
+    );
     assert.deepEqual(await readProjectProviderEvidence(root, "bound"), beforeBound);
     const detail = await readProjectProviderEvidence(root, "detail");
     assert.equal(detail.length, 1);
@@ -247,9 +489,10 @@ test("physical rebuild is local-only and exact capture replaces current bound ev
     });
     assert.equal(incomplete.outcome, "unfulfilled");
     assert.equal(incomplete.result.acquisitionCount, 1);
-    assert.deepEqual(incomplete.result.scopes, [
-      { scope: ".scratch/scope-002", disposition: "unavailable" },
-    ]);
+    assert.deepEqual(
+      incomplete.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/scope-002", disposition: "unavailable" }],
+    );
     const incompleteEvidence = (await readProjectProviderEvidence(fixture.root, "bound")).find(
       (entry) => entry.selection.nativeScope === ".scratch/scope-002",
     );
@@ -260,9 +503,10 @@ test("physical rebuild is local-only and exact capture replaces current bound ev
     const captured = await captureProjectProviderScopes(fixture.root, [".scratch/scope-001"]);
     assert.equal(captured.outcome, "complete");
     assert.equal(captured.result.acquisitionCount, 1);
-    assert.deepEqual(captured.result.scopes, [
-      { scope: ".scratch/scope-001", disposition: "captured" },
-    ]);
+    assert.deepEqual(
+      captured.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/scope-001", disposition: "captured" }],
+    );
     assert.equal(captured.result.missingEvidenceScopes.length, 8);
     assert.ok(!captured.result.missingEvidenceScopes.includes(".scratch/scope-001"));
 
@@ -323,9 +567,10 @@ test("physical rebuild is local-only and exact capture replaces current bound ev
       },
     });
     assert.equal(failedCapture.outcome, "unfulfilled");
-    assert.deepEqual(failedCapture.result.scopes, [
-      { scope: ".scratch/scope-001", disposition: "retained-after-failure" },
-    ]);
+    assert.deepEqual(
+      failedCapture.result.scopes.map(({ scope, disposition }) => ({ scope, disposition })),
+      [{ scope: ".scratch/scope-001", disposition: "retained-after-failure" }],
+    );
     const afterFailedCapture = await inspectProjectReadModel(fixture.root);
     assert.equal(afterFailedCapture.state, "ready");
     if (beforeFailedCapture.state !== "ready" || afterFailedCapture.state !== "ready") {

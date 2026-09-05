@@ -83,6 +83,7 @@ export type ProjectCompilationMetrics = Readonly<{
 
 export type ProjectCompilationOptions = Readonly<{
   explicitInputs?: readonly string[];
+  capturedInputs?: CapturedProjectCompilationInputs;
   providerFactory?: MattProviderFactory;
   providerObservationIntent?: ProviderObservationIntent;
   providerObservationNow?: () => string;
@@ -92,32 +93,17 @@ export type ProjectCompilationOptions = Readonly<{
   providerDetailEvidenceMaximumBytes?: number;
   providerDetailEvidenceState?: ProviderDetailEvidenceState | null;
 }>;
-export const compileProjectGeneration = async (
+export const captureProjectCompilationInputs = async (
   repoRoot: string,
-  options: ProjectCompilationOptions = {},
-): Promise<ProjectCompilation> => {
+  explicitInputs?: readonly string[],
+) => {
   const started = performance.now();
   const root = await resolveRepositoryRoot(repoRoot);
-  const providerDetailEvidenceIntent = options.providerDetailEvidenceIntent ?? { kind: "none" };
-  const nativeReconciliationRequest =
-    providerDetailEvidenceIntent.kind === "reconcile"
-      ? providerDetailEvidenceIntent.request
-      : undefined;
-  if (
-    nativeReconciliationRequest !== undefined &&
-    options.providerObservationIntent !== undefined &&
-    options.providerObservationIntent !== "reuse-current" &&
-    options.providerObservationIntent !== "targeted-reconciliation"
-  ) {
-    throw new TypeError(
-      "Targeted Native Reconciliation cannot be combined with exact-scope capture or all-scope verification.",
-    );
-  }
   const discovery = await discoverManagedInputs(root);
   const explicit =
-    options.explicitInputs === undefined
+    explicitInputs === undefined
       ? { inputs: [], diagnostics: [] }
-      : await retainContainedInputs(root, options.explicitInputs);
+      : await retainContainedInputs(root, explicitInputs);
   const discoveryInputs = [...new Set([...discovery.inputs, ...explicit.inputs])].sort(
     (left, right) => left.localeCompare(right, "en"),
   );
@@ -142,11 +128,53 @@ export const compileProjectGeneration = async (
     })),
   });
   const extended = performance.now();
-  const providerBasisDecoded = rebaseDecodedBearingRecordGeneration(
+  const decoded = rebaseDecodedBearingRecordGeneration(
     initiallyDecoded,
     generation.fingerprint,
     generation.records.length,
   );
+  return {
+    generation,
+    decoded,
+    discoveryDiagnostics,
+    assetContentObservations: assetResolution.observations,
+    phaseMs: {
+      discovery: discovered - started,
+      capture: baseCaptured - discovered + (extended - assetsResolved),
+      decode: decodedAt - baseCaptured,
+      assetResolution: assetsResolved - decodedAt,
+    },
+  };
+};
+
+export type CapturedProjectCompilationInputs = Awaited<
+  ReturnType<typeof captureProjectCompilationInputs>
+>;
+
+export const compileProjectGeneration = async (
+  repoRoot: string,
+  options: ProjectCompilationOptions = {},
+): Promise<ProjectCompilation> => {
+  const providerDetailEvidenceIntent = options.providerDetailEvidenceIntent ?? { kind: "none" };
+  const nativeReconciliationRequest =
+    providerDetailEvidenceIntent.kind === "reconcile"
+      ? providerDetailEvidenceIntent.request
+      : undefined;
+  if (
+    nativeReconciliationRequest !== undefined &&
+    options.providerObservationIntent !== undefined &&
+    options.providerObservationIntent !== "reuse-current" &&
+    options.providerObservationIntent !== "targeted-reconciliation"
+  ) {
+    throw new TypeError(
+      "Targeted Native Reconciliation cannot be combined with exact-scope capture or all-scope verification.",
+    );
+  }
+  const captured =
+    options.capturedInputs ??
+    (await captureProjectCompilationInputs(repoRoot, options.explicitInputs));
+  const { generation, decoded: providerBasisDecoded, discoveryDiagnostics } = captured;
+  const deriving = performance.now();
   const providerSelection = await selectProviderObservations({
     generation,
     decoded: providerBasisDecoded,
@@ -227,12 +255,12 @@ export const compileProjectGeneration = async (
     providerDetailEvidenceSelections: providerDetailEvidence.selections,
     diagnostics,
     fingerprint: finalGeneration.fingerprint,
-    assetContentObservations: assetResolution.observations,
+    assetContentObservations: captured.assetContentObservations,
   });
   const compiled = performance.now();
   const operationMetrics = generation.instrumentation.snapshot();
   return {
-    root,
+    root: generation.root,
     inputs: finalGeneration.inputs,
     basisObservations,
     projectReadModelBasisFingerprint,
@@ -246,7 +274,7 @@ export const compileProjectGeneration = async (
     providerDetailEvidenceObservations: providerDetailEvidence.observations,
     providerDetailEvidenceSelections: providerDetailEvidence.selections,
     providerDetailEvidenceOperation: providerDetailEvidence.operation,
-    assetContentObservations: assetResolution.observations,
+    assetContentObservations: captured.assetContentObservations,
     projectProjections,
     metrics: {
       inputReadCount: operationMetrics.inputReadCount,
@@ -257,11 +285,8 @@ export const compileProjectGeneration = async (
       providerAcquisitionCount: providerSelection.operation.acquisitionCount,
       providerDetailEvidenceAcquisitionCount: providerDetailEvidence.operation.acquisitionCount,
       phaseMs: {
-        discovery: discovered - started,
-        capture: baseCaptured - discovered + (extended - assetsResolved),
-        decode: decodedAt - baseCaptured,
-        assetResolution: assetsResolved - decodedAt,
-        derivation: compiled - extended,
+        ...captured.phaseMs,
+        derivation: compiled - deriving,
       },
     },
   };

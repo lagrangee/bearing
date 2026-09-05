@@ -1363,7 +1363,7 @@ const mapEntries = (
   map: AcquiredIssue,
   items: readonly MarkdownSectionItem[],
   repository: GitHubRepository,
-  byNumber: ReadonlyMap<number, AcquiredIssue>,
+  referencesByNumber: ReadonlyMap<number, MattObjectReference>,
   diagnostics: ProviderDiagnostic[],
   anchorKind: "decision" | "disposition",
 ): readonly Readonly<{
@@ -1387,9 +1387,9 @@ const mapEntries = (
       );
     }
     const only = nativeLinks.length === 1 ? nativeLinks[0] : undefined;
-    const linked = only === undefined ? undefined : byNumber.get(only.target.number);
+    const linked = only === undefined ? undefined : referencesByNumber.get(only.target.number);
     return {
-      ...(linked === undefined ? {} : { ticket: issueReference(repository, linked.issue) }),
+      ...(linked === undefined ? {} : { ticket: linked }),
       text: only === undefined ? item.text : gistAfterLinkLabel(item.text, only.link.label),
       anchor: {
         kind: anchorKind,
@@ -1401,7 +1401,7 @@ const mapEntries = (
 const decodeMap = (
   acquired: AcquiredIssue,
   repository: GitHubRepository,
-  byNumber: ReadonlyMap<number, AcquiredIssue>,
+  referencesByNumber: ReadonlyMap<number, MattObjectReference>,
   diagnostics: ProviderDiagnostic[],
 ): MattMap | undefined => {
   const destination = section(acquired, "Destination");
@@ -1431,7 +1431,7 @@ const decodeMap = (
     acquired,
     mapSectionItems(acquired, "Decisions so far", diagnostics),
     repository,
-    byNumber,
+    referencesByNumber,
     diagnostics,
     "decision",
   );
@@ -1439,7 +1439,7 @@ const decodeMap = (
     acquired,
     mapSectionItems(acquired, "Out of scope", diagnostics),
     repository,
-    byNumber,
+    referencesByNumber,
     diagnostics,
     "disposition",
   );
@@ -1983,25 +1983,36 @@ const incomingIssueFor = (
 const collectBlockedByRelations = (
   acquired: readonly AcquiredIssue[],
   repository: GitHubRepository,
+  referencesByNumber: ReadonlyMap<number, MattObjectReference>,
   diagnostics: ProviderDiagnostic[],
 ): readonly MattBlockedByRelation[] => {
-  const acquiredByNode = new Map(acquired.map((entry) => [entry.issue.node_id, entry]));
-  const byNumber = new Map(acquired.map((entry) => [entry.issue.number, entry]));
+  const inScopeReferences = new Set(referencesByNumber.values());
   const blockedBy: MattBlockedByRelation[] = [];
   for (const entry of acquired) {
     for (const dependency of entry.dependencies) {
-      const blocker = acquiredByNode.get(dependency.node_id);
-      if (blocker === undefined) continue;
+      const blocker = issueReference(repository, dependency);
+      if (
+        dependency.repository_url !== repositoryApiUrl(repository) ||
+        !inScopeReferences.has(blocker)
+      ) {
+        appendExternalRelationEvidence(
+          entry,
+          "native-external-blocked-by",
+          dependency.html_url,
+          nativeRelationIdentity(dependency),
+        );
+        continue;
+      }
       blockedBy.push({
         blocked: issueReference(repository, entry.issue),
-        blocker: issueReference(repository, blocker.issue),
+        blocker,
         evidence: "github-native",
       });
     }
     const fallbackNumbers = bodyBlockerNumbers(entry, repository);
     if (entry.dependencyCapability !== "failed") {
       for (const blockerNumber of fallbackNumbers) {
-        if (byNumber.has(blockerNumber)) continue;
+        if (referencesByNumber.has(blockerNumber)) continue;
         const target = canonicalIssueUrlForNumber(repository, blockerNumber);
         appendExternalRelationEvidence(
           entry,
@@ -2013,11 +2024,11 @@ const collectBlockedByRelations = (
     }
     if (entry.dependencyCapability === "unsupported") {
       for (const blockerNumber of fallbackNumbers) {
-        const blocker = byNumber.get(blockerNumber);
+        const blocker = referencesByNumber.get(blockerNumber);
         if (blocker === undefined) continue;
         blockedBy.push({
           blocked: issueReference(repository, entry.issue),
-          blocker: issueReference(repository, blocker.issue),
+          blocker,
           evidence: "matt-body-fallback",
         });
       }
@@ -2038,13 +2049,13 @@ const collectBlockedByRelations = (
       ),
     );
     for (const blockerNumber of fallbackNumbers) {
-      const blocker = byNumber.get(blockerNumber);
+      const blocker = referencesByNumber.get(blockerNumber);
       appendRelationFacet(
         entry,
         "relation-conflict:blocked-by-fallback",
         blocker === undefined
           ? fallbackRelationIdentity(repository, blockerNumber)
-          : String(issueReference(repository, blocker.issue)),
+          : String(blocker),
       );
     }
   }
@@ -2707,6 +2718,9 @@ const captureGitHubScope = async (
 
   const acquiredByNode = new Map(acquired.map((entry) => [entry.issue.node_id, entry]));
   const byNumber = new Map(acquired.map((entry) => [entry.issue.number, entry]));
+  const referencesByNumber = new Map(
+    acquired.map((entry) => [entry.issue.number, issueReference(repository, entry.issue)]),
+  );
   for (const entry of acquired) {
     const nativeParent = entry.nativeParent;
     if (nativeParent !== undefined) {
@@ -2777,16 +2791,6 @@ const captureGitHubScope = async (
         }
       }
     }
-    for (const dependency of entry.dependencies) {
-      if (!acquiredByNode.has(dependency.node_id)) {
-        appendExternalRelationEvidence(
-          entry,
-          "native-external-blocked-by",
-          dependency.html_url,
-          nativeRelationIdentity(dependency),
-        );
-      }
-    }
   }
   for (const entry of acquired) {
     const nativeChildren = nativeChildrenByParent.get(entry.issue.node_id);
@@ -2829,7 +2833,12 @@ const captureGitHubScope = async (
       );
     }
   }
-  const blockedBy = collectBlockedByRelations(acquired, repository, diagnostics);
+  const blockedBy = collectBlockedByRelations(
+    acquired,
+    repository,
+    referencesByNumber,
+    diagnostics,
+  );
   const mapCandidates = acquired.filter((entry) =>
     entry.issue.labels.some((label) => label.name === "wayfinder:map"),
   );
@@ -2860,7 +2869,7 @@ const captureGitHubScope = async (
   }
   const mapProjection =
     mapCandidates.length === 1 && mapCandidates[0] !== undefined
-      ? decodeMap(mapCandidates[0], repository, byNumber, diagnostics)
+      ? decodeMap(mapCandidates[0], repository, referencesByNumber, diagnostics)
       : undefined;
   if (scope.rootKind === "wayfinder-map" && mapProjection === undefined) {
     diagnostics.push(
@@ -3277,7 +3286,6 @@ const reconcileGitHubScope = async (
 
   const acquired: AcquiredIssue[] = [];
   const parentChild: MattParentChildRelation[] = [];
-  const blockedBy: MattBlockedByRelation[] = [];
   let acquisitionComplete = true;
   for (const number of [...issueNumbers].sort((left, right) => left - right)) {
     const issueEndpoint = `${repositoryEndpoint}/issues/${number}`;
@@ -3426,27 +3434,6 @@ const reconcileGitHubScope = async (
         }
       }
     }
-    if (dependencies?.success === true) {
-      for (const dependency of dependencies.data) {
-        if (
-          dependency.repository_url === repositoryApiUrl(repository) &&
-          relationEndpointIsInScope(dependency.number)
-        ) {
-          blockedBy.push({
-            blocked: issueReference(repository, issue),
-            blocker: issueReference(repository, dependency),
-            evidence: "github-native",
-          });
-        } else {
-          appendExternalRelationEvidence(
-            entry,
-            "native-external-blocked-by",
-            dependency.html_url,
-            nativeRelationIdentity(dependency),
-          );
-        }
-      }
-    }
     if (entry.parentCapability === "unsupported") {
       const fallbackParentNumber = bodyParentNumber(entry, repository);
       const fallbackParentReference =
@@ -3502,61 +3489,18 @@ const reconcileGitHubScope = async (
       admittedReferences.has(String(relation.parent)) &&
       admittedReferences.has(String(relation.child)),
   );
-  const admittedBlockedBy = blockedBy.filter(
-    (relation) =>
-      admittedReferences.has(String(relation.blocked)) &&
-      admittedReferences.has(String(relation.blocker)),
-  );
-
-  const priorByNumber = new Map(
-    githubProjectedObjects(priorProjection).flatMap((object) =>
-      object.native.kind === "github" ? [[object.native.identity.number, object] as const] : [],
+  const referencesByNumber = new Map([
+    ...priorProjectedReferenceByNumber,
+    ...admittedAcquired.map(
+      (entry) => [entry.issue.number, issueReference(repository, entry.issue)] as const,
     ),
+  ]);
+  const admittedBlockedBy = collectBlockedByRelations(
+    admittedAcquired,
+    repository,
+    referencesByNumber,
+    diagnostics,
   );
-  const byNumber = new Map<number, AcquiredIssue>(
-    admittedAcquired.map((entry) => [entry.issue.number, entry]),
-  );
-  for (const [number, object] of priorByNumber) {
-    if (byNumber.has(number) || object.native.kind !== "github") continue;
-    byNumber.set(number, {
-      issue: {
-        id: object.native.identity.objectDatabaseId,
-        node_id: object.native.identity.objectNodeId,
-        number,
-        title: object.title,
-        body: "",
-        state: object.native.trackerClosure.state === "open" ? "open" : "closed",
-        state_reason: null,
-        created_at:
-          object.native.createdAt.availability === "available"
-            ? object.native.createdAt.value
-            : capturedAt,
-        updated_at:
-          object.native.lastUpdated.availability === "available"
-            ? object.native.lastUpdated.value
-            : capturedAt,
-        closed_at: null,
-        html_url: object.native.identity.url,
-        repository_url: repositoryApiUrl(repository),
-        labels: [],
-        assignees: [],
-        user: {
-          login: "bearing-reconciliation-basis",
-          id: "bearing-reconciliation-basis",
-          node_id: "bearing-reconciliation-basis",
-        },
-        author_association: "NONE",
-      },
-      document: parseMarkdownDocument(""),
-      comments: [],
-      commentsCapability: "unsupported",
-      dependencies: [],
-      dependencyCapability: "unsupported",
-      parentCapability: "unsupported",
-      externalAnchors: [],
-      relationFacets: [],
-    });
-  }
 
   const targetedRefs = new Set(
     admittedAcquired.map((entry) => issueReference(repository, entry.issue)),
@@ -3567,7 +3511,7 @@ const reconcileGitHubScope = async (
   const mapProjection =
     mapEntry === undefined
       ? priorProjection.map
-      : decodeMap(mapEntry, repository, byNumber, diagnostics);
+      : decodeMap(mapEntry, repository, referencesByNumber, diagnostics);
   const changedWayfinder: MattWayfinderTicket[] = [];
   const changedDelivery: MattDeliveryTicket[] = [];
   const changedIncoming: MattIncomingIssue[] = [];
@@ -3632,14 +3576,11 @@ const reconcileGitHubScope = async (
     (priorProjection.spec !== undefined && targetedRefs.has(priorProjection.spec.ref)
       ? undefined
       : priorProjection.spec);
-  const touchedRelationRefs = targetedRefs;
   const retainedParentChild = priorProjection.graph.parentChild.filter(
-    (relation) =>
-      !touchedRelationRefs.has(relation.parent) && !touchedRelationRefs.has(relation.child),
+    (relation) => !targetedRefs.has(relation.parent) && !targetedRefs.has(relation.child),
   );
   const retainedBlockedBy = priorProjection.graph.blockedBy.filter(
-    (relation) =>
-      !touchedRelationRefs.has(relation.blocked) && !touchedRelationRefs.has(relation.blocker),
+    (relation) => !targetedRefs.has(relation.blocked),
   );
   const allObjects = [
     ...(mapProjection === undefined ? [] : [mapProjection]),
