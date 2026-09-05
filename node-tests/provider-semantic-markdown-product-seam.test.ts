@@ -1134,7 +1134,11 @@ test("unsupported GitHub comment capability still publishes readable Portal and 
     });
     assert.equal(captured.outcome, "complete");
     assert.deepEqual(captured.result.scopes, [
-      { scope: repository.nativeScope, disposition: "captured" },
+      {
+        scope: repository.nativeScope,
+        disposition: "captured",
+        observedAt: "2026-07-28T00:00:00.000Z",
+      },
     ]);
 
     const target = {
