@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { lstat, mkdir, readdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { MattSkillsV1ProviderObservation } from "../src/providers/matt-skills-v1/capture";
 import {
   createLocalMarkdownMattProvider,
   type LocalMarkdownCaptureEvent,
@@ -235,6 +236,70 @@ const capture = async (
     clock: () => new Date("2026-07-28T00:00:00Z"),
     ...options,
   }).capture(binding);
+
+const localSemanticView = (observation: MattSkillsV1ProviderObservation) => ({
+  state: observation.state,
+  coverage: observation.coverage.assessment,
+  completion: observation.completion,
+  projection: JSON.parse(
+    JSON.stringify(observation.projection, (key, value) =>
+      ["createdAt", "lastUpdated", "closedAt", "authoredAt"].includes(key) ? undefined : value,
+    ),
+  ),
+  diagnostics: observation.diagnostics
+    .map(({ code, class: diagnosticClass, impact, target }) => ({
+      code,
+      class: diagnosticClass,
+      impact,
+      target,
+    }))
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+});
+
+const referenceReconciliationProvider = async (
+  root: string,
+  onCaptureEvent: (event: LocalMarkdownCaptureEvent) => void,
+) => {
+  const capturedDocuments = new Map(
+    await Promise.all(
+      [contractLocator, triageLocator].map(async (locator) => {
+        const bytes = await readFile(join(root, locator));
+        return [locator, { locator, source: bytes.toString("utf8"), bytes }] as const;
+      }),
+    ),
+  );
+  return createLocalMarkdownMattProvider({
+    repoRoot: root,
+    contractLocator,
+    triageLocator,
+    capturedDocuments,
+    onCaptureEvent,
+  });
+};
+
+const observeReferenceChange = async (mutate: (root: string) => Promise<readonly string[]>) => {
+  const root = await writeReferenceRepository();
+  try {
+    const reads: string[] = [];
+    const provider = await referenceReconciliationProvider(root, (event) => {
+      if (event.kind === "content-read") reads.push(event.locator);
+    });
+    const prior = await provider.capture(binding);
+    expect(prior.state).toBe("available");
+    expect(prior.freshness.assessment).toBe("current");
+    expect(prior.coverage.assessment).toBe("complete");
+    expect(prior.diagnostics).toEqual([]);
+    const subjects = await mutate(root);
+    reads.length = 0;
+    const targeted = await provider.reconcile?.({ binding, prior, affected: { subjects } });
+    if (targeted === undefined) throw new Error("Expected Local targeted reconciliation.");
+    const targetedReads = [...reads];
+    const full = await provider.capture(binding);
+    return { prior, targeted, full, targetedReads };
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+};
 
 const snapshotNativeBytes = async (root: string): Promise<Readonly<Record<string, string>>> => {
   const result: Record<string, string> = {};
@@ -628,6 +693,310 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       parent: deliveryReference,
       child: `${nativeScope}/PRD.md`,
     });
+  });
+
+  test("duplicate numeric references invalidate unread blocker relations in both acquisition paths", async () => {
+    const duplicate = `${nativeScope}/issues/01-second.md`;
+    const { prior, targeted, full, targetedReads } = await observeReferenceChange(async (root) => {
+      await writeFixture(
+        root,
+        duplicate,
+        wayfinder({
+          number: "01",
+          slug: "second",
+          type: "task",
+          status: "claimed",
+          question: "Which Ticket owns numeric reference 01?",
+        })[1],
+      );
+      return [duplicate];
+    });
+
+    expect(targetedReads).toEqual([duplicate]);
+    expect(targeted.state).toBe("partial");
+    expect(targeted.completion).toBe("undetermined");
+    expect(targeted.projection?.graph.blockedBy).toEqual([]);
+    expect(targeted.diagnostics.map((item) => item.code)).toContain(
+      "matt.local.identity.duplicate-reference",
+    );
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+    expect(targeted.projection?.incomingIssues).toEqual(prior.projection?.incomingIssues);
+    expect(
+      targeted.projection?.wayfinderTickets.find((ticket) => ticket.title === "grilling"),
+    ).toEqual(prior.projection?.wayfinderTickets.find((ticket) => ticket.title === "grilling"));
+  });
+
+  test("deleting the required Spec degrades parent evidence and retains legitimate Delivery tickets", async () => {
+    const parent = `${nativeScope}/PRD.md`;
+    const { prior, targeted, full, targetedReads } = await observeReferenceChange(async (root) => {
+      await rm(join(root, parent));
+      return [parent];
+    });
+
+    expect(targetedReads).toEqual([]);
+    expect(targeted.freshness.evidence).toContainEqual({ kind: "absence-read-count", value: "1" });
+    expect(targeted.state).toBe("partial");
+    expect(targeted.projection?.spec).toBeUndefined();
+    expect(
+      targeted.projection?.graph.parentChild.some((relation) => relation.parent === parent),
+    ).toBe(false);
+    expect(targeted.projection?.deliveryTickets).toEqual(prior.projection?.deliveryTickets);
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+  });
+
+  test("a Map-only duplicate decision cannot retain the prior resolved route", async () => {
+    const locator = `${nativeScope}/map.md`;
+    const { prior, targeted, full, targetedReads } = await observeReferenceChange(async (root) => {
+      await writeFixture(
+        root,
+        locator,
+        map.replace(
+          "## Decisions so far",
+          "## Decisions so far\n\n- [Research the semantic contract](issues/01-research.md) — A second decision.",
+        ),
+      );
+      return [locator];
+    });
+
+    expect(targetedReads).toEqual([locator]);
+    expect(prior.projection?.wayfinderTickets[0]?.lifecycle.state).toBe("resolved-on-route");
+    expect(targeted.state).toBe("partial");
+    expect(targeted.projection?.wayfinderTickets[0]).toMatchObject({
+      lifecycle: { state: "open" },
+      trackerClosure: { state: "closed", disposition: "completed" },
+    });
+    expect(targeted.diagnostics).toContainEqual({
+      code: "matt.local.relation.ambiguous",
+      class: "identity",
+      impact: "blocking",
+      target: `${nativeScope}/issues/01-research.md`,
+      message: expect.any(String),
+    });
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+    expect(targeted.projection?.wayfinderTickets[2]).toEqual(prior.projection?.wayfinderTickets[2]);
+    expect(targeted.projection?.deliveryTickets).toEqual(prior.projection?.deliveryTickets);
+  });
+
+  for (const route of [
+    {
+      name: "repeated disposition",
+      source: map.replace(
+        "## Out of scope",
+        "## Out of scope\n\n- [Grill the ontology boundary](issues/03-grilling.md) — Another disposition.",
+      ),
+      index: 2,
+      code: "matt.local.relation.ambiguous",
+    },
+    {
+      name: "decision and disposition",
+      source: map.replace(
+        "## Out of scope",
+        "## Out of scope\n\n- [Research the semantic contract](issues/01-research.md) — Contradict the decision.",
+      ),
+      index: 0,
+      code: "matt.local.relation.ambiguous",
+    },
+    {
+      name: "disposition and decision",
+      source: map.replace(
+        "## Decisions so far",
+        "## Decisions so far\n\n- [Grill the ontology boundary](issues/03-grilling.md) — Contradict the disposition.",
+      ),
+      index: 2,
+      code: "matt.local.relation.ambiguous",
+    },
+    {
+      name: "removed disposition",
+      source: map.replace(
+        "- [Grill the ontology boundary](issues/03-grilling.md) — Do not build a universal tracker ontology.\n",
+        "",
+      ),
+      index: 2,
+      code: "matt.local.relation.broken",
+    },
+  ]) {
+    test(`a Map-only ${route.name} leaves affected lifecycle unresolved in both paths`, async () => {
+      const locator = `${nativeScope}/map.md`;
+      const { prior, targeted, full, targetedReads } = await observeReferenceChange(
+        async (root) => {
+          await writeFixture(root, locator, route.source);
+          return [locator];
+        },
+      );
+
+      expect(targetedReads).toEqual([locator]);
+      expect(targeted.state).toBe("partial");
+      expect(targeted.completion).toBe("undetermined");
+      expect(targeted.projection?.wayfinderTickets[route.index]).toMatchObject({
+        lifecycle: { state: "open" },
+        trackerClosure: { state: "closed", disposition: "completed" },
+      });
+      expect(targeted.diagnostics.map((item) => item.code)).toContain(route.code);
+      expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+      expect(targeted.projection?.deliveryTickets).toEqual(prior.projection?.deliveryTickets);
+      expect(targeted.projection?.incomingIssues).toEqual(prior.projection?.incomingIssues);
+    });
+  }
+
+  test("deleting the required Map removes route and parent evidence without erasing Tickets", async () => {
+    const parent = `${nativeScope}/map.md`;
+    const { prior, targeted, full, targetedReads } = await observeReferenceChange(async (root) => {
+      await rm(join(root, parent));
+      return [parent];
+    });
+
+    expect(targetedReads).toEqual([]);
+    expect(targeted.freshness.evidence).toContainEqual({ kind: "absence-read-count", value: "1" });
+    expect(targeted.state).toBe("partial");
+    expect(targeted.projection?.map).toBeUndefined();
+    expect(targeted.projection?.wayfinderTickets).toHaveLength(4);
+    expect(targeted.projection?.wayfinderTickets.map((ticket) => ticket.lifecycle.state)).toEqual([
+      "open",
+      "open",
+      "open",
+      "open",
+    ]);
+    expect(
+      targeted.projection?.graph.parentChild.map((relation) => ({
+        parent: String(relation.parent),
+        child: String(relation.child),
+        evidence: relation.evidence,
+      })),
+    ).toEqual([
+      {
+        parent: `${nativeScope}/PRD.md`,
+        child: `${nativeScope}/issues/05-delivery.md`,
+        evidence: "matt-contract",
+      },
+    ]);
+    expect(targeted.projection?.deliveryTickets).toEqual(prior.projection?.deliveryTickets);
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+  });
+
+  test("a unique replacement decision rebuilds a prior out-of-scope route from current evidence", async () => {
+    const locator = `${nativeScope}/map.md`;
+    const { targeted, full, targetedReads } = await observeReferenceChange(async (root) => {
+      const disposition =
+        "- [Grill the ontology boundary](issues/03-grilling.md) — Do not build a universal tracker ontology.";
+      await writeFixture(
+        root,
+        locator,
+        map
+          .replace(`${disposition}\n`, "")
+          .replace("## Decisions so far", `## Decisions so far\n\n${disposition}`),
+      );
+      return [locator];
+    });
+
+    expect(targetedReads).toEqual([locator]);
+    expect(targeted.state).toBe("available");
+    expect(targeted.projection?.wayfinderTickets[2]).toMatchObject({
+      lifecycle: { state: "resolved-on-route" },
+      trackerClosure: { state: "closed", disposition: "completed" },
+    });
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+  });
+
+  test("a scope with no remaining parent-requiring Tickets needs neither singleton parent", async () => {
+    const { prior, targeted, full, targetedReads } = await observeReferenceChange(async (root) => {
+      const removed = [
+        "map.md",
+        "PRD.md",
+        "issues/01-research.md",
+        "issues/02-prototype.md",
+        "issues/03-grilling.md",
+        "issues/04-task.md",
+        "issues/05-delivery.md",
+      ].map((path) => `${nativeScope}/${path}`);
+      for (const locator of removed) await rm(join(root, locator));
+      return removed;
+    });
+
+    expect(targetedReads).toEqual([]);
+    expect(targeted.freshness.evidence).toContainEqual({ kind: "absence-read-count", value: "7" });
+    expect(targeted.state).toBe("available");
+    expect(targeted.diagnostics).toEqual([]);
+    expect(targeted.projection?.incomingIssues).toEqual(prior.projection?.incomingIssues);
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+  });
+
+  test("duplicate numeric references also fail closed for freshly read blocker owners", async () => {
+    const duplicate = `${nativeScope}/issues/0001-second.md`;
+    const owner = `${nativeScope}/issues/04-task.md`;
+    const { targeted, full, targetedReads } = await observeReferenceChange(async (root) => {
+      for (const input of [
+        { number: "0001", slug: "second", blockedBy: "None — can start immediately" },
+        { number: "04", slug: "task", blockedBy: "01" },
+      ]) {
+        const [locator, source] = wayfinder({
+          ...input,
+          type: "task",
+          status: "claimed",
+          question: "Which numeric identity is the blocker?",
+        });
+        await writeFixture(root, locator, source);
+      }
+      return [duplicate, owner];
+    });
+
+    expect(targetedReads).toEqual([duplicate, owner]);
+    expect(targeted.state).toBe("partial");
+    expect(targeted.projection?.graph.blockedBy).toEqual([]);
+    expect(targeted.diagnostics).toContainEqual({
+      code: "matt.local.relation.broken",
+      class: "identity",
+      impact: "blocking",
+      target: owner,
+      message: expect.any(String),
+    });
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+  });
+
+  test("a repaired subject cannot turn a partial full capture into a ready reconciliation basis", async () => {
+    const root = await writeReferenceRepository();
+    try {
+      const locator = `${nativeScope}/issues/04-task.md`;
+      const reads: string[] = [];
+      const provider = await referenceReconciliationProvider(root, (event) => {
+        if (event.kind === "content-read") reads.push(event.locator);
+      });
+      const valid = await provider.capture(binding);
+      expect(valid.state).toBe("available");
+      expect(valid.freshness.assessment).toBe("current");
+      expect(valid.coverage.assessment).toBe("complete");
+      const original = await readFile(join(root, locator), "utf8");
+      await writeFixture(
+        root,
+        locator,
+        original.replace("Type: task", "Type: task\n\nBlocked by: 99"),
+      );
+      const partial = await provider.capture(binding);
+      expect(partial.state).toBe("partial");
+      expect(partial.freshness.assessment).toBe("current");
+      expect(partial.completion).toBe("undetermined");
+      await writeFixture(root, locator, original);
+      reads.length = 0;
+      const targeted = await provider.reconcile?.({
+        binding,
+        prior: partial,
+        affected: { subjects: [locator] },
+      });
+
+      expect(reads).toEqual([locator]);
+      expect(targeted?.state).toBe("partial");
+      expect(targeted?.coverage.assessment).toBe("incomplete");
+      expect(targeted?.completion).toBe("undetermined");
+      expect(targeted?.diagnostics.map((item) => item.code)).toContain(
+        "matt.local.reconciliation.partial-basis",
+      );
+      expect(targeted?.coverage.dimensions).toContainEqual({
+        key: "scope-membership-basis",
+        state: "excluded",
+        detail: expect.any(String),
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("captures a Status-absent Wayfinder ticket as open and unclaimed", async () => {

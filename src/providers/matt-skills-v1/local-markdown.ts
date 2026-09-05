@@ -18,6 +18,7 @@ import {
 } from "../../markdown-document";
 import { affectedReadReferences } from "../../native-reconciliation-contract";
 import {
+  assessProviderObservationEvidence,
   type CapturedProviderDocuments,
   createProviderScopeObservation,
   type NativeWorkReconciliationInput,
@@ -110,15 +111,19 @@ type TriageVocabulary = Readonly<{
 
 type IssueRole = "wayfinder" | "delivery" | "incoming" | "ambiguous";
 
-type DecodedIssue = Readonly<{
-  file: CapturedFile;
+type LocalIssueIdentity = Readonly<{
+  locator: string;
   shortReference: string;
-  role: IssueRole;
-  wayfinder?: MattWayfinderTicket;
-  delivery?: MattDeliveryTicket;
-  incoming?: MattIncomingIssue;
-  blockerReferences: readonly string[];
+  kind?: "wayfinder-ticket" | "delivery-ticket" | "incoming-issue";
 }>;
+
+type DecodedIssue = LocalIssueIdentity &
+  Readonly<{
+    wayfinder?: MattWayfinderTicket;
+    delivery?: MattDeliveryTicket;
+    incoming?: MattIncomingIssue;
+    blockerReferences: readonly string[];
+  }>;
 
 export type LocalMarkdownCaptureEvent =
   | Readonly<{ kind: "scope-enumerated"; locator: string }>
@@ -1021,10 +1026,10 @@ const canonicalMapIssueLocator = (file: CapturedFile, target: string): string | 
 const mapSectionEntries = (
   file: CapturedFile,
   title: string,
-  issueByLocator: ReadonlyMap<string, DecodedIssue>,
+  issueByLocator: ReadonlyMap<string, LocalIssueIdentity>,
   diagnostics: CaptureDiagnostic[],
 ): readonly Readonly<{
-  issue?: DecodedIssue;
+  issue?: LocalIssueIdentity;
   index: number;
   label?: string;
   text: string;
@@ -1078,7 +1083,7 @@ const mapSectionEntries = (
       );
       return { index, text: item.text };
     }
-    if (issue.wayfinder === undefined) return { index, text: item.text };
+    if (issue.kind !== "wayfinder-ticket") return { index, text: item.text };
     return {
       issue,
       index,
@@ -1090,7 +1095,7 @@ const mapSectionEntries = (
 
 const decodeMap = (
   file: CapturedFile,
-  issueByLocator: ReadonlyMap<string, DecodedIssue>,
+  issueByLocator: ReadonlyMap<string, LocalIssueIdentity>,
   diagnostics: CaptureDiagnostic[],
 ): MattMap | undefined => {
   const title = titleFor(file, diagnostics);
@@ -1122,7 +1127,7 @@ const decodeMap = (
   const decisions: MattMap["decisions"][number][] = [];
   for (const entry of mapSectionEntries(file, "Decisions so far", issueByLocator, diagnostics)) {
     decisions.push({
-      ...(entry.issue === undefined ? {} : { ticket: objectReference(entry.issue.file.locator) }),
+      ...(entry.issue === undefined ? {} : { ticket: objectReference(entry.issue.locator) }),
       gist: entry.label === undefined ? entry.text : gistAfterLinkLabel(entry.text, entry.label),
       sourceAnchor: { kind: "decision", target: `${file.locator}#decision-${entry.index + 1}` },
     });
@@ -1131,7 +1136,7 @@ const decodeMap = (
   const outOfScope: MattMap["outOfScope"][number][] = [];
   for (const entry of mapSectionEntries(file, "Out of scope", issueByLocator, diagnostics)) {
     outOfScope.push({
-      ...(entry.issue === undefined ? {} : { ticket: objectReference(entry.issue.file.locator) }),
+      ...(entry.issue === undefined ? {} : { ticket: objectReference(entry.issue.locator) }),
       rationale:
         entry.label === undefined ? entry.text : gistAfterLinkLabel(entry.text, entry.label),
       sourceAnchor: {
@@ -1244,12 +1249,35 @@ const decodeSpec = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): MattS
 };
 
 const lifecycleWithMapEvidence = (
-  ticket: MattWayfinderTicket,
+  sourceTicket: MattWayfinderTicket,
   map: MattMap | undefined,
   diagnostics: CaptureDiagnostic[],
 ): MattWayfinderTicket => {
+  const decisions = map?.decisions.filter((entry) => entry.ticket === sourceTicket.ref) ?? [];
+  const dispositions = map?.outOfScope.filter((entry) => entry.ticket === sourceTicket.ref) ?? [];
+  // Prior projections may carry a derived route and closure disposition. Rebuild both
+  // from the current Map while retaining the Ticket's source-owned closure state.
+  const ticket: MattWayfinderTicket = {
+    ...sourceTicket,
+    lifecycle: { state: "open" },
+    trackerClosure:
+      sourceTicket.trackerClosure.state === "closed"
+        ? { ...sourceTicket.trackerClosure, disposition: "completed" }
+        : sourceTicket.trackerClosure,
+  };
+  if (decisions.length + dispositions.length > 1) {
+    diagnostics.push(
+      diagnostic(
+        "matt.local.relation.ambiguous",
+        "identity",
+        String(ticket.ref),
+        "Wayfinder ticket has repeated or conflicting Map decision and out-of-scope pointers.",
+      ),
+    );
+    return ticket;
+  }
   if (ticket.trackerClosure.state !== "closed") return ticket;
-  const decision = map?.decisions.find((entry) => entry.ticket === ticket.ref);
+  const decision = decisions[0];
   if (decision !== undefined) {
     return {
       ...ticket,
@@ -1259,7 +1287,7 @@ const lifecycleWithMapEvidence = (
       },
     };
   }
-  const disposition = map?.outOfScope.find((entry) => entry.ticket === ticket.ref);
+  const disposition = dispositions[0];
   if (disposition !== undefined) {
     return {
       ...ticket,
@@ -1308,6 +1336,130 @@ const scopeCompletion = (projection: MattScopeProjection): "complete" | "incompl
     return "incomplete";
   }
   return "complete";
+};
+
+const deriveLocalParents = (
+  scopeLocator: string,
+  mapProjection: MattMap | undefined,
+  specProjection: MattSpec | undefined,
+  wayfinderTickets: readonly MattWayfinderTicket[],
+  deliveryTickets: readonly MattDeliveryTicket[],
+  diagnostics: CaptureDiagnostic[],
+): MattParentChildRelation[] => {
+  const parentChild: MattParentChildRelation[] = [];
+  if (mapProjection !== undefined) {
+    for (const ticket of wayfinderTickets) {
+      parentChild.push({
+        parent: mapProjection.ref,
+        child: ticket.ref,
+        evidence: "matt-contract",
+      });
+    }
+  } else if (wayfinderTickets.length > 0) {
+    diagnostics.push(
+      diagnostic(
+        "matt.local.relation.broken",
+        "identity",
+        scopeLocator,
+        "Wayfinder tickets exist without the optional singleton Map required for parent evidence.",
+      ),
+    );
+  }
+  if (specProjection !== undefined) {
+    for (const ticket of deliveryTickets) {
+      parentChild.push({
+        parent: specProjection.ref,
+        child: ticket.ref,
+        evidence: "matt-contract",
+      });
+    }
+  } else if (deliveryTickets.length > 0) {
+    diagnostics.push(
+      diagnostic(
+        "matt.local.relation.broken",
+        "identity",
+        scopeLocator,
+        "Delivery tickets exist without the optional singleton Spec required for parent evidence.",
+      ),
+    );
+  }
+
+  return parentChild;
+};
+
+const deriveLocalBlockers = (
+  scopeLocator: string,
+  identities: ReadonlyMap<string, LocalIssueIdentity>,
+  observedIssues: readonly DecodedIssue[],
+  priorRelations: readonly MattBlockedByRelation[],
+  diagnostics: CaptureDiagnostic[],
+): MattBlockedByRelation[] => {
+  const byShortReference = new Map<string, LocalIssueIdentity[]>();
+  for (const identity of identities.values()) {
+    const matches = byShortReference.get(identity.shortReference) ?? [];
+    matches.push(identity);
+    byShortReference.set(identity.shortReference, matches);
+  }
+  for (const [shortReference, matches] of byShortReference) {
+    if (matches.length > 1) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.identity.duplicate-reference",
+          "identity",
+          scopeLocator,
+          `Short reference ${shortReference} resolves to more than one issue.`,
+        ),
+      );
+    }
+  }
+  const isTicket = (identity: LocalIssueIdentity | undefined): boolean =>
+    identity?.kind === "wayfinder-ticket" || identity?.kind === "delivery-ticket";
+  const blockedBy: MattBlockedByRelation[] = [];
+  const appendRelation = (locator: string, reference: string): void => {
+    const matches = byShortReference.get(reference) ?? [];
+    const blocker = matches.length === 1 ? matches[0] : undefined;
+    if (blocker === undefined || !isTicket(blocker)) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.relation.broken",
+          "identity",
+          locator,
+          `Blocked by reference does not uniquely resolve to a ticket: ${reference}.`,
+        ),
+      );
+      return;
+    }
+    blockedBy.push({
+      blocked: objectReference(locator),
+      blocker: objectReference(blocker.locator),
+      evidence: "matt-contract",
+    });
+  };
+  const observedLocators = new Set(observedIssues.map((issue) => issue.locator));
+  for (const relation of priorRelations) {
+    if (observedLocators.has(relation.blocked) || !isTicket(identities.get(relation.blocked))) {
+      continue;
+    }
+    const reference = shortReferenceFor(relation.blocker);
+    if (reference !== undefined) appendRelation(relation.blocked, reference);
+  }
+  for (const issue of observedIssues) {
+    if (!isTicket(issue) && issue.blockerReferences.length > 0) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.relation.broken",
+          "identity",
+          issue.locator,
+          "Only Wayfinder and Delivery tickets may carry Blocked by relations.",
+        ),
+      );
+      continue;
+    }
+    for (const reference of issue.blockerReferences) appendRelation(issue.locator, reference);
+  }
+  return blockedBy.sort((left, right) =>
+    utf8Compare(`${left.blocked}\0${left.blocker}`, `${right.blocked}\0${right.blocker}`),
+  );
 };
 
 const captureLocalScope = async (
@@ -1643,7 +1795,6 @@ const captureLocalScope = async (
     if (file !== undefined) issueFiles.push(file);
   }
   const decodedIssues: DecodedIssue[] = [];
-  const byShortReference = new Map<string, DecodedIssue[]>();
   for (const file of issueFiles) {
     const shortReference = shortReferenceFor(file.locator);
     if (shortReference === undefined) {
@@ -1673,34 +1824,20 @@ const captureLocalScope = async (
       role === "delivery" ? decodeDelivery(file, vocabulary, diagnostics) : undefined;
     const incoming =
       role === "incoming" ? decodeIncoming(file, vocabulary, diagnostics) : undefined;
+    const projected = wayfinder ?? delivery ?? incoming;
     const decoded: DecodedIssue = {
-      file,
+      locator: file.locator,
       shortReference,
-      role,
+      ...(projected === undefined ? {} : { kind: projected.kind }),
       blockerReferences: blockerReferences(file, diagnostics),
       ...(wayfinder === undefined ? {} : { wayfinder }),
       ...(delivery === undefined ? {} : { delivery }),
       ...(incoming === undefined ? {} : { incoming }),
     };
     decodedIssues.push(decoded);
-    const matches = byShortReference.get(shortReference) ?? [];
-    matches.push(decoded);
-    byShortReference.set(shortReference, matches);
-  }
-  for (const [shortReference, matches] of byShortReference) {
-    if (matches.length > 1) {
-      diagnostics.push(
-        diagnostic(
-          "matt.local.identity.duplicate-reference",
-          "identity",
-          scopeLocator,
-          `Short reference ${shortReference} resolves to more than one issue.`,
-        ),
-      );
-    }
   }
 
-  const issueByLocator = new Map(decodedIssues.map((issue) => [issue.file.locator, issue]));
+  const issueByLocator = new Map(decodedIssues.map((issue) => [issue.locator, issue]));
   const mapProjection =
     mapFile === undefined ? undefined : decodeMap(mapFile, issueByLocator, diagnostics);
   const specProjection = specFile === undefined ? undefined : decodeSpec(specFile, diagnostics);
@@ -1714,76 +1851,22 @@ const captureLocalScope = async (
     issue.incoming === undefined ? [] : [issue.incoming],
   );
 
-  const parentChild: MattParentChildRelation[] = [];
-  if (mapProjection !== undefined) {
-    for (const ticket of wayfinderTickets) {
-      parentChild.push({
-        parent: mapProjection.ref,
-        child: ticket.ref,
-        evidence: "matt-contract",
-      });
-    }
-  } else if (wayfinderTickets.length > 0) {
-    diagnostics.push(
-      diagnostic(
-        "matt.local.relation.broken",
-        "identity",
-        scopeLocator,
-        "Wayfinder tickets exist without the optional singleton Map required for parent evidence.",
-      ),
-    );
-  }
-  if (specProjection !== undefined) {
-    for (const ticket of deliveryTickets) {
-      parentChild.push({
-        parent: specProjection.ref,
-        child: ticket.ref,
-        evidence: "matt-contract",
-      });
-    }
-  } else if (deliveryTickets.length > 0) {
-    diagnostics.push(
-      diagnostic(
-        "matt.local.relation.broken",
-        "identity",
-        scopeLocator,
-        "Delivery tickets exist without the optional singleton Spec required for parent evidence.",
-      ),
-    );
-  }
+  const parentChild = deriveLocalParents(
+    scopeLocator,
+    mapProjection,
+    specProjection,
+    wayfinderTickets,
+    deliveryTickets,
+    diagnostics,
+  );
 
-  const blockedBy: MattBlockedByRelation[] = [];
-  for (const issue of decodedIssues) {
-    const blocked = issue.wayfinder?.ref ?? issue.delivery?.ref;
-    if (blocked === undefined && issue.blockerReferences.length > 0) {
-      diagnostics.push(
-        diagnostic(
-          "matt.local.relation.broken",
-          "identity",
-          issue.file.locator,
-          "Only Wayfinder and Delivery tickets may carry Blocked by relations.",
-        ),
-      );
-      continue;
-    }
-    for (const blockerReference of issue.blockerReferences) {
-      const matches = byShortReference.get(blockerReference) ?? [];
-      const blocker = matches.length === 1 ? matches[0] : undefined;
-      const blockerRef = blocker?.wayfinder?.ref ?? blocker?.delivery?.ref;
-      if (blocked === undefined || blockerRef === undefined) {
-        diagnostics.push(
-          diagnostic(
-            "matt.local.relation.broken",
-            "identity",
-            issue.file.locator,
-            `Blocked by reference does not uniquely resolve to a ticket: ${blockerReference}.`,
-          ),
-        );
-        continue;
-      }
-      blockedBy.push({ blocked, blocker: blockerRef, evidence: "matt-contract" });
-    }
-  }
+  const blockedBy = deriveLocalBlockers(
+    scopeLocator,
+    issueByLocator,
+    decodedIssues,
+    [],
+    diagnostics,
+  );
 
   const resolvedWayfinder = wayfinderTickets.map((ticket) =>
     lifecycleWithMapEvidence(ticket, mapProjection, diagnostics),
@@ -1964,6 +2047,7 @@ const localReconciliationProjection = async (
   const priorProjection = input.prior?.projection ?? emptyProjection();
   const partialBasis =
     input.prior === undefined ||
+    assessProviderObservationEvidence(input.prior).frontierEvidence !== "trustworthy" ||
     !input.prior.coverage.dimensions.some(
       (dimension) =>
         (dimension.key === "scope-membership" || dimension.key === "scope-membership-basis") &&
@@ -2190,10 +2274,11 @@ const localReconciliationProjection = async (
       role === "delivery" ? decodeDelivery(file, vocabulary, diagnostics) : undefined;
     const incoming =
       role === "incoming" ? decodeIncoming(file, vocabulary, diagnostics) : undefined;
+    const projected = wayfinder ?? delivery ?? incoming;
     const changed: DecodedIssue = {
-      file,
+      locator: file.locator,
       shortReference,
-      role,
+      ...(projected === undefined ? {} : { kind: projected.kind }),
       blockerReferences: blockerReferences(file, diagnostics),
       ...(wayfinder === undefined ? {} : { wayfinder }),
       ...(delivery === undefined ? {} : { delivery }),
@@ -2202,10 +2287,7 @@ const localReconciliationProjection = async (
     changedIssues.push(changed);
   }
 
-  const changedRefs = new Set([
-    ...changedIssues.map((issue) => issue.file.locator),
-    ...missingLocators,
-  ]);
+  const changedRefs = new Set([...changedIssues.map((issue) => issue.locator), ...missingLocators]);
   const mergedWayfinder = [
     ...priorProjection.wayfinderTickets.filter(
       (ticket) => !changedRefs.has(localObjectLocator(ticket)),
@@ -2225,42 +2307,16 @@ const localReconciliationProjection = async (
     ...changedIssues.flatMap((issue) => (issue.incoming === undefined ? [] : [issue.incoming])),
   ].sort((left, right) => utf8Compare(localObjectLocator(left), localObjectLocator(right)));
   const allIssues = [...mergedWayfinder, ...mergedDelivery, ...mergedIncoming];
-  const issueByLocator = new Map<string, DecodedIssue>();
-  for (const object of allIssues) {
-    const locator = localObjectLocator(object);
-    const changed = changedIssues.find((candidate) => candidate.file.locator === locator);
-    issueByLocator.set(
-      locator,
-      changed ?? {
-        file: {
-          locator,
-          bytes: Buffer.alloc(0),
-          source: "",
-          document: parseMarkdownDocument(""),
-          stamp: {
-            dev: "",
-            ino: "",
-            mode: "",
-            size: "",
-            birthtimeNs: "",
-            mtimeNs: "",
-            ctimeNs: "",
-          },
-        },
-        shortReference: shortReferenceFor(locator) ?? locator,
-        role:
-          object.kind === "wayfinder-ticket"
-            ? "wayfinder"
-            : object.kind === "delivery-ticket"
-              ? "delivery"
-              : "incoming",
-        blockerReferences: [],
-        ...(object.kind === "wayfinder-ticket" ? { wayfinder: object } : {}),
-        ...(object.kind === "delivery-ticket" ? { delivery: object } : {}),
-        ...(object.kind === "incoming-issue" ? { incoming: object } : {}),
-      },
-    );
-  }
+  const issueByLocator = new Map<string, LocalIssueIdentity>(
+    allIssues.map((object) => {
+      const locator = localObjectLocator(object);
+      return [
+        locator,
+        { locator, shortReference: shortReferenceFor(locator) ?? locator, kind: object.kind },
+      ];
+    }),
+  );
+  for (const issue of changedIssues) issueByLocator.set(issue.locator, issue);
 
   const mapFile = capturedFiles.get(mapLocator);
   const specFile = capturedFiles.get(specLocator);
@@ -2277,61 +2333,22 @@ const localReconciliationProjection = async (
   const wayfinderTickets = mergedWayfinder.map((ticket) =>
     lifecycleWithMapEvidence(ticket, mapProjection, diagnostics),
   );
-  const parentChild: MattParentChildRelation[] = [
-    ...(mapProjection === undefined
-      ? []
-      : wayfinderTickets.map((ticket) => ({
-          parent: mapProjection.ref,
-          child: ticket.ref,
-          evidence: "matt-contract" as const,
-        }))),
-    ...(specProjection === undefined
-      ? []
-      : mergedDelivery.map((ticket) => ({
-          parent: specProjection.ref,
-          child: ticket.ref,
-          evidence: "matt-contract" as const,
-        }))),
-  ];
+  const parentChild = deriveLocalParents(
+    scopeLocator,
+    mapProjection,
+    specProjection,
+    wayfinderTickets,
+    mergedDelivery,
+    diagnostics,
+  );
 
-  const rebuiltBlockedRefs = new Set(changedIssues.map((issue) => issue.file.locator));
-  const currentTicketRefs = new Set([
-    ...wayfinderTickets.map((ticket) => ticket.ref),
-    ...mergedDelivery.map((ticket) => ticket.ref),
-  ]);
-  const byShortReference = new Map(
-    allIssues.flatMap((object) => {
-      const short = shortReferenceFor(localObjectLocator(object));
-      return short === undefined ? [] : [[short, object] as const];
-    }),
+  const blockedBy = deriveLocalBlockers(
+    scopeLocator,
+    issueByLocator,
+    changedIssues,
+    priorProjection.graph.blockedBy,
+    diagnostics,
   );
-  const blockedBy: MattBlockedByRelation[] = priorProjection.graph.blockedBy.filter(
-    (relation) =>
-      !rebuiltBlockedRefs.has(String(relation.blocked)) &&
-      currentTicketRefs.has(relation.blocked) &&
-      currentTicketRefs.has(relation.blocker),
-  );
-  for (const issue of changedIssues) {
-    const blocked = issue.wayfinder?.ref ?? issue.delivery?.ref;
-    for (const reference of issue.blockerReferences) {
-      const blocker = byShortReference.get(reference);
-      if (
-        blocked === undefined ||
-        (blocker?.kind !== "wayfinder-ticket" && blocker?.kind !== "delivery-ticket")
-      ) {
-        diagnostics.push(
-          diagnostic(
-            "matt.local.relation.broken",
-            "identity",
-            issue.file.locator,
-            `Affected Blocked by reference does not uniquely resolve to a ticket: ${reference}.`,
-          ),
-        );
-        continue;
-      }
-      blockedBy.push({ blocked, blocker: blocker.ref, evidence: "matt-contract" });
-    }
-  }
 
   const objectsByLocator = [...wayfinderTickets, ...mergedDelivery, ...mergedIncoming].sort(
     (left, right) => utf8Compare(localObjectLocator(left), localObjectLocator(right)),
@@ -2392,7 +2409,10 @@ const localReconciliationProjection = async (
           key: "scope-membership-basis",
           state: partialBasis ? "excluded" : "covered",
           ...(partialBasis
-            ? { detail: "No prior full-scope observation was available; completion is excluded." }
+            ? {
+                detail:
+                  "No trustworthy prior full-scope observation was available; completion is excluded.",
+              }
             : {}),
         },
       ],
@@ -2407,7 +2427,7 @@ const localReconciliationProjection = async (
               "matt.local.reconciliation.partial-basis",
               "acquisition",
               scopeLocator,
-              "Targeted detail was observed without a prior full-scope basis; completion remains unavailable.",
+              "Targeted detail was observed without a trustworthy prior full-scope basis; completion remains unavailable.",
               "non-blocking",
             ),
           ]
