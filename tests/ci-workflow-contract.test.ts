@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { readdir, readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 const readCiWorkflow = async (): Promise<{
@@ -194,6 +195,29 @@ test("required CI has minimum authority and bounded ref-scoped execution", async
   }
 });
 
+test.each(["test", "verify"])("%s discovers every TS and TSX suite", async (scriptName) => {
+  const { scripts } = JSON.parse(await readFile("package.json", "utf8")) as {
+    scripts: Record<string, string>;
+  };
+  const testCommand = scripts[scriptName]
+    ?.split(" && ")
+    .find((step) => step.startsWith("bun test "));
+  expect(testCommand).toBeDefined();
+  const discovery = spawnSync(
+    "/bin/sh",
+    ["-c", `printf '%s\\n' ${testCommand?.slice("bun test ".length)}`],
+    {
+      encoding: "utf8",
+    },
+  );
+  expect(discovery.status).toBe(0);
+  const suites = (await readdir("tests"))
+    .filter((name) => /\.test\.tsx?$/u.test(name))
+    .map((name) => `tests/${name}`)
+    .sort();
+  expect(discovery.stdout.trim().split("\n").sort()).toEqual(suites);
+});
+
 test("Source Quality solely owns canonical aggregate repository verification", async () => {
   const workflow = await readCiWorkflow();
   const scripts = (
@@ -238,7 +262,7 @@ test("Source Quality solely owns canonical aggregate repository verification", a
     "bun run typecheck",
     "bun run check",
     "bun run build",
-    "bun test tests/*.test.ts",
+    "bun test tests/*.test.ts tests/*.test.tsx",
     "bun run test:catalog-node",
   ]);
   expect(scripts["test:catalog-node"]).toBe("bun scripts/run-node-catalog-tests.ts");

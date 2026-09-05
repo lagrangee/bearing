@@ -903,6 +903,7 @@ test("package workflow binds one uploaded candidate to its exact source commit",
           uses?: string;
           name?: string;
           run?: string;
+          env?: Readonly<Record<string, string>>;
           with?: Readonly<Record<string, string | boolean>>;
         }[];
       };
@@ -927,6 +928,22 @@ test("package workflow binds one uploaded candidate to its exact source commit",
   expect(steps[checkoutIndex]?.with).toMatchObject({ ref: sourceCommitExpression });
   expect(setupGoIndex).toBeGreaterThanOrEqual(0);
   expect(steps[setupGoIndex]?.with).toEqual({ "go-version": "1.26.5", cache: false });
+  const scannerInstallIndex = steps.findIndex(
+    (step) => step.name === "Install Live Matrix evidence scanner",
+  );
+  const aggregateIndex = steps.findIndex((step) => step.run === "bun run verify");
+  expect(scannerInstallIndex).toBeGreaterThan(setupGoIndex);
+  expect(aggregateIndex).toBeGreaterThan(scannerInstallIndex);
+  expect(steps[scannerInstallIndex]?.env).toEqual({
+    GOBIN: ["$", "{{ runner.temp }}"].join(""),
+  });
+  expect(steps[scannerInstallIndex]?.run).toBe(
+    [
+      "go install -ldflags=-X=github.com/zricethezav/gitleaks/v8/version.Version=8.30.1 github.com/zricethezav/gitleaks/v8@v8.30.1",
+      'echo "$GOBIN" >> "$GITHUB_PATH"',
+      "",
+    ].join("\n"),
+  );
   expect(scanIndex).toBeGreaterThan(prepareIndex);
   expect(uploadIndex).toBeGreaterThan(prepareIndex);
   expect(uploadIndex).toBeGreaterThan(scanIndex);
