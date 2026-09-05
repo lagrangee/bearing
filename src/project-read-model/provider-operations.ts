@@ -8,7 +8,8 @@ import {
   normalizeNativeReconciliationRequest,
 } from "../native-reconciliation-contract";
 import { resolveRepositoryRoot } from "../path-boundary";
-import type { MattProviderFactory } from "../provider-acquisition";
+import { captureProjectCompilationInputs } from "../project-compilation";
+import { boundProviderScopes, type MattProviderFactory } from "../provider-acquisition";
 import { createProviderDetailEvidenceState } from "../provider-detail-selection";
 import type { ProviderEvidenceState } from "../provider-evidence-selection";
 import { decodeGitHubMattNativeScope } from "../providers/matt-skills-v1/github-native-scope";
@@ -28,9 +29,11 @@ import { materializeProjectReadModelCandidate, prepareProjectReadModelCandidate 
 import {
   inspectProjectReadModel,
   type ProjectProviderEvidence,
+  type ProjectReadModelOperationBasis,
   projectProviderEvidenceBindingKey,
   publishProjectReadModel,
   readProjectProviderEvidence,
+  readProjectReadModelOperationBasis,
   removeProjectReadModelForRebuild,
   replaceProjectProviderEvidence,
 } from "./store";
@@ -168,7 +171,7 @@ const reuseCompatibleProjectEvidence = (
 };
 
 type LocalStore =
-  | Readonly<{ state: "available"; evidence: readonly ProjectProviderEvidence[] }>
+  | Readonly<{ state: "available"; basis: ProjectReadModelOperationBasis }>
   | Readonly<{
       state: "unavailable";
       outcome: "recovery-required" | "need-update";
@@ -176,18 +179,8 @@ type LocalStore =
     }>;
 
 const localStore = async (repoRoot: string): Promise<LocalStore> => {
-  const state = await inspectProjectReadModel(repoRoot);
-  if (state.state === "missing") {
-    const candidate = await materializeProjectReadModelCandidate(repoRoot, {
-      providerObservationStore: null,
-      providerDetailEvidenceState: null,
-    });
-    await publishProjectReadModel(repoRoot, candidate);
-    return { state: "available", evidence: await readProjectProviderEvidence(repoRoot) };
-  }
-  if (state.state === "ready") {
-    return { state: "available", evidence: await readProjectProviderEvidence(repoRoot) };
-  }
+  const state = await readProjectReadModelOperationBasis(repoRoot);
+  if (state.state === "available") return state;
   const outcome = state.state === "need-update" ? "need-update" : "recovery-required";
   return {
     state: "unavailable",
@@ -245,30 +238,18 @@ const acquisition = async (
       diagnostics: [local.diagnostic],
     };
   }
-  const priorEvidence = local.evidence;
+  const priorEvidence = local.basis.evidence;
   const store = boundStore(priorEvidence);
+  const capturedInputs = await captureProjectCompilationInputs(root);
   const available = new Map(
-    store.selections.map((selection) => [selection.nativeScope, selection]),
+    boundProviderScopes(capturedInputs.decoded).map((binding) => [binding.nativeScope, binding]),
   );
   const selectedScopes =
     intent === "all-scope-verification"
       ? [...available.keys()].sort((left, right) => left.localeCompare(right, "en"))
       : [...new Set(scopes)].sort((left, right) => left.localeCompare(right, "en"));
-  if (intent === "all-scope-verification" && selectedScopes.length === 0) {
-    return {
-      schemaVersion: 1 as const,
-      command: "provider-verify" as const,
-      outcome: "complete" as const,
-      result: {
-        acquisitionCount: 0,
-        scopes: [],
-        missingEvidenceScopes: [],
-      },
-      diagnostics: [],
-    };
-  }
   const unknown = selectedScopes.filter((scope) => !available.has(scope));
-  if (unknown.length > 0 || selectedScopes.length === 0) {
+  if (unknown.length > 0 || (intent === "exact-scope-capture" && selectedScopes.length === 0)) {
     const diagnostics: StructuralDiagnostic[] = [
       {
         code: "provider-scope-selection-invalid",
@@ -300,7 +281,8 @@ const acquisition = async (
     nativeScope,
   }));
   const prepared = await prepareProjectReadModelCandidate(root, {
-    providerObservationStore: store,
+    capturedInputs,
+    startingBasis: local.basis,
     providerObservationIntent: intent,
     requestedProviderBindings: requestedBindings,
     providerDetailEvidenceState: null,
@@ -322,7 +304,16 @@ const acquisition = async (
     (selection) => selection.latestAttempt?.outcome === "succeeded",
   );
   let generationFingerprint: string;
-  if (!captured) {
+  const startingMetadata = prepared.startingBasis?.metadata;
+  const bindingsChanged =
+    store.selections.length !== available.size ||
+    store.selections.some((selection) => !available.has(selection.nativeScope));
+  if (
+    startingMetadata !== null &&
+    startingMetadata !== undefined &&
+    ((!captured && !bindingsChanged) ||
+      startingMetadata.basisFingerprint === prepared.candidate.basisFingerprint)
+  ) {
     for (const selection of attemptedSelections) {
       const observation = prepared.plan.providerObservations.find(
         (candidate) => candidate.id === selection.observationId,
@@ -334,33 +325,10 @@ const acquisition = async (
         selection,
       });
     }
-    const state = await inspectProjectReadModel(root);
-    if (state.state !== "ready") {
-      throw new Error("Project Read Model generation became unavailable after provider attempt.");
-    }
-    generationFingerprint = state.metadata.basisFingerprint;
+    generationFingerprint = startingMetadata.basisFingerprint;
   } else {
-    const state = await inspectProjectReadModel(root);
-    if (
-      state.state === "ready" &&
-      state.metadata.basisFingerprint === prepared.candidate.basisFingerprint
-    ) {
-      for (const selection of attemptedSelections) {
-        const observation = prepared.plan.providerObservations.find(
-          (candidate) => candidate.id === selection.observationId,
-        );
-        await replaceProjectProviderEvidence(root, {
-          bindingKey: projectProviderEvidenceBindingKey(selection),
-          role: "bound",
-          ...(observation === undefined ? {} : { observation }),
-          selection,
-        });
-      }
-      generationFingerprint = state.metadata.basisFingerprint;
-    } else {
-      generationFingerprint = (await publishProjectReadModel(root, prepared.candidate))
-        .basisFingerprint;
-    }
+    generationFingerprint = (await publishProjectReadModel(root, prepared.candidate))
+      .basisFingerprint;
   }
   const evidence = await readProjectProviderEvidence(root);
   const requestedSelections = evidence.filter(
@@ -387,7 +355,7 @@ const acquisition = async (
               ? ("unavailable" as const)
               : ("retained-after-failure" as const),
       })),
-      generationFingerprint,
+      ...(selectedScopes.length === 0 ? {} : { generationFingerprint }),
       missingEvidenceScopes: missingEvidenceScopes(evidence),
     },
     diagnostics,
@@ -425,9 +393,9 @@ export const refreshProjectProviderDetail = async (
       diagnostics: [local.diagnostic],
     };
   }
-  const priorDetail = local.evidence.filter((entry) => entry.role === "detail");
+  const priorDetail = local.basis.evidence.filter((entry) => entry.role === "detail");
   const prepared = await prepareProjectReadModelCandidate(root, {
-    providerObservationStore: boundStore(local.evidence),
+    startingBasis: local.basis,
     providerObservationIntent: "reuse-current",
     providerDetailEvidenceIntent: {
       kind: "inspect",
@@ -452,6 +420,9 @@ export const refreshProjectProviderDetail = async (
   const observation = prepared.plan.providerDetailEvidenceObservations.find(
     (candidate) => candidate.id === selection?.observationId,
   );
+  if (prepared.startingBasis?.metadata === null) {
+    await publishProjectReadModel(root, prepared.candidate);
+  }
   if (selection !== undefined) {
     await replaceProjectProviderEvidence(root, {
       bindingKey: projectProviderEvidenceBindingKey(selection),
@@ -554,10 +525,8 @@ export const reconcileProjectNative = async (
       diagnostics: [local.diagnostic],
     };
   }
-  const priorEvidence = local.evidence;
-  const store = boundStore(priorEvidence);
   const prepared = await prepareProjectReadModelCandidate(root, {
-    providerObservationStore: store,
+    startingBasis: local.basis,
     providerDetailEvidenceState: null,
     nativeReconciliationRequest: request,
     ...(dependencies.providerFactory === undefined
@@ -584,13 +553,14 @@ export const reconcileProjectNative = async (
       diagnostic.code === "matt.local.reconciliation.reference-outside-scope" ||
       diagnostic.code === "matt.github.reconciliation.reference-invalid",
   );
-  const currentState = await inspectProjectReadModel(root);
-  if (currentState.state !== "ready") {
-    throw new Error("Project Read Model generation became unavailable during reconciliation.");
-  }
-  let generationFingerprint = currentState.metadata.basisFingerprint;
-  if (succeeded) {
-    if (prepared.candidate.basisFingerprint === currentState.metadata.basisFingerprint) {
+  const startingMetadata = prepared.startingBasis?.metadata;
+  let generationFingerprint =
+    startingMetadata?.basisFingerprint ?? prepared.candidate.basisFingerprint;
+  if (startingMetadata === null) {
+    generationFingerprint = (await publishProjectReadModel(root, prepared.candidate))
+      .basisFingerprint;
+  } else if (succeeded) {
+    if (prepared.candidate.basisFingerprint === startingMetadata?.basisFingerprint) {
       if (matchingSelection !== undefined) {
         await replaceProjectProviderEvidence(root, {
           bindingKey: projectProviderEvidenceBindingKey(matchingSelection),

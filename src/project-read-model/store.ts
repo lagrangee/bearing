@@ -1014,6 +1014,11 @@ export type ProjectProviderEvidence = Readonly<{
   selection: ProviderObservationSelection;
 }>;
 
+export type ProjectReadModelOperationBasis = Readonly<{
+  metadata: ProjectReadModelMetadata | null;
+  evidence: readonly ProjectProviderEvidence[];
+}>;
+
 const projectProviderEvidence = (
   database: DatabaseSync,
   role?: ProjectProviderEvidence["role"],
@@ -1049,6 +1054,19 @@ export const readProjectProviderEvidence = async (
   role?: ProjectProviderEvidence["role"],
 ): Promise<readonly ProjectProviderEvidence[]> =>
   withProjectReadModel(repoRoot, (database) => projectProviderEvidence(database, role));
+
+export const readProjectReadModelOperationBasis = async (repoRoot: string) => {
+  const state = await inspectProjectReadModel(repoRoot);
+  if (state.state === "missing") {
+    return { state: "available" as const, basis: { metadata: null, evidence: [] } };
+  }
+  if (state.state !== "ready") return state;
+  const basis: ProjectReadModelOperationBasis = await withProjectReadModel(
+    repoRoot,
+    (database, metadata) => ({ metadata, evidence: projectProviderEvidence(database) }),
+  );
+  return { state: "available" as const, basis };
+};
 
 export const replaceProjectProviderEvidence = async (
   repoRoot: string,

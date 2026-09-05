@@ -54,8 +54,9 @@ import {
   inspectProjectReadModel,
   ProjectReadModelBusyError,
   type ProjectReadModelMetadata,
+  type ProjectReadModelOperationBasis,
   publishProjectReadModel,
-  readProjectProviderEvidence,
+  readProjectReadModelOperationBasis,
   withProjectReadModel,
 } from "./store";
 
@@ -173,6 +174,8 @@ export const currentBasisFingerprint = async (
 export const prepareProjectReadModelCandidate = async (
   repoRoot: string,
   options: Readonly<{
+    capturedInputs?: ProjectCompilationOptions["capturedInputs"];
+    startingBasis?: ProjectReadModelOperationBasis;
     providerObservationStore?: ProviderEvidenceState | null;
     providerObservationIntent?: ProjectCompilationOptions["providerObservationIntent"];
     providerFactory?: ProjectCompilationOptions["providerFactory"];
@@ -183,10 +186,21 @@ export const prepareProjectReadModelCandidate = async (
     providerDetailEvidenceState?: ProviderDetailEvidenceState | null;
   }> = {},
 ) => {
+  const providerObservationStore =
+    options.startingBasis === undefined
+      ? options.providerObservationStore
+      : {
+          schemaVersion: 1 as const,
+          observations: options.startingBasis.evidence.flatMap((entry) =>
+            entry.role === "bound" && entry.observation !== undefined ? [entry.observation] : [],
+          ),
+          selections: options.startingBasis.evidence.flatMap((entry) =>
+            entry.role === "bound" ? [entry.selection] : [],
+          ),
+        };
   const plan = await compileProjectGeneration(repoRoot, {
-    ...(options.providerObservationStore === undefined
-      ? {}
-      : { providerObservationStore: options.providerObservationStore }),
+    ...(options.capturedInputs === undefined ? {} : { capturedInputs: options.capturedInputs }),
+    ...(providerObservationStore === undefined ? {} : { providerObservationStore }),
     ...(options.providerObservationIntent === undefined
       ? {}
       : { providerObservationIntent: options.providerObservationIntent }),
@@ -232,7 +246,7 @@ export const prepareProjectReadModelCandidate = async (
     basisObservations: plan.basisObservations,
     assetContentObservations: plan.assetContentObservations,
   });
-  return { candidate, plan };
+  return { candidate, plan, startingBasis: options.startingBasis };
 };
 
 export const materializeProjectReadModelCandidate = async (
@@ -244,33 +258,23 @@ const ensureCurrent = async (
   repoRoot: string,
   dependencies: Readonly<{ providerFactory?: ProjectCompilationOptions["providerFactory"] }> = {},
 ) => {
-  const state = await inspectProjectReadModel(repoRoot);
+  const state = await readProjectReadModelOperationBasis(repoRoot);
   if (state.state === "need-update" || state.state === "recovery-required") return state;
-  if (state.state === "ready") {
-    const fingerprint = await currentBasisFingerprint(repoRoot, state.metadata);
-    if (fingerprint === state.metadata.basisFingerprint) return state;
+  const startingBasis = state.basis;
+  if (startingBasis.metadata !== null) {
+    const fingerprint = await currentBasisFingerprint(repoRoot, startingBasis.metadata);
+    if (fingerprint === startingBasis.metadata.basisFingerprint) {
+      return { state: "ready" as const, metadata: startingBasis.metadata };
+    }
   }
-  const providerEvidence =
-    state.state === "ready" ? await readProjectProviderEvidence(repoRoot) : undefined;
-  const providerObservationStore =
-    providerEvidence === undefined
-      ? undefined
-      : {
-          schemaVersion: 1 as const,
-          observations: providerEvidence.flatMap((entry) =>
-            entry.role === "bound" && entry.observation !== undefined ? [entry.observation] : [],
-          ),
-          selections: providerEvidence.flatMap((entry) =>
-            entry.role === "bound" ? [entry.selection] : [],
-          ),
-        };
-  const candidate = await materializeProjectReadModelCandidate(repoRoot, {
-    ...(providerObservationStore === undefined ? {} : { providerObservationStore }),
-    ...(providerEvidence === undefined ? {} : { providerDetailEvidenceState: null }),
+  const prepared = await prepareProjectReadModelCandidate(repoRoot, {
+    startingBasis,
+    providerDetailEvidenceState: null,
     ...(dependencies.providerFactory === undefined
       ? {}
       : { providerFactory: dependencies.providerFactory }),
   });
+  const candidate = prepared.candidate;
   const receipt = await publishProjectReadModel(repoRoot, candidate);
   return {
     state: "ready" as const,
