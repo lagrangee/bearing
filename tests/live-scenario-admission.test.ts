@@ -144,7 +144,81 @@ const prepare = async (
   return { fixture, result } as const;
 };
 
+const prepareWithWorkspaceRace = async (
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  mode: "competitor-created" | "concurrent",
+) => {
+  const inputPath = join(fixture.root, "admission-input.json");
+  await writeFile(
+    inputPath,
+    JSON.stringify({
+      sourceRoot: process.cwd(),
+      workspaceRoot: fixture.workspaceRoot,
+      operatorCodexHome: fixture.operatorCodexHome,
+      registryPath,
+      scenarioIds: ["test-one"],
+      generationId,
+      package: fixture.package,
+      codexProgram: fixture.fakeCodex,
+    }),
+  );
+  const child = Bun.spawn(
+    [process.execPath, "tests/fixtures/live-scenario-admission-race.ts", inputPath, mode],
+    { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" },
+  );
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  if (exitCode !== 0) throw new Error(`Admission race driver failed: ${stderr}`);
+  return JSON.parse(stdout) as Awaited<ReturnType<typeof prepareLiveScenarioGenerationAdmission>>[];
+};
+
 describe("Live Matrix Generation preflight", () => {
+  test("preserves a competitor's workspace created between precheck and mkdir", async () => {
+    const fixture = await createFixture();
+    try {
+      const [result] = await prepareWithWorkspaceRace(fixture, "competitor-created");
+      expect(result).toMatchObject({
+        outcome: "preflight blocked",
+        diagnostics: [{ code: "workspace-not-fresh" }],
+        agentBehaviorStarted: false,
+        externalEffectsObserved: false,
+      });
+      expect(await readFile(join(fixture.workspaceRoot, "winner.txt"), "utf8")).toBe(
+        "winner evidence\n",
+      );
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("admits one concurrent workspace creator without losing its prepared evidence", async () => {
+    const fixture = await createFixture();
+    const results: Awaited<ReturnType<typeof prepareLiveScenarioGenerationAdmission>>[] = [];
+    try {
+      results.push(...(await prepareWithWorkspaceRace(fixture, "concurrent")));
+      const admitted = results.filter((result) => result.outcome === "admitted");
+      expect(admitted).toHaveLength(1);
+      expect(results.filter((result) => result.outcome === "preflight blocked")).toMatchObject([
+        { diagnostics: [{ code: "workspace-not-fresh" }] },
+      ]);
+      const winner = admitted[0];
+      if (winner === undefined) throw new Error("Expected one admitted workspace creator.");
+      expect(winner.preparedScenarios).toHaveLength(1);
+      for (const prepared of winner.preparedScenarios) {
+        const verified = await verifyLiveScenarioGeneration(prepared.paths.manifest);
+        expect(verified.generationId).toBe(winner.generationId);
+      }
+    } finally {
+      for (const result of results) {
+        if (result.outcome === "admitted") await discardLiveScenarioGenerationAdmission(result);
+      }
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
   test("accepts the real Node TMPDIR and returns the sole Generation basis", async () => {
     const { fixture, result } = await prepare();
     expect(result).toMatchObject({
@@ -1145,7 +1219,12 @@ exit 0
     const { fixture, result } = await prepare("model-unavailable");
     expect(result).toMatchObject({
       outcome: "preflight blocked",
-      diagnostics: [{ code: "model-unavailable" }],
+      diagnostics: [
+        {
+          code: "model-unavailable",
+          message: "Required Codex E2E model is unavailable: gpt-5.6-luna.",
+        },
+      ],
       agentBehaviorStarted: false,
     });
     await expect(access(fixture.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
