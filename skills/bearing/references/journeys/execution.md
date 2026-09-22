@@ -32,9 +32,11 @@ owners retain Effort lifecycle and deterministic Bearing Modules retain exact re
 3. If the user refuses the stated start effect, perform no Effort, executor, or native mutation. A
    concluded Effort never reopens implicitly; stop for an accepted new, superseding, or Binding
    disposition decision.
-4. Complete Execution with relevant planning context. Code and tests alone do not complete a
-   Delivery request. Continue in the same conversation as Work Management records the truthful
-   checklist, evidence, status, and resolution required by its contract. Native Work owns the
+4. Complete Execution with relevant planning context and every verification required by the
+   repository's delivery contract. Preserve a failed or unavailable verification as an incomplete
+   delivery; successful earlier stages do not replace it. Continue in the same conversation as Work
+   Management records the truthful checklist, evidence, status, and resolution required by its
+   contract. Native Work owns the
    resulting Pending Native Write Set across all authorized owners and its necessary provider
    synchronization. Continue until the composed request is complete or reaches its actual handoff
    or failure boundary.

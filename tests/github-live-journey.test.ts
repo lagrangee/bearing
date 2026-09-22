@@ -843,8 +843,14 @@ else if (args[0] === "api" && args[1] === "repos/example/bearing-validation/issu
         '  "status --porcelain=v1") :;;',
         '  "rev-parse HEAD") printf \'%s\\n\' "$head";;',
         '  "check-ref-format --branch") :;;',
-        '  "ls-remote --heads") [ "$3" = "https://github.com/example/bearing-validation.git" ] || exit 64; if [ -f "$state" ]; then printf \'%s\\t%s\\n\' "$head" "$(cat "$state")"; fi;;',
-        `  "push https://github.com/example/bearing-validation.git") printf 'refs/heads/%s\\n' "\${3#HEAD:}" > "$state"; printf 'branch pushed\\n';;`,
+        '  "ls-remote --heads")',
+        '    [ "$3" = "https://github.com/example/bearing-validation.git" ] || exit 64',
+        '    if [ -f "$state" ]; then',
+        '      mode=matching; if [ -f "$0.readback-mode" ]; then mode=$(cat "$0.readback-mode"); fi',
+        '      case "$mode" in mismatch) head=2222222222222222222222222222222222222222;; missing) exit 0;; nonzero) exit 69;; esac',
+        '      printf \'%s\\t%s\\n\' "$head" "$(cat "$state")"',
+        "    fi;;",
+        `  "push https://github.com/example/bearing-validation.git") printf 'refs/heads/%s\\n' "\${3#HEAD:}" > "$state"; printf 'branch pushed'; printf 'push progress %s\\n' "$scope" >&2; if [ -f "$0.leak-token" ]; then printf '%s\\n' "$BEARING_GITHUB_PUSH_TOKEN"; fi;;`,
         "  *) printf 'unexpected fake git command: %s\\n' \"$*\" >&2; exit 64;;",
         "esac",
         "",
@@ -1095,7 +1101,14 @@ else if (args[0] === "api" && args[1] === "repos/example/bearing-validation/issu
       { env: environment, stdout: "pipe", stderr: "pipe" },
     );
     expect(await pushed.exited).toBe(0);
-    expect(await new Response(pushed.stdout).text()).toContain("branch pushed");
+    const pushedStdout = await new Response(pushed.stdout).text();
+    const pushedStderr = await new Response(pushed.stderr).text();
+    expect(pushedStdout).toBe(
+      `branch pushed\nGit remote readback verified: repository=example/bearing-validation remote_ref=refs/heads/delivery-[internal-scope] remote_sha=${"1".repeat(40)} local_head=${"1".repeat(40)}\n`,
+    );
+    expect(pushedStderr).toBe("push progress [internal-scope]\n");
+    expect(pushedStdout + pushedStderr).not.toContain(scopeKey);
+    expect(pushedStdout + pushedStderr).not.toContain("fake-secret-token");
     expect(await readFile(`${fakeGit}.pushed`, "utf8")).toBe(`refs/heads/delivery-${scopeKey}\n`);
     await expect(lstat(`${fakeGit}.unsafe-environment`)).rejects.toMatchObject({ code: "ENOENT" });
     const duplicateScopeBranch = Bun.spawn(
@@ -1108,6 +1121,37 @@ else if (args[0] === "api" && args[1] === "repos/example/bearing-validation/issu
       { env: environment, stdout: "pipe", stderr: "pipe" },
     );
     expect(await wrongPush.exited).not.toBe(0);
+    for (const mode of ["mismatch", "missing", "nonzero"]) {
+      await rm(`${fakeGit}.pushed`);
+      await writeFile(`${fakeGit}.readback-mode`, mode);
+      const failedReadback = Bun.spawn(
+        [join(agentHome, ".local/bin/git"), "push", "origin", "HEAD:candidate-marker-delivery"],
+        { env: environment, stdout: "pipe", stderr: "pipe" },
+      );
+      expect(await failedReadback.exited, mode).not.toBe(0);
+      const failedStdout = await new Response(failedReadback.stdout).text();
+      const failedStderr = await new Response(failedReadback.stderr).text();
+      expect(failedStdout, mode).toBe("");
+      expect(failedStderr, mode).toBe(
+        "Git Journey branch readback does not match the committed delivery.\n",
+      );
+      expect(failedStdout + failedStderr, mode).not.toContain("Git remote readback verified:");
+      expect(await readFile(`${fakeGit}.pushed`, "utf8"), mode).toBe(
+        `refs/heads/delivery-${scopeKey}\n`,
+      );
+    }
+    await rm(`${fakeGit}.pushed`);
+    await rm(`${fakeGit}.readback-mode`);
+    await writeFile(`${fakeGit}.leak-token`, "");
+    const leakedPush = Bun.spawn(
+      [join(agentHome, ".local/bin/git"), "push", "origin", "HEAD:candidate-marker-delivery"],
+      { env: environment, stdout: "pipe", stderr: "pipe" },
+    );
+    expect(await leakedPush.exited).toBe(70);
+    expect(await new Response(leakedPush.stdout).text()).toBe("");
+    expect(await new Response(leakedPush.stderr).text()).toBe(
+      "GitHub credential output was blocked.\n",
+    );
     const fileInput = Bun.spawn(
       [
         join(agentHome, ".local/bin/gh"),

@@ -9,6 +9,34 @@ Use to create or materially revise the current Project Summary.
 Project Summary owns accepted long-horizon project meaning: purpose, current design, boundaries,
 future candidates, and material revisions. It is not a work log, Project Brief, or recommendation.
 
+## Operation
+
+1. Inspect Project Context and the current Summary reference. Read only sources needed to support
+   candidate meaning. Classify every statement as current fact, accepted meaning, or a labelled
+   proposal.
+2. Apply the shared materiality test. State the semantic delta and the meaning that remains
+   unchanged. Return `no-op` when the current Summary is not materially misleading.
+3. Author a complete candidate with distinct current intent and accepted future candidates. Keep
+   excluded work in Boundaries; include it in Future Candidates only when the Human also accepts
+   that future meaning. Keep unaccepted ideas in the discussion. Set `Updated at` only for the
+   successful Summary revision.
+
+## After this operation
+
+- **Required:** Keep Summary update time distinct from Brief generation, provider observation, and
+  native chronology.
+- **Required:** When Roadmap completion selects this owner, return `no-op` if accepted project
+  meaning is already current, then continue to the separately selected Project Brief owner.
+- **Consider:** Refresh Project Brief only when accepted truth materially changes its current
+  orientation.
+- **Do not infer:** Effort conclusion, Gate Passage, or Roadmap transition automatically authors new
+  Summary meaning.
+
+## Completion criterion
+
+The Summary contains only current accepted project meaning, the material revision is traceable, and
+its revision time remains distinct from Brief generation and native chronology.
+
 ## Write form
 
 Write `.bearing/state/project-summary.md`. Required frontmatter is `Type: project-summary`, fixed
@@ -49,29 +77,3 @@ Notes are local files opened through a small desktop interface.
 
 ## Material Revisions
 ```
-
-## Operation
-
-1. Inspect Project Context and the current Summary reference. Read only sources needed to support
-   candidate meaning. Classify every statement as current fact, accepted meaning, or a labelled
-   proposal.
-2. Apply the shared materiality test. State the semantic delta and the meaning that remains
-   unchanged. Return `no-op` when the current Summary is not materially misleading.
-3. Author a complete candidate with distinct current intent and future candidates. Set `Updated
-   at` only for the successful Summary revision.
-
-## After this operation
-
-- **Required:** Keep Summary update time distinct from Brief generation, provider observation, and
-  native chronology.
-- **Required:** When Roadmap completion selects this owner, return `no-op` if accepted project
-  meaning is already current, then continue to the separately selected Project Brief owner.
-- **Consider:** Refresh Project Brief only when accepted truth materially changes its current
-  orientation.
-- **Do not infer:** Effort conclusion, Gate Passage, or Roadmap transition automatically authors new
-  Summary meaning.
-
-## Completion criterion
-
-The Summary contains only current accepted project meaning, the material revision is traceable, and
-its revision time remains distinct from Brief generation and native chronology.

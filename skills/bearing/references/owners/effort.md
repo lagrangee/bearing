@@ -82,12 +82,11 @@ choose the relation. Native lifecycle remains with Work Management.
    and replacement state. A newly owned Asset, changed membership, or newly inactive replacement
    invalidates the candidate. Preserve others' changes and return the material difference for a
    new decision instead of silently merging it.
-6. Apply only the complete accepted owner write set through the canonical contract. Record the
-   actual conclusion and any Asset terminal event times, then validate every affected planning
-   target and diagnostics. A partial write is not conclusion success: preserve or restore known
-   good bytes, repair only this operation's attempted write set, revalidate, and report the exact
-   remaining effects. Completion: accepted source state and the committed readback agree, with
-   zero new structural defects and no active Asset owned by the concluded Effort.
+6. Apply the complete accepted owner write set through the canonical contract, including its
+   post-edit validation and partial-write recovery. Record the actual conclusion and any Asset
+   terminal event times; if incomplete, report the exact remaining conclusion effects. Completion:
+   accepted source state and the committed readback agree, with zero new structural defects and
+   no active Asset owned by the concluded Effort.
 
 ## Consent Outcomes
 
@@ -144,8 +143,8 @@ Binding or substitute for its fields.
 
 `Work binding` is one mapping with exactly `Provider: matt-skills/v1` and `Native scope` copied from
 the real provider-canonical scope established by Work Management. It is a normalized Local scope
-locator or the Provider's exact opaque GitHub scope. Obtain identity through the owner operation
-below; the Local locator in an example is not evidence that such native work exists.
+locator or the Provider's exact opaque GitHub scope. Obtain identity through the Operation
+above; the Local locator in an example is not evidence that such native work exists.
 
 `Conclusion` requires `Disposition` (`completed`, `withdrawn`, or `superseded`), plain-text
 `Rationale`, and `Concluded at`. Only `superseded` requires `Replacement effort: effort:<slug>`;

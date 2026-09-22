@@ -2296,15 +2296,18 @@ export const startGitHubJourneyCredentialBroker = async (input: {
             ({ code: exitCode, out: stdout, error: stderr } = pushed);
           } else {
             const after = await runGit(["ls-remote", "--heads", expectedRemote]);
-            const readback = candidateRemoteHeads(after.out, input.scopeKey);
+            const readback =
+              candidateRemoteHeads(after.out, input.scopeKey) ??
+              fail("Git Journey branch readback does not match the committed delivery.");
             if (
               after.code !== 0 ||
-              readback?.name !== pushedBranchName ||
+              readback.name !== pushedBranchName ||
               readback.sha !== head.out.trim()
             ) {
               fail("Git Journey branch readback does not match the committed delivery.");
             }
             ({ code: exitCode, out: stdout, error: stderr } = pushed);
+            stdout += `${stdout.length > 0 && !stdout.endsWith("\n") ? "\n" : ""}Git remote readback verified: repository=${input.repositorySlug} remote_ref=refs/heads/${readback.name} remote_sha=${readback.sha} local_head=${head.out.trim()}\n`;
           }
         }
         const agentStdout = redactGitHubJourneyScopeIdentity(stdout, input.scopeKey);

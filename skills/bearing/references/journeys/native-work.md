@@ -127,14 +127,7 @@ Delivery ticket lifecycle or triage state.
 | `no-direct-high-confidence-relationship` | `standalone` | `no-suggestion-or-enrollment` |
 | `direct-high-confidence-existing-planned-effort` | `standalone` | `at-most-one-advisory-suggestion; no-enrollment-without-acceptance` |
 | `direct-high-confidence-useful-new-effort` | `standalone` | `at-most-one-advisory-suggestion; no-enrollment-without-acceptance` |
-| `semantic-similarity-only` | `standalone` | `no-enrollment-or-activation` |
-| `artifact-existence-only` | `standalone` | `no-enrollment-or-activation` |
-| `provider-lifecycle-only` | `standalone` | `no-enrollment-or-activation` |
-| `provider-completion-only` | `standalone` | `no-enrollment-or-activation` |
-| `tests-only` | `standalone` | `no-enrollment-or-activation` |
-| `capture-only` | `standalone` | `no-enrollment-or-activation` |
-| `reconciliation-only` | `standalone` | `no-enrollment-or-activation` |
-| `portal-observation-only` | `standalone` | `no-enrollment-or-activation` |
+| `semantic-similarity-only`; `artifact-existence-only`; `provider-lifecycle-only`; `provider-completion-only`; `tests-only`; `capture-only`; `reconciliation-only`; `portal-observation-only` | `standalone` | `no-enrollment-or-activation` |
 
 ## After this operation
 

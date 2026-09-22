@@ -12,6 +12,8 @@ reference selection. Pin all repository-scoped Bearing commands to
 First run `node <repo-root>/dist/cli.js runtime inspect --repo <repo-root>`. Continue only when its
 receipt proves that the selected CLI, public Skill, and state root share one coherent Development
 Runtime identity. Never use or fall back to the public Stable Kit, CLI, Skill, or state.
+Subsequent repository commands validate this runtime before producing side effects; they do not
+require a separate Inspect before each command.
 
 When Inspect returns only `development-runtime-binding-missing`, explicit Development Runtime
 initialization uses `node <repo-root>/dist/cli.js runtime bootstrap --repo <repo-root>`, then Inspect
