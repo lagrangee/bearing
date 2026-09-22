@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { cp, lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
+  digestLiveScenarioFixtureSet,
+  liveScenarioReferencedFixtureSources,
   loadLiveScenarioRegistry,
   materializeLiveScenarioFixture,
   preflightLiveScenarioRegistry,
@@ -18,6 +21,116 @@ afterEach(async () => {
 });
 
 describe("Live Matrix validation fixture inventory", () => {
+  test("conclusion starts with completed native delivery and a fixed canonical relation graph", async () => {
+    const registry = await loadLiveScenarioRegistry(registryPath);
+    const scenario = registry.scenarios.find(({ id }) => id === "effort-conclusion-with-assets");
+    expect(scenario).toBeDefined();
+    expect(
+      liveScenarioReferencedFixtureSources(registry, ["effort-conclusion-with-assets"]),
+    ).toContain("validation/live-journey/fixtures/conclusion-state");
+    const result = await createLocalMarkdownMattProvider({
+      repoRoot: join(sourceRoot, "validation/live-journey/fixtures/completed-delivery"),
+      contractLocator: "docs/agents/issue-tracker.md",
+      triageLocator: "docs/agents/triage-labels.md",
+      clock: () => new Date("2026-09-05T00:00:00Z"),
+    }).capture({ provider: "matt-skills/v1", nativeScope: ".scratch/label-delivery" });
+    expect(result.diagnostics).toEqual([]);
+    expect(result.completion).toBe("complete");
+    expect(result.projection?.deliveryTickets).toEqual([
+      expect.objectContaining({
+        ref: ".scratch/label-delivery/issues/04-complete-secondary-format.md",
+        lifecycle: expect.objectContaining({ state: "completed" }),
+      }),
+    ]);
+  });
+
+  test("delivery continuation has distinct new-scope and missing-baseline fixtures", async () => {
+    const registry = await loadLiveScenarioRegistry(registryPath);
+    const planned = registry.scenarios.find(({ id }) => id === "planned-effort-delivery");
+    const missing = registry.scenarios.find(({ id }) => id === "bound-delivery-missing-baseline");
+    const ready = registry.scenarios.find(({ id }) => id === "local-delivery-writeback");
+    expect(planned).toBeDefined();
+    expect(missing).toBeDefined();
+    expect(planned?.fixedValidationFixture.profile).toBe("active-planned-new-scope-repository");
+    expect(missing?.fixedValidationFixture.profile).toBe(
+      "active-bound-capture-required-local-repository",
+    );
+    expect(missing?.fixedValidationFixture.source).toBe(ready?.fixedValidationFixture.source);
+    const root = await mkdtemp(join(tmpdir(), "bearing-new-scope-fixture-"));
+    roots.push(root);
+    const fixture = await materializeLiveScenarioFixture({
+      registry,
+      scenarioId: "planned-effort-delivery",
+      sourceRoot,
+      outputRoot: join(root, "repository"),
+    });
+    await expect(
+      lstat(join(fixture.fixtureRoot, ".scratch/label-delivery")),
+    ).rejects.toHaveProperty("code", "ENOENT");
+    const baseline = spawnSync("node", ["--test", "tests/format-label.test.ts"], {
+      cwd: fixture.fixtureRoot,
+      encoding: "utf8",
+    });
+    expect({ status: baseline.status, error: baseline.stderr }).toEqual({
+      status: 0,
+      error: "",
+    });
+  });
+
+  test("fixture identity includes the canonical state selected for delivery continuation", async () => {
+    const registry = await loadLiveScenarioRegistry(registryPath);
+    const selected = ["planned-effort-delivery", "bound-delivery-missing-baseline"];
+    expect(liveScenarioReferencedFixtureSources(registry, selected)).toEqual(
+      expect.arrayContaining([
+        "validation/live-journey/fixtures/planned-start-state",
+        "validation/live-journey/fixtures/planning-state",
+      ]),
+    );
+    const root = await mkdtemp(join(tmpdir(), "bearing-canonical-fixture-identity-"));
+    roots.push(root);
+    await cp(join(sourceRoot, "validation"), join(root, "validation"), { recursive: true });
+    const before = await digestLiveScenarioFixtureSet({
+      sourceRoot: root,
+      registry,
+      scenarioIds: selected,
+    });
+    const effort = join(
+      root,
+      "validation/live-journey/fixtures/planned-start-state/efforts/label-delivery.md",
+    );
+    await writeFile(
+      effort,
+      `${await readFile(effort, "utf8")}\nA different accepted delivery commitment.\n`,
+    );
+    expect(
+      await digestLiveScenarioFixtureSet({ sourceRoot: root, registry, scenarioIds: selected }),
+    ).not.toBe(before);
+  });
+
+  test("first authoring starts with configuration only and no planning or native seed", async () => {
+    const registry = await loadLiveScenarioRegistry(registryPath);
+    const scenario = registry.scenarios.find(({ id }) => id === "first-canonical-authoring");
+    expect(scenario).toBeDefined();
+    expect(scenario?.fixedValidationFixture.profile).toBe("active-repository");
+    expect(scenario?.fixedValidationFixture.skills).toEqual([
+      { skill: "bearing", role: "prerequisite" },
+    ]);
+    const root = await mkdtemp(join(tmpdir(), "bearing-first-authoring-fixture-"));
+    roots.push(root);
+    const fixture = await materializeLiveScenarioFixture({
+      registry,
+      scenarioId: "first-canonical-authoring",
+      sourceRoot,
+      outputRoot: join(root, "repository"),
+    });
+    for (const locator of [".bearing", ".scratch/label-delivery", "skills", "docs/adr"]) {
+      await expect(lstat(join(fixture.fixtureRoot, locator))).rejects.toHaveProperty(
+        "code",
+        "ENOENT",
+      );
+    }
+  });
+
   test("every semantic scenario has one reproducible fixed fixture", async () => {
     const registry = await loadLiveScenarioRegistry(registryPath);
     const root = await mkdtemp(join(tmpdir(), "bearing-live-inventory-"));
@@ -32,7 +145,7 @@ describe("Live Matrix validation fixture inventory", () => {
         }),
       ),
     );
-    expect(materialized).toHaveLength(12);
+    expect(materialized).toHaveLength(16);
     expect(
       materialized.every(({ startingStateSha256 }) => /^[0-9a-f]{64}$/u.test(startingStateSha256)),
     ).toBe(true);

@@ -45,7 +45,7 @@ unverified targets. Its blocked admission reports `externalEffectsObserved: true
 
 ## Scenario contract
 
-The tracked registry is `validation/live-journey/registry.json`. It contains exactly twelve
+The tracked registry is `validation/live-journey/registry.json`. It contains exactly sixteen
 independent, semantically named Scenarios. Each Scenario declares five semantic fields:
 
 1. Fixed Validation Fixture
@@ -100,14 +100,26 @@ finalize `blocked`. A recovered pass requires the interrupted Turn to contain no
 repository or Agent Home change, followed through the retained private session by a clean completed
 Turn. A semantic result cannot be restarted, retried, or resampled inside its Generation.
 
-Judge owner composition at turn boundaries. An exact owner-required concurrency claim before
-Bearing admission is not by itself a failure. At most one applicable provider synchronization may
-follow the settled native writes of one Turn; a later Turn with new writes may synchronize again.
-A Human Handoff does not require synchronization. Before the Agent reports Workflow Completion for
-a request with pending bound native subjects, one reconciliation must cover the complete Pending
-Native Write Set. A skipped Human-Handoff synchronization carries its unsynchronized subjects into
-the next Turn. Repeated same-Turn capture or reconciliation is a workflow failure rather than a
-recovery path.
+Judge owner composition across the actual authorized request. An exact owner-required concurrency
+claim before admission is not itself a failure. Complete successful baseline publication followed
+by current Binding and ready-basis readback continues into already-authorized work; internal owner
+completion is not a Human Handoff.
+Ready admission adds no capture. Combine all currently known successful owner writebacks, then
+reconcile the complete Pending Native Write Set by each confirmed exact Binding scope. Clear only
+successfully covered subjects; first capture already covers the writes it actually observed. No
+pending write means no post-owner reconciliation. A later necessary authorized semantic or evidence change,
+even to the same subject in the same Turn, creates a new obligation after success. Identical-byte
+rewrites, meaningless state changes, timestamps, or splitting already-known work do not.
+
+A material Human decision preserves pending writes and the continuation; synchronize there only
+when that decision needs a new observation. Owner workflow failure preserves partial effects and
+performs no post-owner provider follow-up; ordinary owner iteration is not terminal failure. A
+failed, partial, or unknown first capture stops baseline-dependent work while preserving accepted
+Binding and activation. Failed or unknown reconciliation retains pending writes and evidence
+limits. That scope cannot retry, swap references or cost class, fall back to capture/verify, or
+reset failure through repair or new writes in the same Turn. Later independent recovery does not
+rewrite the failure or grant mutation authority. Changed canonical preconditions stop affected
+continuations; publication conflict remains unpublished, not a request-wide canonical file lock.
 
 At most four Scenarios may be active. One Scenario has at most one active Turn. Independent
 Scenarios may continue after another fails so the Generation yields the complete truthful result

@@ -336,12 +336,18 @@ const installPlanningState = async (input: {
   sourceRoot: string;
   repositoryRoot: string;
   effortMode: "bound" | "absent" | "planned-unbound";
+  stateFixture?: "planning-state" | "planned-start-state" | "conclusion-state";
+  captureBaseline?: boolean;
   productProgram: string;
   agentHome: string;
   nativeScope?: string;
   githubToken?: string;
 }): Promise<void> => {
-  const baseline = join(input.sourceRoot, "validation/live-journey/fixtures/planning-state");
+  const baseline = join(
+    input.sourceRoot,
+    "validation/live-journey/fixtures",
+    input.stateFixture ?? "planning-state",
+  );
   await rm(join(input.repositoryRoot, ".bearing/state"), { recursive: true, force: true });
   await cp(baseline, join(input.repositoryRoot, ".bearing/state"), {
     recursive: true,
@@ -382,7 +388,7 @@ const installPlanningState = async (input: {
     cwd: input.repositoryRoot,
     home: input.agentHome,
   });
-  if (input.effortMode === "bound") {
+  if (input.effortMode === "bound" && input.captureBaseline !== false) {
     const capture = z
       .object({
         command: z.literal("provider-capture"),
@@ -527,9 +533,15 @@ export const materializeLiveScenarioProductState = async (input: {
       "active-planned-unbound-native-repository",
       "active-bound-local-repository",
       "active-bound-wayfinder-repository",
+      "active-planned-new-scope-repository",
+      "active-bound-capture-required-local-repository",
+      "active-effort-conclusion-repository",
     ].includes(materializer)
   ) {
-    if (materializer === "active-bound-local-repository") {
+    if (
+      materializer === "active-bound-local-repository" ||
+      materializer === "active-bound-capture-required-local-repository"
+    ) {
       await retainNativeTickets(input.repositoryRoot, ["04-complete-secondary-format.md"]);
     }
     if (materializer === "active-bound-wayfinder-repository") {
@@ -548,10 +560,17 @@ export const materializeLiveScenarioProductState = async (input: {
     }
     await installPlanningState({
       ...input,
+      ...(materializer === "active-planned-new-scope-repository"
+        ? { stateFixture: "planned-start-state" as const }
+        : materializer === "active-effort-conclusion-repository"
+          ? { stateFixture: "conclusion-state" as const }
+          : {}),
+      captureBaseline: materializer !== "active-bound-capture-required-local-repository",
       effortMode:
         materializer === "active-unbound-native-repository"
           ? "absent"
-          : materializer === "active-planned-unbound-native-repository"
+          : materializer === "active-planned-unbound-native-repository" ||
+              materializer === "active-planned-new-scope-repository"
             ? "planned-unbound"
             : "bound",
     });

@@ -21,9 +21,9 @@ repository, and npm supplies package integrity. Record the returned version as
 
 ## 2. Install the complete canonical bundle
 
-Run the non-interactive installation seam. If your own complete Skill Directory is one of the
-three supported locations below, add its resolved `--surface` value; otherwise install only the
-bundle:
+Run the non-interactive installation seam. If your own Skill Directory already exists at one of
+the three supported locations below, add its resolved `--surface` value; an empty directory
+qualifies and needs no preinstalled skills. Otherwise install only the bundle:
 
 ```bash
 npx --yes @lagrangee/bearing@<resolved-version> install
@@ -51,7 +51,7 @@ directory as setup consent.
 
 ## 3. Integrate the Bearing skill
 
-Bearing recognizes only these complete, already-existing Skill Directories:
+Bearing recognizes only these already-existing Skill Directories:
 
 - Agent Skills: `~/.agents/skills`
 - Claude: `~/.claude/skills`

@@ -14,14 +14,18 @@ The Repository Configuration managed pointer is the sole authority for contextua
 it only under its stated conditions; repository presence does not nominate Bearing. Explicit
 Bearing invocation remains available when the pointer did not nominate the request.
 
-### Native work through another Skill
+### Composed native work
 
-When the Human invokes another Skill to read or change an existing Map, PRD, Ticket, or provider
-issue in a Bearing-nominated repository, compose the request as **Native admission → owner workflow
-→ Native follow-up → Human response**. Preserve the invoked Skill as work owner and load
-`references/journeys/native-work.md` immediately. Only its required exact claim may precede Native
-Inspect. After the owner pauses or finishes, return its exact pending native write set to Native
-Work; the matching provider follow-up completes the composed request.
+For a request that creates, reads, or changes native work in a Bearing-nominated repository, compose
+**Native admission → authorized owner work → required Native follow-up → Human response**. Preserve
+an actually invoked Skill as work owner; otherwise use Ordinary Owner Work. Load
+`references/journeys/native-work.md` immediately. For an implementation or executor request, also
+load `references/journeys/execution.md` before Native admission or owner work. When Native Inspect
+reports `capture-required`, load `references/journeys/project-read-model.md` before running its
+baseline capture. Only an invoked owner's required exact claim may precede Native Inspect.
+Internal owner completion or successful required synchronization returns
+to remaining authorized work in the same request. Preserve its full pending native write set across
+those boundaries; use a Human Handoff only for a material choice or authorization.
 
 Select the CLI from the managed pointer. Replace the leading `bearing` token in every command below
 with that CLI. Stable Runtime uses `$HOME/.bearing/bin/bearing`. Development Runtime uses
@@ -89,25 +93,35 @@ with the package entry that invokes that exact candidate's installer.
 
 ## Direct reference routing
 
+For first Bearing planning in a configured project with empty canonical state, load the canonical
+mutation contract and the Summary, Roadmap, Gate, and Effort owners below before preparing the
+candidate. Include a Summary of the project's accepted purpose, current design, and boundaries.
+Add the smallest Roadmap, Gate, and planned Effort set needed by the requested horizon, decision
+boundary, and delivery commitment, including its index and orders. Present this complete set for
+acceptance before writing; missing project meaning requires clarification. Provider-native PRDs,
+Maps, and Tickets remain separate work and do not substitute for this canonical candidate. First
+authoring alone grants no native scope creation, Binding, or Activation authority.
+
 | Operation | Load directly |
 | --- | --- |
-| Accepted canonical semantic mutation | `references/contracts/canonical-mutation.md` plus each affected semantic owner below |
+| Canonical planning candidate or accepted semantic mutation | `references/contracts/canonical-mutation.md` plus each affected semantic owner below, before preparing the candidate |
 | Repository Configuration | `references/journeys/configure.md` plus exactly one of `references/journeys/configure-fresh.md`, `references/journeys/configure-active.md`, `references/journeys/configure-reactivate.md`, `references/journeys/configure-deactivate.md`, or `references/journeys/configure-unsupported.md` |
 | Repository Update | `references/journeys/update.md` and `references/journeys/project-read-model.md` |
 | Project Catalog | `references/journeys/catalog.md` |
 | Project Read Model rebuild, provider capture, or provider verification | `references/journeys/project-read-model.md` |
-| Project Orientation | `references/journeys/project-orientation.md`; also `references/journeys/scope-review.md` when existing-work evidence is included |
-| Whole-project Scope Review | `references/journeys/scope-review.md` |
-| Feature Intake for a proposed feature related to accepted planning or work | First load `references/journeys/feature-intake.md`; after acceptance, add `references/journeys/native-work.md` when the selected continuation writes native work; add `references/contracts/canonical-mutation.md` and the affected owner only when canonical Bearing meaning changes; a named planned Effort start also uses `references/owners/effort.md` and `references/journeys/project-read-model.md` |
+| Project Orientation | `references/journeys/project-orientation.md`; when existing-work evidence is included, also `references/journeys/scope-review.md` and `references/journeys/native-work.md`; before any provider capture, add `references/journeys/project-read-model.md` |
+| Whole-project Scope Review | `references/journeys/scope-review.md` and `references/journeys/native-work.md`; before any provider capture, add `references/journeys/project-read-model.md` |
+| Feature Intake for a proposed feature related to accepted planning or work | First load `references/journeys/feature-intake.md`; before preparing a canonical candidate, add `references/contracts/canonical-mutation.md` and each affected owner; after acceptance, add `references/journeys/native-work.md` when the selected continuation writes native work; a named planned Effort start also uses `references/owners/effort.md` and `references/journeys/project-read-model.md` |
 | Native work, including through another Skill | `references/journeys/native-work.md`; also `references/journeys/project-read-model.md` when Native Inspect reports `capture-required` |
 | Start or enroll an Effort through Matt work | `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, `references/journeys/native-work.md`, and `references/journeys/project-read-model.md` |
-| Direct Execution | `references/journeys/execution.md` and `references/journeys/native-work.md`; for a planned Effort with no Binding, also `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, and `references/journeys/project-read-model.md`; otherwise add `references/journeys/project-read-model.md` only when Native Inspect reports `capture-required` |
+| Direct Execution | `references/journeys/execution.md` and `references/journeys/native-work.md`; for delivery that starts a named planned Effort with no Binding, also load `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, and `references/journeys/project-read-model.md` before preparing its start; otherwise add `references/journeys/project-read-model.md` only when Native Inspect reports `capture-required` |
 | Explicit Next Work guidance | `references/journeys/next-work.md` |
 | Project Summary | `references/owners/project-summary.md` |
 | Project Brief | `references/owners/project-brief.md` |
 | Roadmap | `references/owners/roadmap.md` |
 | Milestone Gate | `references/owners/milestone-gate.md` |
 | Effort | `references/owners/effort.md`; also `references/journeys/project-read-model.md` for Work Binding creation or change |
+| Effort conclusion | `references/contracts/canonical-mutation.md`, `references/owners/effort.md`, `references/owners/asset.md`, and `references/owners/authority.md` before the candidate; select `references/owners/project-brief.md` for the required evaluation after accepted conclusion, and Project Summary only when its own trigger applies |
 | Asset | `references/owners/asset.md` |
 | Authority | `references/owners/authority.md` |
 | Explicit Planning Audit | `references/owners/planning-audit.md` |

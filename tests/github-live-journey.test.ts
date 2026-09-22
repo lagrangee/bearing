@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, lstat, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codexE2ELaunchContract, inspectCodexE2EToolchain } from "../scripts/codex-e2e-runtime";
@@ -532,13 +532,17 @@ describe("GitHub and Active Reconciliation live Journey", () => {
     ]) {
       expect(() => authorizeGitHubJourneyCommand({ args, stdin: "", repositorySlug })).toThrow();
     }
-    expect(() =>
-      authorizeGitHubJourneyCommand({
-        args: ["api", "user"],
-        stdin: "secret input",
-        repositorySlug,
-      }),
-    ).toThrow("stdin");
+    for (const args of [
+      ["api", "user"],
+      ["help"],
+      ["issue", "list"],
+      ["issue", "edit", "20", "--body", "Inline body"],
+      ["issue", "edit", "20", "--title", "Title only"],
+    ]) {
+      expect(() =>
+        authorizeGitHubJourneyCommand({ args, stdin: "secret input", repositorySlug }),
+      ).toThrow("stdin");
+    }
   });
 
   test("binds natural GitHub Issue writes to the internal Journey scope", () => {
@@ -601,6 +605,135 @@ describe("GitHub and Active Reconciliation live Journey", () => {
     expect(redacted).not.toContain(scopeKey);
     expect(redacted).not.toContain("bearing-live-scope");
     expect(redacted).toContain("Natural delivery body.");
+  });
+
+  test("preserves stdin Issue edit bodies through the wrapper and scope authorization", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bearing-broker-body-"));
+    const agentHome = join(root, "agent-home");
+    const fakeGitHub = join(root, "fake-gh.mjs");
+    const invocationPath = join(root, "invocations.jsonl");
+    const repositorySlug = "example/bearing-validation";
+    const scopeKey = `bearing-live-0-1-1-${"a".repeat(20)}`;
+    const marker = `<!-- bearing-live-scope:${scopeKey} -->`;
+    const nodeProgram = Bun.which("node");
+    if (nodeProgram === null) throw new Error("Node is required for the broker fixture.");
+    await mkdir(agentHome);
+    await mkdir(join(root, ".git"));
+    const gitConfig =
+      '[core]\n\trepositoryformatversion = 0\n[remote "origin"]\n\turl = https://github.com/example/bearing-validation.git\n';
+    await writeFile(join(root, ".git/config"), gitConfig);
+    await writeFile(invocationPath, "");
+    await writeFile(
+      fakeGitHub,
+      `#!${nodeProgram}
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+if (args[0] === "auth") process.stdout.write("fixture-credential\\n");
+else if (args[0] === "api" && args.includes("user")) process.stdout.write("example-agent\\n");
+else if (args[0] === "api" && args[1] === "repos/example/bearing-validation/issues?state=all&per_page=100") {
+  process.stdout.write(${JSON.stringify(
+    JSON.stringify([
+      [
+        { id: 21, number: 20, title: "Current delivery", body: `Current body\n\n${marker}` },
+        { id: 999, number: 1, title: "Historical delivery", body: "Historical body" },
+      ],
+    ]),
+  )});
+} else {
+  appendFileSync(${JSON.stringify(invocationPath)}, JSON.stringify(args) + "\\n");
+  process.stdout.write("{}\\n");
+}
+`,
+      { mode: 0o700 },
+    );
+    const broker = await startGitHubJourneyCredentialBroker({
+      program: fakeGitHub,
+      agentHome,
+      repositoryRoot: root,
+      repositorySlug,
+      scopeKey,
+      preparedGitConfigSha256: createHash("sha256").update(gitConfig).digest("hex"),
+      gitProgram: fakeGitHub,
+      nodeProgram,
+      baseEnvironment: { HOME: agentHome, PATH: "/usr/bin:/bin" },
+    });
+    try {
+      const body = "# 已完成 🌏\n\n`literal backticks` and $(literal command)\n末尾换行\n\n";
+      const runWrapper = async (args: readonly string[], stdin: string) => {
+        const child = Bun.spawn([join(agentHome, ".local/bin/gh"), ...args], {
+          env: broker.environment,
+          stdin: new Blob([stdin]),
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const [exitCode, stdout, stderr] = await Promise.all([
+          child.exited,
+          new Response(child.stdout).text(),
+          new Response(child.stderr).text(),
+        ]);
+        return { exitCode, stdout, stderr };
+      };
+      for (const bodyOptions of [["--body-file", "-"], ["--body-file=-"]]) {
+        for (const stdin of [body, ""]) {
+          await writeFile(invocationPath, "");
+          const result = await runWrapper(["issue", "edit", "20", ...bodyOptions], stdin);
+          expect(result.exitCode, result.stderr).toBe(0);
+          expect(JSON.parse(await readFile(invocationPath, "utf8"))).toEqual([
+            "issue",
+            "edit",
+            "20",
+            "--body",
+            stdin === "" ? marker : `${body}\n\n${marker}`,
+            "--repo",
+            repositorySlug,
+          ]);
+        }
+      }
+      await writeFile(invocationPath, "");
+      const inline = await runWrapper(["issue", "edit", "20", "--body", body], "");
+      expect(inline.exitCode, inline.stderr).toBe(0);
+      expect(JSON.parse(await readFile(invocationPath, "utf8"))).toEqual([
+        "issue",
+        "edit",
+        "20",
+        "--body",
+        `${body}\n\n${marker}`,
+        "--repo",
+        repositorySlug,
+      ]);
+      const authorizedInvocations = await readFile(invocationPath, "utf8");
+      for (const args of [
+        ["issue", "edit", "20", "--body-file", "/etc/passwd"],
+        ["issue", "edit", "20", "--body-file=./body.md"],
+        ["issue", "edit", "20", "--body-file="],
+        ["issue", "edit", "20", "--body", "", "--body-file", "-"],
+        ["issue", "edit", "20", "--body-file=-", "-b", ""],
+        ["issue", "edit", "20", "--body=", "--body-file=-"],
+        ["issue", "edit", "20", "--body", body, "--body-file", "-"],
+        ["issue", "edit", "20", "--body-file=-", "--body=Inline body"],
+        ["issue", "edit", "20", "--body-file=/etc/passwd", "--body-file=-"],
+        ["issue", "edit", "20", "--body-file", "-", "--body-file=/etc/passwd"],
+        ["issue", "edit", "20", "--body-file", "-", "--body-file=-"],
+        ["issue", "create", "--title", "New Issue", "--body-file", "-"],
+        ["issue", "comment", "20", "--body-file=-"],
+        ["issue", "list", "--body-file", "-"],
+        ["api", "user", "--input=-"],
+        ["issue", "edit", "20", "--repo", "example/other", "--body-file", "-"],
+        ["issue", "edit", "20", "--repo=example/other", "--body-file=-"],
+        ["issue", "edit", "1", "--body-file", "-"],
+        ["issue", "edit", "1", "--body-file=-"],
+      ]) {
+        for (const stdin of [body, ""]) {
+          const result = await runWrapper(args, stdin);
+          expect(result.exitCode, JSON.stringify({ args, stderr: result.stderr })).not.toBe(0);
+          expect(result.stdout).toBe("");
+        }
+      }
+      expect(await readFile(invocationPath, "utf8")).toBe(authorizedInvocations);
+    } finally {
+      await broker.stop();
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("prepares isolated account selection and a non-secret per-turn credential broker", async () => {

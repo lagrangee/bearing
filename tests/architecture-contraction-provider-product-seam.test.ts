@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { serializeMarkdownDocument } from "../src/markdown-document";
 import { createRepresentativeProject } from "./fixtures/representative-project";
 import { installPackedProduct } from "./product-seams/installed-product";
 
@@ -27,6 +29,26 @@ test("packed product exposes explicit provider cost classes and native typed rea
     expect(rebuilt.effects.created).not.toContain(
       "root-0/.bearing/cache/provider-detail-selections.json",
     );
+
+    const missingBaseline = await product.run(
+      ["inspect", "--native", fixture.nativeLocator, "--repo", "."],
+      { cwd: fixture.root, observeRoots: [fixture.root] },
+    );
+    expect(missingBaseline.exitClass).toBe("success");
+    expect(missingBaseline.effects).toEqual({ created: [], changed: [], removed: [] });
+    expect(JSON.parse(missingBaseline.stdout)).toMatchObject({
+      result: {
+        reference: fixture.nativeLocator,
+        binding: {
+          state: "bound",
+          nativeScope: ".scratch/scope-001",
+          targetedReconciliationBasis: {
+            state: "capture-required",
+            reason: "observation-unavailable",
+          },
+        },
+      },
+    });
 
     const captured = await product.run(
       ["provider", "capture", "--scope", ".scratch/scope-001", "--repo", "."],
@@ -280,6 +302,141 @@ test("packed product exposes explicit provider cost classes and native typed rea
       outcome: "unfulfilled",
       result: { acquisitionCount: 0 },
     });
+  } finally {
+    await product.dispose();
+  }
+}, 60_000);
+
+test("new Binding acquires its missing baseline and observes each later native evidence change", async () => {
+  const product = await installPackedProduct();
+  const fixture = await createRepresentativeProject("representative", product.root);
+  const scope = ".scratch/scope-001";
+  const effortPath = join(fixture.root, ".bearing/state/efforts/e001.md");
+  const plannedFields = {
+    Type: "effort",
+    ID: "effort:e001",
+    Title: "Stable label formatting",
+    Roadmap: "roadmap:r001",
+    "Target gate": "gate:g001",
+    Authorities: [],
+    Citations: [],
+    Lifecycle: "planned",
+    "Planned at": "2026-09-05T01:00:00.000Z",
+  };
+  const body =
+    "\n# Stable label formatting\n\n## Intent\n\nDefine useful label formatting.\n\n## Work\n";
+  try {
+    await rm(join(fixture.root, scope), { recursive: true });
+    await writeFile(effortPath, serializeMarkdownDocument({ frontmatter: plannedFields, body }));
+    const planned = await product.run(["inspect", "effort:e001", "--repo", fixture.root]);
+    expect(planned.exitClass).toBe("success");
+    expect(JSON.parse(planned.stdout)).toMatchObject({
+      result: {
+        target: {
+          value: { lifecycle: "planned", workBindingState: { state: "not-created" } },
+        },
+      },
+    });
+
+    for (const file of fixture.files.filter((file) => file.locator.startsWith(`${scope}/`))) {
+      const path = join(fixture.root, file.locator);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, file.content);
+    }
+    const acceptedEffort = serializeMarkdownDocument({
+      frontmatter: {
+        ...plannedFields,
+        Lifecycle: "active",
+        "Activated at": "2026-09-05T02:00:00.000Z",
+        "Work binding": { Provider: "matt-skills/v1", "Native scope": scope },
+      },
+      body,
+    });
+    await writeFile(effortPath, acceptedEffort);
+    const inspectArgs = ["inspect", "--native", fixture.nativeLocator, "--repo", fixture.root];
+    const missing = await product.run(inspectArgs);
+    expect(missing.exitClass).toBe("success");
+    expect(JSON.parse(missing.stdout)).toMatchObject({
+      result: {
+        reference: fixture.nativeLocator,
+        binding: {
+          state: "bound",
+          nativeScope: scope,
+          targetedReconciliationBasis: {
+            state: "capture-required",
+            reason: "observation-unavailable",
+          },
+        },
+      },
+    });
+    const captured = await product.run([
+      "provider",
+      "capture",
+      "--scope",
+      scope,
+      "--repo",
+      fixture.root,
+    ]);
+    expect(captured.exitClass).toBe("success");
+    expect(JSON.parse(captured.stdout)).toMatchObject({
+      outcome: "complete",
+      result: { acquisitionCount: 1, scopes: [{ scope, disposition: "captured" }] },
+    });
+
+    const ticketPath = join(fixture.root, fixture.nativeLocator);
+    const originalTicket = await readFile(ticketPath, "utf8");
+    for (const answer of [
+      "Return the trimmed label in lower case.",
+      "Return the trimmed label in lower case; preserve internal spaces.",
+    ]) {
+      const ready = await product.run(inspectArgs, { observeRoots: [fixture.root] });
+      expect(ready.exitClass).toBe("success");
+      expect(ready.effects).toEqual({ created: [], changed: [], removed: [] });
+      expect(JSON.parse(ready.stdout)).toMatchObject({
+        result: {
+          binding: {
+            state: "bound",
+            nativeScope: scope,
+            targetedReconciliationBasis: { state: "ready" },
+          },
+        },
+      });
+      await writeFile(ticketPath, originalTicket.replace("Yes.", answer));
+      const reconciled = await product.run([
+        "reconcile-native",
+        "--scope",
+        scope,
+        "--ref",
+        fixture.nativeLocator,
+        "--repo",
+        fixture.root,
+      ]);
+      expect(reconciled.exitClass).toBe("success");
+      expect(JSON.parse(reconciled.stdout)).toMatchObject({
+        outcome: "complete",
+        result: {
+          acquisitionCount: 1,
+          dispositions: [{ reference: fixture.nativeLocator, disposition: "read" }],
+          readback: expect.arrayContaining([
+            expect.objectContaining({
+              nativeReference: fixture.nativeLocator,
+              entity: expect.objectContaining({
+                kind: "wayfinder-ticket",
+                answer: {
+                  availability: "available",
+                  content: expect.objectContaining({
+                    document: expect.arrayContaining([
+                      expect.objectContaining({ markdown: answer }),
+                    ]),
+                  }),
+                },
+              }),
+            }),
+          ]),
+        },
+      });
+      expect(await readFile(effortPath, "utf8")).toBe(acceptedEffort);
+    }
   } finally {
     await product.dispose();
   }
