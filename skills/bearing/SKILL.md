@@ -14,25 +14,16 @@ The Repository Configuration managed pointer is the sole authority for contextua
 it only under its stated conditions; repository presence does not nominate Bearing. Explicit
 Bearing invocation remains available when the pointer did not nominate the request.
 
-### Composed native work
+For a request that creates, reads, or changes native work, including through another Skill, load
+`references/journeys/native-work.md` immediately. For implementation or an executor request, also load
+`references/journeys/execution.md` before Native admission or owner work. Apply every other
+matching direct route below before performing its operation.
 
-For a request that creates, reads, or changes native work in a Bearing-nominated repository, compose
-**Native admission → authorized owner work → required Native follow-up → Human response**. Preserve
-an actually invoked Skill as work owner; otherwise use Ordinary Owner Work. Load
-`references/journeys/native-work.md` immediately. For an implementation or executor request, also
-load `references/journeys/execution.md` before Native admission or owner work. When Native Inspect
-reports `capture-required`, load `references/journeys/project-read-model.md` before running its
-baseline capture. Only an invoked owner's required exact claim may precede Native Inspect.
-Internal owner completion or successful required synchronization returns
-to remaining authorized work in the same request. Preserve its full pending native write set across
-those boundaries; use a Human Handoff only for a material choice or authorization.
-
-Select the CLI from the managed pointer. Replace the leading `bearing` token in every command below
-with that CLI. Stable Runtime uses `$HOME/.bearing/bin/bearing`. Development Runtime uses
-`node <repo-root>/dist/cli.js`; first run its `runtime inspect --repo <repo-root>` operation and
-require one coherent Development receipt. Development never falls back to Stable CLI, Skill, or
-state. Each functional operation validates its required Repository Integration Lifecycle before
-cache creation, provider I/O, or mutation.
+Use the CLI selected by the entry that loaded this root. The Stable entry uses
+`$HOME/.bearing/bin/bearing`; the repository-local Development entry owns its pinned CLI and
+runtime admission. Replace the leading `bearing` token in every command below with that CLI.
+Each functional operation validates its required Repository Integration Lifecycle before cache
+creation, provider I/O, or mutation.
 
 All runtime reference paths below are relative to this `SKILL.md`. Load only the direct references
 selected for the current operation.
@@ -93,6 +84,9 @@ with the package entry that invokes that exact candidate's installer.
 
 ## Direct reference routing
 
+Selected references own their operation sequence, effect verification, failure boundary, and
+owner-local follow-up; they do not route onward.
+
 For first Bearing planning in a configured project with empty canonical state, load the canonical
 mutation contract and the Summary, Roadmap, Gate, and Effort owners below before preparing the
 candidate. Include a Summary of the project's accepted purpose, current design, and boundaries.
@@ -126,6 +120,3 @@ authoring alone grants no native scope creation, Binding, or Activation authorit
 | Authority | `references/owners/authority.md` |
 | Explicit Planning Audit | `references/owners/planning-audit.md` |
 | Planning Review | `references/owners/planning-review.md` |
-
-Selected references own their operation sequence, effect verification, failure boundary, and owner-local
-follow-up. They do not route onward.

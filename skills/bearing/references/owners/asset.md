@@ -15,6 +15,42 @@ Admit an Asset only when it has continuing planning value or is a first-class du
 artifact. File existence, executor production, durability, Ticket evidence, and Gate proof do not
 admit an Asset by themselves. Do not run automatic registration or classification.
 
+## Operation
+
+1. Inspect the Asset reference, current owner, source facts requested for this decision, lifecycle,
+   and direct planning relations. For an exact local source question, use only the bounded Asset
+   Detail probe. Do not use Asset lists or Attention to probe sources. Identify one exact Asset and
+   every affected owner before making the candidate. For a lifecycle change, establish complete
+   coverage of this Asset's Authority Baselines; another planning object's direct Authorities do
+   not enumerate every adopter. Unknown, unavailable, partial, or at-least coverage is unresolved.
+2. For admission, state the continuing planning value or first-class artifact purpose. Author the
+   accepted entry using the Write form below.
+   Another owner participates only when root selected it because its canonical state will actually
+   change. Keep Asset and non-Asset effects separate.
+3. Preserve identity while meaning continues. A superseded Asset names one active replacement; an
+   archived Asset does not invent a replacement. Before an Effort concludes, transfer, supersede,
+   or archive each active Asset it owns according to its actual continuing use. Historical inactive
+   Assets may retain that Effort and their event times. A transfer preserves identity and Source;
+   it does not change adoption. Supersession or archival of an adopted Asset includes every
+   necessary Authority Baseline replacement or removal in the same accepted logical scope.
+   Replacements must resolve, remain active, and be acyclic. Account for each transition and
+   reason in the candidate; read destination eligibility without adding an unchanged destination
+   file to the write set.
+
+## After this operation
+
+- **Required:** A changed owning planning object is validated by its own owner in the same accepted
+  logical scope.
+- **Consider:** Preserve semantic identity across ordinary content refinement.
+- **Do not infer:** Citation, source availability, production, or Gate evidence changes Asset
+  lifecycle or ownership. A missing or unreadable source does not rematerialize the project. HTTPS
+  source availability remains unverified until a separate authorized check exists.
+
+## Completion criterion
+
+Only explicitly accepted Asset semantics changed, identity remains stable where meaning continues,
+Citation effects stayed with citing owners, and no file or evidence was registered automatically.
+
 ## Write form
 
 Write entries in `.bearing/state/assets.md`, one container with required `Type: asset-registry`
@@ -99,41 +135,3 @@ Assets: []
 
 # Asset Registry
 ```
-
-## Operation
-
-1. Inspect the Asset reference, current owner, source facts requested for this decision, lifecycle,
-   and direct planning relations. For an exact local source question, use only the bounded Asset
-   Detail probe. Do not use Asset lists or Attention to probe sources. Identify one exact Asset and
-   every affected owner before making the candidate. For a lifecycle change, establish complete
-   coverage of this Asset's Authority Baselines; another planning object's direct Authorities do
-   not enumerate every adopter. Unknown, unavailable, partial, or at-least coverage is unresolved.
-2. For admission, state the continuing planning value or first-class artifact purpose. Author only
-   `ID`, `Title`, `Purpose`, closed `Kind`, contained local or safe HTTPS `Source`, current `Owner`,
-   `Added at`, lifecycle disposition, and optional human-facing `Origin`. Allowed Kinds are
-   `specification`, `prototype`, `design`, `research`, `baseline`, `reference`, and `runbook`.
-   Another owner participates only when root selected it because its canonical state will actually
-   change. Keep Asset and non-Asset effects separate.
-3. Preserve identity while meaning continues. A superseded Asset names one active replacement; an
-   archived Asset does not invent a replacement. Before an Effort concludes, transfer, supersede,
-   or archive each active Asset it owns according to its actual continuing use. Historical inactive
-   Assets may retain that Effort and their event times. A transfer preserves identity and Source;
-   it does not change adoption. Supersession or archival of an adopted Asset includes every
-   necessary Authority Baseline replacement or removal in the same accepted logical scope.
-   Replacements must resolve, remain active, and be acyclic. Account for each transition and
-   reason in the candidate; read destination eligibility without adding an unchanged destination
-   file to the write set.
-
-## After this operation
-
-- **Required:** A changed owning planning object is validated by its own owner in the same accepted
-  logical scope.
-- **Consider:** Preserve semantic identity across ordinary content refinement.
-- **Do not infer:** Citation, source availability, production, or Gate evidence changes Asset
-  lifecycle or ownership. A missing or unreadable source does not rematerialize the project. HTTPS
-  source availability remains unverified until a separate authorized check exists.
-
-## Completion criterion
-
-Only explicitly accepted Asset semantics changed, identity remains stable where meaning continues,
-Citation effects stayed with citing owners, and no file or evidence was registered automatically.

@@ -26,7 +26,7 @@ const contextualNomination = joinClauses(nominationClauses);
 const contextualExclusions = joinClauses(exclusionClauses);
 
 export const BEARING_POINTER = `Load \`bearing\` for ${contextualNomination}. Use normal Agent behavior for ${contextualExclusions}.`;
-export const BEARING_DEVELOPMENT_POINTER = `This repository selects the Bearing Development Runtime. Load the repository-local \`$bearing-dev\` Skill from \`.agents/skills/bearing-dev\` for ${contextualNomination}. Use normal Agent behavior for ${contextualExclusions}. Run repository-scoped Bearing commands through this checkout's \`dist/cli.js\`; each command must return a coherent Development Runtime receipt before it can operate. Use \`$bearing-dev\`, not the public \`$bearing\`, for this repository. Do not use or fall back to the public Stable Kit, CLI, Skill, or state. Explicit \`$bearing-dev\` follows this repository-local Development Runtime selection.`;
+export const BEARING_DEVELOPMENT_POINTER = `Load the repository-local \`$bearing-dev\` at \`.agents/skills/bearing-dev/SKILL.md\` for ${contextualNomination}. Use this Development entry also for explicit Bearing requests. Use normal Agent behavior for ${contextualExclusions}.`;
 
 export const BEARING_MANAGED_BLOCK = `${BEARING_MANAGED_START}\n${BEARING_POINTER}\n${BEARING_MANAGED_END}`;
 export const BEARING_DEVELOPMENT_MANAGED_BLOCK = `${BEARING_MANAGED_START}\n${BEARING_DEVELOPMENT_POINTER}\n${BEARING_MANAGED_END}`;

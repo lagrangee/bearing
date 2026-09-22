@@ -280,10 +280,11 @@ describe("public Bearing Agent surface", () => {
       "Bearing continuation",
     ]);
     const rows = new Map(
-      boundary.rows.map(([evidence, native, bearing]) => [
-        evidence,
-        { native, bearing: semanticTokens(bearing) },
-      ]),
+      boundary.rows.flatMap(([evidence, native, bearing]) =>
+        semanticTokens(evidence).map(
+          (kind) => [kind, { native, bearing: semanticTokens(bearing) }] as const,
+        ),
+      ),
     );
 
     expect(rows.get("no-direct-high-confidence-relationship")).toEqual({
