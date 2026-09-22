@@ -37,10 +37,19 @@ Catalog and Portal remain independent owners.
    effects, and later independent Catalog effect. Completion: the user accepts that complete review
    or Configuration changes nothing.
 6. Run `bearing configure apply` with the same sealed plan and choices. Do not reinterpret intent.
-   Validate repository outcome, then report Catalog as an independent stage and complete one Portal
-   handoff: exact compatible project URL, incompatible Host restart instruction, or foreground
-   `bearing portal` start instruction. Never start Portal. Completion: each stage has a separate
-   truthful outcome.
+   Validate the repository outcome and actual changed targets against the accepted Apply Unit.
+   Completion: the repository result and preservation effects are verified.
+7. Finish the user-facing response with the repository result, independent Catalog result (including
+   no-op or failure), and the actionable Portal handoff below. This is also the final step of an
+   Active repair. Completion: the response states all three outcomes and any remaining independent
+   stage. Give the instruction to the Human; never start or restart Portal yourself.
+
+| Returned Portal evidence | Final response |
+| --- | --- |
+| `compatible` | Give the returned exact `projectUrl`. |
+| `absent` | Say Portal is not running and tell the Human to run `bearing portal` in a separate terminal, keeping it in the foreground. |
+| `incompatible` | Tell the Human to stop the existing Host, then run the current Kit's `bearing portal` in a separate terminal. |
+| No Portal handoff returned | State that no Portal handoff was obtained; preserve any reported Catalog failure and its independent resumption. |
 
 ## After this operation
 

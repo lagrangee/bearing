@@ -31,7 +31,8 @@
       "strict Blocked by grammar",
       "Local Map lifecycle Status",
       "ordinary Delivery completion and Human implementation handoff",
-      "empty Wayfinder list sections remain empty"
+      "empty Wayfinder list sections remain empty",
+      "Local Spec title/status envelope with pinned to-spec sections for ordinary new-scope authoring"
     ],
     "artifacts": [
       {
@@ -56,6 +57,22 @@
       },
       {
         "file": "validation/live-journey/fixtures/delivery-minimal/docs/agents/triage-labels.md",
+        "sha256": "c70d574da03274e85a0b63971ab039ff20b8b3f053bc817a43b1fedb374dcb95"
+      },
+      {
+        "file": "validation/live-journey/fixtures/completed-delivery/docs/agents/issue-tracker.md",
+        "sha256": "16b4eaeae5bd74cab61a8d0224a97b16e2e6b2ed1235418b134cd5c26dfd8233"
+      },
+      {
+        "file": "validation/live-journey/fixtures/completed-delivery/docs/agents/triage-labels.md",
+        "sha256": "c70d574da03274e85a0b63971ab039ff20b8b3f053bc817a43b1fedb374dcb95"
+      },
+      {
+        "file": "validation/live-journey/fixtures/planned-delivery/docs/agents/issue-tracker.md",
+        "sha256": "65f9a76c4ca67f0fde9763c145b9698e6c18d62cc30aa407f5e21566884c6ffa"
+      },
+      {
+        "file": "validation/live-journey/fixtures/planned-delivery/docs/agents/triage-labels.md",
         "sha256": "c70d574da03274e85a0b63971ab039ff20b8b3f053bc817a43b1fedb374dcb95"
       }
     ]
@@ -96,8 +113,18 @@
         "owner": "wayfinder",
         "file": "validation/live-journey/fixtures/local-provider/matt-kit-output/wayfinder-ticket.md",
         "sha256": "ddc77a75714cd576dbbfcab3ddc7585f720e7bf24d4b40efaeda07d6b33b8665"
+      },
+      {
+        "owner": "to-spec",
+        "file": "validation/live-journey/fixtures/completed-delivery/.scratch/label-delivery/PRD.md",
+        "sha256": "ec849a3952e32ae3e5642f5cb035d8a8de8c4953a3b8ef10713de677fcd69284"
+      },
+      {
+        "owner": "to-tickets",
+        "file": "validation/live-journey/fixtures/completed-delivery/.scratch/label-delivery/issues/04-complete-secondary-format.md",
+        "sha256": "16f9812b85421751a3d919fb45369aab7ab3ba0ab63428bb00862a32344a9ac1"
       }
     ]
   },
-  "note": "The checked-in Local Markdown fixtures are digest-bound materializations of the pinned Matt Kit contracts plus the declared repository-specific provider extensions. Generations verify these fixed bytes and never regenerate them through Agent behavior."
+  "note": "The checked-in Local Markdown fixtures are digest-bound materializations of the pinned Matt Kit contracts plus the declared repository-specific provider extensions. Generations verify these fixed bytes and never regenerate them through Agent behavior. The completed-delivery fixture preserves the pinned spec/ticket shape and declared ordinary Delivery completion extension; its fixed implementation and both exported-function tests passed npm test before the completed ticket was recorded, outside any Generation. The planned-delivery source retains the native-free lifecycle baseline and uses Node public-function tests available in the isolated toolchain. Its Spec form materializes the same pinned to-spec sections and existing accepted Local title/status envelope; it neither pre-authors native work nor changes Provider accepted grammar or invokes a user-only Skill."
 }

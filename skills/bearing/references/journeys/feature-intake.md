@@ -29,8 +29,9 @@ and Ticket or file count are not relationship evidence or enrollment authority.
 Provider-native PRD, Map, Ticket, checklist, status, and resolution changes inside an existing
 Binding are native detail when the current Effort meaning remains accurate. Load Native Work before
 those owner writes. Native Work preserves an actually invoked Owner Skill or uses Ordinary Owner
-Work, then owns admission, the exact successful write set, and provider follow-up. Select the
-Effort owner only when the accepted result changes canonical Effort meaning.
+Work, then owns admission, the exact successful write set, and provider follow-up. Root selects the
+Effort owner before preparing a candidate that changes canonical Effort meaning; unchanged native
+detail needs no canonical candidate or canonical owner selection.
 
 ## Operation
 
@@ -51,11 +52,13 @@ Effort owner only when the accepted result changes canonical Effort meaning.
    choices nor write authority; show the complete candidate and stop. Directly naming an accepted
    Roadmap or Gate establishes a relationship but creates no Effort, Work Binding, or implementation
    authority. A limit from another planning operation is not a later native-scope disposition.
-4. When the feature exposes a material planning opportunity without an accepted commitment, select
-   only the semantic owner whose meaning would change: Roadmap for an outcome horizon, Gate for a
-   decision boundary, or Effort for a delivery commitment. Offer one proportionate recommendation
-   when that decision is useful. The timing remains Agent judgment: resolve it before delivery when
-   it changes delivery scope or coordination; otherwise keep delivery usable and offer it later.
+4. When the feature exposes a material planning opportunity without an accepted commitment, root
+   selects the canonical mutation contract and the owners needed for its proposed meaning and direct
+   relation consequences before preparing a candidate: Roadmap for an outcome horizon, Gate for a
+   decision boundary, and Effort for a delivery commitment, as needed. Offer one proportionate
+   recommendation when that decision is useful. The timing remains Agent judgment: resolve it before
+   delivery when it changes delivery scope or coordination; otherwise keep delivery usable and offer
+   it later.
 5. Treat a Bearing Scope choice as authority for the managed branch only. It does not accept
    undisclosed Roadmap, Gate, Effort, Binding, or native planning meaning. When the branch requires
    any of that new meaning, show one complete owner-separated candidate and obtain Human acceptance

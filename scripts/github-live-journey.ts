@@ -1400,6 +1400,7 @@ const issueOptions = {
     repo: { type: "string", short: "R" },
     title: { type: "string", short: "t" },
     body: { type: "string", short: "b" },
+    "body-file": { type: "string", multiple: true },
     "add-assignee": { type: "string", multiple: true },
     "remove-assignee": { type: "string", multiple: true },
     "add-label": { type: "string", multiple: true },
@@ -1489,8 +1490,10 @@ export const authorizeGitHubJourneyCommand = (input: {
   repositorySlug: string;
 }): AuthorizedGitHubJourneyCommand => {
   parseGitHubRepositorySlug(input.repositorySlug);
-  if (input.stdin.length > 0) fail("GitHub command stdin is outside the Journey capability.");
   const [command, subcommand] = input.args;
+  if (input.stdin.length > 0 && !(command === "issue" && subcommand === "edit")) {
+    fail("GitHub command stdin is outside the Journey capability.");
+  }
   const safeHelpCommand =
     (command === "help" && input.args.length === 1) ||
     (command === "api" && subcommand === "--help" && input.args.length === 2) ||
@@ -1506,6 +1509,18 @@ export const authorizeGitHubJourneyCommand = (input: {
     const issueSubcommand = subcommand as keyof typeof issueOptions;
     const options = issueOptions[issueSubcommand];
     const parsed = parseGitHubJourneyOptions(input.args.slice(2), options);
+    const bodyFiles = stringOptionValues(parsed.values, "body-file");
+    if (
+      bodyFiles.length > 1 ||
+      (bodyFiles.length === 1 &&
+        (bodyFiles[0] !== "-" || stringOptionValues(parsed.values, "body")[0] !== undefined))
+    ) {
+      fail("GitHub Issue body input is outside the Journey capability.");
+    }
+    if (input.stdin.length > 0 && bodyFiles.length === 0) {
+      fail("GitHub command stdin is outside the Journey capability.");
+    }
+    const values = bodyFiles.length === 1 ? { ...parsed.values, body: input.stdin } : parsed.values;
     const repository = stringOptionValues(parsed.values, "repo")[0];
     if (repository !== undefined && repository !== input.repositorySlug) {
       fail("GitHub command is outside the Journey repository.");
@@ -1523,7 +1538,7 @@ export const authorizeGitHubJourneyCommand = (input: {
         ? {
             kind: "create",
             title: stringOptionValues(parsed.values, "title")[0] ?? "",
-            body: stringOptionValues(parsed.values, "body")[0] ?? "",
+            body: stringOptionValues(values, "body")[0] ?? "",
           }
         : issueSubcommand === "list" || issueSubcommand === "view"
           ? { kind: "none" }
@@ -1534,9 +1549,8 @@ export const authorizeGitHubJourneyCommand = (input: {
               stringOptionValues(parsed.values, "title")[0] !== undefined
                 ? { title: stringOptionValues(parsed.values, "title")[0] }
                 : {}),
-              ...(issueSubcommand === "edit" &&
-              stringOptionValues(parsed.values, "body")[0] !== undefined
-                ? { body: stringOptionValues(parsed.values, "body")[0] }
+              ...(issueSubcommand === "edit" && stringOptionValues(values, "body")[0] !== undefined
+                ? { body: stringOptionValues(values, "body")[0] }
                 : {}),
             };
     return {
@@ -1544,7 +1558,7 @@ export const authorizeGitHubJourneyCommand = (input: {
         "issue",
         issueSubcommand,
         ...parsed.positionals,
-        ...normalizeParsedOptions(parsed.values, options, new Set(["repo"])),
+        ...normalizeParsedOptions(values, options, new Set(["repo", "body-file"])),
         "--repo",
         input.repositorySlug,
       ],
@@ -2020,7 +2034,8 @@ if (socketPath === undefined || auth === undefined) throw new Error("GitHub Jour
 const [tool, ...args] = process.argv.slice(2);
 if (tool !== "gh" && tool !== "git") throw new Error("GitHub Journey broker tool is invalid.");
 const readsStdin = tool === "gh" && args.some((arg, index) =>
-  (arg === "--input" && args[index + 1] === "-") || arg === "--input=-" || arg.endsWith("=@-")
+  ((arg === "--input" || arg === "--body-file") && args[index + 1] === "-") ||
+  arg === "--input=-" || arg === "--body-file=-" || arg.endsWith("=@-")
 );
 const stdin = readsStdin ? readFileSync(0, "utf8") : "";
 let bytes;

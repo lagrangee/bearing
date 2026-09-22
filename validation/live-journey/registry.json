@@ -151,7 +151,7 @@
       },
       "initialPrompt": "$wayfinder 请继续现有 Map，推进 Decide secondary label casing。这是个简单决定，请尽快和我形成结论，不要做无必要的 drill-down。",
       "humanPosition": "The decision is trim first, then lowercase; answer only the Agent's actual concise questions.",
-      "bearingIntent": "An exact owner-required claim may precede Bearing admission. Across the adaptive conversation, each Turn performs at most one applicable provider synchronization; Workflow Completion reconciles the complete pending Ticket and Map Native Write Set.",
+      "bearingIntent": "An exact owner-required claim may precede Bearing admission. Combine known successful Ticket and Map writes before exact scope reconciliation; later real authorized writes create a new obligation after success. A material Human Handoff preserves pending work, and a failed or unknown synchronization cannot be retried in that Turn.",
       "terminalEvidence": {
         "description": "Ticket Answer and closure, Map decision pointer, exact multi-subject reconciliation, and matching Project Read Model evidence.",
         "observers": ["repository", "agent-home", "git"]
@@ -186,6 +186,102 @@
       "terminalEvidence": {
         "description": "Code and test, commit and push, child issue terminal state, native writeback, exact Targeted Native Reconciliation, contract-governed parent completion, and preserved native relations.",
         "observers": ["repository", "agent-home", "git", "github"]
+      }
+    },
+    {
+      "id": "first-canonical-authoring",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/lifecycle-minimal",
+        "profile": "active-repository",
+        "skills": [
+          {
+            "skill": "bearing",
+            "role": "prerequisite"
+          }
+        ]
+      },
+      "initialPrompt": "请为这个标签格式化项目提出第一组 Bearing 规划。目标是稳定处理标签的空白和大小写，先安排最小的一轮交付，暂不实现代码。先把完整方案给我确认。",
+      "humanPosition": "Accept a minimal first planning set for stable label whitespace and casing, with a project Summary, one Roadmap, one Gate and one planned Effort. Do not authorize code, native work, activation, or unrelated commitments.",
+      "bearingIntent": "From configured empty canonical state, the Agent uses only the installed public contract to propose and author accepted meaning with complete fields, sections and relation orders, current event times, exact validation, and no invented native scope or lifecycle transition.",
+      "terminalEvidence": {
+        "description": "The initial state has no canonical seed. Accepted project meaning becomes a valid Summary, Roadmap index, Roadmap, Gate and planned unbound Effort with complete relations, affected-target Inspect and zero new structural defects; code and native work remain unchanged.",
+        "observers": [
+          "repository",
+          "agent-home",
+          "git"
+        ]
+      }
+    },
+    {
+      "id": "planned-effort-delivery",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/planned-delivery",
+        "profile": "active-planned-new-scope-repository",
+        "skills": [
+          {
+            "skill": "bearing",
+            "role": "prerequisite"
+          }
+        ]
+      },
+      "initialPrompt": "请启动已规划的 Label Delivery，完成这一轮标签格式化功能的实现和测试。",
+      "humanPosition": "Authorize the named planned Effort to start and deliver its accepted trim-then-lowercase behavior. Answer only material new choices; do not introduce extra steps or grant Effort conclusion or Gate Passage.",
+      "bearingIntent": "From a planned Effort with no native scope, ordinary Work Management establishes real work before current Binding and Activation are written together. A successful exact first baseline continues directly into authorized implementation, tests, complete native writeback and exact reconciliation, without a mechanical Human reply.",
+      "terminalEvidence": {
+        "description": "Initial native scope is absent. Terminal code and tests satisfy the accepted intent; real native work is complete with current observation. The preserved active Effort has its exact Binding and activation time, the first capture precedes execution, and known pending writes are covered without lifecycle inference.",
+        "observers": [
+          "repository",
+          "agent-home",
+          "git"
+        ]
+      }
+    },
+    {
+      "id": "bound-delivery-missing-baseline",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/delivery-minimal",
+        "profile": "active-bound-capture-required-local-repository",
+        "skills": [
+          {
+            "skill": "bearing",
+            "role": "prerequisite"
+          }
+        ]
+      },
+      "initialPrompt": "请完成 Complete secondary label formatting 这张 ticket。",
+      "humanPosition": "Authorize that existing bound delivery and answer only material clarification. No extra reply is needed solely to acquire a missing observation; no Effort or Gate transition is authorized.",
+      "bearingIntent": "Exact native admission truthfully reports capture-required at entry. The Agent establishes the exact baseline, confirms success and current ready Binding, and continues authorized execution and complete native writeback in the same request; new writes receive exact reconciliation.",
+      "terminalEvidence": {
+        "description": "Fixed initial state retains the bound native ticket and lacks a provider observation. Required capture precedes implementation; code, tests, native completion and exact reconciliation produce current evidence without an internal handoff, deleted observation or substituted initial state.",
+        "observers": [
+          "repository",
+          "agent-home",
+          "git"
+        ]
+      }
+    },
+    {
+      "id": "effort-conclusion-with-assets",
+      "fixedValidationFixture": {
+        "source": "validation/live-journey/fixtures/completed-delivery",
+        "profile": "active-effort-conclusion-repository",
+        "skills": [
+          {
+            "skill": "bearing",
+            "role": "prerequisite"
+          }
+        ]
+      },
+      "initialPrompt": "Label Delivery 的交付已经完成，帮我准备结案。先把完整方案和需要我决定的影响一起给我看。",
+      "humanPosition": "Accept a complete justified conclusion: keep the maintenance runbook useful under an eligible ongoing owner, retain historical research, and align current adopted behavior with the delivered contract. Review the Agent's actual proposal; do not reveal unseen Assets or Authorities. Do not pass the Gate or start new delivery.",
+      "bearingIntent": "Before acceptance, inspect complete Owned Assets and each Asset's complete Authority Baselines, including the Authority omitted from Effort.Authorities. Compose necessary dispositions and exact baseline consequences with preserved identities and history. After acceptance re-read, apply only accepted effects, validate, and evaluate Brief while respecting Summary triggers.",
+      "terminalEvidence": {
+        "description": "Complete pre-acceptance candidate and exact owner write set; terminal concluded Effort owns no active Asset, historical inactive Asset retains its owner, useful materials and source identities survive, both affected Authority memberships are valid, Brief is evaluated, and Gate truth remains independent.",
+        "observers": [
+          "repository",
+          "agent-home",
+          "git"
+        ]
       }
     }
   ]

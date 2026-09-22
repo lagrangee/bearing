@@ -30,10 +30,14 @@ const scenarioIds = [
   "wayfinder-decision-writeback",
   "local-delivery-writeback",
   "github-delivery-writeback",
+  "first-canonical-authoring",
+  "planned-effort-delivery",
+  "bound-delivery-missing-baseline",
+  "effort-conclusion-with-assets",
 ] as const;
 
 describe("adaptive Live Matrix registry", () => {
-  test("declares the exact twelve semantic scenarios and five semantic fields", async () => {
+  test("declares the exact sixteen semantic scenarios and five semantic fields", async () => {
     const registry = await loadLiveScenarioRegistry(registryPath);
     expect(registry.schemaVersion).toBe(2);
     expect(registry.scenarios.map(({ id }) => id)).toEqual([...scenarioIds]);
@@ -84,7 +88,7 @@ describe("adaptive Live Matrix registry", () => {
       sourceRoot,
       registryPath: "validation/live-journey/registry.json",
     });
-    expect(preflight).toMatchObject({ scenarioCount: 12, semanticReviewRequired: true });
+    expect(preflight).toMatchObject({ scenarioCount: 16, semanticReviewRequired: true });
 
     const root = await mkdtemp(join(tmpdir(), "bearing-semantic-fixture-"));
     roots.push(root);

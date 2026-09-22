@@ -11,6 +11,45 @@ Baseline`. It introduces no new project meaning, recommendation, todo, or future
 renders these exact labeled values and owns no Brief authoring, truncation, regeneration, refresh,
 or persistence.
 
+## Write form
+
+Write `.bearing/state/project-brief.md`. Required frontmatter is `Type: project-brief`, fixed
+`ID: project-brief:current`, and non-null `Generated at` for the successful synthesis. There is no
+Title field. Optional `Languages` is a mapping with only `At a Glance`, `Current Position`, and
+`Established Baseline` as optional BCP 47 language-tag values.
+
+Required sections are plain-prose `## At a Glance` and `## Current Position`, plus plain-list
+`## Established Baseline` with one to five unique items. Before a meaningful first synthesis,
+the Brief file may be absent; do not create blank required text, null time, or unsupported facts
+to fill that absence. A failed refresh preserves the previous successful file.
+
+### Complete initial synthesis example
+
+This example compresses the accepted Local Notes planning set; it is not an automatic side effect
+of creating a Roadmap or Effort.
+
+```markdown .bearing/state/project-brief.md
+---
+Type: project-brief
+ID: project-brief:current
+Generated at: 2026-09-01T09:05:00.000Z
+---
+
+# Project Brief
+
+## At a Glance
+
+Local Notes lets a person keep and reopen notes on their own computer.
+
+## Current Position
+
+The local note persistence horizon is active, while its first Gate and save-and-reopen Effort are planned.
+
+## Established Baseline
+
+- Notes stay on the local computer.
+```
+
 ## Operation
 
 1. Inspect Project Context, current Brief, Summary, and accepted terminal planning transitions that

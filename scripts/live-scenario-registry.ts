@@ -30,6 +30,9 @@ export const liveScenarioFixtureProfileSchema = z.enum([
   "active-unbound-native-repository",
   "active-bound-wayfinder-repository",
   "active-bound-local-repository",
+  "active-planned-new-scope-repository",
+  "active-bound-capture-required-local-repository",
+  "active-effort-conclusion-repository",
   "active-github-repository",
 ]);
 
@@ -295,6 +298,12 @@ const localMattFixtureArtifactPaths = new Set([
   "validation/live-journey/fixtures/delivery-minimal/.scratch/label-delivery/map.md",
   "validation/live-journey/fixtures/delivery-minimal/.scratch/label-delivery/issues/04-complete-secondary-format.md",
   "validation/live-journey/fixtures/local-provider/matt-kit-output/wayfinder-ticket.md",
+  "validation/live-journey/fixtures/completed-delivery/docs/agents/issue-tracker.md",
+  "validation/live-journey/fixtures/completed-delivery/docs/agents/triage-labels.md",
+  "validation/live-journey/fixtures/completed-delivery/.scratch/label-delivery/PRD.md",
+  "validation/live-journey/fixtures/completed-delivery/.scratch/label-delivery/issues/04-complete-secondary-format.md",
+  "validation/live-journey/fixtures/planned-delivery/docs/agents/issue-tracker.md",
+  "validation/live-journey/fixtures/planned-delivery/docs/agents/triage-labels.md",
 ]);
 
 const localMattFixtureProfiles = new Set<LiveScenario["fixedValidationFixture"]["profile"]>([
@@ -303,6 +312,9 @@ const localMattFixtureProfiles = new Set<LiveScenario["fixedValidationFixture"][
   "active-unbound-native-repository",
   "active-bound-wayfinder-repository",
   "active-bound-local-repository",
+  "active-planned-new-scope-repository",
+  "active-bound-capture-required-local-repository",
+  "active-effort-conclusion-repository",
 ]);
 
 export const verifyLocalMattKitFixture = async (sourceRoot: string): Promise<void> => {
@@ -483,6 +495,14 @@ export const liveScenarioReferencedFixtureSources = (
           ...(fixedValidationFixture.profile === "active-github-repository"
             ? ["validation/live-journey/fixtures/github-provider"]
             : []),
+          ...(fixedValidationFixture.profile === "active-planned-new-scope-repository"
+            ? ["validation/live-journey/fixtures/planned-start-state"]
+            : fixedValidationFixture.profile === "active-effort-conclusion-repository"
+              ? ["validation/live-journey/fixtures/conclusion-state"]
+              : localMattFixtureProfiles.has(fixedValidationFixture.profile) ||
+                  fixedValidationFixture.profile === "active-github-repository"
+                ? ["validation/live-journey/fixtures/planning-state"]
+                : []),
         ]),
       ),
       ...(includesLocalMattOutput ? ["validation/live-journey/fixtures/local-provider"] : []),

@@ -233,10 +233,8 @@ describe("public Bearing Agent surface", () => {
     const boundaries = tableWithColumns(nativeDocument, ["Owner state", "Provider follow-up"]);
     expect(boundaries.rows.map(([state]) => state)).toEqual([
       "human-handoff",
-      "workflow-complete; existing-binding; pending-native-write-set-present",
-      "workflow-complete; accepted-new-binding",
-      "workflow-complete; unbound-native-work",
-      "workflow-complete; no-pending-native-write-set",
+      "scope-created-or-identified; accepted-new-binding",
+      "workflow-complete",
       "workflow-failed",
     ]);
   });

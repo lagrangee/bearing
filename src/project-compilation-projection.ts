@@ -259,13 +259,23 @@ export const buildProjectCompilationProjections = async (
       .filter((record) => record.type === "milestone-gate")
       .map((record) => record.locator),
   );
+  const planningLocators = new Set([
+    ...effortLocators,
+    ...gateLocators,
+    ...input.decoded.records
+      .filter((record) => record.type === "roadmap")
+      .map((record) => record.locator),
+  ]);
   const governance = buildGovernanceProjection({
     records: input.decoded.records,
     basisFingerprint: input.fingerprint,
     providerObservations: input.providerObservations,
     diagnostics: input.diagnostics.filter(
       (diagnostic) =>
-        !PLANNING_RELATION_DIAGNOSTIC_CODES.has(diagnostic.code) &&
+        !(
+          PLANNING_RELATION_DIAGNOSTIC_CODES.has(diagnostic.code) &&
+          planningLocators.has(diagnostic.target)
+        ) &&
         !(
           diagnostic.code === "ambiguous-canonical-reference" &&
           (effortLocators.has(diagnostic.target) || gateLocators.has(diagnostic.target))
