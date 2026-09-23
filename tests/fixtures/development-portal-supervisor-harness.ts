@@ -1,7 +1,10 @@
-import { readFile, watch, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { runDevelopmentPortalCommand } from "../../src/development-portal-supervisor";
+import {
+  observeDevelopmentBuildPublications,
+  runDevelopmentPortalCommand,
+} from "../../src/development-portal-supervisor";
 import { resolveRepositoryRuntime } from "../../src/development-runtime";
 import type { RuntimeExecutionContext, RuntimeReceipt } from "../../src/runtime-context";
 
@@ -108,11 +111,8 @@ if (runtime.outcome !== "resolved") {
                   }
                 : value;
             },
-            observeBuildPublications: async function* (signal: AbortSignal) {
-              for await (const event of watch(controlRoot, { signal })) {
-                if (event.filename === "publication") yield;
-              }
-            },
+            observeBuildPublications: (signal: AbortSignal) =>
+              observeDevelopmentBuildPublications(controlRoot, signal),
           }),
       ...(healthDelay === 0
         ? {}

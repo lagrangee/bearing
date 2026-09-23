@@ -14,6 +14,7 @@ import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { publishAtomicDevelopmentBuild } from "../src/development-build";
 import {
   developmentPortalHealthSchema,
   developmentPortalIdentitySchema,
@@ -21,7 +22,6 @@ import {
 import {
   DEVELOPMENT_PORTAL_PORT,
   DEVELOPMENT_PORTAL_RUNTIME_REQUIRED,
-  observeDevelopmentBuildPublications,
 } from "../src/development-portal-supervisor";
 import type { RuntimeReceipt } from "../src/runtime-context";
 
@@ -45,6 +45,13 @@ const temporaryDirectory = async (prefix: string): Promise<string> => {
   return root;
 };
 
+const publishControlledBuild = async (controlRoot: string, marker: string): Promise<void> => {
+  const stagedDist = join(controlRoot, ".bearing-test-build", "dist");
+  await mkdir(stagedDist, { recursive: true });
+  await writeFile(join(stagedDist, "build-marker"), marker);
+  await publishAtomicDevelopmentBuild(stagedDist, join(controlRoot, "dist"));
+};
+
 const prepareControlledDevelopmentRuntime = async (
   publicHome: string,
 ): Promise<Readonly<{ controlRoot: string; receipt: ControlledDevelopmentReceipt }>> => {
@@ -58,7 +65,7 @@ const prepareControlledDevelopmentRuntime = async (
     portalBuildId: "a".repeat(64),
   };
   await Promise.all([
-    writeFile(join(controlRoot, "publication"), "0\n"),
+    publishControlledBuild(controlRoot, "0\n"),
     writeFile(
       join(controlRoot, "runtime.json"),
       `${JSON.stringify({
@@ -316,25 +323,7 @@ test("the source-only Development Portal command owns fixed port 4188", () => {
   expect(DEVELOPMENT_PORTAL_PORT).toBe(4188);
 });
 
-test("build publication observation follows the atomic dist entry", async () => {
-  const root = await temporaryDirectory("bearing-ticket-10-observer-");
-  await mkdir(join(root, "dist"));
-  const controller = new AbortController();
-  const iterator = observeDevelopmentBuildPublications(root, controller.signal)[
-    Symbol.asyncIterator
-  ]();
-  const publication = iterator.next();
-  await rm(join(root, "dist"), { recursive: true });
-  await mkdir(join(root, "dist"));
-  const published = await Promise.race([
-    publication.then((result) => !result.done),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2_000)),
-  ]);
-  controller.abort();
-  expect(published).toBe(true);
-});
-
-test("one real supervisor keeps its child until a different coherent Build Identity is published", async () => {
+test("one real supervisor observes atomic dist publication and keeps its child until Build Identity changes", async () => {
   const publicHome = await temporaryDirectory("bearing-ticket-10-public-home-");
   const publicState = await seedPublicState(publicHome);
   const controlRoot = await temporaryDirectory("bearing-ticket-10-control-");
@@ -357,7 +346,7 @@ test("one real supervisor keeps its child until a different coherent Build Ident
       sentinels.projectReadModel,
       `${JSON.stringify({ providerEvidence: "current-provider-evidence", acquisitionCount: 0 })}\n`,
     ),
-    writeFile(join(controlRoot, "publication"), "0\n"),
+    publishControlledBuild(controlRoot, "0\n"),
   ]);
   const selected: RuntimeReceipt = {
     schemaVersion: 1,
@@ -425,7 +414,7 @@ test("one real supervisor keeps its child until a different coherent Build Ident
     })}\n`;
     await writeFile(sentinels.projectReadModel, updatedProjectReadModel);
     await rm(join(controlRoot, "resolution-readback.json"), { force: true });
-    await writeFile(join(controlRoot, "publication"), "provider-evidence-only\n");
+    await publishControlledBuild(controlRoot, "provider-evidence-only\n");
     await waitForResolutionReadback(
       controlRoot,
       (value) => value.receipt?.buildIdentity === initial.buildIdentity,
@@ -458,7 +447,7 @@ test("one real supervisor keeps its child until a different coherent Build Ident
       })}\n`,
     );
     await rm(join(controlRoot, "resolution-readback.json"), { force: true });
-    await writeFile(join(controlRoot, "publication"), "same-build\n");
+    await publishControlledBuild(controlRoot, "same-build\n");
     await waitForResolutionReadback(
       controlRoot,
       (value) => value.receipt?.runtimeIdentity === sameBuild.runtimeIdentity,
@@ -473,7 +462,7 @@ test("one real supervisor keeps its child until a different coherent Build Ident
       })}\n`,
     );
     await rm(join(controlRoot, "resolution-readback.json"), { force: true });
-    await writeFile(join(controlRoot, "publication"), "failed-build\n");
+    await publishControlledBuild(controlRoot, "failed-build\n");
     await waitForResolutionReadback(controlRoot, (value) => value.outcome === "unfulfilled");
     expect(await readInstance(port)).toBe(firstInstance);
 
@@ -492,7 +481,7 @@ test("one real supervisor keeps its child until a different coherent Build Ident
       })}\n`,
     );
     await rm(join(controlRoot, "resolution-readback.json"), { force: true });
-    await writeFile(join(controlRoot, "publication"), "incoherent-receipt\n");
+    await publishControlledBuild(controlRoot, "incoherent-receipt\n");
     await waitForResolutionReadback(
       controlRoot,
       (value) => value.receipt?.buildIdentity === incoherent.buildIdentity,
@@ -514,7 +503,7 @@ test("one real supervisor keeps its child until a different coherent Build Ident
       })}\n`,
     );
     await writeFile(join(controlRoot, "transient-failures.txt"), "1\n");
-    await writeFile(join(controlRoot, "publication"), "coherent-build\n");
+    await publishControlledBuild(controlRoot, "coherent-build\n");
     const secondInstance = await waitForInstanceChange(port, firstInstance);
     const health = developmentPortalHealthSchema.parse(
       await (await fetch(`http://127.0.0.1:${port}/healthz`)).json(),
@@ -530,7 +519,7 @@ test("one real supervisor keeps its child until a different coherent Build Ident
     });
 
     await rm(join(controlRoot, "resolution-readback.json"), { force: true });
-    await writeFile(join(controlRoot, "publication"), "repeated-event\n");
+    await publishControlledBuild(controlRoot, "repeated-event\n");
     await waitForResolutionReadback(
       controlRoot,
       (value) => value.receipt?.buildIdentity === next.buildIdentity,
@@ -559,7 +548,7 @@ test("one real supervisor keeps its child until a different coherent Build Ident
       })}\n`,
     );
     await writeFile(join(controlRoot, "fail-start"), "fail\n");
-    await writeFile(join(controlRoot, "publication"), "final-startup-failure\n");
+    await publishControlledBuild(controlRoot, "final-startup-failure\n");
     await waitForSupervisorExit(supervisor);
     expect(supervisor.exitCode).toBe(1);
     expect(stderr).toContain("Development Portal child failed before readiness");
