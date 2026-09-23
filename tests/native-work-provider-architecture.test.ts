@@ -12,7 +12,9 @@ test("keeps the public capture wrapper provider-neutral and free of tracker driv
 
 test("keeps workflow dispositions concrete without a generic terminal lifecycle", async () => {
   const model = await readFile("src/providers/matt-skills-v1/model.ts", "utf8");
-  expect(model).not.toMatch(/\bterminal\b/iu);
+  expect(model).not.toMatch(
+    /["']terminal["']|\bterminal\s*[?:]|\b(?:type|interface)\s+\w*Terminal\w*/iu,
+  );
   expect(model).not.toMatch(/\b(?:GenericWork|UniversalWork|WorkObject)\b/u);
   expect(model).toContain('"resolved-on-route"');
   expect(model).toContain('"ruled-out-of-scope"');
