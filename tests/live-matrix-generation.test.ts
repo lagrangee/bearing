@@ -48,9 +48,9 @@ describe("minimal Live Matrix Generation basis", () => {
       generationId,
       staticPreflight: "complete",
       runtime: {
-        model: "gpt-5.6-luna",
-        reasoningEffort: "high",
-        fastMode: true,
+        model: "gpt-5.6-sol",
+        reasoningEffort: "low",
+        fastMode: false,
         concurrency: LIVE_MATRIX_CONCURRENCY,
       },
     });

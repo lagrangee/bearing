@@ -17,9 +17,9 @@ import { basename, delimiter, dirname, isAbsolute, join, normalize, relative } f
 import { z } from "zod";
 
 export const CODEX_E2E_RUNTIME = Object.freeze({
-  model: "gpt-5.6-luna",
-  reasoningEffort: "high",
-  fastMode: true,
+  model: "gpt-5.6-sol",
+  reasoningEffort: "low",
+  fastMode: false,
 } as const);
 
 const codexModelCatalogIdentifierSchema = z
@@ -377,7 +377,9 @@ export const codexE2ERuntimeArguments = (override?: unknown): readonly string[] 
     CODEX_E2E_RUNTIME.model,
     "--config",
     `model_reasoning_effort=${JSON.stringify(CODEX_E2E_RUNTIME.reasoningEffort)}`,
-    "--enable",
+    "--config",
+    'service_tier=""',
+    "--disable",
     "fast_mode",
   ];
 };

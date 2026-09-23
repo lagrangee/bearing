@@ -83,10 +83,12 @@ describe("Codex app-server turn transport", () => {
         "exec",
         "--strict-config",
         "--model",
-        "gpt-5.6-luna",
+        "gpt-5.6-sol",
         "--config",
-        'model_reasoning_effort="high"',
-        "--enable",
+        'model_reasoning_effort="low"',
+        "--config",
+        'service_tier=""',
+        "--disable",
         "fast_mode",
         "--ignore-user-config",
         "--ignore-rules",
@@ -103,10 +105,12 @@ describe("Codex app-server turn transport", () => {
       "--stdio",
       "--strict-config",
       "-c",
-      'model="gpt-5.6-luna"',
+      'model="gpt-5.6-sol"',
       "--config",
-      'model_reasoning_effort="high"',
-      "--enable",
+      'model_reasoning_effort="low"',
+      "--config",
+      'service_tier=""',
+      "--disable",
       "fast_mode",
       "-c",
       'default_permissions="bearing_live_journey"',
@@ -159,6 +163,10 @@ describe("Codex app-server turn transport", () => {
       "thread/start",
       "turn/start",
     ]);
+    expect(firstRequests.find(({ method }) => method === "thread/start")?.params.model).toBe(
+      "gpt-5.6-sol",
+    );
+    expect(firstRequests.find(({ method }) => method === "turn/start")?.params.effort).toBe("low");
     expect(firstRequests.find(({ method }) => method === "turn/start")?.params.input).toEqual([
       { type: "text", text: "请继续现有 Map。", text_elements: [] },
       { type: "skill", name: "wayfinder", path: "/tmp/skills/wayfinder/SKILL.md" },
@@ -179,7 +187,11 @@ describe("Codex app-server turn transport", () => {
       .map((line) => JSON.parse(line));
     expect(resumedRequests.find(({ method }) => method === "thread/resume")?.params).toMatchObject({
       threadId: "11111111-1111-4111-8111-111111111111",
+      model: "gpt-5.6-sol",
     });
+    expect(resumedRequests.find(({ method }) => method === "turn/start")?.params.effort).toBe(
+      "low",
+    );
     expect(resumedRequests.find(({ method }) => method === "turn/start")?.params.input).toEqual([
       { type: "text", text: "先 trim，再 lowercase。", text_elements: [] },
     ]);

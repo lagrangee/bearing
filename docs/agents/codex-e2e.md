@@ -7,18 +7,20 @@ live gated E2E, and Codex release smoke in this repository.
 
 Every Scenario launches Codex explicitly with:
 
-- model `gpt-5.6-luna`;
-- reasoning effort `high`; and
-- Fast mode enabled.
+- model `gpt-5.6-sol`;
+- reasoning effort `low` (Light); and
+- normal speed, with Fast mode disabled and the service tier explicitly cleared.
 
 A conforming invocation includes:
 
 ```text
-codex exec --model gpt-5.6-luna --config 'model_reasoning_effort="high"' --enable fast_mode
+codex exec --model gpt-5.6-sol --config 'model_reasoning_effort="low"' --config 'service_tier=""' --disable fast_mode
 ```
 
 Do not inherit these values from operator configuration and do not fall back to another model.
 Unavailability is `preflight blocked`.
+The empty service tier selects normal speed; disabling `fast_mode` alone does not clear a
+configured priority tier. The app-server launch preserves both explicit settings.
 
 ## Runtime and capability isolation
 

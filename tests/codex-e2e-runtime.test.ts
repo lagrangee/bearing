@@ -70,16 +70,18 @@ const fakeModelProgram = async (input: {
 describe("repository Codex E2E policy", () => {
   test("keeps one fixed runtime owner and rejects caller overrides", async () => {
     expect(CODEX_E2E_RUNTIME).toEqual({
-      model: "gpt-5.6-luna",
-      reasoningEffort: "high",
-      fastMode: true,
+      model: "gpt-5.6-sol",
+      reasoningEffort: "low",
+      fastMode: false,
     });
     expect(codexE2ERuntimeArguments()).toEqual([
       "--model",
-      "gpt-5.6-luna",
+      "gpt-5.6-sol",
       "--config",
-      'model_reasoning_effort="high"',
-      "--enable",
+      'model_reasoning_effort="low"',
+      "--config",
+      'service_tier=""',
+      "--disable",
       "fast_mode",
     ]);
     expect(() => codexE2ERuntimeArguments({ model: "fallback" })).toThrow(
@@ -105,6 +107,9 @@ describe("repository Codex E2E policy", () => {
       npm_config_script_shell: "/bin/bash",
     });
     for (const step of [launch.initial, launch.resume]) {
+      expect(step.arguments).toContain('service_tier=""');
+      expect(step.arguments).not.toContain('service_tier="priority"');
+      expect(step.arguments).not.toContain("--enable");
       expect(step.arguments).toContain('default_permissions="bearing_live_journey"');
       expect(step.arguments).toContain(
         `permissions.bearing_live_journey={workspace_roots={"/tmp/repository"=true,"/tmp/agent-home"=true},filesystem={":minimal"="read",":workspace_roots"="write","/tmp/repository/.git"="write",${JSON.stringify(runtimeTempDirectory)}="write","/opt/node"="read","/System/Library/OpenSSL/openssl.cnf"="read","/Library/Developer/CommandLineTools"="read",${JSON.stringify(boundedNpmControlRoot)}="read","/tmp/source"="deny","/tmp/source/validation/live-journey/registry.json"="deny","/tmp/agent-home/.codex/auth.json"="deny"},network={enabled=false}}`,
@@ -213,7 +218,7 @@ describe("repository Codex E2E policy", () => {
           slug: CODEX_E2E_RUNTIME.model,
           supported_reasoning_levels: [
             { effort: "medium", description: "Medium" },
-            { effort: CODEX_E2E_RUNTIME.reasoningEffort, description: "High" },
+            { effort: CODEX_E2E_RUNTIME.reasoningEffort, description: "Light" },
           ],
           display_name: "Fixture model",
         },
@@ -395,9 +400,9 @@ describe("repository Codex E2E policy", () => {
       },
       codex: {
         cliVersion: "codex-cli 1.2.3",
-        requestedModel: "gpt-5.6-luna",
-        requestedReasoningEffort: "high",
-        requestedFastMode: true,
+        requestedModel: "gpt-5.6-sol",
+        requestedReasoningEffort: "low",
+        requestedFastMode: false,
         invocationStarted: true,
         terminalBoundary: "completed:orientation-declined",
       },
@@ -417,8 +422,10 @@ describe("repository Codex E2E policy", () => {
   test("documents the repository-wide adaptive Matrix boundary", async () => {
     const policy = await readFile("docs/agents/codex-e2e.md", "utf8");
     expect(policy).toContain("Every Scenario launches Codex explicitly with:");
-    expect(policy).toContain("model `gpt-5.6-luna`");
-    expect(policy).toContain("reasoning effort `high`");
+    expect(policy).toContain("model `gpt-5.6-sol`");
+    expect(policy).toContain("reasoning effort `low`");
+    expect(policy).toContain("--disable fast_mode");
+    expect(policy).toContain('service_tier=""');
     expect(policy).toContain("Do not inherit these values from operator configuration");
     expect(policy).toContain(
       "Every Scenario receives a fresh repository, Agent home, runtime home",
