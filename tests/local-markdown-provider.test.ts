@@ -6,7 +6,10 @@ import {
   createLocalMarkdownMattProvider,
   type LocalMarkdownCaptureEvent,
 } from "../src/providers/matt-skills-v1/local-markdown";
-import { mattSkillsV1ProviderObservationSchema } from "../src/providers/matt-skills-v1/schema";
+import {
+  mattScopeProjectionSchema,
+  mattSkillsV1ProviderObservationSchema,
+} from "../src/providers/matt-skills-v1/schema";
 import { makeTemporaryDirectory, writeFixture } from "./helpers";
 
 const contractLocator = "docs/agents/issue-tracker.md";
@@ -302,6 +305,11 @@ const observeReferenceChange = async (
     const targetedReads = [...reads];
     const full = await provider.capture(binding);
     expect(await snapshotNativeBytes(root)).toEqual(nativeBefore);
+    for (const observation of [targeted, full]) {
+      expect<unknown>(
+        mattSkillsV1ProviderObservationSchema.parse(JSON.parse(JSON.stringify(observation))),
+      ).toEqual(observation);
+    }
     return { prior, targeted, full, targetedReads };
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -1175,6 +1183,37 @@ describe("Local Markdown matt-skills/v1 capture", () => {
         state: "excluded",
         detail: expect.any(String),
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("claim schema keeps unavailable Local evidence distinct from unsupported or empty claims", async () => {
+    const root = await writeReferenceRepository();
+    try {
+      const observation = await capture(root);
+      if (observation.projection === undefined)
+        throw new Error("Expected the reference projection.");
+      const projection = observation.projection;
+      for (const state of ["unclaimed", "claimed"] as const) {
+        for (const availability of ["available", "unavailable", "confirmed-empty", "unsupported"]) {
+          expect(
+            mattScopeProjectionSchema.safeParse({
+              ...projection,
+              wayfinderTickets: projection.wayfinderTickets.map((ticket) => ({
+                ...ticket,
+                claim: { state },
+                semanticSections: ticket.semanticSections.map((section) =>
+                  section.role === "wayfinder.claim" ? { ...section, availability } : section,
+                ),
+              })),
+            }).success,
+          ).toBe(
+            availability === "available" ||
+              (state === "unclaimed" && availability === "unavailable"),
+          );
+        }
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }

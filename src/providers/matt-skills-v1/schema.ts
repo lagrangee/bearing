@@ -421,7 +421,17 @@ const wayfinderTicketSchema = z
     native: nativeEvidenceSchema,
   })
   .superRefine((ticket, context) => {
-    validateSemanticContent(ticket.semanticSections, "wayfinder.claim", true, context);
+    const claimAvailability = ticket.semanticSections.find(
+      (section) => section.role === "wayfinder.claim",
+    )?.availability;
+    // A Local lifecycle conflict retains the decoded claim fact without certifying it.
+    if (
+      ticket.native.kind !== "local" ||
+      ticket.claim.state !== "unclaimed" ||
+      claimAvailability !== "unavailable"
+    ) {
+      validateSemanticContent(ticket.semanticSections, "wayfinder.claim", true, context);
+    }
     const wayfinderAnswerPosition = ticket.semanticSections.findIndex(
       (section) => section.role === "wayfinder.answer",
     );
