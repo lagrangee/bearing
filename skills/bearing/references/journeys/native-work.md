@@ -74,7 +74,9 @@ Delivery ticket lifecycle or triage state.
    currently known authorized writeback. An inner Skill's completion returns to that owner's
    remaining steps. Run until Workflow Completion, Human Handoff, Workflow Failure, or real scope
    establishment for an accepted named Effort start, then apply operation 4.
-   Ordinary iteration inside unfinished owner work is not Workflow Failure.
+   Ordinary iteration inside unfinished owner work is not Workflow Failure. Before synchronization,
+   the owner may correct its own writes within the existing authorization and confirmed tracker
+   contract; a compatible Provider read does not broaden the writer contract.
 4. Continue from the actual owner boundary. Before baseline-dependent work or further canonical effects,
    recheck their relevant preconditions. A changed Binding, Provider, or Effort lifecycle stops the
    affected continuation; a stale canonical candidate cannot silently merge.
@@ -132,8 +134,8 @@ Delivery ticket lifecycle or triage state.
 ## After this operation
 
 - **Required:** Failed, partial, or unknown first capture retains the accepted Binding and active
-  Effort and stops baseline-dependent work. Failed or unknown reconciliation retains the pending
-  set and truthful evidence limits. In that Turn, the failed scope receives no retry, changed
+  Effort and stops baseline-dependent work. Failed, partial, or unknown reconciliation retains the
+  pending set and truthful evidence limits. In that Turn, the failed scope receives no retry, changed
   references or cost class, full capture or verification fallback, or reset through repair or new
   writes. Read-only diagnosis remains available.
 - **Required:** Later recovery has its own exact purpose and preserves the historical failure. It
@@ -143,6 +145,21 @@ Delivery ticket lifecycle or triage state.
 - **Consider:** A lifecycle-mismatch diagnostic may support a later Effort decision.
 - **Do not infer:** Evidence-only rows in the Enrollment Boundary do not create a Binding, activate
   or conclude an Effort, pass a Gate, complete a Roadmap, or supply event time.
+
+## Compatibility reporting
+
+Public and Development use the same Provider interpretation and recovery boundaries. Safe read
+normalization requires no native rewrite or user action; continue the authorized workflow without
+asking Public users to classify edge cases or maintain a compatibility matrix.
+
+When synchronization remains incomplete, report which native work was saved, what Bearing did or
+did not publish, what remains unavailable, and the exact resumption point. Distinguish native
+format evidence from acquisition failure, an unavailable basis, and a publication conflict; a
+Provider rejection alone does not prove a native contract violation.
+
+In Development, make observed compatibility cases inspectable through their affected native
+references and available raw facets, normalization evidence, or typed failure evidence. Reporting
+detail grants no additional repair or retry authority and never changes the original outcome.
 
 ## Completion criterion
 
