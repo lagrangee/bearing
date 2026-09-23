@@ -70,10 +70,13 @@ Delivery ticket lifecycle or triage state.
    Record each successful native file or subject change as it occurs. The original Ticket is an
    entry target, not the complete write set; preserve the Pending Native Write Set across inner
    Skill returns, owner boundaries, and Human Handoffs.
-   Workflow Completion requires every applicable step of the selected owner workflow and its
-   currently known authorized writeback. An inner Skill's completion returns to that owner's
-   remaining steps. Run until Workflow Completion, Human Handoff, Workflow Failure, or real scope
-   establishment for an accepted named Effort start, then apply operation 4.
+   Before declaring Workflow Completion, evaluate parent or related-subject follow-up required by
+   the selected owner workflow or repository contract, then complete its authorized writeback.
+   Limit that follow-up to the original request and those contract-required relationships. Closing
+   the entry Ticket or finishing an inner Skill returns to these remaining owner steps, not directly
+   to synchronization. Workflow Completion requires every applicable owner step and authorized
+   writeback to be finished. Run until Workflow Completion, Human Handoff, Workflow Failure, or real
+   scope establishment for an accepted named Effort start, then apply operation 4.
    Ordinary iteration inside unfinished owner work is not Workflow Failure. Before synchronization,
    the owner may correct its own writes within the existing authorization and confirmed tracker
    contract; a compatible Provider read does not broaden the writer contract.
