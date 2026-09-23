@@ -1224,6 +1224,53 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     });
   });
 
+  test("an unresolved blocker withholds open normalization equally in both read paths", async () => {
+    const locator = `${nativeScope}/issues/02-prototype.md`;
+    const { targeted, full } = await observeReferenceChange(async (root) => {
+      const source = await readFile(join(root, locator), "utf8");
+      await writeFixture(
+        root,
+        locator,
+        source
+          .replace("Status: claimed\n\nClaimed by: lago", "Status: open")
+          .replace("Blocked by: 01", "Blocked by: 99"),
+      );
+      return [locator];
+    });
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+    for (const observation of [targeted, full]) {
+      expect(observation.state).toBe("partial");
+      expect(observation.coverage.assessment).toBe("incomplete");
+      expect(observation.completion).toBe("undetermined");
+      const ticket = observation.projection?.wayfinderTickets.find(
+        (candidate) => candidate.ref === locator,
+      );
+      expect(ticket).toMatchObject({
+        claim: { state: "unclaimed" },
+        lifecycle: { state: "open" },
+        trackerClosure: { state: "open" },
+        native: {
+          rawFacets: expect.arrayContaining([
+            { key: "status", values: ["open"] },
+            { key: "blocked-by", values: ["99"] },
+          ]),
+        },
+      });
+      expect(ticket?.native).not.toHaveProperty("normalizations");
+      expect(
+        observation.projection?.graph.blockedBy.filter((relation) => relation.blocked === locator),
+      ).toEqual([]);
+      expect(observation.diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: "matt.local.relation.broken",
+          class: "identity",
+          impact: "blocking",
+          target: locator,
+        }),
+      );
+    }
+  });
+
   test("combined normalizations survive schema round-trip and an unrelated Map read", async () => {
     const locator = `${nativeScope}/issues/02-prototype.md`;
     const { prior, targeted, full, targetedReads } = await observeReferenceChange(
