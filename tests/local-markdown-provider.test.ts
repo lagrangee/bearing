@@ -515,6 +515,123 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     expect(Object.isFrozen(result.projection)).toBe(true);
   });
 
+  test("both acquisition paths normalize only the allowlisted blocker punctuation", async () => {
+    const issue = `${nativeScope}/issues/02-prototype.md`;
+    for (const value of [
+      undefined,
+      "None — can start immediately",
+      "None — can start immediately.",
+      "01",
+      "001, 01 — stale title, 03 — another stale title",
+    ]) {
+      const { targeted, full } = await observeReferenceChange(async (root) => {
+        const original = await readFile(join(root, issue), "utf8");
+        await writeFixture(
+          root,
+          issue,
+          original.replace("Blocked by: 01", value === undefined ? "" : `Blocked by: ${value}`),
+        );
+        return [issue];
+      });
+      expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+      expect(targeted.state).toBe("available");
+      expect(targeted.freshness.assessment).toBe("current");
+      expect(targeted.coverage.assessment).toBe("complete");
+      expect(targeted.diagnostics).toEqual([]);
+      const ticket = targeted.projection?.wayfinderTickets.find((ticket) => ticket.ref === issue);
+      expect(ticket?.native.rawFacets.filter((facet) => facet.key === "blocked-by")).toEqual(
+        value === undefined ? [] : [{ key: "blocked-by", values: [value] }],
+      );
+      expect(ticket?.native.kind === "local" ? ticket.native.normalizations : undefined).toEqual(
+        value === "None — can start immediately." ? ["no-blockers-terminal-period"] : undefined,
+      );
+      expect(
+        targeted.projection?.graph.blockedBy
+          .filter((relation) => relation.blocked === issue)
+          .map((relation) => String(relation.blocker)),
+      ).toEqual(
+        value?.startsWith("001")
+          ? [`${nativeScope}/issues/01-research.md`, `${nativeScope}/issues/03-grilling.md`]
+          : value === "01"
+            ? [`${nativeScope}/issues/01-research.md`]
+            : [],
+      );
+    }
+  });
+
+  test("both acquisition paths reject blocker near misses without retaining prior edges", async () => {
+    const issue = `${nativeScope}/issues/02-prototype.md`;
+    for (const value of [
+      "None — can start immediately..",
+      "None — can start immediately。",
+      "None — can start immediately. extra",
+      "none — can start immediately.",
+      "01; 03",
+      "01,",
+      "01,,03",
+      "01 because it must finish",
+      "99",
+      "06",
+    ]) {
+      const { targeted, full } = await observeReferenceChange(async (root) => {
+        const original = await readFile(join(root, issue), "utf8");
+        await writeFixture(root, issue, original.replace("Blocked by: 01", `Blocked by: ${value}`));
+        return [issue];
+      });
+      expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+      expect(targeted.state).toBe("partial");
+      expect(targeted.coverage.assessment).toBe("incomplete");
+      expect(targeted.completion).toBe("undetermined");
+      expect(targeted.diagnostics.some((diagnostic) => diagnostic.impact === "blocking")).toBe(
+        true,
+      );
+      expect(
+        targeted.projection?.graph.blockedBy.filter((relation) => relation.blocked === issue),
+      ).toEqual([]);
+    }
+  });
+
+  test("Delivery blocker normalization is replaced by current source evidence", async () => {
+    const root = await writeReferenceRepository();
+    const issue = `${nativeScope}/issues/05-delivery.md`;
+    try {
+      await writeFixture(
+        root,
+        issue,
+        delivery.replace("Blocked by: 01", "Blocked by: None — can start immediately."),
+      );
+      const provider = await referenceReconciliationProvider(root, () => {});
+      const before = await snapshotNativeBytes(root);
+      const prior = await provider.capture(binding);
+      expect(prior.state).toBe("available");
+      expect(prior.projection?.deliveryTickets[0]?.native).toMatchObject({
+        normalizations: ["no-blockers-terminal-period"],
+        rawFacets: expect.arrayContaining([
+          { key: "blocked-by", values: ["None — can start immediately."] },
+        ]),
+      });
+      expect(await snapshotNativeBytes(root)).toEqual(before);
+      await writeFixture(root, issue, delivery);
+      const changed = await snapshotNativeBytes(root);
+      const targeted = await provider.reconcile?.({
+        binding,
+        prior,
+        affected: { subjects: [issue] },
+      });
+      if (targeted === undefined) throw new Error("Expected Local targeted reconciliation.");
+      const full = await provider.capture(binding);
+      expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+      expect(targeted.state).toBe("available");
+      expect(targeted.projection?.deliveryTickets[0]?.native).not.toHaveProperty("normalizations");
+      expect(
+        targeted.projection?.graph.blockedBy.filter((relation) => relation.blocked === issue),
+      ).toHaveLength(1);
+      expect(await snapshotNativeBytes(root)).toEqual(changed);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("captures canonical Matt-kit blocker syntax and rejects undeclared dialects", async () => {
     const root = await writeReferenceRepository();
     await writeFixture(
