@@ -27,6 +27,7 @@ import {
   mattEquivalenceTriageLocator,
   writeMattEquivalenceLocalRepository,
 } from "./fixtures/matt-equivalence-scenario";
+import { writeFixture } from "./helpers";
 import {
   mattReferenceEquivalenceView,
   mattReferenceRelationPartition,
@@ -491,138 +492,172 @@ ${issueBody}
     }
   });
 
-  test("projects one reference scenario through both production adapters and a test-owned oracle", async () => {
-    const localRoot = await writeMattEquivalenceLocalRepository();
-    const githubRoot = await createGitHubMattRepository();
-    try {
-      const localBefore = await snapshotTree(localRoot, mattEquivalenceLocalScope);
-      const localEvents: string[] = [];
-      const local = await createLocalMarkdownMattProvider({
-        repoRoot: localRoot,
-        contractLocator: mattEquivalenceLocalContractLocator,
-        triageLocator: mattEquivalenceTriageLocator,
-        clock: () => new Date("2026-07-28T00:00:00Z"),
-        onCaptureEvent: (event) => {
-          if (event.kind === "content-read") localEvents.push(event.locator);
-        },
-      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope });
-
-      const githubBefore = await Promise.all(
-        [githubContractLocator, githubTriageLocator].map((locator) =>
-          readFile(join(githubRoot, locator), "utf8"),
-        ),
-      );
-      const transport = createMattEquivalenceGitHubTransport();
-      const github = await createGitHubMattProvider({
-        repoRoot: githubRoot,
-        contractLocator: githubContractLocator,
-        triageLocator: githubTriageLocator,
-        transport,
-        clock: () => new Date("2026-07-28T00:00:00Z"),
-      }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope });
-
-      expect(local).not.toEqual(github);
-      const localAliases = mattEquivalenceAliases("local");
-      const githubAliases = mattEquivalenceAliases("github");
-      const localView = mattReferenceEquivalenceView(local, localAliases);
-      const githubView = mattReferenceEquivalenceView(github, githubAliases);
-      expect(localView).toEqual(expectedMattEquivalenceSemantics);
-      expect(githubView).toEqual(expectedMattEquivalenceSemantics);
-      expect(localView).toEqual(githubView);
-      expect(mattReferenceSemanticAvailabilityView(local, localAliases)).toEqual(
-        expectedSemanticAvailability,
-      );
-      expect(mattReferenceSemanticAvailabilityView(github, githubAliases)).toEqual(
-        expectedSemanticAvailability,
-      );
-      if (
-        (local.state !== "available" && local.state !== "partial") ||
-        (github.state !== "available" && github.state !== "partial") ||
-        local.projection.spec === undefined ||
-        github.projection.spec === undefined
-      ) {
-        throw new TypeError("Expected equivalent Local and GitHub Spec documents.");
-      }
-      expect(local.projection.spec.document).toEqual(github.projection.spec.document);
-      expect(
-        local.projection.spec.document.find(
-          (section) => section.sourceIdentity === "spec.source.compatibility-notes",
-        ),
-      ).toEqual({
-        version: 1,
-        sourceIdentity: "spec.source.compatibility-notes",
-        title: "Compatibility Notes",
-        sourceOrder: 2,
-        availability: "available",
-        markdown:
-          "An additive source section stays readable without provider-specific Portal code.",
-      });
-
-      const localRelations = mattReferenceRelationPartition(local, localAliases);
-      const githubRelations = mattReferenceRelationPartition(github, githubAliases);
-      expect(localRelations.workflow).toEqual(expectedMattEquivalenceSemantics.parentChild);
-      expect(githubRelations.workflow).toEqual(expectedMattEquivalenceSemantics.parentChild);
-      expect(localRelations.nativeAcquisition).toEqual([]);
-      expect(githubRelations.nativeAcquisition).toEqual([
-        { relation: "map>spec", evidence: "github-native" },
-        { relation: "map>incoming-enhancement", evidence: "github-native" },
-      ]);
-      if (local.state !== "available" && local.state !== "partial") {
-        throw new TypeError("Expected an available Local reference projection.");
-      }
-      if (local.projection.map === undefined || local.projection.spec === undefined) {
-        throw new TypeError("Expected the complete Local reference projection.");
-      }
-      const unpartitionedRelationCapture = {
-        ...local,
-        projection: {
-          ...local.projection,
-          graph: {
-            ...local.projection.graph,
-            parentChild: [
-              ...local.projection.graph.parentChild,
-              {
-                parent: local.projection.map.ref,
-                child: local.projection.spec.ref,
-                evidence: "matt-contract" as const,
-              },
-            ],
+  for (const localForm of ["canonical", "compatible"] as const) {
+    test(`projects the ${localForm} Local reference scenario through the shared Local/GitHub oracle`, async () => {
+      const localRoot = await writeMattEquivalenceLocalRepository();
+      const githubRoot = await createGitHubMattRepository();
+      try {
+        if (localForm === "compatible") {
+          const prototype = `${mattEquivalenceLocalScope}/issues/04-prototype.md`;
+          await writeFixture(
+            localRoot,
+            prototype,
+            (await readFile(join(localRoot, prototype), "utf8")).replace(
+              "Type: prototype",
+              "Type: prototype\n\nStatus: open",
+            ),
+          );
+          const task = `${mattEquivalenceLocalScope}/issues/06-task.md`;
+          await writeFixture(
+            localRoot,
+            task,
+            (await readFile(join(localRoot, task), "utf8")).replace(
+              "Type: task",
+              "Type: task\n\nBlocked by: None — can start immediately.",
+            ),
+          );
+        }
+        const localBefore = await snapshotTree(localRoot, mattEquivalenceLocalScope);
+        const localEvents: string[] = [];
+        const local = await createLocalMarkdownMattProvider({
+          repoRoot: localRoot,
+          contractLocator: mattEquivalenceLocalContractLocator,
+          triageLocator: mattEquivalenceTriageLocator,
+          clock: () => new Date("2026-07-28T00:00:00Z"),
+          onCaptureEvent: (event) => {
+            if (event.kind === "content-read") localEvents.push(event.locator);
           },
-        },
-      };
-      expect(() =>
-        mattReferenceRelationPartition(unpartitionedRelationCapture, localAliases),
-      ).toThrow(TypeError);
+        }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceLocalScope });
+        if (localForm === "compatible") {
+          expect(local.projection?.wayfinderTickets[1]?.native).toMatchObject({
+            normalizations: ["wayfinder-open-status"],
+            rawFacets: expect.arrayContaining([{ key: "status", values: ["open"] }]),
+          });
+          expect(local.projection?.wayfinderTickets[3]?.native).toMatchObject({
+            normalizations: ["no-blockers-terminal-period"],
+            rawFacets: expect.arrayContaining([
+              { key: "blocked-by", values: ["None — can start immediately."] },
+            ]),
+          });
+        }
 
-      expect(await snapshotTree(localRoot, mattEquivalenceLocalScope)).toEqual(localBefore);
-      expect(new Set(localEvents).size).toBe(localEvents.length);
-      expect(
-        local.freshness.evidence.find((item) => item.kind === "content-read-count")?.value,
-      ).toBe(String(localEvents.length));
-      expect(
-        await Promise.all(
+        const githubBefore = await Promise.all(
           [githubContractLocator, githubTriageLocator].map((locator) =>
             readFile(join(githubRoot, locator), "utf8"),
           ),
-        ),
-      ).toEqual(githubBefore);
+        );
+        const transport = createMattEquivalenceGitHubTransport();
+        const github = await createGitHubMattProvider({
+          repoRoot: githubRoot,
+          contractLocator: githubContractLocator,
+          triageLocator: githubTriageLocator,
+          transport,
+          clock: () => new Date("2026-07-28T00:00:00Z"),
+        }).capture({ provider: "matt-skills/v1", nativeScope: mattEquivalenceGitHubScope });
 
-      const budget = githubRequestBudget(transport.requests);
-      expect(budget.uniqueEndpointCount).toBeLessThanOrEqual(
-        1 + mattEquivalenceGitHubObjectCount * 5,
-      );
-      expect(budget.maximumRequestsForOneEndpoint).toBeLessThanOrEqual(2);
-      expect(transport.requests.length).toBeLessThanOrEqual(budget.linearUpperBound);
-      expect(transport.requests.some((request) => /[?&]page=[2-9]/u.test(request.endpoint))).toBe(
-        false,
-      );
-    } finally {
-      await Promise.all([
-        rm(localRoot, { recursive: true, force: true }),
-        rm(githubRoot, { recursive: true, force: true }),
-      ]);
-    }
-  });
+        expect(local).not.toEqual(github);
+        const localAliases = mattEquivalenceAliases("local");
+        const githubAliases = mattEquivalenceAliases("github");
+        const localView = mattReferenceEquivalenceView(local, localAliases);
+        const githubView = mattReferenceEquivalenceView(github, githubAliases);
+        expect(localView).toEqual(expectedMattEquivalenceSemantics);
+        expect(githubView).toEqual(expectedMattEquivalenceSemantics);
+        expect(localView).toEqual(githubView);
+        expect(mattReferenceSemanticAvailabilityView(local, localAliases)).toEqual(
+          expectedSemanticAvailability,
+        );
+        expect(mattReferenceSemanticAvailabilityView(github, githubAliases)).toEqual(
+          expectedSemanticAvailability,
+        );
+        if (
+          (local.state !== "available" && local.state !== "partial") ||
+          (github.state !== "available" && github.state !== "partial") ||
+          local.projection.spec === undefined ||
+          github.projection.spec === undefined
+        ) {
+          throw new TypeError("Expected equivalent Local and GitHub Spec documents.");
+        }
+        expect(local.projection.spec.document).toEqual(github.projection.spec.document);
+        expect(
+          local.projection.spec.document.find(
+            (section) => section.sourceIdentity === "spec.source.compatibility-notes",
+          ),
+        ).toEqual({
+          version: 1,
+          sourceIdentity: "spec.source.compatibility-notes",
+          title: "Compatibility Notes",
+          sourceOrder: 2,
+          availability: "available",
+          markdown:
+            "An additive source section stays readable without provider-specific Portal code.",
+        });
+
+        const localRelations = mattReferenceRelationPartition(local, localAliases);
+        const githubRelations = mattReferenceRelationPartition(github, githubAliases);
+        expect(localRelations.workflow).toEqual(expectedMattEquivalenceSemantics.parentChild);
+        expect(githubRelations.workflow).toEqual(expectedMattEquivalenceSemantics.parentChild);
+        expect(localRelations.nativeAcquisition).toEqual([]);
+        expect(githubRelations.nativeAcquisition).toEqual([
+          { relation: "map>spec", evidence: "github-native" },
+          { relation: "map>incoming-enhancement", evidence: "github-native" },
+        ]);
+        if (local.state !== "available" && local.state !== "partial") {
+          throw new TypeError("Expected an available Local reference projection.");
+        }
+        if (local.projection.map === undefined || local.projection.spec === undefined) {
+          throw new TypeError("Expected the complete Local reference projection.");
+        }
+        const unpartitionedRelationCapture = {
+          ...local,
+          projection: {
+            ...local.projection,
+            graph: {
+              ...local.projection.graph,
+              parentChild: [
+                ...local.projection.graph.parentChild,
+                {
+                  parent: local.projection.map.ref,
+                  child: local.projection.spec.ref,
+                  evidence: "matt-contract" as const,
+                },
+              ],
+            },
+          },
+        };
+        expect(() =>
+          mattReferenceRelationPartition(unpartitionedRelationCapture, localAliases),
+        ).toThrow(TypeError);
+
+        expect(await snapshotTree(localRoot, mattEquivalenceLocalScope)).toEqual(localBefore);
+        expect(new Set(localEvents).size).toBe(localEvents.length);
+        expect(
+          local.freshness.evidence.find((item) => item.kind === "content-read-count")?.value,
+        ).toBe(String(localEvents.length));
+        expect(
+          await Promise.all(
+            [githubContractLocator, githubTriageLocator].map((locator) =>
+              readFile(join(githubRoot, locator), "utf8"),
+            ),
+          ),
+        ).toEqual(githubBefore);
+
+        const budget = githubRequestBudget(transport.requests);
+        expect(budget.uniqueEndpointCount).toBeLessThanOrEqual(
+          1 + mattEquivalenceGitHubObjectCount * 5,
+        );
+        expect(budget.maximumRequestsForOneEndpoint).toBeLessThanOrEqual(2);
+        expect(transport.requests.length).toBeLessThanOrEqual(budget.linearUpperBound);
+        expect(transport.requests.some((request) => /[?&]page=[2-9]/u.test(request.endpoint))).toBe(
+          false,
+        );
+      } finally {
+        await Promise.all([
+          rm(localRoot, { recursive: true, force: true }),
+          rm(githubRoot, { recursive: true, force: true }),
+        ]);
+      }
+    });
+  }
 
   test("preserves provider-native identity and evidence without requiring serialized equality", async () => {
     const localRoot = await writeMattEquivalenceLocalRepository();

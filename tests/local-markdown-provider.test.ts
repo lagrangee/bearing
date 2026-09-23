@@ -6,6 +6,7 @@ import {
   createLocalMarkdownMattProvider,
   type LocalMarkdownCaptureEvent,
 } from "../src/providers/matt-skills-v1/local-markdown";
+import { mattSkillsV1ProviderObservationSchema } from "../src/providers/matt-skills-v1/schema";
 import { makeTemporaryDirectory, writeFixture } from "./helpers";
 
 const contractLocator = "docs/agents/issue-tracker.md";
@@ -1222,6 +1223,131 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       },
     });
   });
+
+  test("combined normalizations survive schema round-trip and an unrelated Map read", async () => {
+    const locator = `${nativeScope}/issues/02-prototype.md`;
+    const { prior, targeted, full, targetedReads } = await observeReferenceChange(
+      async (root) => {
+        await writeFixture(
+          root,
+          `${nativeScope}/map.md`,
+          map.replace("## Notes", "## Notes\n\n- An unrelated note."),
+        );
+        return [`${nativeScope}/map.md`];
+      },
+      async (root) => {
+        const source = await readFile(join(root, locator), "utf8");
+        await writeFixture(
+          root,
+          locator,
+          source
+            .replace("Status: claimed\n\nClaimed by: lago", "Status: open")
+            .replace("Blocked by: 01", "Blocked by: None — can start immediately."),
+        );
+      },
+    );
+    expect(targetedReads).toEqual([`${nativeScope}/map.md`]);
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+    for (const observation of [prior, targeted, full]) {
+      expect(observation.state).toBe("available");
+      expect(observation.coverage.assessment).toBe("complete");
+      expect(observation.freshness.assessment).toBe("current");
+      expect(observation.diagnostics).toEqual([]);
+      const roundTripped = mattSkillsV1ProviderObservationSchema.parse(
+        JSON.parse(JSON.stringify(observation)),
+      );
+      expect<unknown>(roundTripped).toEqual(observation);
+      if (roundTripped.state !== "available")
+        throw new Error("Expected a complete compatible capture.");
+      expect(roundTripped.projection?.wayfinderTickets[1]?.native).toMatchObject({
+        rawFacets: expect.arrayContaining([
+          { key: "status", values: ["open"] },
+          { key: "blocked-by", values: ["None — can start immediately."] },
+        ]),
+        normalizations: ["no-blockers-terminal-period", "wayfinder-open-status"],
+      });
+      expect(
+        roundTripped.projection?.graph.blockedBy.filter((relation) => relation.blocked === locator),
+      ).toEqual([]);
+    }
+    const unknownRule = JSON.parse(JSON.stringify(full));
+    unknownRule.projection.wayfinderTickets[1].native.normalizations.push("arbitrary-prose");
+    expect(mattSkillsV1ProviderObservationSchema.safeParse(unknownRule).success).toBe(false);
+  });
+
+  test("a Map conflict retracts only lifecycle normalization and preserves independent blocker evidence", async () => {
+    const locator = `${nativeScope}/issues/02-prototype.md`;
+    const { targeted, full } = await observeReferenceChange(
+      async (root) => {
+        await writeFixture(
+          root,
+          `${nativeScope}/map.md`,
+          map.replace(
+            "## Decisions so far",
+            "## Decisions so far\n\n- [Prototype](issues/02-prototype.md) — A route.",
+          ),
+        );
+        return [`${nativeScope}/map.md`];
+      },
+      async (root) => {
+        const source = await readFile(join(root, locator), "utf8");
+        await writeFixture(
+          root,
+          locator,
+          source
+            .replace("Status: claimed\n\nClaimed by: lago", "Status: open")
+            .replace("Blocked by: 01", "Blocked by: None — can start immediately."),
+        );
+      },
+    );
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+    expect(targeted.state).toBe("partial");
+    expect(targeted.completion).toBe("undetermined");
+    expect(targeted.projection?.wayfinderTickets[1]?.native).toMatchObject({
+      normalizations: ["no-blockers-terminal-period"],
+      rawFacets: expect.arrayContaining([{ key: "status", values: ["open"] }]),
+    });
+    expect(targeted.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "matt.local.lifecycle.conflict",
+        class: "format",
+        impact: "blocking",
+        target: locator,
+      }),
+    );
+    expect(
+      targeted.projection?.graph.blockedBy.filter((relation) => relation.blocked === locator),
+    ).toEqual([]);
+  });
+
+  for (const duplicate of ["Status: open", "Blocked by: None — can start immediately."]) {
+    test(`duplicate ${duplicate} does not certify normalization in either acquisition path`, async () => {
+      const locator = `${nativeScope}/issues/02-prototype.md`;
+      const { targeted, full } = await observeReferenceChange(async (root) => {
+        const source = await readFile(join(root, locator), "utf8");
+        await writeFixture(
+          root,
+          locator,
+          source
+            .replace("Status: claimed\n\nClaimed by: lago", `Status: open\n\n${duplicate}`)
+            .replace("Blocked by: 01", "Blocked by: None — can start immediately."),
+        );
+        return [locator];
+      });
+      expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+      expect(targeted.state).toBe("partial");
+      expect(targeted.completion).toBe("undetermined");
+      expect(targeted.projection?.wayfinderTickets.some((ticket) => ticket.ref === locator)).toBe(
+        false,
+      );
+      expect(
+        targeted.projection?.graph.blockedBy.some((relation) => relation.blocked === locator),
+      ).toBe(false);
+      expect(targeted.diagnostics).toContainEqual(
+        expect.objectContaining({ impact: "blocking", target: locator }),
+      );
+    });
+  }
 
   for (const route of ["decision", "out-of-scope", "ambiguous"] as const) {
     test(`a Map-only ${route} retracts prior open normalization without closing the Ticket`, async () => {
