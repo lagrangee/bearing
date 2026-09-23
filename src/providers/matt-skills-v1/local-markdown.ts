@@ -322,6 +322,7 @@ const inferredCreatedTimeFor = (file: CapturedFile) =>
 const nativeEvidenceFor = (
   file: CapturedFile,
   extra: readonly MattRawFacet[] = [],
+  normalizations: Extract<MattNativeEvidence, { kind: "local" }>["normalizations"] = [],
 ): MattNativeEvidence => ({
   kind: "local",
   identity: { locator: file.locator },
@@ -329,6 +330,7 @@ const nativeEvidenceFor = (
   lastUpdated: inferredUpdatedTimeFor(file),
   sourceAnchors: anchorsFor(file),
   rawFacets: rawFacetsFor(file, extra),
+  ...(normalizations.length === 0 ? {} : { normalizations }),
 });
 
 const localAuthoredSection = <
@@ -553,13 +555,24 @@ const issueRole = (file: CapturedFile): IssueRole => {
 };
 
 const NO_BLOCKERS_SENTINEL = "None — can start immediately";
+const NO_BLOCKERS_PERIOD_VARIANT = `${NO_BLOCKERS_SENTINEL}.`;
+
+const ticketNativeEvidenceFor = (file: CapturedFile, extra: readonly MattRawFacet[]) => {
+  const blockedBy = fieldValue(file, "Blocked by");
+  return nativeEvidenceFor(
+    file,
+    [...extra, ...(blockedBy === undefined ? [] : [{ key: "blocked-by", values: [blockedBy] }])],
+    blockedBy === NO_BLOCKERS_PERIOD_VARIANT ? ["no-blockers-terminal-period"] : [],
+  );
+};
 
 const blockerReferences = (
   file: CapturedFile,
   diagnostics: CaptureDiagnostic[],
 ): readonly string[] => {
   const value = fieldValue(file, "Blocked by", diagnostics);
-  if (value === undefined || value === NO_BLOCKERS_SENTINEL) return [];
+  if (value === undefined || value === NO_BLOCKERS_SENTINEL || value === NO_BLOCKERS_PERIOD_VARIANT)
+    return [];
   const entries = value.split(",").map((entry) => entry.trim());
   const references: string[] = [];
   for (const entry of entries) {
@@ -699,7 +712,7 @@ const decodeWayfinder = (
           "confirmed-empty",
       ),
     ],
-    native: nativeEvidenceFor(file, [
+    native: ticketNativeEvidenceFor(file, [
       { key: "type", values: [type] },
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
       ...(claimant === undefined ? [] : [{ key: "claimant", values: [claimant] }]),
@@ -805,7 +818,7 @@ const decodeDelivery = (
           "confirmed-empty",
       ),
     ],
-    native: nativeEvidenceFor(file, [
+    native: ticketNativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
     ]),
   };

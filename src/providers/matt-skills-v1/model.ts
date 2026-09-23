@@ -36,6 +36,9 @@ export type MattNativeEvidence =
       lastUpdated: MattNativeEventTime;
       sourceAnchors: readonly MattSourceAnchor[];
       rawFacets: readonly MattRawFacet[];
+      normalizations?:
+        | readonly ("wayfinder-open-status" | "no-blockers-terminal-period")[]
+        | undefined;
     }>
   | Readonly<{
       kind: "github";
