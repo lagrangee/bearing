@@ -14,7 +14,6 @@ import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { publishAtomicDevelopmentBuild } from "../src/development-build";
 import {
   developmentPortalHealthSchema,
   developmentPortalIdentitySchema,
@@ -24,6 +23,7 @@ import {
   DEVELOPMENT_PORTAL_RUNTIME_REQUIRED,
 } from "../src/development-portal-supervisor";
 import type { RuntimeReceipt } from "../src/runtime-context";
+import { publishControlledBuild } from "./fixtures/development-build-publication";
 
 const projectRoot = await realpath(join(import.meta.dir, ".."));
 const harness = join(projectRoot, "tests/fixtures/development-portal-supervisor-harness.ts");
@@ -43,13 +43,6 @@ const temporaryDirectory = async (prefix: string): Promise<string> => {
   const root = await mkdtemp(join(tmpdir(), prefix));
   temporaryRoots.push(root);
   return root;
-};
-
-const publishControlledBuild = async (controlRoot: string, marker: string): Promise<void> => {
-  const stagedDist = join(controlRoot, ".bearing-test-build", "dist");
-  await mkdir(stagedDist, { recursive: true });
-  await writeFile(join(stagedDist, "build-marker"), marker);
-  await publishAtomicDevelopmentBuild(stagedDist, join(controlRoot, "dist"));
 };
 
 const prepareControlledDevelopmentRuntime = async (
