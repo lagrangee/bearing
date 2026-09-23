@@ -277,9 +277,13 @@ const referenceReconciliationProvider = async (
   });
 };
 
-const observeReferenceChange = async (mutate: (root: string) => Promise<readonly string[]>) => {
+const observeReferenceChange = async (
+  mutate: (root: string) => Promise<readonly string[]>,
+  prepare?: (root: string) => Promise<void>,
+) => {
   const root = await writeReferenceRepository();
   try {
+    await prepare?.(root);
     const reads: string[] = [];
     const provider = await referenceReconciliationProvider(root, (event) => {
       if (event.kind === "content-read") reads.push(event.locator);
@@ -290,11 +294,13 @@ const observeReferenceChange = async (mutate: (root: string) => Promise<readonly
     expect(prior.coverage.assessment).toBe("complete");
     expect(prior.diagnostics).toEqual([]);
     const subjects = await mutate(root);
+    const nativeBefore = await snapshotNativeBytes(root);
     reads.length = 0;
     const targeted = await provider.reconcile?.({ binding, prior, affected: { subjects } });
     if (targeted === undefined) throw new Error("Expected Local targeted reconciliation.");
     const targetedReads = [...reads];
     const full = await provider.capture(binding);
+    expect(await snapshotNativeBytes(root)).toEqual(nativeBefore);
     return { prior, targeted, full, targetedReads };
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -1072,6 +1078,155 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       trackerClosure: { state: "open" },
     });
   });
+
+  test("normalizes conflict-free Wayfinder open through both read paths without writing sources", async () => {
+    const locator = `${nativeScope}/issues/02-prototype.md`;
+    const { targeted, full } = await observeReferenceChange(async (root) => {
+      const source = await readFile(join(root, locator), "utf8");
+      await writeFixture(
+        root,
+        locator,
+        source.replace("Status: claimed\n\nClaimed by: lago", "Status: open"),
+      );
+      return [locator];
+    });
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+    expect(full.state).toBe("available");
+    expect(full.coverage.assessment).toBe("complete");
+    expect(full.freshness.assessment).toBe("current");
+    expect(full.diagnostics).toEqual([]);
+    expect(full.projection?.wayfinderTickets[1]).toMatchObject({
+      claim: { state: "unclaimed" },
+      lifecycle: { state: "open" },
+      trackerClosure: { state: "open" },
+      native: {
+        rawFacets: expect.arrayContaining([{ key: "status", values: ["open"] }]),
+        normalizations: ["wayfinder-open-status"],
+      },
+    });
+  });
+
+  for (const route of ["decision", "out-of-scope", "ambiguous"] as const) {
+    test(`a Map-only ${route} retracts prior open normalization without closing the Ticket`, async () => {
+      const locator = `${nativeScope}/issues/02-prototype.md`;
+      const { prior, targeted, full, targetedReads } = await observeReferenceChange(
+        async (root) => {
+          const heading = route === "out-of-scope" ? "## Out of scope" : "## Decisions so far";
+          const pointer =
+            route === "ambiguous"
+              ? "[Prototype](issues/02-prototype.md) and [Task](issues/04-task.md)"
+              : "[Prototype](issues/02-prototype.md)";
+          await writeFixture(
+            root,
+            `${nativeScope}/map.md`,
+            map.replace(heading, `${heading}\n\n- ${pointer} — A route.`),
+          );
+          return [`${nativeScope}/map.md`];
+        },
+        async (root) => {
+          const source = await readFile(join(root, locator), "utf8");
+          await writeFixture(
+            root,
+            locator,
+            source.replace("Status: claimed\n\nClaimed by: lago", "Status: open"),
+          );
+        },
+      );
+      expect(prior.projection?.wayfinderTickets[1]?.native).toMatchObject({
+        normalizations: ["wayfinder-open-status"],
+      });
+      expect(targetedReads).toEqual([`${nativeScope}/map.md`]);
+      expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+      expect(targeted.state).toBe("partial");
+      expect(targeted.completion).toBe("undetermined");
+      const affected = targeted.projection?.wayfinderTickets[1];
+      expect(affected?.native.kind === "local" && affected.native.normalizations).toBeUndefined();
+      expect(affected?.trackerClosure).toEqual({ state: "open" });
+      expect(affected?.lifecycle.state).toBe("open");
+      expect(targeted.diagnostics).toContainEqual(
+        expect.objectContaining({ code: "matt.local.lifecycle.conflict", target: locator }),
+      );
+    });
+  }
+
+  for (const status of ["Open", "open.", "open\nStatus: claimed"]) {
+    test(`does not normalize undeclared or ambiguous Wayfinder status ${JSON.stringify(status)}`, async () => {
+      const locator = `${nativeScope}/issues/02-prototype.md`;
+      const { targeted, full } = await observeReferenceChange(async (root) => {
+        const source = await readFile(join(root, locator), "utf8");
+        await writeFixture(
+          root,
+          locator,
+          source.replace("Status: claimed\n\nClaimed by: lago", `Status: ${status}`),
+        );
+        return [locator];
+      });
+      expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+      expect(full.state).toBe("partial");
+      const affected = full.projection?.wayfinderTickets[1];
+      expect(affected?.native.kind === "local" && affected.native.normalizations).toBeUndefined();
+    });
+  }
+
+  for (const status of ["open", undefined]) {
+    for (const conflict of [
+      "claimant",
+      "answer",
+      "empty-answer",
+      "decision",
+      "out-of-scope",
+    ] as const) {
+      test(`rejects Wayfinder ${status ?? "omitted status"} with ${conflict} in both read paths`, async () => {
+        const locator = `${nativeScope}/issues/02-prototype.md`;
+        const { targeted, full } = await observeReferenceChange(async (root) => {
+          const source = await readFile(join(root, locator), "utf8");
+          await writeFixture(
+            root,
+            locator,
+            source.replace(
+              "Status: claimed\n\nClaimed by: lago",
+              `${status === undefined ? "" : `Status: ${status}`}${conflict === "claimant" ? "\n\nClaimed by: lago" : ""}`,
+            ) +
+              (conflict === "answer"
+                ? "\n## Answer\n\nA decision.\n"
+                : conflict === "empty-answer"
+                  ? "\n## Answer\n"
+                  : ""),
+          );
+          if (conflict === "decision" || conflict === "out-of-scope") {
+            await writeFixture(
+              root,
+              `${nativeScope}/map.md`,
+              map.replace(
+                conflict === "decision" ? "## Decisions so far" : "## Out of scope",
+                `${conflict === "decision" ? "## Decisions so far" : "## Out of scope"}\n\n- [Prototype](issues/02-prototype.md) — A route.`,
+              ),
+            );
+            return [locator, `${nativeScope}/map.md`];
+          }
+          return [locator];
+        });
+        expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+        expect(full.state).toBe("partial");
+        expect(full.coverage.assessment).toBe("incomplete");
+        expect(full.completion).toBe("undetermined");
+        expect(full.diagnostics).toContainEqual(
+          expect.objectContaining({
+            code: "matt.local.lifecycle.conflict",
+            impact: "blocking",
+            target: locator,
+          }),
+        );
+        const affected = full.projection?.wayfinderTickets[1];
+        expect(affected?.semanticSections).toContainEqual({
+          role: "wayfinder.claim",
+          availability: "unavailable",
+        });
+        expect(affected?.native.kind === "local" && affected.native.normalizations).toBeUndefined();
+        expect(full.projection?.wayfinderTickets[0]?.lifecycle.state).toBe("resolved-on-route");
+      });
+    }
+  }
 
   test("projects current Local birthtime and mtime as read-only approximate display times", async () => {
     const root = await writeReferenceRepository();

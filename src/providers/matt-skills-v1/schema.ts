@@ -182,6 +182,9 @@ const localEvidenceSchema = z
     lastUpdated: nativeEventTimeSchema,
     sourceAnchors: z.array(sourceAnchorSchema),
     rawFacets: z.array(rawFacetSchema),
+    normalizations: z
+      .array(z.enum(["wayfinder-open-status", "no-blockers-terminal-period"]))
+      .optional(),
   })
   .superRefine((evidence, context) => {
     for (const [key, time] of [
