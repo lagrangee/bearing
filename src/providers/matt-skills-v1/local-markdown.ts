@@ -638,13 +638,13 @@ const decodeWayfinder = (
     | (MattWayfinderAuthoredDocument & Readonly<{ role: "answer" }>)
     | undefined;
   const resolved = status === "resolved";
-  if (status !== undefined && status !== "claimed" && !resolved) {
+  if (status !== undefined && status !== "open" && status !== "claimed" && !resolved) {
     diagnostics.push(
       diagnostic(
         "matt.local.lifecycle.unknown",
         "format",
         file.locator,
-        "Wayfinder Status must be claimed or resolved.",
+        "Wayfinder Status must be claimed, resolved, or conflict-free open.",
       ),
     );
   }
@@ -703,6 +703,9 @@ const decodeWayfinder = (
       { key: "type", values: [type] },
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
       ...(claimant === undefined ? [] : [{ key: "claimant", values: [claimant] }]),
+      ...(queryMarkdownSection(file.document, { title: "Answer" }).state === "absent"
+        ? []
+        : [{ key: "answer-section", values: ["present"] }]),
     ]),
   };
 };
@@ -1327,6 +1330,57 @@ const lifecycleWithMapEvidence = (
         ? { ...sourceTicket.trackerClosure, disposition: "completed" }
         : sourceTicket.trackerClosure,
   };
+  const status = ticket.native.rawFacets.find((facet) => facet.key === "status")?.values[0];
+  if (ticket.native.kind === "local" && (status === undefined || status === "open")) {
+    // Recompute this evidence after Map-only reconciliation; a prior normalization
+    // cannot certify a newly contradictory lifecycle bundle.
+    const { normalizations: priorNormalizations, ...native } = ticket.native;
+    const normalizations = (priorNormalizations ?? []).filter(
+      (rule) => rule !== "wayfinder-open-status",
+    );
+    const conflict =
+      ticket.native.rawFacets.some(
+        (facet) => facet.key === "claimant" || facet.key === "answer-section",
+      ) ||
+      ticket.answer.availability === "available" ||
+      ticket.trackerClosure.state === "closed" ||
+      decisions.length + dispositions.length > 0 ||
+      diagnostics.some(
+        (item) => item.code === "matt.local.relation.ambiguous" && item.target === ticket.ref,
+      );
+    if (conflict) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.lifecycle.conflict",
+          "format",
+          native.identity.locator,
+          "Unclaimed Wayfinder status conflicts with claimant, Answer, or Map closure evidence.",
+        ),
+      );
+    }
+    const normalized =
+      status === "open" &&
+      !conflict &&
+      !diagnostics.some((item) => item.target === ticket.ref && item.impact === "blocking");
+    return {
+      ...ticket,
+      semanticSections: conflict
+        ? ticket.semanticSections.map((section) =>
+            section.role === "wayfinder.claim"
+              ? semanticSection(section.role, "unavailable")
+              : section,
+          )
+        : ticket.semanticSections,
+      native: {
+        ...native,
+        ...(normalized
+          ? { normalizations: [...normalizations, "wayfinder-open-status" as const] }
+          : normalizations.length > 0
+            ? { normalizations }
+            : {}),
+      },
+    };
+  }
   if (decisions.length + dispositions.length > 1) {
     diagnostics.push(
       diagnostic(
