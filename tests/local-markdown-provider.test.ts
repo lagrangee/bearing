@@ -6,7 +6,10 @@ import {
   createLocalMarkdownMattProvider,
   type LocalMarkdownCaptureEvent,
 } from "../src/providers/matt-skills-v1/local-markdown";
-import { mattSkillsV1ProviderObservationSchema } from "../src/providers/matt-skills-v1/schema";
+import {
+  mattScopeProjectionSchema,
+  mattSkillsV1ProviderObservationSchema,
+} from "../src/providers/matt-skills-v1/schema";
 import { makeTemporaryDirectory, writeFixture } from "./helpers";
 
 const contractLocator = "docs/agents/issue-tracker.md";
@@ -302,6 +305,11 @@ const observeReferenceChange = async (
     const targetedReads = [...reads];
     const full = await provider.capture(binding);
     expect(await snapshotNativeBytes(root)).toEqual(nativeBefore);
+    for (const observation of [targeted, full]) {
+      expect<unknown>(
+        mattSkillsV1ProviderObservationSchema.parse(JSON.parse(JSON.stringify(observation))),
+      ).toEqual(observation);
+    }
     return { prior, targeted, full, targetedReads };
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -1180,6 +1188,37 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     }
   });
 
+  test("claim schema keeps unavailable Local evidence distinct from unsupported or empty claims", async () => {
+    const root = await writeReferenceRepository();
+    try {
+      const observation = await capture(root);
+      if (observation.projection === undefined)
+        throw new Error("Expected the reference projection.");
+      const projection = observation.projection;
+      for (const state of ["unclaimed", "claimed"] as const) {
+        for (const availability of ["available", "unavailable", "confirmed-empty", "unsupported"]) {
+          expect(
+            mattScopeProjectionSchema.safeParse({
+              ...projection,
+              wayfinderTickets: projection.wayfinderTickets.map((ticket) => ({
+                ...ticket,
+                claim: { state },
+                semanticSections: ticket.semanticSections.map((section) =>
+                  section.role === "wayfinder.claim" ? { ...section, availability } : section,
+                ),
+              })),
+            }).success,
+          ).toBe(
+            availability === "available" ||
+              (state === "unclaimed" && availability === "unavailable"),
+          );
+        }
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("captures a Status-absent Wayfinder ticket as open and unclaimed", async () => {
     const root = await writeReferenceRepository();
     const locator = `${nativeScope}/issues/02-prototype.md`;
@@ -1222,6 +1261,53 @@ describe("Local Markdown matt-skills/v1 capture", () => {
         normalizations: ["wayfinder-open-status"],
       },
     });
+  });
+
+  test("an unresolved blocker withholds open normalization equally in both read paths", async () => {
+    const locator = `${nativeScope}/issues/02-prototype.md`;
+    const { targeted, full } = await observeReferenceChange(async (root) => {
+      const source = await readFile(join(root, locator), "utf8");
+      await writeFixture(
+        root,
+        locator,
+        source
+          .replace("Status: claimed\n\nClaimed by: lago", "Status: open")
+          .replace("Blocked by: 01", "Blocked by: 99"),
+      );
+      return [locator];
+    });
+    expect(localSemanticView(targeted)).toEqual(localSemanticView(full));
+    for (const observation of [targeted, full]) {
+      expect(observation.state).toBe("partial");
+      expect(observation.coverage.assessment).toBe("incomplete");
+      expect(observation.completion).toBe("undetermined");
+      const ticket = observation.projection?.wayfinderTickets.find(
+        (candidate) => candidate.ref === locator,
+      );
+      expect(ticket).toMatchObject({
+        claim: { state: "unclaimed" },
+        lifecycle: { state: "open" },
+        trackerClosure: { state: "open" },
+        native: {
+          rawFacets: expect.arrayContaining([
+            { key: "status", values: ["open"] },
+            { key: "blocked-by", values: ["99"] },
+          ]),
+        },
+      });
+      expect(ticket?.native).not.toHaveProperty("normalizations");
+      expect(
+        observation.projection?.graph.blockedBy.filter((relation) => relation.blocked === locator),
+      ).toEqual([]);
+      expect(observation.diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: "matt.local.relation.broken",
+          class: "identity",
+          impact: "blocking",
+          target: locator,
+        }),
+      );
+    }
   });
 
   test("combined normalizations survive schema round-trip and an unrelated Map read", async () => {

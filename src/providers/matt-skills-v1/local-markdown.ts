@@ -2389,14 +2389,11 @@ const localReconciliationProjection = async (
     : specFile === undefined
       ? priorProjection.spec
       : decodeSpec(specFile, diagnostics);
-  const wayfinderTickets = mergedWayfinder.map((ticket) =>
-    lifecycleWithMapEvidence(ticket, mapProjection, diagnostics),
-  );
   const parentChild = deriveLocalParents(
     scopeLocator,
     mapProjection,
     specProjection,
-    wayfinderTickets,
+    mergedWayfinder,
     mergedDelivery,
     diagnostics,
   );
@@ -2407,6 +2404,10 @@ const localReconciliationProjection = async (
     changedIssues,
     priorProjection.graph.blockedBy,
     diagnostics,
+  );
+
+  const wayfinderTickets = mergedWayfinder.map((ticket) =>
+    lifecycleWithMapEvidence(ticket, mapProjection, diagnostics),
   );
 
   const objectsByLocator = [...wayfinderTickets, ...mergedDelivery, ...mergedIncoming].sort(

@@ -684,6 +684,23 @@ ${issueBody}
       expect(githubObjects).toHaveLength(mattEquivalenceGitHubObjectCount);
       expect(localObjects.every((object) => object.native.kind === "local")).toBe(true);
       expect(githubObjects.every((object) => object.native.kind === "github")).toBe(true);
+      if (github.projection === undefined) throw new Error("Expected the GitHub projection.");
+      for (const state of ["unclaimed", "claimed"] as const) {
+        expect(
+          mattScopeProjectionSchema.safeParse({
+            ...github.projection,
+            wayfinderTickets: github.projection.wayfinderTickets.map((ticket) => ({
+              ...ticket,
+              claim: { state },
+              semanticSections: ticket.semanticSections.map((section) =>
+                section.role === "wayfinder.claim"
+                  ? { ...section, availability: "unavailable" }
+                  : section,
+              ),
+            })),
+          }).success,
+        ).toBe(false);
+      }
 
       const localLocators = localObjects.map((object) =>
         object.native.kind === "local" ? object.native.identity.locator : "",
