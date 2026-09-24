@@ -74,6 +74,28 @@ describe("Live Journey Codex JSONL integrity", () => {
     );
   });
 
+  test("identifies unfinished item kinds without exposing their payload", () => {
+    const output = [
+      JSON.stringify({ type: "thread.started", thread_id: "private-session" }),
+      JSON.stringify({
+        type: "item.started",
+        item: { id: "item-1", type: "command_execution", command: "private command text" },
+      }),
+      JSON.stringify({ type: "item.started", item: { id: "item-2", type: "todo_list" } }),
+      JSON.stringify({
+        type: "item.started",
+        item: { id: "item-3", type: "private unexpected kind", text: "private payload" },
+      }),
+      JSON.stringify({ type: "turn.completed" }),
+    ].join("\n");
+
+    expect(() => createObservation(undefined, output)).toThrow(
+      new Error(
+        "Codex turn completed with unfinished items: item-1 (command_execution), item-2 (todo_list), item-3 (unknown)",
+      ),
+    );
+  });
+
   test("accepts completed items with or without a prior started event", () => {
     const output = [
       JSON.stringify({ type: "thread.started", thread_id: "private-session" }),

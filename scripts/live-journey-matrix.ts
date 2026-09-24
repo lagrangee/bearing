@@ -233,14 +233,24 @@ export const createLiveJourneyObservation = (input: {
 }) => {
   if (!Number.isSafeInteger(input.turn) || input.turn <= 0) fail("Observation turn is invalid.");
   const eventCounts: Record<string, number> = {};
-  const unfinishedItemIds = new Set<string>();
+  const unfinishedItems = new Map<string, string>();
+  const diagnosticItemTypes = new Set([
+    "agent_message",
+    "reasoning",
+    "command_execution",
+    "file_change",
+    "mcp_tool_call",
+    "web_search",
+    "todo_list",
+    "collab_tool_call",
+  ]);
   let terminalBoundary = `process-exit-${input.exitCode}`;
   for (const line of input.stdout.split(/\r?\n/u).filter((entry) => entry.length > 0)) {
-    let event: Readonly<{ type?: unknown; item?: Readonly<{ id?: unknown }> }>;
+    let event: Readonly<{ type?: unknown; item?: Readonly<{ id?: unknown; type?: unknown }> }>;
     try {
       event = JSON.parse(line) as Readonly<{
         type?: unknown;
-        item?: Readonly<{ id?: unknown }>;
+        item?: Readonly<{ id?: unknown; type?: unknown }>;
       }>;
     } catch {
       eventCounts["invalid-jsonl"] = (eventCounts["invalid-jsonl"] ?? 0) + 1;
@@ -255,11 +265,20 @@ export const createLiveJourneyObservation = (input: {
     if (type === "item.started" && itemId === undefined) {
       fail("Codex item.started event has no valid item ID.");
     }
-    if (type === "item.started" && itemId !== undefined) unfinishedItemIds.add(itemId);
-    if (type === "item.completed" && itemId !== undefined) unfinishedItemIds.delete(itemId);
-    if (type === "turn.completed" && unfinishedItemIds.size > 0) {
+    if (type === "item.started" && itemId !== undefined) {
+      const itemType = event.item?.type;
+      unfinishedItems.set(
+        itemId,
+        typeof itemType === "string" && diagnosticItemTypes.has(itemType) ? itemType : "unknown",
+      );
+    }
+    if (type === "item.completed" && itemId !== undefined) unfinishedItems.delete(itemId);
+    if (type === "turn.completed" && unfinishedItems.size > 0) {
       fail(
-        `Codex turn completed with unfinished items: ${[...unfinishedItemIds].sort().join(", ")}`,
+        `Codex turn completed with unfinished items: ${[...unfinishedItems]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([id, itemType]) => `${id} (${itemType})`)
+          .join(", ")}`,
       );
     }
     if (type === "turn.completed" || type === "turn.failed") terminalBoundary = type;
