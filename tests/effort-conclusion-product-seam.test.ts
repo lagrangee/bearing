@@ -270,6 +270,11 @@ test("installed CLI validates a complete conclusion and rejects inactive Authori
     expect(captured.exitClass).toBe("success");
     const inspect = async (reference: string) =>
       JSON.parse((await product.run(["inspect", reference, "--repo", root])).stdout);
+    const beforeGate = await inspect("gate:stable-label-output");
+    expect(beforeGate.result.target.value).toMatchObject({
+      lifecycle: "active",
+      readiness: "not-ready",
+    });
     const preservedPaths = [
       ".bearing/state/project-summary.md",
       ".bearing/state/roadmap-index.md",
@@ -365,6 +370,28 @@ test("installed CLI validates a complete conclusion and rejects inactive Authori
   Concluded at: 2026-08-18T09:00:00Z
 Work binding:`,
       ),
+    );
+    const concludedEffort = await inspect("effort:label-delivery");
+    expect(concludedEffort).toMatchObject({ outcome: "complete", diagnostics: [] });
+    expect((await inspect("diagnostics")).result).toEqual([]);
+    const afterGate = await inspect("gate:stable-label-output");
+    expect(afterGate.generation).toEqual(concludedEffort.generation);
+    expect(afterGate.generation.basisFingerprint).not.toBe(beforeGate.generation.basisFingerprint);
+    expect(afterGate.result.target.value).toMatchObject({
+      lifecycle: "active",
+      readiness: "ready-for-review",
+    });
+    const postTransitionContext = await inspect("project");
+    expect(postTransitionContext.generation).toEqual(afterGate.generation);
+    expect(postTransitionContext.result.roadmapFocus).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          focusedGate: expect.objectContaining({
+            id: "gate:stable-label-output",
+            readiness: "ready-for-review",
+          }),
+        }),
+      ]),
     );
     const briefPath = ".bearing/state/project-brief.md";
     const originalBrief = await readFile(join(root, briefPath), "utf8");
