@@ -682,6 +682,10 @@ export const codexE2ELaunchContract = (input: {
     "--ignore-user-config",
     "--ignore-rules",
     "-c",
+    `developer_instructions=${JSON.stringify(
+      "Before ending a turn, wait for finite commands started for that turn to reach a terminal result. When a tool returns a running session for such a command, wait on that same session until it terminates; do not restart the command as a substitute for waiting.",
+    )}`,
+    "-c",
     'approval_policy="on-request"',
     "-c",
     'approvals_reviewer="auto_review"',

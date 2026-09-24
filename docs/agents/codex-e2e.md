@@ -22,6 +22,12 @@ Unavailability is `preflight blocked`.
 The empty service tier selects normal speed; disabling `fast_mode` alone does not clear a
 configured priority tier. The app-server launch preserves both explicit settings.
 
+The common launch also injects the same execution-lifecycle instruction for initial and resumed
+turns, including app-server transport: before ending a turn, wait for finite commands started for
+that turn to reach a terminal result. If a tool returns a running session, wait on that same session;
+do not restart the command as a substitute for waiting. This does not authorize retries, change
+Scenario prompts or semantic criteria, or relax evidence-integrity rejection.
+
 ## Runtime and capability isolation
 
 Every Scenario receives a fresh repository, Agent home, runtime home, private TMPDIR, exact package,

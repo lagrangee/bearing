@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { codexAppServerArgumentsFromExec } from "../scripts/codex-app-server";
 import {
   assertCodexE2EOutputIsolation,
   assertIsolatedCodexHomeControlLinks,
@@ -107,6 +108,11 @@ describe("repository Codex E2E policy", () => {
       npm_config_script_shell: "/bin/bash",
     });
     for (const step of [launch.initial, launch.resume]) {
+      expect(step.arguments).toContain(
+        `developer_instructions=${JSON.stringify(
+          "Before ending a turn, wait for finite commands started for that turn to reach a terminal result. When a tool returns a running session for such a command, wait on that same session until it terminates; do not restart the command as a substitute for waiting.",
+        )}`,
+      );
       expect(step.arguments).toContain('service_tier=""');
       expect(step.arguments).not.toContain('service_tier="priority"');
       expect(step.arguments).not.toContain("--enable");
@@ -119,6 +125,15 @@ describe("repository Codex E2E policy", () => {
       expect(step.arguments).not.toContain("sandbox_workspace_write.network_access=false");
     }
     expect(launch.initial.arguments).toContain("--strict-config");
+    const executionInstructions = launch.initial.arguments.filter((argument) =>
+      argument.startsWith("developer_instructions="),
+    );
+    expect(executionInstructions).toHaveLength(1);
+    expect(
+      codexAppServerArgumentsFromExec(launch.initial.arguments).filter((argument) =>
+        argument.startsWith("developer_instructions="),
+      ),
+    ).toEqual(executionInstructions);
     expect(launch.resume.arguments).toContain("--strict-config");
     expect(launch.initial.arguments).not.toContain('network_access="enabled"');
     expect(launch.resume.arguments).not.toContain('network_access="enabled"');
