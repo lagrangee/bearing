@@ -2056,7 +2056,7 @@ try {
     ["EACCES", "ENOENT", "EPERM"].includes(String(error.code))
   ) {
     process.stderr.write(
-      'GitHub Journey broker is outside the inner command sandbox. Retry this exact gh or git push command once with sandbox_permissions="require_escalated"; repository and command restrictions remain enforced.\\n',
+      'GitHub Journey broker is unavailable under the fixed permissions. Temporary permission escalation is disabled; report this infrastructure failure without retrying the command.\\n',
     );
     process.exit(77);
   }

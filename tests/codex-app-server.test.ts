@@ -166,6 +166,10 @@ describe("Codex app-server turn transport", () => {
     expect(firstRequests.find(({ method }) => method === "thread/start")?.params.model).toBe(
       "gpt-5.6-sol",
     );
+    expect(firstRequests.find(({ method }) => method === "thread/start")?.params).toMatchObject({
+      approvalPolicy: "never",
+      permissions: "bearing_live_journey",
+    });
     expect(firstRequests.find(({ method }) => method === "turn/start")?.params.effort).toBe("low");
     expect(firstRequests.find(({ method }) => method === "turn/start")?.params.input).toEqual([
       { type: "text", text: "请继续现有 Map。", text_elements: [] },
@@ -188,6 +192,8 @@ describe("Codex app-server turn transport", () => {
     expect(resumedRequests.find(({ method }) => method === "thread/resume")?.params).toMatchObject({
       threadId: "11111111-1111-4111-8111-111111111111",
       model: "gpt-5.6-sol",
+      approvalPolicy: "never",
+      permissions: "bearing_live_journey",
     });
     expect(resumedRequests.find(({ method }) => method === "turn/start")?.params.effort).toBe(
       "low",

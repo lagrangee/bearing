@@ -35,6 +35,16 @@ and declared Skill set. The Agent cannot read the operator home, source checkout
 semantic fields, sibling Scenarios, credentials, session state, or Coordinator evidence. The native
 permission profile is default-deny outside the current Scenario roots and verified toolchain inputs.
 
+The fixed Scenario permission profile preauthorizes every supported capability. Initial and resumed
+exec launches and app-server threads use `approval_policy="never"`; temporary permission escalation
+is unsupported. This does not expand filesystem or network access, suppress tool failures, or
+relax incomplete-event rejection. The Matrix does not test permission-approval workflows.
+
+This fail-closed policy also avoids the Codex 0.147.0 approval lifecycle defect reproduced when an
+approved command fails during process creation: its synthetic approval-start item can remain
+unfinished despite a terminal tool error. Do not manufacture a completion or change a historical
+Matrix verdict to compensate for that upstream defect.
+
 The runner copies only the authentication file required by Codex into runtime-owned storage and
 denies it to Agent tools. General network access and product loopback are prohibited. The GitHub
 Scenario may use only the existing short-lived broker for the configured private validation

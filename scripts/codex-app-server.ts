@@ -2,7 +2,7 @@ import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
-import { CODEX_E2E_RUNTIME } from "./codex-e2e-runtime";
+import { CODEX_E2E_APPROVAL_POLICY, CODEX_E2E_RUNTIME } from "./codex-e2e-runtime";
 
 type InvocationHooks = Readonly<{
   beforeSpawn: () => Promise<void>;
@@ -204,7 +204,7 @@ export const runCodexAppServerTurn = async (
           ? {
               model: CODEX_E2E_RUNTIME.model,
               cwd: input.workingDirectory,
-              approvalPolicy: "on-request",
+              approvalPolicy: CODEX_E2E_APPROVAL_POLICY,
               approvalsReviewer: "auto_review",
               permissions: "bearing_live_journey",
             }
@@ -212,7 +212,7 @@ export const runCodexAppServerTurn = async (
               threadId: input.sessionId,
               model: CODEX_E2E_RUNTIME.model,
               cwd: input.workingDirectory,
-              approvalPolicy: "on-request",
+              approvalPolicy: CODEX_E2E_APPROVAL_POLICY,
               approvalsReviewer: "auto_review",
               permissions: "bearing_live_journey",
             },

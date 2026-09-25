@@ -114,6 +114,8 @@ describe("repository Codex E2E policy", () => {
         )}`,
       );
       expect(step.arguments).toContain('service_tier=""');
+      expect(step.arguments).toContain('approval_policy="never"');
+      expect(step.arguments).not.toContain('approval_policy="on-request"');
       expect(step.arguments).not.toContain('service_tier="priority"');
       expect(step.arguments).not.toContain("--enable");
       expect(step.arguments).toContain('default_permissions="bearing_live_journey"');
@@ -135,6 +137,9 @@ describe("repository Codex E2E policy", () => {
       ),
     ).toEqual(executionInstructions);
     expect(launch.resume.arguments).toContain("--strict-config");
+    expect(codexAppServerArgumentsFromExec(launch.initial.arguments)).toContain(
+      'approval_policy="never"',
+    );
     expect(launch.initial.arguments).not.toContain('network_access="enabled"');
     expect(launch.resume.arguments).not.toContain('network_access="enabled"');
     expect(launch.initial.arguments).not.toContain("--skip-git-repo-check");

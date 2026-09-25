@@ -22,6 +22,8 @@ export const CODEX_E2E_RUNTIME = Object.freeze({
   fastMode: false,
 } as const);
 
+export const CODEX_E2E_APPROVAL_POLICY = "never" as const;
+
 const codexModelCatalogIdentifierSchema = z
   .string()
   .min(1)
@@ -686,7 +688,7 @@ export const codexE2ELaunchContract = (input: {
       "Before ending a turn, wait for finite commands started for that turn to reach a terminal result. When a tool returns a running session for such a command, wait on that same session until it terminates; do not restart the command as a substitute for waiting.",
     )}`,
     "-c",
-    'approval_policy="on-request"',
+    `approval_policy=${JSON.stringify(CODEX_E2E_APPROVAL_POLICY)}`,
     "-c",
     'approvals_reviewer="auto_review"',
     "-c",
