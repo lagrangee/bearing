@@ -329,14 +329,12 @@ const syncRoute = (moveFocus = false) => {
     activeRoute = route;
     scrollTo({ top: 0, left: 0 });
     if (moveFocus) {
-      requestAnimationFrame(() => {
-        const savedFocus = focusByRoute.get(route);
-        if (savedFocus instanceof HTMLElement && activeScreen.contains(savedFocus)) {
-          savedFocus.focus();
-        } else {
-          activeScreen.querySelector("h1")?.focus();
-        }
-      });
+      const savedFocus = focusByRoute.get(route);
+      if (savedFocus instanceof HTMLElement && activeScreen.contains(savedFocus)) {
+        savedFocus.focus();
+      } else {
+        activeScreen.querySelector("h1")?.focus();
+      }
     }
   }
   for (const link of document.querySelectorAll(".project-navigation a")) {
