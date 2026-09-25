@@ -4,7 +4,7 @@ The `matt-skills/v1` Local Markdown Provider uses canonical writers and bounded 
 The repository's confirmed tracker contract owns native writing. A Provider's inability to read a
 form does not establish that the form violates that contract.
 
-This compatibility refinement admits two observed, noncanonical forms:
+The original compatibility refinement admits two observed, noncanonical forms:
 
 - A Wayfinder `Status: open` with no claimant, Answer, Map decision or out-of-scope pointer is
   unclaimed and open. Conflicting evidence is not discarded to make the alias work.
@@ -32,6 +32,38 @@ matrix, changes Matt Skills, or adds telemetry or automatic repair.
 Provider edge cases are proven at the existing capture and reconciliation seams, with the shared
 Local/GitHub semantic oracle used only for shared semantics. A complete Agent Live Matrix is separate
 workflow evidence; it does not prove arbitrary Markdown variants or rewrite historical failures.
+
+## Current Matt source contract
+
+The additional source-contract proof is pinned to `mattpocock/skills` commit
+`c55ee46073ed923f86ce59a5eb3b6d895095d1b7`. Original source files, seeds, extracted templates and
+hashes are retained in `tests/fixtures/matt-upstream-contract/`. Project-specific Live fixture
+extensions are declared separately; they do not define Matt's universal writing contract.
+
+- The upstream `None (can start immediately)` blocker value is supported without rewriting it.
+- Delivery Tickets may exist without a Spec. Sharing a scope does not establish parentage;
+  explicit Local Parent evidence establishes a relation only to one readable in-scope Spec.
+- Local Map and Spec documents may omit an H1 or lifecycle declaration. A missing title uses a
+  marked locator fallback; a missing lifecycle remains unavailable, never an invented active or
+  draft state. Unknown or conflicting declared states still retain diagnostics.
+- An absent optional triage file is distinct from an unreadable or unsafe file. Canonical role
+  values remain interpretable; custom vocabulary is not guessed.
+- Tracker closure remains readable without Provider-specific completion sections. Missing
+  completion evidence remains unavailable and cannot prove completed acceptance. Explicitly
+  conflicting evidence remains diagnostic.
+- The current upstream GitHub tracker seed, including its explanatory request-surface annotation,
+  is accepted. This does not authorize arbitrary ambiguous flag prose.
+
+Public capture, targeted reconciliation, shared projection and installed-product tests cover these
+boundaries in `tests/matt-upstream-local-contract.test.ts`, `tests/github-provider.test.ts` and
+`tests/matt-upstream-installed-contract.test.ts`. Source-byte and template extraction checks live
+in `tests/live-scenario-registry.test.ts`. Source changes require review outside a frozen Live
+Generation; these fixtures do not promise compatibility with arbitrary future Matt changes.
+
+Project Read Model projection version 11 invalidates observations based on the earlier implicit
+parent and lifecycle assumptions. Explicit cache rebuild discards incompatible provider evidence
+without acquisition. Required scopes then need a fresh exact baseline; neither rebuild nor
+compatibility normalization migrates native files or silently scans every Binding.
 
 ## Evidence and proof index
 
