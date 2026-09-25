@@ -443,7 +443,7 @@ test("packed activity inspection preserves useful facts through degraded evidenc
 
     const newerDatabase = new Database(recoveryPath);
     newerDatabase
-      .query("UPDATE read_model_metadata SET projection_version = 11 WHERE singleton = 1")
+      .query("UPDATE read_model_metadata SET projection_version = 12 WHERE singleton = 1")
       .run();
     newerDatabase.close();
     const newer = await product.run(activityArgs(nativeDate), {
