@@ -4,7 +4,6 @@ import { posix, resolve } from "node:path";
 import stableStringify from "safe-stable-stringify";
 import { z } from "zod";
 import { normalizeLocator } from "../../fingerprint";
-import { probeContainedInput } from "../../input-boundary";
 import {
   type MarkdownDocument,
   type MarkdownSection,
@@ -474,13 +473,22 @@ const readInterpretationDocument = async (
     ? readRepositoryDocument(root, locator)
     : options.capturedDocuments.get(locator)?.source;
 
+const optionalTriageIsAbsent = async (root: string, locator: string): Promise<boolean> => {
+  try {
+    await resolveContainedPath(root, resolve(root, locator));
+    return false;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ENOENT";
+  }
+};
+
 const verifyOptionalTriageAbsence = async (
   root: string,
   locator: string,
   wasAbsent: boolean,
   diagnostics: ProviderDiagnostic[],
 ): Promise<boolean> => {
-  if (!wasAbsent || (await probeContainedInput(root, locator)).status === "missing") return true;
+  if (!wasAbsent || (await optionalTriageIsAbsent(root, locator))) return true;
   diagnostics.push(
     diagnostic(
       "matt.github.mapping.concurrent-mutation",
@@ -2129,8 +2137,7 @@ const captureGitHubScope = async (
   const pullRequestsEnabled = externalPullRequestsEnabled(contractSource);
   const triageSource = await readInterpretationDocument(options, root, triageLocator);
   const triageAbsent =
-    triageSource === undefined &&
-    (await probeContainedInput(root, triageLocator)).status === "missing";
+    triageSource === undefined && (await optionalTriageIsAbsent(root, triageLocator));
   const vocabulary =
     triageSource === undefined
       ? undefined
@@ -3049,7 +3056,7 @@ const captureGitHubScope = async (
         { key: "contract", state: "covered" },
         {
           key: "vocabulary",
-          state: vocabulary?.complete === true ? "covered" : "gap",
+          state: triageAbsent ? "excluded" : vocabulary?.complete === true ? "covered" : "gap",
         },
         {
           key: "scope-membership",
@@ -3235,8 +3242,7 @@ const reconcileGitHubScope = async (
   }
   const triageSource = await readInterpretationDocument(options, root, triageLocator);
   const triageAbsent =
-    triageSource === undefined &&
-    (await probeContainedInput(root, triageLocator)).status === "missing";
+    triageSource === undefined && (await optionalTriageIsAbsent(root, triageLocator));
   const vocabulary =
     triageSource === undefined
       ? undefined
@@ -3718,7 +3724,10 @@ const reconcileGitHubScope = async (
       assessment: coverageComplete ? "complete" : "incomplete",
       dimensions: [
         { key: "contract", state: "covered" },
-        { key: "vocabulary", state: vocabulary?.complete === true ? "covered" : "gap" },
+        {
+          key: "vocabulary",
+          state: triageAbsent ? "excluded" : vocabulary?.complete === true ? "covered" : "gap",
+        },
         {
           key: "affected-subjects-and-relations",
           state: current ? "covered" : "gap",

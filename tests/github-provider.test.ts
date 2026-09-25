@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { discoverPlanningAuditInputs } from "../src/discovery";
+import { assessProviderObservationEvidence } from "../src/native-work-provider";
+import { targetedReconciliationBasis } from "../src/provider-evidence-contract";
 import type { MattSkillsV1ProviderObservation } from "../src/providers/matt-skills-v1/capture";
 import {
   createGhCliGitHubReadTransport,
@@ -355,16 +357,21 @@ describe("GitHub matt-skills/v1 capture", () => {
     "absent",
     "present-but-not-captured",
     "unreadable-shape",
+    "non-directory-ancestor",
   ] as const)("keeps %s triage distinct without guessing custom classifications", async (triageState) => {
     const root = await makeTemporaryDirectory("bearing-github-triage-boundary-");
     await writeFixture(root, contractLocator, contract);
     if (triageState === "present-but-not-captured") await writeFixture(root, triageLocator, triage);
     if (triageState === "unreadable-shape")
       await writeFixture(root, `${triageLocator}/not-a-file`, "unreadable shape");
+    if (triageState === "non-directory-ancestor")
+      await writeFixture(root, "not-a-directory", "plain file");
     const endpoint = "repos/example/reference/issues/109";
     const provider = createGitHubMattProvider({
       repoRoot: root,
       contractLocator,
+      triageLocator:
+        triageState === "non-directory-ancestor" ? "not-a-directory/triage.md" : triageLocator,
       capturedDocuments: new Map([
         [
           contractLocator,
@@ -459,7 +466,10 @@ describe("GitHub matt-skills/v1 capture", () => {
     );
   });
 
-  test("reads native Map lifecycle without optional triage configuration through both seams", async () => {
+  test.each([
+    "open",
+    "closed",
+  ] as const)("reads %s native Map lifecycle without optional triage configuration through both seams", async (state) => {
     const root = await makeTemporaryDirectory("bearing-github-optional-triage-");
     await writeFixture(
       root,
@@ -473,6 +483,8 @@ describe("GitHub matt-skills/v1 capture", () => {
       number: 1,
       title: "Native Map",
       labels: ["wayfinder:map"],
+      state,
+      ...(state === "closed" ? { stateReason: "completed" } : {}),
       body: "## Destination\n\nUnderstand work.\n\n## Notes\n\n## Decisions so far\n\n## Fog\n\n## Out of scope\n",
     });
     const endpoint = "repos/example/reference/issues/1";
@@ -496,7 +508,7 @@ describe("GitHub matt-skills/v1 capture", () => {
     const full = await provider.capture(binding);
     expect(full.diagnostics).toEqual([]);
     expect(full.state).toBe("available");
-    expect(full.projection?.map?.lifecycle).toEqual({ state: "active" });
+    expect(full.projection?.map?.lifecycle.state).toBe(state === "open" ? "active" : "resolved");
     if (provider.reconcile === undefined) throw new Error("Expected reconciliation.");
     const targeted = await provider.reconcile({
       binding,
@@ -506,6 +518,28 @@ describe("GitHub matt-skills/v1 capture", () => {
     expect(targeted.state).toBe("available");
     expect(targeted.diagnostics).toEqual([]);
     expect(targeted.projection).toEqual(full.projection);
+    for (const observation of [full, targeted]) {
+      expect(observation.coverage.assessment).toBe("complete");
+      expect(observation.coverage.dimensions).toContainEqual({
+        key: "vocabulary",
+        state: "excluded",
+      });
+      expect(assessProviderObservationEvidence(observation)).toMatchObject({
+        frontierEvidence: "trustworthy",
+        completion: state === "open" ? "incomplete" : "complete",
+      });
+      expect(
+        targetedReconciliationBasis(
+          {
+            ...binding,
+            observationId: observation.id,
+            effectiveFreshness: observation.freshness.assessment,
+            latestAttempt: null,
+          },
+          observation,
+        ),
+      ).toEqual({ state: "ready" });
+    }
   });
 
   test("reads upstream parentless Delivery closure without requiring a private completion section", async () => {

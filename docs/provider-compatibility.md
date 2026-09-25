@@ -47,7 +47,8 @@ extensions are declared separately; they do not define Matt's universal writing 
   marked locator fallback; a missing lifecycle remains unavailable, never an invented active or
   draft state. Unknown or conflicting declared states still retain diagnostics.
 - An absent optional triage file is distinct from an unreadable or unsafe file. Canonical role
-  values remain interpretable; custom vocabulary is not guessed.
+  values in Local Delivery remain interpretable; custom vocabulary is not guessed. GitHub label
+  meaning that depends on an unavailable mapping remains unavailable.
 - Tracker closure remains readable without Provider-specific completion sections. Missing
   completion evidence remains unavailable and cannot prove completed acceptance. Explicitly
   conflicting evidence remains diagnostic.
