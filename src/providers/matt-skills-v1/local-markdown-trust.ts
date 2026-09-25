@@ -23,7 +23,7 @@ export const retainTrustedLocalProjection = (input: {
   const contractUnstable = input.unstableLocators.has(input.contractLocator);
   const vocabularyUnstable = input.unstableLocators.has(input.triageLocator);
   const trustedIssue = (reference: MattObjectReference): boolean =>
-    !contractUnstable && !vocabularyUnstable && !input.unstableIssueLocators.has(String(reference));
+    !contractUnstable && !input.unstableIssueLocators.has(String(reference));
   const wayfinderTickets =
     input.concurrentMutation &&
     input.map !== undefined &&
@@ -32,10 +32,12 @@ export const retainTrustedLocalProjection = (input: {
           (ticket) => trustedIssue(ticket.ref) && ticket.trackerClosure.state === "open",
         )
       : input.observed.wayfinderTickets.filter((ticket) => trustedIssue(ticket.ref));
-  const deliveryTickets = input.observed.deliveryTickets.filter((ticket) =>
-    trustedIssue(ticket.ref),
+  const deliveryTickets = input.observed.deliveryTickets.filter(
+    (ticket) => !vocabularyUnstable && trustedIssue(ticket.ref),
   );
-  const incomingIssues = input.observed.incomingIssues.filter((issue) => trustedIssue(issue.ref));
+  const incomingIssues = input.observed.incomingIssues.filter(
+    (issue) => !vocabularyUnstable && trustedIssue(issue.ref),
+  );
   const trustedIssueReferences = new Set<MattObjectReference>([
     ...wayfinderTickets.map((ticket) => ticket.ref),
     ...deliveryTickets.map((ticket) => ticket.ref),

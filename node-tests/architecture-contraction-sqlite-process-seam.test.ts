@@ -378,10 +378,9 @@ test("Project Read Model classifies missing, incompatible, older, newer, corrupt
   }
 });
 
-test("a pre-v10 projection is incompatible and rebuild does not reacquire Provider evidence", async () => {
+test("a pre-alignment v10 projection is incompatible and rebuild does not reacquire Provider evidence", async () => {
   const root = await createValidBearingRepo();
   try {
-    assert.equal(PROJECT_READ_MODEL_PROJECTION_VERSION, 10);
     assert.equal((await rebuildProjectReadModel(root)).outcome, "complete");
     assert.equal((await captureProjectProviderScopes(root, [".scratch/work"])).outcome, "complete");
     const database = new DatabaseSync(projectReadModelPath(root));
@@ -395,7 +394,7 @@ test("a pre-v10 projection is incompatible and rebuild does not reacquire Provid
             .get()?.["count"],
         ) > 0,
       );
-      database.exec("UPDATE read_model_metadata SET projection_version = 9 WHERE singleton = 1");
+      database.exec("UPDATE read_model_metadata SET projection_version = 10 WHERE singleton = 1");
     } finally {
       database.close();
     }

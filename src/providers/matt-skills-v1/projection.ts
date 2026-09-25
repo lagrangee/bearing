@@ -28,7 +28,7 @@ export type MattPlanningMap = Readonly<{
 export type MattPlanningTicket = Readonly<{
   reference: string;
   title: string;
-  state: "claimed" | "ready" | "blocked" | "resolved";
+  state: "claimed" | "ready" | "blocked" | "resolved" | "uncertain";
   blockedBy: readonly string[];
 }>;
 
@@ -176,13 +176,16 @@ export const mattPlanningPresentation = (
     (ticket): MattPlanningTicket => {
       const blockers = blockedBy(ticket.ref);
       const resolved = completed.has(ticket.ref);
-      const state = resolved
-        ? "resolved"
-        : blockers.some((blocker) => !completed.has(blocker))
-          ? "blocked"
-          : ticket.kind === "wayfinder-ticket" && ticket.claim.state === "claimed"
-            ? "claimed"
-            : "ready";
+      const state =
+        ticket.lifecycle.state === "completion-unavailable"
+          ? "uncertain"
+          : resolved
+            ? "resolved"
+            : blockers.some((blocker) => !completed.has(blocker))
+              ? "blocked"
+              : ticket.kind === "wayfinder-ticket" && ticket.claim.state === "claimed"
+                ? "claimed"
+                : "ready";
       return {
         reference: ticket.ref,
         title: ticket.title,

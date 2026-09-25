@@ -220,6 +220,17 @@ describe("Live Matrix validation fixture inventory", () => {
     const root = await mkdtemp(join(tmpdir(), "bearing-local-matt-fixture-contract-"));
     roots.push(root);
     await cp(join(sourceRoot, "validation"), join(root, "validation"), { recursive: true });
+    await cp(
+      join(sourceRoot, "tests/fixtures/matt-upstream-contract"),
+      join(root, "tests/fixtures/matt-upstream-contract"),
+      { recursive: true },
+    );
+    await expect(
+      preflightLiveScenarioRegistry({
+        sourceRoot: root,
+        registryPath: "validation/live-journey/registry.json",
+      }),
+    ).resolves.toMatchObject({ scenarioCount: 16 });
     const prd = join(
       root,
       "validation/live-journey/fixtures/planning-native-minimal/.scratch/label-delivery/PRD.md",

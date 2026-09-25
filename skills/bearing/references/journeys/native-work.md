@@ -26,6 +26,11 @@ The Project Read Model operation selected and loaded by root owns baseline and r
 Deterministic Bearing Modules own Binding lookup, provider acquisition, and exact reconciliation.
 Provider reads never mutate native work.
 
+The current Matt workflow and confirmed repository tracker contract define native writing. A
+Delivery scope may contain Tickets without a Spec when its source is a plan or conversation.
+Scope membership alone does not establish parentage. Create or update a related subject only when
+the authorized owner workflow requires it, not to satisfy a Provider's reading assumptions.
+
 ## Native claim boundary
 
 Claim is an owner-specific concurrency operation, not a generic Native Work step. Preserve the
@@ -159,6 +164,11 @@ When synchronization remains incomplete, report which native work was saved, wha
 did not publish, what remains unavailable, and the exact resumption point. Distinguish native
 format evidence from acquisition failure, an unavailable basis, and a publication conflict; a
 Provider rejection alone does not prove a native contract violation.
+
+Preserve readable native facts separately from missing optional metadata and completion evidence.
+An observed tracker closure is not proof of completed acceptance; an undeclared Map or Spec
+lifecycle is not an authored active or draft state. Provider limitations authorize neither extra
+native fields nor changes to the user's Matt installation or tracker contract.
 
 In Development, make observed compatibility cases inspectable through their affected native
 references and available raw facets, normalization evidence, or typed failure evidence. Reporting

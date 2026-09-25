@@ -4,6 +4,7 @@ import { posix, resolve } from "node:path";
 import stableStringify from "safe-stable-stringify";
 import { z } from "zod";
 import { normalizeLocator } from "../../fingerprint";
+import { probeContainedInput } from "../../input-boundary";
 import {
   type MarkdownDocument,
   type MarkdownSection,
@@ -30,7 +31,7 @@ import {
   resolveRepositoryRoot,
 } from "../../path-boundary";
 import { projectExpectedNativeSourceEventTime } from "../../source-event-time";
-import { validateMattSkillsV1Contract } from "../matt-skills-v1";
+import { mattGitHubRequestSurface, validateMattSkillsV1Contract } from "../matt-skills-v1";
 import {
   MATT_SKILLS_V1_PROVIDER_ID,
   type MattSkillsV1Provider,
@@ -473,6 +474,24 @@ const readInterpretationDocument = async (
     ? readRepositoryDocument(root, locator)
     : options.capturedDocuments.get(locator)?.source;
 
+const verifyOptionalTriageAbsence = async (
+  root: string,
+  locator: string,
+  wasAbsent: boolean,
+  diagnostics: ProviderDiagnostic[],
+): Promise<boolean> => {
+  if (!wasAbsent || (await probeContainedInput(root, locator)).status === "missing") return true;
+  diagnostics.push(
+    diagnostic(
+      "matt.github.mapping.concurrent-mutation",
+      "source",
+      locator,
+      "Optional repository triage configuration changed during GitHub observation.",
+    ),
+  );
+  return false;
+};
+
 export const parseTriageVocabulary = (
   source: string,
   locator: string,
@@ -558,18 +577,8 @@ export const parseTriageVocabulary = (
   return { semanticToNative, nativeToSemantic, complete: !ambiguous };
 };
 
-export const externalPullRequestsEnabled = (contractSource: string): boolean => {
-  const document = parseMarkdownDocument(contractSource);
-  const pullRequests = queryMarkdownSection(document, {
-    title: "Pull requests as a triage surface",
-  });
-  if (pullRequests.state !== "found") return false;
-  const field = queryMarkdownField(document, {
-    label: "PRs as a request surface",
-    within: pullRequests.value,
-  });
-  return field.state === "found" && field.value.value.trim().toLowerCase() === "yes.";
-};
+export const externalPullRequestsEnabled = (contractSource: string): boolean =>
+  mattGitHubRequestSurface(parseMarkdownDocument(contractSource)) === "yes";
 
 const validatorFor = (response: GitHubReadResponse): string | undefined =>
   response.headers["etag"] ?? response.headers["last-modified"];
@@ -1521,18 +1530,18 @@ const decodeSpec = (
   }
   const labels = acquired.issue.labels.map((label) => label.name);
   const readyLabel = vocabulary?.semanticToNative.get("ready-for-agent");
-  const lifecycle =
+  const lifecycle: MattSpec["lifecycle"] =
     acquired.issue.state === "closed" && acquired.issue.state_reason === "not_planned"
-      ? "superseded"
+      ? { state: "superseded" }
       : readyLabel !== undefined && labels.includes(readyLabel)
-        ? "ready-for-agent"
-        : "draft";
+        ? { state: "ready-for-agent" }
+        : { state: "unavailable", reason: "not-declared" };
   return {
     kind: "spec",
     ref: issueReference(repository, acquired.issue),
     title: acquired.issue.title,
     document: projected.document,
-    lifecycle: { state: lifecycle },
+    lifecycle,
     semanticSections: projected.semanticSections,
     native: nativeEvidenceForAcquired(repository, acquired),
   };
@@ -1584,6 +1593,8 @@ const decodeDelivery = (
           "Completed Delivery has duplicate or ambiguous canonical completion evidence.",
         ),
       );
+    } else if (completionEvidence.state === "absent") {
+      lifecycle = { state: "completion-unavailable", reason: "source-contract-gap" };
     } else if (!acceptance.every((item) => item.checked === true) || !completionEvidenceAvailable) {
       lifecycle = { state: "completion-unavailable", reason: "incomplete-writeback" };
       diagnostics.push(
@@ -2117,11 +2128,14 @@ const captureGitHubScope = async (
   }
   const pullRequestsEnabled = externalPullRequestsEnabled(contractSource);
   const triageSource = await readInterpretationDocument(options, root, triageLocator);
+  const triageAbsent =
+    triageSource === undefined &&
+    (await probeContainedInput(root, triageLocator)).status === "missing";
   const vocabulary =
     triageSource === undefined
       ? undefined
       : parseTriageVocabulary(triageSource, triageLocator, diagnostics);
-  if (triageSource === undefined) {
+  if (triageSource === undefined && !triageAbsent) {
     diagnostics.push(
       diagnostic(
         "matt.github.mapping.unavailable",
@@ -2167,8 +2181,15 @@ const captureGitHubScope = async (
       return captureGitHubScope(options, binding, 1);
     }
     const finalDiagnostics = [...input.diagnostics, ...finalization.diagnostics];
-    const freshness = finalization.revalidation.state === "stable" ? "current" : "undetermined";
-    const blocking = input.state === "invalid" || finalization.revalidation.state !== "stable";
+    const triageStable = await verifyOptionalTriageAbsence(
+      root,
+      triageLocator,
+      triageAbsent,
+      finalDiagnostics,
+    );
+    const stable = triageStable && finalization.revalidation.state === "stable";
+    const freshness = stable ? "current" : "undetermined";
+    const blocking = input.state === "invalid" || !stable;
     return captureWithoutProjection({
       binding,
       capturedAt,
@@ -2180,7 +2201,7 @@ const captureGitHubScope = async (
         capturedAt,
         fullRetryCount,
         assessment: freshness,
-        acquisitionComplete: finalization.revalidation.state === "stable",
+        acquisitionComplete: stable,
         blocking,
         extraEvidence: [{ kind: "github-scope", value: binding.nativeScope }],
       }),
@@ -2996,6 +3017,9 @@ const captureGitHubScope = async (
     return captureGitHubScope(options, binding, 1);
   }
   diagnostics.push(...finalization.diagnostics);
+  if (!(await verifyOptionalTriageAbsence(root, triageLocator, triageAbsent, diagnostics))) {
+    acquisitionComplete = false;
+  }
   if (finalization.revalidation.state === "failed") acquisitionComplete = false;
   const current = finalization.revalidation.state === "stable";
   const freshnessCurrent = current && acquisitionComplete;
@@ -3063,7 +3087,26 @@ const githubProjectedObjects = (
   ...projection.incomingIssues,
 ];
 
-const githubScopeCompletion = (projection: MattScopeProjection): "complete" | "incomplete" => {
+const githubScopeCompletion = (
+  projection: MattScopeProjection,
+): "complete" | "incomplete" | "undetermined" => {
+  if (
+    projection.map?.lifecycle.state === "unavailable" ||
+    projection.spec?.lifecycle.state === "unavailable" ||
+    projection.deliveryTickets.some(
+      (ticket) =>
+        ticket.lifecycle.state === "completion-unavailable" &&
+        !(
+          ticket.trackerClosure.state === "closed" &&
+          ["wontfix", "not-planned"].includes(ticket.trackerClosure.disposition)
+        ),
+    ) ||
+    projection.incomingIssues.some((issue) =>
+      ["unknown", "ambiguous"].includes(issue.classification.state),
+    )
+  ) {
+    return "undetermined";
+  }
   if (projection.map !== undefined && projection.map.lifecycle.state !== "resolved") {
     return "incomplete";
   }
@@ -3191,11 +3234,14 @@ const reconcileGitHubScope = async (
     });
   }
   const triageSource = await readInterpretationDocument(options, root, triageLocator);
+  const triageAbsent =
+    triageSource === undefined &&
+    (await probeContainedInput(root, triageLocator)).status === "missing";
   const vocabulary =
     triageSource === undefined
       ? undefined
       : parseTriageVocabulary(triageSource, triageLocator, diagnostics);
-  if (triageSource === undefined) {
+  if (triageSource === undefined && !triageAbsent) {
     diagnostics.push(
       diagnostic(
         "matt.github.mapping.unavailable",
@@ -3637,6 +3683,9 @@ const reconcileGitHubScope = async (
     return reconcileGitHubScope(options, input, 1);
   }
   diagnostics.push(...finalization.diagnostics);
+  if (!(await verifyOptionalTriageAbsence(root, triageLocator, triageAbsent, diagnostics))) {
+    acquisitionComplete = false;
+  }
   if (finalization.revalidation.state !== "stable") acquisitionComplete = false;
   const blocking = diagnostics.some((item) => item.impact === "blocking");
   const current = acquisitionComplete && !blocking;

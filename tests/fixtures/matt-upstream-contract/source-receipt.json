@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "repository": "mattpocock/skills",
+  "commit": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
+  "observedDate": "2026-09-25",
+  "sources": [
+    {
+      "skill": "setup-matt-pocock-skills",
+      "source": "SKILL.md",
+      "upstreamPath": "skills/engineering/setup-matt-pocock-skills/SKILL.md",
+      "file": "sources/setup-matt-pocock-skills.md",
+      "gitBlob": "7f6f576e2e54e0d287cbb9731ebe0343f54e50cf",
+      "sha256": "2bcd89e97777cdb705914424e39c97d5db524c8eb4eafac8120778a07774f0ec"
+    },
+    {
+      "skill": "setup-matt-pocock-skills",
+      "source": "issue-tracker-local.md",
+      "upstreamPath": "skills/engineering/setup-matt-pocock-skills/issue-tracker-local.md",
+      "file": "issue-tracker-local.md",
+      "gitBlob": "0209a19af92c9c485cf3acc3d9e253171517ea17",
+      "sha256": "7dcda20a2eb4bdc89b95d1143423c0691309921cadae3132e6424f371030506e"
+    },
+    {
+      "skill": "setup-matt-pocock-skills",
+      "source": "issue-tracker-github.md",
+      "upstreamPath": "skills/engineering/setup-matt-pocock-skills/issue-tracker-github.md",
+      "file": "issue-tracker-github.md",
+      "gitBlob": "b258aeb3c44420a2464b72ba228b77b4b3abbaea",
+      "sha256": "afd6852a80185217bd28aa5cbe456bef1e85be25be7bd1fba382d5b8ee428325"
+    },
+    {
+      "skill": "setup-matt-pocock-skills",
+      "source": "triage-labels.md",
+      "upstreamPath": "skills/engineering/setup-matt-pocock-skills/triage-labels.md",
+      "file": "triage-labels.md",
+      "gitBlob": "b716855d485f3865f9dfde2a82141721f065b2e7",
+      "sha256": "4f53c9b40ce2651e3611aa090eaedbd6dbc9b71ef8c5f7e65eac0d8263190d0d"
+    },
+    {
+      "skill": "to-spec",
+      "source": "SKILL.md",
+      "upstreamPath": "skills/engineering/to-spec/SKILL.md",
+      "file": "sources/to-spec.md",
+      "gitBlob": "3f52599ae2a4347aee5a07432c2707518e691a7f",
+      "sha256": "43ad9cf318e5e7d3d1fa360253a37021796dc87a0c2e595ad262661a10f85088"
+    },
+    {
+      "skill": "to-tickets",
+      "source": "SKILL.md",
+      "upstreamPath": "skills/engineering/to-tickets/SKILL.md",
+      "file": "sources/to-tickets.md",
+      "gitBlob": "e868c831fcfb1e124e010bcdf84a429ec879160f",
+      "sha256": "5c9fba69845c2519b9b35b9af42ae5142c21f8ca15ac2123dc2722002c8058ae"
+    },
+    {
+      "skill": "wayfinder",
+      "source": "SKILL.md",
+      "upstreamPath": "skills/engineering/wayfinder/SKILL.md",
+      "file": "sources/wayfinder.md",
+      "gitBlob": "812805b760baf328db0ebdef6f3807e381f97016",
+      "sha256": "fee6e1d0c50f0e736b4ef8a599060c959afae904c9a97d82c97f049fcc3aa0f1"
+    }
+  ],
+  "templates": [
+    {
+      "file": "local-ticket-template.md",
+      "sourceFile": "sources/to-tickets.md",
+      "firstLine": 71,
+      "lastLine": 80
+    },
+    {
+      "file": "github-ticket-template.md",
+      "sourceFile": "sources/to-tickets.md",
+      "firstLine": 86,
+      "lastLine": 101
+    },
+    {
+      "file": "spec-template.md",
+      "sourceFile": "sources/to-spec.md",
+      "firstLine": 23,
+      "lastLine": 73
+    },
+    {
+      "file": "wayfinder-map-template.md",
+      "sourceFile": "sources/wayfinder.md",
+      "firstLine": 32,
+      "lastLine": 52
+    },
+    {
+      "file": "wayfinder-ticket-template.md",
+      "sourceFile": "sources/wayfinder.md",
+      "firstLine": 60,
+      "lastLine": 62
+    }
+  ],
+  "note": "These are exact source snapshots and line-range extracts, not generated work artifacts. Git blob identities were checked against the official commit tree; tests additionally verify SHA-256 and extract equality. Tests may fill template placeholders, but must not add Provider-only requirements and call them upstream requirements. This receipt does not attest to future Matt versions or replace the separately sealed Live Matrix verdicts."
+}

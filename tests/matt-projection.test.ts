@@ -17,3 +17,30 @@ test("derives Matt-owned planning lanes before Portal source decoration", () => 
     ],
   });
 });
+
+test("does not present a closed Delivery with unavailable completion as ready work", () => {
+  const capture = createProjectOverviewFixture().providerObservations.find(
+    (candidate) => candidate.binding.nativeScope === ".scratch/portal",
+  );
+  if (capture === undefined || (capture.state !== "available" && capture.state !== "partial")) {
+    throw new Error("Expected the Portal Matt capture.");
+  }
+  const ticket = capture.projection.deliveryTickets[0];
+  if (ticket === undefined) throw new Error("Expected a Delivery ticket.");
+  expect(
+    mattPlanningPresentation({
+      ...capture,
+      projection: {
+        ...capture.projection,
+        graph: { parentChild: [], blockedBy: [] },
+        wayfinderTickets: [],
+        deliveryTickets: [
+          {
+            ...ticket,
+            lifecycle: { state: "completion-unavailable", reason: "source-contract-gap" },
+          },
+        ],
+      },
+    }).tickets,
+  ).toMatchObject([{ state: "uncertain" }]);
+});

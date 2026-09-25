@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   markdownDocumentBody,
+  markdownHasNonCommentContent,
   parseMarkdownDocument,
   parseMarkdownEnvelope,
   queryMarkdownDocumentTitle,
@@ -18,6 +19,28 @@ import {
 } from "../src/markdown-document";
 
 describe("shared Markdown document boundary", () => {
+  test("only exact standalone HTML comments are excluded from content evidence", () => {
+    for (const source of ["", "<!-- guidance -->", "<!-- first -->\n\n<!-- second -->"]) {
+      expect(markdownHasNonCommentContent(parseMarkdownDocument(source))).toBe(false);
+    }
+    for (const source of [
+      "<!-- guidance --><div>Actual content</div><!-- end -->",
+      "<div>Actual content</div>",
+      "<!-- unclosed",
+      "```md\n<!-- a code example -->\n```",
+      "- ",
+      "Actual content",
+    ]) {
+      expect(markdownHasNonCommentContent(parseMarkdownDocument(source))).toBe(true);
+    }
+    const document = parseMarkdownDocument(
+      "## Empty\n\n<!-- guidance -->\n\n## Content\n\nReal text.",
+    );
+    const empty = queryMarkdownSection(document, { title: "Empty" });
+    if (empty.state !== "found") throw new Error("Expected Empty section.");
+    expect(markdownHasNonCommentContent(document, { within: empty.value })).toBe(false);
+  });
+
   test("decodes YAML frontmatter and GFM through Bearing-owned structural queries", () => {
     const document = parseMarkdownDocument(`---
 status: ready

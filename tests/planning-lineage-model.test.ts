@@ -1702,6 +1702,79 @@ test("renders GitHub tracker closure independently for Map and Spec native subje
   }
 });
 
+test("preserves undeclared native lifecycle through validated generation and Portal", () => {
+  const snapshot = fixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) => observation.binding.nativeScope === ".scratch/portal",
+  );
+  if (
+    portal === undefined ||
+    (portal.state !== "available" && portal.state !== "partial") ||
+    portal.projection.map === undefined ||
+    portal.projection.spec === undefined
+  ) {
+    throw new Error("Expected Map and Spec fixtures.");
+  }
+  const observed = createProviderScopeObservation({
+    provider: portal.provider,
+    binding: portal.binding,
+    observedAt: portal.observedAt,
+    ...(portal.sourceRevision === undefined ? {} : { sourceRevision: portal.sourceRevision }),
+    ...(portal.sourceObservedAt === undefined ? {} : { sourceObservedAt: portal.sourceObservedAt }),
+    validators: portal.validators,
+    state: portal.state,
+    freshness: portal.freshness,
+    coverage: {
+      ...portal.coverage,
+      dimensions: portal.coverage.dimensions.map((dimension) => ({
+        key: dimension.key,
+        state: dimension.state,
+        ...(dimension.detail === undefined ? {} : { detail: dimension.detail }),
+      })),
+    },
+    diagnostics: portal.diagnostics,
+    completion: "undetermined",
+    projection: {
+      ...portal.projection,
+      map: {
+        ...portal.projection.map,
+        lifecycle: { state: "unavailable" as const, reason: "not-declared" as const },
+      },
+      spec: {
+        ...portal.projection.spec,
+        lifecycle: { state: "unavailable" as const, reason: "not-declared" as const },
+      },
+    },
+  });
+  const candidate = {
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portal.id ? observed : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.nativeScope === ".scratch/portal"
+        ? { ...selection, observationId: observed.id }
+        : selection,
+    ),
+  };
+  const projected = projectGenerationSchema.parse({
+    ...candidate,
+    lineage: buildPlanningLineageProjection(candidate),
+  });
+  for (const [id, role] of [
+    [portal.projection.map.ref, "map.lifecycle"],
+    [portal.projection.spec.ref, "spec.lifecycle"],
+  ] as const) {
+    const model = readable(
+      buildPlanningLineageSubjectModel(projected, { kind: "native-subject", id }, "bearing"),
+    );
+    expect(model.semanticAvailability.get(role)).toBe("unavailable");
+    expect(proseFor(model.sections.find((section) => section.anchor === role))).toBe(
+      "The source does not declare a lifecycle; no active, draft, or completed state is inferred.",
+    );
+  }
+});
+
 test("carries provider unsupported availability through validated Snapshot and Portal rendering", () => {
   const snapshot = fixture();
   const portal = snapshot.providerObservations.find(

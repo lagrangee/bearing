@@ -146,6 +146,10 @@ Status: resolved
 - [x] Return independent state, freshness and completion.
 - [x] Keep the capture immutable.
 
+## Parent
+
+[Reference Spec](../PRD.md)
+
 ## Comments
 
 Delivery completion is not tracker closure.
@@ -858,7 +862,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
     ).toEqual(prior.projection?.wayfinderTickets.find((ticket) => ticket.title === "grilling"));
   });
 
-  test("deleting the required Spec degrades parent evidence and retains legitimate Delivery tickets", async () => {
+  test("deleting the explicitly referenced Spec degrades parent evidence and retains legitimate Delivery tickets", async () => {
     const parent = `${nativeScope}/PRD.md`;
     const { prior, targeted, full, targetedReads } = await observeReferenceChange(async (root) => {
       await rm(join(root, parent));
@@ -1055,7 +1059,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       {
         parent: `${nativeScope}/PRD.md`,
         child: `${nativeScope}/issues/05-delivery.md`,
-        evidence: "matt-contract",
+        evidence: "matt-body-fallback",
       },
     ]);
     expect(targeted.projection?.deliveryTickets).toEqual(prior.projection?.deliveryTickets);
@@ -2229,19 +2233,17 @@ Status: resolved
 
     const result = await capture(root);
 
-    expect(result.state).toBe("partial");
+    expect(result.state).toBe("available");
     expect(result.completion).toBe("undetermined");
     expect(result.projection?.deliveryTickets[1]).toMatchObject({
       title: "Integrate provider capture",
       lifecycle: {
         state: "completion-unavailable",
-        reason: "incomplete-writeback",
+        reason: "source-contract-gap",
       },
       trackerClosure: { state: "closed", disposition: "completed" },
     });
-    expect(result.diagnostics.map((item) => item.code)).toContain(
-      "matt.local.delivery.incomplete-writeback",
-    );
+    expect(result.diagnostics).toEqual([]);
   });
 
   test("validates the confirmed contract before reporting an absent scope", async () => {

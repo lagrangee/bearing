@@ -143,6 +143,10 @@ Status: custom-ready
 
 - [ ] Return independent state, freshness and completion.
 - [ ] Keep the capture immutable.
+
+## Parent
+
+[Reference Spec](../PRD.md)
 `;
 
 const localIncoming = `# Support a custom-mapped enhancement

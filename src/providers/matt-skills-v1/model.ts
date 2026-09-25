@@ -131,6 +131,7 @@ export type MattMap = Readonly<{
   }>[];
   lifecycle:
     | Readonly<{ state: "active" }>
+    | Readonly<{ state: "unavailable"; reason: "not-declared" | "unrecognized" }>
     | Readonly<{
         state: "resolved";
         resolutionEvidence: readonly MattSourceAnchor[];
@@ -153,9 +154,9 @@ export type MattSpec = Readonly<{
   ref: MattObjectReference;
   title: string;
   document: readonly ProviderSemanticSection[];
-  lifecycle: Readonly<{
-    state: "draft" | "ready-for-agent" | "superseded";
-  }>;
+  lifecycle:
+    | Readonly<{ state: "draft" | "ready-for-agent" | "superseded" }>
+    | Readonly<{ state: "unavailable"; reason: "not-declared" | "unrecognized" }>;
   semanticSections: readonly MattSemanticSection[];
   native: MattNativeEvidence;
 }>;

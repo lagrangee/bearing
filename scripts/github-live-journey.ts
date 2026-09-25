@@ -541,6 +541,21 @@ const githubFixtureRelationReadbackSchema = z.array(
 
 const mattKitOutputProvenanceSchema = z.object({
   schemaVersion: z.literal(1),
+  revalidatedAgainst: z.object({
+    repository: z.literal("mattpocock/skills"),
+    commit: z.literal("c55ee46073ed923f86ce59a5eb3b6d895095d1b7"),
+    sources: z
+      .array(
+        z.object({
+          skill: z.enum(["setup-matt-pocock-skills", "to-spec", "to-tickets"]),
+          source: z.string().min(1),
+          upstreamPath: z.string().min(1),
+          fixture: z.string().min(1),
+          sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+        }),
+      )
+      .length(3),
+  }),
   materializedFrom: z
     .array(
       z.object({
@@ -558,7 +573,14 @@ const mattKitOutputProvenanceSchema = z.object({
       z.literal("Blocked by"),
     ]),
     conditionalSections: z.tuple([z.literal("Parent")]),
-    providerExtensions: z.tuple([z.literal("Completion evidence")]),
+    projectExtensions: z.tuple([
+      z.literal("Completion evidence"),
+      z.literal("parent and child are both canonical Deliveries"),
+      z.literal("native parent and blocking relations must agree with body fallbacks"),
+      z.literal("complete the parent when its only child completes the accepted scope"),
+      z.literal("push the delivery branch exactly once and verify the remote commit"),
+      z.literal("legacy em-dash no-blocker sentinel retained as a supported project convention"),
+    ]),
     artifacts: z
       .array(
         z.object({
@@ -575,6 +597,12 @@ const mattKitFixtureSourceDigests = new Map([
   ["setup-matt-pocock-skills", "ec8332bb69e7e79e349989e940be481a0c79b552be3acc613e718278bcc5e03d"],
   ["to-spec", "5d26479544b08048d3a8f79d937b39bc613a617f026b3fd083bafc1e99a7b811"],
   ["to-tickets", "5ecdf1d4df8a360ed39df21a2347f97ba177afd449a577da4f6b6ea8e1ebb808"],
+] as const);
+
+const currentGitHubMattSourceDigests = new Map([
+  ["setup-matt-pocock-skills", "afd6852a80185217bd28aa5cbe456bef1e85be25be7bd1fba382d5b8ee428325"],
+  ["to-spec", "43ad9cf318e5e7d3d1fa360253a37021796dc87a0c2e595ad262661a10f85088"],
+  ["to-tickets", "5c9fba69845c2519b9b35b9af42ae5142c21f8ca15ac2123dc2722002c8058ae"],
 ] as const);
 
 export type GitHubMatrixFixtureLifecycle = Readonly<{
@@ -1082,6 +1110,34 @@ export const prepareGitHubMatrixFixture = async (input: {
     !childOutput.includes("#<parent-number>")
   ) {
     fail("GitHub Matrix Matt Kit output does not match its versioned materialization receipt.");
+  }
+  const currentSources = materializedFrom.revalidatedAgainst.sources;
+  if (
+    new Set(currentSources.map(({ skill }) => skill)).size !== currentGitHubMattSourceDigests.size
+  ) {
+    fail("GitHub Matrix Matt Kit output does not match its versioned materialization receipt.");
+  }
+  for (const source of currentSources) {
+    const expectedSource =
+      source.skill === "setup-matt-pocock-skills" ? "issue-tracker-github.md" : "SKILL.md";
+    const expectedFixture =
+      source.skill === "setup-matt-pocock-skills"
+        ? "issue-tracker-github.md"
+        : `sources/${source.skill}.md`;
+    if (
+      source.source !== expectedSource ||
+      source.upstreamPath !== `skills/engineering/${source.skill}/${expectedSource}` ||
+      source.fixture !== `tests/fixtures/matt-upstream-contract/${expectedFixture}` ||
+      source.sha256 !== currentGitHubMattSourceDigests.get(source.skill)
+    ) {
+      fail("GitHub Matrix Matt Kit output does not match its versioned materialization receipt.");
+    }
+    const bytes = await readFile(join(input.sourceRoot, source.fixture), "utf8").catch(() =>
+      fail("GitHub Matrix Matt Kit output does not match its versioned materialization receipt."),
+    );
+    if (digestText(bytes) !== source.sha256) {
+      fail("GitHub Matrix Matt Kit output does not match its versioned materialization receipt.");
+    }
   }
   await recoverStaleGitHubMatrixMilestones({
     repositorySlug: input.repositorySlug,

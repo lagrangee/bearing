@@ -89,7 +89,7 @@ type DocumentInternals = Readonly<{
 
 type SectionInternals = Readonly<{
   document: MarkdownDocument;
-  heading: MdastHeading;
+  heading?: MdastHeading;
   nodes: readonly RootContent[];
 }>;
 
@@ -375,23 +375,27 @@ export const queryMarkdownPreamble = (
   const titleMatches = internalsFor(document).tree.children.flatMap((node, index) =>
     node.type === "heading" && node.depth === 1 ? [{ node, value: headingValue(node), index }] : [],
   );
-  if (titleMatches.length === 0) return { state: "absent" };
   if (titleMatches.length > 1) {
     return { state: "ambiguous", reason: "conflict", matches: titleMatches.length };
   }
   const title = titleMatches[0];
-  if (title === undefined) return { state: "absent" };
   const { source, tree } = internalsFor(document);
   const nextHeadingIndex = tree.children.findIndex(
-    (node, index) => index > title.index && node.type === "heading",
+    (node, index) => index > (title?.index ?? -1) && node.type === "heading",
   );
   const endIndex = nextHeadingIndex === -1 ? tree.children.length : nextHeadingIndex;
-  const nodes = tree.children.slice(title.index + 1, endIndex);
+  const nodes = tree.children.slice((title?.index ?? -1) + 1, endIndex);
+  if (title === undefined && nodes.length === 0) return { state: "absent" };
   const section: MarkdownSection = Object.freeze({
-    heading: title.value,
+    // This is a structural prefix, not an authored document title.
+    heading: title?.value ?? { depth: 1 as const, title: "" },
     markdown: markdownForNodes(source, nodes),
   });
-  sectionInternals.set(section, { document, heading: title.node, nodes });
+  sectionInternals.set(section, {
+    document,
+    ...(title === undefined ? {} : { heading: title.node }),
+    nodes,
+  });
   return found(section);
 };
 
@@ -460,6 +464,7 @@ export const markdownCanonicalHeadingTitle = (
   }
   const { source } = internalsFor(document);
   const { heading } = internals;
+  if (heading === undefined) return undefined;
   const start = heading.position?.start.offset;
   const end = heading.position?.end.offset;
   if (start === undefined || end === undefined) {
@@ -482,7 +487,8 @@ export const markdownSectionLead = (
   }
   const firstHeading = internals.nodes.find((node) => node.type === "heading");
   const { source } = internalsFor(document);
-  const start = internals.heading.position?.end.offset;
+  const start =
+    internals.heading?.position?.end.offset ?? internals.nodes[0]?.position?.start.offset;
   const end = firstHeading?.position?.start.offset ?? internals.nodes.at(-1)?.position?.end.offset;
   if (start === undefined || end === undefined) return "";
   return source
@@ -594,6 +600,16 @@ export const queryMarkdownField = (
   }
   return resultFromCardinality(values, "conflict");
 };
+
+export const markdownHasNonCommentContent = (
+  document: MarkdownDocument,
+  query: Readonly<{ within?: MarkdownSection }> = {},
+): boolean =>
+  nodesWithin(document, query.within).some((node) => {
+    if (node.type !== "html") return true;
+    const value = node.value.trim();
+    return !value.startsWith("<!--") || value.indexOf("-->", 4) !== value.length - 3;
+  });
 
 export const markdownNarrative = (
   document: MarkdownDocument,
