@@ -14,7 +14,12 @@ or persistence.
 ## Operation
 
 1. Inspect Project Context, current Brief, Summary, and accepted terminal planning transitions that
-   materially affect orientation. Give every Brief statement accepted support.
+   materially affect orientation. Give every Brief statement accepted support. When the Brief
+   states a transition's derived consequences, first complete that transition's canonical post-edit
+   validation, then read the affected Roadmap or Gate from the committed generation. An unpassed
+   Gate may be `ready-for-review`, `not-ready`, or `unknown`; its lifecycle does not establish
+   readiness. A Brief limited to accepted semantic facts may share the transition's accepted write
+   set and post-edit validation, without predicting derived state.
 2. Apply the shared materiality test. Return `no-op` when the current Brief still provides useful
    orientation.
 3. Author the smallest useful synthesis in the current user's language:

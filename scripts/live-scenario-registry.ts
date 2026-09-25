@@ -213,6 +213,23 @@ export type LiveScenarioRegistry = z.infer<typeof liveScenarioRegistrySchema>;
 const localMattKitOutputProvenanceSchema = z
   .object({
     schemaVersion: z.literal(1),
+    revalidatedAgainst: z
+      .object({
+        repository: z.literal("mattpocock/skills"),
+        commit: z.literal("c55ee46073ed923f86ce59a5eb3b6d895095d1b7"),
+        sources: z.array(
+          z
+            .object({
+              skill: z.enum(["setup-matt-pocock-skills", "to-spec", "to-tickets", "wayfinder"]),
+              source: z.string().min(1),
+              upstreamPath: z.string().min(1),
+              fixture: fixtureLocatorSchema,
+              sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+            })
+            .strict(),
+        ),
+      })
+      .strict(),
     materializedFrom: z.array(
       z
         .object({
@@ -225,7 +242,7 @@ const localMattKitOutputProvenanceSchema = z
     configuredContract: z
       .object({
         base: z.literal("setup-matt-pocock-skills/local-markdown-v1"),
-        providerExtensions: z.array(z.string().min(1)).min(1),
+        projectExtensions: z.array(z.string().min(1)).min(1),
         artifacts: z.array(
           z
             .object({
@@ -282,6 +299,13 @@ const localMattKitSourceDigests = new Map([
       sha256: "d33e2141f7c8bbfd137fef0213cbec465820e4680e67da5d0f0815d6742d26c2",
     },
   ],
+] as const);
+
+const currentLocalMattSourceDigests = new Map([
+  ["setup-matt-pocock-skills", "7dcda20a2eb4bdc89b95d1143423c0691309921cadae3132e6424f371030506e"],
+  ["to-spec", "43ad9cf318e5e7d3d1fa360253a37021796dc87a0c2e595ad262661a10f85088"],
+  ["to-tickets", "5c9fba69845c2519b9b35b9af42ae5142c21f8ca15ac2123dc2722002c8058ae"],
+  ["wayfinder", "fee6e1d0c50f0e736b4ef8a599060c959afae904c9a97d82c97f049fcc3aa0f1"],
 ] as const);
 
 const localMattFixtureArtifactPaths = new Set([
@@ -342,6 +366,29 @@ export const verifyLocalMattKitFixture = async (sourceRoot: string): Promise<voi
       })
     ) {
       fail(failure);
+    }
+    const currentSources = provenance.revalidatedAgainst.sources;
+    if (
+      currentSources.length !== currentLocalMattSourceDigests.size ||
+      new Set(currentSources.map(({ skill }) => skill)).size !== currentLocalMattSourceDigests.size
+    ) {
+      fail(failure);
+    }
+    for (const source of currentSources) {
+      const expectedSource = localMattKitSourceDigests.get(source.skill)?.source;
+      const expectedFixture =
+        source.skill === "setup-matt-pocock-skills"
+          ? "issue-tracker-local.md"
+          : `sources/${source.skill}.md`;
+      if (
+        source.source !== expectedSource ||
+        source.upstreamPath !== `skills/engineering/${source.skill}/${expectedSource}` ||
+        source.fixture !== `tests/fixtures/matt-upstream-contract/${expectedFixture}` ||
+        source.sha256 !== currentLocalMattSourceDigests.get(source.skill) ||
+        sha256(await readFile(join(sourceRoot, source.fixture))) !== source.sha256
+      ) {
+        fail(failure);
+      }
     }
     const artifacts = [
       ...provenance.configuredContract.artifacts,

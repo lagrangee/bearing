@@ -1443,6 +1443,15 @@ const mapSections = (
     anchor: "map.lifecycle",
     title: "Map Lifecycle",
     facts: [{ key: "lifecycle", label: "Lifecycle", value: map.lifecycle.state }],
+    ...(map.lifecycle.state === "unavailable"
+      ? {
+          body:
+            map.lifecycle.reason === "not-declared"
+              ? "The source does not declare a lifecycle; no active, draft, or completed state is inferred."
+              : "The declared lifecycle is not recognized; no lifecycle state is inferred.",
+          bodySource: "system" as const,
+        }
+      : {}),
   },
   nativeSemanticSection(map, {
     role: "map.fog",
@@ -1511,6 +1520,15 @@ const specSections = (
     anchor: "spec.lifecycle",
     title: "Spec Lifecycle",
     facts: [{ key: "lifecycle", label: "Lifecycle", value: spec.lifecycle.state }],
+    ...(spec.lifecycle.state === "unavailable"
+      ? {
+          body:
+            spec.lifecycle.reason === "not-declared"
+              ? "The source does not declare a lifecycle; no active, draft, or completed state is inferred."
+              : "The declared lifecycle is not recognized; no lifecycle state is inferred.",
+          bodySource: "system" as const,
+        }
+      : {}),
   },
   ...spec.document.map((section) => ({
     anchor: section.semanticRole ?? section.sourceIdentity,

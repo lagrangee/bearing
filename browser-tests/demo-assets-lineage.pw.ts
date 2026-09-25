@@ -168,6 +168,30 @@ test("Gate to Effort to native evidence to Asset, Authority, Preview, and Lineag
   await expect(page.getByRole("heading", { name: "Planning Lineage", level: 1 })).toBeFocused();
 });
 
+test("a delayed route frame preserves the Preview entry and its return focus", async ({ page }) => {
+  await page.goto("./#/assets");
+  const routeFrames = await page.evaluateHandle(() => {
+    const original = window.requestAnimationFrame;
+    const callbacks: FrameRequestCallback[] = [];
+    window.requestAnimationFrame = (callback) => callbacks.push(callback);
+    return {
+      flush() {
+        window.requestAnimationFrame = original;
+        for (const callback of callbacks.splice(0)) callback(performance.now());
+      },
+    };
+  });
+  await page.getByRole("link", { name: /Public Beta Readiness Review/iu }).press("Enter");
+  const preview = page.getByRole("link", { name: "View Content", exact: true });
+  await preview.focus();
+  await routeFrames.evaluate((frames) => frames.flush());
+  await expect(preview).toBeFocused();
+
+  await preview.press("Enter");
+  await page.getByRole("link", { name: "Return to Asset detail", exact: true }).press("Enter");
+  await expect(preview).toBeFocused();
+});
+
 test("binary, directory, and live prototype previews stay honestly unavailable", async ({
   page,
 }) => {

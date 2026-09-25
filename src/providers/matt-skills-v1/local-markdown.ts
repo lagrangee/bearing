@@ -4,6 +4,7 @@ import { fingerprintInputRecords, normalizeLocator } from "../../fingerprint";
 import {
   type MarkdownDocument,
   type MarkdownSection,
+  markdownHasNonCommentContent,
   markdownNarrative,
   parseMarkdownDocument,
   queryMarkdownDocumentTitle,
@@ -178,6 +179,17 @@ const sameStamp = (left: FileStamp, right: FileStamp): boolean =>
   left.mtimeNs === right.mtimeNs &&
   left.ctimeNs === right.ctimeNs;
 
+const interpretationInputAbsent = async (root: string, locator: string): Promise<boolean> => {
+  try {
+    await resolveContainedPath(root, resolve(root, locator));
+    return false;
+  } catch (error) {
+    if (isSystemError(error) && error.code === "ENOENT") return true;
+    if (!isSystemError(error) && !isRepositoryPathBoundaryError(error)) throw error;
+    return false;
+  }
+};
+
 const diagnostic = (
   code: string,
   diagnosticClass: CaptureDiagnostic["class"],
@@ -277,9 +289,14 @@ const fieldValue = (
   return undefined;
 };
 
-const titleFor = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): string | undefined => {
+const titleFor = (
+  file: CapturedFile,
+  diagnostics: CaptureDiagnostic[],
+  allowLocatorFallback = false,
+): string | undefined => {
   const title = queryMarkdownDocumentTitle(file.document);
   if (title.state === "found") return title.value.title;
+  if (title.state === "absent" && allowLocatorFallback) return file.locator;
   diagnostics.push(
     diagnostic(
       "matt.local.decode.title",
@@ -289,6 +306,15 @@ const titleFor = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): string 
     ),
   );
   return undefined;
+};
+
+const unavailableLifecycleReason = (file: CapturedFile): "not-declared" | "unrecognized" => {
+  const preamble = queryMarkdownPreamble(file.document);
+  const status =
+    preamble.state === "found"
+      ? queryMarkdownField(file.document, { label: "Status", within: preamble.value })
+      : preamble;
+  return status.state === "absent" ? "not-declared" : "unrecognized";
 };
 
 const anchorsFor = (file: CapturedFile): readonly MattSourceAnchor[] =>
@@ -322,6 +348,7 @@ const inferredCreatedTimeFor = (file: CapturedFile) =>
 const nativeEvidenceFor = (
   file: CapturedFile,
   extra: readonly MattRawFacet[] = [],
+  normalizations: Extract<MattNativeEvidence, { kind: "local" }>["normalizations"] = [],
 ): MattNativeEvidence => ({
   kind: "local",
   identity: { locator: file.locator },
@@ -329,6 +356,7 @@ const nativeEvidenceFor = (
   lastUpdated: inferredUpdatedTimeFor(file),
   sourceAnchors: anchorsFor(file),
   rawFacets: rawFacetsFor(file, extra),
+  ...(normalizations.length === 0 ? {} : { normalizations }),
 });
 
 const localAuthoredSection = <
@@ -416,7 +444,6 @@ export const parseLocalMattContract = (
     conventionItems.some((item) =>
       item.includes(".scratch/<feature-slug>/issues/<NN>-<slug>.md"),
     ) &&
-    conventionItems.some((item) => item.includes("triage-labels.md")) &&
     wayfindingItems.some((item) => item.includes(".scratch/<effort>/map.md")) &&
     wayfindingItems.some((item) => item.includes(".scratch/<effort>/issues/NN-<slug>.md"));
   if (!supported) {
@@ -553,13 +580,30 @@ const issueRole = (file: CapturedFile): IssueRole => {
 };
 
 const NO_BLOCKERS_SENTINEL = "None — can start immediately";
+const UPSTREAM_NO_BLOCKERS_SENTINEL = "None (can start immediately)";
+const NO_BLOCKERS_PERIOD_VARIANT = `${NO_BLOCKERS_SENTINEL}.`;
+
+const ticketNativeEvidenceFor = (file: CapturedFile, extra: readonly MattRawFacet[]) => {
+  const blockedBy = fieldValue(file, "Blocked by");
+  return nativeEvidenceFor(
+    file,
+    [...extra, ...(blockedBy === undefined ? [] : [{ key: "blocked-by", values: [blockedBy] }])],
+    blockedBy === NO_BLOCKERS_PERIOD_VARIANT ? ["no-blockers-terminal-period"] : [],
+  );
+};
 
 const blockerReferences = (
   file: CapturedFile,
   diagnostics: CaptureDiagnostic[],
 ): readonly string[] => {
   const value = fieldValue(file, "Blocked by", diagnostics);
-  if (value === undefined || value === NO_BLOCKERS_SENTINEL) return [];
+  if (
+    value === undefined ||
+    value === NO_BLOCKERS_SENTINEL ||
+    value === NO_BLOCKERS_PERIOD_VARIANT ||
+    value === UPSTREAM_NO_BLOCKERS_SENTINEL
+  )
+    return [];
   const entries = value.split(",").map((entry) => entry.trim());
   const references: string[] = [];
   for (const entry of entries) {
@@ -638,13 +682,13 @@ const decodeWayfinder = (
     | (MattWayfinderAuthoredDocument & Readonly<{ role: "answer" }>)
     | undefined;
   const resolved = status === "resolved";
-  if (status !== undefined && status !== "claimed" && !resolved) {
+  if (status !== undefined && status !== "open" && status !== "claimed" && !resolved) {
     diagnostics.push(
       diagnostic(
         "matt.local.lifecycle.unknown",
         "format",
         file.locator,
-        "Wayfinder Status must be claimed or resolved.",
+        "Wayfinder Status must be claimed, resolved, or conflict-free open.",
       ),
     );
   }
@@ -699,10 +743,13 @@ const decodeWayfinder = (
           "confirmed-empty",
       ),
     ],
-    native: nativeEvidenceFor(file, [
+    native: ticketNativeEvidenceFor(file, [
       { key: "type", values: [type] },
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
       ...(claimant === undefined ? [] : [{ key: "claimant", values: [claimant] }]),
+      ...(queryMarkdownSection(file.document, { title: "Answer" }).state === "absent"
+        ? []
+        : [{ key: "answer-section", values: ["present"] }]),
     ]),
   };
 };
@@ -726,20 +773,27 @@ const decodeDelivery = (
   const answerSection = queryMarkdownSection(file.document, { title: "Answer" });
   const hasAnswer = answerSection.state === "found" && answerSection.value.markdown.length > 0;
   const semanticStatus =
-    status === undefined ? undefined : vocabulary?.nativeToSemantic.get(status);
+    status === undefined
+      ? undefined
+      : (vocabulary?.nativeToSemantic.get(status) ??
+        (vocabulary === undefined
+          ? REQUIRED_TRIAGE_ROLES.find((role) => role === status)
+          : undefined));
   let lifecycle: MattDeliveryTicket["lifecycle"] = { state: "open" };
   let trackerClosure: MattDeliveryTicket["trackerClosure"] = { state: "open" };
   if (status === "resolved") {
     if (!hasAnswer) {
-      lifecycle = { state: "completion-unavailable", reason: "incomplete-writeback" };
-      diagnostics.push(
-        diagnostic(
-          "matt.local.delivery.incomplete-writeback",
-          "format",
-          file.locator,
-          "Resolved Delivery ticket has no Answer evidence.",
-        ),
-      );
+      lifecycle = { state: "completion-unavailable", reason: "source-contract-gap" };
+      if (answerSection.state === "ambiguous") {
+        diagnostics.push(
+          diagnostic(
+            "matt.local.delivery.ambiguous-completion-evidence",
+            "format",
+            file.locator,
+            "Delivery completion evidence is ambiguous.",
+          ),
+        );
+      }
     } else {
       lifecycle = {
         state: "completed",
@@ -773,6 +827,11 @@ const decodeDelivery = (
     );
   }
   const comments = localCommentDocuments(file, "delivery.comments");
+  const parent = queryMarkdownSection(file.document, { title: "Parent" });
+  const parentReferences =
+    parent.state === "found"
+      ? queryMarkdownLinks(file.document, { within: parent.value }).map((link) => link.target)
+      : [];
   return {
     kind: "delivery-ticket",
     ref: objectReference(file.locator),
@@ -805,8 +864,11 @@ const decodeDelivery = (
           "confirmed-empty",
       ),
     ],
-    native: nativeEvidenceFor(file, [
+    native: ticketNativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
+      ...(parent.state === "absent"
+        ? []
+        : [{ key: "parent-references", values: parentReferences }]),
     ]),
   };
 };
@@ -1054,7 +1116,7 @@ const compatibleSectionList = (
     availability: semanticAvailabilityForItems(
       "found",
       0,
-      result.section.markdown.trim().length > 0,
+      markdownHasNonCommentContent(file.document, { within: result.section }),
     ),
   };
 };
@@ -1089,7 +1151,7 @@ const mapSectionEntries = (
   if (section.state !== "found") return [];
   const list = queryMarkdownList(file.document, { within: section.value });
   if (list.state !== "found") {
-    if (section.value.markdown.length > 0) {
+    if (markdownHasNonCommentContent(file.document, { within: section.value })) {
       diagnostics.push(
         diagnostic(
           "matt.local.decode.list",
@@ -1160,7 +1222,7 @@ const decodeMap = (
   issueByLocator: ReadonlyMap<string, LocalIssueIdentity>,
   diagnostics: CaptureDiagnostic[],
 ): MattMap | undefined => {
-  const title = titleFor(file, diagnostics);
+  const title = titleFor(file, diagnostics, true);
   const destination = requiredSection(file.document, "Destination", file.locator, diagnostics);
   if (title === undefined || destination === undefined) return undefined;
   const destinationDocument = projectMattAuthoredSectionDocument(
@@ -1208,7 +1270,7 @@ const decodeMap = (
     });
   }
   const status = fieldValue(file, "Status", diagnostics);
-  if (status !== "resolved" && status !== "active") {
+  if (status !== undefined && status !== "resolved" && status !== "active") {
     diagnostics.push(
       diagnostic(
         "matt.local.lifecycle.unknown",
@@ -1226,7 +1288,9 @@ const decodeMap = (
     return semanticAvailabilityForItems(
       result.state,
       count,
-      result.state === "found" && result.value.markdown.trim().length > 0 && count === 0,
+      result.state === "found" &&
+        markdownHasNonCommentContent(file.document, { within: result.value }) &&
+        count === 0,
     );
   };
   return {
@@ -1244,7 +1308,9 @@ const decodeMap = (
             state: "resolved",
             resolutionEvidence: decisions.map((decision) => decision.sourceAnchor),
           }
-        : { state: "active" },
+        : status === "active"
+          ? { state: "active" }
+          : { state: "unavailable", reason: unavailableLifecycleReason(file) },
     semanticSections: [
       semanticSection(
         "map.destination",
@@ -1266,28 +1332,33 @@ const decodeMap = (
           ? decisions.length === 0
             ? "unavailable"
             : "available"
-          : "confirmed-empty",
+          : status === "active"
+            ? "confirmed-empty"
+            : "unavailable",
       ),
     ],
     native: nativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
+      ...(queryMarkdownDocumentTitle(file.document).state === "absent"
+        ? [{ key: "title-source", values: ["locator-fallback"] }]
+        : []),
     ]),
   };
 };
 
 const decodeSpec = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): MattSpec | undefined => {
-  const title = titleFor(file, diagnostics);
+  const title = titleFor(file, diagnostics, true);
   const status = fieldValue(file, "Status", diagnostics);
   if (title === undefined) return undefined;
   const projected = projectMattSpecDocument(file.document);
   for (const issue of projected.diagnostics) {
     diagnostics.push(diagnostic(issue.code, "format", file.locator, issue.message));
   }
-  const lifecycle =
+  const lifecycle: MattSpec["lifecycle"] =
     status === "ready-for-agent" || status === "superseded" || status === "draft"
-      ? status
-      : "draft";
-  if (status !== lifecycle) {
+      ? { state: status }
+      : { state: "unavailable", reason: unavailableLifecycleReason(file) };
+  if (status !== undefined && lifecycle.state === "unavailable") {
     diagnostics.push(
       diagnostic(
         "matt.local.lifecycle.unknown",
@@ -1302,10 +1373,13 @@ const decodeSpec = (file: CapturedFile, diagnostics: CaptureDiagnostic[]): MattS
     ref: objectReference(file.locator),
     title,
     document: projected.document,
-    lifecycle: { state: lifecycle },
+    lifecycle,
     semanticSections: projected.semanticSections,
     native: nativeEvidenceFor(file, [
       ...(status === undefined ? [] : [{ key: "status", values: [status] }]),
+      ...(queryMarkdownDocumentTitle(file.document).state === "absent"
+        ? [{ key: "title-source", values: ["locator-fallback"] }]
+        : []),
     ]),
   };
 };
@@ -1327,6 +1401,57 @@ const lifecycleWithMapEvidence = (
         ? { ...sourceTicket.trackerClosure, disposition: "completed" }
         : sourceTicket.trackerClosure,
   };
+  const status = ticket.native.rawFacets.find((facet) => facet.key === "status")?.values[0];
+  if (ticket.native.kind === "local" && (status === undefined || status === "open")) {
+    // Recompute this evidence after Map-only reconciliation; a prior normalization
+    // cannot certify a newly contradictory lifecycle bundle.
+    const { normalizations: priorNormalizations, ...native } = ticket.native;
+    const normalizations = (priorNormalizations ?? []).filter(
+      (rule) => rule !== "wayfinder-open-status",
+    );
+    const conflict =
+      ticket.native.rawFacets.some(
+        (facet) => facet.key === "claimant" || facet.key === "answer-section",
+      ) ||
+      ticket.answer.availability === "available" ||
+      ticket.trackerClosure.state === "closed" ||
+      decisions.length + dispositions.length > 0 ||
+      diagnostics.some(
+        (item) => item.code === "matt.local.relation.ambiguous" && item.target === ticket.ref,
+      );
+    if (conflict) {
+      diagnostics.push(
+        diagnostic(
+          "matt.local.lifecycle.conflict",
+          "format",
+          native.identity.locator,
+          "Unclaimed Wayfinder status conflicts with claimant, Answer, or Map closure evidence.",
+        ),
+      );
+    }
+    const normalized =
+      status === "open" &&
+      !conflict &&
+      !diagnostics.some((item) => item.target === ticket.ref && item.impact === "blocking");
+    return {
+      ...ticket,
+      semanticSections: conflict
+        ? ticket.semanticSections.map((section) =>
+            section.role === "wayfinder.claim"
+              ? semanticSection(section.role, "unavailable")
+              : section,
+          )
+        : ticket.semanticSections,
+      native: {
+        ...native,
+        ...(normalized
+          ? { normalizations: [...normalizations, "wayfinder-open-status" as const] }
+          : normalizations.length > 0
+            ? { normalizations }
+            : {}),
+      },
+    };
+  }
   if (decisions.length + dispositions.length > 1) {
     diagnostics.push(
       diagnostic(
@@ -1381,7 +1506,22 @@ const lifecycleWithMapEvidence = (
   return ticket;
 };
 
-const scopeCompletion = (projection: MattScopeProjection): "complete" | "incomplete" => {
+const scopeCompletion = (
+  projection: MattScopeProjection,
+): "complete" | "incomplete" | "undetermined" => {
+  if (
+    projection.map?.lifecycle.state === "unavailable" ||
+    projection.spec?.lifecycle.state === "unavailable" ||
+    projection.deliveryTickets.some(
+      (ticket) =>
+        ticket.lifecycle.state === "completion-unavailable" &&
+        !(
+          ticket.trackerClosure.state === "closed" &&
+          ticket.trackerClosure.disposition === "wontfix"
+        ),
+    )
+  )
+    return "undetermined";
   if (projection.map !== undefined && projection.map.lifecycle.state !== "resolved") {
     return "incomplete";
   }
@@ -1434,25 +1574,35 @@ const deriveLocalParents = (
       ),
     );
   }
-  if (specProjection !== undefined) {
-    for (const ticket of deliveryTickets) {
+  for (const ticket of deliveryTickets) {
+    const parent = ticket.native.rawFacets.find((facet) => facet.key === "parent-references");
+    if (parent === undefined) continue;
+    const target = parent.values.length === 1 ? parent.values[0] : undefined;
+    let locator: string | undefined;
+    if (target !== undefined && !isExternalAnchorTarget(target) && !posix.isAbsolute(target)) {
+      try {
+        locator = normalizeLocator(posix.join(posix.dirname(String(ticket.ref)), target));
+      } catch {
+        // An unsafe reference remains evidence, never a filesystem read target.
+      }
+    }
+    if (specProjection !== undefined && locator === specProjection.ref) {
       parentChild.push({
         parent: specProjection.ref,
         child: ticket.ref,
-        evidence: "matt-contract",
+        evidence: "matt-body-fallback",
       });
+    } else {
+      diagnostics.push(
+        diagnostic(
+          target === undefined ? "matt.local.relation.ambiguous" : "matt.local.relation.broken",
+          "identity",
+          String(ticket.ref),
+          "Delivery Parent evidence does not identify one readable Spec in the bound scope.",
+        ),
+      );
     }
-  } else if (deliveryTickets.length > 0) {
-    diagnostics.push(
-      diagnostic(
-        "matt.local.relation.broken",
-        "identity",
-        scopeLocator,
-        "Delivery tickets exist without the optional singleton Spec required for parent evidence.",
-      ),
-    );
   }
-
   return parentChild;
 };
 
@@ -1587,6 +1737,7 @@ const captureLocalScope = async (
 
   const capturedFiles = new Map<string, CapturedFile>();
   const interpretationFiles = new Map<string, MarkdownInput>();
+  const absentInterpretationLocators = new Set<string>();
   const attemptedLocators = new Set<string>();
   const readTarget = async (
     locator: string,
@@ -1666,7 +1817,18 @@ const captureLocalScope = async (
     }
   };
 
-  const interpretationTarget = async (locator: string): Promise<MarkdownInput | undefined> => {
+  const interpretationTarget = async (
+    locator: string,
+    optional = false,
+  ): Promise<MarkdownInput | undefined> => {
+    if (
+      optional &&
+      options.capturedDocuments?.has(locator) !== true &&
+      (await interpretationInputAbsent(root, locator))
+    ) {
+      absentInterpretationLocators.add(locator);
+      return undefined;
+    }
     if (options.capturedDocuments === undefined) return readTarget(locator, true);
     const captured = options.capturedDocuments.get(locator);
     if (captured === undefined) {
@@ -1728,7 +1890,7 @@ const captureLocalScope = async (
       diagnostics,
     });
   }
-  const triageFile = await interpretationTarget(triageLocator);
+  const triageFile = await interpretationTarget(triageLocator, true);
   const vocabulary =
     triageFile === undefined ? undefined : parseTriageVocabulary(triageFile, diagnostics);
 
@@ -1757,14 +1919,12 @@ const captureLocalScope = async (
     scopeStamp = await stampFor(scopePath);
   } catch (error) {
     if (isSystemError(error) && error.code === "ENOENT") {
-      const configurationInvalid =
-        vocabulary === undefined ||
-        diagnostics.some(
-          (item) =>
-            item.class === "contract" ||
-            item.class === "mapping" ||
-            item.code.startsWith("matt.local.input."),
-        );
+      const configurationInvalid = diagnostics.some(
+        (item) =>
+          item.class === "contract" ||
+          item.class === "mapping" ||
+          item.code.startsWith("matt.local.input."),
+      );
       return captureWithoutProjection({
         binding,
         capturedAt,
@@ -1958,6 +2118,12 @@ const captureLocalScope = async (
       unstableLocators.add(file.locator);
     }
   }
+  for (const locator of absentInterpretationLocators) {
+    if (!(await interpretationInputAbsent(root, locator))) {
+      concurrentMutation = true;
+      unstableLocators.add(locator);
+    }
+  }
   if (concurrentMutation) {
     diagnostics.push(
       diagnostic(
@@ -2036,7 +2202,13 @@ const captureLocalScope = async (
         { key: "contract", state: "covered" },
         {
           key: "vocabulary",
-          state: vocabulary?.complete === true && !vocabularyUnstable ? "covered" : "gap",
+          state: vocabularyUnstable
+            ? "gap"
+            : absentInterpretationLocators.has(triageLocator)
+              ? "excluded"
+              : vocabulary?.complete === true
+                ? "covered"
+                : "gap",
         },
         {
           key: "scope-membership",
@@ -2110,9 +2282,17 @@ const localReconciliationProjection = async (
     });
   }
 
-  const interpretationTarget = (locator: string): MarkdownInput | undefined => {
+  const absentInterpretationLocators = new Set<string>();
+  const interpretationTarget = async (
+    locator: string,
+    optional = false,
+  ): Promise<MarkdownInput | undefined> => {
     const captured = options.capturedDocuments?.get(locator);
     if (captured === undefined) {
+      if (optional && (await interpretationInputAbsent(root, locator))) {
+        absentInterpretationLocators.add(locator);
+        return undefined;
+      }
       diagnostics.push(
         diagnostic(
           "matt.local.reconciliation.interpretation-unavailable",
@@ -2143,10 +2323,10 @@ const localReconciliationProjection = async (
       return undefined;
     }
   };
-  const contractFile = interpretationTarget(contractLocator);
+  const contractFile = await interpretationTarget(contractLocator);
   const contractLayout =
     contractFile === undefined ? undefined : parseLocalMattContract(contractFile, diagnostics);
-  const triageFile = interpretationTarget(triageLocator);
+  const triageFile = await interpretationTarget(triageLocator, true);
   const vocabulary =
     triageFile === undefined ? undefined : parseTriageVocabulary(triageFile, diagnostics);
   if (contractLayout === undefined) {
@@ -2322,14 +2502,11 @@ const localReconciliationProjection = async (
     : specFile === undefined
       ? priorProjection.spec
       : decodeSpec(specFile, diagnostics);
-  const wayfinderTickets = mergedWayfinder.map((ticket) =>
-    lifecycleWithMapEvidence(ticket, mapProjection, diagnostics),
-  );
   const parentChild = deriveLocalParents(
     scopeLocator,
     mapProjection,
     specProjection,
-    wayfinderTickets,
+    mergedWayfinder,
     mergedDelivery,
     diagnostics,
   );
@@ -2340,6 +2517,10 @@ const localReconciliationProjection = async (
     changedIssues,
     priorProjection.graph.blockedBy,
     diagnostics,
+  );
+
+  const wayfinderTickets = mergedWayfinder.map((ticket) =>
+    lifecycleWithMapEvidence(ticket, mapProjection, diagnostics),
   );
 
   const objectsByLocator = [...wayfinderTickets, ...mergedDelivery, ...mergedIncoming].sort(
@@ -2365,6 +2546,19 @@ const localReconciliationProjection = async (
       ],
     },
   };
+  for (const locator of absentInterpretationLocators) {
+    if (!(await interpretationInputAbsent(root, locator))) {
+      concurrentMutation = true;
+      diagnostics.push(
+        diagnostic(
+          "matt.local.concurrent-mutation",
+          "concurrency",
+          locator,
+          "Optional interpretation input appeared during targeted reconciliation.",
+        ),
+      );
+    }
+  }
   const blocking = diagnostics.some((item) => item.impact === "blocking");
   const current = !blocking && !concurrentMutation;
   const state = partialBasis || blocking ? "partial" : "available";
@@ -2392,7 +2586,16 @@ const localReconciliationProjection = async (
       assessment: coverageComplete ? "complete" : "incomplete",
       dimensions: [
         { key: "contract", state: contractLayout === undefined ? "gap" : "covered" },
-        { key: "vocabulary", state: vocabulary?.complete === true ? "covered" : "gap" },
+        {
+          key: "vocabulary",
+          state: absentInterpretationLocators.has(triageLocator)
+            ? concurrentMutation
+              ? "gap"
+              : "excluded"
+            : vocabulary?.complete === true
+              ? "covered"
+              : "gap",
+        },
         {
           key: "affected-subjects-and-relations",
           state: current ? "covered" : "gap",

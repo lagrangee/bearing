@@ -1,5 +1,39 @@
 {
   "schemaVersion": 1,
+  "revalidatedAgainst": {
+    "repository": "mattpocock/skills",
+    "commit": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
+    "sources": [
+      {
+        "skill": "setup-matt-pocock-skills",
+        "source": "issue-tracker-local.md",
+        "upstreamPath": "skills/engineering/setup-matt-pocock-skills/issue-tracker-local.md",
+        "fixture": "tests/fixtures/matt-upstream-contract/issue-tracker-local.md",
+        "sha256": "7dcda20a2eb4bdc89b95d1143423c0691309921cadae3132e6424f371030506e"
+      },
+      {
+        "skill": "to-spec",
+        "source": "SKILL.md",
+        "upstreamPath": "skills/engineering/to-spec/SKILL.md",
+        "fixture": "tests/fixtures/matt-upstream-contract/sources/to-spec.md",
+        "sha256": "43ad9cf318e5e7d3d1fa360253a37021796dc87a0c2e595ad262661a10f85088"
+      },
+      {
+        "skill": "to-tickets",
+        "source": "SKILL.md",
+        "upstreamPath": "skills/engineering/to-tickets/SKILL.md",
+        "fixture": "tests/fixtures/matt-upstream-contract/sources/to-tickets.md",
+        "sha256": "5c9fba69845c2519b9b35b9af42ae5142c21f8ca15ac2123dc2722002c8058ae"
+      },
+      {
+        "skill": "wayfinder",
+        "source": "SKILL.md",
+        "upstreamPath": "skills/engineering/wayfinder/SKILL.md",
+        "fixture": "tests/fixtures/matt-upstream-contract/sources/wayfinder.md",
+        "sha256": "fee6e1d0c50f0e736b4ef8a599060c959afae904c9a97d82c97f049fcc3aa0f1"
+      }
+    ]
+  },
   "materializedFrom": [
     {
       "skill": "setup-matt-pocock-skills",
@@ -24,15 +58,15 @@
   ],
   "configuredContract": {
     "base": "setup-matt-pocock-skills/local-markdown-v1",
-    "providerExtensions": [
+    "projectExtensions": [
       "PRD.md spec locator",
       "matt-skills/v1 provider declaration",
       "feature directory as provider-native scope identity",
-      "strict Blocked by grammar",
-      "Local Map lifecycle Status",
+      "repository-specific strict Blocked by grammar, distinct from the upstream parenthesized sentinel",
+      "explicit Local Map lifecycle Status, not required by the upstream Map template",
       "ordinary Delivery completion and Human implementation handoff",
       "empty Wayfinder list sections remain empty",
-      "Local Spec title/status envelope with pinned to-spec sections for ordinary new-scope authoring"
+      "Local Spec title/status envelope with pinned to-spec sections for ordinary new-scope authoring; the envelope is not an upstream requirement"
     ],
     "artifacts": [
       {
@@ -126,5 +160,5 @@
       }
     ]
   },
-  "note": "The checked-in Local Markdown fixtures are digest-bound materializations of the pinned Matt Kit contracts plus the declared repository-specific provider extensions. Generations verify these fixed bytes and never regenerate them through Agent behavior. The completed-delivery fixture preserves the pinned spec/ticket shape and declared ordinary Delivery completion extension; its fixed implementation and both exported-function tests passed npm test before the completed ticket was recorded, outside any Generation. The planned-delivery source retains the native-free lifecycle baseline and uses Node public-function tests available in the isolated toolchain. Its Spec form materializes the same pinned to-spec sections and existing accepted Local title/status envelope; it neither pre-authors native work nor changes Provider accepted grammar or invokes a user-only Skill."
+  "note": "The materializedFrom hashes preserve the original source receipt for the unchanged Local Markdown artifacts; these artifacts were not regenerated for the current upstream baseline. revalidatedAgainst records exact official source snapshots used for the 2026-09-25 contract review, not a claim that the old outputs are raw latest-Matt products. configuredContract.projectExtensions are repository-specific choices, not universal Matt or Provider requirements. In particular a parent Spec is not required by to-tickets, the upstream no-blocker sentinel is None (can start immediately), and the upstream Map/Spec bodies do not require these fixture envelopes. Generations verify the fixed artifact bytes and never regenerate them through Agent behavior. The completed-delivery implementation and tests were verified before its ticket was recorded, outside any Generation. The native-free planned-delivery baseline, Scenario intent, and terminal oracle remain unchanged."
 }

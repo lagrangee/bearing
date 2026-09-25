@@ -365,6 +365,32 @@ describe("GitHub Matrix fixture lifecycle", () => {
     expect(fake.milestones.get(10)?.state).toBe("closed");
   });
 
+  test("rejects altered upstream source bytes before creating GitHub fixture objects", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bearing-github-upstream-contract-"));
+    try {
+      const output = "validation/live-journey/fixtures/github-provider/matt-kit-output";
+      const source = "tests/fixtures/matt-upstream-contract";
+      await cp(join(process.cwd(), output), join(root, output), { recursive: true });
+      await cp(join(process.cwd(), source), join(root, source), { recursive: true });
+      const tracker = join(root, source, "issue-tracker-github.md");
+      await writeFile(tracker, `${await readFile(tracker, "utf8")}\nChanged upstream source.\n`);
+      const fake = new FakeGitHubLifecycle();
+      await expect(
+        prepareGitHubMatrixFixture({
+          sourceRoot: root,
+          repositorySlug: "example/validation",
+          scopeKey,
+          generationId,
+          command: fake.command,
+        }),
+      ).rejects.toThrow("versioned materialization receipt");
+      expect(fake.issues.size).toBe(0);
+      expect(fake.milestones.size).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("rejects Matt Kit output that differs from its versioned materialization receipt", async () => {
     const root = await mkdtemp(join(tmpdir(), "bearing-github-fixture-contract-"));
     try {
@@ -374,6 +400,11 @@ describe("GitHub Matrix fixture lifecycle", () => {
       );
       const output = join(root, "validation/live-journey/fixtures/github-provider/matt-kit-output");
       await cp(source, output, { recursive: true });
+      await cp(
+        join(process.cwd(), "tests/fixtures/matt-upstream-contract"),
+        join(root, "tests/fixtures/matt-upstream-contract"),
+        { recursive: true },
+      );
       const child = join(output, "child-delivery.md");
       await writeFile(
         child,

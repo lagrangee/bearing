@@ -7,18 +7,26 @@ live gated E2E, and Codex release smoke in this repository.
 
 Every Scenario launches Codex explicitly with:
 
-- model `gpt-5.6-luna`;
-- reasoning effort `high`; and
-- Fast mode enabled.
+- model `gpt-5.6-sol`;
+- reasoning effort `low` (Light); and
+- normal speed, with Fast mode disabled and the service tier explicitly cleared.
 
 A conforming invocation includes:
 
 ```text
-codex exec --model gpt-5.6-luna --config 'model_reasoning_effort="high"' --enable fast_mode
+codex exec --model gpt-5.6-sol --config 'model_reasoning_effort="low"' --config 'service_tier=""' --disable fast_mode
 ```
 
 Do not inherit these values from operator configuration and do not fall back to another model.
 Unavailability is `preflight blocked`.
+The empty service tier selects normal speed; disabling `fast_mode` alone does not clear a
+configured priority tier. The app-server launch preserves both explicit settings.
+
+The common launch also injects the same execution-lifecycle instruction for initial and resumed
+turns, including app-server transport: before ending a turn, wait for finite commands started for
+that turn to reach a terminal result. If a tool returns a running session, wait on that same session;
+do not restart the command as a substitute for waiting. This does not authorize retries, change
+Scenario prompts or semantic criteria, or relax evidence-integrity rejection.
 
 ## Runtime and capability isolation
 
@@ -26,6 +34,16 @@ Every Scenario receives a fresh repository, Agent home, runtime home, private TM
 and declared Skill set. The Agent cannot read the operator home, source checkout, registry, hidden
 semantic fields, sibling Scenarios, credentials, session state, or Coordinator evidence. The native
 permission profile is default-deny outside the current Scenario roots and verified toolchain inputs.
+
+The fixed Scenario permission profile preauthorizes every supported capability. Initial and resumed
+exec launches and app-server threads use `approval_policy="never"`; temporary permission escalation
+is unsupported. This does not expand filesystem or network access, suppress tool failures, or
+relax incomplete-event rejection. The Matrix does not test permission-approval workflows.
+
+This fail-closed policy also avoids the Codex 0.147.0 approval lifecycle defect reproduced when an
+approved command fails during process creation: its synthetic approval-start item can remain
+unfinished despite a terminal tool error. Do not manufacture a completion or change a historical
+Matrix verdict to compensate for that upstream defect.
 
 The runner copies only the authentication file required by Codex into runtime-owned storage and
 denies it to Agent tools. General network access and product loopback are prohibited. The GitHub

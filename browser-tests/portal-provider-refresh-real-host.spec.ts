@@ -17,6 +17,7 @@ import { planningLineageSubjectHref } from "../src/planning-lineage-route";
 import { buildPortalAssetManifest, writePortalAssetManifest } from "../src/portal/assets";
 import { PORTAL_BUILD_IDENTITY_HEADER } from "../src/portal-build-identity-wire";
 import type { RuntimeReceipt } from "../src/runtime-context";
+import { publishControlledBuild } from "../tests/fixtures/development-build-publication";
 import {
   copyPortalProjectFixture,
   readRepositorySourceBytes,
@@ -125,7 +126,7 @@ test.beforeAll(async () => {
   if (childBuild.exitCode !== 0) {
     throw new Error(`Development Portal child harness build failed: ${childBuild.stderr}`);
   }
-  await writeFile(join(controlRoot, "publication"), "0\n");
+  await publishControlledBuild(controlRoot, "0\n");
   await writeFile(
     join(controlRoot, "runtime.json"),
     `${JSON.stringify({
@@ -311,7 +312,7 @@ test("real Host keeps Project Activation GET-only across browser lifecycle retur
       homeDir: homeRoot,
     })}\n`,
   );
-  await writeFile(join(controlRoot, "publication"), "coherent-build\n");
+  await publishControlledBuild(controlRoot, "coherent-build\n");
   await nextCurrent;
   await expect
     .poll(async () => {

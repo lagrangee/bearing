@@ -83,7 +83,7 @@ if [ "$1" = "debug" ] && [ "$2" = "models" ]; then
   ${
     mode === "model-unavailable"
       ? `printf '%s\\n' '{"models":[]}'`
-      : `printf '%s\\n' '{"models":[{"slug":"gpt-5.6-luna","supported_reasoning_levels":[{"effort":"high"}]}]}'`
+      : `printf '%s\\n' '{"models":[{"slug":"gpt-5.6-sol","supported_reasoning_levels":[{"effort":"low"}]}]}'`
   }
   exit 0
 fi
@@ -229,9 +229,9 @@ describe("Live Matrix Generation preflight", () => {
         generationId,
         staticPreflight: "complete",
         runtime: {
-          model: "gpt-5.6-luna",
-          reasoningEffort: "high",
-          fastMode: true,
+          model: "gpt-5.6-sol",
+          reasoningEffort: "low",
+          fastMode: false,
           concurrency: 4,
         },
         selectedScenarioIds: ["test-one", "test-two"],
@@ -1222,7 +1222,7 @@ exit 0
       diagnostics: [
         {
           code: "model-unavailable",
-          message: "Required Codex E2E model is unavailable: gpt-5.6-luna.",
+          message: "Required Codex E2E model is unavailable: gpt-5.6-sol.",
         },
       ],
       agentBehaviorStarted: false,

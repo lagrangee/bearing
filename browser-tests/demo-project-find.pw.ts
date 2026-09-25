@@ -107,6 +107,36 @@ test("keyboard, Escape, focus return, reload, back, and forward preserve the Fin
   await expect(heading).toBeFocused();
 });
 
+test("a delayed opening frame does not steal focus after keyboard navigation", async ({ page }) => {
+  await page.goto("./#/overview");
+  const trigger = page.getByRole("button", { name: "Find in project" });
+  await trigger.focus();
+  const openingFrames = await page.evaluateHandle(() => {
+    const original = window.requestAnimationFrame;
+    const callbacks: FrameRequestCallback[] = [];
+    window.requestAnimationFrame = (callback) => callbacks.push(callback);
+    return {
+      flush() {
+        window.requestAnimationFrame = original;
+        for (const callback of callbacks.splice(0)) callback(performance.now());
+      },
+    };
+  });
+  await trigger.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Find in project" });
+  const searchbox = dialog.getByRole("searchbox", {
+    name: "Search identity, title, or semantic phrase",
+  });
+  await searchbox.fill("release");
+  await searchbox.press("ArrowDown");
+  await searchbox.press("Shift+Tab");
+  await expect(dialog.getByRole("button", { name: "Close Find" })).toBeFocused();
+
+  await openingFrames.evaluate((frames) => frames.flush());
+  await page.keyboard.press("Shift+Tab");
+  await expect(dialog.getByRole("option").last()).toBeFocused();
+});
+
 test("Find is responsive, accessible, static, and free of persistence or console errors", async ({
   page,
 }, testInfo) => {

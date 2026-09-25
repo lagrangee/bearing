@@ -301,7 +301,7 @@ Can current and resolved Work remain an exhaustive partition?
       )
       .replace(
         "## Fog",
-        "- [Review compact facts](issues/02-review-compact-facts.md) — Preserve the Work partition.\n\n## Fog",
+        "## Fog\n\n- [Review compact facts](issues/02-review-compact-facts.md) — Preserve the Work partition.",
       ),
   );
   await runBuiltBearing(["provider", "capture", "--repo", fixtureRoot, "--scope", ".scratch/work"]);

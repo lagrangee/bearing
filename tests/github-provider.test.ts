@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { discoverPlanningAuditInputs } from "../src/discovery";
+import { assessProviderObservationEvidence } from "../src/native-work-provider";
+import { targetedReconciliationBasis } from "../src/provider-evidence-contract";
 import type { MattSkillsV1ProviderObservation } from "../src/providers/matt-skills-v1/capture";
 import {
   createGhCliGitHubReadTransport,
@@ -351,6 +353,259 @@ describe("GitHub matt-skills/v1 targeted blocker relations", () => {
 });
 
 describe("GitHub matt-skills/v1 capture", () => {
+  test.each([
+    "absent",
+    "present-but-not-captured",
+    "unreadable-shape",
+    "non-directory-ancestor",
+  ] as const)("keeps %s triage distinct without guessing custom classifications", async (triageState) => {
+    const root = await makeTemporaryDirectory("bearing-github-triage-boundary-");
+    await writeFixture(root, contractLocator, contract);
+    if (triageState === "present-but-not-captured") await writeFixture(root, triageLocator, triage);
+    if (triageState === "unreadable-shape")
+      await writeFixture(root, `${triageLocator}/not-a-file`, "unreadable shape");
+    if (triageState === "non-directory-ancestor")
+      await writeFixture(root, "not-a-directory", "plain file");
+    const endpoint = "repos/example/reference/issues/109";
+    const provider = createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      triageLocator:
+        triageState === "non-directory-ancestor" ? "not-a-directory/triage.md" : triageLocator,
+      capturedDocuments: new Map([
+        [
+          contractLocator,
+          { locator: contractLocator, source: contract, bytes: Buffer.from(contract) },
+        ],
+      ]),
+      transport: new FixtureGitHubTransport({
+        "repos/example/reference": { first: response(repository, '"repo-v1"') },
+        [endpoint]: { first: response(incomingIssue, '"issue-v1"') },
+        [`${endpoint}/comments?per_page=100&page=1`]: { first: response([], '"comments-v1"') },
+        [`${endpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+          first: response([], '"blocked-v1"'),
+        },
+        [`${endpoint}/sub_issues?per_page=100&page=1`]: { first: response([], '"children-v1"') },
+      }),
+    });
+    const binding = {
+      provider: "matt-skills/v1" as const,
+      nativeScope: nativeScopeFor(incomingIssue),
+    };
+    const full = await provider.capture(binding);
+    if (provider.reconcile === undefined) throw new Error("Expected reconciliation.");
+    const targeted = await provider.reconcile({
+      binding,
+      prior: full,
+      affected: { subjects: [incomingIssue.html_url] },
+    });
+    for (const observation of [full, targeted]) {
+      expect(observation.state).toBe(triageState === "absent" ? "available" : "partial");
+      expect(observation.completion).toBe("undetermined");
+      expect(observation.projection?.incomingIssues[0]?.classification).toEqual({
+        category: "unknown",
+        state: "unknown",
+      });
+      expect(observation.diagnostics.map(({ code }) => code)).toEqual(
+        triageState === "absent" ? [] : ["matt.github.mapping.unavailable"],
+      );
+    }
+  });
+
+  test.each([
+    "capture",
+    "reconcile",
+  ] as const)("does not certify optional triage absence changed during %s", async (seam) => {
+    const root = await makeTemporaryDirectory("bearing-github-triage-change-");
+    await writeFixture(root, contractLocator, contract);
+    const endpoint = "repos/example/reference/issues/109";
+    const transport = new FixtureGitHubTransport({
+      "repos/example/reference": { first: response(repository, '"repo-v1"') },
+      [endpoint]: { first: response(incomingIssue, '"issue-v1"') },
+      [`${endpoint}/comments?per_page=100&page=1`]: { first: response([], '"comments-v1"') },
+      [`${endpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+        first: response([], '"blocked-v1"'),
+      },
+      [`${endpoint}/sub_issues?per_page=100&page=1`]: { first: response([], '"children-v1"') },
+    });
+    let changeDuringRead = false;
+    const provider = createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      transport: {
+        get: async (request) => {
+          if (changeDuringRead) {
+            changeDuringRead = false;
+            await writeFixture(root, triageLocator, triage);
+          }
+          return transport.get(request);
+        },
+      },
+    });
+    const binding = {
+      provider: "matt-skills/v1" as const,
+      nativeScope: nativeScopeFor(incomingIssue),
+    };
+    const prior = await provider.capture(binding);
+    expect(prior.state).toBe("available");
+    changeDuringRead = true;
+    if (provider.reconcile === undefined) throw new Error("Expected reconciliation.");
+    const result =
+      seam === "capture"
+        ? await provider.capture(binding)
+        : await provider.reconcile({
+            binding,
+            prior,
+            affected: { subjects: [incomingIssue.html_url] },
+          });
+    expect(result.state).toBe("partial");
+    expect(result.freshness.assessment).toBe("undetermined");
+    expect(result.completion).toBe("undetermined");
+    expect(result.diagnostics.map(({ code }) => code)).toContain(
+      "matt.github.mapping.concurrent-mutation",
+    );
+  });
+
+  test.each([
+    "open",
+    "closed",
+  ] as const)("reads %s native Map lifecycle without optional triage configuration through both seams", async (state) => {
+    const root = await makeTemporaryDirectory("bearing-github-optional-triage-");
+    await writeFixture(
+      root,
+      contractLocator,
+      await readFile(
+        join(import.meta.dir, "fixtures/matt-upstream-contract/issue-tracker-github.md"),
+        "utf8",
+      ),
+    );
+    const issue = githubIssue({
+      number: 1,
+      title: "Native Map",
+      labels: ["wayfinder:map"],
+      state,
+      ...(state === "closed" ? { stateReason: "completed" } : {}),
+      body: "## Destination\n\nUnderstand work.\n\n## Notes\n\n## Decisions so far\n\n## Fog\n\n## Out of scope\n",
+    });
+    const endpoint = "repos/example/reference/issues/1";
+    const provider = createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      transport: new FixtureGitHubTransport({
+        "repos/example/reference": { first: response(repository, '"repo-v1"') },
+        [endpoint]: { first: response(issue, '"issue-v1"') },
+        [`${endpoint}/comments?per_page=100&page=1`]: { first: response([], '"comments-v1"') },
+        [`${endpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+          first: response([], '"blocked-v1"'),
+        },
+        [`${endpoint}/sub_issues?per_page=100&page=1`]: { first: response([], '"children-v1"') },
+      }),
+    });
+    const binding = {
+      provider: "matt-skills/v1" as const,
+      nativeScope: nativeScopeFor(issue, "wayfinder-map"),
+    };
+    const full = await provider.capture(binding);
+    expect(full.diagnostics).toEqual([]);
+    expect(full.state).toBe("available");
+    expect(full.projection?.map?.lifecycle.state).toBe(state === "open" ? "active" : "resolved");
+    if (provider.reconcile === undefined) throw new Error("Expected reconciliation.");
+    const targeted = await provider.reconcile({
+      binding,
+      prior: full,
+      affected: { subjects: [issue.html_url] },
+    });
+    expect(targeted.state).toBe("available");
+    expect(targeted.diagnostics).toEqual([]);
+    expect(targeted.projection).toEqual(full.projection);
+    for (const observation of [full, targeted]) {
+      expect(observation.coverage.assessment).toBe("complete");
+      expect(observation.coverage.dimensions).toContainEqual({
+        key: "vocabulary",
+        state: "excluded",
+      });
+      expect(assessProviderObservationEvidence(observation)).toMatchObject({
+        frontierEvidence: "trustworthy",
+        completion: state === "open" ? "incomplete" : "complete",
+      });
+      expect(
+        targetedReconciliationBasis(
+          {
+            ...binding,
+            observationId: observation.id,
+            effectiveFreshness: observation.freshness.assessment,
+            latestAttempt: null,
+          },
+          observation,
+        ),
+      ).toEqual({ state: "ready" });
+    }
+  });
+
+  test("reads upstream parentless Delivery closure without requiring a private completion section", async () => {
+    const root = await createRepository();
+    const template = await readFile(
+      join(import.meta.dir, "fixtures/matt-upstream-contract/github-ticket-template.md"),
+      "utf8",
+    );
+    const body = template
+      .slice(template.indexOf("## What to build"))
+      .replaceAll("[ ]", "[x]")
+      .replace(
+        '- A reference to each blocking ticket, or "None (can start immediately)".',
+        "None (can start immediately)",
+      );
+    const issue = githubIssue({ number: 10, title: "Conversation delivery", body });
+    const endpoint = "repos/example/reference/issues/10";
+    const fixtures: Record<string, FixtureResponse> = {
+      "repos/example/reference": { first: response(repository, '"repo-v1"') },
+      [endpoint]: { first: response(issue, '"issue-v1"') },
+      [`${endpoint}/comments?per_page=100&page=1`]: { first: response([], '"comments-v1"') },
+      [`${endpoint}/dependencies/blocked_by?per_page=100&page=1`]: {
+        first: response([], '"blocked-v1"'),
+      },
+      [`${endpoint}/sub_issues?per_page=100&page=1`]: { first: response([], '"children-v1"') },
+    };
+    const provider = createGitHubMattProvider({
+      repoRoot: root,
+      contractLocator,
+      transport: new FixtureGitHubTransport(fixtures),
+    });
+    const binding = { provider: "matt-skills/v1" as const, nativeScope: nativeScopeFor(issue) };
+    const prior = await provider.capture(binding);
+    expect(prior.state).toBe("available");
+    fixtures[endpoint] = {
+      first: response(
+        githubIssue({
+          number: 10,
+          title: issue.title,
+          body,
+          state: "closed",
+          stateReason: "completed",
+        }),
+        '"issue-v2"',
+      ),
+    };
+    if (provider.reconcile === undefined) throw new Error("Expected reconciliation.");
+    const targeted = await provider.reconcile({
+      binding,
+      prior,
+      affected: { subjects: [issue.html_url] },
+    });
+    const full = await provider.capture(binding);
+    for (const observation of [targeted, full]) {
+      expect(observation.state).toBe("available");
+      expect(observation.diagnostics).toEqual([]);
+      expect(observation.completion).toBe("undetermined");
+      expect(observation.projection?.graph.parentChild).toEqual([]);
+      expect(observation.projection?.deliveryTickets[0]).toMatchObject({
+        lifecycle: { state: "completion-unavailable", reason: "source-contract-gap" },
+        trackerClosure: { state: "closed", disposition: "completed" },
+      });
+    }
+    expect(targeted.projection).toEqual(full.projection);
+  });
+
   test("completes a closed Delivery only from checked acceptance and canonical evidence", async () => {
     const root = await createRepository();
     const completedDelivery = githubIssue({
@@ -407,12 +662,6 @@ Commit abc123 passed the focused test and was pushed to the delivery branch.
   });
 
   test.each([
-    {
-      name: "missing evidence",
-      acceptance: "- [x] The focused test passes.",
-      evidence: "",
-      reason: "incomplete-writeback",
-    },
     {
       name: "HTML-comment-only evidence",
       acceptance: "- [x] The focused test passes.",
@@ -1905,7 +2154,11 @@ Do not mistake permission failure for unsupported hierarchy.
     }).capture({ provider: "matt-skills/v1", nativeScope: specScope });
 
     expect(spec.state).toBe("available");
-    expect(spec.projection?.spec?.lifecycle).toEqual({ state: "draft" });
+    expect(spec.projection?.spec?.lifecycle).toEqual({
+      state: "unavailable",
+      reason: "not-declared",
+    });
+    expect(spec.completion).toBe("undetermined");
   });
 
   test("fails closed on ambiguous repository mapping and conflicting canonical role evidence", async () => {

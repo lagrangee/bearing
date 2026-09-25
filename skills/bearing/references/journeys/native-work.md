@@ -26,6 +26,11 @@ The Project Read Model operation selected and loaded by root owns baseline and r
 Deterministic Bearing Modules own Binding lookup, provider acquisition, and exact reconciliation.
 Provider reads never mutate native work.
 
+The current Matt workflow and confirmed repository tracker contract define native writing. A
+Delivery scope may contain Tickets without a Spec when its source is a plan or conversation.
+Scope membership alone does not establish parentage. Create or update a related subject only when
+the authorized owner workflow requires it, not to satisfy a Provider's reading assumptions.
+
 ## Native claim boundary
 
 Claim is an owner-specific concurrency operation, not a generic Native Work step. Preserve the
@@ -70,18 +75,23 @@ Delivery ticket lifecycle or triage state.
    Record each successful native file or subject change as it occurs. The original Ticket is an
    entry target, not the complete write set; preserve the Pending Native Write Set across inner
    Skill returns, owner boundaries, and Human Handoffs.
-   Workflow Completion requires every applicable step of the selected owner workflow and its
-   currently known authorized writeback. An inner Skill's completion returns to that owner's
-   remaining steps. Run until Workflow Completion, Human Handoff, Workflow Failure, or real scope
-   establishment for an accepted named Effort start, then apply operation 4.
-   Ordinary iteration inside unfinished owner work is not Workflow Failure.
+   Before declaring Workflow Completion, evaluate parent or related-subject follow-up required by
+   the selected owner workflow or repository contract, then complete its authorized writeback.
+   Limit that follow-up to the original request and those contract-required relationships. Closing
+   the entry Ticket or finishing an inner Skill returns to these remaining owner steps, not directly
+   to synchronization. Workflow Completion requires every applicable owner step and authorized
+   writeback to be finished. Run until Workflow Completion, Human Handoff, Workflow Failure, or real
+   scope establishment for an accepted named Effort start, then apply operation 4.
+   Ordinary iteration inside unfinished owner work is not Workflow Failure. Before synchronization,
+   the owner may correct its own writes within the existing authorization and confirmed tracker
+   contract; a compatible Provider read does not broaden the writer contract.
 4. Continue from the actual owner boundary. Before baseline-dependent work or further canonical effects,
    recheck their relevant preconditions. A changed Binding, Provider, or Effort lifecycle stops the
    affected continuation; a stale canonical candidate cannot silently merge.
 
 | Owner state | Provider follow-up |
 | --- | --- |
-| `human-handoff` | Preserve the owner workflow, scope, pending writes, and resumption point; synchronize through operation 5 only when the material decision needs current observation. After the Human decision, resume at operation 2 before owner mutation. |
+| `human-handoff` | Preserve the owner workflow, scope, pending writes, and resumption point. By default, ask the Human directly and retain claim or partial writes unsynchronized. Synchronize through operation 5 only after identifying the current observation needed for that material decision; a pending claim or ending the Turn alone is not a reason. After the Human decision, resume at operation 2 before owner mutation. |
 | `scope-created-or-identified; accepted-new-binding` | Require the Effort owner's combined Binding and Activation, then the selected Project Read Model operation's successful baseline return before resuming operation 3. |
 | `workflow-complete` | First return to operation 3 for any remaining authorized owner work in the composed request. Once none remains, reconcile each confirmed Binding/scope's complete bound pending set through operation 5. Preserve any standalone result and apply operation 7. With no pending writes, perform no provider synchronization. |
 | `workflow-failed` | Preserve partial effects and the exact resumption point; perform no post-owner provider follow-up. |
@@ -132,8 +142,8 @@ Delivery ticket lifecycle or triage state.
 ## After this operation
 
 - **Required:** Failed, partial, or unknown first capture retains the accepted Binding and active
-  Effort and stops baseline-dependent work. Failed or unknown reconciliation retains the pending
-  set and truthful evidence limits. In that Turn, the failed scope receives no retry, changed
+  Effort and stops baseline-dependent work. Failed, partial, or unknown reconciliation retains the
+  pending set and truthful evidence limits. In that Turn, the failed scope receives no retry, changed
   references or cost class, full capture or verification fallback, or reset through repair or new
   writes. Read-only diagnosis remains available.
 - **Required:** Later recovery has its own exact purpose and preserves the historical failure. It
@@ -143,6 +153,26 @@ Delivery ticket lifecycle or triage state.
 - **Consider:** A lifecycle-mismatch diagnostic may support a later Effort decision.
 - **Do not infer:** Evidence-only rows in the Enrollment Boundary do not create a Binding, activate
   or conclude an Effort, pass a Gate, complete a Roadmap, or supply event time.
+
+## Compatibility reporting
+
+Public and Development use the same Provider interpretation and recovery boundaries. Safe read
+normalization requires no native rewrite or user action; continue the authorized workflow without
+asking Public users to classify edge cases or maintain a compatibility matrix.
+
+When synchronization remains incomplete, report which native work was saved, what Bearing did or
+did not publish, what remains unavailable, and the exact resumption point. Distinguish native
+format evidence from acquisition failure, an unavailable basis, and a publication conflict; a
+Provider rejection alone does not prove a native contract violation.
+
+Preserve readable native facts separately from missing optional metadata and completion evidence.
+An observed tracker closure is not proof of completed acceptance; an undeclared Map or Spec
+lifecycle is not an authored active or draft state. Provider limitations authorize neither extra
+native fields nor changes to the user's Matt installation or tracker contract.
+
+In Development, make observed compatibility cases inspectable through their affected native
+references and available raw facets, normalization evidence, or typed failure evidence. Reporting
+detail grants no additional repair or retry authority and never changes the original outcome.
 
 ## Completion criterion
 

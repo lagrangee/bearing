@@ -150,10 +150,14 @@ export const installPackedProduct = async (): Promise<InstalledProduct> => {
     npm_config_update_notifier: "false",
   };
   try {
-    const packed = await runCommand(["npm", "pack", "--pack-destination", packRoot], {
-      cwd: projectRoot,
-      environment,
-    });
+    // The owning test command builds once before the installed-product seams run.
+    const packed = await runCommand(
+      ["npm", "pack", "--ignore-scripts", "--pack-destination", packRoot],
+      {
+        cwd: projectRoot,
+        environment,
+      },
+    );
     if (packed.exitCode !== 0) throw new Error(packed.stderr || "npm pack failed.");
     const packageFile = packed.stdout.trim().split("\n").at(-1);
     if (packageFile === undefined || packageFile.length === 0) {

@@ -39,7 +39,7 @@ import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-
 import { sourceOwnedAvailableEventTimeSchema } from "../source-event-time";
 
 export const PROJECT_READ_MODEL_STORAGE_VERSION = 1 as const;
-export const PROJECT_READ_MODEL_PROJECTION_VERSION = 10 as const;
+export const PROJECT_READ_MODEL_PROJECTION_VERSION = 11 as const;
 export const PROJECT_INSPECT_ENVELOPE_VERSION = 1 as const;
 
 export const projectReadModelReceiptSchema = z.strictObject({

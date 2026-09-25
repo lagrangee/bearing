@@ -182,6 +182,9 @@ const localEvidenceSchema = z
     lastUpdated: nativeEventTimeSchema,
     sourceAnchors: z.array(sourceAnchorSchema),
     rawFacets: z.array(rawFacetSchema),
+    normalizations: z
+      .array(z.enum(["wayfinder-open-status", "no-blockers-terminal-period"]))
+      .optional(),
   })
   .superRefine((evidence, context) => {
     for (const [key, time] of [
@@ -282,6 +285,10 @@ const mapSchema = z
     lifecycle: z.discriminatedUnion("state", [
       z.strictObject({ state: z.literal("active") }),
       z.strictObject({
+        state: z.literal("unavailable"),
+        reason: z.enum(["not-declared", "unrecognized"]),
+      }),
+      z.strictObject({
         state: z.literal("resolved"),
         resolutionEvidence: z.array(sourceAnchorSchema),
       }),
@@ -337,7 +344,13 @@ const specSchema = z
     ref: reference,
     title: nonEmpty,
     document: providerSemanticSectionsSchema,
-    lifecycle: z.strictObject({ state: z.enum(["draft", "ready-for-agent", "superseded"]) }),
+    lifecycle: z.discriminatedUnion("state", [
+      z.strictObject({ state: z.enum(["draft", "ready-for-agent", "superseded"]) }),
+      z.strictObject({
+        state: z.literal("unavailable"),
+        reason: z.enum(["not-declared", "unrecognized"]),
+      }),
+    ]),
     semanticSections: exactSemanticSections([
       "spec.problem",
       "spec.solution",
@@ -418,7 +431,17 @@ const wayfinderTicketSchema = z
     native: nativeEvidenceSchema,
   })
   .superRefine((ticket, context) => {
-    validateSemanticContent(ticket.semanticSections, "wayfinder.claim", true, context);
+    const claimAvailability = ticket.semanticSections.find(
+      (section) => section.role === "wayfinder.claim",
+    )?.availability;
+    // A Local lifecycle conflict retains the decoded claim fact without certifying it.
+    if (
+      ticket.native.kind !== "local" ||
+      ticket.claim.state !== "unclaimed" ||
+      claimAvailability !== "unavailable"
+    ) {
+      validateSemanticContent(ticket.semanticSections, "wayfinder.claim", true, context);
+    }
     const wayfinderAnswerPosition = ticket.semanticSections.findIndex(
       (section) => section.role === "wayfinder.answer",
     );
@@ -910,6 +933,21 @@ export const mattSkillsV1ProviderObservationSchema = z
         path: ["completion"],
         message:
           "Provider completion requires an available, current, fully covered capture without blocking diagnostics.",
+      });
+    }
+    if (
+      capture.completion === "complete" &&
+      (capture.state === "available" || capture.state === "partial") &&
+      (capture.projection.map?.lifecycle.state === "unavailable" ||
+        capture.projection.spec?.lifecycle.state === "unavailable" ||
+        capture.projection.deliveryTickets.some(
+          (ticket) => ticket.lifecycle.state === "completion-unavailable",
+        ))
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["completion"],
+        message: "Unavailable native lifecycle evidence cannot prove scope completion.",
       });
     }
   });

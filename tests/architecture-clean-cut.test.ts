@@ -2,6 +2,9 @@ import { expect, test } from "bun:test";
 import { access, readFile } from "node:fs/promises";
 import packageMetadata from "../package.json";
 
+const retiredImport =
+  /(?:\bfrom\s+|\bimport\s*\(\s*)["'][^"'\n]*(?:sync(?:-plan|-transaction|-receipt)?|sitemap(?:-cache|-discovery)?|provider-observation-store|native-scope-inspection)/u;
+
 const retiredTrackedPaths = [
   "scripts/benchmark-inspect.ts",
   "scripts/benchmark-sync.ts",
@@ -68,7 +71,7 @@ test("retired architecture has no implementation surface", async () => {
 test("current product contains no retired command, cache, route, type, or import", async () => {
   const forbidden = [
     /\.bearing\/cache\/(?:project-sitemap\.md|sync-report\.md|sync-receipt\.json|project-generation\.json|provider-observations\.json|provider-detail-selections\.json)/u,
-    /(?:from|import\()[^\n]*(?:sync(?:-plan|-transaction|-receipt)?|sitemap(?:-cache|-discovery)?|provider-observation-store|native-scope-inspection)/u,
+    retiredImport,
     /\b(?:ProjectSnapshot|ProviderObservationStore|NativeScopeInspection|SyncReceipt|SyncProjectionResult|SyncResult|RepositoryLifecycleResult|SnapshotState)\b/u,
     /\/api\/v1\/projects\/[^\s`"']*\/(?:sync|inspect-native-scope|reconcile-native)\b/u,
     /\bbearing sync\b/iu,
@@ -89,6 +92,12 @@ test("current product contains no retired command, cache, route, type, or import
     }
   }
   expect(findings).toEqual([]);
+});
+
+test("retired import checks distinguish module specifiers from ordinary synchronization prose", () => {
+  expect('import { old } from "./sync-plan";').toMatch(retiredImport);
+  expect("await import('./provider-observation-store');").toMatch(retiredImport);
+  expect("distinct from recovery after failed synchronization").not.toMatch(retiredImport);
 });
 
 test("Portal authored content has one Host-sanitized HTML sink and no browser Markdown engine", async () => {

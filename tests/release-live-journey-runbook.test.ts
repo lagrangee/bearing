@@ -26,7 +26,7 @@ describe("reusable release Live Journey runbook", () => {
     expect(pointer).toMatch(
       /or defining, running,\s+or reviewing a release Live Journey,[\s\S]*read and follow/u,
     );
-    expect(pointer).not.toContain("gpt-5.6-luna");
+    expect(pointer).not.toContain("gpt-5.6-sol");
     expect(runbook).toContain("# Release Live Journey Runbook");
   });
 
@@ -50,10 +50,10 @@ describe("reusable release Live Journey runbook", () => {
     ]);
     expect(runbook).toContain("[Codex E2E Policy](codex-e2e.md)");
     expect(runbook).toContain("scripts/run-live-journey.ts --help");
-    expect(runbook).not.toContain("gpt-5.6-luna");
+    expect(runbook).not.toContain("gpt-5.6-sol");
     expect(runbook).not.toContain("model_reasoning_effort");
-    expect(codexPolicy).toContain("gpt-5.6-luna");
-    expect(codexPolicy).toContain('model_reasoning_effort="high"');
+    expect(codexPolicy).toContain("gpt-5.6-sol");
+    expect(codexPolicy).toContain('model_reasoning_effort="low"');
   });
 
   test("separates iterative local rehearsal from release evidence", async () => {

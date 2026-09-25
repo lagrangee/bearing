@@ -770,7 +770,10 @@ const nativeStructuralSections = (
       "incoming-issue": "incoming.lifecycle",
     } as const
   )[object.kind];
-  const lifecycle = section(lifecycleRole);
+  const lifecycle = section(
+    lifecycleRole,
+    object.lifecycle.state === "unavailable" ? "unavailable" : "available",
+  );
   const conditional =
     object.kind === "wayfinder-ticket"
       ? object.lifecycle.state === "resolved-on-route"

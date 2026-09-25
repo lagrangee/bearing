@@ -17,10 +17,12 @@ import { basename, delimiter, dirname, isAbsolute, join, normalize, relative } f
 import { z } from "zod";
 
 export const CODEX_E2E_RUNTIME = Object.freeze({
-  model: "gpt-5.6-luna",
-  reasoningEffort: "high",
-  fastMode: true,
+  model: "gpt-5.6-sol",
+  reasoningEffort: "low",
+  fastMode: false,
 } as const);
+
+export const CODEX_E2E_APPROVAL_POLICY = "never" as const;
 
 const codexModelCatalogIdentifierSchema = z
   .string()
@@ -377,7 +379,9 @@ export const codexE2ERuntimeArguments = (override?: unknown): readonly string[] 
     CODEX_E2E_RUNTIME.model,
     "--config",
     `model_reasoning_effort=${JSON.stringify(CODEX_E2E_RUNTIME.reasoningEffort)}`,
-    "--enable",
+    "--config",
+    'service_tier=""',
+    "--disable",
     "fast_mode",
   ];
 };
@@ -680,7 +684,11 @@ export const codexE2ELaunchContract = (input: {
     "--ignore-user-config",
     "--ignore-rules",
     "-c",
-    'approval_policy="on-request"',
+    `developer_instructions=${JSON.stringify(
+      "Before ending a turn, wait for finite commands started for that turn to reach a terminal result. When a tool returns a running session for such a command, wait on that same session until it terminates; do not restart the command as a substitute for waiting.",
+    )}`,
+    "-c",
+    `approval_policy=${JSON.stringify(CODEX_E2E_APPROVAL_POLICY)}`,
     "-c",
     'approvals_reviewer="auto_review"',
     "-c",

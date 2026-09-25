@@ -254,7 +254,10 @@ test("incomplete Asset and Authority sources retain uncertainty in conclusion re
   }
 });
 
-test("installed CLI validates a complete conclusion and rejects inactive Authority Baselines", async () => {
+test.each([
+  "accepted-facts",
+  "derived-readiness",
+] as const)("installed CLI validates conclusion with %s Brief and rejects inactive Authority Baselines", async (synthesis) => {
   const product = await installPackedProduct();
   const root = join(product.root, "conclusion");
   try {
@@ -270,6 +273,11 @@ test("installed CLI validates a complete conclusion and rejects inactive Authori
     expect(captured.exitClass).toBe("success");
     const inspect = async (reference: string) =>
       JSON.parse((await product.run(["inspect", reference, "--repo", root])).stdout);
+    const beforeGate = await inspect("gate:stable-label-output");
+    expect(beforeGate.result.target.value).toMatchObject({
+      lifecycle: "active",
+      readiness: "not-ready",
+    });
     const preservedPaths = [
       ".bearing/state/project-summary.md",
       ".bearing/state/roadmap-index.md",
@@ -368,16 +376,46 @@ Work binding:`,
     );
     const briefPath = ".bearing/state/project-brief.md";
     const originalBrief = await readFile(join(root, briefPath), "utf8");
-    await writeFixture(
-      root,
-      briefPath,
-      originalBrief
-        .replace("Generated at: 2026-08-17T10:00:00Z", "Generated at: 2026-08-18T09:00:00Z")
-        .replace(
-          "with Label Delivery as its active commitment.",
-          "with Label Delivery concluded and the Gate still awaiting its independent decision.",
-        ),
+    const writeBrief = (position: string) =>
+      writeFixture(
+        root,
+        briefPath,
+        originalBrief
+          .replace("Generated at: 2026-08-17T10:00:00Z", "Generated at: 2026-08-18T09:00:00Z")
+          .replace("with Label Delivery as its active commitment.", position),
+      );
+    if (synthesis === "accepted-facts") {
+      await writeBrief(
+        "with Label Delivery concluded and the Gate still awaiting its independent decision.",
+      );
+    }
+    const concludedEffort = await inspect("effort:label-delivery");
+    expect(concludedEffort).toMatchObject({ outcome: "complete", diagnostics: [] });
+    expect((await inspect("diagnostics")).result).toEqual([]);
+    const afterGate = await inspect("gate:stable-label-output");
+    expect(afterGate.generation).toEqual(concludedEffort.generation);
+    expect(afterGate.generation.basisFingerprint).not.toBe(beforeGate.generation.basisFingerprint);
+    expect(afterGate.result.target.value).toMatchObject({
+      lifecycle: "active",
+      readiness: "ready-for-review",
+    });
+    const postTransitionContext = await inspect("project");
+    expect(postTransitionContext.generation).toEqual(afterGate.generation);
+    expect(postTransitionContext.result.roadmapFocus).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          focusedGate: expect.objectContaining({
+            id: "gate:stable-label-output",
+            readiness: "ready-for-review",
+          }),
+        }),
+      ]),
     );
+    if (synthesis === "derived-readiness") {
+      await writeBrief(
+        `with Label Delivery concluded and the Gate ${afterGate.result.target.value.readiness}, awaiting its independent decision.`,
+      );
+    }
     const affected = [
       "effort:label-delivery",
       "asset:label-maintenance",
@@ -402,6 +440,19 @@ Work binding:`,
     expect(
       new Set([...readback.values()].map((result) => JSON.stringify(result.generation))).size,
     ).toBe(1);
+    const brief = readback.get("project-brief:current");
+    if (synthesis === "accepted-facts") {
+      expect(brief?.generation).toEqual(concludedEffort.generation);
+    } else {
+      expect(brief?.generation.basisFingerprint).not.toBe(
+        concludedEffort.generation.basisFingerprint,
+      );
+    }
+    expect(brief?.result.target.value.currentPosition).toBe(
+      synthesis === "accepted-facts"
+        ? "Stable Label Formatting is active at Stable Label Output, with Label Delivery concluded and the Gate still awaiting its independent decision."
+        : "Stable Label Formatting is active at Stable Label Output, with Label Delivery concluded and the Gate ready-for-review, awaiting its independent decision.",
+    );
     expect(readback.get("effort:label-delivery")?.result.target.value).toMatchObject({
       lifecycle: "concluded",
       activatedAt: { availability: "available", value: "2026-08-16T00:05:00Z" },

@@ -908,8 +908,9 @@ else if (args[0] === "api" && args[1] === "repos/example/bearing-validation/issu
       "utf8",
     );
     expect(client).not.toContain("Bun.");
-    expect(client).toContain('sandbox_permissions="require_escalated"');
-    expect(client).toContain("Retry this exact gh or git push command once");
+    expect(client).toContain("GitHub Journey broker is unavailable under the fixed permissions");
+    expect(client).toContain("Temporary permission escalation is disabled");
+    expect(client).not.toContain("require_escalated");
     expect(bearingLauncher).toContain(join(agentHome, ".bearing/bin/bearing"));
     expect(environment).not.toHaveProperty("GH_TOKEN");
     expect(environment).not.toHaveProperty("BEARING_GITHUB_OPERATOR_HOME");
