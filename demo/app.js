@@ -169,7 +169,7 @@ const setFindVisibility = (open, returnFocus = false) => {
     else background.removeAttribute("aria-hidden");
   }
   if (!open) syncNavigationViewport();
-  if (open) requestAnimationFrame(() => findInput?.focus());
+  if (open) findInput?.focus();
   else if (returnFocus) requestAnimationFrame(() => findTrigger?.focus());
 };
 

@@ -91,7 +91,7 @@ Delivery ticket lifecycle or triage state.
 
 | Owner state | Provider follow-up |
 | --- | --- |
-| `human-handoff` | Preserve the owner workflow, scope, pending writes, and resumption point; synchronize through operation 5 only when the material decision needs current observation. After the Human decision, resume at operation 2 before owner mutation. |
+| `human-handoff` | Preserve the owner workflow, scope, pending writes, and resumption point. By default, ask the Human directly and retain claim or partial writes unsynchronized. Synchronize through operation 5 only after identifying the current observation needed for that material decision; a pending claim or ending the Turn alone is not a reason. After the Human decision, resume at operation 2 before owner mutation. |
 | `scope-created-or-identified; accepted-new-binding` | Require the Effort owner's combined Binding and Activation, then the selected Project Read Model operation's successful baseline return before resuming operation 3. |
 | `workflow-complete` | First return to operation 3 for any remaining authorized owner work in the composed request. Once none remains, reconcile each confirmed Binding/scope's complete bound pending set through operation 5. Preserve any standalone result and apply operation 7. With no pending writes, perform no provider synchronization. |
 | `workflow-failed` | Preserve partial effects and the exact resumption point; perform no post-owner provider follow-up. |
