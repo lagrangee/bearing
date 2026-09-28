@@ -1,7 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { planningLineageSubjectHref } from "../src/planning-lineage-route";
+import type { PortalProviderApplicationResponse } from "../src/portal-provider-application-wire";
+import { projectGenerationSchema } from "../src/project-generation/schema";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
+import { browserArtifactPath } from "./browser-artifact-output";
 import {
   projectRowEnvelope,
   projectSectionFromRequest,
@@ -257,4 +260,159 @@ test("settled structural Provider Application states suppress every repeat obser
     await page.unroute(`**/api/v1/projects/${entryId}/read-model?section=*`);
     await page.unroute(`**/api/v1/projects/${entryId}/provider-observation`);
   }
+});
+
+test("Effort source refresh reports bounded outcomes without clearing committed diagnostics", async ({
+  page,
+}, testInfo) => {
+  const entryId = "source-outcomes";
+  const posts: unknown[] = [];
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  const current = projectGenerationSchema.parse({
+    ...snapshot,
+    diagnostics: [
+      ...snapshot.diagnostics,
+      {
+        reference: `diagnostic:${"e".repeat(64)}`,
+        code: "source-evidence-partial",
+        target: "effort:portal",
+        source: snapshot.sources.find(
+          (source) => source.displayLocator === ".bearing/state/efforts/portal.md",
+        )?.reference,
+        message: "One source section still needs review.",
+        impact: "blocking" as const,
+      },
+    ],
+    attention: [
+      ...snapshot.attention,
+      {
+        kind: "structural-diagnostic" as const,
+        diagnosticReference: `diagnostic:${"e".repeat(64)}`,
+      },
+    ],
+  });
+  let reads = 0;
+  await page.route(`**/api/v1/projects/${entryId}/read-model?section=*`, (route) => {
+    reads += 1;
+    return route.fulfill({
+      json: projectRowEnvelope({
+        snapshot: current,
+        section: projectSectionFromRequest(route.request().url()),
+        target: projectTargetFromRequest(route.request().url()),
+        entryId,
+      }),
+    });
+  });
+  let result: PortalProviderApplicationResponse = {
+    version: 1,
+    state: "completed",
+    action: "source-load",
+    acquisitionCount: 1,
+    observations: [{ scope: ".scratch/portal", disposition: "captured" }],
+    diagnostics: [],
+  };
+  let hold = true;
+  let release: (() => void) | undefined;
+  await page.route(`**/api/v1/projects/${entryId}/provider-observation`, async (route) => {
+    posts.push(route.request().postDataJSON());
+    if (hold)
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    return route.fulfill({ json: result });
+  });
+
+  await page.goto(planningLineageSubjectHref(entryId, { kind: "effort", id: "effort:portal" }));
+  await expect(
+    page.getByRole("heading", { name: "Web Portal Validation", level: 1 }),
+  ).toBeVisible();
+  expect(posts).toEqual([]);
+  const source = page.locator(".source-observation-action");
+  const feedback = source.getByRole("status");
+  await source.getByRole("button", { name: "Refresh source" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(feedback).toHaveText("Refreshing source.");
+  await expect(source.getByRole("button", { name: "Refreshing source" })).toBeDisabled();
+  await page.keyboard.press("Enter");
+  expect(posts).toHaveLength(1);
+  await page.screenshot({
+    path: await browserArtifactPath(testInfo, "source-refresh-running.png"),
+  });
+  hold = false;
+  release?.();
+  await expect(feedback).toHaveText("1 source checked.");
+  await expect(source.getByRole("button", { name: "Refresh source" })).toBeFocused();
+  await expect.poll(() => reads).toBe(2);
+  await page.getByRole("button", { name: "Open Technical Details" }).click();
+  await expect(page.getByRole("complementary", { name: "Technical Details" })).toContainText(
+    "One source section still needs review.",
+  );
+  await page.keyboard.press("Escape");
+
+  for (const [disposition, explanation, expected] of [
+    ["captured", "Only part of the source could be read.", "Source evidence published."],
+    [
+      "retained-after-failure",
+      "The provider network was unavailable.",
+      "Refresh failed; previous evidence retained.",
+    ],
+    ["unavailable", "No source evidence could be read.", "Source evidence unavailable."],
+    [
+      "unpublished",
+      "Another operation changed the evidence before publication.",
+      "Acquired evidence was not published.",
+    ],
+  ] as const) {
+    result = {
+      version: 1,
+      state: "attention",
+      action: "source-load",
+      condition: disposition === "unpublished" ? "publication-conflict" : "provider-unavailable",
+      acquisitionCount: 1,
+      observations: [{ scope: ".scratch/portal", disposition }],
+      diagnostics: [{ reference: `source-${disposition}`, summary: explanation }],
+      explanation,
+      nextAction: "Open Bearing in the Agent Surface to inspect the source diagnostic.",
+    };
+    const priorReads = reads;
+    await source.getByRole("button", { name: "Refresh source" }).click();
+    await expect(feedback).toContainText(explanation);
+    await expect(feedback).toContainText(expected);
+    await expect(feedback).toContainText(result.nextAction);
+    await expect(feedback).toBeFocused();
+    await expect(feedback.getByRole("button", { name: "Copy diagnostic reference" })).toBeVisible();
+    await expect.poll(() => reads).toBe(priorReads + 1);
+  }
+  expect(posts).toEqual(
+    Array.from({ length: 5 }, () => ({
+      version: 1,
+      action: "source-load",
+      binding: { provider: "matt-skills/v1", nativeScope: ".scratch/portal" },
+    })),
+  );
+  await expect(
+    page.getByRole("button", { name: /Retry|Repair|Handoff|Copy recovery/ }),
+  ).toHaveCount(0);
+  for (const width of [1280, 640, 375]) {
+    await page.setViewportSize({ width, height: 812 });
+    await expect(feedback).toBeVisible();
+    expect(
+      await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
+    ).toBe(false);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  }
+  await page.screenshot({
+    path: await browserArtifactPath(testInfo, "source-refresh-unpublished-mobile.png"),
+  });
+  await page.setViewportSize({ width: 1280, height: 812 });
+  await page.getByRole("link", { name: "Overview", exact: true }).click();
+  await expect(page.locator(".source-observation-feedback")).toHaveCount(0);
+  await expect(page.getByText("Project Summary has one malformed section.")).toBeVisible();
+  await expect(page.getByText("Review the current sequence", { exact: true })).toBeVisible();
+  expect(posts).toHaveLength(5);
+  expect(errors).toEqual([]);
 });

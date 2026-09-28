@@ -16,6 +16,7 @@ import { expect, test } from "@playwright/test";
 import { planningLineageSubjectHref } from "../src/planning-lineage-route";
 import { buildPortalAssetManifest, writePortalAssetManifest } from "../src/portal/assets";
 import { PORTAL_BUILD_IDENTITY_HEADER } from "../src/portal-build-identity-wire";
+import { portalProjectReadEnvelopeSchema } from "../src/portal-project-read-wire";
 import type { RuntimeReceipt } from "../src/runtime-context";
 import { publishControlledBuild } from "../tests/fixtures/development-build-publication";
 import {
@@ -383,15 +384,18 @@ test("real Host performs only explicit contextual acquisitions without source or
     }
   });
 
-  await page.goto(`${host.url}/projects/ticket-12-refresh`);
-  await expect(page.getByRole("heading", { name: "Fixed Portal Project", level: 1 })).toBeVisible();
-  expect(providerPosts).toEqual([]);
-
   const effortHref = planningLineageSubjectHref("ticket-12-refresh", {
     kind: "effort",
     id: "effort:fixture",
   });
   await page.goto(`${host.url}${effortHref}`);
+  await expect(page.getByRole("button", { name: "Refresh source" })).toBeVisible();
+  expect(providerPosts).toEqual([]);
+  const sourceReadback = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname.endsWith("/read-model"),
+  );
   const sourceResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
@@ -403,6 +407,33 @@ test("real Host performs only explicit contextual acquisitions without source or
     state: "completed",
     action: "source-load",
     acquisitionCount: 1,
+  });
+  await expect(page.locator(".source-observation-feedback")).toHaveText("1 source checked.");
+  expect(JSON.parse(providerPosts[0] ?? "null")).toEqual({
+    version: 1,
+    action: "source-load",
+    binding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
+  });
+  const sourceRows = portalProjectReadEnvelopeSchema.parse(await (await sourceReadback).json());
+  if (sourceRows.state !== "ready") throw new Error("Refresh readback was not ready.");
+  expect(sourceRows.rows.objects).toContainEqual(
+    expect.objectContaining({
+      kind: "portal-native-evidence",
+      value: expect.objectContaining({
+        observation: expect.objectContaining({
+          observedAt: sourceResult.observations[0].observedAt,
+        }),
+      }),
+    }),
+  );
+  await expect(
+    page.locator(
+      `.source-observation-action time[datetime="${sourceResult.observations[0].observedAt}"]`,
+    ),
+  ).toBeVisible();
+  expect(await readRepositorySourceBytes(fixtureRoot)).toEqual(sourceBytes);
+  await page.screenshot({
+    path: await browserArtifactPath(testInfo, "effort-source-refresh-completed.png"),
   });
 
   await page.goto(`${host.url}/projects/ticket-12-refresh`);

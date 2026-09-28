@@ -233,6 +233,11 @@
   color: color-mix(in oklch, var(--warning) 72%, var(--ink));
   border-top: 1px solid color-mix(in oklch, var(--warning) 45%, var(--border));
 }
+.source-observation-feedback[data-state="running"],
+.source-observation-feedback[data-state="completed"] {
+  color: var(--muted);
+  border-top-color: var(--border);
+}
 .source-observation-feedback .provider-observation-time {
   color: inherit;
 }
