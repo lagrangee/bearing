@@ -103,7 +103,12 @@ export const buildProjectGeneration = async (
       ...(planning.efforts.validity === "invalid"
         ? []
         : planning.efforts.items.flatMap((effort) =>
-            effort.workBindingState.state !== "bound" || effort.workBinding === undefined
+            effort.workBinding === undefined ||
+            (effort.workBindingState.state !== "bound" &&
+              !(
+                effort.workBindingState.state === "invalid" &&
+                effort.workBindingState.reason === "unresolved"
+              ))
               ? []
               : [effort.workBinding.nativeScope],
           )),

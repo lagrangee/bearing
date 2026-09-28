@@ -170,6 +170,13 @@ export function ProjectPage({
     document.activeElement instanceof HTMLElement
       ? projectCanvasFocusKey(document.activeElement)
       : undefined;
+  useEffect(() => {
+    if (section !== "overview" || semanticAnchor !== "attention-queue" || snapshot === undefined)
+      return;
+    const queue = document.getElementById("attention-queue");
+    queue?.focus();
+    queue?.scrollIntoView();
+  }, [section, semanticAnchor, snapshot]);
   const navigateFromProject = (href: string, focusKey = currentFocusKey()) => {
     captureProjectCanvasReturn(entryId, section, focusKey);
     onNavigate(href);
@@ -425,6 +432,8 @@ export function ProjectPage({
       className={`portal-shell${navOpen ? " nav-open" : ""}${selection ? " has-technical-details" : ""}`}
     >
       <ProjectTopbar
+        entryId={entryId}
+        onNavigate={navigateFromProject}
         attentionCount={snapshot?.attentionCount}
         findDisabled={snapshot === undefined}
         findRef={findTriggerRef}

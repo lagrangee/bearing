@@ -2059,7 +2059,13 @@ const effortWorkRegion = (
   effort: Effort,
   readingState?: MattNativeWorkReadingState | undefined,
 ): MattNativeWorkRegionModel | undefined => {
-  if (effort.workBindingState.state !== "bound") return undefined;
+  if (
+    effort.workBindingState.state !== "bound" &&
+    !(
+      effort.workBindingState.state === "invalid" && effort.workBindingState.reason === "unresolved"
+    )
+  )
+    return undefined;
   const binding = effort.workBinding;
   if (binding === undefined) throw new TypeError("Bound Effort requires its Work Binding.");
   const observation =
@@ -2081,7 +2087,7 @@ const effortWorkRegion = (
         observation,
         snapshot.providerObservationSelections,
         context,
-        readingState,
+        effort.workBindingState.state === "bound" ? readingState : undefined,
       );
 };
 

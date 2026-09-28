@@ -14,9 +14,7 @@ export function OverviewAttention({
   if (attention.length === 0) return null;
   const items: AttentionQueueItem[] = attention.map((item) => {
     const subject =
-      item.kind === "review"
-        ? ({ kind: "planning-review", id: item.key } as const)
-        : item.nativeSubject;
+      item.kind === "review" ? ({ kind: "planning-review", id: item.key } as const) : item.subject;
     return {
       key: item.key,
       kind: item.kind,

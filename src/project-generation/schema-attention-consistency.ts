@@ -25,7 +25,7 @@ export type AttentionConsistencySnapshot = Readonly<{
   efforts: Collection<
     Readonly<{
       workBinding?: Readonly<{ nativeScope: string }> | undefined;
-      workBindingState: Readonly<{ state: "bound" | "invalid" | "not-created" }>;
+      workBindingState: Readonly<{ state: "bound" | "invalid" | "not-created"; reason?: string }>;
     }>
   >;
   assets: Collection<Readonly<{ id: string }>>;
@@ -64,7 +64,12 @@ export const validateAttentionConsistency = (
   const managedTargets = [
     ...trustedItems(snapshot.assets).map((asset) => asset.id),
     ...trustedItems(snapshot.efforts).flatMap((effort) =>
-      effort.workBindingState.state !== "bound" || effort.workBinding === undefined
+      effort.workBinding === undefined ||
+      (effort.workBindingState.state !== "bound" &&
+        !(
+          effort.workBindingState.state === "invalid" &&
+          effort.workBindingState.reason === "unresolved"
+        ))
         ? []
         : [effort.workBinding.nativeScope],
     ),

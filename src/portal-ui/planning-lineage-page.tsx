@@ -4,6 +4,7 @@ import type {
   RequestedPlanningLineageSubject,
 } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
+import { targetWithinNativeScope } from "../project-generation/managed-attention";
 import type { MattSemanticSectionAvailability } from "../providers/matt-skills-v1/model";
 import type {
   MattNativeWorkRegionCount,
@@ -107,11 +108,22 @@ const technicalDetailsSelection = (
   snapshot: LineageModelData,
 ): TechnicalDetailsSelection => {
   const source = model.subject.source;
+  const effort =
+    model.subject.kind === "effort" && snapshot.efforts.validity !== "invalid"
+      ? snapshot.efforts.items.find((candidate) => candidate.id === model.subject.id)
+      : undefined;
+  const scope =
+    effort?.workBindingState.state === "bound" ||
+    (effort?.workBindingState.state === "invalid" &&
+      effort.workBindingState.reason === "unresolved")
+      ? effort.workBinding?.nativeScope
+      : undefined;
   const diagnostics = snapshot.diagnostics.filter(
     (diagnostic) =>
       diagnostic.target === model.subject.id ||
       diagnostic.target === source?.displayLocator ||
-      diagnostic.source === source?.reference,
+      diagnostic.source === source?.reference ||
+      (scope !== undefined && targetWithinNativeScope(diagnostic.target, scope)),
   );
   const asset =
     model.subject.kind === "asset" && snapshot.assets.validity !== "invalid"
@@ -212,7 +224,8 @@ const technicalDetailsSelection = (
           diagnostics.length === 0
             ? ["No diagnostics are recorded for this subject."]
             : diagnostics.map(
-                (diagnostic) => `${diagnostic.impact} · ${diagnostic.code} · ${diagnostic.message}`,
+                (diagnostic) =>
+                  `${diagnostic.impact} · ${diagnostic.code} · ${diagnostic.message} · Target: ${diagnostic.target} · Reference: ${diagnostic.reference}`,
               ),
       },
     ],
