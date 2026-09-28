@@ -328,6 +328,7 @@ const frontierForWayfinder = (
   trustworthy: boolean,
 ): MattNativeWorkRegionFrontier => {
   if (ticket.lifecycle.state !== "open") return "resolved";
+  if (ticket.trackerClosure.state === "closed") return "uncertain";
   if (blockers.some((blocker) => !terminalReferences.has(blocker))) return "blocked";
   if (ticket.claim.state === "claimed") return "claimed";
   return trustworthy && semanticEvidenceComplete(ticket) ? "ready" : "uncertain";

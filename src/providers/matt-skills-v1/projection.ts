@@ -177,7 +177,10 @@ export const mattPlanningPresentation = (
       const blockers = blockedBy(ticket.ref);
       const resolved = completed.has(ticket.ref);
       const state =
-        ticket.lifecycle.state === "completion-unavailable"
+        ticket.lifecycle.state === "completion-unavailable" ||
+        (ticket.kind === "wayfinder-ticket" &&
+          ticket.lifecycle.state === "open" &&
+          ticket.trackerClosure.state === "closed")
           ? "uncertain"
           : resolved
             ? "resolved"
