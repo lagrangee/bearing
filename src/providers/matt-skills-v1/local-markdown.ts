@@ -19,7 +19,6 @@ import {
 } from "../../markdown-document";
 import { affectedReadReferences } from "../../native-reconciliation-contract";
 import {
-  assessProviderObservationEvidence,
   type CapturedProviderDocuments,
   createProviderScopeObservation,
   type NativeWorkReconciliationInput,
@@ -604,7 +603,7 @@ const blockerReferences = (
     value === UPSTREAM_NO_BLOCKERS_SENTINEL
   )
     return [];
-  const entries = value.split(",").map((entry) => entry.trim());
+  const entries = value.split(/[,;]/u).map((entry) => entry.trim());
   const references: string[] = [];
   for (const entry of entries) {
     const match = /^(\d+)(?:\s+—\s+([^,;]+))?$/u.exec(entry);
@@ -622,7 +621,7 @@ const blockerReferences = (
           "matt.local.relation.blocked-by-format",
           "format",
           file.locator,
-          `Blocked by must be "${NO_BLOCKERS_SENTINEL}" or a comma-separated list of ticket numbers with optional em-dash titles.`,
+          `Blocked by must be "${NO_BLOCKERS_SENTINEL}" or a comma- or semicolon-separated list of ticket numbers with optional em-dash titles.`,
         ),
       );
       return [];
@@ -1452,6 +1451,24 @@ const lifecycleWithMapEvidence = (
       },
     };
   }
+  if (
+    decisions.length === 1 &&
+    dispositions.length === 1 &&
+    ticket.trackerClosure.state === "closed"
+  ) {
+    // An exclusion can cite one candidate within a resolved decision. The links
+    // alone cannot prove a whole-ticket disposition; retain closure without a route.
+    diagnostics.push(
+      diagnostic(
+        "matt.local.relation.route-unclassified",
+        "mapping",
+        String(ticket.ref),
+        "The closed ticket is referenced by both a decision and an exclusion; its resolution route is undetermined.",
+        "non-blocking",
+      ),
+    );
+    return ticket;
+  }
   if (decisions.length + dispositions.length > 1) {
     diagnostics.push(
       diagnostic(
@@ -1512,6 +1529,9 @@ const scopeCompletion = (
   if (
     projection.map?.lifecycle.state === "unavailable" ||
     projection.spec?.lifecycle.state === "unavailable" ||
+    projection.wayfinderTickets.some(
+      (ticket) => ticket.trackerClosure.state === "closed" && ticket.lifecycle.state === "open",
+    ) ||
     projection.deliveryTickets.some(
       (ticket) =>
         ticket.lifecycle.state === "completion-unavailable" &&
@@ -2245,9 +2265,17 @@ const localReconciliationProjection = async (
   const capturedAt = (options.clock ?? (() => new Date()))().toISOString();
   const diagnostics: CaptureDiagnostic[] = [];
   const priorProjection = input.prior?.projection ?? emptyProjection();
+  // A complete current acquisition remains a reconciliation basis even when
+  // the captured facts cannot determine workflow completion.
   const partialBasis =
     input.prior === undefined ||
-    assessProviderObservationEvidence(input.prior).frontierEvidence !== "trustworthy" ||
+    input.prior.state !== "available" ||
+    input.prior.freshness.assessment !== "current" ||
+    input.prior.coverage.assessment !== "complete" ||
+    input.prior.coverage.dimensions.some(
+      (dimension) => dimension.state === "gap" || dimension.state === "conflict",
+    ) ||
+    input.prior.diagnostics.some((item) => item.impact === "blocking") ||
     !input.prior.coverage.dimensions.some(
       (dimension) =>
         (dimension.key === "scope-membership" || dimension.key === "scope-membership-basis") &&

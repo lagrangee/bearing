@@ -26,7 +26,7 @@ Issues and PRDs for this repo live as markdown files in \`.scratch/\`.
 - The PRD is \`.scratch/<feature-slug>/PRD.md\`
 - Implementation issues are \`.scratch/<feature-slug>/issues/<NN>-<slug>.md\`, numbered from \`01\`
 - Triage state is recorded as a \`Status:\` line near the top of each issue file (see \`triage-labels.md\` for the role strings)
-- New tickets use \`Blocked by: None — can start immediately\` when unblocked; otherwise they use comma-separated numeric ticket IDs, optionally followed by a spaced em-dash title. Historical omission is readable as unblocked; semicolons and undeclared prose are invalid.
+- New tickets use \`Blocked by: None — can start immediately\` when unblocked; otherwise they use comma-separated numeric ticket IDs, optionally followed by a spaced em-dash title. Historical omission and unambiguous semicolon-separated lists are readable; empty entries and undeclared prose are invalid.
 - Comments and conversation history append to the bottom of the file under a \`## Comments\` heading
 
 ## Wayfinding operations
@@ -579,7 +579,8 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       "None — can start immediately。",
       "None — can start immediately. extra",
       "none — can start immediately.",
-      "01; 03",
+      "01;; 03",
+      "01;",
       "01,",
       "01,,03",
       "01 because it must finish",
@@ -687,7 +688,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       [`${nativeScope}/issues/05-delivery.md`, `${nativeScope}/issues/01-research.md`],
     ]);
 
-    for (const malformed of ["01; 03", "01 because it must finish", "01 trailing garbage"]) {
+    for (const malformed of ["01;; 03", "01 because it must finish", "01 trailing garbage"]) {
       await writeFixture(
         root,
         `${nativeScope}/issues/04-task.md`,
@@ -773,7 +774,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       expect(result.diagnostics).toEqual([]);
     }
 
-    const malformed = await reconcile("01; 03");
+    const malformed = await reconcile("01;; 03");
     expect(malformed.state).toBe("partial");
     expect(malformed.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
       "matt.local.relation.blocked-by-format",
@@ -987,7 +988,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
         "## Out of scope\n\n- [Research the semantic contract](issues/01-research.md) — Contradict the decision.",
       ),
       index: 0,
-      code: "matt.local.relation.ambiguous",
+      code: "matt.local.relation.route-unclassified",
     },
     {
       name: "disposition and decision",
@@ -996,7 +997,7 @@ describe("Local Markdown matt-skills/v1 capture", () => {
         "## Decisions so far\n\n- [Grill the ontology boundary](issues/03-grilling.md) — Contradict the disposition.",
       ),
       index: 2,
-      code: "matt.local.relation.ambiguous",
+      code: "matt.local.relation.route-unclassified",
     },
     {
       name: "removed disposition",
@@ -1018,7 +1019,9 @@ describe("Local Markdown matt-skills/v1 capture", () => {
       );
 
       expect(targetedReads).toEqual([locator]);
-      expect(targeted.state).toBe("partial");
+      expect(targeted.state).toBe(
+        route.code === "matt.local.relation.route-unclassified" ? "available" : "partial",
+      );
       expect(targeted.completion).toBe("undetermined");
       expect(targeted.projection?.wayfinderTickets[route.index]).toMatchObject({
         lifecycle: { state: "open" },

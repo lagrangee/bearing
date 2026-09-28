@@ -407,10 +407,11 @@ const diagnostic = (
   diagnosticClass: ProviderDiagnostic["class"],
   target: string,
   message: string,
+  impact: ProviderDiagnostic["impact"] = "blocking",
 ): ProviderDiagnostic => ({
   code,
   class: diagnosticClass,
-  impact: "blocking",
+  impact,
   target,
   message,
 });
@@ -1689,22 +1690,32 @@ const decodeWayfinder = (
   const decisions = map?.decisions.filter((entry) => entry.ticket === reference) ?? [];
   const dispositions = map?.outOfScope.filter((entry) => entry.ticket === reference) ?? [];
   const routeAmbiguous = decisions.length + dispositions.length > 1;
+  const routeUnclassified =
+    decisions.length === 1 && dispositions.length === 1 && acquired.issue.state === "closed";
   const decision = !routeAmbiguous && decisions.length === 1 ? decisions[0] : undefined;
   const disposition = !routeAmbiguous && dispositions.length === 1 ? dispositions[0] : undefined;
   if (routeAmbiguous) {
     diagnostics.push(
       diagnostic(
-        "matt.github.workflow.route-ambiguous",
+        routeUnclassified
+          ? "matt.github.workflow.route-unclassified"
+          : "matt.github.workflow.route-ambiguous",
         "mapping",
         acquired.issue.html_url,
-        "Wayfinder ticket has duplicate or conflicting canonical Map route pointers.",
+        routeUnclassified
+          ? "The closed ticket is referenced by both a decision and an exclusion; its resolution route is undetermined."
+          : "Wayfinder ticket has duplicate or conflicting canonical Map route pointers.",
+        routeUnclassified ? "non-blocking" : "blocking",
       ),
     );
   }
+  // A unique decision can still identify its Answer when the exclusion leaves
+  // the whole-ticket route unclassified.
+  const answerDecision = decision ?? (routeUnclassified ? decisions[0] : undefined);
   const decisionLink =
-    decision === undefined
+    answerDecision === undefined
       ? undefined
-      : canonicalIssueLink(decision.sourceAnchor.target, repository);
+      : canonicalIssueLink(answerDecision.sourceAnchor.target, repository);
   const answerComment =
     decisionLink?.commentId === undefined
       ? undefined
@@ -1712,11 +1723,17 @@ const decodeWayfinder = (
   const referencedAnswerCount =
     decisionLink?.commentId === undefined
       ? 0
-      : [...(map?.decisions ?? []), ...(map?.outOfScope ?? [])].filter(
-          (entry) =>
-            canonicalIssueLink(entry.sourceAnchor.target, repository)?.commentId ===
-            decisionLink.commentId,
-        ).length;
+      : [...(map?.decisions ?? []), ...(map?.outOfScope ?? [])].filter((entry) => {
+          const link = canonicalIssueLink(entry.sourceAnchor.target, repository);
+          if (
+            routeUnclassified &&
+            entry === dispositions[0] &&
+            link?.number === decisionLink.number &&
+            link?.commentId === decisionLink.commentId
+          )
+            return false;
+          return link?.commentId === decisionLink.commentId;
+        }).length;
   const uniqueAnswer =
     answerComment?.length === 1 && referencedAnswerCount === 1 ? answerComment[0] : undefined;
   const claim: MattWayfinderTicket["claim"] =
@@ -3100,6 +3117,9 @@ const githubScopeCompletion = (
   if (
     projection.map?.lifecycle.state === "unavailable" ||
     projection.spec?.lifecycle.state === "unavailable" ||
+    projection.wayfinderTickets.some(
+      (ticket) => ticket.trackerClosure.state === "closed" && ticket.lifecycle.state === "open",
+    ) ||
     projection.deliveryTickets.some(
       (ticket) =>
         ticket.lifecycle.state === "completion-unavailable" &&

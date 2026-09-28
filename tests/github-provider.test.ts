@@ -3207,7 +3207,10 @@ Intervening prose keeps the lists structurally distinct.
     }
   });
 
-  test("fails closed when Map route or Answer pointers are not unique", async () => {
+  test.each([
+    "duplicate",
+    "mixed",
+  ] as const)("preserves evidence without choosing a %s Map route", async (route) => {
     const ambiguousMap = githubIssue({
       number: 1,
       title: "Ambiguous route Map",
@@ -3219,7 +3222,8 @@ Require one durable route pointer.
 ## Decisions so far
 
 - [Research route](https://github.com/example/reference/issues/3#issuecomment-303) — First gist.
-- [Research route](https://github.com/example/reference/issues/3#issuecomment-303) — Duplicate gist.
+${route === "mixed" ? "\n## Out of scope\n" : ""}
+- [Research route](https://github.com/example/reference/issues/3#issuecomment-303) — Excluded capability.
 `,
     });
     const closedTicket = githubIssue({
@@ -3257,18 +3261,64 @@ Which route pointer is canonical?
       };
     }
     const nativeScope = nativeScopeFor(ambiguousMap, "wayfinder-map");
-    const result = await createGitHubMattProvider({
+    const provider = createGitHubMattProvider({
       repoRoot: await createRepository(),
       contractLocator,
       triageLocator,
       transport: new FixtureGitHubTransport(fixtures),
       clock: () => new Date("2026-07-28T00:00:00Z"),
-    }).capture({ provider: "matt-skills/v1", nativeScope });
+    });
+    const binding = { provider: "matt-skills/v1" as const, nativeScope };
+    const result = await provider.capture(binding);
 
-    expect(result.state).toBe("partial");
+    expect(result.state).toBe(route === "mixed" ? "available" : "partial");
+    expect(result.completion).toBe("undetermined");
     expect(result.diagnostics.map((item) => item.code)).toContain(
-      "matt.github.workflow.route-ambiguous",
+      route === "mixed"
+        ? "matt.github.workflow.route-unclassified"
+        : "matt.github.workflow.route-ambiguous",
     );
+    if (route === "mixed") {
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({
+          code: "matt.github.workflow.route-unclassified",
+          impact: "non-blocking",
+        }),
+      ]);
+      expect(result.projection?.wayfinderTickets[0]).toMatchObject({
+        lifecycle: { state: "open" },
+        trackerClosure: { state: "closed", disposition: "completed" },
+        answer: {
+          availability: "available",
+          content: { document: [{ markdown: "One comment, two Map references." }] },
+        },
+        comments: [],
+      });
+      const targeted = await provider.reconcile?.({
+        binding,
+        prior: result,
+        affected: { subjects: [ambiguousMap.html_url] },
+      });
+      expect(targeted?.state).toBe("available");
+      expect(targeted?.completion).toBe("undetermined");
+      expect(targeted?.projection).toEqual(result.projection);
+      const region = buildMattNativeWorkRegion(
+        result,
+        [
+          {
+            ...binding,
+            observationId: result.id,
+            effectiveFreshness: result.freshness.assessment,
+            latestAttempt: null,
+          },
+        ],
+        { state: "bound", effortIds: ["effort:mixed"] },
+      );
+      expect(region.roles.find((role) => role.role === "wayfinder")?.items[0]?.frontier).toBe(
+        "uncertain",
+      );
+      return;
+    }
     expect(result.projection?.wayfinderTickets[0]).toMatchObject({
       lifecycle: { state: "open" },
       answer: {

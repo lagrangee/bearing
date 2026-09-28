@@ -6,7 +6,9 @@ import {
   createLocalMarkdownMattProvider,
   type LocalMarkdownCaptureEvent,
 } from "../src/providers/matt-skills-v1/local-markdown";
+import { mattPlanningPresentation } from "../src/providers/matt-skills-v1/projection";
 import { mattSkillsV1ProviderObservationSchema } from "../src/providers/matt-skills-v1/schema";
+import { buildMattNativeWorkRegion } from "../src/providers/matt-skills-v1/work-region";
 import { makeTemporaryDirectory, writeFixture } from "./helpers";
 
 // Raw templates and their pinned official provenance are maintained together in this fixture.
@@ -96,6 +98,170 @@ const reconcileAndCapture = async (root: string, change: () => Promise<readonly 
 };
 
 describe("current upstream Matt Local contract", () => {
+  test("Delivery semicolon-separated blockers preserve both identities in both acquisition paths", async () => {
+    const root = await repository();
+    const blocked = `${nativeScope}/issues/03-dependent.md`;
+    try {
+      await writeFixture(
+        root,
+        `${nativeScope}/issues/02-second.md`,
+        (await deliverySource()).replace(
+          "01: Deliver the accepted slice",
+          "02: Prepare another slice",
+        ),
+      );
+      await writeFixture(
+        root,
+        blocked,
+        (await deliverySource())
+          .replace("01: Deliver the accepted slice", "03: Deliver the dependent slice")
+          .replace("None (can start immediately)", "01, 02"),
+      );
+      const { targeted } = await reconcileAndCapture(root, async () => {
+        await writeFixture(
+          root,
+          blocked,
+          (await readFile(join(root, blocked), "utf8")).replace(
+            "01, 02",
+            "01 — Deliver the accepted slice; 02 — Prepare another slice",
+          ),
+        );
+        return [blocked];
+      });
+      expect(targeted.state).toBe("available");
+      expect(targeted.diagnostics).toEqual([]);
+      expect(
+        targeted.projection?.graph.blockedBy.map(({ blocked, blocker }) => [
+          String(blocked),
+          String(blocker),
+        ]),
+      ).toEqual([
+        [blocked, ticketLocator],
+        [blocked, `${nativeScope}/issues/02-second.md`],
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a Map exclusion may cite a resolved decision about mixed capability candidates", async () => {
+    const root = await repository();
+    const mapLocator = `${nativeScope}/map.md`;
+    const decision = `${nativeScope}/issues/02-candidates.md`;
+    const map = `# Capability decisions
+
+Status: resolved
+
+## Destination
+
+Decide which candidate capabilities belong in the effort.
+
+## Notes
+
+## Decisions so far
+
+- [Decide capability candidates](issues/02-candidates.md) — Include atomic writes and CLI parsing; exclude generic JSON.
+
+## Not yet specified
+
+## Out of scope
+`;
+    try {
+      await writeFixture(
+        root,
+        decision,
+        `# Decide capability candidates
+
+Type: grilling
+
+Status: resolved
+
+## Question
+
+Which candidate capabilities should be included?
+
+## Answer
+
+Include atomic writes and CLI parsing. Exclude generic JSON canonicalization.
+`,
+      );
+      await writeFixture(root, mapLocator, map);
+      await writeFixture(
+        root,
+        ticketLocator,
+        (await deliverySource()).replace("None (can start immediately)", "02"),
+      );
+      const { targeted } = await reconcileAndCapture(root, async () => {
+        await writeFixture(
+          root,
+          mapLocator,
+          `${map}
+- [Generic JSON canonicalization](issues/02-candidates.md) — Keep only the bounded serializer.
+`,
+        );
+        return [mapLocator];
+      });
+      expect(targeted.state).toBe("available");
+      expect(targeted.completion).toBe("undetermined");
+      expect(targeted.diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: "matt.local.relation.route-unclassified",
+          impact: "non-blocking",
+          target: decision,
+        }),
+      );
+      expect(targeted.projection?.wayfinderTickets[0]).toMatchObject({
+        lifecycle: { state: "open" },
+        trackerClosure: { state: "closed", disposition: "completed" },
+      });
+      expect(
+        mattPlanningPresentation(targeted).tickets.find((ticket) => ticket.reference === decision)
+          ?.state,
+      ).toBe("uncertain");
+      expect(
+        mattPlanningPresentation(targeted).tickets.find(
+          (ticket) => ticket.reference === ticketLocator,
+        )?.state,
+      ).toBe("blocked");
+      const region = buildMattNativeWorkRegion(
+        targeted,
+        [
+          {
+            ...targeted.binding,
+            observationId: targeted.id,
+            effectiveFreshness: targeted.freshness.assessment,
+            latestAttempt: null,
+          },
+        ],
+        { state: "bound", effortIds: ["effort:candidates"] },
+      );
+      expect(region.roles.find((role) => role.role === "wayfinder")?.items[0]?.frontier).toBe(
+        "uncertain",
+      );
+      expect(region.roles.find((role) => role.role === "delivery")?.items[0]?.frontier).toBe(
+        "blocked",
+      );
+      expect(targeted.projection?.map?.outOfScope[0]?.rationale).toContain("bounded serializer");
+      expect(targeted.projection?.map?.native.sourceAnchors).toContainEqual({
+        kind: "source",
+        target: "issues/02-candidates.md",
+      });
+      const { targeted: restored } = await reconcileAndCapture(root, async () => {
+        await writeFixture(root, mapLocator, map);
+        return [mapLocator];
+      });
+      expect(restored.diagnostics).toEqual([]);
+      expect(restored.projection?.wayfinderTickets[0]?.lifecycle.state).toBe("resolved-on-route");
+      expect(
+        mattPlanningPresentation(restored).tickets.find(
+          (ticket) => ticket.reference === ticketLocator,
+        )?.state,
+      ).toBe("ready");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("conflicting completion evidence is not treated as an ordinary missing convention", async () => {
     const root = await repository();
     try {
