@@ -536,11 +536,17 @@
   color: inherit;
   text-underline-offset: 3px;
 }
-.effort-rollup-table th:first-child {
-  width: 28%;
-}
-.effort-rollup-table th:last-child {
-  width: 22%;
+@media (min-width: 821px) {
+  .effort-rollup-table th:first-child {
+    width: 28%;
+  }
+  .effort-rollup-table th:nth-child(2) {
+    width: 12%;
+  }
+  .effort-rollup-table th:nth-child(3),
+  .effort-rollup-table th:nth-child(4) {
+    width: 15%;
+  }
 }
 .outcome-spine > header {
   margin-bottom: var(--space-5);

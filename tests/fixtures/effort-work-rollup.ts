@@ -87,6 +87,11 @@ export const createAvailableLifecycleTimeFixture = (): ProjectGeneration => {
         effort.id === "effort:model"
           ? effortSchema.parse({
               ...effort,
+              plannedAt: {
+                availability: "available",
+                value: "2026-07-29T08:00:00Z",
+                precision: "second",
+              },
               conclusion: {
                 ...effort.conclusion,
                 concludedAt: {

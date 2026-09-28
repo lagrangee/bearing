@@ -23,6 +23,7 @@ import { authoritySchema, effortSchema } from "../src/project-generation/schema"
 import { assetProjectionSchema } from "../src/project-generation/schema-asset";
 import { createSourceRecord } from "../src/project-generation/source-records";
 import { mattProviderSemanticSections } from "../src/providers/matt-skills-v1/projection";
+import type { SourceEventTime } from "../src/source-event-time";
 import {
   createAttentionWithoutActiveWorkFixture,
   createAvailableLifecycleTimeFixture,
@@ -698,16 +699,134 @@ test("renders empty active work with remaining Attention and uncertain independe
   expect(html).toContain('#native-work-resolved">At least 0</a>');
 });
 
-test("renders an available canonical lifecycle time in its independent Gate column", () => {
+const rollupTimeCases = ["planned", "active", "completed", "withdrawn", "superseded"] as const;
+for (const state of rollupTimeCases) {
+  test.each([
+    [true, true],
+    [true, false],
+    [false, true],
+    [false, false],
+  ])(`keeps ${state} rollup event times independent (planned=%s, status=%s)`, (hasPlanned, hasStatus) => {
+    const snapshot = createProjectOverviewFixture();
+    if (snapshot.efforts.validity === "invalid" || snapshot.gates.validity === "invalid") {
+      throw new Error("Expected Efforts and Gates.");
+    }
+    const replacement = snapshot.efforts.items.find((effort) => effort.id === "effort:portal");
+    if (replacement === undefined) throw new Error("Expected replacement Effort.");
+    const eventTime = (value: string, available: boolean): SourceEventTime =>
+      available
+        ? { availability: "available", value, precision: "second" }
+        : { availability: "unavailable" };
+    const plannedValue = "2026-07-29T08:00:00Z";
+    const activatedValue = "2026-07-30T09:00:00Z";
+    const concludedValue = "2026-07-31T10:00:00Z";
+    const lifecycle = state === "planned" || state === "active" ? state : "concluded";
+    const html = render(
+      { validity: "valid", value: { kind: "gate", id: "gate:one" } },
+      {
+        snapshot: withLineage({
+          ...snapshot,
+          gates: {
+            ...snapshot.gates,
+            items: snapshot.gates.items.map((gate) =>
+              state !== "superseded"
+                ? gate
+                : {
+                    ...gate,
+                    effortIds:
+                      gate.id === "gate:one"
+                        ? [...gate.effortIds, replacement.id]
+                        : gate.effortIds.filter((id) => id !== replacement.id),
+                  },
+            ),
+          },
+          efforts: {
+            ...snapshot.efforts,
+            items: snapshot.efforts.items.map((effort) =>
+              effort.id === "effort:model"
+                ? effortSchema.parse({
+                    ...effort,
+                    lifecycle,
+                    plannedAt: eventTime(plannedValue, hasPlanned),
+                    ...(lifecycle === "planned"
+                      ? {
+                          activatedAt: undefined,
+                          conclusion: undefined,
+                          workBinding: undefined,
+                          workBindingState: { state: "not-created" },
+                        }
+                      : {
+                          activatedAt: eventTime(
+                            activatedValue,
+                            lifecycle === "active" ? hasStatus : true,
+                          ),
+                          conclusion:
+                            lifecycle === "concluded"
+                              ? {
+                                  disposition: state,
+                                  rationale: "Accepted conclusion.",
+                                  concludedAt: eventTime(concludedValue, hasStatus),
+                                  ...(state === "superseded"
+                                    ? { replacementEffortId: "effort:portal" }
+                                    : {}),
+                                }
+                              : undefined,
+                        }),
+                  })
+                : state === "superseded" && effort.id === "effort:portal"
+                  ? effortSchema.parse({ ...effort, targetGateId: "gate:one" })
+                  : effort,
+            ),
+          },
+        }),
+      },
+    );
+    const table = html.slice(
+      html.indexOf('<table class="effort-rollup-table">'),
+      html.indexOf("</table>"),
+    );
+    const cell = (label: string) => {
+      const start = table.indexOf(`<td data-label="${label}">`);
+      return table.slice(start, table.indexOf("</td>", start) + 5);
+    };
+    const expectedStatus =
+      lifecycle === "planned"
+        ? plannedValue
+        : lifecycle === "active"
+          ? activatedValue
+          : concludedValue;
+    const statusAvailable = lifecycle === "planned" ? hasPlanned : hasStatus;
+    for (const [label, available, value] of [
+      ["Planned", hasPlanned, plannedValue],
+      ["Status since", statusAvailable, expectedStatus],
+    ] as const) {
+      expect(table).toContain(`<th scope="col">${label}</th>`);
+      if (available) {
+        expect(cell(label)).toContain(`<time dateTime="${value}">`);
+        expect(cell(label)).toContain(`${label}: `);
+      } else {
+        expect(cell(label)).toBe(`<td data-label="${label}">Unavailable</td>`);
+      }
+    }
+    expect(table).not.toContain("Lifecycle time");
+    expect(table.indexOf('data-label="Planned"')).toBeLessThan(
+      table.indexOf('data-label="Status since"'),
+    );
+    expect(table.indexOf('data-label="Status since"')).toBeLessThan(
+      table.indexOf('data-label="Claimed"'),
+    );
+  });
+}
+
+test("renders distinct Planned and Status since instants through compact time disclosure", () => {
   const html = render(
     { validity: "valid", value: { kind: "gate", id: "gate:one" } },
     { snapshot: createAvailableLifecycleTimeFixture() },
   );
-
+  expect(html).toContain('<time dateTime="2026-07-29T08:00:00Z">');
   expect(html).toContain('<time dateTime="2026-07-31T10:00:00Z">');
   expect(html).toContain('class="source-event-time compact"');
   expect(html).toContain("data-absolute=");
-  expect(html).not.toContain(">Jul 31, 2026 at 6:00 PM</time>");
 });
 
 test("renders bounded Planning Basis, Outputs, and Governance as Effort-owned regions", async () => {
@@ -1125,11 +1244,12 @@ test("keeps Roadmap and Gate Effort relations in their single semantic owners", 
   for (const heading of [
     "Effort",
     "Lifecycle",
+    "Planned",
+    "Status since",
     "Claimed",
     "Ready",
     "Blocked",
     "Resolved",
-    "Lifecycle time",
   ]) {
     expect(summarySection).toContain(`<th scope="col">${heading}</th>`);
   }
@@ -1141,7 +1261,8 @@ test("keeps Roadmap and Gate Effort relations in their single semantic owners", 
   expect(summarySection).toContain('<td data-label="Ready">1</td>');
   expect(summarySection).toContain('<td data-label="Blocked">1</td>');
   expect(summarySection).toContain('<td data-label="Resolved">0</td>');
-  expect(summarySection).toContain('<td data-label="Lifecycle time">Unavailable</td>');
+  expect(summarySection).toContain('<td data-label="Planned">Unavailable</td>');
+  expect(summarySection).toContain('<td data-label="Status since">Unavailable</td>');
   expect(gateHtml).not.toContain('id="relation.outcome.contributing-efforts"');
 
   const snapshot = createProjectOverviewFixture();

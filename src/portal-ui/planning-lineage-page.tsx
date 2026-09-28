@@ -271,11 +271,12 @@ function EffortRollupTable({
         <tr>
           <th scope="col">Effort</th>
           <th scope="col">Lifecycle</th>
+          <th scope="col">Planned</th>
+          <th scope="col">Status since</th>
           <th scope="col">Claimed</th>
           <th scope="col">Ready</th>
           <th scope="col">Blocked</th>
           <th scope="col">Resolved</th>
-          <th scope="col">Lifecycle time</th>
         </tr>
       </thead>
       <tbody>
@@ -293,21 +294,28 @@ function EffortRollupTable({
             <td data-label="Lifecycle">
               {row.lifecycle === undefined ? "Unavailable" : humanizeWorkState(row.lifecycle)}
             </td>
-            <td data-label="Claimed">{workRegionTableCountLabel(row.counts.claimed)}</td>
-            <td data-label="Ready">{workRegionTableCountLabel(row.counts.ready)}</td>
-            <td data-label="Blocked">{workRegionTableCountLabel(row.counts.blocked)}</td>
-            <td data-label="Resolved">{workRegionTableCountLabel(row.counts.resolved)}</td>
-            <td data-label="Lifecycle time">
-              {row.lifecycleTime?.time.availability === "available" ? (
+            <td data-label="Planned">
+              {row.plannedTime.availability === "available" ? (
+                <PlanningLineageTimeValue label="Planned" mode="compact" time={row.plannedTime} />
+              ) : (
+                "Unavailable"
+              )}
+            </td>
+            <td data-label="Status since">
+              {row.statusSinceTime.availability === "available" ? (
                 <PlanningLineageTimeValue
-                  label={row.lifecycleTime.label}
+                  label="Status since"
                   mode="compact"
-                  time={row.lifecycleTime.time}
+                  time={row.statusSinceTime}
                 />
               ) : (
                 "Unavailable"
               )}
             </td>
+            <td data-label="Claimed">{workRegionTableCountLabel(row.counts.claimed)}</td>
+            <td data-label="Ready">{workRegionTableCountLabel(row.counts.ready)}</td>
+            <td data-label="Blocked">{workRegionTableCountLabel(row.counts.blocked)}</td>
+            <td data-label="Resolved">{workRegionTableCountLabel(row.counts.resolved)}</td>
           </tr>
         ))}
       </tbody>

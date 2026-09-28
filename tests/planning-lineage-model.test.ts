@@ -160,7 +160,8 @@ test("builds a Gate-owned route with trustworthy parents, full content, and type
       title: "Planning Model",
       href: "/projects/bearing/lineage/effort/effort%3Amodel",
       lifecycle: "concluded",
-      lifecycleTime: { label: "Concluded", time: { availability: "unavailable" } },
+      plannedTime: { availability: "unavailable" },
+      statusSinceTime: { availability: "unavailable" },
       counts: {
         claimed: { mode: "exact", value: 0 },
         ready: { mode: "exact", value: 0 },
@@ -837,13 +838,10 @@ test("preserves an available canonical lifecycle time in the Gate rollup", () =>
   ).toEqual([
     expect.objectContaining({
       id: "effort:model",
-      lifecycleTime: {
-        label: "Concluded",
-        time: {
-          availability: "available",
-          value: "2026-07-31T10:00:00Z",
-          precision: "second",
-        },
+      statusSinceTime: {
+        availability: "available",
+        value: "2026-07-31T10:00:00Z",
+        precision: "second",
       },
     }),
   ]);
