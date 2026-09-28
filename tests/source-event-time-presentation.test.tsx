@@ -34,17 +34,34 @@ test("formats ordinary absolute time to local minutes without visible technical 
   expect(markup).not.toContain("fractional-second precision");
 });
 
-test("keeps date-only source time date-only and never gives it a relative instant", () => {
-  const dateOnly = {
-    availability: "available",
-    value: "2026-07-31",
-    precision: "date",
-  } as const;
-  expect(formatSourceEventAbsolute(dateOnly, "en-US", "America/Los_Angeles")).toBe("2026-07-31");
-  expect(formatSourceEventRelative(dateOnly, Date.parse("2026-08-01T00:00:00Z"), "en-US")).toBe(
-    "2026-07-31",
-  );
-});
+test.each(["Planned", "Status since"])(
+  "keeps %s date-only source precision in compact disclosure",
+  (label) => {
+    const dateOnly = {
+      availability: "available",
+      value: "2026-07-31",
+      precision: "date",
+    } as const;
+    expect(formatSourceEventAbsolute(dateOnly, "en-US", "America/Los_Angeles")).toBe("2026-07-31");
+    expect(formatSourceEventRelative(dateOnly, Date.parse("2026-08-01T00:00:00Z"), "en-US")).toBe(
+      "2026-07-31",
+    );
+    const markup = renderToStaticMarkup(
+      <SourceEventTimeValue
+        label={label}
+        locale="en-US"
+        mode="compact"
+        now={Date.parse("2026-08-01T00:00:00Z")}
+        time={dateOnly}
+        timeZone="America/Los_Angeles"
+      />,
+    );
+    expect(markup).toContain('<time dateTime="2026-07-31">2026-07-31</time>');
+    expect(markup).toContain('data-absolute="2026-07-31"');
+    expect(markup).toContain(`${label}: 2026-07-31`);
+    expect(markup).not.toContain("2026-07-31T");
+  },
+);
 
 test("omits unavailable event time from ordinary Portal presentation", () => {
   const unavailable = { availability: "unavailable" } as const;

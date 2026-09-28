@@ -34,8 +34,17 @@ export function ProviderObservationStatus({
   readonly statusRef: RefObject<HTMLDivElement | null>;
 }) {
   if (application.state === "idle") return null;
+  const action = application.state === "running" ? application.action : application.result.action;
+  const allSources = action === "all-sources-refresh";
+  if ((placement === "project") !== allSources) return null;
   if (application.state === "running") {
-    if (placement === "source") return null;
+    if (placement === "source") {
+      return (
+        <div className="source-observation-feedback" data-state="running" role="status">
+          Refreshing source.
+        </div>
+      );
+    }
     return (
       <span className="sr-only" role="status">
         Refreshing sources.
@@ -44,15 +53,19 @@ export function ProviderObservationStatus({
   }
   const result = application.result;
   if (result.state === "completed") {
-    if (placement === "source") return null;
+    if (placement === "source") {
+      return (
+        <div className="source-observation-feedback" data-state="completed" role="status">
+          {checkedLabel(result.acquisitionCount)}
+        </div>
+      );
+    }
     return (
       <span className="sr-only" role="status">
         {checkedLabel(result.acquisitionCount)}
       </span>
     );
   }
-  const allSources = result.action === "all-sources-refresh";
-  if ((placement === "project") !== allSources) return null;
   return (
     <div
       ref={statusRef}
@@ -61,6 +74,7 @@ export function ProviderObservationStatus({
           ? "provider-observation-status provider-observation-attention"
           : "source-observation-feedback"
       }
+      data-state="attention"
       role="status"
       tabIndex={-1}
     >
@@ -68,15 +82,23 @@ export function ProviderObservationStatus({
         {allSources ? "Refresh all sources needs attention." : "Source refresh needs attention."}
       </strong>
       <span>{result.explanation}</span>
-      {result.observations.map((observation) =>
-        observation.observedAt === undefined ? null : (
-          <ProviderObservationTime
-            key={observation.scope}
-            label="Last checked"
-            value={observation.observedAt}
-          />
-        ),
-      )}
+      {result.observations.map((observation) => (
+        <span key={observation.scope}>
+          <span>
+            {
+              {
+                captured: "Source evidence published.",
+                "retained-after-failure": "Refresh failed; previous evidence retained.",
+                unavailable: "Source evidence unavailable.",
+                unpublished: "Acquired evidence was not published.",
+              }[observation.disposition]
+            }
+          </span>
+          {observation.observedAt === undefined ? null : (
+            <ProviderObservationTime label="Last checked" value={observation.observedAt} />
+          )}
+        </span>
+      ))}
       <span>{result.nextAction}</span>
       {result.diagnostics.map((diagnostic) => (
         <CopyDiagnosticReference key={diagnostic.reference} reference={diagnostic.reference} />

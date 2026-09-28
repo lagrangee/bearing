@@ -4,6 +4,8 @@ import type {
   RequestedPlanningLineageSubject,
 } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
+import { targetWithinNativeScope } from "../project-generation/managed-attention";
+import { workBindingStateAllowsScopeInspection } from "../project-generation/work-binding";
 import type { MattSemanticSectionAvailability } from "../providers/matt-skills-v1/model";
 import type {
   MattNativeWorkRegionCount,
@@ -107,11 +109,20 @@ const technicalDetailsSelection = (
   snapshot: LineageModelData,
 ): TechnicalDetailsSelection => {
   const source = model.subject.source;
+  const effort =
+    model.subject.kind === "effort" && snapshot.efforts.validity !== "invalid"
+      ? snapshot.efforts.items.find((candidate) => candidate.id === model.subject.id)
+      : undefined;
+  const scope =
+    effort !== undefined && workBindingStateAllowsScopeInspection(effort.workBindingState)
+      ? effort.workBinding?.nativeScope
+      : undefined;
   const diagnostics = snapshot.diagnostics.filter(
     (diagnostic) =>
       diagnostic.target === model.subject.id ||
       diagnostic.target === source?.displayLocator ||
-      diagnostic.source === source?.reference,
+      diagnostic.source === source?.reference ||
+      (scope !== undefined && targetWithinNativeScope(diagnostic.target, scope)),
   );
   const asset =
     model.subject.kind === "asset" && snapshot.assets.validity !== "invalid"
@@ -212,7 +223,8 @@ const technicalDetailsSelection = (
           diagnostics.length === 0
             ? ["No diagnostics are recorded for this subject."]
             : diagnostics.map(
-                (diagnostic) => `${diagnostic.impact} · ${diagnostic.code} · ${diagnostic.message}`,
+                (diagnostic) =>
+                  `${diagnostic.impact} · ${diagnostic.code} · ${diagnostic.message} · Target: ${diagnostic.target} · Reference: ${diagnostic.reference}`,
               ),
       },
     ],
@@ -271,11 +283,12 @@ function EffortRollupTable({
         <tr>
           <th scope="col">Effort</th>
           <th scope="col">Lifecycle</th>
+          <th scope="col">Planned</th>
+          <th scope="col">Status since</th>
           <th scope="col">Claimed</th>
           <th scope="col">Ready</th>
           <th scope="col">Blocked</th>
           <th scope="col">Resolved</th>
-          <th scope="col">Lifecycle time</th>
         </tr>
       </thead>
       <tbody>
@@ -293,21 +306,28 @@ function EffortRollupTable({
             <td data-label="Lifecycle">
               {row.lifecycle === undefined ? "Unavailable" : humanizeWorkState(row.lifecycle)}
             </td>
-            <td data-label="Claimed">{workRegionTableCountLabel(row.counts.claimed)}</td>
-            <td data-label="Ready">{workRegionTableCountLabel(row.counts.ready)}</td>
-            <td data-label="Blocked">{workRegionTableCountLabel(row.counts.blocked)}</td>
-            <td data-label="Resolved">{workRegionTableCountLabel(row.counts.resolved)}</td>
-            <td data-label="Lifecycle time">
-              {row.lifecycleTime?.time.availability === "available" ? (
+            <td data-label="Planned">
+              {row.plannedTime.availability === "available" ? (
+                <PlanningLineageTimeValue label="Planned" mode="compact" time={row.plannedTime} />
+              ) : (
+                "Unavailable"
+              )}
+            </td>
+            <td data-label="Status since">
+              {row.statusSinceTime.availability === "available" ? (
                 <PlanningLineageTimeValue
-                  label={row.lifecycleTime.label}
+                  label="Status since"
                   mode="compact"
-                  time={row.lifecycleTime.time}
+                  time={row.statusSinceTime}
                 />
               ) : (
                 "Unavailable"
               )}
             </td>
+            <td data-label="Claimed">{workRegionTableCountLabel(row.counts.claimed)}</td>
+            <td data-label="Ready">{workRegionTableCountLabel(row.counts.ready)}</td>
+            <td data-label="Blocked">{workRegionTableCountLabel(row.counts.blocked)}</td>
+            <td data-label="Resolved">{workRegionTableCountLabel(row.counts.resolved)}</td>
           </tr>
         ))}
       </tbody>

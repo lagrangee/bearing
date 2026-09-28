@@ -12,6 +12,7 @@ import { buildMattNativeSourceRecords } from "./native-work-sources";
 import type { ProjectGenerationBuildInput } from "./projection-input";
 import { PROJECT_GENERATION_VERSION, projectGenerationSchema } from "./schema";
 import { mergeSourceRecords } from "./source-records";
+import { workBindingStateAllowsScopeInspection } from "./work-binding";
 
 export const buildProjectGeneration = async (
   input: ProjectGenerationBuildInput,
@@ -103,7 +104,8 @@ export const buildProjectGeneration = async (
       ...(planning.efforts.validity === "invalid"
         ? []
         : planning.efforts.items.flatMap((effort) =>
-            effort.workBindingState.state !== "bound" || effort.workBinding === undefined
+            effort.workBinding === undefined ||
+            !workBindingStateAllowsScopeInspection(effort.workBindingState)
               ? []
               : [effort.workBinding.nativeScope],
           )),

@@ -9,6 +9,7 @@ import type { AssetProjection } from "../project-generation/contract";
 import { attentionItemSchema, structuralDiagnosticSchema } from "../project-generation/schema";
 import { planningLineageSubjectProjectionSchema } from "../project-generation/schema-planning-lineage";
 import { sourceRecordSchema } from "../project-generation/source-schema";
+import { workBindingStateAllowsScopeInspection } from "../project-generation/work-binding";
 import {
   type ProviderObservationSelection,
   providerObservationSelectionFreshnessIsCoherent,
@@ -325,9 +326,21 @@ const queryRows = (
     collectReferences(lineage);
     collectReferences(attention);
   }
+  const diagnosticScopes =
+    section !== "lineage" || target?.kind !== "effort"
+      ? []
+      : objects.flatMap((object) =>
+          object.kind === "effort" &&
+          object.value.id === target.id &&
+          object.value.workBinding !== undefined &&
+          workBindingStateAllowsScopeInspection(object.value.workBindingState)
+            ? [object.value.workBinding.nativeScope]
+            : [],
+        );
   const diagnosticTargets = [
     ...new Set([
       ...objects.map((object) => object.value.id),
+      ...diagnosticScopes,
       ...subjectReferences,
       ...sourceReferences,
     ]),
@@ -338,9 +351,13 @@ const queryRows = (
       ? []
       : boundedRows(
           database,
-          `SELECT reference, impact, target, payload_json FROM project_diagnostics WHERE target IN (${diagnosticTargets.map(() => "?").join(", ") || "NULL"}) OR reference IN (${[...diagnosticReferences].map(() => "?").join(", ") || "NULL"}) ORDER BY impact, reference`,
+          `SELECT reference, impact, target, payload_json FROM project_diagnostics WHERE target IN (${diagnosticTargets.map(() => "?").join(", ") || "NULL"}) OR reference IN (${[...diagnosticReferences].map(() => "?").join(", ") || "NULL"})${diagnosticScopes.map(() => " OR instr(target, ? || '/') = 1 OR instr(target, ? || '#') = 1").join("")} ORDER BY impact, reference`,
           "diagnostic",
-          [...diagnosticTargets, ...diagnosticReferences],
+          [
+            ...diagnosticTargets,
+            ...diagnosticReferences,
+            ...diagnosticScopes.flatMap((scope) => [scope, scope]),
+          ],
         ).map((row) => {
           const diagnostic = structuralDiagnosticSchema.parse(parseJson(row["payload_json"]));
           if (

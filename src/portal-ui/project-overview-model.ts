@@ -1,3 +1,4 @@
+import type { PlanningLineageSubject } from "../planning-lineage-route";
 import type {
   AttentionItem,
   GenerationDiagnostic,
@@ -9,8 +10,7 @@ import type {
   SourceReference,
 } from "../project-generation/contract";
 import { targetWithinNativeScope } from "../project-generation/managed-attention";
-import type { ProviderDetailEvidenceSubject } from "../provider-detail-selection";
-import { mattNativeScopeSubject } from "../providers/matt-skills-v1/native-subject";
+import { workBindingStateAllowsScopeInspection } from "../project-generation/work-binding";
 import type { OverviewModelData } from "./project-data";
 import { buildOverviewRoadmaps, type OverviewRoadmaps } from "./project-overview-roadmaps";
 
@@ -31,7 +31,7 @@ export type OverviewAttentionItem = Readonly<{
   state: "available" | "unresolved";
   title: string;
   detail: string | undefined;
-  nativeSubject?: ProviderDetailEvidenceSubject | undefined;
+  subject?: PlanningLineageSubject | undefined;
 }>;
 
 export type ProjectOverviewModel = Readonly<{
@@ -118,28 +118,23 @@ const attentionModel = (
                     : source.kind === "tracker"
                       ? ({ kind: "native-subject", id: source.binding.identity } as const)
                       : undefined;
-              const boundScope =
+              const affectedEfforts =
                 efforts.validity === "invalid"
-                  ? undefined
-                  : efforts.items.find(
+                  ? []
+                  : efforts.items.filter(
                       (effort) =>
-                        effort.workBindingState.state === "bound" &&
+                        workBindingStateAllowsScopeInspection(effort.workBindingState) &&
                         effort.workBinding !== undefined &&
                         targetWithinNativeScope(diagnostic.target, effort.workBinding.nativeScope),
-                    )?.workBinding;
-              const boundSubject =
-                boundScope === undefined
-                  ? undefined
-                  : mattNativeScopeSubject({ binding: boundScope });
-              const nativeSubject =
-                sourceSubject ??
-                (boundSubject === undefined
-                  ? undefined
-                  : ({ kind: "native-scope", id: boundSubject.id } as const));
-              return nativeSubject === undefined
-                ? {}
+                    );
+              const affectedEffort = affectedEfforts.length === 1 ? affectedEfforts[0] : undefined;
+              return affectedEffort === undefined
+                ? sourceSubject === undefined
+                  ? {}
+                  : { subject: sourceSubject }
                 : {
-                    nativeSubject,
+                    subject: { kind: "effort" as const, id: affectedEffort.id },
+                    detail: `Effort: ${affectedEffort.title} · Impact: ${diagnostic.impact}`,
                   };
             })(),
           };

@@ -432,7 +432,7 @@ test("Portal reads bounded typed rows from one committed Project Read Model gene
     const diagnosticAttention = buildProjectOverviewModel(diagnosticOverviewData).attention.find(
       (item) => item.key === diagnosticOnly.reference,
     );
-    assert.deepEqual(diagnosticAttention?.nativeSubject, {
+    assert.deepEqual(diagnosticAttention?.subject, {
       kind: "native-subject",
       id: diagnosticOnlySource.binding.identity,
     });

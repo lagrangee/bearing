@@ -21,6 +21,7 @@ import {
 import { createMattReferenceProjection } from "../tests/fixtures/matt-reference-scenario";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { parseRebuiltPlanningLineageFixture } from "../tests/planning-lineage-fixture";
+import { browserArtifactPath } from "./browser-artifact-output";
 import {
   projectRowEnvelope,
   projectSectionFromRequest,
@@ -794,7 +795,19 @@ test("direct contributing Effort links restore lineage focus and scroll", async 
 
 test("lineage detail and filtered views stay keyboard-readable at narrow and 200 percent zoom", async ({
   page,
-}) => {
+}, testInfo) => {
+  await page.clock.install({ time: new Date("2026-07-31T10:05:00Z") });
+  const runtimeErrors: string[] = [];
+  page.on("pageerror", (error) => runtimeErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") runtimeErrors.push(message.text());
+  });
+  const posts: string[] = [];
+  const reads: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(request.url());
+    if (request.url().includes("/read-model?")) reads.push(request.url());
+  });
   const rollupSnapshot = createAvailableLifecycleTimeFixture();
   await serveSnapshot(page, rollupSnapshot);
   const gateHref = planningLineageSubjectHref("lineage", {
@@ -810,13 +823,32 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
   await expect(wideRollup.getByRole("columnheader")).toHaveText([
     "Effort",
     "Lifecycle",
+    "Planned",
+    "Status since",
     "Claimed",
     "Ready",
     "Blocked",
     "Resolved",
-    "Lifecycle time",
   ]);
   await expect(wideRollup.locator('time[datetime="2026-07-31T10:00:00Z"]')).toBeVisible();
+  const plannedTime = wideRollup.getByRole("button", { name: /Planned:/u });
+  const statusTime = wideRollup.getByRole("button", { name: /Status since:/u });
+  await expect(plannedTime.locator("time")).toHaveText("2 days ago");
+  await expect(statusTime.locator("time")).toHaveText("5 minutes ago");
+  await statusTime.hover();
+  await expect(statusTime).toHaveAttribute("data-absolute", "Jul 31, 2026, 6:00 PM");
+  expect(await statusTime.evaluate((element) => getComputedStyle(element, "::after").content)).toBe(
+    '"Jul 31, 2026, 6:00 PM"',
+  );
+  const readsBeforeTick = reads.length;
+  await page.clock.fastForward(60_000);
+  await expect(statusTime.locator("time")).toHaveText("6 minutes ago");
+  expect(reads).toHaveLength(readsBeforeTick);
+  expect(posts).toEqual([]);
+  await wideRollup.screenshot({
+    animations: "disabled",
+    path: await browserArtifactPath(testInfo, "effort-times-1280.png"),
+  });
   const wideEffortLink = wideRollup.getByRole("link", { name: "Planning Model", exact: true });
   await wideEffortLink.focus();
   await expect(wideEffortLink).toBeFocused();
@@ -863,6 +895,43 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
     await page.locator("html").evaluate((element) => element.scrollWidth > element.clientWidth),
   ).toBe(false);
   expect(await viewportOverflow(page)).toEqual([]);
+
+  for (const width of [640, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    const row = narrowEffortLink.locator("xpath=ancestor::tr");
+    for (const label of [
+      "Effort",
+      "Lifecycle",
+      "Planned",
+      "Status since",
+      "Claimed",
+      "Ready",
+      "Blocked",
+      "Resolved",
+    ]) {
+      const field = row.locator(`[data-label="${label}"]`);
+      await expect(field).toBeVisible();
+      expect(await field.evaluate((element) => getComputedStyle(element, "::before").content)).toBe(
+        `"${label}"`,
+      );
+    }
+    expect((await narrowEffortLink.boundingBox())?.width).toBeGreaterThan(120);
+    await narrowEffortLink.focus();
+    await page.keyboard.press("Tab");
+    await expect(plannedTime).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(statusTime).toBeFocused();
+    expect(
+      await statusTime.evaluate((element) => getComputedStyle(element, "::after").content),
+    ).toBe('"Jul 31, 2026, 6:00 PM"');
+    expect(await viewportOverflow(page)).toEqual([]);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await narrowRollup.screenshot({
+      animations: "disabled",
+      path: await browserArtifactPath(testInfo, `effort-times-${width}.png`),
+    });
+  }
+  await page.setViewportSize({ width: 640, height: 900 });
 
   const effortHref = planningLineageSubjectHref("lineage", {
     kind: "effort",
@@ -1015,6 +1084,29 @@ test("lineage detail and filtered views stay keyboard-readable at narrow and 200
     relationLink.locator("xpath=ancestor::tr").getByRole("cell", { name: /Resolved 1/u }),
   ).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.unroute("**/api/v1/projects/lineage/read-model?section=*");
+  await serveSnapshot(page, fixture());
+  await page.goto(gateHref);
+  for (const width of [1280, 640, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const label of ["Planned", "Status since"]) {
+      const field = wideRollup.locator(`td[data-label="${label}"]`);
+      await expect(
+        wideRollup.getByRole("columnheader", { name: label, exact: true }),
+      ).toBeAttached();
+      await expect(field).toBeVisible();
+      await expect(field).toHaveText("Unavailable");
+      await expect(field.getByRole("button")).toHaveCount(0);
+    }
+    expect(await viewportOverflow(page)).toEqual([]);
+  }
+  await wideRollup.screenshot({
+    animations: "disabled",
+    path: await browserArtifactPath(testInfo, "effort-times-unavailable-375.png"),
+  });
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  expect(runtimeErrors).toEqual([]);
+  expect(posts).toEqual([]);
 });
 
 test("degraded Native Scope returns recovery to its owning Effort with contextual source loading", async ({

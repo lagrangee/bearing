@@ -3,6 +3,7 @@ import { expect, type Locator, test } from "@playwright/test";
 import { projectGenerationSchema } from "../src/project-generation/schema";
 import { createSourceRecord } from "../src/project-generation/source-records";
 import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
+import { withRebuiltPlanningLineage } from "../tests/planning-lineage-fixture";
 import { browserArtifactPath } from "./browser-artifact-output";
 import { projectRowEnvelope } from "./project-row-fixture";
 
@@ -212,6 +213,112 @@ test("ordinary in-project navigation does not reactivate validation", async ({ p
   await page.goBack();
   await expect(page.getByRole("heading", { name: "Portal Project", level: 1 })).toBeVisible();
   expect(snapshotReads).toBe(3);
+});
+
+test("Attention anchor focuses for navigation without stealing focus on background reads", async ({
+  page,
+}) => {
+  let reads = 0;
+  let releaseInitial = () => {};
+  let healthy = false;
+  const initialResponse = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() !== "GET") writes.push(request.method());
+  });
+  await page.clock.install({ time: new Date("2026-09-28T10:00:00+08:00") });
+  await page.setViewportSize({ width: 1280, height: 500 });
+  await page.route("**/api/v1/projects/overview/read-model?section=*", async (route) => {
+    reads += 1;
+    const read = reads;
+    if (read === 1) await initialResponse;
+    const section = new URL(route.request().url()).searchParams.get("section");
+    const current = projectGeneration();
+    const snapshot = healthy
+      ? projectGenerationSchema.parse(
+          withRebuiltPlanningLineage({
+            ...current,
+            diagnostics: [],
+            attention: [],
+            reviews: { validity: "available", items: [] },
+          }),
+        )
+      : current;
+    if (snapshot.brief.validity !== "available") throw new Error("Expected Brief fixture.");
+    return route.fulfill({
+      json: projectRowEnvelope({
+        snapshot: {
+          ...snapshot,
+          brief: {
+            ...snapshot.brief,
+            value: { ...snapshot.brief.value, currentPosition: `Overview read ${read}` },
+          },
+        },
+        section: section === "roadmaps" ? "roadmaps" : "overview",
+        entryId: "overview",
+      }),
+    });
+  });
+  await page.goto("/projects/overview#attention-queue");
+  await expect.poll(() => reads).toBe(1);
+  const queue = page.getByRole("region", { name: "Attention" });
+  await expect(queue).toHaveCount(0);
+  releaseInitial();
+  await expect(queue).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+
+  const briefTab = page.getByRole("tab", { name: "Brief", exact: true });
+  await briefTab.focus();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.getByText("Overview read 2", { exact: true })).toBeVisible();
+  await expect(briefTab).toBeFocused();
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(300_000);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.getByText("Overview read 3", { exact: true })).toBeVisible();
+  await expect(briefTab).toBeFocused();
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+  const attentionLink = page.getByRole("link", { name: /items need attention/u });
+  await attentionLink.focus();
+  await attentionLink.press("Enter");
+  await expect(queue).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  expect(reads).toBe(3);
+  await page.getByRole("link", { name: "Roadmaps", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Roadmaps", level: 1 })).toBeVisible();
+  await attentionLink.click();
+  await expect(page).toHaveURL(/\/projects\/overview#attention-queue$/u);
+  await expect(queue).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  expect(reads).toBe(5);
+
+  healthy = true;
+  await page.reload();
+  await expect(page.getByText("Overview read 6", { exact: true })).toBeVisible();
+  await expect(queue).toHaveCount(0);
+  await briefTab.focus();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  healthy = false;
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.getByText("Overview read 7", { exact: true })).toBeVisible();
+  await expect(queue).toBeVisible();
+  await expect(briefTab).toBeFocused();
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await attentionLink.click();
+  await expect(queue).toBeFocused();
+  expect(writes).toEqual([]);
 });
 
 test("invalid and absent semantic projections stay scoped to their Overview sections", async ({

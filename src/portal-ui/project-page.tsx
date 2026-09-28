@@ -30,6 +30,13 @@ import {
 import { useNarrowViewport } from "./use-narrow";
 import { useProjectActivation } from "./use-project-activation";
 
+const focusAttentionQueue = (): void => {
+  const queue = document.getElementById("attention-queue");
+  if (queue === null) return;
+  queue.focus();
+  queue.scrollIntoView();
+};
+
 export function ProjectPage({
   entryId,
   filteredView,
@@ -65,6 +72,7 @@ export function ProjectPage({
   const providerActionRouteRef = useRef<string | null>(null);
   const providerStatusRef = useRef<HTMLDivElement>(null);
   const projectReadAttentionRef = useRef<HTMLDivElement>(null);
+  const attentionAnchorHandledRef = useRef(false);
   const priorProviderStateRef = useRef(activation.providerApplication.state);
   const priorReadFailureRef = useRef(activation.readFailure);
   const view = activation.view;
@@ -170,8 +178,25 @@ export function ProjectPage({
     document.activeElement instanceof HTMLElement
       ? projectCanvasFocusKey(document.activeElement)
       : undefined;
+  useEffect(() => {
+    if (section !== "overview" || semanticAnchor !== "attention-queue") {
+      attentionAnchorHandledRef.current = false;
+      return;
+    }
+    if (attentionAnchorHandledRef.current || snapshot?.section !== "overview") return;
+    attentionAnchorHandledRef.current = true;
+    focusAttentionQueue();
+  }, [section, semanticAnchor, snapshot]);
   const navigateFromProject = (href: string, focusKey = currentFocusKey()) => {
     captureProjectCanvasReturn(entryId, section, focusKey);
+    if (
+      section === "overview" &&
+      semanticAnchor === "attention-queue" &&
+      href === `/projects/${encodeURIComponent(entryId)}#attention-queue`
+    ) {
+      attentionAnchorHandledRef.current = true;
+      focusAttentionQueue();
+    }
     onNavigate(href);
   };
   const inspect = (next: TechnicalDetailsSelection, trigger: HTMLButtonElement) => {
@@ -425,6 +450,8 @@ export function ProjectPage({
       className={`portal-shell${navOpen ? " nav-open" : ""}${selection ? " has-technical-details" : ""}`}
     >
       <ProjectTopbar
+        entryId={entryId}
+        onNavigate={navigateFromProject}
         attentionCount={snapshot?.attentionCount}
         findDisabled={snapshot === undefined}
         findRef={findTriggerRef}

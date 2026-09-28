@@ -216,7 +216,7 @@ export const useProjectActivation = (
   const applyProviderObservation = useCallback(
     (request: PortalProviderApplicationRequest) => {
       const csrfToken = csrfTokenRef.current;
-      if (csrfToken === undefined || providerApplication.state === "running") return;
+      if (csrfToken === undefined || providerControllersRef.current.size > 0) return;
       const controller = new AbortController();
       providerControllersRef.current.add(controller);
       setProviderApplication({ state: "running", action: request.action });
@@ -249,7 +249,7 @@ export const useProjectActivation = (
         })
         .finally(() => providerControllersRef.current.delete(controller));
     },
-    [entryId, providerApplication.state],
+    [entryId],
   );
 
   const scopedState = activationStateForEntry(state, stateEntryIdRef.current, entryId);

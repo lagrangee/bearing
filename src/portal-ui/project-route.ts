@@ -86,6 +86,13 @@ export const parsePortalRoute = (pathname: string, search = "", hash = ""): Port
     };
   }
   return tail.length === 0
-    ? { kind: "project", entryId: entryId.data, section }
+    ? {
+        kind: "project",
+        entryId: entryId.data,
+        section,
+        ...(section === "overview" && hash === "#attention-queue"
+          ? { semanticAnchor: "attention-queue" }
+          : {}),
+      }
     : { kind: "catalog" };
 };

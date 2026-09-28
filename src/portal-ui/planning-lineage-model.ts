@@ -15,6 +15,7 @@ import type {
   SourceRecord,
 } from "../project-generation/contract";
 import { findPlanningLineageSubjectProjection } from "../project-generation/planning-lineage";
+import { workBindingStateAllowsScopeInspection } from "../project-generation/work-binding";
 import type { ProviderSemanticSection } from "../provider-semantic-section";
 import type {
   MattDeliveryTicket,
@@ -136,9 +137,8 @@ export type PlanningLineageEffortRollupRow = Readonly<{
   title: string;
   href?: string | undefined;
   lifecycle?: Effort["lifecycle"] | undefined;
-  lifecycleTime?:
-    | Readonly<{ label: "Planned" | "Activated" | "Concluded"; time: SourceEventTime }>
-    | undefined;
+  plannedTime: SourceEventTime;
+  statusSinceTime: SourceEventTime;
   counts: Readonly<{
     claimed: MattNativeWorkRegionCount;
     ready: MattNativeWorkRegionCount;
@@ -696,20 +696,12 @@ const unavailableFrontierCounts = (): Readonly<{
   resolved: { mode: "unavailable" },
 });
 
-const lifecycleTimeForEffort = (
-  effort: Effort,
-): Readonly<{
-  label: "Planned" | "Activated" | "Concluded";
-  time: SourceEventTime;
-}> => {
-  if (effort.lifecycle === "planned") return { label: "Planned", time: effort.plannedAt };
+const statusSinceTimeForEffort = (effort: Effort): SourceEventTime => {
+  if (effort.lifecycle === "planned") return effort.plannedAt;
   if (effort.lifecycle === "active") {
-    return { label: "Activated", time: effort.activatedAt ?? { availability: "unavailable" } };
+    return effort.activatedAt ?? { availability: "unavailable" };
   }
-  return {
-    label: "Concluded",
-    time: effort.conclusion?.concludedAt ?? { availability: "unavailable" },
-  };
+  return effort.conclusion?.concludedAt ?? { availability: "unavailable" };
 };
 
 const contributingEffortsSection = (
@@ -724,6 +716,8 @@ const contributingEffortsSection = (
       return {
         id: effortId,
         title: "Unavailable contributing Effort",
+        plannedTime: { availability: "unavailable" as const },
+        statusSinceTime: { availability: "unavailable" as const },
         counts: unavailableFrontierCounts(),
       };
     }
@@ -733,7 +727,8 @@ const contributingEffortsSection = (
       title: effort.title,
       href: planningLineageSubjectHref(entryId, { kind: "effort", id: effort.id }),
       lifecycle: effort.lifecycle,
-      lifecycleTime: lifecycleTimeForEffort(effort),
+      plannedTime: effort.plannedAt,
+      statusSinceTime: statusSinceTimeForEffort(effort),
       counts:
         region === undefined
           ? unavailableFrontierCounts()
@@ -2065,7 +2060,7 @@ const effortWorkRegion = (
   effort: Effort,
   readingState?: MattNativeWorkReadingState | undefined,
 ): MattNativeWorkRegionModel | undefined => {
-  if (effort.workBindingState.state !== "bound") return undefined;
+  if (!workBindingStateAllowsScopeInspection(effort.workBindingState)) return undefined;
   const binding = effort.workBinding;
   if (binding === undefined) throw new TypeError("Bound Effort requires its Work Binding.");
   const observation =
@@ -2087,7 +2082,7 @@ const effortWorkRegion = (
         observation,
         snapshot.providerObservationSelections,
         context,
-        readingState,
+        effort.workBindingState.state === "bound" ? readingState : undefined,
       );
 };
 
@@ -2330,9 +2325,7 @@ const effortLensFor = (
             ? { lastVerified: lastVerifiedReading.observation.observedAt.value }
             : {}),
           ...(binding !== undefined &&
-          (effort.workBindingState.state === "bound" ||
-            (effort.workBindingState.state === "invalid" &&
-              effort.workBindingState.reason === "unresolved"))
+          workBindingStateAllowsScopeInspection(effort.workBindingState)
             ? {
                 refreshTarget: {
                   kind: "native-scope" as const,

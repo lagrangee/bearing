@@ -4,6 +4,8 @@ import { Action } from "./primitives";
 
 export function ProjectTopbar({
   attentionCount,
+  entryId,
+  onNavigate,
   findDisabled,
   findRef,
   menuRef,
@@ -18,6 +20,8 @@ export function ProjectTopbar({
   suspended,
 }: {
   readonly attentionCount: number | undefined;
+  readonly entryId: string;
+  readonly onNavigate: (href: string) => void;
   readonly findDisabled: boolean;
   readonly findRef: RefObject<HTMLButtonElement | null>;
   readonly menuRef: RefObject<HTMLButtonElement | null>;
@@ -31,6 +35,7 @@ export function ProjectTopbar({
   readonly projectTitle: string;
   readonly suspended: boolean;
 }) {
+  const attentionHref = `/projects/${encodeURIComponent(entryId)}#attention-queue`;
   const [confirming, setConfirming] = useState(false);
   const refreshTriggerRef = useRef<HTMLButtonElement>(null);
   const refreshDialogRef = useRef<HTMLDialogElement>(null);
@@ -74,7 +79,19 @@ export function ProjectTopbar({
         {attentionCount !== undefined && attentionCount > 0 ? (
           <a
             className="attention-compact attention-present"
-            href="#attention-queue"
+            href={attentionHref}
+            onClick={(event) => {
+              if (
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              )
+                return;
+              event.preventDefault();
+              onNavigate(attentionHref);
+            }}
             aria-label={`${attentionCount} items need attention`}
           >
             <Icons.attention aria-hidden="true" />
