@@ -12,15 +12,11 @@ import { inspectProject } from "../src/project-read-model/inspect";
 import { queryPortalProjectRowsWithGeneration } from "../src/project-read-model/portal";
 import { createValidBearingRepo } from "../tests/helpers";
 
-const readMatchingPortalOverview = async (
-  root: string,
-  inspected: ProjectInspectEnvelope,
-  diagnostics: ProjectInspectEnvelope["diagnostics"],
-) => {
+const readMatchingPortalOverview = async (root: string, inspected: ProjectInspectEnvelope) => {
   const portal = await queryPortalProjectRowsWithGeneration(root, "overview");
   assert.equal(portal.generation.basisFingerprint, inspected.generation?.basisFingerprint);
   assert.equal(portal.generation.publicationCount, inspected.generation?.publicationCount);
-  assert.deepEqual(portal.rows.diagnostics, diagnostics);
+  assert.deepEqual(portal.rows.diagnostics, inspected.diagnostics);
   const data = portalRowsToProjectData({ ...portal.rows, renderedMarkdown: [] });
   assert.equal(data.section, "overview");
   if (data.section !== "overview") throw new Error("Expected Overview project data.");
@@ -49,7 +45,7 @@ test("Inspect and Portal retain an invalid Summary and its blocking diagnostic",
     assert.equal(diagnostic.message, "Bearing artifact is missing ## Purpose.");
     assert.ok(context.diagnosticCounts.blocking > 0);
 
-    const { data, overview } = await readMatchingPortalOverview(root, inspected, [diagnostic]);
+    const { data, overview } = await readMatchingPortalOverview(root, inspected);
     assert.equal(data.summary.validity, "invalid");
     assert.equal(overview.summary.state, "invalid");
     assert.ok(overview.attention.some((item) => item.key === diagnostic.reference));
@@ -94,7 +90,7 @@ The fixture Roadmap is active.
     assert.equal(diagnostic.message, "Bearing artifact is missing ## At a Glance.");
     assert.ok(context.diagnosticCounts.blocking > 0);
 
-    const { data, overview } = await readMatchingPortalOverview(root, inspected, [diagnostic]);
+    const { data, overview } = await readMatchingPortalOverview(root, inspected);
     assert.equal(data.brief.validity, "invalid");
     assert.equal(overview.brief.state, "invalid");
     assert.ok(overview.attention.some((item) => item.key === diagnostic.reference));
@@ -158,7 +154,7 @@ The fixture Roadmap is active.
         assert.equal(context.brief.value.atAGlance, "Keep the accepted project decisions visible.");
       }
 
-      const { data, overview } = await readMatchingPortalOverview(root, inspected, []);
+      const { data, overview } = await readMatchingPortalOverview(root, inspected);
       assert.deepEqual(data.summary, context.summary);
       assert.deepEqual(data.brief, context.brief);
       assert.equal(overview.summary.state, validity);
