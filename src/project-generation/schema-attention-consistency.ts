@@ -1,5 +1,6 @@
 import type { RefinementCtx } from "zod";
 import { isManagedAttentionDiagnostic } from "./managed-attention";
+import { workBindingStateAllowsScopeInspection } from "./work-binding";
 
 type Collection<T> =
   | Readonly<{ validity: "available"; items: readonly T[] }>
@@ -65,11 +66,7 @@ export const validateAttentionConsistency = (
     ...trustedItems(snapshot.assets).map((asset) => asset.id),
     ...trustedItems(snapshot.efforts).flatMap((effort) =>
       effort.workBinding === undefined ||
-      (effort.workBindingState.state !== "bound" &&
-        !(
-          effort.workBindingState.state === "invalid" &&
-          effort.workBindingState.reason === "unresolved"
-        ))
+      !workBindingStateAllowsScopeInspection(effort.workBindingState)
         ? []
         : [effort.workBinding.nativeScope],
     ),

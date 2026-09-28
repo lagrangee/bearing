@@ -10,6 +10,7 @@ import type {
   SourceReference,
 } from "../project-generation/contract";
 import { targetWithinNativeScope } from "../project-generation/managed-attention";
+import { workBindingStateAllowsScopeInspection } from "../project-generation/work-binding";
 import type { OverviewModelData } from "./project-data";
 import { buildOverviewRoadmaps, type OverviewRoadmaps } from "./project-overview-roadmaps";
 
@@ -122,9 +123,7 @@ const attentionModel = (
                   ? []
                   : efforts.items.filter(
                       (effort) =>
-                        (effort.workBindingState.state === "bound" ||
-                          (effort.workBindingState.state === "invalid" &&
-                            effort.workBindingState.reason === "unresolved")) &&
+                        workBindingStateAllowsScopeInspection(effort.workBindingState) &&
                         effort.workBinding !== undefined &&
                         targetWithinNativeScope(diagnostic.target, effort.workBinding.nativeScope),
                     );

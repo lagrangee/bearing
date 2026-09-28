@@ -15,6 +15,7 @@ import type {
   SourceRecord,
 } from "../project-generation/contract";
 import { findPlanningLineageSubjectProjection } from "../project-generation/planning-lineage";
+import { workBindingStateAllowsScopeInspection } from "../project-generation/work-binding";
 import type { ProviderSemanticSection } from "../provider-semantic-section";
 import type {
   MattDeliveryTicket,
@@ -2059,13 +2060,7 @@ const effortWorkRegion = (
   effort: Effort,
   readingState?: MattNativeWorkReadingState | undefined,
 ): MattNativeWorkRegionModel | undefined => {
-  if (
-    effort.workBindingState.state !== "bound" &&
-    !(
-      effort.workBindingState.state === "invalid" && effort.workBindingState.reason === "unresolved"
-    )
-  )
-    return undefined;
+  if (!workBindingStateAllowsScopeInspection(effort.workBindingState)) return undefined;
   const binding = effort.workBinding;
   if (binding === undefined) throw new TypeError("Bound Effort requires its Work Binding.");
   const observation =
@@ -2330,9 +2325,7 @@ const effortLensFor = (
             ? { lastVerified: lastVerifiedReading.observation.observedAt.value }
             : {}),
           ...(binding !== undefined &&
-          (effort.workBindingState.state === "bound" ||
-            (effort.workBindingState.state === "invalid" &&
-              effort.workBindingState.reason === "unresolved"))
+          workBindingStateAllowsScopeInspection(effort.workBindingState)
             ? {
                 refreshTarget: {
                   kind: "native-scope" as const,

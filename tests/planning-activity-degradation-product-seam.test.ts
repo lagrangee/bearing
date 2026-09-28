@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { providerObservationIdentityFor } from "../src/native-work-provider";
+import { PROJECT_READ_MODEL_PROJECTION_VERSION } from "../src/project-read-model/contract";
 import { createRepresentativeProject } from "./fixtures/representative-project";
 import { installPackedProduct } from "./product-seams/installed-product";
 
@@ -431,8 +432,8 @@ test("packed activity inspection preserves useful facts through degraded evidenc
 
     const recoveryDatabase = new Database(recoveryPath);
     recoveryDatabase
-      .query("UPDATE read_model_metadata SET projection_version = 9 WHERE singleton = 1")
-      .run();
+      .query("UPDATE read_model_metadata SET projection_version = ? WHERE singleton = 1")
+      .run(PROJECT_READ_MODEL_PROJECTION_VERSION - 1);
     recoveryDatabase.close();
     const older = await product.run(activityArgs(nativeDate), {
       cwd: recoveryFixture.root,
@@ -443,8 +444,8 @@ test("packed activity inspection preserves useful facts through degraded evidenc
 
     const newerDatabase = new Database(recoveryPath);
     newerDatabase
-      .query("UPDATE read_model_metadata SET projection_version = 12 WHERE singleton = 1")
-      .run();
+      .query("UPDATE read_model_metadata SET projection_version = ? WHERE singleton = 1")
+      .run(PROJECT_READ_MODEL_PROJECTION_VERSION + 1);
     newerDatabase.close();
     const newer = await product.run(activityArgs(nativeDate), {
       cwd: recoveryFixture.root,

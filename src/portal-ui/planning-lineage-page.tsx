@@ -5,6 +5,7 @@ import type {
 } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
 import { targetWithinNativeScope } from "../project-generation/managed-attention";
+import { workBindingStateAllowsScopeInspection } from "../project-generation/work-binding";
 import type { MattSemanticSectionAvailability } from "../providers/matt-skills-v1/model";
 import type {
   MattNativeWorkRegionCount,
@@ -113,9 +114,7 @@ const technicalDetailsSelection = (
       ? snapshot.efforts.items.find((candidate) => candidate.id === model.subject.id)
       : undefined;
   const scope =
-    effort?.workBindingState.state === "bound" ||
-    (effort?.workBindingState.state === "invalid" &&
-      effort.workBindingState.reason === "unresolved")
+    effort !== undefined && workBindingStateAllowsScopeInspection(effort.workBindingState)
       ? effort.workBinding?.nativeScope
       : undefined;
   const diagnostics = snapshot.diagnostics.filter(

@@ -9,6 +9,7 @@ import type { AssetProjection } from "../project-generation/contract";
 import { attentionItemSchema, structuralDiagnosticSchema } from "../project-generation/schema";
 import { planningLineageSubjectProjectionSchema } from "../project-generation/schema-planning-lineage";
 import { sourceRecordSchema } from "../project-generation/source-schema";
+import { workBindingStateAllowsScopeInspection } from "../project-generation/work-binding";
 import {
   type ProviderObservationSelection,
   providerObservationSelectionFreshnessIsCoherent,
@@ -332,9 +333,7 @@ const queryRows = (
           object.kind === "effort" &&
           object.value.id === target.id &&
           object.value.workBinding !== undefined &&
-          (object.value.workBindingState.state === "bound" ||
-            (object.value.workBindingState.state === "invalid" &&
-              object.value.workBindingState.reason === "unresolved"))
+          workBindingStateAllowsScopeInspection(object.value.workBindingState)
             ? [object.value.workBinding.nativeScope]
             : [],
         );

@@ -36,21 +36,26 @@ for (const firstFailure of [false, true]) {
         )
         .all();
       original.close();
-      await cp(join(root, ".scratch/work"), join(root, ".scratch/unobserved"), { recursive: true });
       const effort = await readFile(join(root, ".bearing/state/efforts/fixture.md"), "utf8");
-      await writeFile(
-        join(root, ".bearing/state/efforts/unobserved.md"),
-        effort
-          .replaceAll("effort:fixture", "effort:unobserved")
-          .replaceAll("Fixture Work", "Unobserved Work")
-          .replaceAll(".scratch/work", ".scratch/unobserved"),
-      );
+      for (const [scope, title] of [
+        ["unobserved", "Unobserved Work"],
+        ["unrelated", "Unrelated Work"],
+      ] as const) {
+        await cp(join(root, ".scratch/work"), join(root, `.scratch/${scope}`), { recursive: true });
+        await writeFile(
+          join(root, `.bearing/state/efforts/${scope}.md`),
+          effort
+            .replaceAll("effort:fixture", `effort:${scope}`)
+            .replaceAll("Fixture Work", title)
+            .replaceAll(".scratch/work", `.scratch/${scope}`),
+        );
+      }
       const gatePath = join(root, ".bearing/state/milestone-gates/fixture.md");
       await writeFile(
         gatePath,
         (await readFile(gatePath, "utf8")).replace(
           "  - effort:fixture",
-          "  - effort:fixture\n  - effort:unobserved",
+          "  - effort:fixture\n  - effort:unobserved\n  - effort:unrelated",
         ),
       );
       await mkdir(join(root, ".bearing/state/planning-reviews"));
@@ -151,8 +156,15 @@ console.log(JSON.stringify(result));
       ]);
       host = await startBuiltPortal(homeRoot);
       const posts: string[] = [];
+      const providerRequests: unknown[] = [];
       page.on("request", (request) => {
         if (request.method() !== "GET") posts.push(`${request.method()} ${request.url()}`);
+        if (
+          request.method() === "POST" &&
+          new URL(request.url()).pathname.endsWith("/provider-observation")
+        ) {
+          providerRequests.push(request.postDataJSON());
+        }
       });
       const detailHref = planningLineageSubjectHref("diagnostics", {
         kind: "effort",
@@ -165,7 +177,10 @@ console.log(JSON.stringify(result));
         page.getByRole("link", { name: `${rows.attentionCount} items need attention` }),
       ).toBeVisible();
       await expect(queue.getByText("Review the current sequence", { exact: true })).toBeVisible();
-      const diagnosticLink = queue.getByRole("link").filter({ hasText: unavailable.message });
+      const diagnosticLink = queue
+        .getByRole("link")
+        .filter({ hasText: unavailable.message })
+        .filter({ hasText: "Effort: Unobserved Work" });
       await expect(diagnosticLink).toContainText("Effort: Unobserved Work · Impact: blocking");
       await expect(diagnosticLink).toHaveAttribute("href", detailHref);
       await expect(queue.getByRole("button")).toHaveCount(0);
@@ -209,10 +224,13 @@ console.log(JSON.stringify(result));
         await expect(technical).toContainText(diagnostic.impact);
       }
       await technical.getByRole("button", { name: "Close Technical Details" }).click();
+      await expect(technical).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Open Technical Details" })).toBeFocused();
       const topbarAttention = page.getByRole("link", {
         name: `${rows.attentionCount} items need attention`,
       });
       await topbarAttention.focus();
+      await expect(topbarAttention).toBeFocused();
       await topbarAttention.press("Enter");
       await expect(page).toHaveURL(`${host.url}/projects/diagnostics#attention-queue`);
       await expect(queue).toBeFocused();
@@ -221,12 +239,95 @@ console.log(JSON.stringify(result));
       await expect(page.getByRole("heading", { name: "Unobserved Work", level: 1 })).toBeVisible();
       expect(posts).toEqual([]);
       expect(await readRepositorySourceBytes(root)).toEqual(sources);
+      let recovery: Readonly<{ attentionCount: number; removedDiagnostic: string }> | undefined;
+      if (!firstFailure) {
+        const unrelatedDiagnostics = rows.diagnostics.filter(
+          (item) => item.target === ".scratch/unrelated",
+        );
+        expect(unrelatedDiagnostics.length).toBeGreaterThan(0);
+        const response = page.waitForResponse(
+          (candidate) =>
+            candidate.request().method() === "POST" &&
+            new URL(candidate.url()).pathname.endsWith("/provider-observation"),
+        );
+        await page.getByRole("button", { name: "Refresh source", exact: true }).click();
+        const result = await (await response).json();
+        expect(result).toMatchObject({
+          state: "completed",
+          action: "source-load",
+          acquisitionCount: 1,
+        });
+        await expect(page.locator(".source-observation-feedback")).toHaveText("1 source checked.");
+        expect(providerRequests).toEqual([
+          {
+            version: 1,
+            action: "source-load",
+            binding: { provider: "matt-skills/v1", nativeScope: ".scratch/unobserved" },
+          },
+        ]);
+        const refreshedRows = await queryPortalProjectRows(root, "overview");
+        expect(refreshedRows.diagnostics).not.toContainEqual(
+          expect.objectContaining({ reference: unavailable.reference }),
+        );
+        expect(refreshedRows.diagnostics).not.toContainEqual(
+          expect.objectContaining({ code: unavailable.code, target: unavailable.target }),
+        );
+        expect(refreshedRows.attentionCount).toBe(rows.attentionCount - 1);
+        expect(refreshedRows.attention).toContainEqual(
+          expect.objectContaining({
+            kind: "planning-review",
+            id: "planning-review:fixture",
+            title: "Review the current sequence",
+          }),
+        );
+        // References belong to the new generation; the unrelated diagnostic's meaning remains.
+        for (const { code, target, message, impact } of unrelatedDiagnostics) {
+          const retained = refreshedRows.diagnostics.find(
+            (item) => item.code === code && item.target === target,
+          );
+          expect(retained).toMatchObject({ code, target, message, impact });
+          expect(refreshedRows.attention).toContainEqual({
+            kind: "structural-diagnostic",
+            diagnosticReference: retained?.reference,
+          });
+        }
+        const stored = new DatabaseSync(projectReadModelPath(root));
+        expect(
+          stored
+            .prepare(
+              "SELECT observation_json FROM provider_evidence WHERE observation_id IS NOT NULL AND json_extract(observation_json, '$.binding.nativeScope') = ? ORDER BY binding_key, role",
+            )
+            .all(".scratch/work"),
+        ).toEqual(originalObservations);
+        stored.close();
+        await page.getByRole("button", { name: "Open Technical Details" }).click();
+        await expect(technical).not.toContainText(unavailable.reference);
+        await technical.getByRole("button", { name: "Close Technical Details" }).click();
+        await expect(technical).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Open Technical Details" })).toBeFocused();
+        await page
+          .getByRole("link", {
+            name: `${refreshedRows.attentionCount} items need attention`,
+          })
+          .click();
+        await expect(page).toHaveURL(`${host.url}/projects/diagnostics#attention-queue`);
+        await expect(queue.locator(".attention-item")).toHaveCount(refreshedRows.attentionCount);
+        await expect(queue.getByText("Review the current sequence", { exact: true })).toBeVisible();
+        await expect(queue.getByText("Effort: Unrelated Work · Impact: blocking")).toBeVisible();
+        await expect(queue.getByText("Effort: Unobserved Work · Impact: blocking")).toHaveCount(0);
+        expect(posts).toHaveLength(1);
+        expect(await readRepositorySourceBytes(root)).toEqual(sources);
+        recovery = {
+          attentionCount: refreshedRows.attentionCount,
+          removedDiagnostic: unavailable.reference,
+        };
+      }
       await writeFile(
         await browserArtifactPath(
           testInfo,
           `${firstFailure ? "failed" : "missing"}-observation-attention.json`,
         ),
-        `${JSON.stringify({ diagnostics, attentionCount: rows.attentionCount, posts, existingEvidencePreserved: true, sourceBytesPreserved: true }, null, 2)}\n`,
+        `${JSON.stringify({ diagnostics, attentionCount: rows.attentionCount, posts, providerRequests, recovery, existingEvidencePreserved: true, sourceBytesPreserved: true }, null, 2)}\n`,
       );
     } finally {
       await stopBuiltPortal(host);
@@ -236,3 +337,116 @@ console.log(JSON.stringify(result));
     }
   });
 }
+
+test("projection 11 with unchanged inputs requires explicit rebuild and scoped reacquisition", async () => {
+  const root = await realpath(await copyPortalProjectFixture());
+  try {
+    await runBuiltBearing(["provider", "capture", "--repo", root, "--scope", ".scratch/work"]);
+    await cp(join(root, ".scratch/work"), join(root, ".scratch/unobserved"), { recursive: true });
+    const effort = await readFile(join(root, ".bearing/state/efforts/fixture.md"), "utf8");
+    await writeFile(
+      join(root, ".bearing/state/efforts/unobserved.md"),
+      effort
+        .replaceAll("effort:fixture", "effort:unobserved")
+        .replaceAll("Fixture Work", "Unobserved Work")
+        .replaceAll(".scratch/work", ".scratch/unobserved"),
+    );
+    const gatePath = join(root, ".bearing/state/milestone-gates/fixture.md");
+    await writeFile(
+      gatePath,
+      (await readFile(gatePath, "utf8")).replace(
+        "  - effort:fixture",
+        "  - effort:fixture\n  - effort:unobserved",
+      ),
+    );
+    await runBuiltBearing(["cache", "rebuild", "--repo", root]);
+    const current = await queryPortalProjectRows(root, "overview");
+    const unavailable = current.diagnostics.find(
+      (item) =>
+        item.target === ".scratch/unobserved" && item.code === "provider-observation-unavailable",
+    );
+    if (unavailable === undefined) throw new Error("Unobserved scope diagnostic is missing.");
+    const cachePath = projectReadModelPath(root);
+    const old = new DatabaseSync(cachePath);
+    const basis = old.prepare("SELECT basis_fingerprint FROM read_model_metadata").get();
+    expect(
+      old
+        .prepare("SELECT count(*) AS count FROM provider_evidence WHERE observation_id IS NOT NULL")
+        .get(),
+    ).toEqual({ count: 1 });
+    // Model the previous committed semantics without changing its canonical/native input basis.
+    old.prepare("UPDATE read_model_metadata SET projection_version = 11").run();
+    old
+      .prepare(
+        "DELETE FROM project_attention WHERE json_extract(payload_json, '$.diagnosticReference') = ?",
+      )
+      .run(unavailable.reference);
+    expect(old.prepare("SELECT basis_fingerprint FROM read_model_metadata").get()).toEqual(basis);
+    old.close();
+    const sources = await readRepositorySourceBytes(root);
+    const cacheBytes = await readFile(cachePath);
+    const inspect = await runHarnessCommand(
+      "node",
+      ["dist/cli.js", "inspect", "project", "--repo", root],
+      { environment: process.env },
+    );
+    expect(inspect.exitCode).toBe(1);
+    expect(JSON.parse(inspect.stdout)).toMatchObject({ outcome: "recovery-required" });
+    expect(await readFile(cachePath)).toEqual(cacheBytes);
+    expect(await readRepositorySourceBytes(root)).toEqual(sources);
+
+    const rebuild = await runHarnessCommand(
+      "node",
+      ["dist/cli.js", "cache", "rebuild", "--repo", root],
+      { environment: process.env },
+    );
+    expect(rebuild.exitCode).toBe(0);
+    expect(JSON.parse(rebuild.stdout)).toMatchObject({
+      outcome: "complete",
+      result: { acquisitionCount: 0 },
+    });
+    const rebuilt = await queryPortalProjectRows(root, "overview");
+    const missing = rebuilt.diagnostics.filter(
+      (item) => item.code === "provider-observation-unavailable",
+    );
+    expect(missing.map((item) => item.target).toSorted()).toEqual([
+      ".scratch/unobserved",
+      ".scratch/work",
+    ]);
+    for (const diagnostic of missing) {
+      expect(rebuilt.attention).toContainEqual({
+        kind: "structural-diagnostic",
+        diagnosticReference: diagnostic.reference,
+      });
+    }
+    const reset = new DatabaseSync(cachePath);
+    expect(reset.prepare("SELECT projection_version FROM read_model_metadata").get()).toEqual({
+      projection_version: 12,
+    });
+    expect(
+      reset
+        .prepare("SELECT count(*) AS count FROM provider_evidence WHERE observation_id IS NOT NULL")
+        .get(),
+    ).toEqual({ count: 0 });
+    reset.close();
+    const capture = await runHarnessCommand(
+      "node",
+      ["dist/cli.js", "provider", "capture", "--repo", root, "--scope", ".scratch/unobserved"],
+      { environment: process.env },
+    );
+    expect(capture.exitCode).toBe(0);
+    expect(JSON.parse(capture.stdout)).toMatchObject({
+      outcome: "complete",
+      result: { acquisitionCount: 1 },
+    });
+    const acquired = await queryPortalProjectRows(root, "overview");
+    expect(
+      acquired.diagnostics
+        .filter((item) => item.code === "provider-observation-unavailable")
+        .map((item) => item.target),
+    ).toEqual([".scratch/work"]);
+    expect(await readRepositorySourceBytes(root)).toEqual(sources);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
