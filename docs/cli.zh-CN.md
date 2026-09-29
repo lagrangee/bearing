@@ -134,6 +134,12 @@ Cache rebuild 只创建 disposable SQLite Project Read Model。Provider verifica
 Work Bindings 的显式 cost-bearing operation。Inspect 返回 typed committed rows。这些命令不会
 发现 standalone work，也不会扩张 Bearing Scope。
 
+Subject rows 引用所属 Binding 和 role 的唯一 provider evidence；Inspect 与 Portal 通过 typed
+query 解析引用，保留相同的校验和 coverage 边界。旧的不兼容 projection 需要显式 cache rebuild；
+重建不会执行 provider acquisition，并如实报告缺失 evidence。随后以独立的
+`provider capture --scope <scope>` 只恢复需要的 exact scope。兼容重建仍保留可复用 evidence。
+这些操作不改写 canonical planning 或 native sources；较新 store 仍要求更新 Kit，不降级或迁移。
+
 Capture、verification、reconciliation 与本地 Ensure Current 从一次捕获的 canonical basis
 派生候选；健康数据库的本地 cache rebuild 也使用自己的 committed starting basis。提交时在一个 SQLite transaction 中比较该操作使用的 committed metadata 与 bound
 evidence。发生并发变化时返回 `project-read-model-publication-conflict`：结果为 `unfulfilled`，

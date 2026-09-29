@@ -9,6 +9,7 @@ import { buildProjectFindDocuments, projectFindScopeState } from "../portal-ui/p
 import type { ProjectGeneration } from "../project-generation/contract";
 import {
   attentionItemSchema,
+  effortSchema,
   projectGenerationSchema,
   structuralDiagnosticSchema,
 } from "../project-generation/schema";
@@ -35,15 +36,14 @@ import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-
 import { activeRuntimeExecutionContext } from "../runtime-context";
 import type { StructuralDiagnostic } from "../types";
 import {
-  assertProjectReadModelObjectIdentity,
   assertProjectReadModelObjectRelationships,
   PROJECT_READ_MODEL_PROJECTION_VERSION,
   PROJECT_READ_MODEL_STORAGE_VERSION,
   type ProjectReadModelObject,
   type ProjectReadModelReceipt,
-  projectReadModelObjectSchema,
   projectReadModelReceiptSchema,
 } from "./contract";
+import { readProjectReadModelObject } from "./object-row";
 
 const BUSY_TIMEOUT_MS = 1_000;
 
@@ -460,8 +460,7 @@ export const compileProjectReadModel = (input: {
             id,
             subjectReference,
             role,
-            selection,
-            ...(observation === undefined ? {} : { observation }),
+            bindingKey: projectProviderEvidenceBindingKey(selection),
           }),
         });
       }
@@ -590,20 +589,23 @@ const readMetadata = (database: DatabaseSync, storageVersion: number): ProjectRe
   return metadata;
 };
 
-const validateProviderEvidenceRow = (row: Readonly<Record<string, SQLOutputValue>>): void => {
+const parseProviderEvidenceRow = (
+  row: Readonly<Record<string, SQLOutputValue>>,
+): ProjectProviderEvidence => {
+  const role = z.enum(["bound", "detail"]).parse(row["role"]);
   const selection = providerObservationSelectionSchema.parse(parseJson(row["selection_json"]));
-  const bindingKey = row["binding_key"];
-  const expectedBindingKeys = new Set([projectProviderEvidenceBindingKey(selection)]);
+  const bindingKey = z.string().parse(row["binding_key"]);
   if (
-    !expectedBindingKeys.has(String(bindingKey)) ||
+    projectProviderEvidenceBindingKey(selection) !== bindingKey ||
     selection.observationId !== row["observation_id"]
   ) {
     throw new Error("Project Read Model provider selection identity is inconsistent.");
   }
+  let observation: MattSkillsV1ProviderObservation | undefined;
   if (typeof row["observation_json"] === "string") {
-    const observation = mattSkillsV1ProviderObservationSchema.parse(
+    observation = mattSkillsV1ProviderObservationSchema.parse(
       parseJson(row["observation_json"]),
-    );
+    ) as MattSkillsV1ProviderObservation;
     if (
       observation.id !== row["observation_id"] ||
       (observation.sourceRevision ?? null) !== row["source_revision"] ||
@@ -615,18 +617,31 @@ const validateProviderEvidenceRow = (row: Readonly<Record<string, SQLOutputValue
   } else if (row["observation_id"] !== null || row["source_revision"] !== null) {
     throw new Error("Project Read Model provider observation payload is missing.");
   }
+  return { bindingKey, role, selection, ...(observation === undefined ? {} : { observation }) };
 };
 
 const validatePayloads = (database: DatabaseSync): void => {
+  const evidence = new Map(
+    database
+      .prepare("SELECT * FROM provider_evidence")
+      .all()
+      .map((row) => {
+        const parsed = parseProviderEvidenceRow(row);
+        return [`${parsed.role}:${parsed.bindingKey}`, parsed] as const;
+      }),
+  );
   const objects: ProjectReadModelObject[] = [];
   for (const row of database
     .prepare("SELECT reference, kind, payload_json FROM project_objects")
     .all()) {
-    const parsed = projectReadModelObjectSchema.parse({
-      kind: row["kind"],
-      value: parseJson(row["payload_json"]),
-    });
-    assertProjectReadModelObjectIdentity(z.string().parse(row["reference"]), parsed);
+    const parsed = readProjectReadModelObject(
+      {
+        reference: z.string().parse(row["reference"]),
+        kind: z.string().parse(row["kind"]),
+        payload: z.string().parse(row["payload_json"]),
+      },
+      (bindingKey, role) => evidence.get(`${role}:${bindingKey}`),
+    );
     objects.push(parsed);
   }
   assertProjectReadModelObjectRelationships(objects);
@@ -706,13 +721,6 @@ const validatePayloads = (database: DatabaseSync): void => {
       throw new Error("Project Read Model Source identity is inconsistent.");
     }
   }
-  for (const row of database
-    .prepare(
-      "SELECT binding_key, observation_id, source_revision, observation_json, selection_json FROM provider_evidence",
-    )
-    .all()) {
-    validateProviderEvidenceRow(row);
-  }
 };
 
 export const inspectProjectReadModel = async (repoRoot: string): Promise<ProjectReadModelState> => {
@@ -786,7 +794,7 @@ const insertCandidate = (
           )
           .all(...currentBindingKeys)
           .filter((row) => {
-            validateProviderEvidenceRow(row);
+            parseProviderEvidenceRow(row);
             return matchesCurrentBinding(z.string().parse(row["selection_json"]));
           });
   for (const table of [
@@ -868,6 +876,7 @@ const insertCandidate = (
       row["observation_json"] ?? null,
       z.string().parse(row["selection_json"]),
     );
+    synchronizeDetailEvidenceReferences(database, parseProviderEvidenceRow(row));
   }
   database
     .prepare(
@@ -1153,28 +1162,39 @@ const projectProviderEvidence = (
   database
     .prepare(
       role === undefined
-        ? "SELECT binding_key, role, observation_json, selection_json FROM provider_evidence ORDER BY binding_key, role"
-        : "SELECT binding_key, role, observation_json, selection_json FROM provider_evidence WHERE role = ? ORDER BY binding_key",
+        ? "SELECT * FROM provider_evidence ORDER BY binding_key, role"
+        : "SELECT * FROM provider_evidence WHERE role = ? ORDER BY binding_key",
     )
     .all(...(role === undefined ? [] : [role]))
-    .map((row) => {
-      const parsedRole = z.enum(["bound", "detail"]).parse(row["role"]);
-      const selection = providerObservationSelectionSchema.parse(
-        parseJson(row["selection_json"]),
-      ) as ProviderObservationSelection;
-      const observation =
-        typeof row["observation_json"] === "string"
-          ? (mattSkillsV1ProviderObservationSchema.parse(
-              parseJson(row["observation_json"]),
-            ) as MattSkillsV1ProviderObservation)
-          : undefined;
-      return {
-        bindingKey: z.string().parse(row["binding_key"]),
-        role: parsedRole,
-        selection,
-        ...(observation === undefined ? {} : { observation }),
-      };
-    });
+    .map(parseProviderEvidenceRow);
+
+export const readProjectReadModelObjects = (
+  database: DatabaseSync,
+  rows: readonly Readonly<Record<string, SQLOutputValue>>[],
+): readonly ProjectReadModelObject[] => {
+  const evidence = new Map<string, ProjectProviderEvidence>();
+  return rows.map((row) =>
+    readProjectReadModelObject(
+      {
+        reference: z.string().parse(row["reference"]),
+        kind: z.string().parse(row["kind"]),
+        payload: z.string().parse(row["payload_json"]),
+      },
+      (bindingKey, role) => {
+        const key = `${role}:${bindingKey}`;
+        const prior = evidence.get(key);
+        if (prior !== undefined) return prior;
+        const stored = database
+          .prepare("SELECT * FROM provider_evidence WHERE binding_key = ? AND role = ?")
+          .get(bindingKey, role);
+        if (stored === undefined) return undefined;
+        const parsed = parseProviderEvidenceRow(stored);
+        evidence.set(key, parsed);
+        return parsed;
+      },
+    ),
+  );
+};
 
 export const readProjectProviderEvidence = async (
   repoRoot: string,
@@ -1248,37 +1268,51 @@ const replaceProviderEvidence = (
       observation === undefined ? null : json(observation),
       json(evidence.selection),
     );
-  if (evidence.role === "bound") {
-    const update = database.prepare(
-      "UPDATE project_objects SET payload_json = ? WHERE reference = ? AND kind = 'portal-native-evidence'",
-    );
-    for (const row of database
-      .prepare(
-        "SELECT reference, payload_json FROM project_objects WHERE kind = 'portal-native-evidence'",
-      )
-      .all()) {
-      const object = projectReadModelObjectSchema.parse({
-        kind: "portal-native-evidence",
-        value: parseJson(row["payload_json"]),
-      });
-      if (object.kind !== "portal-native-evidence") {
-        throw new Error("Project Read Model native evidence kind is inconsistent.");
-      }
-      if (
-        object.value.role !== "bound" ||
-        projectProviderEvidenceBindingKey(object.value.selection) !== evidence.bindingKey
-      ) {
-        continue;
-      }
-      update.run(
-        json({
-          ...object.value,
-          selection: evidence.selection,
-          ...(observation === undefined ? {} : { observation }),
-        }),
-        String(row["reference"]),
+  if (evidence.role === "detail") synchronizeDetailEvidenceReferences(database, evidence);
+};
+
+// Detail evidence can change its subject coverage without changing the bound generation.
+// Its lightweight references must follow that same transaction, including a retained winner.
+const synchronizeDetailEvidenceReferences = (
+  database: DatabaseSync,
+  evidence: ProjectProviderEvidence,
+): void => {
+  const subjectReferences = new Set<string>([
+    `native-scope:${mattNativeScopeSubject({ binding: evidence.selection }).id}`,
+  ]);
+  for (const row of database
+    .prepare("SELECT payload_json FROM project_objects WHERE kind = 'effort'")
+    .all()) {
+    const effort = effortSchema.parse(parseJson(row["payload_json"]));
+    if (
+      effort.workBinding !== undefined &&
+      projectProviderEvidenceBindingKey(effort.workBinding) === evidence.bindingKey
+    ) {
+      subjectReferences.add(effort.id);
+    }
+  }
+  if (evidence.observation !== undefined) {
+    const sources = database
+      .prepare("SELECT payload_json FROM project_sources")
+      .all()
+      .map((row) => sourceRecordSchema.parse(parseJson(row["payload_json"])));
+    for (const record of mattNativeRecords([evidence.observation], sources)) {
+      subjectReferences.add(
+        `${record.recordKind === "native-scope" ? "native-scope" : "native-subject"}:${record.id}`,
       );
     }
+  }
+  database
+    .prepare(
+      "DELETE FROM project_objects WHERE kind = 'portal-native-evidence' AND json_extract(payload_json, '$.role') = 'detail' AND json_extract(payload_json, '$.bindingKey') = ?",
+    )
+    .run(evidence.bindingKey);
+  const insert = database.prepare(
+    "INSERT INTO project_objects(reference, kind, ordinal, payload_json) VALUES (?, 'portal-native-evidence', 0, ?)",
+  );
+  for (const subjectReference of subjectReferences) {
+    const id = `portal-native-evidence:detail:${subjectReference}`;
+    insert.run(id, json({ id, subjectReference, role: "detail", bindingKey: evidence.bindingKey }));
   }
 };
 
