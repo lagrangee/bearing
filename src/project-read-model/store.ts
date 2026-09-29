@@ -942,7 +942,7 @@ const candidateMetadata = (candidate: ProjectReadModelCandidate) => ({
 
 export const publishProjectReadModel = async (
   repoRoot: string,
-  candidate: ProjectReadModelCandidate,
+  candidate: ProjectReadModelCandidate | null,
   options: Readonly<{
     now?: () => string;
     faultAt?: "before-commit";
@@ -953,8 +953,16 @@ export const publishProjectReadModel = async (
     }>;
   }> = {},
 ): Promise<ProjectReadModelPublication> => {
-  await validateProjectReadModelCandidate(candidate);
-  const desiredEvidence = candidateBoundEvidence(candidate);
+  if (
+    candidate === null &&
+    (options.operation === undefined ||
+      options.operation.publishGeneration ||
+      options.operation.startingBasis.metadata === null)
+  ) {
+    throw new TypeError("Attempt-only publication requires an existing generation basis.");
+  }
+  if (candidate !== null) await validateProjectReadModelCandidate(candidate);
+  const desiredEvidence = candidate === null ? [] : candidateBoundEvidence(candidate);
   const cacheRoot = dirname(projectReadModelPath(repoRoot));
   const bearingRoot = join(repoRoot, ".bearing");
   const bearingMetadata = await lstat(bearingRoot);
@@ -995,8 +1003,11 @@ export const publishProjectReadModel = async (
     const attemptOnly =
       operation !== undefined &&
       previousMetadata !== undefined &&
+      operation.attempts.every((attempt) =>
+        startingBound?.some((entry) => entry.bindingKey === attempt.bindingKey),
+      ) &&
       (!operation.publishGeneration ||
-        candidate.basisFingerprint === operation.startingBasis.metadata?.basisFingerprint);
+        candidate?.basisFingerprint === operation.startingBasis.metadata?.basisFingerprint);
     const finalEvidence = attemptOnly
       ? (startingBound ?? []).map(
           (entry) =>
@@ -1005,7 +1016,9 @@ export const publishProjectReadModel = async (
       : desiredEvidence;
     const expectedMetadata = attemptOnly
       ? operation.startingBasis.metadata
-      : candidateMetadata(candidate);
+      : candidate === null
+        ? null
+        : candidateMetadata(candidate);
     const withoutReceipt = (
       metadata: ProjectReadModelMetadata | ReturnType<typeof candidateMetadata> | null | undefined,
     ) => {
@@ -1063,6 +1076,9 @@ export const publishProjectReadModel = async (
       database.exec("COMMIT");
       began = false;
       return { state: "unchanged", receipt: previousMetadata.receipt, evidence };
+    }
+    if (candidate === null) {
+      throw new TypeError("Generation publication requires a complete candidate.");
     }
     const receipt = projectReadModelReceiptSchema.parse({
       basisFingerprint: candidate.basisFingerprint,
