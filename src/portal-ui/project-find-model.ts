@@ -196,10 +196,10 @@ export const projectFindScopeState = (snapshot: ProjectGeneration): ProjectFindS
 
 type NativeObservation = ProjectGeneration["providerObservations"][number];
 
-// Bound selection is authoritative even when it has no readable observation.
-// Detail evidence can fill only an otherwise unselected scope.
+// Bound observations take precedence; a missing bound observation does not hide
+// readable detail evidence or promote it into bound completion evidence.
 const nativeObservations = (snapshot: ProjectGeneration): readonly NativeObservation[] => {
-  const byScope = new Map<string, NativeObservation | undefined>();
+  const byScope = new Map<string, NativeObservation>();
   for (const [observations, selections] of [
     [snapshot.providerObservations, snapshot.providerObservationSelections],
     [snapshot.providerDetailEvidences.observations, snapshot.providerDetailEvidences.selections],
@@ -207,17 +207,14 @@ const nativeObservations = (snapshot: ProjectGeneration): readonly NativeObserva
     const byId = new Map(observations.map((observation) => [observation.id, observation]));
     for (const selection of selections) {
       const key = mattNativeScopeKey(selection);
-      if (!byScope.has(key)) {
-        byScope.set(
-          key,
-          selection.observationId === null ? undefined : byId.get(selection.observationId),
-        );
+      const observation =
+        selection.observationId === null ? undefined : byId.get(selection.observationId);
+      if (observation !== undefined && !byScope.has(key)) {
+        byScope.set(key, observation);
       }
     }
   }
-  return [...byScope.values()].filter(
-    (observation): observation is NativeObservation => observation !== undefined,
-  );
+  return [...byScope.values()];
 };
 
 const nativeType = (record: MattNativeRecord): string => {

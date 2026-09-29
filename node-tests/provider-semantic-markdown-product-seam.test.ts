@@ -304,7 +304,11 @@ Keep ![large image](../evidence/large.png), [binary target](../evidence/binary.b
     const find = await service.search("bearing", "binary target");
     assert.equal(find.kind, "ready");
     if (find.kind !== "ready") throw new Error("Expected a production Project Find read.");
-    assert.ok(find.find.results.some((result) => result.subject.id === issueLocator));
+    assert.deepEqual(find.find.results, []);
+    const titleFind = await service.search("bearing", "Finish");
+    assert.equal(titleFind.kind, "ready");
+    if (titleFind.kind !== "ready") throw new Error("Expected a title Project Find read.");
+    assert.ok(titleFind.find.results.some((result) => result.subject.id === issueLocator));
   } finally {
     await chmod(`${root}/.scratch/work/evidence/unreadable.txt`, 0o600).catch(() => {});
     await rm(root, { recursive: true, force: true });
@@ -1206,8 +1210,12 @@ test("unsupported GitHub comment capability still publishes readable Portal and 
     const find = await service.search("bearing", "Reporter prose");
     assert.equal(find.kind, "ready");
     if (find.kind !== "ready") throw new Error("Expected a production Project Find read.");
+    assert.deepEqual(find.find.results, []);
+    const titleFind = await service.search("bearing", "Support a custom-mapped enhancement");
+    assert.equal(titleFind.kind, "ready");
+    if (titleFind.kind !== "ready") throw new Error("Expected a title Project Find read.");
     assert.ok(
-      find.find.results.some(
+      titleFind.find.results.some(
         (result) => result.subject.kind === "native-subject" && result.subject.id === target.id,
       ),
     );

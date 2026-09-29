@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { PROJECT_READ_MODEL_PROJECTION_VERSION } from "../src/project-read-model/contract";
 import {
   PortalProjectReadModelUnavailableError,
+  queryPortalProjectRows,
   searchPortalProjectRows,
 } from "../src/project-read-model/portal";
 import {
@@ -12,13 +13,103 @@ import {
   rebuildProjectReadModel,
 } from "../src/project-read-model/provider-operations";
 import {
+  compileProjectReadModel,
   inspectProjectReadModel,
   projectReadModelPath,
+  publishProjectReadModel,
   readProjectProviderEvidence,
 } from "../src/project-read-model/store";
 import { defaultMattProviderFactory } from "../src/provider-acquisition";
+import { createProjectOverviewFixture } from "../tests/fixtures/project-overview";
 import { readRepositorySourceBytes } from "../tests/fixtures/repository-fixture";
 import { createValidBearingRepo } from "../tests/helpers";
+import { parseRebuiltPlanningLineageFixture } from "../tests/planning-lineage-fixture";
+
+test("published title Find keeps readable detail fallback when the bound selection has no observation", async () => {
+  const root = await createValidBearingRepo();
+  try {
+    const original = createProjectOverviewFixture();
+    const observation = original.providerObservations.find(
+      (item) => item.binding.nativeScope === ".scratch/portal",
+    );
+    const selection = original.providerObservationSelections.find(
+      (item) => item.nativeScope === ".scratch/portal",
+    );
+    assert.ok(observation && selection);
+    // Retain the existing bound Effort and lineage; recompiling governance from a missing
+    // observation would instead mark the Binding unresolved, outside this fallback case.
+    const snapshot = parseRebuiltPlanningLineageFixture({
+      ...original,
+      providerObservations: original.providerObservations.filter((item) => item !== observation),
+      providerObservationSelections: original.providerObservationSelections.map((item) =>
+        item === selection
+          ? {
+              ...item,
+              observationId: null,
+              effectiveFreshness: "undetermined",
+              latestAttempt: null,
+            }
+          : item,
+      ),
+      providerDetailEvidences: {
+        observations: [observation],
+        selections: [
+          {
+            ...selection,
+            latestAttempt: {
+              intent: "provider-detail-selection",
+              attemptedAt: "2026-09-30T00:00:00.000Z",
+              outcome: "succeeded",
+              diagnostics: [],
+            },
+          },
+        ],
+      },
+    });
+    await publishProjectReadModel(
+      root,
+      compileProjectReadModel({
+        snapshot,
+        basisFingerprint: snapshot.basis.basisFingerprint,
+        basisInputs: [],
+        basisObservations: [],
+        assetContentObservations: [],
+      }),
+    );
+    const find = await searchPortalProjectRows(root, "fixture", "Pass the integration gate");
+    assert.deepEqual(
+      find.results.map((result) => result.subject),
+      [
+        {
+          kind: "native-subject",
+          id: ".scratch/portal/issues/03-gate.md",
+        },
+      ],
+    );
+    assert.equal(find.scopeState.state, "unavailable");
+    const rows = await queryPortalProjectRows(root, "lineage", {
+      kind: "native-subject",
+      id: ".scratch/portal/issues/03-gate.md",
+    });
+    assert.ok(
+      rows.objects.some(
+        (object) =>
+          object.kind === "portal-native-evidence" &&
+          object.value.role === "detail" &&
+          object.value.observation?.id === observation.id,
+      ),
+    );
+    const retained = (await readProjectProviderEvidence(root, "bound")).find(
+      (item) => item.selection.nativeScope === ".scratch/portal",
+    );
+    assert.equal(retained?.observation, undefined);
+    assert.equal(retained?.selection.observationId, null);
+    assert.equal(retained?.selection.effectiveFreshness, "undetermined");
+    assert.equal(retained?.selection.latestAttempt, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("title-only projection refuses legacy Find, rebuilds without acquisition, and recovers through independent exact capture", async () => {
   const root = await createValidBearingRepo();

@@ -389,6 +389,7 @@ export const selectProviderObservations = async (
         observationId: successfulObservation?.id ?? existingObservation?.id ?? null,
         effectiveFreshness:
           successfulObservation?.freshness.assessment ??
+          existing?.effectiveFreshness ??
           existingObservation?.freshness.assessment ??
           ("undetermined" as const),
         latestAttempt: {

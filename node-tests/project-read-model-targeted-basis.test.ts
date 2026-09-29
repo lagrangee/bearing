@@ -5,6 +5,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { test } from "node:test";
 import { nativeReconciliationRequestFingerprint } from "../src/native-reconciliation-contract";
 import { queryCommittedProject } from "../src/project-read-model/inspect";
+import { queryPortalProjectRows } from "../src/project-read-model/portal";
 import {
   captureProjectProviderScopes,
   rebuildProjectReadModel,
@@ -16,6 +17,7 @@ import {
   replaceProjectProviderEvidence,
 } from "../src/project-read-model/store";
 import { defaultMattProviderFactory } from "../src/provider-acquisition";
+import { assessSelectedProviderObservationEvidence } from "../src/provider-evidence-contract";
 import { ProviderObservationAcquisitionUnavailableError } from "../src/provider-evidence-selection";
 import { createValidBearingRepo } from "../tests/helpers";
 
@@ -108,6 +110,7 @@ for (const reason of ["missing", "failed", "stale", "undetermined"] as const) {
       assert.deepEqual(await inspectProjectReadModel(root), before);
       const retained = (await readProjectProviderEvidence(root, "bound"))[0];
       assert.deepEqual(retained?.observation, previous?.observation);
+      assert.equal(retained?.selection.effectiveFreshness, previous?.selection.effectiveFreshness);
       assert.equal(retained?.selection.latestAttempt?.outcome, "failed");
       assert.equal(retained?.selection.latestAttempt?.attemptedAt, attemptedAt);
       assert.equal(
@@ -123,6 +126,30 @@ for (const reason of ["missing", "failed", "stale", "undetermined"] as const) {
       assert.equal(inspected.result.binding.state, "bound");
       if (inspected.result.binding.state !== "bound") throw new Error("Expected bound subject.");
       assert.equal(inspected.result.binding.targetedReconciliationBasis.state, "capture-required");
+      assert.equal(
+        inspected.result.binding.effectiveFreshness,
+        previous?.selection.effectiveFreshness,
+      );
+      if (reason === "stale" || reason === "undetermined") {
+        assert.deepEqual(inspected.result.binding.targetedReconciliationBasis, {
+          state: "capture-required",
+          reason: "freshness-not-current",
+        });
+        const portal = await queryPortalProjectRows(root, "lineage", {
+          kind: "native-subject",
+          id: nativeReference,
+        });
+        const evidence = portal.objects.find(
+          (object) => object.kind === "portal-native-evidence" && object.value.role === "bound",
+        );
+        assert.ok(evidence?.kind === "portal-native-evidence");
+        const assessment = assessSelectedProviderObservationEvidence(
+          evidence.value.observation,
+          evidence.value.selection,
+        );
+        assert.equal(assessment.freshness, reason);
+        assert.equal(assessment.frontierEvidence, "withheld");
+      }
 
       const failedReceipt = JSON.stringify(result);
       assert.equal(

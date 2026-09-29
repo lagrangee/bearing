@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { planningLineageSubjectHref } from "../src/planning-lineage-route";
+import { PROJECT_READ_MODEL_PROJECTION_VERSION } from "../src/project-read-model/contract";
 import { queryPortalProjectRows } from "../src/project-read-model/portal";
 import { projectReadModelPath } from "../src/project-read-model/store";
 import {
@@ -421,7 +422,7 @@ test("projection 11 with unchanged inputs requires explicit rebuild and scoped r
     }
     const reset = new DatabaseSync(cachePath);
     expect(reset.prepare("SELECT projection_version FROM read_model_metadata").get()).toEqual({
-      projection_version: 12,
+      projection_version: PROJECT_READ_MODEL_PROJECTION_VERSION,
     });
     expect(
       reset
