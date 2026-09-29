@@ -115,7 +115,10 @@ test("indexes the managed Audit and inspection-backed bound work", () => {
     ],
   };
   const missing = buildProjectFindIndex(boundWithoutObservation, "bearing");
-  expect(missing.search("Pass the integration gate")).toHaveLength(0);
+  expect(missing.search("Pass the integration gate")[0]?.subject).toEqual({
+    kind: "native-subject",
+    id: ".scratch/portal/issues/03-gate.md",
+  });
   expect(missing.scopeState.state).toBe("unavailable");
 });
 

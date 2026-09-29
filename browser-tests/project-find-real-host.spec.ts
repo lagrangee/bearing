@@ -73,7 +73,32 @@ test("real Host Find matches only published titles and keeps typed navigation an
       "deterministic recovery",
       "Catalog and Snapshot operations",
     ]) {
+      const response = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname === "/api/v1/projects/find/find" &&
+          url.searchParams.get("query") === excluded
+        );
+      });
       await input.fill(excluded);
+      const body = await (await response).json();
+      expect(body.state).toBe("ready");
+      if (excluded === "roadmap:fixture") {
+        // This ID can fuzzily match the unrelated "Wayfinder Map: Fixture Work" title.
+        expect(body.results).not.toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ subject: { kind: "roadmap", id: excluded } }),
+          ]),
+        );
+        await expect(dialog.getByRole("option")).toHaveCount(body.results.length);
+        await expect(
+          dialog.locator(
+            `a[href="${planningLineageSubjectHref("find", { kind: "roadmap", id: excluded })}"]`,
+          ),
+        ).toHaveCount(0);
+        continue;
+      }
+      expect(body.results).toEqual([]);
       await expect(
         dialog.getByText("No matching titles in Bearing-managed scope. Try another title."),
       ).toBeVisible();

@@ -74,6 +74,7 @@ const runCommand = async (
 
 const terminalCommand = (command: readonly string[]): readonly string[] => [
   "python3",
+  "-B",
   "-c",
   [
     "import os, pty, sys",
