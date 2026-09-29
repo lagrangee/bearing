@@ -56,6 +56,7 @@ export const githubMattNativeScopeIdentity = (scope: GitHubMattNativeScope): str
   `github:${scope.repository.nodeId}:${scope.root.nodeId}`;
 
 export const decodeGitHubMattNativeScope = (value: string): GitHubMattNativeScope | undefined => {
+  if (!URL.canParse(value)) return undefined;
   try {
     const url = new URL(value);
     if (url.protocol !== "github-matt-v1:" || url.hostname !== "github.com" || url.hash !== "") {

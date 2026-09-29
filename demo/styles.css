@@ -1623,8 +1623,7 @@ code {
 }
 
 .project-find-result-type,
-.project-find-result-parent,
-.project-find-result-excerpt {
+.project-find-result-parent {
   color: var(--muted);
   font-size: var(--type-meta);
 }
@@ -1635,16 +1634,11 @@ code {
   font-weight: 600;
 }
 
-.project-find-result-parent,
-.project-find-result-excerpt {
+.project-find-result-parent {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.project-find-result-excerpt {
-  line-height: 1.45;
 }
 
 .topbar-walkthrough svg {
@@ -2470,8 +2464,7 @@ code {
     border-radius: var(--radius-panel) var(--radius-panel) 0 0;
   }
 
-  .project-find-result-heading strong,
-  .project-find-result-excerpt {
+  .project-find-result-heading strong {
     white-space: normal;
   }
 

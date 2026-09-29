@@ -130,13 +130,13 @@ const renderFindResults = () => {
   findResultList.replaceChildren();
   findInput.removeAttribute("aria-activedescendant");
   if (query === "") {
-    findStatus.textContent = "Search is limited to Bearing-managed project content.";
+    findStatus.textContent = "Search titles in Bearing-managed scope.";
     findEmpty.hidden = true;
     findResultList.hidden = true;
     return;
   }
   const results = globalThis.NORTHSTAR_DEMO.findResults.filter((result) =>
-    `${result.title} ${result.id} ${result.phrase}`.toLocaleLowerCase().includes(query),
+    result.title.toLocaleLowerCase().includes(query),
   );
   findStatus.textContent = `${results.length} result${results.length === 1 ? "" : "s"}`;
   findEmpty.hidden = results.length !== 0;
@@ -148,12 +148,11 @@ const renderFindResults = () => {
     option.href = result.href;
     option.role = "option";
     option.setAttribute("aria-selected", String(index === 0));
-    option.innerHTML = `<span class="project-find-result-heading"><span class="project-find-result-type"></span><strong></strong></span><span class="project-find-result-parent"></span><span class="project-find-result-excerpt"></span><span class="sr-only"></span>`;
+    option.innerHTML = `<span class="project-find-result-heading"><span class="project-find-result-type"></span><strong></strong></span><span class="project-find-result-parent"></span><span class="sr-only"></span>`;
     option.querySelector(".project-find-result-type").textContent = result.type;
     option.querySelector("strong").textContent = result.title;
     option.querySelector(".project-find-result-parent").textContent = result.parent;
-    option.querySelector(".project-find-result-excerpt").textContent = result.phrase;
-    option.querySelector(".sr-only").textContent = `${result.type}: ${result.title}. ${result.phrase}`;
+    option.querySelector(".sr-only").textContent = `${result.type}: ${result.title}. ${result.parent}`;
     findResultList.append(option);
   }
   if (results.length !== 0) findInput.setAttribute("aria-activedescendant", findResultId(0));

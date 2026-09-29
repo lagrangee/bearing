@@ -477,7 +477,6 @@ export type PortalFindMatch = Readonly<{
   subject: Readonly<{ kind: string; id: string }>;
   subjectType: string;
   title: string;
-  excerpt: string;
   parentPath: readonly string[];
   href: string;
   score: number;
