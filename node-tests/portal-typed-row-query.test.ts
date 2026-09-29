@@ -203,7 +203,7 @@ test("Portal reads bounded typed rows from one committed Project Read Model gene
       projection
         .prepare("UPDATE project_objects SET payload_json = ? WHERE reference = ?")
         .run(assetsState.payload, assetsState.reference);
-      for (const obsoleteVersion of [1, 2]) {
+      for (const obsoleteVersion of [1, 2, 12]) {
         projection
           .prepare("UPDATE read_model_metadata SET projection_version = ? WHERE singleton = 1")
           .run(obsoleteVersion);
@@ -239,7 +239,7 @@ test("Portal reads bounded typed rows from one committed Project Read Model gene
     const find = await searchPortalProjectRows(
       fixture.root,
       "fixture-project",
-      "planning-audit:current",
+      "Planning Audit",
       20,
     );
     assert.ok(find.results.length > 0);
@@ -248,7 +248,7 @@ test("Portal reads bounded typed rows from one committed Project Read Model gene
     assert.deepEqual(find.scopeState, {
       state: "unavailable",
       cause: "No current Audit is available.",
-      impact: "Other managed content remains searchable; Audit findings cannot be searched yet.",
+      impact: "Other managed content remains searchable; Audit detail is not available yet.",
       nextStep: "Close Find and open Audit for the Agent Surface resume instructions.",
     });
 

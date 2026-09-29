@@ -8,10 +8,7 @@ import {
 } from "../src/portal-ui/project-find-model";
 import type { ProjectGeneration } from "../src/project-generation/contract";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
-import {
-  parseRebuiltPlanningLineageFixture,
-  withRebuiltPlanningLineage,
-} from "./planning-lineage-fixture";
+import { parseRebuiltPlanningLineageFixture } from "./planning-lineage-fixture";
 
 const snapshotFixture = createProjectOverviewFixture;
 
@@ -110,9 +107,19 @@ test("indexes the managed Audit and inspection-backed bound work", () => {
     kind: "native-subject",
     id: ".scratch/portal/issues/03-gate.md",
   });
+
+  const boundWithoutObservation = {
+    ...inspectionBacked,
+    providerObservationSelections: [
+      { ...selection, observationId: null, effectiveFreshness: "undetermined" as const },
+    ],
+  };
+  const missing = buildProjectFindIndex(boundWithoutObservation, "bearing");
+  expect(missing.search("Pass the integration gate")).toHaveLength(0);
+  expect(missing.scopeState.state).toBe("unavailable");
 });
 
-test("indexes every available Provider Markdown section across native document surfaces", () => {
+test("does not recall body or comment text from Provider Markdown sections", () => {
   const snapshot = snapshotFixture();
   const observation = snapshot.providerObservations.find(
     (candidate) => candidate.binding.nativeScope === ".scratch/portal",
@@ -319,155 +326,113 @@ test("indexes every available Provider Markdown section across native document s
     ["incoming-additive-find-proof", ".scratch/portal/issues/04-incoming.md"],
     ["incoming-comment-find-proof extra", ".scratch/portal/issues/04-incoming.md"],
   ] as const) {
-    expect(index.search(phrase)[0]?.subject).toEqual({ kind: "native-subject", id });
+    expect(index.search(phrase)).toHaveLength(0);
+    expect(
+      buildProjectFindDocuments(rebuilt, "bearing").some((document) => document.subject.id === id),
+    ).toBe(true);
   }
 });
 
-test("recalls exact identities and semantic fields with stable typed routes", () => {
-  const snapshot = snapshotFixture();
-  const index = buildProjectFindIndex(snapshot, "bearing");
-
-  const identity = index.search("asset:planning-model-evidence")[0];
-  expect(identity?.subject).toEqual({ kind: "asset", id: "asset:planning-model-evidence" });
-  expect(identity).not.toHaveProperty("matchedField");
-  expect(identity).not.toHaveProperty("anchorAvailability");
-  expect(identity?.excerpt).not.toContain("asset:planning-model-evidence");
-  expect(identity?.href).toBe(
+test("recalls titles with stable typed routes, without ID, body, excerpts or anchors", () => {
+  const index = buildProjectFindIndex(snapshotFixture(), "bearing");
+  const result = index.search("Planning Model Evidence")[0];
+  expect(result?.subject).toEqual({ kind: "asset", id: "asset:planning-model-evidence" });
+  expect(result).not.toHaveProperty("excerpt");
+  expect(result).not.toHaveProperty("semanticAnchor");
+  expect(result?.href).toBe(
     planningLineageSubjectHref("bearing", {
       kind: "asset",
       id: "asset:planning-model-evidence",
     }),
   );
-
-  const identityOnly = index.search(".scratch/portal")[0];
-  expect(identityOnly?.subject).toEqual({ kind: "native-scope", id: ".scratch/portal" });
-  expect(identityOnly?.title).toBe("Contributing Work");
-  expect(identityOnly?.excerpt).not.toContain(".scratch/portal");
-  expect(index.search("managed project scope")).toHaveLength(0);
-
-  const semantic = index.search("whole-project orientation")[0];
-  expect(semantic?.subject).toEqual({ kind: "roadmap", id: "roadmap:portal" });
-  expect(semantic?.href).toContain("roadmap.intent");
-  expect(semantic?.excerpt).toContain("Prove whole-project orientation.");
+  for (const query of [
+    "asset:planning-model-evidence",
+    ".scratch/portal",
+    "whole-project orientation",
+    "managed project scope",
+  ]) {
+    expect(index.search(query)).toHaveLength(0);
+  }
+  for (const document of buildProjectFindDocuments(snapshotFixture(), "bearing")) {
+    expect(document).not.toHaveProperty("fields");
+    expect(document).not.toHaveProperty("fallbackExcerpt");
+  }
 });
 
-test("supports representative Chinese and English field recall without repository text", () => {
+test("supports Chinese and English titles and distinguishes duplicate titles by context", () => {
   const base = snapshotFixture();
   if (base.gates.validity !== "available") throw new Error("Expected Gate fixture.");
-  const snapshot = {
+  const snapshot = parseRebuiltPlanningLineageFixture({
     ...base,
     gates: {
-      validity: "available" as const,
-      items: base.gates.items.map((gate) =>
-        gate.id === "gate:two" ? { ...gate, title: "中文规划", intent: "确认中文阅读路径" } : gate,
-      ),
+      ...base.gates,
+      items: base.gates.items.map((gate) => ({
+        ...gate,
+        title: "中文规划",
+        intent: "确认中文阅读路径",
+      })),
     },
-  } as ProjectGeneration;
-  const rebuilt = {
-    ...snapshot,
-    lineage: withRebuiltPlanningLineage(snapshot).lineage,
-  } as ProjectGeneration;
-  const index = buildProjectFindIndex(rebuilt, "bearing");
-
-  expect(tokenizeProjectFindText("中文阅读路径").length).toBeGreaterThan(1);
-  const chinese = index.search("中文阅读路径")[0];
-  expect(chinese?.subject).toEqual({ kind: "gate", id: "gate:two" });
-  expect(index.search(".scratch/evidence/planning-model")[0]?.subject).toEqual({
-    kind: "asset",
-    id: "asset:planning-model-evidence",
   });
+  const index = buildProjectFindIndex(snapshot, "bearing");
+  expect(tokenizeProjectFindText("中文规划").length).toBeGreaterThan(1);
+  const chinese = index.search("中文规划");
+  expect(chinese).toHaveLength(base.gates.items.length);
+  expect(new Set(chinese.map((result) => result.href)).size).toBe(chinese.length);
+  expect(chinese.every((result) => result.parentPath.length > 0)).toBe(true);
+  expect(index.search("portal evolution")[0]?.subject).toEqual({
+    kind: "roadmap",
+    id: "roadmap:portal",
+  });
+  expect(index.search("确认中文阅读路径")).toHaveLength(0);
   expect(index.search("Project Summary has one malformed section")).toHaveLength(0);
 });
 
-test("indexes Effort Intent Markdown as derived semantic plain text", () => {
+test("does not index a lineage title without trustworthy matching detail", () => {
   const base = snapshotFixture();
-  if (base.efforts.validity !== "available") throw new Error("Expected Effort fixture.");
-  const snapshot = {
+  if (base.gates.validity !== "available") throw new Error("Expected Gate fixture.");
+  const noDetail = {
     ...base,
-    efforts: {
-      ...base.efforts,
-      items: base.efforts.items.map((effort) =>
-        effort.id === "effort:portal"
-          ? {
-              ...effort,
-              intent:
-                "Preserve `matt.local.relation.blocked-by-format`.\n\n- Keep **authored meaning** readable.",
-            }
-          : effort,
-      ),
+    gates: { ...base.gates, items: base.gates.items.filter((gate) => gate.id !== "gate:two") },
+  };
+  expect(
+    buildProjectFindDocuments(noDetail, "bearing").some(
+      (document) => document.subject.id === "gate:two",
+    ),
+  ).toBe(false);
+  const noLineage = {
+    ...base,
+    lineage: {
+      ...base.lineage,
+      subjects: base.lineage.subjects.filter((subject) => subject.identity.id !== "gate:two"),
     },
-  } as ProjectGeneration;
-  const rebuilt = {
-    ...snapshot,
-    lineage: withRebuiltPlanningLineage(snapshot).lineage,
-  } as ProjectGeneration;
-
-  const result = buildProjectFindIndex(rebuilt, "bearing").search("blocked-by-format")[0];
-
-  expect(result?.subject).toEqual({ kind: "effort", id: "effort:portal" });
-  expect(result?.excerpt).toContain("matt.local.relation.blocked-by-format");
-  expect(result?.excerpt).not.toContain("`");
-  expect(result?.excerpt).not.toContain("**");
+  };
+  expect(
+    buildProjectFindDocuments(noLineage, "bearing").some(
+      (document) => document.subject.id === "gate:two",
+    ),
+  ).toBe(false);
 });
 
-test("fails closed for unavailable semantic fields and silently falls back from missing anchors", () => {
+test("keeps readable titles despite unavailable body sections without search anchors", () => {
   const base = snapshotFixture();
-  const baseLineage = base.lineage.subjects.find(
-    (subject) => subject.identity.kind === "gate" && subject.identity.id === "gate:two",
-  );
-  if (baseLineage === undefined) throw new Error("Expected Gate lineage fixture.");
-  const noAnchorLineage = {
-    ...baseLineage,
-    semanticSections: baseLineage.semanticSections.filter(
-      (section) => section.role !== "gate.intent",
-    ),
-  };
-  const unavailableLineage = {
-    ...baseLineage,
-    semanticSections: baseLineage.semanticSections.map((section) =>
-      section.role === "gate.intent"
-        ? { ...section, availability: "unavailable" as const }
-        : section,
-    ),
-  };
-  const missingAnchor = {
-    ...base,
-    lineage: {
-      ...base.lineage,
-      subjects: base.lineage.subjects.map((subject) =>
-        subject === baseLineage ? noAnchorLineage : subject,
-      ),
-    },
-  } as ProjectGeneration;
   const unavailable = {
     ...base,
-    gates: {
-      validity: "available" as const,
-      items:
-        base.gates.validity === "available"
-          ? base.gates.items.map((gate) =>
-              gate.id === "gate:two" ? { ...gate, intent: "Only this unavailable phrase" } : gate,
-            )
-          : [],
-    },
     lineage: {
       ...base.lineage,
-      subjects: base.lineage.subjects.map((subject) =>
-        subject === baseLineage ? unavailableLineage : subject,
-      ),
+      subjects: base.lineage.subjects.map((subject) => ({
+        ...subject,
+        semanticSections: subject.semanticSections.map((section) => ({
+          ...section,
+          availability: "unavailable" as const,
+        })),
+      })),
     },
-  } as ProjectGeneration;
-
-  const missingResult = buildProjectFindIndex(missingAnchor, "bearing").search("Prove Overview")[0];
-  expect(missingResult?.subject).toEqual({ kind: "gate", id: "gate:two" });
-  expect(missingResult).not.toHaveProperty("anchorAvailability");
-  expect(missingResult).not.toHaveProperty("semanticAnchor");
-  expect(missingResult?.href).toBe(
-    planningLineageSubjectHref("bearing", { kind: "gate", id: "gate:two" }),
+  };
+  const result = buildProjectFindIndex(unavailable, "bearing").search("Portal Evolution")[0];
+  expect(result?.subject).toEqual({ kind: "roadmap", id: "roadmap:portal" });
+  expect(result?.href).toBe(
+    planningLineageSubjectHref("bearing", { kind: "roadmap", id: "roadmap:portal" }),
   );
-  expect(
-    buildProjectFindIndex(unavailable, "bearing").search("Only this unavailable phrase"),
-  ).toHaveLength(0);
 });
 
 test("replaces the disposable index when the Snapshot fingerprint changes", () => {
@@ -554,6 +519,21 @@ test("reports typed scope degradation with an executable recovery", () => {
     state: "partial",
     cause: "A bound work scope has incomplete coverage.",
   });
+  expect(
+    buildProjectFindIndex(incomplete, "bearing").search("Pass the integration gate"),
+  ).toHaveLength(1);
+  const stale = {
+    ...snapshot,
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === observation.id
+        ? { ...selection, effectiveFreshness: "stale" as const }
+        : selection,
+    ),
+  };
+  expect(buildProjectFindIndex(stale, "bearing").scopeState.state).toBe("stale");
+  expect(buildProjectFindIndex(stale, "bearing").search("Pass the integration gate")).toHaveLength(
+    1,
+  );
 
   const obsoleteInspection = createProviderScopeObservation({
     provider: observation.provider,

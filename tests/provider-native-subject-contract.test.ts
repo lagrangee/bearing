@@ -140,6 +140,17 @@ test("keeps GitHub node identity stable across locator changes and trustworthy r
   const reversedEntries = [...reordered.searchParams.entries()].reverse();
   reordered.search = "";
   for (const [key, value] of reversedEntries) reordered.searchParams.append(key, value);
+  for (const nonGitHubScope of [
+    "",
+    ".scratch/work",
+    "../local-work",
+    "/absolute/local-work",
+    "https://github.com/example/reference/issues/101",
+    originalScope.replace("/example/", "/%FF/"),
+    originalScope.replace("github.com", "[invalid"),
+  ]) {
+    expect(decodeGitHubMattNativeScope(nonGitHubScope)).toBeUndefined();
+  }
   const nonCanonicalAliases = [
     originalScope.replace("github-matt-v1://github.com/", "github-matt-v1://reader@github.com/"),
     originalScope.replace("github-matt-v1://github.com/", "github-matt-v1://github.com:443/"),

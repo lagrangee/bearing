@@ -912,7 +912,7 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
   await actualFind.click();
   const actualFindDialog = page.getByRole("dialog", { name: "Find in project" });
   const actualSearchbox = actualFindDialog.getByRole("searchbox", {
-    name: "Search identity, title, or semantic phrase",
+    name: "Search titles",
   });
   await actualSearchbox.fill("Unbound Standalone Release Triage");
   await expect(actualFindDialog.getByRole("option")).toHaveCount(0);
@@ -1384,28 +1384,28 @@ test("G3 uses one parameterized comprehension contract journey for Local and Git
     await page.keyboard.press("Enter");
     const findDialog = page.getByRole("dialog", { name: "Find in project" });
     const searchbox = findDialog.getByRole("searchbox", {
-      name: "Search identity, title, or semantic phrase",
+      name: "Search titles",
     });
     await expect(searchbox).toBeFocused();
-    await searchbox.fill("whole-project orientation");
+    await searchbox.fill("Portal Evolution");
     const result = findDialog.getByRole("option").filter({ hasText: "Portal Evolution" }).first();
-    await expect(result).toContainText("Prove whole-project orientation.");
+    await expect(result).not.toContainText("Prove whole-project orientation.");
     await expect(result).not.toContainText("Intent");
     await expect(result).toContainText("Roadmap");
     await searchbox.fill("Unbound Standalone Release Triage");
     await expect(findDialog.getByRole("option")).toHaveCount(0);
     await searchbox.fill(scenario.standalone.binding.nativeScope);
     await expect(findDialog.getByRole("option")).toHaveCount(0);
-    await searchbox.fill("whole-project orientation");
+    await searchbox.fill("Portal Evolution");
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.keyboard.press("Escape");
     await expect(find).toBeFocused();
     await find.press("Enter");
     await findDialog
       .getByRole("searchbox", {
-        name: "Search identity, title, or semantic phrase",
+        name: "Search titles",
       })
-      .fill("roadmap:portal");
+      .fill("Portal Evolution");
     const identityResult = findDialog
       .getByRole("option")
       .filter({ hasText: "Portal Evolution" })

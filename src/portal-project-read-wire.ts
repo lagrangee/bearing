@@ -97,7 +97,6 @@ export const portalProjectFindEnvelopeSchema = z.discriminatedUnion("state", [
           subject: z.strictObject({ kind: z.string().min(1), id: z.string().min(1) }),
           subjectType: z.string().min(1),
           title: z.string().min(1),
-          excerpt: z.string(),
           parentPath: z.array(z.string()).max(20),
           href: z.string().startsWith("/projects/"),
           score: z.number(),

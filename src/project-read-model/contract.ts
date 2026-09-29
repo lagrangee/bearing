@@ -39,7 +39,7 @@ import { mattSkillsV1ProviderObservationSchema } from "../providers/matt-skills-
 import { sourceOwnedAvailableEventTimeSchema } from "../source-event-time";
 
 export const PROJECT_READ_MODEL_STORAGE_VERSION = 1 as const;
-export const PROJECT_READ_MODEL_PROJECTION_VERSION = 12 as const;
+export const PROJECT_READ_MODEL_PROJECTION_VERSION = 13 as const;
 export const PROJECT_INSPECT_ENVELOPE_VERSION = 1 as const;
 
 export const projectReadModelReceiptSchema = z.strictObject({
@@ -183,27 +183,6 @@ export const projectReadModelObjectSchema = z.discriminatedUnion("kind", [
         subjectType: z.string().min(1),
         title: z.string().min(1),
         parentPath: z.array(z.string()).max(20),
-        fields: z
-          .array(
-            z.strictObject({
-              key: z.enum([
-                "identity",
-                "title",
-                "intent",
-                "criteria",
-                "passage",
-                "decision",
-                "nativeBody",
-                "summary",
-              ]),
-              label: z.string().min(1),
-              text: z.string().max(16_384),
-              anchor: z.string().optional(),
-              anchorAvailable: z.boolean().optional(),
-            }),
-          )
-          .max(40),
-        fallbackExcerpt: z.string(),
       }),
     }),
   }),
