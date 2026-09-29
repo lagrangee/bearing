@@ -11,7 +11,10 @@ import { PlanningLineagePage } from "../src/portal-ui/planning-lineage-page";
 import { portalRowsToProjectData } from "../src/portal-ui/project-row-adapter";
 import { queryPortalProjectRows } from "../src/project-read-model/portal";
 import { captureProjectProviderScopes } from "../src/project-read-model/provider-operations";
-import { projectReadModelPath } from "../src/project-read-model/store";
+import {
+  projectProviderEvidenceBindingKey,
+  projectReadModelPath,
+} from "../src/project-read-model/store";
 import type { MattProviderFactory } from "../src/provider-acquisition";
 import {
   createLocalMarkdownMattProvider,
@@ -1531,20 +1534,20 @@ Safe context remains available.
       ];
       for (const document of incompatibleDocuments) {
         const tampered = {
-          ...evidence.value,
-          observation: {
-            ...stored,
-            projection: {
-              ...stored.projection,
-              spec: { ...storedSpec, document },
-            },
+          ...stored,
+          projection: {
+            ...stored.projection,
+            spec: { ...storedSpec, document },
           },
         };
         database
           .prepare(
-            "UPDATE project_objects SET payload_json = ? WHERE reference = ? AND kind = 'portal-native-evidence'",
+            "UPDATE provider_evidence SET observation_json = ? WHERE binding_key = ? AND role = 'bound'",
           )
-          .run(JSON.stringify(tampered), evidence.value.id);
+          .run(
+            JSON.stringify(tampered),
+            projectProviderEvidenceBindingKey(evidence.value.selection),
+          );
         await assert.rejects(queryPortalProjectRows(root, "lineage", target));
       }
     } finally {

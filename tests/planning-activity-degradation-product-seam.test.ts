@@ -12,6 +12,7 @@ type EvidenceRow = {
   observation_id: string;
   observation_json: string;
   selection_json: string;
+  subjectReferences: readonly { reference: string; payload_json: string }[];
 };
 
 const activityArgs = (date: string): string[] => [
@@ -32,7 +33,14 @@ const firstEvidence = (database: Database): EvidenceRow => {
     )
     .get() as EvidenceRow | undefined;
   if (row === undefined) throw new Error("Expected one provider evidence row.");
-  return row;
+  return {
+    ...row,
+    subjectReferences: database
+      .query(
+        "SELECT reference, payload_json FROM project_objects WHERE kind = 'portal-native-evidence' AND json_extract(payload_json, '$.bindingKey') = ? AND json_extract(payload_json, '$.role') = 'bound' AND json_extract(payload_json, '$.subjectReference') LIKE 'native-subject:%'",
+      )
+      .all(row.binding_key) as { reference: string; payload_json: string }[],
+  };
 };
 
 const writeEvidence = (
@@ -41,12 +49,19 @@ const writeEvidence = (
   observation: unknown,
   selection: unknown,
 ): void => {
-  const parsed = observation as { id: string };
+  const parsed = observation as { id: string; state: string };
   database
     .query(
       "UPDATE provider_evidence SET observation_id = ?, observation_json = ?, selection_json = ? WHERE binding_key = ? AND role = 'bound'",
     )
     .run(parsed.id, JSON.stringify(observation), JSON.stringify(selection), row.binding_key);
+  // An invalid observation has no native-subject coverage. Keep this injected generation
+  // coherent instead of leaving references to subjects absent from its unique evidence.
+  if (parsed.state === "invalid") {
+    for (const subject of row.subjectReferences) {
+      database.query("DELETE FROM project_objects WHERE reference = ?").run(subject.reference);
+    }
+  }
 };
 
 const restoreEvidence = (database: Database, row: EvidenceRow): void => {
@@ -55,6 +70,13 @@ const restoreEvidence = (database: Database, row: EvidenceRow): void => {
       "UPDATE provider_evidence SET observation_id = ?, observation_json = ?, selection_json = ? WHERE binding_key = ? AND role = 'bound'",
     )
     .run(row.observation_id, row.observation_json, row.selection_json, row.binding_key);
+  for (const subject of row.subjectReferences) {
+    database
+      .query(
+        "INSERT OR REPLACE INTO project_objects(reference, kind, ordinal, payload_json) VALUES (?, 'portal-native-evidence', 0, ?)",
+      )
+      .run(subject.reference, subject.payload_json);
+  }
 };
 
 const previousUtcDate = (date: string): string =>

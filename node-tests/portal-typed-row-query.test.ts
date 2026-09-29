@@ -47,7 +47,7 @@ test("Portal reads bounded typed rows from one committed Project Read Model gene
         ...materialized.objects,
         { reference: asset.id, kind: "asset", ordinal: 0, payload: JSON.stringify(asset) },
       ],
-      providerEvidence: overviewCandidate.providerEvidence,
+      providerEvidence: [...materialized.providerEvidence, ...overviewCandidate.providerEvidence],
     };
     await publishProjectReadModel(fixture.root, candidate, {
       now: () => "2026-08-08T08:00:00.000Z",

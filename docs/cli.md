@@ -142,6 +142,14 @@ Cache rebuild creates only the disposable SQLite Project Read Model. Provider ve
 explicit cost-bearing operation over current Work Bindings. Inspect returns typed committed rows.
 These commands do not discover standalone work or expand Bearing Scope.
 
+Subject rows reference the unique provider evidence for their Binding and role; Inspect and Portal
+resolve those references through typed queries with the same validation and coverage boundaries.
+An older incompatible projection requires an explicit cache rebuild. That rebuild performs no
+provider acquisition and reports missing evidence; restore only the required exact scopes with a
+separate `provider capture --scope <scope>`. A compatible rebuild retains reusable evidence. Neither
+operation rewrites canonical planning or native sources, and a newer store still requires a Kit
+update rather than a downgrade or migration.
+
 Capture, verification, reconciliation and local Ensure Current derive a candidate from one captured
 canonical basis. Healthy local cache rebuild also uses its committed starting basis. Publication compares the committed metadata and bound evidence used by that
 operation in one SQLite transaction. A concurrent change returns
