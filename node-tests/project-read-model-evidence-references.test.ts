@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { PROJECT_READ_MODEL_PROJECTION_VERSION } from "../src/project-read-model/contract";
-import { inspectProject } from "../src/project-read-model/inspect";
+import {
+  inspectProject,
+  prepareProjectReadModelCandidate,
+} from "../src/project-read-model/inspect";
 import { queryPortalProjectRows } from "../src/project-read-model/portal";
 import {
   captureProjectProviderScopes,
@@ -13,7 +16,9 @@ import {
 import {
   inspectProjectReadModel,
   projectReadModelPath,
+  publishProjectReadModel,
   readProjectProviderEvidence,
+  readProjectReadModelOperationBasis,
   replaceProjectProviderEvidence,
 } from "../src/project-read-model/store";
 import { defaultMattProviderFactory } from "../src/provider-acquisition";
@@ -237,6 +242,77 @@ test("detail-only evidence stays separate from bound coverage and Gate readiness
     assert.ok(after.state === "ready");
     assert.deepEqual(after.metadata.receipt, before.metadata.receipt);
     assert.equal((await readProjectProviderEvidence(root, "bound"))[0]?.observation, undefined);
+    await captureProjectProviderScopes(root, [".scratch/work"]);
+    const bound = (await readProjectProviderEvidence(root, "bound"))[0];
+    assert.ok(bound);
+    await replaceProjectProviderEvidence(root, {
+      ...bound,
+      selection: { ...bound.selection, effectiveFreshness: "stale" },
+    });
+    await rebuildProjectReadModel(root);
+    const captured = await inspectProjectReadModel(root);
+    assert.ok(captured.state === "ready");
+    const ticketRows = await queryPortalProjectRows(root, "lineage", {
+      kind: "native-subject",
+      id: ".scratch/work/issues/01-finish.md",
+    });
+    assert.ok(
+      ticketRows.objects.some(
+        (row) =>
+          row.kind === "portal-native-evidence" &&
+          row.value.role === "detail" &&
+          row.value.subjectReference === "native-subject:.scratch/work/issues/01-finish.md",
+      ),
+    );
+    const starting = await readProjectReadModelOperationBasis(root);
+    assert.ok(starting.state === "available");
+    const summaryPath = `${root}/.bearing/state/project-summary.md`;
+    await writeFile(summaryPath, `${await readFile(summaryPath, "utf8")}\nChanged summary.\n`);
+    const prepared = await prepareProjectReadModelCandidate(root, {
+      startingBasis: starting.basis,
+    });
+    await rm(`${root}/.scratch/work/issues/01-finish.md`);
+    const mapPath = `${root}/.scratch/work/map.md`;
+    await writeFile(mapPath, (await readFile(mapPath, "utf8")).replace(/^- \[Finish\].*\n/mu, ""));
+    const changed = await refreshProjectProviderDetail(root, {
+      binding: { provider: "matt-skills/v1", nativeScope: ".scratch/work" },
+      subject: ".scratch/work/map.md",
+    });
+    assert.equal(changed.outcome, "complete");
+    const changedState = await inspectProjectReadModel(root);
+    assert.ok(changedState.state === "ready");
+    assert.deepEqual(changedState.metadata.receipt, captured.metadata.receipt);
+    const changedObservation = (await readProjectProviderEvidence(root, "detail"))[0]?.observation;
+    assert.ok(changedObservation?.state === "available");
+    assert.equal(changedObservation.projection.wayfinderTickets.length, 0);
+    const publication = await publishProjectReadModel(root, prepared.candidate, {
+      operation: { startingBasis: starting.basis, attempts: [], publishGeneration: true },
+    });
+    assert.equal(publication.state, "published");
+    assert.equal((await inspectProjectReadModel(root)).state, "ready");
+    assert.deepEqual(
+      (await readProjectProviderEvidence(root, "detail"))[0]?.observation,
+      changedObservation,
+    );
+    const retained = await queryPortalProjectRows(root, "lineage", {
+      kind: "native-subject",
+      id: ".scratch/work/issues/01-finish.md",
+    });
+    const ticketEvidence = retained.objects.filter(
+      (row) =>
+        row.kind === "portal-native-evidence" &&
+        row.value.subjectReference === "native-subject:.scratch/work/issues/01-finish.md",
+    );
+    assert.ok(
+      ticketEvidence.some(
+        (row) => row.kind === "portal-native-evidence" && row.value.role === "bound",
+      ),
+    );
+    assert.ok(
+      ticketEvidence.every(
+        (row) => row.kind === "portal-native-evidence" && row.value.role !== "detail",
+      ),
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

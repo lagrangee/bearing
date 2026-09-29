@@ -9,6 +9,7 @@ import { buildProjectFindDocuments, projectFindScopeState } from "../portal-ui/p
 import type { ProjectGeneration } from "../project-generation/contract";
 import {
   attentionItemSchema,
+  effortSchema,
   projectGenerationSchema,
   structuralDiagnosticSchema,
 } from "../project-generation/schema";
@@ -875,6 +876,7 @@ const insertCandidate = (
       row["observation_json"] ?? null,
       z.string().parse(row["selection_json"]),
     );
+    synchronizeDetailEvidenceReferences(database, parseProviderEvidenceRow(row));
   }
   database
     .prepare(
@@ -1250,6 +1252,52 @@ const replaceProviderEvidence = (
       observation === undefined ? null : json(observation),
       json(evidence.selection),
     );
+  if (evidence.role === "detail") synchronizeDetailEvidenceReferences(database, evidence);
+};
+
+// Detail evidence can change its subject coverage without changing the bound generation.
+// Its lightweight references must follow that same transaction, including a retained winner.
+const synchronizeDetailEvidenceReferences = (
+  database: DatabaseSync,
+  evidence: ProjectProviderEvidence,
+): void => {
+  const subjectReferences = new Set<string>([
+    `native-scope:${mattNativeScopeSubject({ binding: evidence.selection }).id}`,
+  ]);
+  for (const row of database
+    .prepare("SELECT payload_json FROM project_objects WHERE kind = 'effort'")
+    .all()) {
+    const effort = effortSchema.parse(parseJson(row["payload_json"]));
+    if (
+      effort.workBinding !== undefined &&
+      projectProviderEvidenceBindingKey(effort.workBinding) === evidence.bindingKey
+    ) {
+      subjectReferences.add(effort.id);
+    }
+  }
+  if (evidence.observation !== undefined) {
+    const sources = database
+      .prepare("SELECT payload_json FROM project_sources")
+      .all()
+      .map((row) => sourceRecordSchema.parse(parseJson(row["payload_json"])));
+    for (const record of mattNativeRecords([evidence.observation], sources)) {
+      subjectReferences.add(
+        `${record.recordKind === "native-scope" ? "native-scope" : "native-subject"}:${record.id}`,
+      );
+    }
+  }
+  database
+    .prepare(
+      "DELETE FROM project_objects WHERE kind = 'portal-native-evidence' AND json_extract(payload_json, '$.role') = 'detail' AND json_extract(payload_json, '$.bindingKey') = ?",
+    )
+    .run(evidence.bindingKey);
+  const insert = database.prepare(
+    "INSERT INTO project_objects(reference, kind, ordinal, payload_json) VALUES (?, 'portal-native-evidence', 0, ?)",
+  );
+  for (const subjectReference of subjectReferences) {
+    const id = `portal-native-evidence:detail:${subjectReference}`;
+    insert.run(id, json({ id, subjectReference, role: "detail", bindingKey: evidence.bindingKey }));
+  }
 };
 
 export const replaceProjectProviderEvidence = async (
