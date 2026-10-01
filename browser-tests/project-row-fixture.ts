@@ -17,6 +17,7 @@ import {
 import { hasCompleteMattNativeEvidence } from "../src/providers/matt-skills-v1/native-read-model";
 import { mattNativeScopeKey } from "../src/providers/matt-skills-v1/native-subject";
 import { mattProviderSemanticSections } from "../src/providers/matt-skills-v1/projection";
+import { projectReadModelCandidateObjects } from "../tests/fixtures/project-read-model-objects";
 
 const sectionKinds: Readonly<Record<PortalProjectSection, ReadonlySet<string>>> = {
   overview: new Set([
@@ -142,14 +143,12 @@ export const projectRowEnvelope = (input: {
     `portal-native-evidence:detail:${reference}`,
     `portal-reference-title:${reference.replace(/^native-(?:scope|subject):/u, "")}`,
   ]);
-  const objects = candidate.objects
-    .filter(
-      (row) =>
-        kinds.has(row.kind) ||
-        (input.section === "lineage" &&
-          (references.has(row.reference) || evidenceReferences.includes(row.reference))),
-    )
-    .map((row) => ({ kind: row.kind, value: JSON.parse(row.payload) }));
+  const objects = projectReadModelCandidateObjects(candidate).filter(
+    (row) =>
+      kinds.has(row.kind) ||
+      (input.section === "lineage" &&
+        (references.has(row.value.id) || evidenceReferences.includes(row.value.id))),
+  );
   const attention =
     input.section === "overview" ? candidate.attention.map((row) => JSON.parse(row.payload)) : [];
   const sourceReferences = new Set<string>();

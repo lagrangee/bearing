@@ -313,7 +313,12 @@ export const selectProviderObservations = async (
     let observation: MattSkillsV1ProviderObservation | undefined;
     let attemptDiagnostics: readonly StructuralDiagnostic[] = [];
     let acquisitionCount = 0;
-    if (targetedReconciliationBasis(priorSelection, priorObservation).state !== "ready") {
+    const bindingConflict = bindingConflicts.find((conflict) =>
+      sameMattNativeBindingDefinition(conflict.binding, matchedBinding),
+    );
+    if (bindingConflict !== undefined) {
+      attemptDiagnostics = [bindingConflict.diagnostic];
+    } else if (targetedReconciliationBasis(priorSelection, priorObservation).state !== "ready") {
       attemptDiagnostics = [
         unavailableDiagnostic(
           "provider-targeted-reconciliation-basis-unavailable",
@@ -384,6 +389,7 @@ export const selectProviderObservations = async (
         observationId: successfulObservation?.id ?? existingObservation?.id ?? null,
         effectiveFreshness:
           successfulObservation?.freshness.assessment ??
+          existing?.effectiveFreshness ??
           existingObservation?.freshness.assessment ??
           ("undetermined" as const),
         latestAttempt: {

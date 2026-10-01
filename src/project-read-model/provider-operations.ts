@@ -9,9 +9,17 @@ import {
 } from "../native-reconciliation-contract";
 import { resolveRepositoryRoot } from "../path-boundary";
 import { captureProjectCompilationInputs } from "../project-compilation";
-import { boundProviderScopes, type MattProviderFactory } from "../provider-acquisition";
+import {
+  boundProviderScopes,
+  type MattProviderFactory,
+  providerBindingConflicts,
+} from "../provider-acquisition";
 import { createProviderDetailEvidenceState } from "../provider-detail-selection";
-import type { ProviderEvidenceState } from "../provider-evidence-selection";
+import { targetedReconciliationBasis } from "../provider-evidence-contract";
+import {
+  type ProviderEvidenceState,
+  selectProviderObservations,
+} from "../provider-evidence-selection";
 import { decodeGitHubMattNativeScope } from "../providers/matt-skills-v1/github-native-scope";
 import {
   canonicalizeLocalNativeReference,
@@ -551,15 +559,59 @@ export const reconcileProjectNative = async (
       diagnostics: [local.diagnostic],
     };
   }
-  const prepared = await prepareProjectReadModelCandidate(root, {
-    startingBasis: local.basis,
-    providerDetailEvidenceState: null,
-    nativeReconciliationRequest: request,
-    ...(dependencies.providerFactory === undefined
-      ? {}
-      : { providerFactory: dependencies.providerFactory }),
-    ...(dependencies.now === undefined ? {} : { providerObservationNow: dependencies.now }),
-  });
+  const capturedInputs = await captureProjectCompilationInputs(root);
+  const binding = boundProviderScopes(capturedInputs.decoded).find((current) =>
+    sameMattNativeBindingDefinition(current, request.binding),
+  );
+  if (binding === undefined) {
+    return rejectedNativeReconciliation(request, {
+      code: "provider-targeted-reconciliation-binding-unavailable",
+      impact: "blocking",
+      target: request.binding.nativeScope,
+      message:
+        "Targeted reconciliation requires the requested current Work Binding; inspect current Binding before an explicit next operation.",
+    });
+  }
+  const prior = local.basis.evidence.find(
+    (entry) => entry.role === "bound" && sameMattNativeBindingDefinition(entry.selection, binding),
+  );
+  const rejectBeforePreparation =
+    local.basis.metadata !== null &&
+    prior !== undefined &&
+    (targetedReconciliationBasis(prior?.selection, prior?.observation).state !== "ready" ||
+      providerBindingConflicts(capturedInputs.decoded).some((conflict) =>
+        sameMattNativeBindingDefinition(conflict.binding, binding),
+      ));
+  const rejectedSelection = rejectBeforePreparation
+    ? await selectProviderObservations({
+        generation: capturedInputs.generation,
+        decoded: capturedInputs.decoded,
+        intent: "targeted-reconciliation",
+        nativeReconciliationRequest: request,
+        priorStore: boundStore(local.basis.evidence),
+        ...(dependencies.now === undefined ? {} : { now: dependencies.now }),
+      })
+    : undefined;
+  const prepared =
+    rejectedSelection === undefined
+      ? await prepareProjectReadModelCandidate(root, {
+          capturedInputs,
+          startingBasis: local.basis,
+          providerDetailEvidenceState: null,
+          nativeReconciliationRequest: request,
+          ...(dependencies.providerFactory === undefined
+            ? {}
+            : { providerFactory: dependencies.providerFactory }),
+          ...(dependencies.now === undefined ? {} : { providerObservationNow: dependencies.now }),
+        })
+      : {
+          candidate: null,
+          plan: {
+            providerObservationSelections: rejectedSelection.selections,
+            providerObservations: rejectedSelection.observations,
+            providerObservationOperation: rejectedSelection.operation,
+          },
+        };
   const matchingSelection = prepared.plan.providerObservationSelections.find((selection) =>
     sameMattNativeBindingDefinition(selection, request.binding),
   );

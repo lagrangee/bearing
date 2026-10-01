@@ -11,29 +11,29 @@ test("Project Find opens from the production-consistent topbar trigger", async (
 
   const dialog = page.getByRole("dialog", { name: "Find in project" });
   await expect(dialog).toBeVisible();
-  await expect(
-    dialog.getByRole("searchbox", { name: "Search identity, title, or semantic phrase" }),
-  ).toBeFocused();
+  await expect(dialog.getByRole("searchbox", { name: "Search titles" })).toBeFocused();
 });
 
-test("fixed identities, titles, and semantic phrases recall only managed demo subjects", async ({
-  page,
-}) => {
+test("titles recall only managed demo subjects without ID or body search", async ({ page }) => {
   await page.goto("./#/overview");
   await page.getByRole("button", { name: "Find in project" }).click();
   const dialog = page.getByRole("dialog", { name: "Find in project" });
   const searchbox = dialog.getByRole("searchbox", {
-    name: "Search identity, title, or semantic phrase",
+    name: "Search titles",
   });
 
   for (const [query, type, title] of [
     ["pUbLiC bEtA rEaDiNeSs", "Roadmap", "Public Beta Readiness"],
-    ["gate:release-candidate-ready", "Gate", "Release candidate ready"],
+    ["Release candidate ready", "Gate", "Release candidate ready"],
     ["clean-install release bundle", "Managed native work", "Verify clean-install release bundle"],
-    ["release evidence scope", "Asset", "Public Beta Readiness Review"],
-    ["dependable Public Beta operations", "Authority", "Reliability & Operations"],
-    ["owner acceptance", "Planning Review", "Review the Public Beta release decision"],
-    ["current review and accepted history", "Audit", "Planning Audit"],
+    ["Public Beta Readiness Review", "Asset", "Public Beta Readiness Review"],
+    ["Reliability & Operations", "Authority", "Reliability & Operations"],
+    [
+      "Review the Public Beta release decision",
+      "Planning Review",
+      "Review the Public Beta release decision",
+    ],
+    ["Planning Audit", "Audit", "Planning Audit"],
   ] as const) {
     await searchbox.fill(query);
     const result = dialog
@@ -45,15 +45,20 @@ test("fixed identities, titles, and semantic phrases recall only managed demo su
     await expect(result).toContainText(type);
   }
 
-  for (const excluded of ["Standalone Release Triage", ".scratch/standalone"]) {
+  for (const excluded of [
+    "Standalone Release Triage",
+    ".scratch/standalone",
+    "gate:release-candidate-ready",
+    "owner acceptance",
+  ]) {
     await searchbox.fill(excluded);
     await expect(dialog.getByRole("option")).toHaveCount(0);
   }
   await expect(
-    dialog.getByText("No matches in Bearing-managed scope.", { exact: false }),
+    dialog.getByText("No matching titles in Bearing-managed scope.", { exact: false }),
   ).toBeVisible();
 
-  await searchbox.fill("effort:release-packaging");
+  await searchbox.fill("Release Packaging");
   await dialog.getByRole("option", { name: /Release Packaging/iu }).click();
   await expect(page).toHaveURL(/#\/efforts\/release-packaging$/u);
   await expect(page.getByRole("heading", { name: "Release Packaging", level: 1 })).toBeFocused();
@@ -68,7 +73,7 @@ test("keyboard, Escape, focus return, reload, back, and forward preserve the Fin
   await trigger.press("Enter");
   const dialog = page.getByRole("dialog", { name: "Find in project" });
   const searchbox = dialog.getByRole("searchbox", {
-    name: "Search identity, title, or semantic phrase",
+    name: "Search titles",
   });
   await searchbox.fill("release");
   const firstActiveId = await searchbox.getAttribute("aria-activedescendant");
@@ -90,7 +95,7 @@ test("keyboard, Escape, focus return, reload, back, and forward preserve the Fin
   await trigger.press("Enter");
   await expect(searchbox).toHaveValue("release");
 
-  await searchbox.fill("effort:release-packaging");
+  await searchbox.fill("Release Packaging");
   await searchbox.press("Enter");
   await expect(page).toHaveURL(/#\/efforts\/release-packaging$/u);
   const heading = page.getByRole("heading", { name: "Release Packaging", level: 1 });
@@ -101,7 +106,7 @@ test("keyboard, Escape, focus return, reload, back, and forward preserve the Fin
   await page.goBack();
   await expect(dialog).toBeVisible();
   await expect(searchbox).toBeFocused();
-  await expect(searchbox).toHaveValue("effort:release-packaging");
+  await expect(searchbox).toHaveValue("Release Packaging");
   await page.goForward();
   await expect(dialog).toBeHidden();
   await expect(heading).toBeFocused();
@@ -125,7 +130,7 @@ test("a delayed opening frame does not steal focus after keyboard navigation", a
   await trigger.press("Enter");
   const dialog = page.getByRole("dialog", { name: "Find in project" });
   const searchbox = dialog.getByRole("searchbox", {
-    name: "Search identity, title, or semantic phrase",
+    name: "Search titles",
   });
   await searchbox.fill("release");
   await searchbox.press("ArrowDown");
@@ -154,9 +159,7 @@ test("Find is responsive, accessible, static, and free of persistence or console
     await page.goto("./#/overview");
     await page.getByRole("button", { name: "Find in project" }).click();
     const dialog = page.getByRole("dialog", { name: "Find in project" });
-    await dialog
-      .getByRole("searchbox", { name: "Search identity, title, or semantic phrase" })
-      .fill("release");
+    await dialog.getByRole("searchbox", { name: "Search titles" }).fill("release");
     await expect(dialog.getByRole("option")).not.toHaveCount(0);
     const bounds = await dialog.boundingBox();
     expect(bounds).not.toBeNull();

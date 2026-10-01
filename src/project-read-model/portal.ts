@@ -29,6 +29,7 @@ import {
 import {
   type ProjectReadModelMetadata,
   projectProviderEvidenceBindingKey,
+  readProjectReadModelObjects,
   withProjectReadModel,
 } from "./store";
 
@@ -266,19 +267,15 @@ const queryRows = (
     objectReferences.length === 0
       ? ""
       : ` OR reference IN (${objectReferences.map(() => "?").join(", ")})`;
-  const objects = boundedRows(
+  const objects = readProjectReadModelObjects(
     database,
-    `SELECT reference, kind, payload_json FROM project_objects WHERE kind IN (${kindPlaceholders})${referencePredicate} ORDER BY kind, ordinal, reference`,
-    "object",
-    [...kinds, ...objectReferences],
-  ).map((row) => {
-    const parsed = projectReadModelObjectSchema.parse({
-      kind: row["kind"],
-      value: parseJson(row["payload_json"]),
-    });
-    assertProjectReadModelObjectIdentity(String(row["reference"]), parsed);
-    return parsed;
-  });
+    boundedRows(
+      database,
+      `SELECT reference, kind, payload_json FROM project_objects WHERE kind IN (${kindPlaceholders})${referencePredicate} ORDER BY kind, ordinal, reference`,
+      "object",
+      [...kinds, ...objectReferences],
+    ),
+  );
   assertProjectReadModelObjectRelationships(objects, {
     requiredProjections: requiredProjections[section],
     completeProjections: completeProjections[section],
@@ -477,7 +474,6 @@ export type PortalFindMatch = Readonly<{
   subject: Readonly<{ kind: string; id: string }>;
   subjectType: string;
   title: string;
-  excerpt: string;
   parentPath: readonly string[];
   href: string;
   score: number;

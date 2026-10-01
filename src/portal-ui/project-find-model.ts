@@ -1,37 +1,15 @@
 import Fuse from "fuse.js";
-import { markdownSemanticPlainText } from "../markdown-document";
 import type { PlanningLineageSubject } from "../planning-lineage-route";
 import { planningLineageSubjectHref } from "../planning-lineage-route";
-import type {
-  AssetProjection,
-  Authority,
-  Effort,
-  MilestoneGate,
-  PlanningReview,
-  ProjectGeneration,
-  Roadmap,
-} from "../project-generation/contract";
+import type { Effort, ProjectGeneration } from "../project-generation/contract";
 import { assessSelectedProviderObservationEvidence } from "../provider-evidence-contract";
-import type { ProviderSemanticSection } from "../provider-semantic-section";
-import type {
-  MattDeliveryTicket,
-  MattIncomingIssue,
-  MattMap,
-  MattSpec,
-  MattWayfinderTicket,
-} from "../providers/matt-skills-v1/model";
 import {
   type MattNativeRecord,
   mattNativeRecords,
 } from "../providers/matt-skills-v1/native-read-model";
-import {
-  mattNativeScopeKey,
-  mattNativeScopeSubject,
-} from "../providers/matt-skills-v1/native-subject";
-import { buildPlanningLineageSubjectModel } from "./planning-lineage-model";
+import { mattNativeScopeKey } from "../providers/matt-skills-v1/native-subject";
 
 const FIND_RESULT_LIMIT = 20;
-const MAX_INDEXED_FIELD_LENGTH = 16_384;
 const CJK_SEGMENTER =
   typeof Intl.Segmenter === "function"
     ? new Intl.Segmenter(undefined, { granularity: "word" })
@@ -40,34 +18,9 @@ const NON_CJK_TOKEN_PATTERN = /[\p{L}\p{N}_:-]+/gu;
 const CJK_TOKEN_PATTERN =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
-export type FindFieldKey =
-  | "identity"
-  | "title"
-  | "intent"
-  | "criteria"
-  | "passage"
-  | "decision"
-  | "nativeBody"
-  | "summary";
-
-export type FindField = Readonly<{
-  key: FindFieldKey;
-  label: string;
-  text: string;
-  anchor?: string | undefined;
-  anchorAvailable?: boolean | undefined;
-}>;
-
-type FuseFindDocument = Readonly<{
-  identity: string;
-  title: string;
-  intent: string;
-  criteria: string;
-  passage: string;
-  decision: string;
-  nativeBody: string;
-  summary: string;
-}>;
+export type ProjectFindSubject =
+  | PlanningLineageSubject
+  | Readonly<{ kind: "audit"; id: "planning-audit:current" }>;
 
 export type FindDocument = Readonly<{
   id: string;
@@ -75,23 +28,13 @@ export type FindDocument = Readonly<{
   subjectType: string;
   title: string;
   parentPath: readonly string[];
-  fields: readonly FindField[];
-  fallbackExcerpt: string;
 }>;
 
-export type ProjectFindSubject =
-  | PlanningLineageSubject
-  | Readonly<{ kind: "audit"; id: "planning-audit:current" }>;
-
-export type ProjectFindResult = Readonly<{
-  subject: ProjectFindSubject;
-  subjectType: string;
-  title: string;
-  parentPath: readonly string[];
-  excerpt: string;
-  href: string;
-  score: number;
-}>;
+export type ProjectFindResult = Omit<FindDocument, "id"> &
+  Readonly<{
+    href: string;
+    score: number;
+  }>;
 
 export type ProjectFindScopeState =
   | Readonly<{ state: "available" }>
@@ -109,42 +52,8 @@ export type ProjectFindIndex = Readonly<{
   search: (query: string) => readonly ProjectFindResult[];
 }>;
 
-const subjectTypeLabel = (snapshot: ProjectGeneration, subject: ProjectFindSubject): string => {
-  switch (subject.kind) {
-    case "audit":
-      return "Audit";
-    case "roadmap":
-      return "Roadmap";
-    case "gate":
-      return "Gate";
-    case "effort":
-      return "Effort";
-    case "authority":
-      return "Authority";
-    case "planning-review":
-      return "Planning Review";
-    case "asset":
-      return "Asset";
-    case "native-scope":
-      return "Work Scope";
-    case "native-subject": {
-      const record = nativeRecordFor(snapshot, subject);
-      if (record?.recordKind !== "native-object") return "Bound Work";
-      switch (record.object.kind) {
-        case "map":
-          return "Map";
-        case "spec":
-          return "Spec";
-        case "wayfinder-ticket":
-          return "Wayfinder";
-        case "delivery-ticket":
-          return "Delivery";
-        case "incoming-issue":
-          return "Incoming";
-      }
-    }
-  }
-};
+const trustedEfforts = (snapshot: ProjectGeneration): readonly Effort[] =>
+  snapshot.efforts.validity === "invalid" ? [] : snapshot.efforts.items;
 
 const normalizeTerm = (term: string): string => term.normalize("NFKC").toLocaleLowerCase();
 
@@ -165,92 +74,6 @@ export const tokenizeProjectFindText = (text: string): readonly string[] => {
     }
   }
   return [...tokens];
-};
-
-const boundedText = (text: string): string => text.slice(0, MAX_INDEXED_FIELD_LENGTH);
-
-const itemsFor = (
-  snapshot: ProjectGeneration,
-  kind: PlanningLineageSubject["kind"],
-): readonly Readonly<{ id: string; title: string }>[] => {
-  switch (kind) {
-    case "roadmap":
-      return snapshot.roadmaps.validity === "invalid" ? [] : snapshot.roadmaps.items;
-    case "gate":
-      return snapshot.gates.validity === "invalid" ? [] : snapshot.gates.items;
-    case "effort":
-      return snapshot.efforts.validity === "invalid" ? [] : snapshot.efforts.items;
-    case "authority":
-      return snapshot.authorities.validity === "invalid" ? [] : snapshot.authorities.items;
-    case "planning-review":
-      return snapshot.reviews.validity === "invalid" ? [] : snapshot.reviews.items;
-    case "asset":
-      return snapshot.assets.validity === "invalid" ? [] : snapshot.assets.items;
-    case "native-scope":
-    case "native-subject":
-      return [];
-  }
-};
-
-const canonicalRecordFor = <T extends Readonly<{ id: string }>>(
-  snapshot: ProjectGeneration,
-  subject: PlanningLineageSubject,
-): T | undefined =>
-  itemsFor(snapshot, subject.kind).find((item) => String(item.id) === subject.id) as T | undefined;
-
-type NativeObservation = ProjectGeneration["providerObservations"][number];
-
-const nativeObservations = (snapshot: ProjectGeneration): readonly NativeObservation[] => {
-  const selected = (
-    observations: readonly NativeObservation[],
-    selections: ProjectGeneration["providerObservationSelections"],
-  ): readonly NativeObservation[] => {
-    const byId = new Map(observations.map((observation) => [observation.id, observation]));
-    return selections.flatMap((selection) => {
-      if (selection.observationId === null) return [];
-      const observation = byId.get(selection.observationId);
-      return observation === undefined ? [] : [observation];
-    });
-  };
-  const byScope = new Map<string, NativeObservation>();
-  for (const observation of selected(
-    snapshot.providerObservations,
-    snapshot.providerObservationSelections,
-  )) {
-    byScope.set(mattNativeScopeKey(observation.binding), observation);
-  }
-  for (const observation of selected(
-    snapshot.providerDetailEvidences.observations,
-    snapshot.providerDetailEvidences.selections,
-  )) {
-    const scopeKey = mattNativeScopeKey(observation.binding);
-    if (!byScope.has(scopeKey)) byScope.set(scopeKey, observation);
-  }
-  return [...byScope.values()];
-};
-
-const trustedEfforts = (snapshot: ProjectGeneration): readonly Effort[] =>
-  snapshot.efforts.validity === "invalid" ? [] : snapshot.efforts.items;
-
-const managedNativeSubjectKeys = (snapshot: ProjectGeneration): ReadonlySet<string> => {
-  const keys = new Set<string>();
-  const observations = nativeObservations(snapshot);
-  for (const effort of trustedEfforts(snapshot)) {
-    if (effort.workBindingState.state !== "bound") continue;
-    const binding = effort.workBinding;
-    if (binding === undefined) continue;
-    const scopeSubject = mattNativeScopeSubject({ binding });
-    keys.add(`${scopeSubject.kind}:${scopeSubject.id}`);
-    for (const record of mattNativeRecords(
-      observations.filter(
-        (observation) => mattNativeScopeKey(observation.binding) === mattNativeScopeKey(binding),
-      ),
-      snapshot.sources,
-    )) {
-      keys.add(`native-subject:${record.id}`);
-    }
-  }
-  return keys;
 };
 
 export const projectFindScopeState = (snapshot: ProjectGeneration): ProjectFindScopeState => {
@@ -286,7 +109,7 @@ export const projectFindScopeState = (snapshot: ProjectGeneration): ProjectFindS
     return {
       state: "unavailable",
       cause: "No current Audit is available.",
-      impact: "Other managed content remains searchable; Audit findings cannot be searched yet.",
+      impact: "Other managed content remains searchable; Audit detail is not available yet.",
       nextStep: "Close Find and open Audit for the Agent Surface resume instructions.",
     };
   }
@@ -371,455 +194,112 @@ export const projectFindScopeState = (snapshot: ProjectGeneration): ProjectFindS
   return { state: "available" };
 };
 
-const nativeRecordFor = (
-  snapshot: ProjectGeneration,
-  subject: PlanningLineageSubject,
-): MattNativeRecord | undefined =>
-  mattNativeRecords(nativeObservations(snapshot), snapshot.sources).find(
-    (record) => record.id === subject.id,
-  );
+type NativeObservation = ProjectGeneration["providerObservations"][number];
 
-const semanticAnchorState = (
-  snapshot: ProjectGeneration,
-  subject: PlanningLineageSubject,
-  anchor: string,
-): "available" | "unavailable" | "excluded" => {
-  const lineage = snapshot.lineage.subjects.find(
-    (candidate) => candidate.identity.kind === subject.kind && candidate.identity.id === subject.id,
-  );
-  const semanticSection = lineage?.semanticSections.find((section) => section.role === anchor);
-  if (
-    semanticSection?.availability === "unavailable" ||
-    semanticSection?.availability === "unsupported" ||
-    semanticSection?.availability === "confirmed-empty"
-  ) {
-    return "excluded";
+// Bound observations take precedence; a missing bound observation does not hide
+// readable detail evidence or promote it into bound completion evidence.
+const nativeObservations = (snapshot: ProjectGeneration): readonly NativeObservation[] => {
+  const byScope = new Map<string, NativeObservation>();
+  for (const [observations, selections] of [
+    [snapshot.providerObservations, snapshot.providerObservationSelections],
+    [snapshot.providerDetailEvidences.observations, snapshot.providerDetailEvidences.selections],
+  ] as const) {
+    const byId = new Map(observations.map((observation) => [observation.id, observation]));
+    for (const selection of selections) {
+      const key = mattNativeScopeKey(selection);
+      const observation =
+        selection.observationId === null ? undefined : byId.get(selection.observationId);
+      if (observation !== undefined && !byScope.has(key)) {
+        byScope.set(key, observation);
+      }
+    }
   }
-  return semanticSection?.availability === "available" ? "available" : "unavailable";
+  return [...byScope.values()];
 };
 
-const contentField = (
-  snapshot: ProjectGeneration,
-  subject: PlanningLineageSubject,
-  input: Omit<FindField, "anchorAvailable"> & Readonly<{ anchor: string }>,
-): FindField | undefined => {
-  const text = boundedText(input.text.trim());
-  if (text.length === 0) return undefined;
-  const anchorState = semanticAnchorState(snapshot, subject, input.anchor);
-  if (anchorState === "excluded") return undefined;
-  return { ...input, text, anchorAvailable: anchorState === "available" };
-};
-
-const join = (values: readonly string[]): string =>
-  values.filter((value) => value.length > 0).join(" · ");
-
-const canonicalFields = (
-  snapshot: ProjectGeneration,
-  subject: PlanningLineageSubject,
-): readonly FindField[] => {
-  const record = canonicalRecordFor<
-    Roadmap | MilestoneGate | Effort | Authority | PlanningReview | AssetProjection
-  >(snapshot, subject);
-  if (record === undefined) return [];
-  const fields: (FindField | undefined)[] = [];
-  switch (subject.kind) {
-    case "roadmap": {
-      const roadmap = record as Roadmap;
-      fields.push(
-        contentField(snapshot, subject, {
-          key: "intent",
-          label: "Intent",
-          text: roadmap.intent,
-          anchor: "roadmap.intent",
-        }),
-        contentField(snapshot, subject, {
-          key: "summary",
-          label: "Gate order",
-          text: join(roadmap.gateOrder),
-          anchor: "roadmap.gates",
-        }),
-        contentField(snapshot, subject, {
-          key: "summary",
-          label: "Lifecycle and horizon",
-          text: join([roadmap.lifecycle, roadmap.horizon]),
-          anchor: "roadmap.focus",
-        }),
-      );
-      break;
-    }
-    case "gate": {
-      const gate = record as MilestoneGate;
-      fields.push(
-        contentField(snapshot, subject, {
-          key: "intent",
-          label: "Intent",
-          text: gate.intent,
-          anchor: "gate.intent",
-        }),
-        contentField(snapshot, subject, {
-          key: "criteria",
-          label: "Exit criteria",
-          text: gate.exitCriteria.join(" · "),
-          anchor: "gate.exit-criteria",
-        }),
-        contentField(snapshot, subject, {
-          key: "summary",
-          label: "Lifecycle and readiness",
-          text: join([gate.lifecycle, gate.horizonState, gate.readiness]),
-          anchor: "gate.readiness",
-        }),
-        gate.passage === undefined
-          ? undefined
-          : contentField(snapshot, subject, {
-              key: "passage",
-              label: "Accepted decision",
-              text: join([gate.passage.acceptedDecision, gate.passage.rationale]),
-              anchor: "gate.passage",
-            }),
-      );
-      break;
-    }
-    case "effort": {
-      const effort = record as Effort;
-      fields.push(
-        contentField(snapshot, subject, {
-          key: "intent",
-          label: "Intent",
-          text: markdownSemanticPlainText(effort.intent),
-          anchor: "effort.intent",
-        }),
-        contentField(snapshot, subject, {
-          key: "summary",
-          label: "Lifecycle",
-          text: join([effort.lifecycle, effort.conclusion?.disposition ?? ""]),
-          anchor: "effort.lifecycle",
-        }),
-      );
-      break;
-    }
-    case "authority": {
-      const authority = record as Authority;
-      fields.push(
-        contentField(snapshot, subject, {
-          key: "summary",
-          label: "Scope",
-          text: authority.scope,
-          anchor: "authority.scope",
-        }),
-      );
-      break;
-    }
-    case "planning-review": {
-      const decision = record as PlanningReview;
-      fields.push(
-        contentField(snapshot, subject, {
-          key: "summary",
-          label: "Question",
-          text: decision.question,
-          anchor: "planning-review.question",
-        }),
-        contentField(snapshot, subject, {
-          key: "summary",
-          label: "Scope",
-          text: decision.scope.kind === "project" ? "Whole project" : decision.scope.target,
-          anchor: "planning-review.scope",
-        }),
-        contentField(snapshot, subject, {
-          key: "decision",
-          label: "Accepted decision",
-          text: decision.resolution?.acceptedDecision ?? "",
-          anchor: "planning-review.resolution",
-        }),
-        contentField(snapshot, subject, {
-          key: "summary",
-          label: "Rationale",
-          text: decision.resolution?.rationale ?? "",
-          anchor: "planning-review.rationale",
-        }),
-      );
-      break;
-    }
-    case "asset": {
-      const asset = record as AssetProjection;
-      fields.push(
-        contentField(snapshot, subject, {
-          key: "summary",
-          label: "Asset summary",
-          text: join([asset.kind, asset.purpose, asset.owner, asset.sourceLocator]),
-          anchor: "asset.identity",
-        }),
-      );
-      break;
-    }
-    case "native-scope":
-    case "native-subject":
-      break;
-  }
-  return fields.filter((candidate): candidate is FindField => candidate !== undefined);
-};
-
-const nativeContentFields = (
-  snapshot: ProjectGeneration,
-  subject: PlanningLineageSubject,
-  object: MattMap | MattSpec | MattWayfinderTicket | MattDeliveryTicket | MattIncomingIssue,
-): readonly FindField[] => {
-  const documentFields = (
-    document: readonly ProviderSemanticSection[],
-    key: FindFieldKey,
-  ): readonly (FindField | undefined)[] =>
-    document.map((section) =>
-      section.availability === "available"
-        ? contentField(snapshot, subject, {
-            key,
-            label: section.title,
-            text: markdownSemanticPlainText(section.markdown),
-            anchor: section.semanticRole ?? section.sourceIdentity,
-          })
-        : undefined,
-    );
-  const fields: (FindField | undefined)[] = [];
-  switch (object.kind) {
+const nativeType = (record: MattNativeRecord): string => {
+  if (record.recordKind === "native-scope") return "Work Scope";
+  switch (record.object.kind) {
     case "map":
-      fields.push(
-        ...documentFields(object.destination, "intent"),
-        contentField(snapshot, subject, {
-          key: "decision",
-          label: "Decisions",
-          text: object.decisions.map((decision) => decision.gist).join(" · "),
-          anchor: "map.decisions",
-        }),
-      );
-      break;
+      return "Map";
     case "spec":
-      fields.push(...documentFields(object.document, "nativeBody"));
-      break;
+      return "Spec";
     case "wayfinder-ticket":
-      fields.push(...documentFields(object.question, "intent"));
-      if (object.answer.availability === "available") {
-        fields.push(...documentFields(object.answer.content.document, "nativeBody"));
-      } else {
-        fields.push(...documentFields(object.answer.document ?? [], "nativeBody"));
-      }
-      for (const comment of object.comments) {
-        fields.push(...documentFields(comment.document, "nativeBody"));
-      }
-      fields.push(...documentFields(object.commentsDocument ?? [], "nativeBody"));
-      break;
+      return "Wayfinder";
     case "delivery-ticket":
-      fields.push(
-        contentField(snapshot, subject, {
-          key: "nativeBody",
-          label: "What to build",
-          text: object.whatToBuild,
-          anchor: "delivery.what-to-build",
-        }),
-        contentField(snapshot, subject, {
-          key: "criteria",
-          label: "Acceptance criteria",
-          text: object.acceptanceCriteria.join(" · "),
-          anchor: "delivery.acceptance-criteria",
-        }),
-      );
-      for (const comment of object.comments) {
-        fields.push(...documentFields(comment.document, "nativeBody"));
-      }
-      fields.push(...documentFields(object.commentsDocument ?? [], "nativeBody"));
-      break;
+      return "Delivery";
     case "incoming-issue":
-      for (const content of object.content) {
-        fields.push(...documentFields(content.document, "nativeBody"));
-      }
-      fields.push(...documentFields(object.commentsDocument ?? [], "nativeBody"));
-      break;
+      return "Incoming";
   }
-  return fields.filter((candidate): candidate is FindField => candidate !== undefined);
 };
-
-const findFieldsFor = (
-  snapshot: ProjectGeneration,
-  subject: ProjectFindSubject,
-  title: string,
-): readonly FindField[] => {
-  const fields: FindField[] = [
-    { key: "identity", label: "Identity", text: subject.id },
-    { key: "title", label: "Title", text: boundedText(title) },
-  ];
-  if (subject.kind === "audit") {
-    if (snapshot.audit.validity === "available" || snapshot.audit.validity === "partial") {
-      fields.push({
-        key: "summary",
-        label: "Audit findings",
-        text: boundedText(
-          join([
-            `${snapshot.audit.value.coverage} coverage`,
-            `${snapshot.audit.value.semanticFreshness} freshness`,
-            ...snapshot.audit.value.findings.flatMap((finding) => [
-              finding.title,
-              finding.summary,
-              finding.consequence,
-            ]),
-          ]),
-        ),
-        anchor: "audit.findings",
-        anchorAvailable: false,
-      });
-    } else {
-      fields.push({
-        key: "summary",
-        label: "Audit availability",
-        text:
-          snapshot.audit.validity === "absent"
-            ? "No current Audit is available."
-            : "Audit content is unavailable.",
-      });
-    }
-    return fields;
-  }
-  if (subject.kind === "native-scope" || subject.kind === "native-subject") {
-    const nativeRecord = nativeRecordFor(snapshot, subject);
-    if (nativeRecord?.recordKind === "native-object") {
-      fields.push(...nativeContentFields(snapshot, subject, nativeRecord.object));
-    }
-  } else {
-    fields.push(...canonicalFields(snapshot, subject));
-  }
-  return fields;
-};
-
-const fieldValues = (fields: readonly FindField[], key: FindFieldKey): string =>
-  fields
-    .filter((candidate) => candidate.key === key)
-    .map((candidate) => candidate.text)
-    .join(" · ");
-
-const toFuseDocument = (document: FindDocument): FuseFindDocument => ({
-  identity: fieldValues(document.fields, "identity"),
-  title: fieldValues(document.fields, "title"),
-  intent: fieldValues(document.fields, "intent"),
-  criteria: fieldValues(document.fields, "criteria"),
-  passage: fieldValues(document.fields, "passage"),
-  decision: fieldValues(document.fields, "decision"),
-  nativeBody: fieldValues(document.fields, "nativeBody"),
-  summary: fieldValues(document.fields, "summary"),
-});
-
-const excerptFor = (text: string, query: string): string => {
-  const normalizedText = normalizeTerm(text);
-  const queryTokens = tokenizeProjectFindText(query)
-    .map(normalizeTerm)
-    .sort((left, right) => right.length - left.length);
-  const match = queryTokens
-    .map((token) => ({ token, index: normalizedText.indexOf(token) }))
-    .find((candidate) => candidate.index >= 0);
-  if (match === undefined) return `${text.slice(0, 156)}${text.length > 156 ? "…" : ""}`;
-  const start = Math.max(0, match.index - 56);
-  const end = Math.min(text.length, match.index + match.token.length + 96);
-  return `${start > 0 ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}`;
-};
-
-const matchedFieldFor = (
-  document: FindDocument,
-  matches: readonly Readonly<{ key?: string | undefined }>[],
-  query: string,
-): FindField => {
-  const matchedKeys = new Set(
-    matches.flatMap((match) => (match.key === undefined ? [] : [match.key])),
-  );
-  const queryTokens = tokenizeProjectFindText(query).map(normalizeTerm);
-  const queryText = normalizeTerm(query);
-  const score = (candidate: FindField): number => {
-    const text = normalizeTerm(candidate.text);
-    const exactPhrase = text.includes(queryText) ? 10_000 + queryText.length : 0;
-    const tokenCoverage = queryTokens.reduce(
-      (total, token) => total + (text.includes(token) ? token.length * 10 : 0),
-      0,
-    );
-    const indexedMatch = matchedKeys.has(candidate.key) ? 1 : 0;
-    return exactPhrase + tokenCoverage + indexedMatch;
-  };
-  return (
-    [...document.fields]
-      .filter((candidate) => matchedKeys.has(candidate.key))
-      .sort((left, right) => score(right) - score(left))[0] ??
-    document.fields.find((candidate) => candidate.key === "title") ?? {
-      key: "title",
-      label: "Title",
-      text: document.title,
-    }
-  );
-};
-
-const safeDisplayTitle = (
-  subject: ProjectFindSubject,
-  subjectType: string,
-  title: string,
-): string =>
-  (subject.kind === "native-scope" || subject.kind === "native-subject") && title === subject.id
-    ? subjectType
-    : title;
-
-const subjectHref = (entryId: string, subject: ProjectFindSubject, anchor?: string): string =>
-  subject.kind === "audit"
-    ? `/projects/${encodeURIComponent(entryId)}/audit`
-    : planningLineageSubjectHref(entryId, subject, anchor);
 
 export const buildProjectFindDocuments = (
   snapshot: ProjectGeneration,
-  entryId: string,
+  _entryId: string,
 ): readonly FindDocument[] => {
-  const managedNativeSubjects = managedNativeSubjectKeys(snapshot);
-  const candidates = new Map(
-    snapshot.lineage.subjects.map((lineageSubject) => [
-      `${lineageSubject.identity.kind}:${lineageSubject.identity.id}`,
-      lineageSubject.identity,
-    ]),
+  const records = new Map<string, Readonly<{ title: string; subjectType: string }>>();
+  for (const [kind, subjectType, collection] of [
+    ["roadmap", "Roadmap", snapshot.roadmaps],
+    ["gate", "Gate", snapshot.gates],
+    ["effort", "Effort", snapshot.efforts],
+    ["authority", "Authority", snapshot.authorities],
+    ["planning-review", "Planning Review", snapshot.reviews],
+    ["asset", "Asset", snapshot.assets],
+  ] as const) {
+    if (collection.validity === "invalid") continue;
+    for (const record of collection.items) {
+      records.set(`${kind}:${record.id}`, { title: record.title, subjectType });
+    }
+  }
+  const managedScopes = new Set(
+    trustedEfforts(snapshot).flatMap((effort) =>
+      effort.workBindingState.state === "bound" && effort.workBinding !== undefined
+        ? [mattNativeScopeKey(effort.workBinding)]
+        : [],
+    ),
   );
   for (const record of mattNativeRecords(nativeObservations(snapshot), snapshot.sources)) {
-    const subject: PlanningLineageSubject = {
-      kind: record.recordKind === "native-scope" ? "native-scope" : "native-subject",
-      id: record.id,
-    };
-    candidates.set(`${subject.kind}:${subject.id}`, subject);
+    if (!managedScopes.has(mattNativeScopeKey(record.observation.binding))) continue;
+    const kind = record.recordKind === "native-scope" ? "native-scope" : "native-subject";
+    const subjectType = nativeType(record);
+    const title = record.title === record.id ? subjectType : record.title;
+    records.set(`${kind}:${record.id}`, { title, subjectType });
   }
-  const lineageDocuments = [...candidates.values()].flatMap((subject) => {
-    if (
-      (subject.kind === "native-scope" || subject.kind === "native-subject") &&
-      !managedNativeSubjects.has(`${subject.kind}:${subject.id}`)
-    ) {
-      return [];
-    }
-    const model = buildPlanningLineageSubjectModel(snapshot, subject, entryId);
-    if (model.state !== "available" && model.state !== "partial") return [];
-    const subjectType = subjectTypeLabel(snapshot, subject);
-    const title = safeDisplayTitle(subject, subjectType, model.subject.title);
-    const fields = [...findFieldsFor(snapshot, subject, title)];
-    const parentPath = model.parentPath.map((crumb) => crumb.label);
+  const projectTitle =
+    snapshot.summary.validity === "available" || snapshot.summary.validity === "partial"
+      ? snapshot.summary.value.title
+      : "Project";
+  const documents = snapshot.lineage.subjects.flatMap((lineage): FindDocument[] => {
+    const subject = lineage.identity;
+    const id = `${subject.kind}:${subject.id}`;
+    const record = records.get(id);
+    // Both a typed lineage identity and trustworthy detail record are required.
+    // Partial/stale context remains readable; it is disclosed by scopeState.
+    if (record === undefined) return [];
     return [
       {
-        id: `${subject.kind}:${subject.id}`,
+        id,
         subject,
-        subjectType,
-        title,
-        parentPath,
-        fields,
-        fallbackExcerpt:
-          parentPath.length === 0
-            ? `${subjectType}: ${title}.`
-            : `${subjectType} under ${parentPath.at(-1)}.`,
+        ...record,
+        title: subject.kind === "native-scope" ? "Contributing Work" : record.title,
+        parentPath: [
+          projectTitle,
+          ...(subject.kind === "asset" ? ["Assets"] : []),
+          ...lineage.parentPath.ancestors.map(
+            (ancestor) => records.get(`${ancestor.kind}:${ancestor.id}`)?.title ?? ancestor.id,
+          ),
+        ],
       },
     ];
   });
-  const auditSubject = { kind: "audit", id: "planning-audit:current" } as const;
   return [
-    ...lineageDocuments,
+    ...documents,
     {
-      id: `${auditSubject.kind}:${auditSubject.id}`,
-      subject: auditSubject,
+      id: "audit:planning-audit:current",
+      subject: { kind: "audit", id: "planning-audit:current" },
       subjectType: "Audit",
       title: "Planning Audit",
       parentPath: [],
-      fields: findFieldsFor(snapshot, auditSubject, "Planning Audit"),
-      fallbackExcerpt: "Planning Audit for this project.",
     },
   ];
 };
@@ -830,98 +310,51 @@ export const buildProjectFindIndexFromDocuments = (
   fingerprint: string,
   scopeState: ProjectFindScopeState,
 ): ProjectFindIndex => {
-  const fuseDocuments = documents.map(toFuseDocument);
-  const byIndex = new Map(documents.map((document, index) => [index, document]));
-  const fuse = new Fuse(fuseDocuments, {
-    keys: [
-      { name: "identity", weight: 6 },
-      { name: "title", weight: 5 },
-      { name: "intent", weight: 3 },
-      { name: "criteria", weight: 3 },
-      { name: "passage", weight: 3 },
-      { name: "decision", weight: 2 },
-      { name: "nativeBody", weight: 1 },
-      { name: "summary", weight: 1 },
-    ],
-    includeMatches: true,
-    includeScore: true,
-    ignoreLocation: true,
-    threshold: 0.36,
-    minMatchCharLength: 1,
-  });
+  const fuse = new Fuse(
+    documents.map((document) => ({
+      title: normalizeTerm(document.title),
+    })),
+    {
+      keys: ["title"],
+      includeScore: true,
+      ignoreLocation: true,
+      threshold: 0.36,
+      minMatchCharLength: 1,
+    },
+  );
   return {
     fingerprint,
     documentCount: documents.length,
     scopeState,
     search: (query) => {
-      const trimmed = query.trim();
-      const tokens = tokenizeProjectFindText(trimmed);
+      const tokens = tokenizeProjectFindText(query.trim());
       if (tokens.length === 0) return [];
-      const candidates = new Map<
-        number,
-        {
-          score: number;
-          termCount: number;
-          matches: ReadonlyArray<Readonly<{ key?: string | undefined }>>;
-        }
-      >();
+      const candidates = new Map<number, { score: number; termCount: number }>();
       for (const token of tokens) {
         for (const result of fuse.search(token)) {
           const current = candidates.get(result.refIndex);
-          if (current === undefined) {
-            candidates.set(result.refIndex, {
-              score: result.score ?? 1,
-              termCount: 1,
-              matches: result.matches ?? [],
-            });
-          } else {
-            candidates.set(result.refIndex, {
-              score: current.score + (result.score ?? 1),
-              termCount: current.termCount + 1,
-              matches: [...current.matches, ...(result.matches ?? [])],
-            });
-          }
+          candidates.set(result.refIndex, {
+            score: (current?.score ?? 0) + (result.score ?? 1),
+            termCount: (current?.termCount ?? 0) + 1,
+          });
         }
       }
       return [...candidates.entries()]
-        .filter(
-          ([, candidate]) => candidate.termCount === tokens.length && candidate.matches.length > 0,
-        )
-        .flatMap(([refIndex, candidate]) => {
-          const document = byIndex.get(refIndex);
+        .filter(([, candidate]) => candidate.termCount === tokens.length)
+        .flatMap(([index, candidate]): ProjectFindResult[] => {
+          const document = documents[index];
           if (document === undefined) return [];
-          const matchedField = matchedFieldFor(document, candidate.matches, trimmed);
-          const excerptField =
-            matchedField.key === "identity" || matchedField.key === "title"
-              ? (document.fields.find(
-                  (field) => field.key !== "identity" && field.key !== "title",
-                ) ?? matchedField)
-              : matchedField;
-          const semanticExcerpt = document.fields.find(
-            (field) => field.key !== "identity" && field.key !== "title",
-          );
-          const baseHref = subjectHref(entryId, document.subject);
-          const href =
-            matchedField.anchor !== undefined && matchedField.anchorAvailable === true
-              ? subjectHref(entryId, document.subject, matchedField.anchor)
-              : baseHref;
           return [
             {
               subject: document.subject,
               subjectType: document.subjectType,
               title: document.title,
               parentPath: document.parentPath,
-              excerpt: excerptFor(
-                excerptField.key === "identity" || excerptField.key === "title"
-                  ? (semanticExcerpt?.text ?? document.fallbackExcerpt)
-                  : excerptField.text,
-                trimmed,
-              ),
-              href,
-              score:
-                normalizeTerm(document.subject.id) === normalizeTerm(trimmed)
-                  ? -1
-                  : candidate.score,
+              href:
+                document.subject.kind === "audit"
+                  ? `/projects/${encodeURIComponent(entryId)}/audit`
+                  : planningLineageSubjectHref(entryId, document.subject),
+              score: candidate.score,
             },
           ];
         })

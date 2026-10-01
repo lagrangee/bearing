@@ -140,8 +140,7 @@
 }
 
 .project-find-result-type,
-.project-find-result-parent,
-.project-find-result-excerpt {
+.project-find-result-parent {
   color: var(--muted);
   font-size: var(--type-meta);
 }
@@ -156,14 +155,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.project-find-result-excerpt {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.45;
 }
 
 @media (max-width: 680px) {
@@ -183,10 +174,6 @@
   }
 
   .project-find-result-heading strong {
-    white-space: normal;
-  }
-
-  .project-find-result-excerpt {
     white-space: normal;
   }
 }

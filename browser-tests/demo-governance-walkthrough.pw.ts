@@ -200,10 +200,10 @@ test("keyboard completes the walkthrough and the linked governance reading path"
   const findDialog = page.getByRole("dialog", { name: "Find in project" });
   await expect(findDialog).toBeVisible();
   const search = findDialog.getByRole("searchbox", {
-    name: "Search identity, title, or semantic phrase",
+    name: "Search titles",
   });
   await expect(search).toBeFocused();
-  await search.pressSequentially("release evidence scope");
+  await search.pressSequentially("Public Beta Readiness Review");
   await search.press("Enter");
   const preview = page.getByRole("link", { name: "View Content", exact: true });
   await preview.focus();
@@ -275,9 +275,7 @@ test("walkthrough and inherited Find, navigation, and Preview stay static and si
   await next(page).click();
 
   await page.getByRole("button", { name: "Find in project" }).click();
-  await page
-    .getByRole("searchbox", { name: "Search identity, title, or semantic phrase" })
-    .fill("release evidence scope");
+  await page.getByRole("searchbox", { name: "Search titles" }).fill("Public Beta Readiness Review");
   await page.getByRole("option", { name: /Public Beta Readiness Review/iu }).click();
   await expect(page).toHaveURL(/#\/assets\/public-beta-readiness-review$/u);
   await page.getByRole("link", { name: "View Content", exact: true }).click();

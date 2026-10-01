@@ -9,6 +9,7 @@ import {
 } from "../src/project-read-model/contract";
 import { compileProjectReadModel } from "../src/project-read-model/store";
 import { createProjectOverviewFixture } from "./fixtures/project-overview";
+import { projectReadModelCandidateObjects } from "./fixtures/project-read-model-objects";
 
 test("Portal public read transport has no whole-Snapshot route or browser schema", async () => {
   const [routes, browserContract, wire, pageData, assetPreview] = await Promise.all([
@@ -85,14 +86,12 @@ test("composite Portal rows bind their nested identity to the row key", () => {
     "portal-find-document",
     "portal-projection-state",
   ] as const;
+  const objects = projectReadModelCandidateObjects(candidate);
 
   for (const kind of kinds) {
-    const row = candidate.objects.find((item) => item.kind === kind);
-    if (row === undefined) throw new Error(`Fixture has no ${kind} row.`);
-    const object = projectReadModelObjectSchema.parse({
-      kind: row.kind,
-      value: JSON.parse(row.payload),
-    });
+    const object = objects.find((item) => item.kind === kind);
+    if (object === undefined) throw new Error(`Fixture has no ${kind} row.`);
+    const row = { reference: object.value.id };
     expect(() => assertProjectReadModelObjectIdentity(row.reference, object)).not.toThrow();
     if (object.kind === "portal-native-evidence") {
       const tampered = projectReadModelObjectSchema.parse({
@@ -135,9 +134,6 @@ test("composite Portal rows bind their nested identity to the row key", () => {
     }
   }
 
-  const objects = candidate.objects.map((row) =>
-    projectReadModelObjectSchema.parse({ kind: row.kind, value: JSON.parse(row.payload) }),
-  );
   expect(() => assertProjectReadModelObjectRelationships(objects)).not.toThrow();
   expect(() =>
     assertProjectReadModelObjectRelationships(

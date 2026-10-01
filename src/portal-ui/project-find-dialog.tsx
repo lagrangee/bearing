@@ -7,14 +7,13 @@ type ProjectFindResult = Readonly<{
   subjectType: string;
   title: string;
   parentPath: readonly string[];
-  excerpt: string;
   href: string;
 }>;
 
 const resultId = (index: number): string => `project-find-result-${index}`;
 
 const resultSummary = (result: ProjectFindResult): string =>
-  `${result.subjectType}: ${result.title}. ${result.excerpt}`;
+  `${result.subjectType}: ${result.title}. ${result.parentPath.join(" / ")}`;
 
 function ResultItem({
   active,
@@ -54,7 +53,6 @@ function ResultItem({
           <strong>{result.title}</strong>
         </span>
         <span className="project-find-result-parent">{result.parentPath.join(" / ")}</span>
-        <span className="project-find-result-excerpt">{result.excerpt}</span>
         <span className="sr-only">{resultSummary(result)}</span>
       </a>
     </div>
@@ -175,7 +173,7 @@ export function ProjectFindDialog({
           </button>
         </div>
         <label className="project-find-input-label" htmlFor="project-find-input">
-          Search identity, title, or semantic phrase
+          Search titles
         </label>
         <input
           ref={inputRef}
@@ -183,7 +181,7 @@ export function ProjectFindDialog({
           className="project-find-input"
           type="search"
           value={query}
-          placeholder="Try a Gate ID, title, or phrase"
+          placeholder="Enter a title"
           autoComplete="off"
           aria-controls="project-find-results"
           aria-activedescendant={
@@ -199,7 +197,7 @@ export function ProjectFindDialog({
           {indexError !== undefined
             ? indexError
             : query.trim().length === 0
-              ? "Search is limited to Bearing-managed project content."
+              ? "Search titles in Bearing-managed scope."
               : scopeState.state === "available"
                 ? `${results.length} result${results.length === 1 ? "" : "s"}`
                 : `${results.length} result${results.length === 1 ? "" : "s"}. ${scopeState.impact}`}
@@ -213,7 +211,7 @@ export function ProjectFindDialog({
         )}
         {query.trim().length === 0 || indexError !== undefined ? null : results.length === 0 ? (
           <p className="project-find-empty">
-            No matches in Bearing-managed scope. Try another title, phrase, or internal ID.
+            No matching titles in Bearing-managed scope. Try another title.
           </p>
         ) : (
           <div
