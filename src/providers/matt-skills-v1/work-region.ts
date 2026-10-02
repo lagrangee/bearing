@@ -223,6 +223,9 @@ const semanticEvidenceComplete = (object: MattProjectedObject): boolean =>
 const trackerClosureState = (ticket: MattWayfinderTicket | MattDeliveryTicket): "open" | "closed" =>
   ticket.trackerClosure.state;
 
+const isClosedWontfixDelivery = (ticket: MattDeliveryTicket): boolean =>
+  ticket.trackerClosure.state === "closed" && ticket.trackerClosure.disposition === "wontfix";
+
 const isTerminal = (object: MattProjectedObject): boolean => {
   switch (object.kind) {
     case "map":
@@ -275,7 +278,9 @@ const anomaliesFor = (object: MattProjectedObject): readonly MattNativeWorkRegio
     ];
   }
   if (object.kind === "delivery-ticket") {
-    return object.lifecycle.state !== "completed" && object.trackerClosure.state === "closed"
+    return object.lifecycle.state !== "completed" &&
+      object.trackerClosure.state === "closed" &&
+      !isClosedWontfixDelivery(object)
       ? [
           {
             code: "matt.work-region.closure-without-completion",
@@ -340,7 +345,7 @@ const frontierForDelivery = (
   terminalReferences: ReadonlySet<string>,
   trustworthy: boolean,
 ): MattNativeWorkRegionFrontier => {
-  if (ticket.lifecycle.state === "completed") return "resolved";
+  if (ticket.lifecycle.state === "completed" || isClosedWontfixDelivery(ticket)) return "resolved";
   if (blockers.some((blocker) => !terminalReferences.has(blocker))) return "blocked";
   return ticket.lifecycle.state === "open" && trustworthy && semanticEvidenceComplete(ticket)
     ? "ready"
@@ -393,6 +398,9 @@ const itemFor = (
         frontier: frontierForDelivery(object, blockers, terminalReferences, trustworthy),
         blockers,
         trackerClosure: trackerClosureState(object),
+        ...(object.trackerClosure.state === "closed"
+          ? { nativeDisposition: object.trackerClosure.disposition }
+          : {}),
         ...(object.lifecycle.state === "completed"
           ? { completionEvidence: object.lifecycle.evidence }
           : {}),
