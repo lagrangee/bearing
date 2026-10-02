@@ -1165,20 +1165,15 @@ export const verifyAdaptiveTurnObservation = async (input: {
   pointer: string;
   expectedCodexCliVersion: string;
   github: boolean;
-}) =>
-  input.github
-    ? (
-        await verifyGitHubJourneyObservation({
-          workspaceRoot: input.workspaceRoot,
-          pointer: input.pointer,
-          expectedCodexCliVersion: input.expectedCodexCliVersion,
-        })
-      ).base
-    : verifyLiveJourneyObservation({
-        workspaceRoot: input.workspaceRoot,
-        pointer: input.pointer,
-        expectedCodexCliVersion: input.expectedCodexCliVersion,
-      });
+}) => {
+  const observation = await verifyLiveJourneyObservation(input);
+  // Mechanical failures retain only synthetic evidence, even for a GitHub Scenario.
+  // Finalization restricts these verified rejection records to a blocked verdict.
+  if (!input.github || observation.evidenceRejection?.reason === "mechanical-failure") {
+    return observation;
+  }
+  return (await verifyGitHubJourneyObservation(input)).base;
+};
 
 export const finalizeAdaptiveScenario = async (input: {
   generationPath: string;
