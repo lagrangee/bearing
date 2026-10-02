@@ -16,16 +16,16 @@ test("public READMEs give Humans one Agent-mediated installation entry and a ter
   expect(english).toContain("https://github.com/lagrangee/bearing");
   expect(english).toContain("[Agent installation guide](docs/agent-installation.md)");
   expect(english).toMatch(/Ask your Agent[\s\S]*Install Bearing/iu);
-  expect(english).toMatch(/Terminal fallback[\s\S]*npx @lagrangee\/bearing/iu);
-  expect(english).toContain("@<resolved-version> install");
+  expect(english).toMatch(/terminal fallback[\s\S]*npx --yes @lagrangee\/bearing/iu);
+  expect(english).toContain("npx --yes @lagrangee/bearing@<resolved-version> install");
   expect(english).not.toMatch(/maintenance wizard/iu);
   expect(english).not.toMatch(/Install[／/,、 ]+Update[／/,、 ]+Repair/iu);
 
   expect(chinese).toContain("https://github.com/lagrangee/bearing");
-  expect(chinese).toContain("[Agent 安装指南](docs/agent-installation.md)");
-  expect(chinese).toMatch(/让你的 Agent[\s\S]*安装 Bearing/u);
-  expect(chinese).toMatch(/Terminal fallback[\s\S]*npx @lagrangee\/bearing/iu);
-  expect(chinese).toContain("@<resolved-version> install");
+  expect(chinese).toContain("[安装指南](docs/agent-installation.md)");
+  expect(chinese).toMatch(/让 agent[\s\S]*安装 Bearing/iu);
+  expect(chinese).toMatch(/手动安装[\s\S]*npx --yes @lagrangee\/bearing/iu);
+  expect(chinese).toContain("npx --yes @lagrangee/bearing@<resolved-version> install");
   expect(chinese).not.toMatch(/maintenance wizard/iu);
   expect(chinese).not.toMatch(/Install[／/,、 ]+Update[／/,、 ]+Repair/iu);
 });
