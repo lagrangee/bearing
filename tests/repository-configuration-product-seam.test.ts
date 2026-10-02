@@ -12,6 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import packageMetadata from "../package.json";
 import { BEARING_DEVELOPMENT_POINTER, BEARING_POINTER } from "../src/agent-surface-entry";
 import { renderExecutionProfile } from "../src/executor-registration";
 import {
@@ -333,7 +334,7 @@ test("packed Repository Configuration seals one exact Fresh write set and applie
     const manifest = JSON.parse(await readFile(join(root, ".bearing/manifest.json"), "utf8"));
     expect(manifest).toEqual({
       schemaVersion: 2,
-      packageVersion: "0.1.2-dev",
+      packageVersion: packageMetadata.version,
       status: "active",
       runtime: "stable",
       surfaces: ["agent-skills"],
@@ -749,7 +750,7 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
 
     const stableTarget = {
       schemaVersion: 2,
-      packageVersion: "0.1.2-dev",
+      packageVersion: packageMetadata.version,
       status: "active",
       runtime: "stable",
       surfaces: ["agent-skills"],
@@ -910,7 +911,7 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
           target: {
             manifest: {
               schemaVersion: 2,
-              packageVersion: "0.1.2-dev",
+              packageVersion: packageMetadata.version,
               status: "active",
               runtime: "development",
               surfaces: ["agent-skills"],
@@ -949,7 +950,7 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
       join(developmentProduct.root, ".bearing/manifest.json"),
       `${JSON.stringify({
         schemaVersion: 1,
-        packageVersion: "0.1.2-dev",
+        packageVersion: packageMetadata.version,
         status: "active",
         runtime: "development",
         surfaces: ["agent-skills"],
@@ -968,8 +969,8 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
         state: "repository-update-required",
         removalRequired: false,
         update: {
-          source: { schemaVersion: 1, packageVersion: "0.1.2-dev" },
-          target: { manifest: { schemaVersion: 2, packageVersion: "0.1.2-dev" } },
+          source: { schemaVersion: 1, packageVersion: packageMetadata.version },
+          target: { manifest: { schemaVersion: 2, packageVersion: packageMetadata.version } },
         },
       },
     });
@@ -978,7 +979,7 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
       join(developmentProduct.root, ".bearing/manifest.json"),
       `${JSON.stringify({
         schemaVersion: 2,
-        packageVersion: "0.1.2-dev",
+        packageVersion: packageMetadata.version,
         status: "active",
         runtime: "development",
         surfaces: ["agent-skills"],
@@ -1057,7 +1058,7 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
         removalRequired: false,
         update: {
           source: { packageVersion: "0.1.1" },
-          target: { manifest: { packageVersion: "0.1.2-dev", runtime: "stable" } },
+          target: { manifest: { packageVersion: packageMetadata.version, runtime: "stable" } },
         },
       },
     });
@@ -1095,7 +1096,7 @@ test("Repository target requires explicit Runtime and preserves Stable and Devel
         removalRequired: false,
         update: {
           source: { packageVersion: "0.1.0" },
-          target: { manifest: { packageVersion: "0.1.2-dev", runtime: "stable" } },
+          target: { manifest: { packageVersion: packageMetadata.version, runtime: "stable" } },
         },
       },
     });
@@ -1179,7 +1180,7 @@ test("active Repository Update follows the installed target contract and retries
       join(root, ".bearing/manifest.json"),
       `${JSON.stringify({
         schemaVersion: 2,
-        packageVersion: "0.1.2-dev",
+        packageVersion: packageMetadata.version,
         status: "active",
         runtime: "stable",
         surfaces: ["agent-skills"],
@@ -1244,7 +1245,7 @@ test("active Repository Update follows the installed target contract and retries
             ],
             manifest: {
               schemaVersion: 2,
-              packageVersion: "0.1.2-dev",
+              packageVersion: packageMetadata.version,
               status: "active",
               runtime: "stable",
               surfaces: ["agent-skills"],
@@ -1350,7 +1351,7 @@ test("deactivated Repository Update preserves lifecycle and leaves the active re
           target: {
             manifest: {
               schemaVersion: 2,
-              packageVersion: "0.1.2-dev",
+              packageVersion: packageMetadata.version,
               status: "deactivated",
               runtime: "stable",
               surfaces: ["agent-skills"],
@@ -1616,7 +1617,7 @@ test("a blocked post-target rebuild preserves the target and reports one resumpt
   await makeFreshRepository(root);
   const targetManifest = {
     schemaVersion: 2,
-    packageVersion: "0.1.2-dev",
+    packageVersion: packageMetadata.version,
     status: "active",
     runtime: "stable",
     surfaces: ["agent-skills"],
