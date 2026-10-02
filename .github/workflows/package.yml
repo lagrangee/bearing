@@ -111,6 +111,8 @@ jobs:
         run: bun run gitleaks:revision
       - name: Audit production dependencies
         run: npm audit --audit-level=high
+      - name: Select canonical Darwin toolchain
+        run: sudo xcode-select --switch /Library/Developer/CommandLineTools
       - name: Run aggregate source verification
         run: bun run verify
       - name: Validate dependency licenses
