@@ -932,7 +932,12 @@ test("package workflow binds one uploaded candidate to its exact source commit",
     (step) => step.name === "Install Live Matrix evidence scanner",
   );
   const aggregateIndex = steps.findIndex((step) => step.run === "bun run verify");
+  const toolchainIndex = steps.findIndex(
+    (step) => step.run === "sudo xcode-select --switch /Library/Developer/CommandLineTools",
+  );
   expect(scannerInstallIndex).toBeGreaterThan(setupGoIndex);
+  expect(toolchainIndex).toBeGreaterThanOrEqual(0);
+  expect(aggregateIndex).toBeGreaterThan(toolchainIndex);
   expect(aggregateIndex).toBeGreaterThan(scannerInstallIndex);
   expect(steps[scannerInstallIndex]?.env).toEqual({
     GOBIN: ["$", "{{ runner.temp }}"].join(""),
