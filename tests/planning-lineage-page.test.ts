@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createElement, createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createProviderScopeObservation } from "../src/native-work-provider";
+import {
+  createProviderScopeObservation,
+  providerObservationIdentityFor,
+} from "../src/native-work-provider";
 import type {
   RequestedPlanningLineageFilteredView,
   RequestedPlanningLineageSubject,
@@ -23,6 +26,7 @@ import { authoritySchema, effortSchema } from "../src/project-generation/schema"
 import { assetProjectionSchema } from "../src/project-generation/schema-asset";
 import { createSourceRecord } from "../src/project-generation/source-records";
 import { mattProviderSemanticSections } from "../src/providers/matt-skills-v1/projection";
+import { mattSkillsV1ProviderObservationSchema } from "../src/providers/matt-skills-v1/schema";
 import type { SourceEventTime } from "../src/source-event-time";
 import {
   createAttentionWithoutActiveWorkFixture,
@@ -1218,6 +1222,70 @@ test("omits confirmed-empty role shells while preserving resolved Work", () => {
   expect(html).not.toContain("<h4>Spec / PRD</h4>");
   expect(html).not.toContain("<h4>Delivery</h4>");
   expect(html).not.toContain("<h4>Incoming</h4>");
+});
+
+test("renders rejected Delivery only in Resolved on Effort and native-scope pages", () => {
+  const snapshot = createProjectOverviewFixture();
+  const portal = snapshot.providerObservations.find(
+    (observation) => observation.binding.nativeScope === ".scratch/portal",
+  );
+  if (portal?.state !== "available") throw new Error("Expected an available observation.");
+  const { id: portalId, ...portalContent } = portal;
+  const rejectedContent = {
+    ...portalContent,
+    projection: {
+      ...portal.projection,
+      deliveryTickets: portal.projection.deliveryTickets.map((ticket) => ({
+        ...ticket,
+        title: "Rejected Delivery",
+        lifecycle: { state: "completion-unavailable", reason: "source-contract-gap" },
+        trackerClosure: {
+          state: "closed",
+          disposition: "wontfix",
+          closedAt: { availability: "unsupported" },
+        },
+      })),
+    },
+  };
+  const rejectedObservation = mattSkillsV1ProviderObservationSchema.parse({
+    ...rejectedContent,
+    id: providerObservationIdentityFor(rejectedContent),
+  });
+  const rejected = withLineage({
+    ...snapshot,
+    providerObservations: snapshot.providerObservations.map((observation) =>
+      observation.id === portalId ? rejectedObservation : observation,
+    ),
+    providerObservationSelections: snapshot.providerObservationSelections.map((selection) =>
+      selection.observationId === portalId
+        ? { ...selection, observationId: rejectedObservation.id }
+        : selection,
+    ),
+  });
+  for (const value of [
+    { kind: "effort", id: "effort:portal" },
+    { kind: "native-scope", id: ".scratch/portal" },
+  ] as const) {
+    const html = render({ validity: "valid", value }, { snapshot: rejected });
+    const currentStart = html.indexOf('<section id="native-work-current"');
+    expect(currentStart).toBeGreaterThan(-1);
+    const current = html.slice(currentStart, html.indexOf("</section>", currentStart));
+    expect(current).not.toContain("Rejected Delivery");
+    expect(html).not.toContain("The tracker is closed without provider-proven Delivery completion");
+    if (value.kind === "effort") {
+      expect(current).toContain(
+        'href="/projects/bearing/lineage/native-scope/.scratch%2Fportal#native-work-resolved">1</a>',
+      );
+    } else {
+      const resolvedStart = html.indexOf('<section id="native-work-resolved"');
+      expect(resolvedStart).toBeGreaterThan(-1);
+      const resolved = html.slice(resolvedStart, html.indexOf("</section>", resolvedStart));
+      expect(resolved).toContain("Rejected Delivery");
+      expect(resolved).toContain("<dd>wontfix</dd>");
+      expect(resolved).toContain("completion-unavailable");
+      expect(resolved).not.toContain('class="matt-work-evidence"');
+    }
+  }
 });
 
 test("keeps Roadmap and Gate Effort relations in their single semantic owners", () => {

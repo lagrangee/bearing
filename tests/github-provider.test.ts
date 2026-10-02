@@ -820,6 +820,18 @@ Commit abc123 passed.
       lifecycle: { state: "completion-unavailable", reason: "source-contract-gap" },
       trackerClosure: { state: "closed", disposition: "wontfix" },
     });
+    const region = buildMattNativeWorkRegion(result, [], {
+      state: "bound",
+      effortIds: ["effort:github-delivery"],
+    });
+    expect(region.views[0]?.items).toEqual([]);
+    expect(region.views[1]?.items).toHaveLength(1);
+    expect(region.views[1]?.items[0]).toMatchObject({
+      nativeLifecycle: "completion-unavailable",
+      nativeDisposition: "wontfix",
+    });
+    expect(region.views[1]?.items[0]).not.toHaveProperty("completionEvidence");
+    expect(region.diagnostics).toEqual([]);
   });
 
   test("admits bound canonical GitHub subjects and rejects synthesized or unbound references", async () => {

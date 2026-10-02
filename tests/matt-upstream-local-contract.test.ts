@@ -334,6 +334,22 @@ Include atomic writes and CLI parsing. Exclude generic JSON canonicalization.
         state: "closed",
         disposition: "wontfix",
       });
+      const region = buildMattNativeWorkRegion(targeted, [], {
+        state: "bound",
+        effortIds: ["effort:upstream"],
+      });
+      expect(region.views[0]?.items).toEqual([]);
+      expect(region.views[1]?.items).toMatchObject([
+        {
+          reference: ticketLocator,
+          frontier: "resolved",
+          nativeLifecycle: "completion-unavailable",
+          trackerClosure: "closed",
+          nativeDisposition: "wontfix",
+        },
+      ]);
+      expect(region.views[1]?.items[0]).not.toHaveProperty("completionEvidence");
+      expect(region.diagnostics).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -504,6 +504,106 @@ test("covers closure and decision anomalies without promoting native lifecycle",
   );
 });
 
+test.each([
+  "complete",
+  "partial",
+] as const)("resolves wontfix presentation with %s coverage without satisfying blockers", (coverage) => {
+  const { observation, selections } = fixture();
+  if (observation.state !== "available") throw new Error("Expected an available observation.");
+  const delivery = observation.projection.deliveryTickets[0];
+  const dependent = observation.projection.wayfinderTickets[1];
+  if (delivery === undefined || dependent === undefined) throw new Error("Expected tickets.");
+  const region = buildMattNativeWorkRegion(
+    {
+      ...observation,
+      ...(coverage === "partial"
+        ? {
+            state: "partial" as const,
+            coverage: {
+              assessment: "incomplete" as const,
+              dimensions: [{ key: "scope", state: "gap" as const }],
+            },
+          }
+        : {}),
+      projection: {
+        ...observation.projection,
+        deliveryTickets: [
+          {
+            ...delivery,
+            lifecycle: { state: "completion-unavailable", reason: "source-contract-gap" },
+            trackerClosure: {
+              state: "closed",
+              disposition: "wontfix",
+              closedAt: { availability: "unsupported" },
+            },
+          },
+        ],
+        graph: {
+          ...observation.projection.graph,
+          blockedBy: [{ blocked: dependent.ref, blocker: delivery.ref, evidence: "matt-contract" }],
+        },
+      },
+    },
+    selections,
+    { state: "bound", effortIds: ["effort:portal"] },
+  );
+  const mode = coverage === "complete" ? "exact" : "at-least";
+  expect(region.views[0]?.count).toEqual({ mode, value: 3 });
+  expect(region.views[1]?.count).toEqual({ mode, value: 1 });
+  expect(region.views[1]?.items[0]).toMatchObject({
+    reference: delivery.ref,
+    frontier: "resolved",
+    nativeDisposition: "wontfix",
+    nativeLifecycle: "completion-unavailable",
+    trackerClosure: "closed",
+  });
+  expect(region.views[1]?.items[0]).not.toHaveProperty("completionEvidence");
+  expect(region.views[0]?.items.find((item) => item.reference === dependent.ref)?.frontier).toBe(
+    "blocked",
+  );
+  expect(region.views.flatMap((view) => view.items)).toHaveLength(4);
+  expect(
+    new Set(region.views.flatMap((view) => view.items.map((item) => item.reference))).size,
+  ).toBe(4);
+  expect(region.diagnostics).toEqual([]);
+});
+
+test.each([
+  "unknown",
+  "completed",
+  "not-planned",
+] as const)("keeps closed %s Delivery without completion evidence in Current Work", (disposition) => {
+  const { observation, selections } = fixture();
+  if (observation.state !== "available") throw new Error("Expected an available observation.");
+  const region = buildMattNativeWorkRegion(
+    {
+      ...observation,
+      projection: {
+        ...observation.projection,
+        deliveryTickets: observation.projection.deliveryTickets.map((ticket) => ({
+          ...ticket,
+          lifecycle: { state: "completion-unavailable", reason: "source-contract-gap" },
+          trackerClosure: {
+            state: "closed",
+            disposition,
+            closedAt: { availability: "unsupported" },
+          },
+        })),
+        graph: { ...observation.projection.graph, blockedBy: [] },
+      },
+    },
+    selections,
+    { state: "bound", effortIds: ["effort:portal"] },
+  );
+  expect(region.views[1]?.items).toEqual([]);
+  expect(region.views[0]?.items.find((item) => item.role === "delivery")?.frontier).toBe(
+    "uncertain",
+  );
+  expect(region.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+    "matt.work-region.closure-without-completion",
+  ]);
+});
+
 test("places provider subject diagnostics beside the affected native item in plain language", () => {
   const { observation, selections } = fixture();
   if (observation.state !== "available" && observation.state !== "partial") {
