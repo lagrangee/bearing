@@ -7,7 +7,7 @@ import { releaseCandidateId } from "../scripts/release-candidate-lib";
 
 const repositoryRoot = join(import.meta.dirname, "..");
 
-test("the source repository starts the accepted 0.1.2 development line coherently", async () => {
+test("the source repository keeps the accepted 0.1.2 development or final version coherent", async () => {
   const [packageMetadata, packageLock, build, runtime, portal] = await Promise.all([
     readFile(join(repositoryRoot, "package.json"), "utf8").then(JSON.parse),
     readFile(join(repositoryRoot, "package-lock.json"), "utf8").then(JSON.parse),
@@ -17,12 +17,12 @@ test("the source repository starts the accepted 0.1.2 development line coherentl
       JSON.parse,
     ),
   ]);
-  const version = "0.1.2-dev";
-  expect(packageMetadata.version).toBe(version);
+  const version = packageMetadata.version;
+  expect(["0.1.2-dev", "0.1.2"]).toContain(version);
   expect(packageLock.version).toBe(version);
   expect(packageLock.packages[""]?.version).toBe(version);
   expect(validSemver(version)).toBe(version);
-  expect(prerelease(version)).toEqual(["dev"]);
+  expect(prerelease(version)).toEqual(version === "0.1.2-dev" ? ["dev"] : null);
   expect(build.packageVersion).toBe(version);
   expect(runtime.packageVersion).toBe(version);
   expect(portal.packageVersion).toBe(version);

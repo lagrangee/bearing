@@ -305,7 +305,10 @@ const materializeDevelopmentRepositoryUpdateSource = async (input: {
 
   const manifestPath = join(input.repositoryRoot, ".bearing/manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
-  if (manifest["packageVersion"] !== "0.1.2-dev" || manifest["runtime"] !== "development") {
+  if (
+    manifest["packageVersion"] !== runtimeManifest.packageVersion ||
+    manifest["runtime"] !== "development"
+  ) {
     fail("Active configuration repair did not establish the target Development Configuration.");
   }
   await writeFile(
