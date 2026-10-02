@@ -262,8 +262,8 @@ test("the demo footer uses the existing visual system without a one-off underlin
 test("the public docs keep the browser sample separate from the supported local Portal", async () => {
   for (const path of ["README.md", "README.zh-CN.md", "SECURITY.md"]) {
     const source = await readFile(join(repoRoot, path), "utf8");
-    expect(source).toContain("browser-only");
-    expect(source).toContain("mock");
+    expect(source).toMatch(/browser-only|static browser sample|完全在浏览器中运行/u);
+    expect(source).toMatch(/mock|虚构项目/u);
     expect(source).toContain("docs/data-and-security");
   }
 });
@@ -287,9 +287,9 @@ test("the public demo and bilingual docs expose the final public intake boundari
 
   for (const source of publicDocs) {
     for (const route of intakeRoutes) expect(source).toContain(route);
-    expect(source).toMatch(/public GitHub|公开 GitHub/iu);
-    expect(source).toMatch(/best-effort/iu);
-    expect(source).toMatch(/private vulnerability reporting/iu);
+    expect(source).toMatch(/public GitHub|公开 GitHub|Issues 和 Discussions 的内容公开可见/iu);
+    expect(source).toMatch(/best-effort|社区支持尽力而为/iu);
+    expect(source).toMatch(/private vulnerability reporting|私密漏洞报告/iu);
   }
   for (const source of publicDocs.slice(0, 2)) {
     expect(source).toContain(demoRoute);
