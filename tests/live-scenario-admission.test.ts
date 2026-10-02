@@ -1208,6 +1208,50 @@ exit 0
         startAdaptiveScenario({ generationPath, scenarioId: "test-one" }),
       ).resolves.toMatchObject({ evidenceOutcome: "rejected", turn: 1 });
       await expect(
+        verifyAdaptiveTurnObservation({
+          workspaceRoot: join(result.workspaceRoot, "scenarios/test-one"),
+          pointer: "observations/turn-01.json",
+          expectedCodexCliVersion: "codex-fixture 1",
+          github: true,
+        }),
+      ).resolves.toMatchObject({
+        terminalBoundary: "turn.failed",
+        evidenceRejection: { reason: "mechanical-failure" },
+        eventCounts: { "durable-evidence-rejected": 1 },
+      });
+      const eventsPath = join(result.workspaceRoot, "scenarios/test-one/events/turn-01.jsonl");
+      const sealedEvents = await readFile(eventsPath, "utf8");
+      await writeFile(eventsPath, `${sealedEvents}\n`);
+      await expect(
+        verifyAdaptiveTurnObservation({
+          workspaceRoot: join(result.workspaceRoot, "scenarios/test-one"),
+          pointer: "observations/turn-01.json",
+          expectedCodexCliVersion: "codex-fixture 1",
+          github: true,
+        }),
+      ).rejects.toThrow("evidence digest mismatch");
+      await writeFile(eventsPath, sealedEvents);
+      const rejectedVerdictPath = join(fixture.root, "rejected-verdict.json");
+      for (const outcome of ["pass", "fail"] as const) {
+        await writeFile(
+          rejectedVerdictPath,
+          JSON.stringify({
+            outcome,
+            ...(outcome === "fail" ? { failureCategory: "test-system" } : {}),
+            rationale: "Rejected evidence cannot support a semantic result.",
+          }),
+        );
+        await expect(
+          finalizeAdaptiveScenario({
+            generationPath,
+            scenarioId: "test-one",
+            verdictPath: rejectedVerdictPath,
+          }),
+        ).rejects.toThrow(
+          outcome === "pass" ? "clean or safely resumed" : "must be finalized as blocked",
+        );
+      }
+      await expect(
         finalizeAdaptiveScenario({ generationPath, scenarioId: "test-one", verdictPath }),
       ).resolves.toMatchObject({ outcome: "blocked" });
     } finally {
